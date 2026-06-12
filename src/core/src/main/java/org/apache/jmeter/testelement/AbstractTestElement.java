@@ -332,7 +332,14 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         private static final long serialVersionUID = 1L;
 
         private final Map<String, JMeterProperty> base;
-        private final Map<String, JMeterProperty> overlay;
+        /**
+         * Per-thread properties: at clone time the cloned function/variable/nested
+         * properties, at runtime additionally merged config properties (temporary)
+         * and property-level copy-on-write entries. May contain keys absent from
+         * {@link #base} (merged config properties). Only ever mutated by the
+         * owning thread, via {@link #putOverlay}/{@link #removeOverlay}/{@link #recoverOverlay}.
+         */
+        private Map<String, JMeterProperty> overlay;
 
         SharedPropertyMap(Map<String, JMeterProperty> base, Map<String, JMeterProperty> overlay) {
             this.base = base;
@@ -347,17 +354,71 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
         @Override
         public boolean containsKey(Object key) {
-            return base.containsKey(key);
+            return overlay.containsKey(key) || base.containsKey(key);
         }
 
         @Override
         public int size() {
-            return base.size();
+            return base.size() + overlayOnlyCount();
         }
 
         @Override
         public boolean isEmpty() {
-            return base.isEmpty();
+            return base.isEmpty() && overlay.isEmpty();
+        }
+
+        boolean isOverlaid(String key) {
+            return overlay.containsKey(key);
+        }
+
+        boolean isOverlayOnly(String key) {
+            return overlay.containsKey(key) && !base.containsKey(key);
+        }
+
+        void putOverlay(String key, JMeterProperty prop) {
+            if (!(overlay instanceof LinkedHashMap)) {
+                overlay = new LinkedHashMap<>(overlay);
+            }
+            overlay.put(key, prop);
+        }
+
+        void removeOverlay(String key) {
+            overlay.remove(key);
+        }
+
+        /**
+         * Per-thread part of {@link AbstractTestElement#recoverRunningVersion()}:
+         * temporary (merged config) properties are dropped, the remaining per-thread
+         * properties are recovered. The shared base is never mutated, so it needs
+         * no recovery.
+         */
+        void recoverOverlay(AbstractTestElement owner) {
+            if (overlay.isEmpty()) {
+                return;
+            }
+            Iterator<Map.Entry<String, JMeterProperty>> iter = overlay.entrySet().iterator();
+            while (iter.hasNext()) {
+                JMeterProperty prop = iter.next().getValue();
+                if (owner.isTemporary(prop)) {
+                    iter.remove();
+                    owner.clearTemporary(prop);
+                } else {
+                    prop.recoverRunningVersion(owner);
+                }
+            }
+        }
+
+        private int overlayOnlyCount() {
+            if (overlay.isEmpty()) {
+                return 0;
+            }
+            int count = 0;
+            for (String key : overlay.keySet()) {
+                if (!base.containsKey(key)) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         @Override
@@ -366,24 +427,45 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                 @Override
                 public Iterator<Map.Entry<String, JMeterProperty>> iterator() {
                     Iterator<Map.Entry<String, JMeterProperty>> baseIterator = base.entrySet().iterator();
+                    Iterator<Map.Entry<String, JMeterProperty>> overlayIterator = overlay.entrySet().iterator();
                     return new Iterator<>() {
+                        private Map.Entry<String, JMeterProperty> nextOverlayOnly;
+
                         @Override
                         public boolean hasNext() {
-                            return baseIterator.hasNext();
+                            if (baseIterator.hasNext() || nextOverlayOnly != null) {
+                                return true;
+                            }
+                            while (overlayIterator.hasNext()) {
+                                Map.Entry<String, JMeterProperty> entry = overlayIterator.next();
+                                if (!base.containsKey(entry.getKey())) {
+                                    nextOverlayOnly = entry;
+                                    return true;
+                                }
+                            }
+                            return false;
                         }
 
                         @Override
                         public Map.Entry<String, JMeterProperty> next() {
-                            Map.Entry<String, JMeterProperty> entry = baseIterator.next();
-                            JMeterProperty overlaid = overlay.get(entry.getKey());
-                            return overlaid != null ? Map.entry(entry.getKey(), overlaid) : entry;
+                            if (baseIterator.hasNext()) {
+                                Map.Entry<String, JMeterProperty> entry = baseIterator.next();
+                                JMeterProperty overlaid = overlay.get(entry.getKey());
+                                return overlaid != null ? Map.entry(entry.getKey(), overlaid) : entry;
+                            }
+                            if (!hasNext()) {
+                                throw new java.util.NoSuchElementException();
+                            }
+                            Map.Entry<String, JMeterProperty> entry = nextOverlayOnly;
+                            nextOverlayOnly = null;
+                            return entry;
                         }
                     };
                 }
 
                 @Override
                 public int size() {
-                    return base.size();
+                    return SharedPropertyMap.this.size();
                 }
             };
         }
@@ -441,6 +523,14 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     public boolean isPropertiesShared() {
         return propertiesShared || propMap instanceof SharedPropertyMap;
+    }
+
+    /**
+     * Returns the shared property view of this element, or {@code null} if the
+     * element owns its properties.
+     */
+    private SharedPropertyMap sharedView() {
+        return propMap instanceof SharedPropertyMap sharedPropertyMap ? sharedPropertyMap : null;
     }
 
     /**
@@ -596,9 +686,24 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     @Override
     public void removeProperty(String key) {
-        if (propertiesShared && getPropertyOrNull(key) == null) {
-            // Removing an absent property is a no-op; keep sharing properties
-            return;
+        SharedPropertyMap view = sharedView();
+        if (view != null) {
+            if (getPropertyOrNull(key) == null) {
+                // Removing an absent property is a no-op; keep sharing properties
+                return;
+            }
+            if (view.isOverlayOnly(key)) {
+                // The property exists only in the per-thread overlay (e.g. a merged
+                // config property); remove it locally and keep sharing
+                try (ResourceLock ignored = writeLock()) {
+                    view.removeOverlay(key);
+                    Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
+                    if (propMapConcurrent != null) {
+                        propMapConcurrent.remove(key);
+                    }
+                }
+                return;
+            }
         }
         // Copy-on-write: ensure we have our own properties before modifying
         ensureOwnProperties();
@@ -806,9 +911,14 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         if(clone) {
             propertyToPut = property.clone();
         }
-        // Copy-on-write: ensure we have our own properties before modifying
-        // (the existing property may be shared and must not be merged into in place)
-        ensureOwnProperties();
+        SharedPropertyMap view = sharedView();
+        if (view != null && !isRunningVersion()) {
+            // Design-time structural changes take full ownership; runtime merges
+            // (config elements applied per iteration) go to the per-thread overlay
+            // below, which preserves property sharing across threads
+            ensureOwnProperties();
+            view = null;
+        }
         if (isRunningVersion()) {
             setTemporary(propertyToPut);
         } else {
@@ -818,14 +928,27 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
         if (prop instanceof NullProperty || (prop instanceof StringProperty && prop.getStringValue().isEmpty())) {
             try (ResourceLock ignored = writeLock()) {
-                propMap.put(property.getName(), propertyToPut);
-                invalidateSharedSnapshot();
+                if (view != null) {
+                    view.putOverlay(property.getName(), propertyToPut);
+                } else {
+                    propMap.put(property.getName(), propertyToPut);
+                    invalidateSharedSnapshot();
+                }
                 Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
                 if (propMapConcurrent != null) {
                     propMapConcurrent.put(property.getName(), propertyToPut);
                 }
             }
         } else {
+            if (view != null && prop instanceof MultiProperty && !view.isOverlaid(prop.getName())) {
+                // Defensive: never merge into a property instance from the shared base.
+                // (MultiProperties are rebuilt/cloned per thread at clone time, so this
+                // path is not expected to be taken; scalar mergeIn is a no-op.)
+                prop = prop.clone();
+                try (ResourceLock ignored = writeLock()) {
+                    view.putOverlay(prop.getName(), prop);
+                }
+            }
             prop.mergeIn(propertyToPut);
         }
     }
@@ -868,15 +991,25 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     @Override
     public void setProperty(JMeterProperty property) {
-        // Copy-on-write: ensure we have our own properties before modifying
-        ensureOwnProperties();
         if (isRunningVersion()) {
-            if (getProperty(property.getName()) instanceof NullProperty) {
+            JMeterProperty prop = getProperty(property.getName());
+            if (prop instanceof NullProperty) {
                 addProperty(property);
             } else {
-                getProperty(property.getName()).setObjectValue(property.getObjectValue());
+                SharedPropertyMap view = sharedView();
+                if (view != null && !view.isOverlaid(property.getName())) {
+                    // Property-level copy-on-write: never mutate a shared instance,
+                    // but keep sharing all other properties
+                    prop = prop.clone();
+                    try (ResourceLock ignored = writeLock()) {
+                        view.putOverlay(property.getName(), prop);
+                    }
+                }
+                prop.setObjectValue(property.getObjectValue());
             }
         } else {
+            // Copy-on-write: ensure we have our own properties before modifying
+            ensureOwnProperties();
             try (ResourceLock ignored = writeLock()) {
                 if (property instanceof StringProperty && property.getStringValue() == null) {
                     // Avoid storing properties with null values since they will be skipped anyway when saving
@@ -1061,6 +1194,19 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         if (this instanceof NoThreadClone) {
             // The element is shared between threads, so there's nothing to recover
             // See https://github.com/apache/jmeter/issues/5875
+            return;
+        }
+        SharedPropertyMap view = sharedView();
+        if (view != null) {
+            // Shared base properties are never mutated in place, so only the
+            // per-thread overlay needs recovery: merged config properties
+            // (temporary) are dropped, the remaining per-thread properties
+            // (cloned function/variable/nested properties and property-level
+            // copy-on-write entries) are recovered
+            try (ResourceLock ignored = writeLock()) {
+                view.recoverOverlay(this);
+                emptyTemporary();
+            }
             return;
         }
         try (ResourceLock ignored = writeLock()) {

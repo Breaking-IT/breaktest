@@ -26,6 +26,9 @@ DATETIME=$(date +%Y%m%d_%H%M%S)
 # Archive name
 ARCHIVE_NAME="jmeter_${DATETIME}.tgz"
 
+# Prevent macOS tar/bsdtar from adding AppleDouble metadata files like ._*.jar
+export COPYFILE_DISABLE=1
+
 # Create temporary directory
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf ${TEMP_DIR}" EXIT
@@ -36,17 +39,19 @@ mkdir -p "${TEMP_DIR}/apache-jmeter"
 # Copy bin directory excluding examples and testfiles
 # Using rsync for better exclusion control
 rsync -av --exclude='examples' --exclude='testfiles' \
+    --exclude='.DS_Store' --exclude='._*' \
     bin/ "${TEMP_DIR}/apache-jmeter/bin/"
 
 # Copy lib directory
-cp -R lib "${TEMP_DIR}/apache-jmeter/"
+rsync -av --exclude='.DS_Store' --exclude='._*' \
+    lib/ "${TEMP_DIR}/apache-jmeter/lib/"
 
 # Create the archive from temp directory
 # -C: change to directory before archiving
 # -c: create archive
 # -z: compress with gzip
 # -f: specify filename
-tar -czf "${ARCHIVE_NAME}" -C "${TEMP_DIR}" apache-jmeter
+tar --exclude='.DS_Store' --exclude='._*' -czf "${ARCHIVE_NAME}" -C "${TEMP_DIR}" apache-jmeter
 
 # Check if tar command succeeded
 if [ $? -eq 0 ]; then

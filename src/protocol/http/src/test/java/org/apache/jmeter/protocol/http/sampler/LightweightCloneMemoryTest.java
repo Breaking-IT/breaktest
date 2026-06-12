@@ -107,11 +107,16 @@ public class LightweightCloneMemoryTest {
         return previous;
     }
 
-    private static long retainedBytesPerClone(ListedHashTree tree, boolean lightweight) throws InterruptedException {
+    private static long retainedBytesPerClone(ListedHashTree tree, boolean lightweight, boolean mergeIteration)
+            throws InterruptedException {
         List<ListedHashTree> hold = new ArrayList<>(THREADS);
         long before = usedHeapAfterGc();
         for (int i = 0; i < THREADS; i++) {
-            hold.add(lightweight ? cloneTreeLightweight(tree) : cloneTreeDeep(tree));
+            ListedHashTree clone = lightweight ? cloneTreeLightweight(tree) : cloneTreeDeep(tree);
+            if (mergeIteration) {
+                runConfigMergeIteration(clone);
+            }
+            hold.add(clone);
         }
         long after = usedHeapAfterGc();
         long perClone = (after - before) / THREADS;
@@ -119,6 +124,31 @@ public class LightweightCloneMemoryTest {
             throw new IllegalStateException();
         }
         return perClone;
+    }
+
+    /**
+     * Simulates the first iteration of TestCompiler's configure/sample/recover
+     * cycle: merges request defaults and a header manager into every sampler,
+     * then recovers - the path that used to force a full deep copy per sampler.
+     */
+    private static void runConfigMergeIteration(ListedHashTree tree) {
+        org.apache.jmeter.config.ConfigTestElement defaults = new org.apache.jmeter.config.ConfigTestElement();
+        defaults.setProperty(new org.apache.jmeter.testelement.property.StringProperty("HTTPSampler.port", "8443"));
+        defaults.setRunningVersion(true);
+        HeaderManager headerManager = new HeaderManager();
+        headerManager.add(new Header("Accept", "application/json"));
+        headerManager.setRunningVersion(true);
+        for (Object root : tree.getArray()) {
+            for (Object child : tree.getTree(root).getArray()) {
+                if (child instanceof HTTPSamplerProxy sampler) {
+                    sampler.setRunningVersion(true);
+                    sampler.clearTestElementChildren();
+                    sampler.addTestElement(defaults);
+                    sampler.addTestElement(headerManager);
+                    sampler.recoverRunningVersion();
+                }
+            }
+        }
     }
 
     @Test
@@ -129,17 +159,23 @@ public class LightweightCloneMemoryTest {
         cloneTreeLightweight(tree);
         cloneTreeDeep(tree);
 
-        long lightweightBytes = retainedBytesPerClone(tree, true);
-        long deepBytes = retainedBytesPerClone(tree, false);
+        long lightweightBytes = retainedBytesPerClone(tree, true, false);
+        long lightweightMergedBytes = retainedBytesPerClone(tree, true, true);
+        long deepBytes = retainedBytesPerClone(tree, false, false);
 
         System.out.printf("Retained heap per thread tree (%d HTTP samplers with variables, %d threads):%n",
                 SAMPLERS, THREADS);
-        System.out.printf("  deep clone:        %,d bytes%n", deepBytes);
-        System.out.printf("  lightweight clone: %,d bytes (%.0f%% of deep)%n",
+        System.out.printf("  deep clone:                  %,d bytes%n", deepBytes);
+        System.out.printf("  lightweight clone:           %,d bytes (%.0f%% of deep)%n",
                 lightweightBytes, 100.0 * lightweightBytes / deepBytes);
+        System.out.printf("  lightweight + config merge:  %,d bytes (%.0f%% of deep)%n",
+                lightweightMergedBytes, 100.0 * lightweightMergedBytes / deepBytes);
 
         assertTrue(lightweightBytes < deepBytes * 0.7,
                 () -> String.format("expected lightweight clone (%,d bytes retained) to stay well below "
                         + "deep clone (%,d bytes retained)", lightweightBytes, deepBytes));
+        assertTrue(lightweightMergedBytes < deepBytes * 0.7,
+                () -> String.format("expected lightweight clone to keep sharing through a config-merge "
+                        + "iteration (%,d bytes retained vs %,d deep)", lightweightMergedBytes, deepBytes));
     }
 }

@@ -141,19 +141,65 @@ public class LightweightCloneTest extends JMeterTestCase {
     }
 
     @Test
-    public void setPropertyDuringRunTriggersCopyOnWrite() {
+    public void setPropertyDuringRunCopiesOnlyThatProperty() {
         ConfigTestElement element = newElement();
         ConfigTestElement clone = cloneViaTreeCloner(element);
         clone.setRunningVersion(true);
 
         clone.setProperty("static", "changed");
 
-        assertFalse(clone.isPropertiesShared(), "write should trigger copy-on-write");
+        assertTrue(clone.isPropertiesShared(),
+                "a runtime write copies the single property, not the whole map");
         assertEquals("changed", clone.getPropertyAsString("static"));
         assertEquals("staticValue", element.getPropertyAsString("static"),
                 "source element must not see the clone's modification");
-        assertNotSame(element.getProperty("otherStatic"), clone.getProperty("otherStatic"),
-                "after copy-on-write the clone owns all its properties");
+        assertNotSame(element.getProperty("static"), clone.getProperty("static"),
+                "modified property must be a per-thread copy");
+        assertSame(element.getProperty("otherStatic"), clone.getProperty("otherStatic"),
+                "untouched properties stay shared");
+
+        clone.recoverRunningVersion();
+        assertEquals("staticValue", clone.getPropertyAsString("static"),
+                "recovery must restore the modified property");
+    }
+
+    @Test
+    public void setPropertyAtDesignTimeTriggersFullCopyOnWrite() {
+        ConfigTestElement element = newElement();
+        ConfigTestElement clone = cloneViaTreeCloner(element);
+
+        clone.setProperty("static", "changed");
+
+        assertFalse(clone.isPropertiesShared(), "design-time write takes full ownership");
+        assertEquals("changed", clone.getPropertyAsString("static"));
+        assertEquals("staticValue", element.getPropertyAsString("static"));
+    }
+
+    @Test
+    public void configMergeDuringRunKeepsSharing() {
+        ConfigTestElement element = newElement();
+        ConfigTestElement clone = cloneViaTreeCloner(element);
+        clone.setRunningVersion(true);
+
+        ConfigTestElement config = new ConfigTestElement();
+        config.setProperty(new StringProperty("merged", "fromConfig"));
+        config.setRunningVersion(true);
+
+        // Two iterations of the merge/sample/recover cycle, as TestCompiler does
+        for (int iteration = 0; iteration < 2; iteration++) {
+            clone.addTestElement(config);
+
+            assertTrue(clone.isPropertiesShared(), "config merge must not break sharing");
+            assertEquals("fromConfig", clone.getPropertyAsString("merged"));
+            assertNull(element.getPropertyOrNull("merged"), "merge must not leak into the source");
+            assertSame(element.getProperty("static"), clone.getProperty("static"),
+                    "static properties stay shared through the merge");
+
+            clone.recoverRunningVersion();
+
+            assertNull(clone.getPropertyOrNull("merged"), "merged property must be rolled back");
+            assertTrue(clone.isPropertiesShared(), "sharing survives recovery");
+        }
     }
 
     @Test
