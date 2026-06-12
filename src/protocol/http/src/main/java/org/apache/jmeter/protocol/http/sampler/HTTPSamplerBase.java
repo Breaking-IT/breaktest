@@ -77,6 +77,7 @@ import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.testelement.schema.PropertyDescriptor;
 import org.apache.jmeter.threads.JMeterContext;
@@ -701,7 +702,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      */
     public ResponseProcessingMode getResponseProcessingMode() {
         String value = get(getSchema().getResponseProcessingMode());
-        return EnumUtils.valueOf(ResponseProcessingMode.class, value);
+        ResponseProcessingMode mode = EnumUtils.valueOf(ResponseProcessingMode.class, value);
+        if (mode != null) {
+            return mode;
+        }
+        try {
+            return ResponseProcessingMode.valueOf(value);
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            return ResponseProcessingMode.STORE_COMPRESSED;
+        }
     }
 
     /**
@@ -712,7 +721,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @since 6.0.0
      */
     public void setResponseProcessingMode(ResponseProcessingMode mode) {
-        set(getSchema().getResponseProcessingMode(), mode.getResourceKey());
+        setProperty(getSchema().getResponseProcessingMode().getName(), mode.getResourceKey(),
+                ResponseProcessingMode.STORE_COMPRESSED.getResourceKey());
     }
 
     /**
@@ -2154,13 +2164,18 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public void setProperty(JMeterProperty property) {
         @SuppressWarnings("deprecation")
         PropertyDescriptor<?, ?> storeAsMD5 = HTTPSamplerBaseSchema.INSTANCE.getStoreAsMD5();
+        PropertyDescriptor<?, ?> responseProcessingMode = HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode();
+        if (property.getName().equals(responseProcessingMode.getName())
+                && property instanceof StringProperty stringProperty
+                && ResponseProcessingMode.STORE_COMPRESSED.getResourceKey().equals(stringProperty.getStringValue())) {
+            removeProperty(responseProcessingMode.getName());
+            return;
+        }
         if (property.getName().equals(storeAsMD5.getName())) {
             if (property instanceof BooleanProperty booleanProperty) {
                 setResponseProcessingMode(
                         booleanProperty.getBooleanValue() ? ResponseProcessingMode.CHECKSUM_DECODED_MD5 : ResponseProcessingMode.STORE_COMPRESSED
                 );
-            } else {
-                setResponseProcessingMode(ResponseProcessingMode.STORE_COMPRESSED);
             }
             // keep usemd5 property for backward compatibility
         }

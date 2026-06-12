@@ -85,8 +85,10 @@ public class TreeCloner implements HashTreeTraverser {
             Object newNode;
             if (LIGHTWEIGHT_CLONE_ENABLED
                     && testElement instanceof LightweightClone
-                    && testElement instanceof AbstractTestElement abstractElement
-                    && !abstractElement.hasVariableProperties()) {
+                    && testElement instanceof AbstractTestElement abstractElement) {
+                // Properties that need per-thread state (functions/variables, nested
+                // TestElements) are cloned individually by lightweightClone(); all
+                // other properties are shared by reference across threads.
                 newNode = abstractElement.lightweightClone();
             } else {
                 newNode = testElement.clone();

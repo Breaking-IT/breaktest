@@ -18,6 +18,8 @@
 package org.apache.jmeter.testelement;
 
 import java.io.Serializable;
+import java.util.AbstractMap;
+import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -113,12 +115,24 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      * When the element is shared between threads, then {@link #lock} protects the access,
      * however, when element in not shared, then adds overhead as every lock and unlock allocates memory.
      * So in case of cloned-per-thread elements, we use {@link Collections#synchronizedMap(Map)} instead.
+     * <p>For lightweight clones the map is replaced with a {@link SharedPropertyMap} view over the
+     * source element's properties (see {@link #sharePropertiesFrom(AbstractTestElement)});
+     * any write goes through {@link #ensureOwnProperties()} first, which replaces the view
+     * with an owned copy.</p>
      */
     // @GuardedBy("lock")
-    private final Map<String, JMeterProperty> propMap =
+    private Map<String, JMeterProperty> propMap =
             lock != null
                     ? new LinkedHashMap<>()
                     : Collections.synchronizedMap(new LinkedHashMap<>());
+
+    /**
+     * Lazily created plain (unsynchronized) snapshot of {@link #propMap} handed out as the
+     * shared base map of lightweight clones. A plain map is used so that concurrent reads
+     * from many threads don't contend on the synchronized wrapper of {@link #propMap}.
+     * The snapshot must never be mutated.
+     */
+    private transient volatile Map<String, JMeterProperty> sharedPropertySnapshot;
 
     /**
      * Every shared element has a concurrent map with properties, so that we can read values without acquiring locks.
@@ -155,10 +169,26 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     private transient String threadName = null;
 
+    /**
+     * Caches the no-arg constructor per element class. {@link Class#getDeclaredConstructor(Class...)}
+     * copies the {@link java.lang.reflect.Constructor} on every call, which is significant
+     * allocation churn when cloning large test plans for many threads.
+     */
+    private static final ClassValue<java.lang.reflect.Constructor<?>> DEFAULT_CONSTRUCTORS = new ClassValue<>() {
+        @Override
+        protected java.lang.reflect.Constructor<?> computeValue(Class<?> type) {
+            try {
+                return type.getDeclaredConstructor();
+            } catch (NoSuchMethodException e) {
+                throw new IllegalStateException("Test element " + type + " has no default constructor", e);
+            }
+        }
+    };
+
     @Override
     public Object clone() {
         try {
-            TestElement clonedElement = this.getClass().getDeclaredConstructor().newInstance();
+            TestElement clonedElement = (TestElement) DEFAULT_CONSTRUCTORS.get(this.getClass()).newInstance();
 
             // Default constructor might be configuring non-default properties, and we want
             // the clone to be identical to the source, so we remove properties before copying.
@@ -197,7 +227,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     public Object lightweightClone() {
         try {
-            AbstractTestElement clone = this.getClass().getDeclaredConstructor().newInstance();
+            AbstractTestElement clone = (AbstractTestElement) DEFAULT_CONSTRUCTORS.get(this.getClass()).newInstance();
             // Clear default properties set by constructor
             clone.clear();
             // Share property map reference with this element
@@ -212,34 +242,34 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     /**
      * Shares the property map from the source element.
      * <p>
-     * This method is called only for elements that have NO variable properties
-     * (verified by {@link #hasVariableProperties()} in TreeCloner before calling
-     * {@link #lightweightClone()}). Therefore, it's safe to share property references
-     * directly without cloning - this provides significant memory savings.
-     * </p>
-     * <p>
-     * TestElementProperty is still cloned because nested TestElements may have
-     * transient runtime state that needs to be per-thread.
+     * Each property is shared by reference unless it needs per-thread state
+     * (see {@link #lightweightCloneProperty(JMeterProperty)}): properties
+     * containing variables or functions keep per-thread evaluation state
+     * (e.g. {@link FunctionProperty} caches values per iteration), nested
+     * TestElements are lightweight-cloned recursively so per-thread writes
+     * stay thread-local, and collection containers are rebuilt per thread so
+     * in-place additions/removals (e.g. cookies received at runtime) don't
+     * leak across threads. Everything else - typically the vast majority of
+     * properties - is shared, which provides significant memory savings.
      * </p>
      *
      * @param source the element to share properties from
      */
     void sharePropertiesFrom(AbstractTestElement source) {
         try (ResourceLock ignored = writeLock()) {
-            // Share property references directly for maximum memory efficiency
-            // This is safe because TreeCloner only calls lightweightClone() for
-            // elements that have no variable properties (hasVariableProperties() == false)
-            for (Map.Entry<String, JMeterProperty> entry : source.propMap.entrySet()) {
+            Map<String, JMeterProperty> base = source.sharedBaseMap();
+            Map<String, JMeterProperty> overlay = null;
+            for (Map.Entry<String, JMeterProperty> entry : base.entrySet()) {
                 JMeterProperty prop = entry.getValue();
-                // Only clone TestElementProperty because nested TestElements
-                // may have transient state that needs to be per-thread
-                if (prop instanceof TestElementProperty) {
-                    prop = prop.clone();
+                JMeterProperty copy = lightweightCloneProperty(prop);
+                if (copy != prop) {
+                    if (overlay == null) {
+                        overlay = new LinkedHashMap<>();
+                    }
+                    overlay.put(entry.getKey(), copy);
                 }
-                // All other properties are shared by reference - same String objects,
-                // same property instances across all threads
-                this.propMap.put(entry.getKey(), prop);
             }
+            this.propMap = new SharedPropertyMap(base, overlay == null ? Collections.emptyMap() : overlay);
             Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
             if (propMapConcurrent != null) {
                 propMapConcurrent.putAll(this.propMap);
@@ -250,18 +280,174 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     }
 
     /**
+     * Returns the map to be used as the shared base of lightweight clones.
+     * If this element is itself a lightweight clone, its (already shared, read-only)
+     * map is reused directly; otherwise a plain unsynchronized snapshot is created
+     * once and handed to all clones, so runtime reads don't contend on the
+     * synchronized wrapper of {@link #propMap}.
+     */
+    private Map<String, JMeterProperty> sharedBaseMap() {
+        if (propertiesShared) {
+            return propMap;
+        }
+        Map<String, JMeterProperty> snapshot = sharedPropertySnapshot;
+        if (snapshot == null) {
+            // Benign race: concurrent cloners may build duplicate snapshots; either is valid
+            if (lock != null) {
+                try (ResourceLock ignored = readLock()) {
+                    snapshot = new LinkedHashMap<>(propMap);
+                }
+            } else {
+                // propMap is a synchronizedMap; iterating it requires holding its monitor
+                Map<String, JMeterProperty> map = propMap;
+                synchronized (map) {
+                    snapshot = new LinkedHashMap<>(map);
+                }
+            }
+            sharedPropertySnapshot = snapshot;
+        }
+        return snapshot;
+    }
+
+    /**
+     * Discards the snapshot handed out to lightweight clones. Must be called whenever
+     * the structure of {@link #propMap} changes (put/remove/clear), so future clones
+     * don't observe a stale property set.
+     */
+    private void invalidateSharedSnapshot() {
+        if (sharedPropertySnapshot != null) {
+            sharedPropertySnapshot = null;
+        }
+    }
+
+    /**
+     * Read-only property map of a lightweight clone: a shared base map (owned by the
+     * source element, never mutated) plus a small per-thread overlay holding the few
+     * properties that need per-thread state. Overlay keys are always a subset of base
+     * keys, so size and iteration order follow the base map. All element-level writes
+     * call {@link #ensureOwnProperties()} first, which replaces this view with an
+     * owned mutable copy, so the mutating {@link Map} operations are never invoked.
+     */
+    private static final class SharedPropertyMap extends AbstractMap<String, JMeterProperty> implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private final Map<String, JMeterProperty> base;
+        private final Map<String, JMeterProperty> overlay;
+
+        SharedPropertyMap(Map<String, JMeterProperty> base, Map<String, JMeterProperty> overlay) {
+            this.base = base;
+            this.overlay = overlay;
+        }
+
+        @Override
+        public JMeterProperty get(Object key) {
+            JMeterProperty overlaid = overlay.get(key);
+            return overlaid != null ? overlaid : base.get(key);
+        }
+
+        @Override
+        public boolean containsKey(Object key) {
+            return base.containsKey(key);
+        }
+
+        @Override
+        public int size() {
+            return base.size();
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return base.isEmpty();
+        }
+
+        @Override
+        public Set<Map.Entry<String, JMeterProperty>> entrySet() {
+            return new AbstractSet<>() {
+                @Override
+                public Iterator<Map.Entry<String, JMeterProperty>> iterator() {
+                    Iterator<Map.Entry<String, JMeterProperty>> baseIterator = base.entrySet().iterator();
+                    return new Iterator<>() {
+                        @Override
+                        public boolean hasNext() {
+                            return baseIterator.hasNext();
+                        }
+
+                        @Override
+                        public Map.Entry<String, JMeterProperty> next() {
+                            Map.Entry<String, JMeterProperty> entry = baseIterator.next();
+                            JMeterProperty overlaid = overlay.get(entry.getKey());
+                            return overlaid != null ? Map.entry(entry.getKey(), overlaid) : entry;
+                        }
+                    };
+                }
+
+                @Override
+                public int size() {
+                    return base.size();
+                }
+            };
+        }
+    }
+
+    /**
+     * Returns a copy of the given property suitable for a lightweight clone:
+     * <ul>
+     *   <li>{@link FunctionProperty} and {@link StringProperty} values containing
+     *   variables or functions are cloned, as their evaluation needs per-thread state</li>
+     *   <li>{@link TestElementProperty} is replaced with a lightweight clone of the
+     *   nested element, so per-thread writes hit the nested element's own copy-on-write</li>
+     *   <li>{@link CollectionProperty} containers are rebuilt (their items processed
+     *   recursively), so in-place additions/removals stay thread-local</li>
+     *   <li>{@link MapProperty} is cloned (rare, not worth sharing logic)</li>
+     *   <li>all other properties are shared by reference; writes through the element
+     *   API are guarded by {@link #ensureOwnProperties()}</li>
+     * </ul>
+     */
+    private static JMeterProperty lightweightCloneProperty(JMeterProperty prop) {
+        if (prop instanceof FunctionProperty) {
+            return prop.clone();
+        }
+        if (prop instanceof StringProperty stringProperty) {
+            String value = stringProperty.getStringValue();
+            if (value != null && (value.contains("${") || value.contains("__("))) {
+                return prop.clone();
+            }
+            return prop;
+        }
+        if (prop instanceof TestElementProperty testElementProperty) {
+            if (testElementProperty.getElement() instanceof AbstractTestElement nested) {
+                return new TestElementProperty(testElementProperty.getName(),
+                        (TestElement) nested.lightweightClone());
+            }
+            return prop.clone();
+        }
+        if (prop instanceof CollectionProperty collectionProperty) {
+            CollectionProperty copy = new CollectionProperty(collectionProperty.getName(), new ArrayList<>());
+            for (JMeterProperty nested : collectionProperty) {
+                copy.addProperty(lightweightCloneProperty(nested));
+            }
+            return copy;
+        }
+        if (prop instanceof MapProperty) {
+            return prop.clone();
+        }
+        return prop;
+    }
+
+    /**
      * Returns whether this element's properties are shared with another element.
      *
      * @return true if properties are shared (element was created via lightweightClone)
      */
     public boolean isPropertiesShared() {
-        return propertiesShared;
+        return propertiesShared || propMap instanceof SharedPropertyMap;
     }
 
     /**
      * Checks if this element has any properties containing JMeter variables or functions.
-     * Elements with variable properties should not use lightweight cloning because
-     * the variable evaluation needs per-thread state.
+     * Such properties need per-thread state for variable evaluation, so
+     * {@link #sharePropertiesFrom(AbstractTestElement)} clones them instead of
+     * sharing them by reference.
      *
      * @return true if any property contains variables (${...}) or functions (__())
      */
@@ -330,12 +516,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      * Header Manager has a variable like ${updateme} that gets modified).
      */
     protected void ensureOwnProperties() {
-        if (!propertiesShared) {
+        if (!isPropertiesShared()) {
             return;
         }
         try (ResourceLock ignored = writeLock()) {
             // Double-check after acquiring lock
-            if (!propertiesShared) {
+            if (!isPropertiesShared()) {
                 return;
             }
             // Create deep copies of all properties
@@ -343,11 +529,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             for (Map.Entry<String, JMeterProperty> entry : propMap.entrySet()) {
                 newPropMap.put(entry.getKey(), entry.getValue().clone());
             }
-            propMap.clear();
-            propMap.putAll(newPropMap);
+            // Replace the shared view with an owned mutable map
+            propMap = lock != null ? newPropMap : Collections.synchronizedMap(newPropMap);
             if (propMapConcurrent != null) {
                 propMapConcurrent.clear();
-                propMapConcurrent.putAll(propMap);
+                propMapConcurrent.putAll(newPropMap);
             }
             propertiesShared = false;
         }
@@ -359,7 +545,15 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public void clear() {
         try (ResourceLock ignored = writeLock()) {
-            propMap.clear();
+            if (isPropertiesShared()) {
+                // Don't mutate the shared view; replace it with a fresh owned map
+                Map<String, JMeterProperty> newPropMap = new LinkedHashMap<>();
+                propMap = lock != null ? newPropMap : Collections.synchronizedMap(newPropMap);
+                propertiesShared = false;
+            } else {
+                propMap.clear();
+            }
+            invalidateSharedSnapshot();
             Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
             if (propMapConcurrent != null) {
                 propMapConcurrent.clear();
@@ -402,12 +596,15 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     @Override
     public void removeProperty(String key) {
-        // Copy-on-write: ensure we have our own properties before modifying
-        if (isRunningVersion()) {
-            ensureOwnProperties();
+        if (propertiesShared && getPropertyOrNull(key) == null) {
+            // Removing an absent property is a no-op; keep sharing properties
+            return;
         }
+        // Copy-on-write: ensure we have our own properties before modifying
+        ensureOwnProperties();
         try (ResourceLock ignored = writeLock()) {
             propMap.remove(key);
+            invalidateSharedSnapshot();
             Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
             if (propMapConcurrent != null) {
                 propMapConcurrent.remove(key);
@@ -609,9 +806,10 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         if(clone) {
             propertyToPut = property.clone();
         }
+        // Copy-on-write: ensure we have our own properties before modifying
+        // (the existing property may be shared and must not be merged into in place)
+        ensureOwnProperties();
         if (isRunningVersion()) {
-            // Copy-on-write: ensure we have our own properties before modifying
-            ensureOwnProperties();
             setTemporary(propertyToPut);
         } else {
             clearTemporary(property);
@@ -621,6 +819,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         if (prop instanceof NullProperty || (prop instanceof StringProperty && prop.getStringValue().isEmpty())) {
             try (ResourceLock ignored = writeLock()) {
                 propMap.put(property.getName(), propertyToPut);
+                invalidateSharedSnapshot();
                 Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
                 if (propMapConcurrent != null) {
                     propMapConcurrent.put(property.getName(), propertyToPut);
@@ -669,9 +868,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     @Override
     public void setProperty(JMeterProperty property) {
+        // Copy-on-write: ensure we have our own properties before modifying
+        ensureOwnProperties();
         if (isRunningVersion()) {
-            // Copy-on-write: ensure we have our own properties before modifying
-            ensureOwnProperties();
             if (getProperty(property.getName()) instanceof NullProperty) {
                 addProperty(property);
             } else {
@@ -685,6 +884,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     removeProperty(property.getName());
                 } else {
                     propMap.put(property.getName(), property);
+                    invalidateSharedSnapshot();
                     Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
                     if (propMapConcurrent != null) {
                         propMapConcurrent.put(property.getName(), property);
@@ -863,11 +1063,6 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             // See https://github.com/apache/jmeter/issues/5875
             return;
         }
-        if (propertiesShared) {
-            // Properties are shared with other elements (lightweight clone),
-            // so there's nothing to recover - the properties are read-only
-            return;
-        }
         try (ResourceLock ignored = writeLock()) {
             Iterator<Map.Entry<String, JMeterProperty>> iter = propMap.entrySet().iterator();
             while (iter.hasNext()) {
@@ -880,6 +1075,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     prop.recoverRunningVersion(this);
                 }
             }
+            invalidateSharedSnapshot();
             emptyTemporary();
         }
     }

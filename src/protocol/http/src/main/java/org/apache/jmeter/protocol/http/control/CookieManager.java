@@ -300,6 +300,9 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      * @param c cookie to be added
      */
     public void add(Cookie c) {
+        // The cookie store is a property that may be shared with other threads
+        // (lightweight clone); take ownership before mutating it in place
+        ensureOwnProperties();
         String cv = c.getValue();
         String cn = c.getName();
         removeMatchingCookies(c); // Can't have two matching cookies
@@ -390,6 +393,9 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
     }
 
     void removeMatchingCookies(Cookie newCookie){
+        // The cookie store is a property that may be shared with other threads
+        // (lightweight clone); take ownership before mutating it in place
+        ensureOwnProperties();
         // Scan for any matching cookies
         PropertyIterator iter = getCookies().iterator();
         while (iter.hasNext()) {

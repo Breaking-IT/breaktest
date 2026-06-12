@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-plugins {
-    id("java-library")
-    id("org.gradle.kotlin.kotlin-dsl") // this is 'kotlin-dsl' without version
-}
+import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.kotlin.dsl.configure
+
+plugins.apply("org.gradle.kotlin.kotlin-dsl") // this is 'kotlin-dsl' without version
+plugins.apply("java-library")
 
 // validatePlugins lives on java-gradle-plugin, which is not applied to this precompiled script.
 
@@ -27,7 +28,7 @@ plugins {
 listOf(21, 17, 11)
     .firstOrNull { JavaVersion.toVersion(it) <= JavaVersion.current() }
     ?.let { buildScriptJvmTarget ->
-        java {
+        extensions.configure<JavaPluginExtension> {
             toolchain {
                 languageVersion.set(JavaLanguageVersion.of(buildScriptJvmTarget))
             }

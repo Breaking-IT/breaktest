@@ -362,6 +362,9 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
                 return null;
             }
             value = normalizeEnumStringValue(stringValue, klass, enumKlass);
+            if (value == null) {
+                return null;
+            }
             if (stringValue.equals(value.getResourceKey())) {
                 // If the input property was good enough, keep it
                 return property;

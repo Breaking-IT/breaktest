@@ -45,6 +45,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
@@ -92,6 +93,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     private JTextField responseTimeOut;
 
     private final boolean isAJP;
+    private JMeterProperty legacyStoreAsMD5;
 
     public HttpTestSampleGui() {
         this(false);
@@ -134,10 +136,15 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
      * {@inheritDoc}
      */
     @Override
+    @SuppressWarnings("deprecation")
     public void configure(TestElement element) {
         super.configure(element);
         final HTTPSamplerBase samplerBase = (HTTPSamplerBase) element;
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
+        legacyStoreAsMD5 = element.getPropertyOrNull(httpSchema.getStoreAsMD5().getName());
+        if (legacyStoreAsMD5 != null) {
+            legacyStoreAsMD5 = legacyStoreAsMD5.clone();
+        }
         urlConfigGui.configure(element);
         if (!isAJP) {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
@@ -186,6 +193,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
             samplerBase.set(httpSchema.getImplementation(),
                     StringUtilities.isBlank(selectedImplementation) ? null : selectedImplementation);
+        }
+        if (legacyStoreAsMD5 != null) {
+            samplerBase.setProperty(legacyStoreAsMD5.clone());
         }
     }
 
