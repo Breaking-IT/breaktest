@@ -18,9 +18,11 @@
 package org.apache.jmeter.testelement;
 
 import java.io.Serializable;
+import java.util.AbstractCollection;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -341,6 +343,14 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
          */
         private Map<String, JMeterProperty> overlay;
 
+        /**
+         * Cached {@link #values()} view. Value iteration runs on the per-sample hot path
+         * ({@link AbstractTestElement#propertyIterator()} via {@code setRunningVersion}),
+         * so it must not fall back to {@link AbstractMap#values()}, which would build a
+         * fresh entry set and a {@code Map.entry} wrapper per overlaid property on every walk.
+         */
+        private transient Collection<JMeterProperty> valuesView;
+
         SharedPropertyMap(Map<String, JMeterProperty> base, Map<String, JMeterProperty> overlay) {
             this.base = base;
             this.overlay = overlay;
@@ -406,6 +416,79 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     prop.recoverRunningVersion(owner);
                 }
             }
+        }
+
+        @Override
+        public Collection<JMeterProperty> values() {
+            Collection<JMeterProperty> view = valuesView;
+            if (view == null) {
+                view = new AbstractCollection<>() {
+                    @Override
+                    public Iterator<JMeterProperty> iterator() {
+                        return valueIterator();
+                    }
+
+                    @Override
+                    public int size() {
+                        return SharedPropertyMap.this.size();
+                    }
+                };
+                valuesView = view;
+            }
+            return view;
+        }
+
+        private Iterator<JMeterProperty> valueIterator() {
+            Iterator<Map.Entry<String, JMeterProperty>> baseIterator = base.entrySet().iterator();
+            Map<String, JMeterProperty> overlay = this.overlay;
+            if (overlay.isEmpty()) {
+                // No remove(): the base is shared and must never be mutated through a view
+                return new Iterator<>() {
+                    @Override
+                    public boolean hasNext() {
+                        return baseIterator.hasNext();
+                    }
+
+                    @Override
+                    public JMeterProperty next() {
+                        return baseIterator.next().getValue();
+                    }
+                };
+            }
+            Iterator<Map.Entry<String, JMeterProperty>> overlayIterator = overlay.entrySet().iterator();
+            return new Iterator<>() {
+                private JMeterProperty nextOverlayOnly;
+
+                @Override
+                public boolean hasNext() {
+                    if (baseIterator.hasNext() || nextOverlayOnly != null) {
+                        return true;
+                    }
+                    while (overlayIterator.hasNext()) {
+                        Map.Entry<String, JMeterProperty> entry = overlayIterator.next();
+                        if (!base.containsKey(entry.getKey())) {
+                            nextOverlayOnly = entry.getValue();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                @Override
+                public JMeterProperty next() {
+                    if (baseIterator.hasNext()) {
+                        Map.Entry<String, JMeterProperty> entry = baseIterator.next();
+                        JMeterProperty overlaid = overlay.get(entry.getKey());
+                        return overlaid != null ? overlaid : entry.getValue();
+                    }
+                    if (!hasNext()) {
+                        throw new java.util.NoSuchElementException();
+                    }
+                    JMeterProperty prop = nextOverlayOnly;
+                    nextOverlayOnly = null;
+                    return prop;
+                }
+            };
         }
 
         private int overlayOnlyCount() {

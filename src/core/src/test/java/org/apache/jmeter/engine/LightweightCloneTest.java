@@ -24,6 +24,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
@@ -31,6 +36,7 @@ import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.FunctionProperty;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -200,6 +206,52 @@ public class LightweightCloneTest extends JMeterTestCase {
             assertNull(clone.getPropertyOrNull("merged"), "merged property must be rolled back");
             assertTrue(clone.isPropertiesShared(), "sharing survives recovery");
         }
+    }
+
+    @Test
+    public void propertyIteratorOnSharedCloneYieldsSharedInstances() {
+        ConfigTestElement element = newElement();
+        ConfigTestElement clone = cloneViaTreeCloner(element);
+
+        List<JMeterProperty> sourceProperties = new ArrayList<>();
+        element.propertyIterator().forEachRemaining(sourceProperties::add);
+        List<JMeterProperty> properties = new ArrayList<>();
+        clone.propertyIterator().forEachRemaining(properties::add);
+
+        assertEquals(sourceProperties.size(), properties.size(),
+                "clone iteration must see the same properties as the source");
+        assertSame(element.getProperty("static"),
+                properties.stream().filter(p -> p.getName().equals("static")).findFirst().orElseThrow(),
+                "iteration must yield the shared property instances");
+    }
+
+    @Test
+    public void propertyIteratorOnSharedCloneSeesOverlayAndMergedProperties() {
+        ConfigTestElement element = newElement();
+        element.setProperty(new StringProperty("path", "/api/${userId}"));
+        ConfigTestElement clone = cloneViaTreeCloner(element);
+        clone.setRunningVersion(true);
+
+        ConfigTestElement config = new ConfigTestElement();
+        config.setProperty(new StringProperty("merged", "fromConfig"));
+        config.setRunningVersion(true);
+        clone.addTestElement(config);
+
+        List<JMeterProperty> sourceProperties = new ArrayList<>();
+        element.propertyIterator().forEachRemaining(sourceProperties::add);
+        Map<String, JMeterProperty> seen = new LinkedHashMap<>();
+        clone.propertyIterator().forEachRemaining(p -> seen.put(p.getName(), p));
+
+        assertEquals(sourceProperties.size() + 1, seen.size(),
+                "clone iteration must see the source properties plus the merged one");
+        assertSame(element.getProperty("static"), seen.get("static"), "static property stays shared");
+        assertNotSame(element.getProperty("path"), seen.get("path"),
+                "iteration must yield the per-thread copy of the variable property");
+        assertEquals("/api/${userId}", seen.get("path").getStringValue());
+        assertEquals("fromConfig", seen.get("merged").getStringValue(),
+                "merged (overlay-only) property must be visible to iteration");
+        assertEquals("merged", seen.keySet().toArray()[seen.size() - 1],
+                "overlay-only properties iterate after the base properties");
     }
 
     @Test

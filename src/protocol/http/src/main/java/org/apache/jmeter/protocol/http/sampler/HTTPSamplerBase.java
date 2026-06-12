@@ -207,6 +207,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     private static final int MAX_BUFFER_SIZE =
             JMeterUtils.getPropDefault("httpsampler.max_buffer_size", 65 * 1024); // $NON-NLS-1$
 
+    private static final int MAX_PREALLOCATE_SIZE =
+            JMeterUtils.getPropDefault("httpsampler.max_preallocate_size", 16 * 1024 * 1024); // $NON-NLS-1$
+
     private static final boolean IGNORE_FAILED_EMBEDDED_RESOURCES =
             JMeterUtils.getPropDefault("httpsampler.ignore_failed_embedded_resources", false); // $NON-NLS-1$ // default value: false
 
@@ -2024,6 +2027,30 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
+     * Initial buffer size for storing the response body. When the expected stored size is
+     * known (Content-Length, capped by {@code httpsampler.max_bytes_to_store_per_request})
+     * and within {@code httpsampler.max_preallocate_size}, allocate it exactly: the buffer
+     * then never grows and {@link DirectAccessByteArrayOutputStream#toByteArray()} returns
+     * it without a final copy. Content-Length is remote-controlled, so unknown or larger
+     * values fall back to a {@code httpsampler.max_buffer_size} buffer that grows on demand.
+     */
+    // VisibleForTesting
+    static int storedBodyInitialBufferSize(long expectedLength, boolean recording) {
+        if (expectedLength <= 0) {
+            return MAX_BUFFER_SIZE;
+        }
+        long expectedStored = expectedLength;
+        if (MAX_BYTES_TO_STORE_PER_REQUEST > 0 && !recording) {
+            // The read loop truncates stored data at this limit
+            expectedStored = Math.min(expectedStored, MAX_BYTES_TO_STORE_PER_REQUEST);
+        }
+        if (expectedStored > MAX_PREALLOCATE_SIZE) {
+            return MAX_BUFFER_SIZE;
+        }
+        return (int) expectedStored;
+    }
+
+    /**
      * Read response from the input stream, converting to MD5 digest if the useMD5 property is set.
      * <p>
      * For the MD5 case, the result byte count is set to the size of the original response.
@@ -2051,7 +2078,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             case FETCH_AND_DISCARD -> {
             }
             case STORE_COMPRESSED -> {
-                w = new DirectAccessByteArrayOutputStream(Math.toIntExact(length > 0 ? Math.min(length, MAX_BUFFER_SIZE) : MAX_BUFFER_SIZE));
+                w = new DirectAccessByteArrayOutputStream(
+                        storedBodyInitialBufferSize(length, JMeterContextService.getContext().isRecording()));
             }
             case CHECKSUM_DECODED_MD5, CHECKSUM_ENCODED_MD5 -> {
                 try {

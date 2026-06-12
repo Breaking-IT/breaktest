@@ -19,6 +19,7 @@ package org.apache.jorphan.io
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
 
 class DirectAccessByteArrayOutputStreamTest {
@@ -64,6 +65,26 @@ class DirectAccessByteArrayOutputStreamTest {
         stream.write(data.toByteArray(Charsets.UTF_8))
         assertEquals(data, stream.toString(Charsets.UTF_8))
         assertEquals(data, stream.toString("UTF-8"))
+    }
+
+    @Test
+    fun testExactlyFilledSingleBufferIsReturnedWithoutCopy() {
+        val size = 1024
+        val stream = DirectAccessByteArrayOutputStream(size)
+        val data = ByteArray(size) { it.toByte() }
+        stream.write(data, 0, data.size)
+        assertSame(stream.toByteArray(), stream.toByteArray(), "exact-size single buffer must be returned as-is")
+        assertArrayEquals(data, stream.toByteArray())
+    }
+
+    @Test
+    fun testPartiallyFilledBufferIsCopied() {
+        val stream = DirectAccessByteArrayOutputStream(1024)
+        val data = ByteArray(100) { it.toByte() }
+        stream.write(data, 0, data.size)
+        val result = stream.toByteArray()
+        assertEquals(100, result.size, "result must be sized to the content, not the buffer")
+        assertArrayEquals(data, result)
     }
 
     @Test
