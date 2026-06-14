@@ -24,9 +24,9 @@ import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -153,7 +153,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
 
     /**
-     * Holds properties added when isRunningVersion is true
+     * Holds properties added when isRunningVersion is true.
+     * <p>Uses identity semantics: membership is about the specific property instance, not its
+     * value. This is essential for performance - {@link JMeterProperty#hashCode()}/equals on a
+     * {@link MultiProperty}/{@link TestElementProperty} deep-walks the whole nested element tree,
+     * so a value-hashed set would make {@link #isTemporary}/{@link #setTemporary} O(subtree) and
+     * dominate the per-sample recover cost.
      */
     // @GuardedBy("lock")
     private transient Set<JMeterProperty> temporaryProperties;
@@ -1337,7 +1342,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     public void setTemporary(JMeterProperty property) {
         try (ResourceLock ignored = writeLock()) {
             if (temporaryProperties == null) {
-                LinkedHashSet<JMeterProperty> set = new LinkedHashSet<>();
+                // Identity set: avoids deep hashCode/equals of nested-element properties
+                Set<JMeterProperty> set = Collections.newSetFromMap(new IdentityHashMap<>());
                 temporaryProperties = lock != null ? set : Collections.synchronizedSet(set) ;
             }
             temporaryProperties.add(property);
