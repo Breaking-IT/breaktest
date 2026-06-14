@@ -77,7 +77,6 @@ import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.testelement.schema.PropertyDescriptor;
 import org.apache.jmeter.threads.JMeterContext;
@@ -407,6 +406,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         FETCH_AND_DISCARD("response_processing_fetch_discard"), //$NON-NLS-1$
 
         /**
+         * Discard the body on success (2xx/3xx), store it (compressed) on error responses.
+         * Gives FETCH_AND_DISCARD memory behaviour in steady state while preserving the
+         * body for HTTP error responses, where it is usually needed for triage.
+         * Only the HTTP status is consulted; samples that fail for other reasons
+         * (assertion, timeout) still have no body.
+         */
+        STORE_ON_ERROR("response_processing_store_on_error"), //$NON-NLS-1$
+
+        /**
          * Compute MD5 checksum on the compressed response stream.
          * Stores MD5 hash instead of full response. Useful for validating
          * that compressed data hasn't been modified in transit.
@@ -724,8 +732,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @since 6.0.0
      */
     public void setResponseProcessingMode(ResponseProcessingMode mode) {
-        setProperty(getSchema().getResponseProcessingMode().getName(), mode.getResourceKey(),
-                ResponseProcessingMode.STORE_COMPRESSED.getResourceKey());
+        set(getSchema().getResponseProcessingMode(), mode.getResourceKey());
     }
 
     /**
@@ -751,9 +758,11 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      */
     @Deprecated
     public void setMD5(boolean value) {
-        setResponseProcessingMode(
-                value ? ResponseProcessingMode.CHECKSUM_DECODED_MD5 : ResponseProcessingMode.STORE_COMPRESSED
-        );
+        if (value) {
+            setResponseProcessingMode(ResponseProcessingMode.CHECKSUM_DECODED_MD5);
+        } else {
+            removeProperty(getSchema().getResponseProcessingMode());
+        }
         // Also set old property for backward compatibility with older code
         set(getSchema().getStoreAsMD5(), value);
     }
@@ -2033,21 +2042,70 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * then never grows and {@link DirectAccessByteArrayOutputStream#toByteArray()} returns
      * it without a final copy. Content-Length is remote-controlled, so unknown or larger
      * values fall back to a {@code httpsampler.max_buffer_size} buffer that grows on demand.
+     * <p>
+     * For unknown-length responses (e.g. {@code Transfer-Encoding: chunked}) with truncation
+     * active, the truncation limit is the exact stored size, so the buffer is preallocated to
+     * it - giving even chunked responses the single-buffer, zero-copy path.
      */
-    // VisibleForTesting
     static int storedBodyInitialBufferSize(long expectedLength, boolean recording) {
+        return storedBodyInitialBufferSize(expectedLength, recording,
+                MAX_BYTES_TO_STORE_PER_REQUEST, MAX_BUFFER_SIZE, MAX_PREALLOCATE_SIZE);
+    }
+
+    // VisibleForTesting
+    static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
+            int maxBytesToStore, int maxBufferSize, int maxPreallocate) {
+        boolean truncating = maxBytesToStore > 0 && !recording;
         if (expectedLength <= 0) {
-            return MAX_BUFFER_SIZE;
+            // Unknown length (chunked): if truncating below the growable default, the stored
+            // size is exactly the limit, so preallocate it; otherwise grow on demand.
+            if (truncating && maxBytesToStore <= maxBufferSize) {
+                return maxBytesToStore;
+            }
+            return maxBufferSize;
         }
         long expectedStored = expectedLength;
-        if (MAX_BYTES_TO_STORE_PER_REQUEST > 0 && !recording) {
+        if (truncating) {
             // The read loop truncates stored data at this limit
-            expectedStored = Math.min(expectedStored, MAX_BYTES_TO_STORE_PER_REQUEST);
+            expectedStored = Math.min(expectedStored, maxBytesToStore);
         }
-        if (expectedStored > MAX_PREALLOCATE_SIZE) {
-            return MAX_BUFFER_SIZE;
+        if (expectedStored > maxPreallocate) {
+            return maxBufferSize;
         }
         return (int) expectedStored;
+    }
+
+    /**
+     * Resolves the configured mode to the one actually used for this response. A normal run
+     * (GUI or non-GUI) always honours the configured mode, so FETCH_AND_DISCARD really
+     * discards. The only override is a GUI validation run ("Validate"), during which the
+     * body-discarding modes ({@link ResponseProcessingMode#FETCH_AND_DISCARD} and
+     * {@link ResponseProcessingMode#STORE_ON_ERROR}) fall back to
+     * {@link ResponseProcessingMode#STORE_COMPRESSED} so the body is visible while validating.
+     */
+    private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured) {
+        if ((configured == ResponseProcessingMode.FETCH_AND_DISCARD
+                || configured == ResponseProcessingMode.STORE_ON_ERROR)
+                && JMeterContextService.isValidationRun()) {
+            return ResponseProcessingMode.STORE_COMPRESSED;
+        }
+        return configured;
+    }
+
+    /**
+     * @return true if the sample's HTTP status indicates an error (>= 400), or is unknown -
+     *         in which case {@link ResponseProcessingMode#STORE_ON_ERROR} keeps the body.
+     */
+    private static boolean isErrorResponse(SampleResult sampleResult) {
+        String code = sampleResult.getResponseCode();
+        if (code == null || code.isEmpty()) {
+            return true; // unknown - be conservative and keep the body
+        }
+        try {
+            return Integer.parseInt(code) >= 400;
+        } catch (NumberFormatException e) {
+            return true; // non-numeric (e.g. "(null)" or an exception class) - keep the body
+        }
     }
 
     /**
@@ -2063,7 +2121,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @throws IOException if reading the result fails
      */
     public void readResponse(SampleResult sampleResult, InputStream in, long length, @Nullable String contentEncoding) throws IOException {
-        ResponseProcessingMode responseProcessingMode = getResponseProcessingMode();
+        ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode());
         if (responseProcessingMode == ResponseProcessingMode.CHECKSUM_DECODED_MD5) {
             in = ResponseDecoderRegistry.decodeStream(contentEncoding, in);
             contentEncoding = null; // already decoded
@@ -2076,6 +2134,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         DirectAccessByteArrayOutputStream w = null;
         switch (responseProcessingMode) {
             case FETCH_AND_DISCARD -> {
+            }
+            case STORE_ON_ERROR -> {
+                // The HTTP status must be set on the result before readResponse is called
+                if (isErrorResponse(sampleResult)) {
+                    w = new DirectAccessByteArrayOutputStream(
+                            storedBodyInitialBufferSize(length, JMeterContextService.getContext().isRecording()));
+                }
             }
             case STORE_COMPRESSED -> {
                 w = new DirectAccessByteArrayOutputStream(
@@ -2192,18 +2257,21 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public void setProperty(JMeterProperty property) {
         @SuppressWarnings("deprecation")
         PropertyDescriptor<?, ?> storeAsMD5 = HTTPSamplerBaseSchema.INSTANCE.getStoreAsMD5();
-        PropertyDescriptor<?, ?> responseProcessingMode = HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode();
-        if (property.getName().equals(responseProcessingMode.getName())
-                && property instanceof StringProperty stringProperty
-                && ResponseProcessingMode.STORE_COMPRESSED.getResourceKey().equals(stringProperty.getStringValue())) {
-            removeProperty(responseProcessingMode.getName());
-            return;
-        }
+        // Note: STORE_COMPRESSED is no longer stripped here. An explicit STORE_COMPRESSED is a
+        // deliberate pin that must survive config-element merges (e.g. HTTP Request Defaults set
+        // to Fetch and discard). The GUI's inherit row removes the property instead of writing
+        // STORE_COMPRESSED, so "inherit" and "pinned store" stay distinguishable.
         if (property.getName().equals(storeAsMD5.getName())) {
             if (property instanceof BooleanProperty booleanProperty) {
-                setResponseProcessingMode(
-                        booleanProperty.getBooleanValue() ? ResponseProcessingMode.CHECKSUM_DECODED_MD5 : ResponseProcessingMode.STORE_COMPRESSED
-                );
+                String modeName = HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode().getName();
+                if (getPropertyOrNull(modeName) == null) {
+                    if (booleanProperty.getBooleanValue()) {
+                        setResponseProcessingMode(ResponseProcessingMode.CHECKSUM_DECODED_MD5);
+                    } else {
+                        // Legacy usemd5=false plans should keep inheriting rather than pinning STORE_COMPRESSED.
+                        removeProperty(modeName);
+                    }
+                }
             }
             // keep usemd5 property for backward compatibility
         }

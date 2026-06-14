@@ -77,12 +77,15 @@ public open class JEditableComboBox<T : ResourceKeyed>(
      * @property useExpression Text for the menu item to switch to editable mode
      * @property values List of predefined resource keys (stored values)
      * @property extraValues Additional template values to show in editable mode (like expressions)
+     * @property emptyValue Optional first row representing "no value" (e.g. inherit from defaults).
+     *   A blank value maps to this row, so callers can render an absent property as this entry.
      */
     public data class Configuration<T : ResourceKeyed>(
         val useExpression: LocalizedString,
         val useExpressionTooltip: LocalizedString,
         val values: List<LocalizedValue<T>>,
-        val extraValues: List<ComboBoxValue> = listOf()
+        val extraValues: List<ComboBoxValue> = listOf(),
+        val emptyValue: ComboBoxValue? = null
     )
 
     private val cards = CardLayoutWithSizeOfCurrentVisibleElement()
@@ -102,6 +105,9 @@ public open class JEditableComboBox<T : ResourceKeyed>(
         }
 
         // Add predefined values
+        configuration.emptyValue?.let {
+            addItem(it)
+        }
         configuration.values.forEach {
             addItem(it)
         }
@@ -200,6 +206,7 @@ public open class JEditableComboBox<T : ResourceKeyed>(
             if (knownValue != null) {
                 // Predefined value - use non-editable combo
                 nonEditableCombo.selectedItem = knownValue
+                editableCombo.selectedItem = knownValue
                 cards.show(this, COMBO_CARD)
             } else {
                 // Custom expression - use editable combo
@@ -212,11 +219,17 @@ public open class JEditableComboBox<T : ResourceKeyed>(
     private fun findKnownValue(value: ComboBoxValue): ComboBoxValue? {
         return when (value) {
             is PlainValue -> {
-                // Plain value might match with one of the known resource keys
-                configuration.values.find { it.value.resourceKey == value.value }
+                if (value.value.isBlank()) {
+                    // An absent/blank value maps to the empty (inherit) row when one exists
+                    configuration.emptyValue
+                } else {
+                    // Plain value might match with one of the known resource keys
+                    configuration.values.find { it.value.resourceKey == value.value }
+                }
             }
             else -> {
                 configuration.values.find { it == value }
+                    ?: configuration.emptyValue?.takeIf { it == value }
             }
         }
     }

@@ -585,6 +585,12 @@ public class HTTPHC4Impl extends HTTPHCAbstractImpl {
                 res.setContentType(ct);
                 res.setEncodingAndType(ct);
             }
+            // Set the response code before reading the body so STORE_ON_ERROR can decide
+            // whether to keep the body (overwritten with the same value below for clarity)
+            StatusLine statusLine = httpResponse.getStatusLine();
+            int statusCode = statusLine.getStatusCode();
+            res.setResponseCode(Integer.toString(statusCode));
+
             HttpEntity entity = httpResponse.getEntity();
             if (entity == null) {
                 res.latencyEnd();
@@ -601,8 +607,6 @@ public class HTTPHC4Impl extends HTTPHCAbstractImpl {
             currentRequest = null;
 
             // Now collect the results into the HTTPSampleResult:
-            StatusLine statusLine = httpResponse.getStatusLine();
-            int statusCode = statusLine.getStatusCode();
             res.setResponseCode(Integer.toString(statusCode));
             res.setResponseMessage(statusLine.getReasonPhrase());
             res.setSuccessful(isSuccessCode(statusCode));

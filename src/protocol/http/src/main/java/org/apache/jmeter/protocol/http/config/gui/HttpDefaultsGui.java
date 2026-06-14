@@ -74,7 +74,8 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                     HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode(),
                     "response_processing_mode",
                     HTTPSamplerBase.ResponseProcessingMode.class,
-                    JMeterUtils::getResString
+                    JMeterUtils::getResString,
+                    "response_processing_not_set"
             );
     private JTextField embeddedAllowRE; // regular expression used to match against embedded resource URLs to allow
     private JTextField embeddedExcludeRE; // regular expression used to match against embedded resource URLs to discard

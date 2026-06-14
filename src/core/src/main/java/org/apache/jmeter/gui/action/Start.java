@@ -38,6 +38,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
@@ -176,6 +177,9 @@ public class Start extends AbstractAction {
      * @param runMode {@link RunMode} How to run engine
      */
     private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode) {
+        // Let samplers know this is a validation run so they keep response bodies they would
+        // otherwise discard (set for every run, so a later normal run resets it).
+        JMeterContextService.setValidationRun(runMode == RunMode.VALIDATION);
         GuiPackage gui = GuiPackage.getInstance();
         HashTree testTree = gui.getTreeModel().getTestPlan();
 

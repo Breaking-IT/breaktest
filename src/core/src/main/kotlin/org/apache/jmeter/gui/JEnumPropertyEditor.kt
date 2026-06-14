@@ -62,19 +62,28 @@ import org.jetbrains.annotations.NonNls
  * @since 6.0.0
  */
 @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
-public class JEnumPropertyEditor<E>(
+public class JEnumPropertyEditor<E> @JvmOverloads constructor(
     private val propertyDescriptor: StringPropertyDescriptor<*>,
     label: @NonNls String,
     enumClass: Class<E>,
     resourceLocalizer: ResourceLocalizer,
-) : JEditableComboBox<E>(label, createConfiguration(enumClass, resourceLocalizer), resourceLocalizer), Binding
+    inheritKey: @NonNls String? = null,
+) : JEditableComboBox<E>(label, createConfiguration(enumClass, resourceLocalizer, inheritKey), resourceLocalizer), Binding
     where E : Enum<E>, E : ResourceKeyed {
+
+    /**
+     * When set, an extra first row (e.g. "use defaults") represents the absent property:
+     * selecting it removes the property so config elements like HTTP Request Defaults can
+     * supply the value at run time.
+     */
+    private val inheritValue: LocalizedString? = inheritKey?.let { LocalizedString(it, resourceLocalizer) }
 
     private companion object {
         @JvmStatic
         private fun <E> createConfiguration(
             enumClass: Class<E>,
-            resourceLocalizer: ResourceLocalizer
+            resourceLocalizer: ResourceLocalizer,
+            inheritKey: @NonNls String?,
         ): Configuration<E>
             where E : Enum<E>, E : ResourceKeyed {
             val resourceKeys = enumClass.enumValues.map {
@@ -88,43 +97,59 @@ public class JEnumPropertyEditor<E>(
                 extraValues = listOf(
                     PlainValue("\${__P(property_name)}"),
                     PlainValue("\${variable_name}"),
-                )
+                ),
+                emptyValue = inheritKey?.let { LocalizedString(it, resourceLocalizer) }
             )
         }
     }
 
     /**
-     * Resets the editor to the default value specified in the property descriptor.
+     * Resets the editor to the inherit row when available, otherwise to the default
+     * value specified in the property descriptor.
      */
     public fun reset() {
-        value = PlainValue(propertyDescriptor.defaultValue ?: "")
+        value = inheritValue ?: PlainValue(propertyDescriptor.defaultValue ?: "")
     }
 
     /**
      * Updates the test element with the current value from the editor.
      *
      * The value is stored as-is (either a resource key or a custom expression).
+     * The inherit row removes the property instead, so the value can come from
+     * merged config elements (or the built-in default) at run time.
      */
     override fun updateElement(testElement: TestElement) {
         val currentValue = value
-        if ((currentValue as? PlainValue)?.value.isNullOrBlank() && propertyDescriptor.defaultValue == null) {
+        if (inheritValue != null && currentValue == inheritValue) {
+            testElement.removeProperty(propertyDescriptor.name)
+            return
+        }
+        if (currentValue is PlainValue && currentValue.value.isBlank() &&
+            (inheritValue != null || propertyDescriptor.defaultValue == null)
+        ) {
             // Remove property if empty and no default
             testElement.removeProperty(propertyDescriptor.name)
         } else {
-            testElement[propertyDescriptor] = when (currentValue) {
+            val propertyValue = when (currentValue) {
                 is ResourceKeyed -> currentValue.resourceKey
                 else -> currentValue.toString()
             }
+            testElement.setProperty(StringProperty(propertyDescriptor.name, propertyValue))
         }
     }
 
     /**
      * Updates the editor UI from the test element's property value.
      *
-     * Handles both enum resource keys and custom expression strings.
+     * Handles both enum resource keys and custom expression strings. An absent
+     * property selects the inherit row when one is configured.
      */
     override fun updateUi(testElement: TestElement) {
         val property = testElement.getPropertyOrNull(propertyDescriptor)
+        if (property == null && inheritValue != null) {
+            value = inheritValue
+            return
+        }
         value = PlainValue(
             when (property) {
                 is StringProperty -> property.stringValue

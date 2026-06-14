@@ -77,7 +77,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
                     HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode(),
                     "response_processing_mode",
                     HTTPSamplerBase.ResponseProcessingMode.class,
-                    JMeterUtils::getResString
+                    JMeterUtils::getResString,
+                    "response_processing_inherit"
             );
     private JTextField embeddedAllowRE; // regular expression used to match against embedded resource URLs to allow
     private JTextField embeddedExcludeRE; // regular expression used to match against embedded resource URLs to exclude

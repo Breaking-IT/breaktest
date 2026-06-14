@@ -269,6 +269,17 @@ public class HTTPJavaImpl extends HTTPAbstractImpl {
             in = errorStream;
         }
 
+        // Set the response code before reading the body so STORE_ON_ERROR can decide
+        // whether to keep the body (the canonical response code is set again by the caller)
+        try {
+            int responseCode = conn.getResponseCode();
+            if (responseCode > 0) {
+                res.setResponseCode(Integer.toString(responseCode));
+            }
+        } catch (IOException ignored) {
+            // Leave the response code unset; STORE_ON_ERROR then conservatively keeps the body
+        }
+
         readResponse(res, in, contentLength, conn.getContentEncoding());
         if (counterStream != null) {
             res.setBodySize(counterStream.getBytesRead());

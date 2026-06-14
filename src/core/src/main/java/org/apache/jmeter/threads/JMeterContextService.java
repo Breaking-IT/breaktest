@@ -41,11 +41,30 @@ public final class JMeterContextService {
 
     private static UnmodifiableJMeterVariables variables;
 
+    private static volatile boolean validationRun;
+
 
     /**
      * Private constructor to prevent instantiation.
      */
     private JMeterContextService() {
+    }
+
+    /**
+     * @return true if the current run is a Thread Group validation run (GUI "Validate").
+     *         Samplers can use this to keep response bodies that they would otherwise discard.
+     */
+    public static boolean isValidationRun() {
+        return validationRun;
+    }
+
+    /**
+     * Marks the current run as a validation run (or not). Set by the GUI when starting a run.
+     *
+     * @param validationRun true for a Thread Group validation run
+     */
+    public static void setValidationRun(boolean validationRun) {
+        JMeterContextService.validationRun = validationRun;
     }
 
     /**

@@ -59,6 +59,40 @@ public class HTTPSamplerReadResponseBufferTest {
                 "a bogus huge Content-Length must not overflow or allocate");
     }
 
+    private static final int MAX_BUFFER = 65 * 1024;
+    private static final int PREALLOC = 16 * 1024 * 1024;
+
+    @Test
+    public void truncationCapsKnownLengthBuffer() {
+        // Content-Length 1MiB but truncation at 64KiB -> only 64KiB is stored, so preallocate that
+        assertEquals(64 * 1024,
+                HTTPSamplerBase.storedBodyInitialBufferSize(1024 * 1024, false, 64 * 1024, MAX_BUFFER, PREALLOC));
+    }
+
+    @Test
+    public void chunkedResponseWithTruncationPreallocatesLimit() {
+        // Unknown length (chunked) with truncation below the growable default -> exact buffer
+        assertEquals(32 * 1024,
+                HTTPSamplerBase.storedBodyInitialBufferSize(0, false, 32 * 1024, MAX_BUFFER, PREALLOC),
+                "chunked + truncation must preallocate the truncation limit for a zero-copy return");
+        assertEquals(0,
+                HTTPSamplerBase.storedBodyInitialBufferSize(-1, false, 32 * 1024, MAX_BUFFER, PREALLOC) - 32 * 1024);
+    }
+
+    @Test
+    public void chunkedResponseWithoutTruncationUsesGrowableBuffer() {
+        assertEquals(MAX_BUFFER,
+                HTTPSamplerBase.storedBodyInitialBufferSize(0, false, 0, MAX_BUFFER, PREALLOC),
+                "no truncation -> grow on demand from the default buffer");
+    }
+
+    @Test
+    public void recordingDisablesTruncationCap() {
+        // While recording, truncation is bypassed, so a chunked response uses the growable buffer
+        assertEquals(MAX_BUFFER,
+                HTTPSamplerBase.storedBodyInitialBufferSize(0, true, 32 * 1024, MAX_BUFFER, PREALLOC));
+    }
+
     private static byte[] body(int size) {
         byte[] body = new byte[size];
         for (int i = 0; i < size; i++) {
