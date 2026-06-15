@@ -33,6 +33,7 @@ import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -54,6 +55,14 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
         };
 
     private static final int COLUMN_COUNT = COLUMN_RESOURCE_NAMES.length;
+
+    /**
+     * When true (default), the per-sample config merge shares Header instances by reference
+     * instead of deep-cloning them (see {@link #lightweightCopy()}). Kill-switch for the unlikely
+     * case that something mutates a merged HeaderManager's headers in place at runtime.
+     */
+    private static final boolean LIGHTWEIGHT_MERGE =
+            JMeterUtils.getPropDefault("httpsampler.lightweight_header_merge", true);
 
     public HeaderManager() {
         set(getSchema().getHeaders(), new ArrayList<>());
@@ -290,7 +299,7 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
         }
 
         // start off with a merged object as a copy of the local object
-        HeaderManager merged = (HeaderManager)this.clone();
+        HeaderManager merged = lightweightCopy();
 
         // iterate thru each of the other headers
         for (int i = 0; i < other.getHeaders().size(); i++) {
@@ -316,6 +325,33 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
         merged.setName(merged.getName() + ":" + other.getName());
 
         return merged;
+    }
+
+    /**
+     * Returns a {@link HeaderManager} holding the same {@link Header} instances as this one,
+     * shared by reference instead of deep-cloned. Used as the starting point of a per-sample
+     * {@link #merge(TestElement)}: the merged manager is only iterated to build the request
+     * headers and is dropped by {@code recoverRunningVersion()} each iteration, so within a
+     * thread it is safe to share the underlying Header properties rather than clone every Header
+     * (and its name/value sub-properties) on every sample. Matches {@link #clone()}'s
+     * running-version handling (properties added first, running version applied last). Can be
+     * disabled with {@code httpsampler.lightweight_header_merge=false} (falls back to deep clone).
+     */
+    private HeaderManager lightweightCopy() {
+        if (!LIGHTWEIGHT_MERGE) {
+            return (HeaderManager) clone();
+        }
+        HeaderManager copy = new HeaderManager();
+        copy.setName(getName());
+        CollectionProperty target = copy.getHeaders();
+        CollectionProperty source = getHeaders();
+        if (source != null) {
+            for (JMeterProperty header : source) {
+                target.addProperty(header);
+            }
+        }
+        copy.setRunningVersion(isRunningVersion());
+        return copy;
     }
 
     @Override
