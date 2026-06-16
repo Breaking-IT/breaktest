@@ -45,6 +45,7 @@ dependencies {
         api("cglib:cglib-nodep:3.3.0")
         api("com.fifesoft:rsyntaxtextarea:3.6.2")
         api("com.github.ben-manes.caffeine:caffeine:3.2.3")
+        api("com.github.luben:zstd-jni:1.5.7-11")
         api("com.github.weisj:darklaf-core:3.1.1")
         api("com.github.weisj:darklaf-extensions-rsyntaxarea:0.4.1")
         api("com.github.weisj:darklaf-property-loader:3.1.1")

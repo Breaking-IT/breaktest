@@ -69,6 +69,9 @@ dependencies {
     implementation("org.brotli:dec") {
         because("BrotliDecoder for HTTP response decompression")
     }
+    implementation("com.github.luben:zstd-jni") {
+        because("ZstdDecoder for HTTP response decompression")
+    }
     testImplementation(testFixtures(projects.src.core))
     testImplementation(testFixtures(projects.src.testkitWiremock))
     testImplementation("org.wiremock:wiremock")
