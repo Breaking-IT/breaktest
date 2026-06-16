@@ -51,12 +51,12 @@ dependencyResolutionManagement {
 }
 
 if (JavaVersion.current() < JavaVersion.VERSION_17) {
-    throw UnsupportedOperationException("Please use Java 17 or 21 for launching Gradle when building JMeter, the current Java is ${JavaVersion.current().majorVersion}")
+    throw UnsupportedOperationException("Please use Java 17 or 21 for launching Gradle when building BreakTest, the current Java is ${JavaVersion.current().majorVersion}")
 }
 
 // This is the name of a current project
-// Note: it cannot be inferred from the directory name as developer might clone JMeter to jmeter_tmp folder
-rootProject.name = "jmeter"
+// Note: it cannot be inferred from the directory name as developer might clone BreakTest to another folder
+rootProject.name = "breaktest"
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
@@ -127,7 +127,7 @@ val isCiServer = System.getenv().containsKey("CI")
 develocity {
     server = "https://develocity.apache.org"
     allowUntrustedServer = false
-    projectId = "jmeter"
+    projectId = "breaktest"
 
     buildScan {
         uploadInBackground = !isCiServer

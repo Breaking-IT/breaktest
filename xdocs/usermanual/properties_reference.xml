@@ -177,8 +177,8 @@ Defaults to: <code>true</code>
         This is because the <code>CrossPlatform</code> LAF generally looks better than the <code>System</code> LAF.
         See <bugzilla>52026</bugzilla> for details.
     </note>
-    <note>When you change Look and Feel (LAF) from JMeter GUI through menu Options &gt; Look and Feel,
-    you should restart JMeter to ensure change is fully effective.</note>
+    <note>When you change Look and Feel (LAF) from BreakTest GUI through menu Options &gt; Look and Feel,
+    you should restart BreakTest to ensure change is fully effective.</note>
  </property>
 <property name="jmeter.loggerpanel.display">
     Display LoggerPanel.<br/>
@@ -245,7 +245,7 @@ Defaults to: <code>true</code>
     Defaults to: <code>1.0</code>
 </property>
 <property name="not_in_menu">
-    Components to not display in JMeter GUI (GUI class name or static label).<br/>
+    Components to not display in BreakTest GUI (GUI class name or static label).<br/>
 </property>
 <property name="undo.history.size">
     Number of items in undo history.<br/>
@@ -331,7 +331,7 @@ Defaults to: <code>true</code>
     <source>SET SERVER_PORT=1234
 JMETER-SERVER</source>
     On Unix:
-    <source>SERVER_PORT=1234 jmeter-server</source>
+    <source>SERVER_PORT=1234 breaktest-server</source>
     On the Windows client:
     <source>set remote_hosts=<em>server</em>:1234</source>
     On the Unix client:
@@ -1652,7 +1652,7 @@ JMETER-SERVER</source>
 </property>
 <property name="jmeter.reportgenerator.report_title">
     Configure this property to change the report title<br/>
-    Defaults to: <code>Apache JMeter Dashboard</code>
+    Defaults to: <code>BreakTest Dashboard</code>
 </property>
 <property name="jmeter.reportgenerator.overall_granularity">
     Defines the overall granularity for over time graphs<br/>
@@ -1951,7 +1951,7 @@ JMETER-SERVER</source>
 <description>Controls how documentation in JMeter is displayed</description>
 <properties>
     <property name="help.local">
-    Switch that allows using Local documentation opened in JMeter GUI.<br/>
+    Switch that allows using Local documentation opened in BreakTest GUI.<br/>
     By default we use Online documentation opened in Browser.
     Defaults to <code>false</code>
     </property>

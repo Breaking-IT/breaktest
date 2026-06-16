@@ -25,25 +25,25 @@ rem
 rem   DDRAW       - (Optional) JVM options to influence usage of direct draw,
 rem                 e.g. '-Dsun.java2d.ddscale=true'
 rem
-rem   JMETER_BIN  - JMeter bin directory (must end in \)
+rem   JMETER_BIN  - BreakTest bin directory (must end in \)
 rem
 rem   JMETER_COMPLETE_ARGS - if set indicates that JVM_ARGS is to be used exclusively instead
 rem                 of adding other options like HEAP or GC_ALGO
 rem
-rem   JMETER_HOME - installation directory. Will be guessed from location of jmeter.bat
+rem   JMETER_HOME - installation directory. Will be guessed from location of breaktest.bat
 rem
 rem   JM_LAUNCH   - java.exe (default) or javaw.exe
 rem
-rem   JM_START    - set this to 'start ""' to launch JMeter in a separate window
-rem                 this is used by the jmeterw.cmd script.
+rem   JM_START    - set this to 'start ""' to launch BreakTest in a separate window
+rem                 this is used by the breaktestw.cmd script.
 rem
-rem   JVM_ARGS    - (Optional) Java options used when starting JMeter, e.g. -Dprop=val
+rem   JVM_ARGS    - (Optional) Java options used when starting BreakTest, e.g. -Dprop=val
 rem                 Defaults to '-Duser.language="en" -Duser.region="EN"'
 rem
 rem   GC_ALGO     - (Optional) JVM garbage collector options
 rem                 Defaults to '-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:G1ReservePercent=20'
 rem
-rem   HEAP        - (Optional) JVM memory settings used when starting JMeter
+rem   HEAP        - (Optional) JVM memory settings used when starting BreakTest
 rem                 Defaults to '-Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m'
 rem
 rem   =====================================================
@@ -54,15 +54,15 @@ rem Guess JMETER_HOME if not defined
 set "CURRENT_DIR=%cd%"
 if not "%JMETER_HOME%" == "" goto gotHome
 set "JMETER_HOME=%CURRENT_DIR%"
-if exist "%JMETER_HOME%\bin\jmeter.bat" goto okHome
+if exist "%JMETER_HOME%\bin\breaktest.bat" goto okHome
 cd ..
 set "JMETER_HOME=%cd%"
 cd "%CURRENT_DIR%"
-if exist "%JMETER_HOME%\bin\jmeter.bat" goto okHome
+if exist "%JMETER_HOME%\bin\breaktest.bat" goto okHome
 set "JMETER_HOME=%~dp0\.."
 :gotHome
 
-if exist "%JMETER_HOME%\bin\jmeter.bat" goto okHome
+if exist "%JMETER_HOME%\bin\breaktest.bat" goto okHome
 echo The JMETER_HOME environment variable is not defined correctly
 echo This environment variable is needed to run this program
 goto end
@@ -77,7 +77,7 @@ if not defined JMETER_LANGUAGE (
     set JMETER_LANGUAGE=-Duser.language="en" -Duser.region="EN"
 )
 
-rem Minimal version to run JMeter
+rem Minimal version to run BreakTest
 set MINIMAL_VERSION=17.0.0
 
 
@@ -89,7 +89,7 @@ rem Alternative: Minimal GC logging for production (uncomment if needed)
 rem set VERBOSE_GC=-Xlog:gc:gc_jmeter_%%p.log:time
 
 
-rem Module access for modern Java versions (required for JMeter components)
+rem Module access for modern Java versions (required for BreakTest components)
 set JAVA_OPTS=--add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.swing=ALL-UNNAMED --add-opens java.desktop/javax.swing.text.html=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/java.awt.font=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/sun.awt.shell=ALL-UNNAMED
 
 for /f "tokens=3" %%g in ('java -version 2^>^&1 ^| findstr /i "version"') do (
@@ -119,7 +119,7 @@ if not defined current_major (
 )
 
 if %current_major% LSS %minimal_major% (
-    @echo Error: Java version -- %JAVAVER% -- is too low to run JMeter. Needs Java %MINIMAL_VERSION% or higher.
+    @echo Error: Java version -- %JAVAVER% -- is too low to run BreakTest. Needs Java %MINIMAL_VERSION% or higher.
     set ERRORLEVEL=3
     goto pause
 )
@@ -128,7 +128,7 @@ if not defined JM_LAUNCH (
     set JM_LAUNCH=java.exe
 )
 
-if exist jmeter.bat goto winNT1
+if exist breaktest.bat goto winNT1
 if not defined JMETER_BIN (
     set JMETER_BIN=%~dp0
 )
@@ -183,7 +183,7 @@ if not defined JMETER_COMPLETE_ARGS (
 )
 
 if "%JM_START%" == "start" (
-    set JM_START=start "Apache_JMeter"
+    set JM_START=start "BreakTest"
 )
 
 %JM_START% "%JM_LAUNCH%" %ARGS% %JVM_ARGS% -jar "%JMETER_BIN%ApacheJMeter.jar" %JMETER_CMD_LINE_ARGS%

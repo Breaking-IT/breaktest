@@ -21,16 +21,16 @@
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
-<document next="jmeter_proxy_step_by_step.html" id="$Id$">
+<document next="breaktest_proxy_step_by_step.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
-  <title>Apache JMeter Distributed Testing Step-by-step</title>
+  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <title>BreakTest Distributed Testing Step-by-step</title>
 </properties>
 
 <body>
 
-<section name="&sect-num;. Apache JMeter Distributed Testing Step-by-step" anchor="distributed-testing">
+<section name="&sect-num;. BreakTest Distributed Testing Step-by-step" anchor="distributed-testing">
 
 <p>
 This short tutorial explains how to use multiple systems to perform stress testing. Before we start, there are a couple of things to check.
@@ -62,8 +62,8 @@ Before we dive into the step-by-step instructions, it's a good idea to define th
 </p>
 
 <dl>
-  <dt>Controller Node</dt><dd>the system running JMeter GUI, which controls the test</dd>
-  <dt>Worker Node</dt><dd>the system running <code>jmeter-server</code>, which takes commands from
+  <dt>Controller Node</dt><dd>the system running BreakTest GUI, which controls the test</dd>
+  <dt>Worker Node</dt><dd>the system running <code>breaktest-server</code>, which takes commands from
       the GUI and send requests to the target system(s)</dd>
   <dt>Target</dt><dd>the webserver we plan to stress test</dd>
 </dl>
@@ -75,11 +75,11 @@ Before we dive into the step-by-step instructions, it's a good idea to define th
 <subsection name="&sect-num;.2 Step-by-Step" anchor="step-by-step">
 
 <ol>
-  <li>On the worker nodes, go to <code>jmeter/bin</code> directory and execute
-     <code>jmeter-server.bat</code> (<code>jmeter-server</code> on unix).
+  <li>On the worker nodes, go to <code>breaktest/bin</code> directory and execute
+     <code>breaktest-server.bat</code> (<code>breaktest-server</code> on unix).
   </li>
   <li>On controller node acting as the console, open windows explorer and go to
-      <code>jmeter/bin</code> directory</li>
+      <code>breaktest/bin</code> directory</li>
   <li>Open <code>jmeter.properties</code> in a text editor</li>
   <li>Edit the line <code>remote_hosts=127.0.0.1</code></li>
   <li>Add the IP address. For example, if I have JMeter server running on <code>192.168.0.10</code>,
@@ -102,12 +102,12 @@ the worker nodes are working, open <code>jmeter.log</code> in your editor. You s
 </p>
 
 <source>
-Writing log file to: /XXXX/XXXXX/bin/jmeter-server.log
+Writing log file to: /XXXX/XXXXX/bin/breaktest-server.log
 Created remote object: UnicastServerRef [liveRef: [endpoint:[192.X.X.X:XXXXX](local),objID:[-6a665beb:15a2c8b9419:-7fff, 3180474504933847586]]]
 </source>
 
 <p>
-If you do not see this message, it means <code>jmeter-server</code> did not start correctly. For tips on
+If you do not see this message, it means <code>breaktest-server</code> did not start correctly. For tips on
 debugging the issue, <a href="#tips">go to the tips section</a>. There are two ways to
 initiate the test: a single system and all systems.
 </p>

@@ -84,28 +84,28 @@ Alternatively use different content in any datafiles used by the test
 </p>
 
 <p><b>Step 1: Start the servers </b></p>
-<p>To run JMeter in remote node, start the JMeter server component on all machines you wish to run on by running
-the <code>JMETER_HOME/bin/jmeter-server</code> (unix) or <code>JMETER_HOME/bin/jmeter-server.bat</code> (windows) script.</p>
-<p>Note that there can only be one JMeter server on each node unless different RMI ports are used.</p>
-<p>The JMeter server application starts the RMI registry itself; there is no need to start RMI registry separately.</p>
+<p>To run BreakTest in remote node, start the BreakTest server component on all machines you wish to run on by running
+the <code>JMETER_HOME/bin/breaktest-server</code> (unix) or <code>JMETER_HOME/bin/breaktest-server.bat</code> (windows) script.</p>
+<p>Note that there can only be one BreakTest server on each node unless different RMI ports are used.</p>
+<p>The BreakTest server application starts the RMI registry itself; there is no need to start RMI registry separately.</p>
 <p>
-By default, RMI uses a dynamic port for the JMeter server engine. This can cause problems for firewalls,
+By default, RMI uses a dynamic port for the BreakTest server engine. This can cause problems for firewalls,
 so you can define the JMeter property <code>server.rmi.localport</code> to control this port number.
 it will be used as the local port number for the server engine.
 </p>
 <p><b>Step 2: Add the server IP to your client's Properties File</b></p>
-<p>Edit the properties file <i>on the controlling JMeter machine</i>.  In <code>JMETER_HOME/bin/jmeter.properties</code>,
+<p>Edit the properties file <i>on the controlling BreakTest machine</i>.  In <code>JMETER_HOME/bin/jmeter.properties</code>,
 find the property named "<code>remote_hosts</code>" and
-add the value of your running JMeter server's IP address.  Multiple such servers can be added, comma-delimited.</p>
+add the value of your running BreakTest server's IP address.  Multiple such servers can be added, comma-delimited.</p>
 <p>Note that you can use the <code>-R</code> <a href="get-started.html#override">command line option</a>
 instead to specify the remote host(s) to use. This has the same effect as using <code>-r</code> and <code>-Jremote_hosts={serverlist}</code>.
-    E.g. </p><source>jmeter -Rhost1,127.0.0.1,host2</source>
+    E.g. </p><source>breaktest -Rhost1,127.0.0.1,host2</source>
 <p>If you define the JMeter property <code>server.exitaftertest=true</code>, then the server will exit after it runs a single test.
 See also the <code>-X</code> flag (described below)
 </p>
 <p><b>Step 3a: Start the JMeter Client from a GUI client to check configuration</b></p>
-<p>Now you are ready to start the controlling JMeter client. For MS-Windows, start the client with the script "<code>bin/jmeter.bat</code>".  For UNIX,
-use the script "<code>bin/jmeter</code>".  You will notice that the Run menu contains two new sub-menus: "Remote Start" and "Remote Stop"
+<p>Now you are ready to start the controlling JMeter client. For MS-Windows, start the client with the script "<code>bin/breaktest.bat</code>".  For UNIX,
+use the script "<code>bin/breaktest</code>".  You will notice that the Run menu contains two new sub-menus: "Remote Start" and "Remote Stop"
 (see figure 1). These menus contain the client that you set in the properties file.  Use the remote start and stop instead of the
 normal JMeter start and stop menu items.</p>
 <figure image="remote/run-menu00.png" width="487" height="295">Figure 1 - Run Menu</figure>
@@ -115,11 +115,11 @@ normal JMeter start and stop menu items.</p>
 GUI mode should only be used for debugging, as a better alternative, you should start the test on remote server(s) from a CLI mode (command-line) client.
 The command to do this is:</p>
 <source>
-jmeter -n -t script.jmx -r
+breaktest -n -t script.jmx -r
 </source>
 <p>or</p>
 <source>
-jmeter -n -t script.jmx -R server1,server2,&hellip;
+breaktest -n -t script.jmx -R server1,server2,&hellip;
 </source>
 <p>
 Other flags that may be useful:
@@ -143,7 +143,7 @@ contains one key (and its corresponding certificate) named <code>rmi</code>. The
 <p>
 When you run the script, it will ask you some questions about some names it will embed in the certificate. You can type in whatever you want, as long the keystore tool accepts it. That value has to match the property <code>server.rmi.ssl.keystore.alias</code>, which defaults to <code>rmi</code>. A sample session to create the keystore is shown below.
 </p>
-<source>$ cd jmeter/bin
+<source>$ cd breaktest/bin
 $ ./create-rmi-keystore.sh
 What is your first and last name?
   [Unknown]:  rmi
@@ -160,15 +160,15 @@ What is the two-letter country code for this unit?
 Is CN=rmi, OU=My unit name, O=My organisation name, L=Your City, ST=Your State, C=XY correct?
   [no]:  yes
 
-Copy the generated rmi_keystore.jks to jmeter/bin folder or reference it in property 'server.rmi.ssl.keystore.file'
+Copy the generated rmi_keystore.jks to breaktest/bin folder or reference it in property 'server.rmi.ssl.keystore.file'
 </source>
 <p>
 The <a href="properties_reference.html#remote">defaults settings for RMI</a> should work with this setup. Copy the file <code>bin/rmi_keystore.jks</code> to every JMeter server and client you want to use for your distributed testing setup.
 </p>
 </subsection>
 <subsection name="&sect-num;.2 Doing it Manually" anchor="detail_instructions">
-<p>In some cases, the jmeter-server script may not work for you (if you are using an OS platform not anticipated by the JMeter developers).
-Here is how to start the JMeter servers (step 1 above) with a more manual process:</p>
+<p>In some cases, the breaktest-server script may not work for you (if you are using an OS platform not anticipated by the BreakTest developers).
+Here is how to start the BreakTest servers (step 1 above) with a more manual process:</p>
 <p><b>Step 1a: Start the RMI Registry</b></p>
 <p>
 Since JMeter 2.3.1, the RMI registry is started by the JMeter server, so this section does not apply in the normal case.
@@ -189,7 +189,7 @@ application listens to port <code>1099</code>.</p>
 
 <p><b>Step 1b: Start the JMeter Server</b></p>
 <p>Once the RMI Registry application is running, start the JMeter Server.
-Use the "<code>-s</code>" option with the jmeter startup script ("<code>jmeter -s</code>").</p>
+Use the "<code>-s</code>" option with the breaktest startup script ("<code>breaktest -s</code>").</p>
 
 <p>Steps 2 and 3 remain the same.</p>
 </subsection>
@@ -217,19 +217,19 @@ rmiregistry -J-Dsun.rmi.log.debug=true \
      -J-Dsun.rmi.transport.tcp.logLevel=verbose \
 </source>
 <p>Since JMeter 2.3.1, the RMI registry is started by the server; however the options can still be passed in from the JMeter command line.
-For example: "<code>jmeter -s -Dsun.rmi.loader.logLevel=verbose</code>" (i.e. omit the <code>-J</code> prefixes).
+For example: "<code>breaktest -s -Dsun.rmi.loader.logLevel=verbose</code>" (i.e. omit the <code>-J</code> prefixes).
 Alternatively the properties can be defined in the <code>system.properties</code> file.
 </p>
 <p>The solution to the problem is to remove the loopbacks <code>127.0.0.1</code> and <code>127.0.0.2</code> from <code>/etc/hosts</code>.
-What happens is <code>jmeter-server</code> can't connect to rmiregistry if <code>127.0.0.2</code> loopback is not available.
+What happens is <code>breaktest-server</code> can't connect to rmiregistry if <code>127.0.0.2</code> loopback is not available.
 Use the following settings to fix the problem.</p>
 <p> Replace</p>
-<source>`dirname $0`/jmeter  -s "$@"</source>
+<source>`dirname $0`/breaktest  -s "$@"</source>
 <p> With</p>
 <source>
 HOST="-Djava.rmi.server.hostname=[computer_name][computer_domain] \
       -Djava.security.policy=`dirname $0`/[policy_file]" \
-`dirname $0`/jmeter $HOST -s "$@"
+`dirname $0`/breaktest $HOST -s "$@"
 </source>
 <p>Also create a policy file and add <code>[computer_name][computer_domain]</code> line to <code>/etc/hosts</code>.</p>
 
@@ -247,11 +247,11 @@ in remote testing, since JMeter 2.6:</p>
 all the following need to agree:</p>
 <ul>
 <li>On the server, start <code>rmiregistry</code> using the new port number</li>
-<li>On the server, start JMeter with the property <code>server_port</code> defined</li>
+<li>On the server, start BreakTest with the property <code>server_port</code> defined</li>
 <li>On the client, update the <code>remote_hosts</code> property to include the new remote <code>host:port</code> settings</li>
 </ul>
 
-<p>Since JMeter 2.1.1, the jmeter-server scripts provide support for changing the port.
+<p>Since JMeter 2.1.1, the breaktest-server scripts provide support for changing the port.
 For example, assume you want to use port <code>1664</code> (perhaps <code>1099</code> is already used).</p>
 On Windows (in a DOS box)
 <source>
@@ -260,7 +260,7 @@ C:\JMETER> JMETER-SERVER [other options]
 </source>
 On Unix:
 <source>
-$ SERVER_PORT=1664 jmeter-server [other options]
+$ SERVER_PORT=1664 breaktest-server [other options]
 </source>
 [N.B. use upper case for the environment variable]
 <p>

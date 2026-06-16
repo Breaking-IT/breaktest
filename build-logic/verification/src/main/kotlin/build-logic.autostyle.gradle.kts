@@ -24,7 +24,7 @@ plugins {
 // And the below logic can't fully work there (e.g. .ratignore file is not available)
 // The proper resolution would be to support lazy configuration properties in AutoStyle
 val isActualPluginApplication =
-    rootProject.name.startsWith("jmeter")
+    rootProject.name.startsWith("breaktest")
 
 fun com.github.autostyle.gradle.BaseFormatExtension.license() {
     if (isActualPluginApplication) {

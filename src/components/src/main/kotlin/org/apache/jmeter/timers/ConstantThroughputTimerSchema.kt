@@ -27,7 +27,7 @@ import org.apiguardian.api.API
  * @see ConstantThroughputTimer
  * @since 6.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public abstract class ConstantThroughputTimerSchema : TestElementSchema() {
     public companion object INSTANCE : ConstantThroughputTimerSchema()
 

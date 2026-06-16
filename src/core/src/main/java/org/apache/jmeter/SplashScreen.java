@@ -80,10 +80,10 @@ public class SplashScreen extends JDialog {
         } else {
             // Fallback logo
             logo.setText("<html>" +
-                    "<span style=\"font-size:36px;font-family:'Lucida Grande',Corbel,Arial;color:#D11123\">&nbsp;&nbsp;APACHE<br></span>" +
+                    "<span style=\"font-size:36px;font-family:'Lucida Grande',Corbel,Arial;color:#2d7dd2\">&nbsp;&nbsp;BREAK<br></span>" +
                     "<span style=\"font-size:100px;font-family:'Lucida Grande',Corbel,Arial;font-weight:bold\">" +
-                    "<span style=\"color:#D11123\">J</span>Meter" +
-                    "<span style=\"color:#4d4d4d\">™</span></span></html>");
+                    "<span style=\"color:#2d7dd2\">T</span>est" +
+                    "</span></html>");
         }
         return logo;
     }

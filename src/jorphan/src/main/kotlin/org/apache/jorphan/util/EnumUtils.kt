@@ -49,21 +49,21 @@ private val VALUE_MAP = object : ClassValue<Map<String, Enum<*>>>() {
 }
 
 @Suppress("UNCHECKED_CAST")
-@get:API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@get:API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public val <T : Enum<*>> Class<out T>.enumValues: List<T>
     get() = VALUES.get(this) as List<T>
 
 @Suppress("UNCHECKED_CAST")
-@get:API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@get:API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public val <T> Class<out T>.enumValueMap: Map<String, T> where T : Enum<*>, T : ResourceKeyed
     get() = VALUE_MAP.get(this) as Map<String, T>
 
 @Suppress("UNCHECKED_CAST")
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public inline fun <reified T> valueOf(value: String): T? where T : Enum<*>, T : ResourceKeyed =
     T::class.java.valueOf(value)
 
 @Suppress("UNCHECKED_CAST")
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public fun <T> Class<T>.valueOf(value: String): T? where T : Enum<*>, T : ResourceKeyed =
     enumValueMap[value]

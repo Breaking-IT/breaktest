@@ -33,7 +33,7 @@ fun Project.boolProp(name: String) =
 
 // Release candidate index
 val String.v: String get() = rootProject.extra["$this.version"] as String
-version = "jmeter".v + releaseParams.snapshotSuffix
+version = "breaktest".v + releaseParams.snapshotSuffix
 
 if (gradle.startParameter.writeDependencyVerifications.isNotEmpty()) {
     tasks.named("dependencies") {
@@ -54,21 +54,22 @@ val platformProjects by extra {
 }
 
 val notPublishedProjects by extra {
-    listOf(
-        projects.jmeter,
-        projects.src,
-        projects.src.bshclient,
-        projects.src.dist,
-        projects.src.distCheck,
-        projects.src.examples,
-        projects.src.generator,
-        projects.src.licenses,
-        projects.src.protocol,
-        projects.src.release,
-        projects.src.testkit,
-        projects.src.testkitWiremock,
-        projects.src.testServices,
-    ).mapTo(mutableSetOf()) { it.path }
+    mutableSetOf(rootProject.path).apply {
+        addAll(listOf(
+            projects.src,
+            projects.src.bshclient,
+            projects.src.dist,
+            projects.src.distCheck,
+            projects.src.examples,
+            projects.src.generator,
+            projects.src.licenses,
+            projects.src.protocol,
+            projects.src.release,
+            projects.src.testkit,
+            projects.src.testkitWiremock,
+            projects.src.testServices,
+        ).map { it.path })
+    }
 }
 
 val publishedProjects by extra {
@@ -86,7 +87,7 @@ val displayVersion by extra {
         }
 }
 
-println("Building JMeter $version")
+println("Building BreakTest $version")
 
 fun reportsForHumans() = !(System.getenv()["CI"]?.toBoolean() ?: boolProp("CI") ?: false)
 
@@ -112,12 +113,12 @@ releaseArtifacts {
 }
 
 releaseParams {
-    tlp.set("JMeter")
+    tlp.set("BreakTest")
     releaseTag.set("rel/v${project.version}")
     rcTag.set(rc.map { "v${project.version}-rc$it" })
     svnDist {
-        // All the release versions are put under release/jmeter/{source,binary}
-        releaseFolder.set("release/jmeter")
+        // All the release versions are put under release/breaktest/{source,binary}
+        releaseFolder.set("release/breaktest")
         releaseSubfolder.apply {
             put(Regex("_src\\."), "source")
             put(Regex("."), "binaries")

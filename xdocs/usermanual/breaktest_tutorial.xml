@@ -21,11 +21,11 @@
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
-<document prev="jmeter_accesslog_sampler_step_by_step.html" id="$Id$">
+<document prev="breaktest_accesslog_sampler_step_by_step.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
-  <title>How to write a plugin for JMeter</title>
+  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <title>How to write a plugin for BreakTest</title>
 </properties>
 
 <body>
@@ -74,9 +74,9 @@ attempt will be more successful.
 <subsection name="&sect-num;.1 Basic structure of JMeter" anchor="basic-structure">
 
 <p>
-JMeter is organized by protocols and functionality. This is done so that developers can build new
+BreakTest is organized by protocols and functionality. This is done so that developers can build new
 jars for a single protocol without having to build the entire application. We'll go into the details of
-building JMeter later in the tutorial. Since most of the JMeter developers use eclipse, the article will
+building BreakTest later in the tutorial. Since most of the BreakTest developers use eclipse, the article will
 use eclipse directory as a reference point.
 </p>
 
@@ -220,7 +220,7 @@ section describes the contract that the GUI part of your component must fulfill.
 </p>
 
 <p>
-GUI code in JMeter is strictly separated from Test Element code. Therefore, when you write a
+GUI code in BreakTest is strictly separated from Test Element code. Therefore, when you write a
 component, there will be a class for the Test Element, and another for the GUI presentation. The
 GUI presentation class is stateless in the sense that it should never hang onto a reference to the
 Test Element (there are exceptions to this though).

@@ -25,7 +25,7 @@ plugins {
     id("build-logic.publish-to-tmp-maven-repo")
 }
 
-val repoUrl = "https://github.com/apache/jmeter"
+val repoUrl = "https://github.com/Breaking-IT/breaktest"
 
 publishing {
     publications.withType<MavenPublication>().configureEach {
@@ -73,14 +73,14 @@ publishing {
                     }
                 }
             }
-            name.set("Apache JMeter ${project.name.replaceFirstChar { it.titlecaseChar() }}")
+            name.set("BreakTest ${project.name.replaceFirstChar { it.titlecaseChar() }}")
             // This code might be executed before project-related build.gradle.kts is evaluated
             // So we delay access to project.description
             description.set(
                 project.provider { project.description }
             )
             inceptionYear.set("1098")
-            url.set("https://jmeter.apache.org/")
+            url.set("https://github.com/Breaking-IT/breaktest")
             licenses {
                 license {
                     name.set("The Apache License, Version 2.0")

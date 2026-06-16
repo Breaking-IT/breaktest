@@ -45,9 +45,9 @@ import org.jetbrains.annotations.NonNls
  * }
  * ```
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public interface ResourceKeyed {
     /**
      * Returns the resource key used for localization and property storage.

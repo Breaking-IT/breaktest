@@ -66,7 +66,7 @@ public class ConstantThroughputTimer extends AbstractTestElement implements Time
     // TODO: most props use class simpleName as prefix but that would break backward compatiblity here
     public static final String THROUGHPUT = "throughput";
     public static final String CALC_MODE = "calcMode";
-    @API(status = API.Status.INTERNAL, since = "6.0.0")
+    @API(status = API.Status.INTERNAL, since = "1.0.0")
     public static final String MODE = "mode";
 
     /**
@@ -156,7 +156,7 @@ public class ConstantThroughputTimer extends AbstractTestElement implements Time
         return mode.ordinal();
     }
 
-    @API(status = API.Status.MAINTAINED, since = "6.0.0")
+    @API(status = API.Status.MAINTAINED, since = "1.0.0")
     public Mode getMode() {
         String value = getSchema().getCalcMode().get(this);
         Mode enumValue = EnumUtils.valueOf(Mode.class, value);
@@ -171,7 +171,7 @@ public class ConstantThroughputTimer extends AbstractTestElement implements Time
         setMode(EnumUtils.getEnumValues(Mode.class).get(mode));
     }
 
-    @API(status = API.Status.MAINTAINED, since = "6.0.0")
+    @API(status = API.Status.MAINTAINED, since = "1.0.0")
     public void setMode(Mode newMode) {
         getSchema().getCalcMode().set(this, newMode.getResourceKey());
     }

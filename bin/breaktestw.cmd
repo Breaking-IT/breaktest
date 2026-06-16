@@ -16,38 +16,12 @@ rem See the License for the specific language governing permissions and
 rem limitations under the License.
 rem
 
-rem  ============================================
-rem  Non-GUI version of JMETER.BAT
-rem
-rem  Drop a JMX file on this batch script, and it
-rem  will run it in non-GUI mode, with a log file
-rem  formed from the input file name but with the
-rem  extension .jtl
-rem
-rem  Only the first parameter is used.
-rem
-rem  ============================================
+rem   Run BreakTest using javaw
 
-rem Check file is supplied
-if a == a%1 goto winNT2
+set JM_START=start "BreakTest"
+set JM_LAUNCH=javaw.exe
 
-rem Allow special name LAST
-if LAST == %1 goto winNT3
+call breaktest %*
 
-rem Check it has extension .jmx
-if "%~x1" == ".jmx" goto winNT3
-:winNT2
-echo Please supply a script name with the extension .jmx
-pause
-goto END
-:winNT3
-
-rem Change to script directory
-pushd %~dp1
-
-rem use same directory to find jmeter script
-call "%~dp0"jmeter -n -t "%~nx1" -j "%~n1.log" -l "%~n1.jtl" %2 %3 %4 %5 %6 %7 %8 %9
-
-popd
-
-:END
+set JM_START=
+set JM_LAUNCH=

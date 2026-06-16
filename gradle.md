@@ -4,11 +4,11 @@ Useful commands (`gw` comes from https://github.com/dougborg/gdub, otherwise `./
 
 ## Build and run
 
-      # Build and start JMeter GUI
+      # Build and start BreakTest GUI
       gw runGui
 
-      # Build project and copy relevant jars to rootDir/lib, and start JMeter
-      gw createDist; ./bin/jmeter
+      # Build project and copy relevant jars to rootDir/lib, and start BreakTest
+      gw createDist; ./bin/breaktest
 
       # Build all distributions (source, binary)
       gw :src:dist:assemble

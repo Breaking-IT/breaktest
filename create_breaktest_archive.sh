@@ -15,16 +15,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Prerequisites: run ./build_jmeter.sh to populate bin/ and lib/ from a Gradle build.
+# Prerequisites: run ./build_breaktest.sh to populate bin/ and lib/ from a Gradle build.
 # Script to create a compressed tar archive of bin and lib directories
 # Excludes bin/examples and bin/testfiles
-# Archives files under apache-jmeter/ directory
+# Archives files under breaktest/ directory
 
 # Generate datetime string in format YYYYMMDD_HHMMSS
 DATETIME=$(date +%Y%m%d_%H%M%S)
 
 # Archive name
-ARCHIVE_NAME="jmeter_${DATETIME}.tgz"
+ARCHIVE_NAME="breaktest_${DATETIME}.tgz"
 
 # Prevent macOS tar/bsdtar from adding AppleDouble metadata files like ._*.jar
 export COPYFILE_DISABLE=1
@@ -33,25 +33,25 @@ export COPYFILE_DISABLE=1
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf ${TEMP_DIR}" EXIT
 
-# Create apache-jmeter directory structure
-mkdir -p "${TEMP_DIR}/apache-jmeter"
+# Create breaktest directory structure
+mkdir -p "${TEMP_DIR}/breaktest"
 
 # Copy bin directory excluding examples and testfiles
 # Using rsync for better exclusion control
 rsync -av --exclude='examples' --exclude='testfiles' \
     --exclude='.DS_Store' --exclude='._*' \
-    bin/ "${TEMP_DIR}/apache-jmeter/bin/"
+    bin/ "${TEMP_DIR}/breaktest/bin/"
 
 # Copy lib directory
 rsync -av --exclude='.DS_Store' --exclude='._*' \
-    lib/ "${TEMP_DIR}/apache-jmeter/lib/"
+    lib/ "${TEMP_DIR}/breaktest/lib/"
 
 # Create the archive from temp directory
 # -C: change to directory before archiving
 # -c: create archive
 # -z: compress with gzip
 # -f: specify filename
-tar --exclude='.DS_Store' --exclude='._*' -czf "${ARCHIVE_NAME}" -C "${TEMP_DIR}" apache-jmeter
+tar --exclude='.DS_Store' --exclude='._*' -czf "${ARCHIVE_NAME}" -C "${TEMP_DIR}" breaktest
 
 # Check if tar command succeeded
 if [ $? -eq 0 ]; then

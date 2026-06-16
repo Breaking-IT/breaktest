@@ -21,16 +21,16 @@
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
-<document prev="jmeter_distributed_testing_step_by_step.html" next="junitsampler_tutorial.html" id="$Id$">
+<document prev="breaktest_distributed_testing_step_by_step.html" next="junitsampler_tutorial.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
-  <title>Apache JMeter HTTP(S) Test Script Recorder</title>
+  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <title>BreakTest HTTP(S) Test Script Recorder</title>
 </properties>
 
 <body>
 
-<section name="&sect-num;. Apache JMeter HTTP(S) Test Script Recorder" anchor="script-recorder">
+<section name="&sect-num;. BreakTest HTTP(S) Test Script Recorder" anchor="script-recorder">
 
 <p>
 This tutorial attempts to explain the exact steps for recording HTTP/HTTPS. For those new to JMeter, one easy way to create a test plan is to use the Recorder.
@@ -49,8 +49,8 @@ configuration is correct, read <a href="https://cwiki.apache.org/confluence/disp
 <subsection name="&sect-num;.2 Basic Instructions" anchor="basic-instructions">
 
 <ol>
-  <li>Go to <code>JMETER_HOME/bin</code> and start JMeter with <code>jmeterw.bat</code> on Windows
-      and <code>jmeter.sh
+  <li>Go to <code>JMETER_HOME/bin</code> and start BreakTest with <code>breaktestw.cmd</code> on Windows
+      and <code>breaktest.sh
       </code> on Linux/Unix</li>
   <li>Select <code>Templates&hellip;</code> on the menu bar</li>
   <figure image="Select-Templates-Icon.png"></figure>
@@ -228,7 +228,7 @@ or use the keyboard and press <keycombo><keysym>Ctrl</keysym><keysym>R</keysym><
 </p>
 
 <p>
-Solution 2, in command line, use <code>jmeter -n -t [jmx file] -l [results file] -e -o [Path to output folder]</code>
+Solution 2, in command line, use <code>breaktest -n -t [jmx file] -l [results file] -e -o [Path to output folder]</code>
 </p>
 <p>
 At the end of the test, an HTML report will be generated and available in [Path to output folder] used in command line.

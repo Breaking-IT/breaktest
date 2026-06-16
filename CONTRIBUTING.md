@@ -1,30 +1,32 @@
 # How to contribute
 
-Want to show Apache JMeter some love? Help out by contributing!
+Want to help BreakTest become a leaner continuation of Apache JMeter? Contributions are welcome.
+
+BreakTest is focused on continuing the performance testing tool with lower memory usage, lower CPU usage, and a smaller operational footprint while preserving compatibility with existing JMeter test plans and integrations where practical.
 
 ## :beetle: Found a bug
 
 Log it in GitHub issues:
 
-* https://github.com/apache/jmeter/issues
-* or send a note to the [user mailing list](https://jmeter.apache.org/mail2.html#JMeterUser).
+* Use this repository's issue tracker for BreakTest-specific bugs.
+* If the issue appears to be inherited from Apache JMeter, include the upstream JMeter version you compared against.
 
-Be sure to include all relevant information, like the versions of JMeter you’re using as long as Java version.
-A Test plan  that caused the issue as well as any error messages are also very helpful.
+Be sure to include all relevant information, like the BreakTest revision, the Java version, and whether the behavior differs from upstream JMeter.
+A test plan that caused the issue as well as any error messages are also very helpful.
 
 ## :question: Need help
 
 Contact:
 
-* [Our users mailing list](https://jmeter.apache.org/mail2.html#JMeterUser)
-* or ask question on [stackoverflow](https://stackoverflow.com/questions/tagged/jmeter).
+* Use this repository's discussions or issue tracker when available.
+* For general JMeter-compatible test-plan questions, the broader JMeter community resources may still be useful.
 
 ## :bar_chart: What needs to be developed
 
 See:
 
-* [Open issues for JMeter](https://github.com/apache/jmeter/issues)
-* [Enhancement requests for JMeter](https://github.com/apache/jmeter/issues?q=is%3Aopen+label%3Aenhancement)
+* Open issues in this repository.
+* Performance, memory, CPU, startup, and distribution-size improvements are especially aligned with BreakTest's goals.
 
 ## Development setup
 
@@ -53,7 +55,7 @@ Optionally you can generate an Eclipse project by running
 The steps to import the sources (based on Eclipse 2019-06) into Eclipse are as follows:
 
 1. Install `Eclipse IDE for Java Developers`
-1. Install `Kotlin for Eclipse` plugin (JMeter code uses Java and Kotlin)
+1. Install `Kotlin for Eclipse` plugin (BreakTest code uses Java and Kotlin)
 1. Make sure you have a Java 17 compatible JDK configured in your workspace
 1. Open `File->Import...`
 1. Select `Existing Gradle Project` and click `Next`
@@ -66,7 +68,6 @@ The best way to make sure your issue or feature is addressed is to submit a patc
 We accept patches through:
 
 * pull requests
-* patch attached to [JMeter developers mailing list](https://jmeter.apache.org/mail2.html#JMeterDev).
 
 However, before sending a patch, please make sure that the following applies:
 
@@ -79,10 +80,8 @@ However, before sending a patch, please make sure that the following applies:
 
 ## :heart: Adding something new
 
-We do love to enhance Apache JMeter with you to become more powerful!
-The best way to work out your idea is to discuss it first at our dev mailing list:
-
-* [JMeter developers mailing list](https://jmeter.apache.org/mail2.html#JMeterDev)
+We want to enhance BreakTest while keeping the runtime lean and compatible with existing JMeter usage where practical.
+The best way to work out your idea is to discuss it first in this repository.
 
 Please, if you can, don't just throw us the code of a new feature; lets figure first together
 what would be the best approach regarding the current architecture and future plans,

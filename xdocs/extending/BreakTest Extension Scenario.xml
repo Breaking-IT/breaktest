@@ -20,13 +20,13 @@
 
   <properties>
 
-     <title>Extending JMeter</title>
+     <title>Extending BreakTest</title>
 
   </properties>
 
 <body>
 
-<section name="JMeter Extension Scenario">
+<section name="BreakTest Extension Scenario">
 <p>The purpose of this tutorial is to
 describe the general steps involved in a JMeter extension scenario. The
 <a href="index.html">JMeter documentation</a> describes what must be done on a microscopic level but does

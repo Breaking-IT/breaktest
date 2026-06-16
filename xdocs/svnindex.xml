@@ -19,7 +19,7 @@
 <document>
 
   <properties>
-    <author email="dev.AT.jmeter.DOT.apache.DOT.org">Apache JMeter Project</author>
+    <author email="dev.AT.jmeter.DOT.apache.DOT.org">BreakTest Project</author>
     <title>Source Repositories</title>
   </properties>
 
@@ -30,19 +30,17 @@
 <p>Most users of the source code probably don't need to have day to
 day access to the source code as it changes. For these users we
 provide easy to unpack source code downloads via our <a
-href="download_jmeter.cgi">download page</a>.  </p>
+href="download_breaktest.cgi">download page</a>.  </p>
 
 </section>
 
 <section name="Access the GIT Version Controlled Source Code">
 
-<note>With Apache JMeter 5.2 the sources have been
-<a href="https://www.apache.org/dev/writable-git">migrated to Git.</a>
-</note>
+<note>BreakTest is developed in Git as a forked continuation of Apache JMeter.</note>
 
 <subsection name="Git" anchor="git">
 
-<p>The sources for JMeter are accessible at the urls below.</p>
+<p>The sources for BreakTest are accessible at the urls below.</p>
 
 <table>
  <tr>
@@ -51,9 +49,9 @@ href="download_jmeter.cgi">download page</a>.  </p>
   <th>GITHUB (read-only)</th>
  </tr>
  <tr>
-  <td>Apache JMeter</td>
-  <td><a href="https://gitbox.apache.org/repos/asf/jmeter.git">https://gitbox.apache.org/repos/asf/jmeter.git</a></td>
-  <td><a href="https://github.com/apache/jmeter">https://github.com/apache/jmeter</a></td>
+  <td>BreakTest</td>
+  <td><a href="https://github.com/Breaking-IT/breaktest">https://github.com/Breaking-IT/breaktest</a></td>
+  <td><a href="https://github.com/Breaking-IT/breaktest">https://github.com/Breaking-IT/breaktest</a></td>
  </tr>
 </table>
 

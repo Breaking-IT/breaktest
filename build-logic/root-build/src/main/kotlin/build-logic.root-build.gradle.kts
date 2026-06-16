@@ -32,7 +32,7 @@ plugins {
 ide {
     copyrightToAsf()
     ideaInstructionsUri =
-        uri("https://github.com/apache/jmeter/blob/master/CONTRIBUTING.md#intellij")
+        uri("https://github.com/Breaking-IT/breaktest/blob/master/CONTRIBUTING.md#intellij")
     doNotDetectFrameworks("android", "jruby")
 }
 

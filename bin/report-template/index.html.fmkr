@@ -9,7 +9,7 @@
     <meta name="description" content="">
     <meta name="author" content="">
 
-    <title>${reportTitle!"Apache JMeter Dashboard"}</title>
+    <title>${reportTitle!"BreakTest Dashboard"}</title>
 
      <!-- Bootstrap Core CSS -->
     <link href="sbadmin2-1.0.7/bower_components/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -27,7 +27,7 @@
     <link href="content/css/theme.blue.css" rel="stylesheet">
 
     <!-- icon -->
-    <link rel="icon" type="image/png" href="content/pages/icon-apache.png" />
+    <link rel="icon" type="image/png" href="content/pages/icon-breaktest.png" />
 
     <!-- Custom Fonts -->
     <link href="sbadmin2-1.0.7/bower_components/font-awesome/css/font-awesome.min.css" rel="stylesheet" type="text/css">
@@ -43,7 +43,7 @@
                     <span class="icon-bar"></span>
                     <span class="icon-bar"></span>
                 </button>
-                <a class="navbar-brand" href="index.html">${reportTitle!"Apache JMeter Dashboard"}</a>
+                <a class="navbar-brand" href="index.html">${reportTitle!"BreakTest Dashboard"}</a>
             </div>
             <div class="navbar-default sidebar" role="navigation">
                 <div class="sidebar-nav navbar-collapse">

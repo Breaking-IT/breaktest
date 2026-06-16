@@ -27,7 +27,7 @@ sonar {
     properties {
         // See https://docs.sonarqube.org/display/SCAN/Analyzing+with+SonarQube+Scanner+for+Gradle#AnalyzingwithSonarQubeScannerforGradle-Configureanalysisproperties
         property("sonar.sourceEncoding", "UTF-8")
-        val projectName = "JMeter"
+        val projectName = "BreakTest"
         property("sonar.projectName", projectName)
         property("sonar.projectKey", System.getenv()["SONAR_PROJECT_KEY"] ?: projectName)
         property("sonar.organization", System.getenv()["SONAR_ORGANIZATION"] ?: "apache")
@@ -35,10 +35,9 @@ sonar {
         property("sonar.host.url", System.getenv()["SONAR_HOST_URL"] ?: "http://localhost:9000")
         property("sonar.login", System.getenv()["SONAR_LOGIN"] ?: "")
         property("sonar.password", System.getenv()["SONAR_PASSWORD"] ?: "")
-        property("sonar.links.homepage", "https://jmeter.apache.org")
-        property("sonar.links.ci", "https://builds.apache.org/job/JMeter-trunk/")
-        property("sonar.links.scm", "https://jmeter.apache.org/svnindex.html")
-        property("sonar.links.issue", "https://jmeter.apache.org/issues.html")
+        property("sonar.links.homepage", "https://github.com/Breaking-IT/breaktest")
+        property("sonar.links.scm", "https://github.com/Breaking-IT/breaktest")
+        property("sonar.links.issue", "https://github.com/Breaking-IT/breaktest/issues")
         // Skip dependency of Sonar task on compilation tasks
         property("sonar.gradle.skipCompile", "true")
     }

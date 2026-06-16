@@ -27,10 +27,10 @@ import java.io.InputStream
  * Decoder for Brotli compressed response data.
  * Handles "br" content encoding.
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
 @AutoService(ResponseDecoder::class)
-@API(status = API.Status.INTERNAL, since = "6.0.0")
+@API(status = API.Status.INTERNAL, since = "1.0.0")
 public class BrotliDecoder : ResponseDecoder {
     override val encodings: List<String>
         get() = listOf("br")

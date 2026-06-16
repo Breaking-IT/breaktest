@@ -32,9 +32,9 @@ import org.jetbrains.annotations.NonNls
  * The input string is expected to be a resource identifier or key, and the output is a string
  * appropriate for display in a user interface or other localized context.
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public fun interface ResourceLocalizer {
     public fun localize(input: @NonNls String): @Nls String
 }

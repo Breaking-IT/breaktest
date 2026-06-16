@@ -1,20 +1,17 @@
-<h1 align="center"><img src="https://jmeter.apache.org/images/logo.svg" alt="Apache JMeter logo" /></h1>
+# BreakTest
 
-An Open Source Java application designed to measure performance and load test applications.
+BreakTest is an open source Java application for performance and load testing.
 
-By The Apache Software Foundation
+BreakTest is a forked continuation of Apache JMeter. Its goal is to continue the performance testing tool with a leaner runtime profile, lower resource usage, and a smaller operational footprint while preserving the familiar test-plan model and broad protocol support. This continuation has already reduced memory usage by about 50%, with CPU usage reductions of roughly 20-50% depending on workload and runtime conditions.
 
-[![Build Status](https://api.travis-ci.com/apache/jmeter.svg?branch=master)](https://travis-ci.com/apache/jmeter/)
-[![codecov](https://codecov.io/gh/apache/jmeter/branch/master/graph/badge.svg)](https://codecov.io/gh/apache/jmeter)
 [![License](https://img.shields.io/:license-apache-brightgreen.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 [![Stack Overflow](https://img.shields.io/:stack%20overflow-jmeter-brightgreen.svg)](https://stackoverflow.com/questions/tagged/jmeter)
 [![Maven Central](https://img.shields.io/maven-central/v/org.apache.jmeter/ApacheJMeter.svg?label=Maven%20Central)](https://search.maven.org/artifact/org.apache.jmeter/ApacheJMeter)
 [![Javadocs](https://www.javadoc.io/badge/org.apache.jmeter/ApacheJMeter_core.svg)](https://www.javadoc.io/doc/org.apache.jmeter/ApacheJMeter_core)
-[![Twitter](https://img.shields.io/twitter/url/https/github.com/apache/jmeter.svg?style=social)](https://twitter.com/intent/tweet?text=Powerful%20load%20testing%20with%20Apache%20JMeter:&url=https://jmeter.apache.org)
 
 ## What Is It?
 
-Apache JMeter can measure performance and load test static and dynamic web applications.
+BreakTest can measure performance and load test static and dynamic web applications.
 
 It can be used to simulate a heavy load on a server, group of servers,
 network or object to test its strength or to analyze overall performance under different load types.
@@ -81,24 +78,23 @@ Easy correlation through ability to extract data from most popular response form
 - Functions can be used to provide dynamic input to a test or provide data manipulation.
 - Easy Continuous Integration via 3rd party Open Source libraries for Maven, Gradle and Jenkins.
 
-## The Latest Version
+## Project Status
 
-Details of the latest version can be found on the
-[JMeter Apache Project web site](https://jmeter.apache.org/)
+BreakTest is a continuation fork of Apache JMeter. Some package names, command names, file formats, property names, Maven coordinates, and documentation links still intentionally use `jmeter` or `org.apache.jmeter` for compatibility with existing test plans, plugins, scripts, and integrations.
 
 ## Requirements
 
-The following requirements exist for running Apache JMeter:
+The following requirements exist for running BreakTest:
 
 - Java Interpreter:
 
   A fully compliant Java 17 Runtime Environment is required
-  for Apache JMeter to execute. A JDK with `keytool` utility is better suited
+  for BreakTest to execute. A JDK with `keytool` utility is better suited
   for Recording HTTPS websites.
 
 - Optional jars:
 
-  Some jars are not included with JMeter.
+  Some jars are not included with BreakTest.
   If required, these should be downloaded and placed in the lib directory
   - JDBC - available from the database supplier
   - JMS - available from the JMS provider
@@ -109,7 +105,7 @@ The following requirements exist for running Apache JMeter:
 
   A Java compiler is not needed since the distribution includes a
   precompiled Java binary archive.
-  > **Note** that a compiler is required to build plugins for Apache JMeter.
+  > **Note** that a compiler is required to build plugins for BreakTest.
 
 ## Installation Instructions
 
@@ -119,19 +115,21 @@ The following requirements exist for running Apache JMeter:
 
   Unpack the binary archive into a suitable directory structure.
 
-## Running JMeter
+## Running BreakTest
 
 1. Change to the `bin` directory
-2. Run the `jmeter` (Un\*x) or `jmeter.bat` (Windows) file.
+2. Run the `breaktest` (Un\*x) or `breaktest.bat` (Windows) file.
+
+Some internal property names, package names, and artifact names still use `jmeter` for compatibility.
 
 ### Windows
 
 For Windows, there are also some other scripts which you can drag-and-drop
 a JMX file onto:
 
-- `jmeter-n.cmd` - runs the file as a non-GUI test
-- `jmeter-n-r.cmd` - runs the file as a non-GUI remote (client-server) test
-- `jmeter-t.cmd` - loads the file ready to run it as a GUI test
+- `breaktest-n.cmd` - runs the file as a non-GUI test
+- `breaktest-n-r.cmd` - runs the file as a non-GUI remote (client-server) test
+- `breaktest-t.cmd` - loads the file ready to run it as a GUI test
 
 ## Documentation
 
@@ -141,7 +139,7 @@ and it may be browsed starting from the file called [index.html](docs/index.html
 
 ## Reporting a bug/enhancement
 
-See [Issue Tracking](https://jmeter.apache.org/issues.html).
+Use this repository's issue tracker for BreakTest-specific bugs and enhancements. If you are comparing behavior with upstream Apache JMeter, include the upstream version and the BreakTest revision in the report.
 
 ## Build instructions
 
@@ -153,11 +151,11 @@ by unpacking it into the same directory structure.
 
 Any optional jars (see above) should be placed in `lib/opt` and/or `lib`.
 
-Jars in `lib/opt` will be used for building JMeter and running the unit tests,
+Jars in `lib/opt` will be used for building BreakTest and running the unit tests,
 but won't be used at run-time.
 
 _This is useful for testing what happens if the optional jars are not
-downloaded by other JMeter users._
+downloaded by other BreakTest users._
 
 If you are behind a proxy, you can set a few build properties in
 `~/.gradle/gradle.properties` for Gradle to use the proxy:
@@ -175,14 +173,14 @@ systemProp.https.proxyPassword=your_password
 
 ### Test builds
 
-JMeter is built using Gradle, and it uses [Gradle's Toolchains for JVM projects](https://docs.gradle.org/current/userguide/toolchains.html)
+BreakTest is built using Gradle, and it uses [Gradle's Toolchains for JVM projects](https://docs.gradle.org/current/userguide/toolchains.html)
 for provisioning JDKs. It means the code would search for the needed JDKs locally, or download them
 if they are not found.
 
 By default, the code would use JDK 17 for build purposes, however it would set the target release to 8,
 so the resulting artifacts would be compatible with Java 8.
 
-The following command builds and tests JMeter:
+The following command builds and tests BreakTest:
 
 ```sh
 ./gradlew build
@@ -206,7 +204,7 @@ If the system does not have a GUI display then:
 The output artifacts (jars, reports) are placed in the `build` folder.
 For instance, binary artifacts can be found under `src/dist/build/distributions`.
 
-The following command would compile the application and enable you to run `jmeter`
+The following command would compile the application and enable you to run `breaktest`
 from the `bin` directory.
 
 > **Note** that it completely refreshes `lib/` contents,
@@ -224,12 +222,11 @@ Alternatively, you could get Gradle to start the GUI:
 
 ## Developer Information
 
-Building and contributing is explained in details at
-[building JMeter](https://jmeter.apache.org/building.html)
-and [CONTRIBUTING.md](CONTRIBUTING.md). More information on the tasks available for
-building JMeter with Gradle is available in [gradle.md](gradle.md).
+Building and contributing is explained in [CONTRIBUTING.md](CONTRIBUTING.md).
+More information on the tasks available for building BreakTest with Gradle is
+available in [gradle.md](gradle.md).
 
-The code can be obtained from:
+BreakTest was forked from Apache JMeter:
 
 - https://github.com/apache/jmeter
 - https://gitbox.apache.org/repos/asf/jmeter.git
@@ -265,21 +262,21 @@ code and source code.
 The following provides more details on the included software that
 may be subject to export controls on cryptographic software:
 
-Apache JMeter interfaces with the
+BreakTest interfaces with the
 Java Secure Socket Extension (JSSE) API to provide
 
 - HTTPS support
 
-Apache JMeter interfaces (via Apache HttpClient4) with the
+BreakTest interfaces (via Apache HttpClient4) with the
 Java Cryptography Extension (JCE) API to provide
 
 - NTLM authentication
 
-Apache JMeter does not include any implementation of JSSE or JCE.
+BreakTest does not include any implementation of JSSE or JCE.
 
 ## Thanks
 
-**Thank you for using Apache JMeter.**
+**Thank you for using BreakTest.**
 
 ### Third party notices
 

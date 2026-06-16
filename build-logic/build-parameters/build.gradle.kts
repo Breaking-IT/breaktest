@@ -45,22 +45,22 @@ buildParameters {
     integer("jdkBuildVersion") {
         defaultValue.set(21)
         mandatory.set(true)
-        description.set("JDK version to use for building JMeter. If the value is 0, then the current Java is used. (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:consuming)")
+        description.set("JDK version to use for building BreakTest. If the value is 0, then the current Java is used. (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:consuming)")
     }
     string("jdkBuildVendor") {
-        description.set("JDK vendor to use building JMeter (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:vendors)")
+        description.set("JDK vendor to use building BreakTest (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:vendors)")
     }
     string("jdkBuildImplementation") {
-        description.set("Vendor-specific virtual machine implementation to use building JMeter (see https://docs.gradle.org/8.0/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
+        description.set("Vendor-specific virtual machine implementation to use building BreakTest (see https://docs.gradle.org/8.0/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
     }
     integer("jdkTestVersion") {
-        description.set("JDK version to use for testing JMeter. If the value is 0, then the current Java is used. (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:consuming)")
+        description.set("JDK version to use for testing BreakTest. If the value is 0, then the current Java is used. (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:consuming)")
     }
     string("jdkTestVendor") {
-        description.set("JDK vendor to use testing JMeter (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:vendors)")
+        description.set("JDK vendor to use testing BreakTest (see https://docs.gradle.org/8.0/userguide/toolchains.html#sec:vendors)")
     }
     string("jdkTestImplementation") {
-        description.set("Vendor-specific virtual machine implementation to use testing JMeter (see https://docs.gradle.org/8.0/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
+        description.set("Vendor-specific virtual machine implementation to use testing BreakTest (see https://docs.gradle.org/8.0/userguide/toolchains.html#selecting_toolchains_by_virtual_machine_implementation)")
     }
     bool("sonarqube") {
         defaultValue.set(false)

@@ -25,7 +25,7 @@ import java.nio.charset.Charset;
 
 import org.apiguardian.api.API;
 
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public class ExceptionUtils {
     private ExceptionUtils() {
     }
@@ -36,7 +36,7 @@ public class ExceptionUtils {
      * @param throwable the {@code Throwable} whose stack trace is to be converted to a string
      * @return the string representation of the stack trace of the specified {@code Throwable}
      */
-    @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+    @API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
     public static String getStackTrace(Throwable throwable) {
         StringWriter sw = new StringWriter();
         try (PrintWriter pw = new PrintWriter(sw)) {
@@ -52,7 +52,7 @@ public class ExceptionUtils {
      * @param charset the character set to be used for encoding the stack trace
      * @return the byte array representation of the stack trace of the specified {@code Throwable}
      */
-    @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+    @API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
     public static byte[] getStackTraceAsBytes(Throwable throwable, Charset charset) {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try (PrintStream ps = new PrintStream(baos, false, charset)) {
@@ -67,7 +67,7 @@ public class ExceptionUtils {
      * @param t the throwable
      * @return the root cause message
      */
-    @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+    @API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
     public static String getRootCauseMessage(Throwable t) {
         Throwable cause = t;
         while (cause.getCause() != null && cause.getCause() != cause) {

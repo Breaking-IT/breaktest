@@ -20,7 +20,7 @@
 ##   JVM_ARGS - optional java args, e.g. -Dprop=val
 ##
 ##   e.g.
-##   JVM_ARGS="-Xms1g -Xmx1g" jmeter etc.
+##   JVM_ARGS="-Xms1g -Xmx1g" breaktest etc.
 ##
 ##   Do not set the variables in this script. Instead put them into a script
 ##   setenv.sh in JMETER_HOME/bin to keep your customizations separate.
@@ -30,7 +30,7 @@
 ##
 ##   JRE_HOME         Must point at your Java Runtime installation.
 ##                    Defaults to JAVA_HOME if empty. If JRE_HOME and JAVA_HOME
-##                    are both empty, JMeter will try to guess JAVA_HOME.
+##                    are both empty, BreakTest will try to guess JAVA_HOME.
 ##                    If JRE_HOME and JAVA_HOME are both set, JAVA_HOME is used.
 ##
 ##   GC_ALGO          (Optional) Java runtime options to specify JVM garbage collection
@@ -38,17 +38,17 @@
 ##                    Defaults to "-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:G1ReservePercent=20"
 ##
 ##   HEAP             (Optional) Java runtime options for memory management
-##                    used when JMeter is started.
+##                    used when BreakTest is started.
 ##                    Defaults to "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m"
 ##
-##   JMETER_HOME      (Optional) May point to your JMeter install dir. If empty
+##   JMETER_HOME      (Optional) May point to your BreakTest install dir. If empty
 ##                    it will be set relativ to this script.
 ##
 ##   JMETER_LANGUAGE  (Optional) Java runtime options to specify used language
 ##                    Defaults to "-Duser.language=en -Duser.region=EN"
 ##
-##   JMETER_OPTS      (Optional) Java runtime options used when JMeter is started.
-##                    Special options for operating systems might be added by JMeter.
+##   JMETER_OPTS      (Optional) Java runtime options used when BreakTest is started.
+##                    Special options for operating systems might be added by BreakTest.
 ##
 ##   ==============================================
 
@@ -115,10 +115,10 @@ if [ -z "$JAVA_HOME" ]; then
   JAVA_HOME="$JRE_HOME"
 fi
 
-# Module access for modern Java versions (required for JMeter components)
+# Module access for modern Java versions (required for BreakTest components)
 JAVA_OPTS="--add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.swing=ALL-UNNAMED --add-opens java.desktop/javax.swing.text.html=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/java.awt.font=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED --add-opens=java.desktop/sun.awt.shell=ALL-UNNAMED"
 
-# Minimal version to run JMeter
+# Minimal version to run BreakTest
 MINIMAL_VERSION=17
 
 # Check if version meets the minimal requirement
@@ -126,7 +126,7 @@ CURRENT_VERSION=`"${JAVA_HOME}/bin/java" -version 2>&1 | awk -F'"' '/version/ {g
 
 # Check if Java is present and meets the minimal version requirement
 if [ "$CURRENT_VERSION" -lt "$MINIMAL_VERSION" ]; then
-    echo "ERROR: Java version $CURRENT_VERSION is too low. JMeter requires Java $MINIMAL_VERSION or higher."
+    echo "ERROR: Java version $CURRENT_VERSION is too low. BreakTest requires Java $MINIMAL_VERSION or higher."
     exit 1
 fi
 
@@ -134,14 +134,14 @@ fi
 case `uname` in
    Darwin*)
    # Add Mac-specific properties - should be ignored elsewhere (Bug 47064)
-   if [ -f ${PRGDIR}/../xdocs/images/jmeter_square.png ]; then
-       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../xdocs/images/jmeter_square.png"
-   elif [ -f ${PRGDIR}/../docs/images/jmeter_square.png ]; then
-       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../docs/images/jmeter_square.png"
+   if [ -f ${PRGDIR}/../xdocs/images/breaktest_square.png ]; then
+       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../xdocs/images/breaktest_square.png"
+   elif [ -f ${PRGDIR}/../docs/images/breaktest_square.png ]; then
+       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../docs/images/breaktest_square.png"
    fi
    # Note: macOS still shows "java" process name (see https://bugs.openjdk.java.net/browse/JDK-8173753)
    # The workaround could be to distribute *.dmg bundle
-   JMETER_OPTS="${JMETER_OPTS} -Xdock:name=JMeter -Xdock:icon=${PRGDIR}/../docs/images/jmeter_square.png -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
+   JMETER_OPTS="${JMETER_OPTS} -Xdock:name=BreakTest -Xdock:icon=${PRGDIR}/../docs/images/breaktest_square.png -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
    ;;
 esac
 
@@ -150,7 +150,7 @@ esac
 # Original page has disappeared, it is now only available at:
 # https://web.archive.org/web/20060614151434/http://www.atg.com/portal/myatg/developer?paf_dm=full&paf_gear_id=1100010&detailArticle=true&id=9606
 #
-# JMeter objects can generally be grouped into three life-length groups:
+# BreakTest objects can generally be grouped into three life-length groups:
 #
 # - Per-sample objects (results, DOMs,...). An awful lot of those.
 #   Life length of milliseconds to a few seconds.

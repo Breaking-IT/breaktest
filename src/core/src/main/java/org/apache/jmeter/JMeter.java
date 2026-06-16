@@ -215,10 +215,10 @@ public class JMeter implements JMeterPlugin {
                     "jmeter run log file (jmeter.log)");
     private static final CLOptionDescriptor D_NONGUI_OPT =
             new CLOptionDescriptor("nongui", CLOptionDescriptor.ARGUMENT_DISALLOWED, NONGUI_OPT,
-                    "run JMeter in nongui mode");
+                    "run BreakTest in nongui mode");
     private static final CLOptionDescriptor D_SERVER_OPT =
             new CLOptionDescriptor("server", CLOptionDescriptor.ARGUMENT_DISALLOWED, SERVER_OPT,
-                    "run the JMeter server");
+                    "run the BreakTest server");
     private static final CLOptionDescriptor D_PROXY_SCHEME =
             new CLOptionDescriptor("proxyScheme", CLOptionDescriptor.ARGUMENT_REQUIRED, PROXY_SCHEME,
                     "Set a proxy scheme to use for the proxy server");
@@ -547,7 +547,7 @@ public class JMeter implements JMeterPlugin {
     }
 
     /**
-     * Displays as ASCII Art Apache JMeter version + Copyright notice
+     * Displays as ASCII Art BreakTest version + Copyright notice
      */
     private static void displayAsciiArt() {
         try (InputStream inputStream = JMeter.class.getResourceAsStream("jmeter_as_ascii_art.txt")) {

@@ -22,15 +22,13 @@
 ]>
 <document>
   <properties>
-    <title>Extending JMeter</title>
+    <title>Extending BreakTest</title>
   </properties>
 <body>
-<section name="Extending JMeter">
-<font color="red"><strong>Note to developers: JMeter is undergoing large changes.  The following
-description of JMeter's architecture will likely change in the near future.  If you
-would like your changes to work with an upcoming JMeter 1.6, please join our mailing
-list, and we will work with you and your modifications.</strong></font>
-<p><b>Customizing JMeter to suit your needs.</b></p>
+<section name="Extending BreakTest">
+<font color="red"><strong>Note to developers: BreakTest is a forked continuation of JMeter. Some extension
+interfaces and package names intentionally retain JMeter naming for compatibility.</strong></font>
+<p><b>Customizing BreakTest to suit your needs.</b></p>
 <h3>Extensible Interfaces</h3>
 <p>
 There are five basic objects in JMeter which provide extensibility:

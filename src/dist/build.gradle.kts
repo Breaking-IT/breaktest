@@ -320,7 +320,7 @@ val copyBinLibs by tasks.registering(Copy::class) {
 
 val createDist by tasks.registering {
     group = LifecycleBasePlugin.BUILD_GROUP
-    description = "Copies JMeter jars and dependencies to projectRoot/lib/ folder"
+    description = "Copies BreakTest jars and dependencies to projectRoot/lib/ folder"
     dependsOn(copyLibs)
     dependsOn(copyBinLibs)
 }
@@ -342,7 +342,7 @@ fun CopySpec.docCssAndImages() {
 fun CopySpec.manuals() {
     from(xdocs) {
         include("demos/**")
-        include("extending/jmeter_tutorial.pdf")
+        include("extending/breaktest_tutorial.pdf")
         include("usermanual/**/*.pdf")
     }
 }
@@ -444,8 +444,8 @@ val processSiteXslt by tasks.registering {
 }
 
 fun CopySpec.siteLayout() {
-    // TODO: generate doap_JMeter.rdf
-    from("$xdocs/download_jmeter.cgi")
+    // TODO: generate doap_BreakTest.rdf
+    from("$xdocs/download_breaktest.cgi")
     into("api") {
         javadocs()
     }
@@ -472,7 +472,7 @@ val previewSite by tasks.registering(Sync::class) {
 }
 
 val distributionGroup = "distribution"
-val baseFolder = "apache-jmeter-${rootProject.version}"
+val baseFolder = "breaktest-${rootProject.version}"
 
 fun CopySpec.javadocs() = from(javadocAggregate)
 
@@ -581,9 +581,9 @@ for (type in listOf("binary", "source")) {
             // So we add a custom property to re-execute the task in case attributes change
             inputs.property("gitproperties", gitProps.map { it.props.attrs.toString() })
 
-            // Gradle defaults to the following pattern, and JMeter was using apache-jmeter-5.1_src.zip
+            // Gradle defaults to the following pattern, and BreakTest uses breaktest-<version>_src.zip
             // [baseName]-[appendix]-[version]-[classifier].[extension]
-            archiveBaseName.set("apache-jmeter-${rootProject.version}${if (type == "source") "_src" else ""}")
+            archiveBaseName.set("breaktest-${rootProject.version}${if (type == "source") "_src" else ""}")
             // Discard project version since we want it to be added before "_src"
             archiveVersion.set("")
             CrLfSpec(eol).run {
@@ -607,7 +607,7 @@ releaseArtifacts {
 
 val runGui by tasks.registering(JavaExec::class) {
     group = "Development"
-    description = "Builds and starts JMeter GUI"
+    description = "Builds and starts BreakTest GUI"
     dependsOn(createDist)
     buildParameters.testJdk?.let {
         javaLauncher.set(javaToolchains.launcherFor(it))
@@ -621,8 +621,8 @@ val runGui by tasks.registering(JavaExec::class) {
 
     val osName = System.getProperty("os.name")
     if (osName.contains(Regex("mac os x|darwin|osx", RegexOption.IGNORE_CASE))) {
-        jvmArgs("-Xdock:name=JMeter")
-        jvmArgs("-Xdock:icon=$rootDir/xdocs/images/jmeter_square.png")
+        jvmArgs("-Xdock:name=BreakTest")
+        jvmArgs("-Xdock:icon=$rootDir/xdocs/images/breaktest_square.png")
         jvmArgs("-Dapple.laf.useScreenMenuBar=true")
         jvmArgs("-Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS")
     }

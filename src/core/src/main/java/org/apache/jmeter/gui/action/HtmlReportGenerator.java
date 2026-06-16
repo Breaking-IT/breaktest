@@ -126,7 +126,7 @@ public class HtmlReportGenerator {
         arguments.add("-g");
         arguments.add(csvFilePath);
         arguments.add("-j");
-        arguments.add(jmeterBinDir + "/jmeter_html_report.log");
+        arguments.add(jmeterBinDir + "/breaktest_html_report.log");
         arguments.add("-o");
         arguments.add(outputDirectoryPath);
         return arguments;

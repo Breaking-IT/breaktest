@@ -34,7 +34,7 @@ import org.apiguardian.api.API
  *
  * This interface is marked as experimental and may change in future releases.
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public interface ComboBoxValue

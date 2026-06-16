@@ -20,7 +20,7 @@ rem   ===============================================================
 rem   Enviroment variables
 rem   SERVER_PORT (optional) - define the rmiregistry and server port
 rem
-rem   JVM_ARGS - Java flags - these are handled by jmeter.bat
+rem   JVM_ARGS - Java flags - these are handled by breaktest.bat
 rem
 rem   ===============================================================
 
@@ -28,8 +28,8 @@ rem   ===============================================================
 REM Protect environment against changes
 setlocal
 
-if exist jmeter-server.bat goto winNT1
-echo Changing to JMeter home directory
+if exist breaktest-server.bat goto winNT1
+echo Changing to BreakTest home directory
 cd /D %~dp0
 :winNT1
 
@@ -59,12 +59,12 @@ set JMETER_CMD_LINE_ARGS=%*
 
 if not "%SERVER_PORT%" == "" goto port
 
-call jmeter -s -j jmeter-server.log %JMETER_CMD_LINE_ARGS%
+call breaktest -s -j breaktest-server.log %JMETER_CMD_LINE_ARGS%
 goto end
 
 
 :port
-call jmeter -Dserver_port=%SERVER_PORT% -s -j jmeter-server.log %JMETER_CMD_LINE_ARGS%
+call breaktest -Dserver_port=%SERVER_PORT% -s -j breaktest-server.log %JMETER_CMD_LINE_ARGS%
 
 :end
 

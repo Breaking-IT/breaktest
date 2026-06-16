@@ -31,7 +31,7 @@ tasks.named<Jar>("javadocJar") {
 }
 
 dokka {
-    moduleName = "Apache JMeter ${project.name}"
+    moduleName = "BreakTest ${project.name}"
     dokkaGeneratorIsolation = ProcessIsolation {
         maxHeapSize = "2g"
     }

@@ -33,9 +33,9 @@ import org.apiguardian.api.API
  *
  * The class provides equality and hash code implementations based on the underlying `value`.
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public class LocalizedValue<T : ResourceKeyed>(
     public val value: T,
     private val localizer: ResourceLocalizer,

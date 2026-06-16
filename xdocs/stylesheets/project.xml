@@ -16,12 +16,12 @@
   ~ limitations under the License.
   -->
 
-<project name="Apache JMeter"
-          href="https://jmeter.apache.org/">
+<project name="BreakTest"
+          href="/">
 
-     <title>Apache JMeter</title>
+     <title>BreakTest</title>
      <!---->
-     <logo width="182" height="88" href="/images/logo.svg">Apache JMeter</logo>
+     <logo width="260" height="88" href="/images/logo.svg">BreakTest</logo>
      <!---->
      <body>
      <menu name="About">
@@ -29,7 +29,7 @@
        <item name="License"             href="https://www.apache.org/licenses/"/>
      </menu>
      <menu name="Download">
-        <item name="Download Releases"    href="/download_jmeter.cgi"/>
+        <item name="Download Releases"    href="/download_breaktest.cgi"/>
         <item name="Release Notes"        href="/changes.html"/>
      </menu>
      <menu name="Documentation">
@@ -41,15 +41,15 @@
         <item name="Properties Reference"         href="/usermanual/properties_reference.html"/>
         <item name="Change History"              href="/changes_history.html"/>
         <item name="Javadocs"             href="/api/index.html"/>
-        <item name="JMeter Wiki"         href="https://cwiki.apache.org/confluence/display/JMETER/Home"/>
-         <item name="FAQ (Wiki)"             href="https://cwiki.apache.org/confluence/display/JMETER/JMeterFAQ"/>
+        <item name="Upstream JMeter Wiki"         href="https://cwiki.apache.org/confluence/display/JMETER/Home"/>
+         <item name="Upstream FAQ (Wiki)"             href="https://cwiki.apache.org/confluence/display/JMETER/JMeterFAQ"/>
      </menu>
      <menu name="Tutorials">
-        <item name="Distributed Testing" href="/usermanual/jmeter_distributed_testing_step_by_step.html"/>
-        <item name="Recording Tests"     href="/usermanual/jmeter_proxy_step_by_step.html"/>
+        <item name="Distributed Testing" href="/usermanual/breaktest_distributed_testing_step_by_step.html"/>
+        <item name="Recording Tests"     href="/usermanual/breaktest_proxy_step_by_step.html"/>
         <item name="JUnit Sampler"         href="/usermanual/junitsampler_tutorial.html"/>
-        <item name="Access Log Sampler"     href="/usermanual/jmeter_accesslog_sampler_step_by_step.html"/>
-        <item name="Extending JMeter"     href="/usermanual/jmeter_tutorial.html"/>
+        <item name="Access Log Sampler"     href="/usermanual/breaktest_accesslog_sampler_step_by_step.html"/>
+        <item name="Extending BreakTest"     href="/usermanual/breaktest_tutorial.html"/>
      </menu>
      <menu name="Community">
         <item name="Issue Tracking"      href="/issues.html"/>
@@ -57,8 +57,8 @@
         <item name="Mailing Lists"       href="/mail.html"/>
         <item name="Source Repositories"    href="/svnindex.html"/>
         <item name="Building and Contributing"    href="/building.html"/>
-        <item name="Project info at Apache" href="https://projects.apache.org/project.html?jmeter"/>
-        <item name="Contributors"        href="https://cwiki.apache.org/confluence/display/JMETER/JMeterCommitters"/>
+        <item name="Upstream Project info at Apache" href="https://projects.apache.org/project.html?jmeter"/>
+        <item name="Upstream Contributors"        href="https://cwiki.apache.org/confluence/display/JMETER/JMeterCommitters"/>
      </menu>
      <menu name="Foundation">
         <item name="The Apache Software Foundation (ASF)" href="https://www.apache.org/"/>

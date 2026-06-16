@@ -20,7 +20,7 @@ package org.apache.jorphan.locale
 import org.apiguardian.api.API
 
 @JvmInline
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public value class PlainValue(public val value: String): ComboBoxValue {
     override fun toString(): String = value
 }

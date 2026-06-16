@@ -35,7 +35,7 @@ Before you can compile JMeter, you will need a few things:
 </ul>
 
 <h3>Acquiring the source</h3>
-<p>The official source releases of Apache JMeter can be downloaded from <a href="download_jmeter.cgi">download page</a>.</p>
+<p>The official source releases of BreakTest can be downloaded from the <a href="download_breaktest.cgi">download page</a>.</p>
 
 <h3>Compiling and packaging JMeter using Gradle</h3>
 <p>
@@ -111,7 +111,7 @@ Check that patch does not break JUnit tests by running:
 
 <h3>Create a pull request using Git</h3>
 <ul>
-    <li>Fork <a href="https://www.github.com/apache/jmeter">Apache JMeter mirror</a></li>
+    <li>Fork the BreakTest repository</li>
     <li>Clone your forked repository locally: <source>git clone https://github.com/yourid/jmeter.git</source></li>
     <li>Create a branch using for example issue id: <source>git branch gh123-thread-group-typo</source>
       (please refrain from using <source>master</source> and <source>main</source> branches for pull request)</li>
@@ -135,7 +135,7 @@ Check that patch does not break JUnit tests by running:
 <h3>Proposing a change with a patch</h3>
 <p>If you cannot to create a pull request at GitHub, you might submit your changes as a unified diff patch on JMeter dev mailing list.</p>
 <ul>
-    <li>Checkout Apache JMeter source</li>
+    <li>Checkout BreakTest source</li>
     <li>Code your fix</li>
     <li>Create your patch by Right clicking on Eclipse project and select
         <menuchoice>

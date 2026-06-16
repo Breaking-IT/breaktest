@@ -16,17 +16,17 @@
 # limitations under the License.
 #
 
-## This is a simple wrapper for the script bin/jmeter
+## This is a simple wrapper for the script bin/breaktest
 ##
-## Basic JMeter startup script for Un*x systems
-## See the "jmeter" script for details of options that can be used for Sun JVMs
+## Basic BreakTest startup script for Un*x systems
+## See the "breaktest" script for details of options that can be used for Sun JVMs
 
 ##   ==============================================
 ##   Environment variables:
 ##   JVM_ARGS - optional java args, e.g. -Dprop=val
 ##
 ##   e.g.
-##   JVM_ARGS="-Xms512m -Xmx512m" jmeter.sh etc.
+##   JVM_ARGS="-Xms512m -Xmx512m" breaktest.sh etc.
 ##
 ##   ==============================================
 
@@ -89,7 +89,7 @@ fi
 #--add-opens if JAVA 9
 JAVA9_OPTS=
 
-# Minimal version to run JMeter
+# Minimal version to run BreakTest
 MINIMAL_VERSION=17
 
 # Check if version is from OpenJDK or Oracle Hotspot JVM prior to 9 containing 1.${version}.x
@@ -99,7 +99,7 @@ CURRENT_VERSION=`"${JAVA_HOME}/bin/java" -version 2>&1 | awk -F'"' '/version/ {g
 if [ "$CURRENT_VERSION" -ge "$MINIMAL_VERSION" ]; then
     JAVA9_OPTS="--add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.swing=ALL-UNNAMED --add-opens java.desktop/javax.swing.text.html=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/java.awt.font=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED --add-opens=java.desktop/sun.awt.shell=ALL-UNNAMED"
 else
-    echo "JMeter requires Java $MINIMAL_VERSION or later. Current Java version is $CURRENT_VERSION"
+    echo "BreakTest requires Java $MINIMAL_VERSION or later. Current Java version is $CURRENT_VERSION"
     exit 1
 fi
 
@@ -110,4 +110,4 @@ JMETER_COMPLETE_ARGS=true
 JVM_ARGS="$JAVA9_OPTS $JVM_ARGS"
 export JVM_ARGS JMETER_COMPLETE_ARGS
 
-"${PRGDIR}/jmeter" "$@"
+"${PRGDIR}/breaktest" "$@"

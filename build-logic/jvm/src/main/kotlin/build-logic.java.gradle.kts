@@ -128,9 +128,9 @@ tasks.configureEach<Javadoc> {
         docEncoding = "UTF-8"
         charSet = "UTF-8"
         encoding = "UTF-8"
-        docTitle = "Apache JMeter ${project.name} API"
-        windowTitle = "Apache JMeter ${project.name} API"
-        header = "<b>Apache JMeter</b>"
+        docTitle = "BreakTest ${project.name} API"
+        windowTitle = "BreakTest ${project.name} API"
+        header = "<b>BreakTest</b>"
         addStringOption("source", "21")
         addStringOption("Xmaxwarns", "10")
         addBooleanOption("Xdoclint:all,-missing", true)
@@ -162,7 +162,7 @@ afterEvaluate {
 tasks.configureEach<Jar> {
     manifest {
         attributes["Bundle-License"] = "Apache-2.0"
-        attributes["Specification-Title"] = "Apache JMeter"
+        attributes["Specification-Title"] = "BreakTest"
         attributes["Specification-Vendor"] = "Apache Software Foundation"
         attributes["Implementation-Vendor"] = "Apache Software Foundation"
         attributes["Implementation-Vendor-Id"] = "org.apache"

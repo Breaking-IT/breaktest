@@ -21,7 +21,7 @@ import org.apache.jorphan.util.JOrphanUtils;
 import org.apiguardian.api.API;
 
 @Deprecated
-@API(since = "6.0.0", status = API.Status.DEPRECATED)
+@API(since = "1.0.0", status = API.Status.DEPRECATED)
 public final class StringUtilities {
 
     /**
@@ -42,7 +42,7 @@ public final class StringUtilities {
      * @return the updated string
      */
     @Deprecated
-    @API(since = "6.0.0", status = API.Status.DEPRECATED)
+    @API(since = "1.0.0", status = API.Status.DEPRECATED)
     public static String substitute(final String input, final String pattern, final String sub) {
         return JOrphanUtils.substitute(input, pattern, sub);
     }

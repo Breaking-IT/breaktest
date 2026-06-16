@@ -120,7 +120,7 @@ public class MainFrame extends JFrame implements TestStateListener, Remoteable, 
     public static final String LOCAL = "*local*"; // $NON-NLS-1$
 
     // The application name
-    private static final String DEFAULT_APP_NAME = "Apache JMeter"; // $NON-NLS-1$
+    private static final String DEFAULT_APP_NAME = "BreakTest"; // $NON-NLS-1$
 
     // The default title for the Menu bar
     private static final String DEFAULT_TITLE = DEFAULT_APP_NAME +
@@ -560,7 +560,7 @@ public class MainFrame extends JFrame implements TestStateListener, Remoteable, 
         // Building is complete, register as listener
         GuiPackage.getInstance().registerAsListener();
         setTitle(DEFAULT_TITLE);
-        setIconImage(JMeterUtils.getImage("icon-apache.png").getImage());// $NON-NLS-1$
+        setIconImage(JMeterUtils.getImage("icon-breaktest.png").getImage());// $NON-NLS-1$
         setWindowTitle(); // define AWT WM_CLASS string
         refreshErrorsTimer.start();
     }

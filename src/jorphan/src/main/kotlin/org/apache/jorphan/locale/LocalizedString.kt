@@ -20,7 +20,7 @@ package org.apache.jorphan.locale
 import org.apiguardian.api.API
 import org.jetbrains.annotations.NonNls
 
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public class LocalizedString(
     override val resourceKey: @NonNls String,
     private val resourceLocalizer: ResourceLocalizer,

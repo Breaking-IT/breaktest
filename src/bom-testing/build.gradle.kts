@@ -19,7 +19,7 @@ plugins {
     id("build-logic.java-published-platform")
 }
 
-description = "A collection of versions of third-party libraries used for testing purposes by Apache JMeter"
+description = "A collection of versions of third-party libraries used for testing purposes by BreakTest"
 
 javaPlatform {
     allowDependencies()

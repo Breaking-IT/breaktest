@@ -19,7 +19,7 @@
 package org.apache.jmeter.util;
 
 /**
- * Utility class to define the JMeter Version string.
+ * Utility class to define the BreakTest version string.
  * Note: @...@-like macroses in this file should be replaced by a Gradle task.
  */
 public final class JMeterVersion {

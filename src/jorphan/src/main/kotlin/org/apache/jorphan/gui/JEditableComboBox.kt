@@ -57,9 +57,9 @@ import javax.swing.event.ChangeEvent
  * val comboBox = JEditableComboBox("Label:", config)
  * ```
  *
- * @since 6.0.0
+ * @since 1.0.0
  */
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public open class JEditableComboBox<T : ResourceKeyed>(
     label: @NonNls String,
     private val configuration: Configuration<T>,

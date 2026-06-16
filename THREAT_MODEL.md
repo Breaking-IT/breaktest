@@ -1,4 +1,6 @@
-# Apache JMeter — Threat Model (v1 draft)
+# BreakTest — Threat Model (v1 draft)
+
+BreakTest is a forked continuation of Apache JMeter. This threat model is inherited from the Apache JMeter model below and remains the baseline until BreakTest-specific security decisions intentionally diverge. References to JMeter package names, command names, properties, and historical maintainer review are retained where they describe inherited behavior.
 
 > Built on Apache JMeter's existing security policy at
 > <https://jmeter.apache.org/security.html>. That page's "Security Model"
@@ -8,14 +10,14 @@
 
 ## §1 Header
 
-- **Project:** Apache JMeter (`apache/jmeter`), `master`, against which this draft was written.
+- **Project:** BreakTest, forked from Apache JMeter (`apache/jmeter`), against which this inherited draft was originally written.
 - **Date:** 2026-06-02 (v0); **revised 2026-06-04** incorporating the full JMeter PMC review (vlsi, milamberspace). **Status:** draft v1 — Wave-1/2 questions ratified by the PMC; remaining items are tracked follow-ups (XStream allowlist enforcement; `security.html` backlink) flagged in §14. **Author:** ASF Security team (drafted via the Scovetta threat-model rubric, building on JMeter's `security.html`), for PMC ratification.
 - **Version binding:** versioned with the project; a report against version *N* is triaged against the model as it stood at *N*.
 - **Reporting cross-reference:** §8-property violations → report privately per ASF process (`security@apache.org` → `private@jmeter.apache.org`); §3/§9 findings are closed citing this document and `security.html`.
 - **Provenance legend:** *(documented)* = JMeter's own docs/`security.html`/repo; *(maintainer)* = confirmed by a JMeter PMC member through this process; *(inferred)* = reasoned from architecture, not yet confirmed — each has a matching §14 open question.
 - **Coexistence:** this model is a strict superset of `security.html`; nothing there is weakened. `security.html` stays the canonical reporting/policy page and should link here for the expanded model (the `xdocs/security.xml` backlink is a tracked follow-up — see §14 Q8). *(maintainer)*
 - **Draft confidence:** ~10 documented / ~20 maintainer / ~6 inferred. The RMI-SSL posture, the open-vs-run line, the XStream policy gap, the Security-Manager/JDK-24 status, the HTTPS-recording-proxy surface, and the SUT scope were all confirmed from JMeter source by the PMC (vlsi, milamberspace) on 2026-06-03/04.
-- **What JMeter is:** Apache JMeter is a Java load-/performance-testing tool. A user builds a **test plan** (a `.jmx` file) in the GUI or by hand, then runs it — in the GUI, in non-GUI/CLI mode, or distributed across a controller and remote engines — to drive load at a *system under test* and collect results. Test plans may contain scripting (JSR223/Groovy/BeanShell) and therefore arbitrary code. *(documented — README, security.html)*
+- **What BreakTest is:** BreakTest is a Java load-/performance-testing tool and forked continuation of Apache JMeter. A user builds a **test plan** (a `.jmx` file) in the GUI or by hand, then runs it — in the GUI, in non-GUI/CLI mode, or distributed across a controller and remote engines — to drive load at a *system under test* and collect results. Test plans may contain scripting (JSR223/Groovy/BeanShell) and therefore arbitrary code. *(documented — README, security.html)*
 
 ## §2 Scope and intended use
 

@@ -61,7 +61,7 @@ public class AboutCommand extends AbstractAction {
     }
 
     /**
-     * Handle the "about" action by displaying the "About Apache JMeter..."
+     * Handle the "about" action by displaying the "About BreakTest..."
      * dialog box. The Dialog Box is NOT modal, because those should be avoided
      * if at all possible.
      */
@@ -105,7 +105,7 @@ public class AboutCommand extends AbstractAction {
         if (about != null) {
             return about;
         }
-        about = new EscapeDialog(mainFrame, "About Apache JMeter", false);
+        about = new EscapeDialog(mainFrame, "About BreakTest", false);
         about.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -115,7 +115,7 @@ public class AboutCommand extends AbstractAction {
 
         JLabel copyright = new JLabel(JMeterUtils.getJMeterCopyright(), SwingConstants.CENTER);
         JLabel rights = new JLabel("All Rights Reserved.", SwingConstants.CENTER);
-        JLabel version = new JLabel("Apache JMeter Version " + JMeterUtils.getJMeterVersion(), SwingConstants.CENTER);
+        JLabel version = new JLabel("BreakTest Version " + JMeterUtils.getJMeterVersion(), SwingConstants.CENTER);
         JLabel releaseNotes = new JLabel("<html><a href=\"https://jmeter.apache.org/changes.html\">Release notes</a></html>", SwingConstants.CENTER);
         releaseNotes.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         releaseNotes.addMouseListener(new MouseAdapter() {

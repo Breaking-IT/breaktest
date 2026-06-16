@@ -507,7 +507,7 @@ public final class JOrphanUtils {
      * @deprecated use {@link StringUtilities#trimToNull(String)}
      */
     @Deprecated
-    @API(since = "6.0.0", status = API.Status.DEPRECATED)
+    @API(since = "1.0.0", status = API.Status.DEPRECATED)
     public static String nullifyIfEmptyTrimmed(final String input) {
         return StringUtilities.trimToNull(input);
     }
@@ -520,7 +520,7 @@ public final class JOrphanUtils {
      * @deprecated use {@link StringUtilities#isBlank(CharSequence)}
      */
     @Deprecated
-    @API(since = "6.0.0", status = API.Status.DEPRECATED)
+    @API(since = "1.0.0", status = API.Status.DEPRECATED)
     public static boolean isBlank(final String value) {
         return StringUtilities.isBlank(value);
     }

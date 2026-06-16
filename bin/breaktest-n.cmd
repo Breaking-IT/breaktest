@@ -17,7 +17,7 @@ rem limitations under the License.
 rem
 
 rem  ============================================
-rem  Non-GUI version of JMETER.BAT
+rem  Non-GUI version of BREAKTEST.BAT
 rem
 rem  Drop a JMX file on this batch script, and it
 rem  will run it in non-GUI mode, with a log file
@@ -45,8 +45,8 @@ goto END
 rem Change to script directory
 pushd %~dp1
 
-rem use same directory to find jmeter script
-call "%~dp0"jmeter -n -t "%~nx1" -j "%~n1.log" -l "%~n1.jtl" -r %2 %3 %4 %5 %6 %7 %8 %9
+rem use same directory to find breaktest script
+call "%~dp0"breaktest -n -t "%~nx1" -j "%~n1.log" -l "%~n1.jtl" %2 %3 %4 %5 %6 %7 %8 %9
 
 popd
 

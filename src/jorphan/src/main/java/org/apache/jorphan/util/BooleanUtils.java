@@ -19,7 +19,7 @@ package org.apache.jorphan.util;
 
 import org.apiguardian.api.API;
 
-@API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+@API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
 public class BooleanUtils {
     private BooleanUtils() {
     }
@@ -33,7 +33,7 @@ public class BooleanUtils {
      * @param s the String to convert, may be null
      * @return {@link Boolean#TRUE}, {@link Boolean#FALSE}, or {@code null}
      */
-    @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+    @API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
     public static Boolean toBooleanObject(String s) {
         if (StringUtilities.isEmpty(s)) {
             return null;

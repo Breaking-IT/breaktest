@@ -39,7 +39,7 @@
         </p>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf</a></li>
+                <li><a href="http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf</a></li>
                 <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
             </ul>
         ]]></description>
@@ -67,7 +67,7 @@
         </p>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf</a></li>
+                <li><a href="http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf</a></li>
                 <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
             </ul>
         ]]></description>

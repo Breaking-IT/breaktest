@@ -1146,7 +1146,7 @@ public class JMeterUtils implements UnitTestManager {
     }
 
     /**
-     * Gets the JMeter Version.
+     * Gets the BreakTest version.
      *
      * @return the JMeter version string
      */

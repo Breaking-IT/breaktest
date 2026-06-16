@@ -20,26 +20,26 @@
 
   <properties>
 
-     <title>Extending JMeter</title>
+     <title>Extending BreakTest</title>
 
   </properties>
 
 <body>
 
-<section name="Extending JMeter">
+<section name="Extending BreakTest">
 
 
 
-<h2>Extending JMeter</h2>:
+<h2>Extending BreakTest</h2>:
 
-<p>There are several ways to extend JMeter and add functionality.  JMeter is designed
+<p>There are several ways to extend BreakTest and add functionality. BreakTest is designed
 
 to make this task easier.
 
 </p>
 
 <ul>
-    <li><a href="JMeter Extension Scenario.html">A good overview of the process of extending JMeter</a></li>
+    <li><a href="BreakTest Extension Scenario.html">A good overview of the process of extending BreakTest</a></li>
 <p/>
     <li><a href="#timer">Creating your own Timer</a></li>
 

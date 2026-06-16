@@ -18,15 +18,13 @@
 
 <document>
 <properties>
-    <title>JMeter on IRC</title>
+    <title>BreakTest discussion</title>
 </properties>
 <body>
-<section name="JMeter on IRC">
-<p>JMeter developers often hang out on IRC to chat about development issues.
-Users are also welcome to stop by and ask questions, offer feature suggestions,
-or just chit-chat.  </p>
-<p>IRC Server: <strong>irc.us.freenode.net</strong><br/>
-Room: <strong>#jmeter</strong></p>
+<section name="BreakTest discussion">
+<p>BreakTest development uses the project issue tracker and repository discussions for bugs,
+feature suggestions, and implementation planning.</p>
+<p>For upstream Apache JMeter development discussions, use the upstream community channels.</p>
 </section>
 </body>
 </document>

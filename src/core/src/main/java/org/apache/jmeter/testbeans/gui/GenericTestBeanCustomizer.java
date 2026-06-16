@@ -337,7 +337,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
      * @param property the JMeterProperty to be normalized
      * @return a StringProperty containing the normalized enum value, or null if the property is invalid or unrecognized
      */
-    @API(status = API.Status.INTERNAL, since = "6.0.0")
+    @API(status = API.Status.INTERNAL, since = "1.0.0")
     public static <T extends Enum<?> & ResourceKeyed> @Nullable JMeterProperty normalizeEnumProperty(
             Class<?> klass, Class<T> enumKlass, JMeterProperty property) {
         List<T> values = EnumUtils.getEnumValues(enumKlass);
@@ -375,7 +375,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         return new StringProperty(property.getName(), value.getResourceKey());
     }
 
-    @API(status = API.Status.INTERNAL, since = "6.0.0")
+    @API(status = API.Status.INTERNAL, since = "1.0.0")
     public static <T extends Enum<?> & ResourceKeyed> T normalizeEnumStringValue(String value, Class<?> klass, Class<T> enumKlass) {
         T enumValue = EnumUtils.valueOf(enumKlass, value);
         if (enumValue != null) {

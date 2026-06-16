@@ -59,7 +59,7 @@ public class StringUtilities {
      * @param cs the CharSequence to check, may be null
      * @return true if the CharSequence is null, empty, or only contains whitespace; false otherwise
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static boolean isBlank(CharSequence cs) {
         if (cs == null) {
             return true;
@@ -82,7 +82,7 @@ public class StringUtilities {
      * @param cs the CharSequence to check, may be null
      * @return true if the CharSequence is not null, not empty, and contains at least one non-whitespace character; false otherwise
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static boolean isNotBlank(CharSequence cs) {
         return !isBlank(cs);
     }
@@ -93,7 +93,7 @@ public class StringUtilities {
      * @param cs the CharSequence to check, may be null
      * @return true if the CharSequence is null or empty; false otherwise
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static boolean isEmpty(CharSequence cs) {
         return cs == null || cs.isEmpty();
     }
@@ -104,7 +104,7 @@ public class StringUtilities {
      * @param cs the CharSequence to check, may be null
      * @return true if the CharSequence is not null and not empty; false otherwise
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static boolean isNotEmpty(CharSequence cs) {
         return !isEmpty(cs);
     }
@@ -143,7 +143,7 @@ public class StringUtilities {
      * @param str the String to be trimmed, may be null
      * @return the trimmed String, or null if empty or null input
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static String trimToNull(String str) {
         if (str == null) {
             return null;
@@ -159,7 +159,7 @@ public class StringUtilities {
      * @param str the string to capitalize, may be null
      * @return the capitalized string, or null if input was null
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static String capitalize(String str) {
         if (StringUtilities.isEmpty(str)) {
             return str;
@@ -185,7 +185,7 @@ public class StringUtilities {
      * @param stripChars the characters to remove, null treated as whitespace
      * @return the stripped string, or null if input was null
      */
-    @API(since = "6.0.0", status = API.Status.EXPERIMENTAL)
+    @API(since = "1.0.0", status = API.Status.EXPERIMENTAL)
     public static String strip(String str, String stripChars) {
         if (StringUtilities.isEmpty(str)) {
             return str;
@@ -212,7 +212,7 @@ public class StringUtilities {
      * @param str the string to check
      * @return true if all characters are digits, false otherwise
      */
-    @API(status = API.Status.EXPERIMENTAL, since = "6.0.0")
+    @API(status = API.Status.EXPERIMENTAL, since = "1.0.0")
     public static boolean isNumeric(String str) {
         if (isEmpty(str)) {
             return false;

@@ -21,10 +21,10 @@
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
-<document prev="jmeter_proxy_step_by_step.html" next="jmeter_accesslog_sampler_step_by_step.html" id="$Id$">
+<document prev="breaktest_proxy_step_by_step.html" next="breaktest_accesslog_sampler_step_by_step.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
+  <author email="dev@jmeter.apache.org">BreakTest developers</author>
   <title>JUnit Sampler Tutorial</title>
 </properties>
 

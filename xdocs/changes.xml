@@ -50,9 +50,9 @@ Earlier changes are detailed in the <a href="changes_history.html">History of Pr
 JMeter 6.x requires Java 17 or later for execution (Java 21 is recommended).
 </note>
 
-<!--  =================== 6.0.0 =================== -->
+<!--  =================== 1.0.0 =================== -->
 
-<h1>Version 6.0.0 </h1>
+<h1>Version 1.0.0 </h1>
 <p>
 Summary
 </p>
@@ -188,7 +188,7 @@ wget https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/9.9.1/asm-tree-9.9.1.ja
 wget https://repo1.maven.org/maven2/org/ow2/asm/asm-analysis/9.9.1/asm-analysis-9.9.1.jar
 popd
 export JVM_ARGS="--module-path $PWD/lib/modules"
-./bin/jmeter
+./bin/breaktest
   </source>
 </li>
 

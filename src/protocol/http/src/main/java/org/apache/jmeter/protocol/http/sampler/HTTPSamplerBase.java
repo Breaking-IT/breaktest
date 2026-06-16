@@ -389,7 +389,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * Enum for response processing modes that control how HTTP response data is handled.
      * Supports different strategies for storing, discarding, or checksumming responses.
      *
-     * @since 6.0.0
+     * @since 1.0.0
      */
     public enum ResponseProcessingMode implements ResourceKeyed {
         /**
@@ -709,7 +709,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * Controls how response data is handled (stored, discarded, or checksummed).
      *
      * @return the current response processing mode
-     * @since 6.0.0
+     * @since 1.0.0
      */
     public ResponseProcessingMode getResponseProcessingMode() {
         String value = get(getSchema().getResponseProcessingMode());
@@ -729,7 +729,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * Controls how response data is handled (stored, discarded, or checksummed).
      *
      * @param mode the response processing mode to set
-     * @since 6.0.0
+     * @since 1.0.0
      */
     public void setResponseProcessingMode(ResponseProcessingMode mode) {
         set(getSchema().getResponseProcessingMode(), mode.getResourceKey());

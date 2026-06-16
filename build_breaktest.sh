@@ -15,14 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Build JMeter into the repo-root bin/ and lib/ layout (Gradle createDist).
-# After this succeeds, you can run bin/jmeter.sh or package with create_jmeter_archive.sh.
+# Build BreakTest into the repo-root bin/ and lib/ layout (Gradle createDist).
+# After this succeeds, you can run bin/breaktest.sh or package with create_breaktest_archive.sh.
 #
 # Usage:
-#   ./build_jmeter.sh              # compile and sync jars (default)
-#   ./build_jmeter.sh --clean      # ./gradlew clean createDist
-#   ./build_jmeter.sh --full       # ./gradlew build then createDist (includes tests)
-#   ./build_jmeter.sh -- --scan    # extra args passed to Gradle (after --)
+#   ./build_breaktest.sh              # compile and sync jars (default)
+#   ./build_breaktest.sh --clean      # ./gradlew clean createDist
+#   ./build_breaktest.sh --full       # ./gradlew build then createDist (includes tests)
+#   ./build_breaktest.sh -- --scan    # extra args passed to Gradle (after --)
 #
 set -euo pipefail
 
@@ -42,16 +42,16 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help)
             cat <<'EOF'
-Build JMeter (Gradle) into repo-root bin/ and lib/ via createDist.
+Build BreakTest (Gradle) into repo-root bin/ and lib/ via createDist.
 
 Usage:
-  ./build_jmeter.sh              compile and sync jars (default)
-  ./build_jmeter.sh --clean      ./gradlew clean createDist
-  ./build_jmeter.sh --full       ./gradlew build then createDist (includes tests)
-  ./build_jmeter.sh --full --clean   clean, then build, then createDist
-  ./build_jmeter.sh -- --scan    extra Gradle args after --
+  ./build_breaktest.sh              compile and sync jars (default)
+  ./build_breaktest.sh --clean      ./gradlew clean createDist
+  ./build_breaktest.sh --full       ./gradlew build then createDist (includes tests)
+  ./build_breaktest.sh --full --clean   clean, then build, then createDist
+  ./build_breaktest.sh -- --scan    extra Gradle args after --
 
-Then: ./bin/jmeter.sh  or  ./create_jmeter_archive.sh
+Then: ./bin/breaktest.sh  or  ./create_breaktest_archive.sh
 EOF
             exit 0
             ;;
@@ -103,12 +103,12 @@ if [[ "$CLEAN" -eq 1 ]]; then
   ) &
   GRADLE_GUARD_PID=$!
   trap 'kill "$GRADLE_GUARD_PID" >/dev/null 2>&1 || true' EXIT
-  rm -rf .gradle-build_jmeter \
+  rm -rf .gradle-build_breaktest \
     build-logic/.gradle build-logic-commons/.gradle \
     build-logic/.kotlin build-logic-commons/.kotlin \
     build-logic-commons/gradle-plugin/build
   GRADLE_CACHE_ARGS=(
-            --project-cache-dir .gradle-build_jmeter
+            --project-cache-dir .gradle-build_breaktest
             --no-daemon
             --no-build-cache
             -Dorg.gradle.parallel=false
@@ -136,4 +136,4 @@ else
     fi
 fi
 
-echo "Done. Run JMeter from ${ROOT}/bin/jmeter.sh or archive with ${ROOT}/create_jmeter_archive.sh"
+echo "Done. Run BreakTest from ${ROOT}/bin/breaktest.sh or archive with ${ROOT}/create_breaktest_archive.sh"

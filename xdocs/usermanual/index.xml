@@ -87,7 +87,7 @@
      </ul>
      </li>
      <li><a href="get-started.html#install">1.3 Installation</a></li>
-     <li><a href="get-started.html#running">1.4 Running JMeter</a>
+     <li><a href="get-started.html#running">1.4 Running BreakTest</a>
      <ul>
         <li><a href="get-started.html#classpath">1.4.1 JMeter's Classpath</a></li>
         <li><a href="get-started.html#template">1.4.2 Create Test Plan from Template</a></li>
