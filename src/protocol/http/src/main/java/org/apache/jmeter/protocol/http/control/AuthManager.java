@@ -41,6 +41,7 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.jmeter.config.ConfigElement;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
+import org.apache.jmeter.protocol.http.util.ConversionUtils;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.testelement.TestIterationListener;
 import org.apache.jmeter.testelement.TestStateListener;
@@ -239,10 +240,10 @@ public class AuthManager extends ConfigTestElement implements TestStateListener,
                 // Obtain another URL with an explicit port:
                 int port = url.getProtocol().equalsIgnoreCase(HTTPConstants.PROTOCOL_HTTP) ? HTTPConstants.DEFAULT_HTTP_PORT : HTTPConstants.DEFAULT_HTTPS_PORT;
                 // only http and https are supported
-                url2 = new URL(url.getProtocol(), url.getHost(), port, url.getPath());
+                url2 = ConversionUtils.toUrl(url.getProtocol(), url.getHost(), port, url.getPath());
             } else if ((url.getPort() == HTTPConstants.DEFAULT_HTTP_PORT && url.getProtocol().equalsIgnoreCase(HTTPConstants.PROTOCOL_HTTP))
                     || (url.getPort() == HTTPConstants.DEFAULT_HTTPS_PORT && url.getProtocol().equalsIgnoreCase(HTTPConstants.PROTOCOL_HTTPS))) {
-                url2 = new URL(url.getProtocol(), url.getHost(), url.getPath());
+                url2 = ConversionUtils.toUrl(url.getProtocol(), url.getHost(), url.getPath());
             }
         } catch (MalformedURLException e) {
             log.error("Internal error!", e); // this should never happen

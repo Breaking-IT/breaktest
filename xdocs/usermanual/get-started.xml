@@ -115,7 +115,7 @@ over your Test Plans.</p>
 <p>BreakTest requires that your computing environment meets some minimum requirements.</p>
 
 <subsection name="&sect-num;.1.1 Java Version" anchor="java_versions">
-<note>BreakTest is compatible with Java 17 or higher.
+<note>BreakTest is compatible with Java 21 or higher.
 We highly advise you to install latest minor version of your major version for security and performance reasons.
 </note>
 <p>Because BreakTest uses only standard Java APIs, please do not file bug reports if your JRE fails to run

@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.net.URL;
+import java.net.URI;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContext;
@@ -314,7 +314,7 @@ public class TestRegexExtractor {
         assertTrue(extractor.useUrl(), "useURL should be true");
         extractor.process();
         assertNull(vars.get("regVal"));
-        result.setURL(new URL("http://jakarta.apache.org/index.html?abcd"));
+        result.setURL(URI.create("http://jakarta.apache.org/index.html?abcd").toURL());
         extractor.process();
         assertEquals("index", vars.get("regVal"));
     }

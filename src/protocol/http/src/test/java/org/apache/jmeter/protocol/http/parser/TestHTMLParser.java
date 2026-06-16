@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.parser;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
@@ -152,9 +153,9 @@ public class TestHTMLParser extends JMeterTestCase {
                     "testfiles/HTMLParserTestCaseBase.set",
                     "testfiles/HTMLParserTestCaseBase.all"),
             new TestData("testfiles/HTMLParserTestCase2.html",
-                    "http:", "", ""), // Dummy as the file has no entries
+                    "http:/", "", ""), // Dummy as the file has no entries
             new TestData("testfiles/HTMLParserTestCase3.html",
-                    "http:", "", ""), // Dummy as the file has no entries
+                    "http:/", "", ""), // Dummy as the file has no entries
             new TestData("testfiles/HTMLParserTestCaseWithComments.html",
                     "http://localhost/mydir/myfile.html",
                     "testfiles/HTMLParserTestCaseBase.set",
@@ -329,9 +330,9 @@ public class TestHTMLParser extends JMeterTestCase {
         byte[] buffer = getInputStream(file).readAllBytes();
         Iterator<URL> result;
         if (c == null) {
-            result = p.getEmbeddedResourceURLs(userAgent, buffer, new URL(url), System.getProperty("file.encoding"));
+            result = p.getEmbeddedResourceURLs(userAgent, buffer, toUrl(url), System.getProperty("file.encoding"));
         } else {
-            result = p.getEmbeddedResourceURLs(userAgent, buffer, new URL(url), c,System.getProperty("file.encoding"));
+            result = p.getEmbeddedResourceURLs(userAgent, buffer, toUrl(url), c,System.getProperty("file.encoding"));
         }
         List<String> actual = Lists.newArrayList(Iterators.transform(result, Object::toString));
         // TODO: Exact ordering is only required for some tests; change the

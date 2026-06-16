@@ -48,6 +48,7 @@ import org.apache.commons.cli.avalon.CLOptionDescriptor;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.control.Cookie;
+import org.apache.jmeter.protocol.http.util.ConversionUtils;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -798,7 +799,7 @@ public class BasicCurlParser {
                 } else if (option.getDescriptor().getId() == CLOption.TEXT_ARGUMENT
                         && !"CURL".equalsIgnoreCase(option.getArgument())) {
                     try {
-                        request.setUrl(new URL(option.getArgument()).toExternalForm());
+                        request.setUrl(ConversionUtils.toUrl(option.getArgument()).toExternalForm());
                     } catch (MalformedURLException ex) {
                         LOGGER.warn("Unhandled option {}", option.getArgument());
                     }
@@ -1087,7 +1088,7 @@ public class BasicCurlParser {
                     newCookie.setValue(cookieParameters[1]);
                     URL newUrl;
                     try {
-                        newUrl = new URL(url.trim());
+                        newUrl = ConversionUtils.toUrl(url.trim());
                         newCookie.setDomain(newUrl.getHost());
                         newCookie.setPath(newUrl.getPath());
                         cookies.add(newCookie);

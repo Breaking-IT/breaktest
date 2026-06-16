@@ -31,15 +31,15 @@ prepared, and your votes are solicited.
 This release... TO BE COMPLETED
 
 Please, test this release candidate (with load tests and/or functional
-tests) using Java 8+ on Linux/Windows/macOS, especially on the changes.
+tests) using Java 21+ on Linux/Windows/macOS, especially on the changes.
 Feedback is very welcome within the next 72 hours.
 
 You can read the New and Noteworthy section with some screenshots to
 illustrate improvements and full list of changes at:
 $previewSiteUri/site/changes.html
 
-JMeter is a Java desktop application designed to load test functional
-behavior and measure performance. The current version targets Java 8+
+BreakTest is a Java desktop application designed to load test functional
+behavior and measure performance. The current version targets Java 21+
 
 Download - Archives/hashes/sigs:
 $svnStagingUri
@@ -68,7 +68,7 @@ https://www.apache.org/dist/$tlpUrl/KEYS
 N.B.
 To create the distribution and test $tlp: "./gradlew build -Prelease -PskipSign".
 
-$tlp $version requires Java 17 or later to run.
+$tlp $version requires Java 21 or later to run.
 
 The artifacts were built with
   ${"java.runtime.name".prop} ${"java.vendor".prop} (build ${"java.runtime.version".prop})

@@ -168,6 +168,7 @@ import org.slf4j.LoggerFactory;
  * HTTP Sampler using Apache HttpClient 4.x.
  *
  */
+@SuppressWarnings("removal")
 public class HTTPHC4Impl extends HTTPHCAbstractImpl {
 
     private static final String CONTEXT_ATTRIBUTE_AUTH_MANAGER = "__jmeter.A_M__";
@@ -243,7 +244,7 @@ public class HTTPHC4Impl extends HTTPHCAbstractImpl {
                         continue;
                     }
                     try {
-                        URL authUrl = new URL(auth.getURL());
+                        URL authUrl = ConversionUtils.toUrl(auth.getURL());
                         if (authUrl.getHost().equals(authScope.getHost()) && getPort(authUrl) == authScope.getPort()) {
                             return auth;
                         }
@@ -304,7 +305,7 @@ public class HTTPHC4Impl extends HTTPHCAbstractImpl {
                 if(requestURI.isAbsolute()) {
                     url = requestURI.toURL();
                 } else {
-                    url = new URL(targetHost.getSchemeName(), targetHost.getHostName(), targetHost.getPort(),
+                    url = ConversionUtils.toUrl(targetHost.getSchemeName(), targetHost.getHostName(), targetHost.getPort(),
                             requestURI.getPath());
                 }
                 Authorization authorization =
@@ -645,7 +646,7 @@ public class HTTPHC4Impl extends HTTPHCAbstractImpl {
                 if (redirectURI.isAbsolute()) {
                     res.setURL(redirectURI.toURL());
                 } else {
-                    res.setURL(new URL(new URL(target.toURI()),redirectURI.toString()));
+                    res.setURL(ConversionUtils.toUrl(ConversionUtils.toUrl(target.toURI()), redirectURI.toString()));
                 }
             }
 

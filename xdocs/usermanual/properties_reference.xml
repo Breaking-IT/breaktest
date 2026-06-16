@@ -1488,7 +1488,7 @@ JMETER-SERVER</source>
     Enable Java 21 Virtual Threads for JMeter threads.<br/>
     When enabled, virtual user threads use lightweight virtual threads instead of platform threads.<br/>
     Benefits: Lower memory per thread, better I/O scalability for high thread counts.<br/>
-    Requires: Java 21+ (automatically falls back to platform threads on older Java versions).<br/>
+    Requires: Java 21+.<br/>
     Defaults to: <code>true</code>
 </property>
 <property name="onload.expandtree">

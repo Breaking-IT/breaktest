@@ -81,9 +81,9 @@ class HTTPUtilsTest {
     )
 
     private fun assertMakeRelativeUrl(expectedUrl: String, baseUrl: String, path: String) {
-        val baseURL = URL(baseUrl)
+        val baseURL = ConversionUtils.toUrl(baseUrl)
         val relativeURL = ConversionUtils.makeRelativeURL(baseURL, path)
-        assertEquals(URL(expectedUrl), relativeURL)
+        assertEquals(ConversionUtils.toUrl(expectedUrl), relativeURL)
     }
 
     // Test that location urls with a protocol are passed unchanged
@@ -131,8 +131,13 @@ class HTTPUtilsTest {
     @ParameterizedTest
     @MethodSource("sanitizeUrlCases")
     fun testSanitizeUrl(case: SanitizeUrlCase) {
-        assertEquals(URI(case.expectedUrl), ConversionUtils.sanitizeUrl(URL(case.input)), case.message)
+        assertEquals(URI(case.expectedUrl), ConversionUtils.sanitizeUrl(unsafeUrl(case.input)), case.message)
     }
+
+    @Suppress("DEPRECATION")
+    private fun unsafeUrl(value: String): URL =
+        // sanitizeUrl verifies legacy URL inputs that are not valid URI strings yet.
+        URL(value)
 
     data class SanitizeUrlCase(val input: String, val expectedUrl: String, val message: String? = null)
 

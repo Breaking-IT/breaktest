@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.modifier;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.File;
@@ -62,7 +63,7 @@ public class TestAnchorModifier extends JMeterTestCase {
         result.setResponseData(new TextFile(findTestFile(HTMLFileName)).getText(), null);
         result.setSampleLabel(context.toString());
         result.setSamplerData(context.toString());
-        result.setURL(new URL("http://bz.apache.org/fakepage.html"));
+        result.setURL(toUrl("http://bz.apache.org/fakepage.html"));
         jmctx.setPreviousResult(result);
         AnchorModifier modifier = new AnchorModifier();
         modifier.setThreadContext(jmctx);
@@ -360,7 +361,7 @@ public class TestAnchorModifier extends JMeterTestCase {
 
 
     private static HTTPSamplerBase makeContext(String url) throws MalformedURLException {
-        URL u = new URL(url);
+        URL u = toUrl(url);
         HTTPSamplerBase context = new HTTPNullSampler();
         context.setDomain(u.getHost());
         context.setPath(u.getPath());

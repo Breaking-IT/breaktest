@@ -355,6 +355,7 @@ public class JMeter implements JMeterPlugin {
      * Called reflectively by {@link NewDriver#main(String[])}
      * @param args The arguments for JMeter
      */
+    @SuppressWarnings("removal")
     public void start(String[] args) {
         CLArgsParser parser = new CLArgsParser(args, options);
         String error = parser.getErrorString();

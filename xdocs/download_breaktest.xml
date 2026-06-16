@@ -79,7 +79,7 @@
       <a href="https://www.apache.org/dist/jmeter/KEYS">KEYS</a>
       </p>
     </section>
-    <section name="BreakTest &release; (Requires Java 17+)">
+    <section name="BreakTest &release; (Requires Java 21+)">
       <subsection name="Binaries" anchor="binaries">
         <table>
           <tr>

@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.gui.action;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -246,7 +247,7 @@ public class ParseCurlCommandActionTest {
         request = basicCurlParser.parse(
                 "curl -X PUT \"https://www.example.com:123/12345?param1=value1&param2=value2\" -H  \"accept: */*\" -H  \"X-XSRF-TOKEN: 1234\"");
         httpSampler = (HTTPSamplerProxy) method.invoke(p, request, "");
-        assertEquals(new URL("https://www.example.com:123/12345?param1=value1&param2=value2"), httpSampler.getUrl());
+        assertEquals(toUrl("https://www.example.com:123/12345?param1=value1&param2=value2"), httpSampler.getUrl());
         assertEquals(123, httpSampler.getPort());
         assertEquals("www.example.com", httpSampler.getDomain());
         assertEquals("/12345?param1=value1&param2=value2", httpSampler.getPath());

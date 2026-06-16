@@ -60,6 +60,148 @@ public class ConversionUtils {
     private static final Pattern MAKE_RELATIVE_PATTERN = Pattern.compile("^/((?:\\.\\./)+)"); // $NON-NLS-1$
 
     /**
+     * Creates a {@link URL} through {@link URI}, avoiding the legacy URL constructors.
+     *
+     * @param url URL string
+     * @return URL
+     * @throws MalformedURLException when the given string does not form a valid URL
+     */
+    public static URL toUrl(String url) throws MalformedURLException {
+        try {
+            return new URI(url).toURL();
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            throw malformedUrl(url, e);
+        }
+    }
+
+    /**
+     * Creates a {@link URL} through {@link URI}, avoiding the legacy URL constructors.
+     *
+     * @param protocol URL protocol
+     * @param host URL host, or {@code null} for relative file URLs
+     * @param file URL path and optional query
+     * @return URL
+     * @throws MalformedURLException when the components do not form a valid URL
+     */
+    public static URL toUrl(String protocol, String host, String file) throws MalformedURLException {
+        return toUrl(protocol, host, -1, file);
+    }
+
+    /**
+     * Creates a {@link URL} through {@link URI}, avoiding the legacy URL constructors.
+     *
+     * @param protocol URL protocol
+     * @param host URL host, or {@code null} for relative file URLs
+     * @param port URL port, or {@code -1} for no explicit port
+     * @param file URL path and optional query
+     * @return URL
+     * @throws MalformedURLException when the components do not form a valid URL
+     */
+    public static URL toUrl(String protocol, String host, int port, String file) throws MalformedURLException {
+        StringBuilder url = new StringBuilder(protocol).append(':');
+        if (host != null) {
+            url.append("//").append(host);
+            if (port >= 0) {
+                url.append(':').append(port);
+            }
+        }
+        url.append(file);
+        try {
+            return toUrl(url.toString());
+        } catch (MalformedURLException original) {
+            try {
+                UrlFileParts fileParts = UrlFileParts.parse(file);
+                return new URI(protocol, null, host, port, fileParts.path, fileParts.query, fileParts.fragment).toURL();
+            } catch (URISyntaxException | IllegalArgumentException e) {
+                original.addSuppressed(e);
+                throw original;
+            }
+        }
+    }
+
+    /**
+     * Resolves a location against a base URL through {@link URI}.
+     *
+     * @param baseURL base URL
+     * @param location absolute or relative location
+     * @return resolved URL
+     * @throws MalformedURLException when the inputs do not form a valid URL
+     */
+    public static URL toUrl(URL baseURL, String location) throws MalformedURLException {
+        try {
+            URI baseURI = baseURL.toURI();
+            if ("file".equals(baseURL.getProtocol()) && baseURI.isOpaque() && !hasScheme(location)) {
+                String base = baseURL.toExternalForm();
+                int lastSlash = base.lastIndexOf('/');
+                return toUrl((lastSlash >= 0 ? base.substring(0, lastSlash + 1) : "file:") + location);
+            }
+            return baseURI.resolve(location).normalize().toURL();
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            try {
+                UrlFileParts locationParts = UrlFileParts.parse(location);
+                URI relative = new URI(
+                        null, null, locationParts.path, locationParts.query, locationParts.fragment);
+                return baseURL.toURI().resolve(relative).normalize().toURL();
+            } catch (URISyntaxException | IllegalArgumentException fallback) {
+                throw malformedUrl(baseURL + " + " + location, fallback);
+            }
+        }
+    }
+
+    private static boolean hasScheme(String url) {
+        int colon = url.indexOf(':');
+        if (colon <= 0) {
+            return false;
+        }
+        for (int i = 0; i < colon; i++) {
+            char c = url.charAt(i);
+            if (i == 0 && !Character.isLetter(c)) {
+                return false;
+            }
+            if (!Character.isLetterOrDigit(c) && c != '+' && c != '-' && c != '.') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static MalformedURLException malformedUrl(String url, Exception cause) {
+        MalformedURLException malformed = new MalformedURLException(url + ": " + cause.getMessage());
+        malformed.initCause(cause);
+        return malformed;
+    }
+
+    private static final class UrlFileParts {
+        private final String path;
+        private final String query;
+        private final String fragment;
+
+        private UrlFileParts(String path, String query, String fragment) {
+            this.path = path;
+            this.query = query;
+            this.fragment = fragment;
+        }
+
+        private static UrlFileParts parse(String file) {
+            String pathAndQuery = file;
+            String fragment = null;
+            int fragmentIndex = pathAndQuery.indexOf('#');
+            if (fragmentIndex >= 0) {
+                fragment = pathAndQuery.substring(fragmentIndex + 1);
+                pathAndQuery = pathAndQuery.substring(0, fragmentIndex);
+            }
+            String path = pathAndQuery;
+            String query = null;
+            int queryIndex = pathAndQuery.indexOf('?');
+            if (queryIndex >= 0) {
+                query = pathAndQuery.substring(queryIndex + 1);
+                path = pathAndQuery.substring(0, queryIndex);
+            }
+            return new UrlFileParts(path, query, fragment);
+        }
+    }
+
+    /**
      * Extract the encoding (charset) from the Content-Type, e.g.
      * "text/html; charset=utf-8".
      *
@@ -178,7 +320,7 @@ public class ConversionUtils {
     /**
      * Generate an absolute URL from a possibly relative location,
      * allowing for extraneous leading "../" segments.
-     * The Java {@link URL#URL(URL, String)} constructor does not remove these.
+     * URI resolution does not always remove attempts to navigate above the root.
      *
      * @param baseURL the base URL which is used to resolve missing protocol/host in the location
      * @param location the location, possibly with extraneous leading "../"
@@ -187,7 +329,7 @@ public class ConversionUtils {
      * @see <a href="https://bz.apache.org/bugzilla/show_bug.cgi?id=46690">Bug 46690 - handling of 302 redirects with invalid relative paths</a>
      */
     public static URL makeRelativeURL(URL baseURL, String location) throws MalformedURLException{
-        URL initial = new URL(baseURL,location);
+        URL initial = toUrl(baseURL, location);
 
         // skip expensive processing if it cannot apply
         if (!location.startsWith("../")){// $NON-NLS-1$
@@ -198,7 +340,7 @@ public class ConversionUtils {
         if (m.lookingAt()){
             String prefix = m.group(1); // get ../ or ../../ etc.
             if (location.startsWith(prefix)){
-                return new URL(baseURL, location.substring(prefix.length()));
+                return toUrl(baseURL, location.substring(prefix.length()));
             }
         }
         return initial;
@@ -211,7 +353,7 @@ public class ConversionUtils {
      */
     public static String escapeIllegalURLCharacters(String url) throws Exception{
         String decodeUrl = URLDecoder.decode(url,StandardCharsets.UTF_8.name());
-        URL urlString = new URL(decodeUrl);
+        URL urlString = toUrl(decodeUrl);
         URI uri = new URI(urlString.getProtocol(), urlString.getUserInfo(),
                 urlString.getHost(), urlString.getPort(), urlString.getPath(),
                 urlString.getQuery(), urlString.getRef());

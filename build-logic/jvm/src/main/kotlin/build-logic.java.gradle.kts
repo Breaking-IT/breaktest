@@ -109,7 +109,7 @@ tasks.configureEach<ProcessResources> {
     eachFile {
         if (name.endsWith(".properties")) {
             filteringCharset = "UTF-8"
-            // apply native2ascii conversion since Java 8 expects properties to have ascii symbols only
+            // Keep properties output ASCII-compatible for older tooling that reads generated resources
             filter(org.apache.tools.ant.filters.EscapeUnicode::class)
             filter(LineEndings.LF)
         } else if (name.endsWith(".dtd") || name.endsWith(".svg") ||

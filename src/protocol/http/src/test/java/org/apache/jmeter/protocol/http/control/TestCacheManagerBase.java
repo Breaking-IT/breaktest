@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.control;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -61,7 +62,7 @@ public abstract class TestCacheManagerBase extends JMeterTestCase {
     public void setUp() throws Exception {
         this.cacheManager = new CacheManager();
         this.currentTimeInGMT = makeDate(Instant.now());
-        this.url = new URL(LOCAL_HOST);
+        this.url = toUrl(LOCAL_HOST);
 
         this.sampleResultOK = getSampleResultWithSpecifiedResponseCode("200");
     }

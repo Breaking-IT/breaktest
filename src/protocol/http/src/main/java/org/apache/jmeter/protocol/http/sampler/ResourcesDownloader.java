@@ -24,8 +24,10 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -82,35 +84,8 @@ public class ResourcesDownloader {
     private static final boolean VIRTUAL_THREADS_ENABLED =
             JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true); // $NON-NLS-1$
 
-    /** Cached reference to Executors.newThreadPerTaskExecutor() method for Java 21+ virtual thread support */
-    private static final java.lang.invoke.MethodHandle NEW_VIRTUAL_THREAD_EXECUTOR;
-
     /** Counter for naming virtual threads */
     private static final AtomicLong VIRTUAL_THREAD_COUNTER = new AtomicLong(0);
-
-    static {
-        java.lang.invoke.MethodHandle newExecutor = null;
-        if (VIRTUAL_THREADS_ENABLED) {
-            try {
-                // Try to get Executors.newThreadPerTaskExecutor(ThreadFactory) method (Java 21+)
-                java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
-
-                // Verify Thread.ofVirtual() exists (Java 21+)
-                Thread.class.getMethod("ofVirtual");
-
-                // Get the newThreadPerTaskExecutor method
-                java.lang.reflect.Method newExecutorMethod = java.util.concurrent.Executors.class
-                        .getMethod("newThreadPerTaskExecutor", java.util.concurrent.ThreadFactory.class);
-                newExecutor = lookup.unreflect(newExecutorMethod);
-
-                LOG.info("Virtual threads support enabled for ResourcesDownloader (Java 21+)");
-            } catch (NoSuchMethodException | IllegalAccessException e) {
-                LOG.warn("Virtual threads requested but not available for ResourcesDownloader (requires Java 21+), " +
-                        "falling back to platform threads");
-            }
-        }
-        NEW_VIRTUAL_THREAD_EXECUTOR = newExecutor;
-    }
 
     private static final ResourcesDownloader INSTANCE = new ResourcesDownloader();
 
@@ -129,87 +104,19 @@ public class ResourcesDownloader {
     }
 
     /**
-     * Finds a method in the class hierarchy, including interfaces.
-     * @param clazz the class to search
-     * @param methodName the method name
-     * @param paramTypes the parameter types
-     * @return the method, or null if not found
-     */
-    private static java.lang.reflect.Method findMethodInHierarchy(
-            Class<?> clazz, String methodName, Class<?>... paramTypes) {
-        for (Class<?> c = clazz; c != null; c = c.getSuperclass()) {
-            java.lang.reflect.Method method = findMethodInClassOrInterfaces(c, methodName, paramTypes);
-            if (method != null) {
-                return method;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Finds a method in a class or its interfaces.
-     */
-    private static java.lang.reflect.Method findMethodInClassOrInterfaces(
-            Class<?> clazz, String methodName, Class<?>... paramTypes) {
-        try {
-            return clazz.getMethod(methodName, paramTypes);
-        } catch (NoSuchMethodException ignored) {
-            // Method not found in this class, try interfaces
-            for (Class<?> iface : clazz.getInterfaces()) {
-                try {
-                    return iface.getMethod(methodName, paramTypes);
-                } catch (NoSuchMethodException e) {
-                    LOG.trace("Method {} not found in interface {}", methodName, iface.getName());
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Try to initialize a virtual thread executor (Java 21+).
-     * @return true if virtual threads are enabled and available, false otherwise
+     * Try to initialize a virtual thread executor.
+     * @return true if virtual threads are enabled, false otherwise
      */
     private boolean initVirtualThreadExecutor() {
-        if (NEW_VIRTUAL_THREAD_EXECUTOR == null) {
+        if (!VIRTUAL_THREADS_ENABLED) {
             return false;
         }
-        try {
-            // Create a ThreadFactory that creates virtual threads with custom names
-            java.util.concurrent.ThreadFactory virtualFactory = r -> {
-                try {
-                    java.lang.invoke.MethodHandles.Lookup lookup = java.lang.invoke.MethodHandles.lookup();
-                    java.lang.reflect.Method ofVirtualMethod = Thread.class.getMethod("ofVirtual");
-                    Object builder = lookup.unreflect(ofVirtualMethod).invoke();
-
-                    Class<?> builderClass = builder.getClass();
-                    java.lang.reflect.Method nameMethod = findMethodInHierarchy(builderClass, "name", String.class);
-                    if (nameMethod != null) {
-                        builder = lookup.unreflect(nameMethod).invoke(builder,
-                                "ResDownload-vt-" + VIRTUAL_THREAD_COUNTER.incrementAndGet());
-                    }
-
-                    java.lang.reflect.Method unstartedMethod = findMethodInHierarchy(builderClass, "unstarted", Runnable.class);
-                    if (unstartedMethod != null) {
-                        return (Thread) lookup.unreflect(unstartedMethod).invoke(builder, r);
-                    }
-                } catch (Throwable t) {
-                    LOG.warn("Failed to create virtual thread in factory, creating platform thread", t);
-                }
-                // Fallback to platform thread
-                Thread t = new Thread(r);
-                t.setName("ResDownload-" + t.getName());
-                t.setDaemon(true);
-                return t;
-            };
-
-            concurrentExecutor = (ExecutorService) NEW_VIRTUAL_THREAD_EXECUTOR.invoke(virtualFactory);
-            LOG.info("Created ResourcesDownloader with virtual threads");
-            return true;
-        } catch (Throwable t) {
-            LOG.warn("Failed to create virtual thread executor, falling back to platform threads", t);
-            return false;
-        }
+        ThreadFactory virtualFactory = r -> Thread.ofVirtual()
+                .name("ResDownload-vt-" + VIRTUAL_THREAD_COUNTER.incrementAndGet())
+                .unstarted(r);
+        concurrentExecutor = Executors.newThreadPerTaskExecutor(virtualFactory);
+        LOG.info("Created ResourcesDownloader with virtual threads");
+        return true;
     }
 
     private void initPlatformThreadExecutor() {

@@ -197,9 +197,9 @@ public class JMeterUtils implements UnitTestManager {
         if (loc != null) {
             String []parts = JOrphanUtils.split(loc,"_");// $NON-NLS-1$
             if (parts.length==2) {
-                setLocale(new Locale(parts[0], parts[1]));
+                setLocale(Locale.of(parts[0], parts[1]));
             } else {
-                setLocale(new Locale(loc, "")); // $NON-NLS-1$
+                setLocale(Locale.of(loc, "")); // $NON-NLS-1$
             }
         } else {
             setLocale(Locale.getDefault());
@@ -1298,11 +1298,10 @@ public class JMeterUtils implements UnitTestManager {
     }
 
     /**
-     * Help GC by triggering GC and finalization
+     * Suggests a garbage collection.
      */
     public static void helpGC() {
         System.gc(); // NOSONAR Intentional
-        System.runFinalization();
     }
 
     /**
