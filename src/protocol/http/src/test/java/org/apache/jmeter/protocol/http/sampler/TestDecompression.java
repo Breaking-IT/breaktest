@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.sampler;
 import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.MalformedURLException;
@@ -105,6 +106,12 @@ public class TestDecompression {
                                     StringsKt.contains(res.getResponseHeaders(), "Content-Encoding: gzip", false),
                                     () -> "clientGzip is " + clientGzip + ", so Content-Encoding: gzip header should be present"
                             );
+                        }
+                    },
+                    () -> {
+                        if (clientGzip == ClientGzip.REQUESTED && serverGzip == ServerGzip.SUPPORTED) {
+                            assertNotEquals(res.getResponseData().length, res.getBodySizeAsLong(),
+                                    () -> httpImpl + " should report compressed wire body size");
                         }
                     }
             );

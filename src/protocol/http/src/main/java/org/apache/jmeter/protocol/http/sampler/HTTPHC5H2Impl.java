@@ -240,12 +240,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         int statusCode = statusLine.getStatusCode();
         res.setResponseCode(Integer.toString(statusCode));
         HttpEntity entity = httpResponse.getEntity();
+        long bodyBytes = 0;
         if (entity == null) {
             res.latencyEnd();
             res.setResponseData(new byte[0]);
         } else {
             try (InputStream instream = entity.getContent()) {
-                readResponse(res, instream, entity.getContentLength(), entity.getContentEncoding());
+                org.apache.jorphan.io.CountingInputStream counterStream =
+                        new org.apache.jorphan.io.CountingInputStream(instream);
+                readResponse(res, counterStream, entity.getContentLength(), entity.getContentEncoding());
+                bodyBytes = counterStream.getBytesRead();
             }
         }
         res.sampleEnd();
@@ -262,7 +266,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             }
             res.setRedirectLocation(location.getValue());
         }
-        setResponseSizes(res, httpResponse);
+        setResponseSizes(res, httpResponse, bodyBytes);
         saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
     }
 
@@ -556,12 +560,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private static void setResponseSizes(HTTPSampleResult res, HttpResponse response) {
+    private static void setResponseSizes(HTTPSampleResult res, HttpResponse response, long bodyBytes) {
         long headerBytes = (long) res.getResponseHeaders().length()
                 + (long) response.getHeaders().length
                 + 3L;
         res.setHeadersSize((int) headerBytes);
-        res.setBodySize((long) res.getResponseData().length);
+        res.setBodySize(bodyBytes);
         res.setSentBytes(0);
     }
 
