@@ -241,13 +241,15 @@ https.default.protocol=SSLv3
         <property name="Port" required="No, unless proxy hostname is specified">Port the proxy server is listening to.</property>
         <property name="Username" required="No">(Optional) username for proxy server.</property>
         <property name="Password" required="No">(Optional) password for proxy server. (N.B. this is stored unencrypted in the test plan)</property>
-        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient4</code>.
+        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient5</code>, <code>HttpClient4</code>.
         If not specified (and not defined by HTTP Request Defaults), the default depends on the value of the JMeter property
-        <code>jmeter.httpsampler</code>, failing that, the HttpClient4 implementation is used.</property>
+        <code>jmeter.httpsampler</code>, failing that, the HttpClient5 implementation is used.
+        The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
+        a separate async HttpClient 5 sampler implementation.</property>
         <property name="Protocol" required="No"><code>HTTP</code>, <code>HTTPS</code> or <code>FILE</code>. Default: <code>HTTP</code></property>
         <property name="Method" required="Yes"><code>GET</code>, <code>POST</code>, <code>HEAD</code>, <code>TRACE</code>,
           <code>OPTIONS</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code> (not supported for
-          <code>JAVA</code> implementation). With <code>HttpClient4</code>, the following methods related to WebDav are
+          <code>JAVA</code> implementation). With <code>HttpClient5</code> and <code>HttpClient4</code>, the following methods related to WebDav are
           also allowed: <code>COPY</code>, <code>LOCK</code>, <code>MKCOL</code>, <code>MOVE</code>,
           <code>PROPFIND</code>, <code>PROPPATCH</code>, <code>UNLOCK</code>, <code>REPORT</code>, <code>MKCALENDAR</code>,
           <code>SEARCH</code>.
@@ -3912,9 +3914,11 @@ All port values are treated equally; a sampler that does not specify a port will
         <property name="Port" required="No">Port the web server is listening to.</property>
         <property name="Connect Timeout" required="No">Connection Timeout. Number of milliseconds to wait for a connection to open.</property>
         <property name="Response Timeout" required="No">Response Timeout. Number of milliseconds to wait for a response.</property>
-        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient4</code>.
+        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient5</code>, <code>HttpClient4</code>.
         If not specified the default depends on the value of the JMeter property
-        <code>jmeter.httpsampler</code>, failing that, the <code>Java</code> implementation is used.</property>
+        <code>jmeter.httpsampler</code>, failing that, the <code>HttpClient5</code> implementation is used.
+        The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
+        a separate async HttpClient 5 sampler implementation.</property>
         <property name="Protocol" required="No"><code>HTTP</code> or <code>HTTPS</code>.</property>
         <property name="Content encoding" required="No">The encoding to be used for the request.</property>
         <property name="Path" required="No">The path to resource (for example, <code>/servlets/myServlet</code>). If the

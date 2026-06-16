@@ -510,15 +510,50 @@ JMETER-SERVER</source>
 </source>
 </description>
 </section>
-<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient4)" anchor="httpclient4">
+<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient5 and HTTPClient4)" anchor="httpclient">
 <properties>
 <property name="hc.parameters.file">
     Define a properties file for overriding Apache HttpClient parameters.<br/>
     Uncomment this line if you put anything in <code>hc.parameters</code> file.<br/>
     Defaults to: <code>hc.parameters</code>
 </property>
+<property name="httpclient5.auth.preemptive">
+    Preemptively send Authorization Header when BASIC auth is used by the HttpClient5 implementation.
+    Defaults to: <code>true</code>
+</property>
+<property name="httpclient5.retrycount">
+    Number of retries to attempt for the HttpClient5 implementation.
+    Retry will be done on Idempotent Http Methods by default.
+    If you want to retry for all methods, see property <code>httpclient5.request_sent_retry_enabled</code>
+    <br/>
+    Defaults to: <code>0</code>
+</property>
+<property name="httpclient5.request_sent_retry_enabled">
+    Set this property to <code>true</code> if it's OK for the HttpClient5 implementation to retry requests that have been sent.
+    This means that both Idempotent and non Idempotent requests will be retried.
+    This should usually be false, but it can be useful when testing against some Load Balancers like Amazon ELB.<br/>
+    Defaults to: <code>false</code>
+</property>
+<property name="httpclient5.idletimeout">
+    Idle connection timeout (in milliseconds) to apply in the HttpClient5 implementation if the server does not send <code>Keep-Alive</code> timeout headers.<br/>
+    Defaults to: <code>0</code> (no suggested duration for <code>Keep-Alived</code> connections)
+</property>
+<property name="httpclient5.validate_after_inactivity">
+    Check connection if the elapsed time (in milliseconds) since the last use of the connection
+    exceeds this value. Ensure this value is always lower by at least 150 ms than <code>httpclient5.time_to_live</code><br/>
+    Defaults to: <code>4900</code>
+</property>
+<property name="httpclient5.time_to_live">
+    <abbr title="time to live">TTL</abbr> (in milliseconds) represents an absolute value.
+    No matter what, the connection will not be re-used beyond its TTL in the HttpClient5 implementation.<br/>
+    Defaults to: <code>60000</code>
+</property>
+<property name="httpclient5.default_user_agent_disabled">
+    If true, default HC5 User-Agent will not be added.<br/>
+    Defaults to: <code>false</code>
+</property>
 <property name="httpclient4.auth.preemptive">
-    Preemptively send Authorization Header when BASIC auth is used
+    Preemptively send Authorization Header when BASIC auth is used by the HttpClient4 implementation.
     Defaults to: <code>true</code>
 </property>
 <property name="httpclient4.retrycount">
@@ -794,10 +829,12 @@ JMETER-SERVER</source>
         <dt><code>HTTPSampler</code> or <code>Java</code></dt>
         <dd>Use the <code>Java</code> Sampler</dd>
         <dt><code>HTTPSampler2</code></dt>
+        <dt><code>HttpClient5</code></dt>
+        <dd>Use Apache HTTPClient version 5 classic HTTP/1.1 implementation</dd>
         <dt><code>HttpClient4</code></dt>
-        <dd>Use Apache HTTPClient version 4</dd>
+        <dd>Use Apache HTTPClient version 4 as a temporary compatibility fallback</dd>
     </dl>
-    Defaults to: <code>HttpClient4</code>
+    Defaults to: <code>HttpClient5</code>
 </property>
 <property name="jmeter.httpclient.strict_rfc2616">
     By default JMeter tries to be more lenient with <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>

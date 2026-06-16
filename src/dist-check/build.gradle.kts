@@ -206,11 +206,9 @@ for (impl in arrayOf("Java", "HttpClient4")) {
         xmlFile.set(outputDirectory.file("${testName.get()}_$impl.xml"))
         jmeterArgument("jmeter.httpsampler", impl)
     }
+}
 
-    createBatchTestTask("TestHeaderManager", impl) {
-        jmeterArgument("jmeter.httpsampler", impl)
-    }
-
+for (impl in arrayOf("Java", "HttpClient4", "HttpClient5")) {
     createBatchTestTask("TEST_HTTP", impl) {
         jmeterArgument("jmeter.httpsampler", impl)
         csvFile.set(outputDirectory.file("${testName.get()}_$impl.csv"))

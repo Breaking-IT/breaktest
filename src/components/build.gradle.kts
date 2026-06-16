@@ -62,8 +62,7 @@ dependencies {
         exclude("org.apache.logging.log4j")
     }
     implementation("com.jayway.jsonpath:json-path")
-    implementation("org.apache.httpcomponents:httpasyncclient")
-    implementation("org.apache.httpcomponents:httpcore-nio")
+    implementation("org.apache.httpcomponents.client5:httpclient5")
     implementation("org.jsoup:jsoup")
     implementation("net.sf.jtidy:jtidy")
     implementation("org.apache.commons:commons-math3")
