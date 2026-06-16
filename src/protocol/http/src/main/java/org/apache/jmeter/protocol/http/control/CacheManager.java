@@ -416,6 +416,33 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
      * <li>If-Modified-Since</li>
      * <li>If-None-Match</li>
      * </ul>
+     * Apache HttpClient 5 version.
+     * @param url {@link URL} to look up in cache
+     * @param request where to set the headers
+     */
+    public void setHeaders(URL url, org.apache.hc.core5.http.HttpRequest request) {
+        CacheEntry entry = getEntry(url.toString(), asHeaders(request.getHeaders()));
+        if (log.isDebugEnabled()){
+            log.debug("setHeaders for HTTP Method:{}(HC5) URL:{} Entry:{}", request.getMethod(), url.toString(), entry);
+        }
+        if (entry != null){
+            final String lastModified = entry.getLastModified();
+            if (lastModified != null){
+                request.setHeader(HTTPConstants.IF_MODIFIED_SINCE, lastModified);
+            }
+            final String etag = entry.getEtag();
+            if (etag != null){
+                request.setHeader(HTTPConstants.IF_NONE_MATCH, etag);
+            }
+        }
+    }
+
+    /**
+     * Check the cache, and if there is a match, set the headers:
+     * <ul>
+     * <li>If-Modified-Since</li>
+     * <li>If-None-Match</li>
+     * </ul>
      * @param url {@link URL} to look up in cache
      * @param headers Array of {@link org.apache.jmeter.protocol.http.control.Header}
      * @param conn where to set the headers
@@ -482,6 +509,14 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
             }
         }
         return result.toArray(new Header[result.size()]);
+    }
+
+    private static Header[] asHeaders(org.apache.hc.core5.http.Header[] allHeaders) {
+        Header[] result = new Header[allHeaders.length];
+        for (int i = 0; i < allHeaders.length; i++) {
+            result[i] = new BasicHeader(allHeaders[i].getName(), allHeaders[i].getValue());
+        }
+        return result;
     }
 
     private static class HeaderAdapter implements Header {

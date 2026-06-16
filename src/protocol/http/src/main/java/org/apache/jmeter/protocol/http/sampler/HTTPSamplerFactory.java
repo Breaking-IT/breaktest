@@ -36,6 +36,8 @@ public final class HTTPSamplerFactory {
     public static final String HTTP_SAMPLER_APACHE = "HTTPSampler2"; //$NON-NLS-1$
 
     //+ JMX implementation attribute values (also displayed in GUI) - do not change
+    public static final String IMPL_HTTP_CLIENT5 = "HttpClient5";  // $NON-NLS-1$
+
     public static final String IMPL_HTTP_CLIENT4 = "HttpClient4";  // $NON-NLS-1$
 
     public static final String IMPL_HTTP_CLIENT3_1 = "HttpClient3.1"; // $NON-NLS-1$
@@ -44,7 +46,7 @@ public final class HTTPSamplerFactory {
     //- JMX
 
     public static final String DEFAULT_CLASSNAME =
-        JMeterUtils.getPropDefault("jmeter.httpsampler", IMPL_HTTP_CLIENT4); //$NON-NLS-1$
+        JMeterUtils.getPropDefault("jmeter.httpsampler", IMPL_HTTP_CLIENT5); //$NON-NLS-1$
 
     private HTTPSamplerFactory() {
         // Not intended to be instantiated
@@ -62,7 +64,7 @@ public final class HTTPSamplerFactory {
     /**
      * Create a new instance of the required sampler type
      *
-     * @param alias HTTP_SAMPLER or HTTP_SAMPLER_APACHE or IMPL_HTTP_CLIENT3_1 or IMPL_HTTP_CLIENT4
+     * @param alias HTTP_SAMPLER or HTTP_SAMPLER_APACHE or IMPL_HTTP_CLIENT3_1 or IMPL_HTTP_CLIENT4 or IMPL_HTTP_CLIENT5
      * @return the appropriate sampler
      * @throws UnsupportedOperationException if alias is not recognised
      */
@@ -73,6 +75,9 @@ public final class HTTPSamplerFactory {
         if (alias.equals(HTTP_SAMPLER_JAVA) || alias.equals(IMPL_JAVA)) {
             return new HTTPSamplerProxy(IMPL_JAVA);
         }
+        if (alias.equals(IMPL_HTTP_CLIENT5)) {
+            return new HTTPSamplerProxy(IMPL_HTTP_CLIENT5);
+        }
         if (alias.equals(IMPL_HTTP_CLIENT4) || alias.equals(HTTP_SAMPLER_APACHE) || alias.equals(IMPL_HTTP_CLIENT3_1)) {
             return new HTTPSamplerProxy(IMPL_HTTP_CLIENT4);
         }
@@ -80,7 +85,7 @@ public final class HTTPSamplerFactory {
     }
 
     public static String[] getImplementations(){
-        return new String[]{IMPL_HTTP_CLIENT4,IMPL_JAVA};
+        return new String[]{IMPL_HTTP_CLIENT5, IMPL_HTTP_CLIENT4, IMPL_JAVA};
     }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
@@ -92,6 +97,8 @@ public final class HTTPSamplerFactory {
         }
         if (IMPL_JAVA.equals(impl) || HTTP_SAMPLER_JAVA.equals(impl)) {
             return new HTTPJavaImpl(base);
+        } else if (IMPL_HTTP_CLIENT5.equals(impl)) {
+            return new HTTPHC5Impl(base);
         } else if (IMPL_HTTP_CLIENT4.equals(impl) || IMPL_HTTP_CLIENT3_1.equals(impl)) {
             return new HTTPHC4Impl(base);
         } else {

@@ -61,6 +61,7 @@ dependencies {
         exclude("com.google.code.findbugs", "jsr305")
     }
     implementation("dnsjava:dnsjava")
+    implementation("org.apache.httpcomponents.client5:httpclient5")
     implementation("org.apache.httpcomponents:httpmime")
     implementation("org.apache.httpcomponents:httpcore")
     implementation("com.miglayout:miglayout-swing")

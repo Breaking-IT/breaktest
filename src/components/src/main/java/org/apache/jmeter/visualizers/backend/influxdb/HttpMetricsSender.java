@@ -27,18 +27,20 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import org.apache.http.HttpResponse;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.concurrent.FutureCallback;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.nio.client.CloseableHttpAsyncClient;
-import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
-import org.apache.http.impl.nio.conn.PoolingNHttpClientConnectionManager;
-import org.apache.http.impl.nio.reactor.DefaultConnectingIOReactor;
-import org.apache.http.impl.nio.reactor.IOReactorConfig;
-import org.apache.http.nio.reactor.ConnectingIOReactor;
-import org.apache.http.util.EntityUtils;
+import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
+import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
+import org.apache.hc.client5.http.async.methods.SimpleRequestBuilder;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
+import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
+import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManagerBuilder;
+import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.io.CloseMode;
+import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.report.utils.MetricUtils;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.JOrphanUtils;
@@ -76,12 +78,12 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
 
     private List<MetricTuple> metrics = new ArrayList<>();
 
-    private HttpPost httpRequest;
+    private SimpleHttpRequest httpRequest;
     private CloseableHttpAsyncClient httpClient;
     private URL url;
     private String token;
 
-    private Future<HttpResponse> lastRequest;
+    private Future<SimpleHttpResponse> lastRequest;
 
     HttpMetricsSender() {
         super();
@@ -98,24 +100,27 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
      */
     @Override
     public void setup(String influxdbUrl, String influxDBToken) throws Exception {
-        // Create I/O reactor configuration
         IOReactorConfig ioReactorConfig = IOReactorConfig
                 .custom()
                 .setIoThreadCount(1)
-                .setConnectTimeout(JMeterUtils.getPropDefault("backend_influxdb.connection_timeout", 1000))
-                .setSoTimeout(JMeterUtils.getPropDefault("backend_influxdb.socket_timeout", 3000))
+                .setSoTimeout(Timeout.ofMilliseconds(JMeterUtils.getPropDefault("backend_influxdb.socket_timeout", 3000)))
                 .build();
-        // Create a custom I/O reactor
-        ConnectingIOReactor ioReactor = new DefaultConnectingIOReactor(ioReactorConfig);
 
-        // Create a connection manager with custom configuration.
-        PoolingNHttpClientConnectionManager connManager =
-                new PoolingNHttpClientConnectionManager(ioReactor);
+        ConnectionConfig connectionConfig = ConnectionConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(JMeterUtils.getPropDefault("backend_influxdb.connection_timeout", 1000)))
+                .setSocketTimeout(Timeout.ofMilliseconds(JMeterUtils.getPropDefault("backend_influxdb.socket_timeout", 3000)))
+                .build();
 
-        httpClient = HttpAsyncClientBuilder.create()
-                .setConnectionManager(connManager)
+        PoolingAsyncClientConnectionManager connManager = PoolingAsyncClientConnectionManagerBuilder.create()
+                .setDefaultConnectionConfig(connectionConfig)
                 .setMaxConnPerRoute(2)
                 .setMaxConnTotal(2)
+                .build();
+
+        httpClient = HttpAsyncClients.custom()
+                .setConnectionManager(connManager)
+                .setIOReactorConfig(ioReactorConfig)
+                .setDefaultRequestConfig(createRequestConfig())
                 .setUserAgent("ApacheJMeter" + JMeterUtils.getJMeterVersion())
                 .disableCookieManagement()
                 .disableConnectionState()
@@ -129,23 +134,26 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
     /**
      * @param url   {@link URL} InfluxDB Url
      * @param token InfluxDB 2.0 authorization token
-     * @return {@link HttpPost}
+     * @return configured request
      * @throws URISyntaxException
      */
-    private static HttpPost createRequest(URL url, String token) throws URISyntaxException {
-        RequestConfig defaultRequestConfig = RequestConfig.custom()
-                .setConnectTimeout(JMeterUtils.getPropDefault("backend_influxdb.connection_timeout", 1000))
-                .setSocketTimeout(JMeterUtils.getPropDefault("backend_influxdb.socket_timeout", 3000))
-                .setConnectionRequestTimeout(JMeterUtils.getPropDefault("backend_influxdb.connection_request_timeout", 100))
+    private static SimpleHttpRequest createRequest(URL url, String token) throws URISyntaxException {
+        SimpleHttpRequest currentHttpRequest = SimpleRequestBuilder.post(url.toURI())
+                .setRequestConfig(createRequestConfig())
                 .build();
-
-        HttpPost currentHttpRequest = new HttpPost(url.toURI());
-        currentHttpRequest.setConfig(defaultRequestConfig);
         if (StringUtilities.isNotBlank(token)) {
             currentHttpRequest.setHeader(AUTHORIZATION_HEADER_NAME, AUTHORIZATION_HEADER_VALUE + token);
         }
         log.debug("Created InfluxDBMetricsSender with url: {}", url);
         return currentHttpRequest;
+    }
+
+    private static RequestConfig createRequestConfig() {
+        return RequestConfig.custom()
+                .setResponseTimeout(Timeout.ofMilliseconds(JMeterUtils.getPropDefault("backend_influxdb.socket_timeout", 3000)))
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(
+                        JMeterUtils.getPropDefault("backend_influxdb.connection_request_timeout", 100)))
+                .build();
     }
 
     @Override
@@ -192,11 +200,11 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
             }
             String data = sb.toString();
             log.debug("Sending to influxdb:{}", data);
-            httpRequest.setEntity(new StringEntity(data, StandardCharsets.UTF_8));
-            lastRequest = httpClient.execute(httpRequest, new FutureCallback<HttpResponse>() {
+            httpRequest.setBody(data, ContentType.TEXT_PLAIN.withCharset(StandardCharsets.UTF_8));
+            lastRequest = httpClient.execute(httpRequest, new FutureCallback<SimpleHttpResponse>() {
                 @Override
-                public void completed(final HttpResponse response) {
-                    int code = response.getStatusLine().getStatusCode();
+                public void completed(final SimpleHttpResponse response) {
+                    int code = response.getCode();
                     // If your write request received HTTP
                     // 204 No Content: it was a success!
                     // 4xx: InfluxDB could not understand the request.
@@ -229,16 +237,8 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
      * @param response HttpResponse
      * @return String entity Body if any
      */
-    private static String getBody(final HttpResponse response) {
-        String body = "";
-        try {
-            if (response != null && response.getEntity() != null) {
-                body = EntityUtils.toString(response.getEntity());
-            }
-        } catch (Exception e) { // NOSONAR
-            // NOOP
-        }
-        return body;
+    private static String getBody(final SimpleHttpResponse response) {
+        return response == null || response.getBody() == null ? "" : response.getBodyText();
     }
 
     @Override
@@ -246,12 +246,17 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
         // Give some time to send last metrics before shutting down
         log.info("Destroying ");
         try {
-            lastRequest.get(5, TimeUnit.SECONDS);
+            if (lastRequest != null) {
+                lastRequest.get(5, TimeUnit.SECONDS);
+            }
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             log.error("Error waiting for last request to be send to InfluxDB", e);
+            if (lastRequest != null) {
+                lastRequest.cancel(true);
+            }
         }
-        if (httpRequest != null) {
-            httpRequest.abort();
+        if (httpClient != null) {
+            httpClient.close(CloseMode.GRACEFUL);
         }
         JOrphanUtils.closeQuietly(httpClient);
     }
