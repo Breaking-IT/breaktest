@@ -67,6 +67,7 @@ public interface HTTPConstantsInterface { // CHECKSTYLE IGNORE InterfaceIsType
     String ENCODING_BROTLI = "br"; // $NON-NLS-1$
     String ENCODING_DEFLATE = "deflate"; // $NON-NLS-1$
     String ENCODING_GZIP = "gzip"; // $NON-NLS-1$
+    String ENCODING_ZSTD = "zstd"; // $NON-NLS-1$
 
     String HEADER_CONTENT_DISPOSITION = "Content-Disposition"; // $NON-NLS-1$
     String HEADER_CONTENT_TYPE = "Content-Type"; // $NON-NLS-1$

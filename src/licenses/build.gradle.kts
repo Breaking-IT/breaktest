@@ -131,6 +131,11 @@ val gatherBinaryLicenses by tasks.registering(GatherLicenseTask::class) {
         expectedLicense = SpdxLicense.MIT
     }
 
+    overrideLicense("com.github.luben:zstd-jni:1.5.7-11") {
+        expectedLicense = SpdxLicense.BSD_2_Clause
+        licenseFiles = "zstd-jni"
+    }
+
     overrideLicense("org.slf4j:slf4j-api") {
         expectedLicense = SpdxLicense.MIT
     }
