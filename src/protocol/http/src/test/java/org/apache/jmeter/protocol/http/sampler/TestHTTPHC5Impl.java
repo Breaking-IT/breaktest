@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,18 +34,32 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+
 public class TestHTTPHC5Impl {
     @Test
     public void factorySelectsHttp2ImplementationForHttpClient5Only() {
+        assertArrayEquals(new String[] {
+                HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1,
+                HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2
+        }, HTTPSamplerBase.getHttpProtocolList());
+
         HTTPSamplerProxy http2 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         http2.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
         assertEquals(HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(http2.getImplementation(), http2).getClass());
 
-        HTTPSamplerProxy http2Preferred = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
-        http2Preferred.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2_PREFERRED);
+        HTTPSamplerProxy http2Legacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        http2Legacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP/2");
         assertEquals(HTTPHC5H2Impl.class,
-                HTTPSamplerFactory.getImplementation(http2Preferred.getImplementation(), http2Preferred).getClass());
+                HTTPSamplerFactory.getImplementation(http2Legacy.getImplementation(), http2Legacy).getClass());
+
+        HTTPSamplerProxy http2PreferredLegacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        http2PreferredLegacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP/2 preferred");
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation(http2PreferredLegacy.getImplementation(), http2PreferredLegacy).getClass());
 
         HTTPSamplerProxy http1 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         http1.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
@@ -52,39 +67,52 @@ public class TestHTTPHC5Impl {
                 HTTPSamplerFactory.getImplementation(http1.getImplementation(), http1).getClass());
 
         HTTPSamplerProxy hc4 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT4);
-        hc4.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2_PREFERRED);
+        hc4.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
         assertEquals(HTTPHC4Impl.class,
                 HTTPSamplerFactory.getImplementation(hc4.getImplementation(), hc4).getClass());
 
         HTTPSamplerProxy java = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_JAVA);
-        java.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2_PREFERRED);
+        java.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
         assertEquals(HTTPJavaImpl.class,
                 HTTPSamplerFactory.getImplementation(java.getImplementation(), java).getClass());
     }
 
     @Test
-    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP2_LIVE", matches = "true")
-    public void http2PreferredNegotiatesHttp2AgainstBreaktestApp() {
-        SampleResult result = sampleBreaktestApp(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2_PREFERRED);
+    public void http2FallsBackToHttp11WhenServerDoesNotSupportHttp2() {
+        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        server.start();
+        try {
+            server.stubFor(WireMock.get("/fallback").willReturn(WireMock.aResponse().withBody("ok")));
 
-        assertTrue(result.isSuccessful(), result.getResponseMessage());
-        assertTrue(result.getResponseHeaders().startsWith("HTTP/2"),
-                () -> "Expected HTTP/2 response, got: " + result.getResponseHeaders());
-        assertTrue(result.getConnectTime() > 0,
-                () -> "Expected first HTTP/2 preferred request to report connect time, got: "
-                        + result.getConnectTime());
+            HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+            sampler.setProtocol(HTTPConstants.PROTOCOL_HTTP);
+            sampler.setDomain("localhost");
+            sampler.setPort(server.port());
+            sampler.setPath("/fallback");
+            sampler.setMethod(HTTPConstants.GET);
+            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+
+            SampleResult result = sampler.sample();
+
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertTrue(result.getResponseHeaders().startsWith("HTTP/1.1"),
+                    () -> "Expected HTTP/1.1 fallback, got: " + result.getResponseHeaders());
+            assertEquals("ok", result.getResponseDataAsString());
+        } finally {
+            server.stop();
+        }
     }
 
     @Test
     @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP2_LIVE", matches = "true")
-    public void strictHttp2ReportsConnectTimeAgainstBreaktestApp() {
+    public void http2NegotiatesHttp2AgainstBreaktestApp() {
         SampleResult result = sampleBreaktestApp(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
 
         assertTrue(result.isSuccessful(), result.getResponseMessage());
         assertTrue(result.getResponseHeaders().startsWith("HTTP/2"),
                 () -> "Expected HTTP/2 response, got: " + result.getResponseHeaders());
         assertTrue(result.getConnectTime() > 0,
-                () -> "Expected first strict HTTP/2 request to report connect time, got: "
+                () -> "Expected first HTTP/2 request to report connect time, got: "
                         + result.getConnectTime());
     }
 

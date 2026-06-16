@@ -192,7 +192,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         }
         sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
         httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
-        httpProtocol.setSelectedItem(samplerBase.getString(httpSchema.getHttpProtocol()));
+        httpProtocol.setSelectedItem(HTTPSamplerBase.normalizeHttpProtocol(samplerBase.getString(httpSchema.getHttpProtocol())));
         updateHttpProtocolState();
     }
 

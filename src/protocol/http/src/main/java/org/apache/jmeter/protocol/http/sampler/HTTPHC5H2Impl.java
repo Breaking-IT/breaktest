@@ -146,17 +146,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = ThreadLocal.withInitial(HashMap::new);
 
-    private final boolean http2Preferred;
-
     private volatile HttpUriRequest currentRequest;
 
     HTTPHC5H2Impl(HTTPSamplerBase testElement) {
-        this(testElement, false);
-    }
-
-    HTTPHC5H2Impl(HTTPSamplerBase testElement, boolean http2Preferred) {
         super(testElement);
-        this.http2Preferred = http2Preferred;
     }
 
     @Override
@@ -168,8 +161,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         HttpUriRequestBase httpRequest;
         HttpClientState clientState;
         try {
-            HttpVersionPolicy versionPolicy =
-                    http2Preferred ? HttpVersionPolicy.NEGOTIATE : HttpVersionPolicy.FORCE_HTTP_2;
+            HttpVersionPolicy versionPolicy = HttpVersionPolicy.NEGOTIATE;
             HttpClientKey key = createHttpClientKey(url, versionPolicy);
             clientState = setupClient(key);
             httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);

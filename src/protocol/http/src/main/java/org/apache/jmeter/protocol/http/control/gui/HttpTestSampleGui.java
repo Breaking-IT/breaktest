@@ -156,7 +156,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         if (!isAJP) {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
             httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
-            httpProtocol.setSelectedItem(samplerBase.getString(httpSchema.getHttpProtocol()));
+            httpProtocol.setSelectedItem(samplerBase.getHttpProtocol());
             updateHttpProtocolState();
         }
     }

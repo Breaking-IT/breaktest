@@ -167,9 +167,11 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public static final String HTTP_PROTOCOL_HTTP_1_1 = "HTTP/1.1"; // $NON-NLS-1$
 
-    public static final String HTTP_PROTOCOL_HTTP_2 = "HTTP/2"; // $NON-NLS-1$
+    public static final String HTTP_PROTOCOL_HTTP_2 = "HTTP 2.0"; // $NON-NLS-1$
 
-    public static final String HTTP_PROTOCOL_HTTP_2_PREFERRED = "HTTP/2 preferred"; // $NON-NLS-1$
+    private static final String HTTP_PROTOCOL_HTTP_2_LEGACY = "HTTP/2"; // $NON-NLS-1$
+
+    private static final String HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY = "HTTP/2 preferred"; // $NON-NLS-1$
 
     public static final String PATH = "HTTPSampler.path"; // $NON-NLS-1$
 
@@ -394,7 +396,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public static String[] getHttpProtocolList() {
-        return new String[] {HTTP_PROTOCOL_HTTP_1_1, HTTP_PROTOCOL_HTTP_2, HTTP_PROTOCOL_HTTP_2_PREFERRED};
+        return new String[] {HTTP_PROTOCOL_HTTP_1_1, HTTP_PROTOCOL_HTTP_2};
     }
 
     /**
@@ -717,19 +719,23 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public void setHttpProtocol(String value) {
-        set(getSchema().getHttpProtocol(), value);
+        set(getSchema().getHttpProtocol(), normalizeHttpProtocol(value));
     }
 
     public String getHttpProtocol() {
-        return get(getSchema().getHttpProtocol());
+        return normalizeHttpProtocol(get(getSchema().getHttpProtocol()));
     }
 
     public boolean isHttp2Protocol() {
         return HTTP_PROTOCOL_HTTP_2.equals(getHttpProtocol());
     }
 
-    public boolean isHttp2PreferredProtocol() {
-        return HTTP_PROTOCOL_HTTP_2_PREFERRED.equals(getHttpProtocol());
+    public static String normalizeHttpProtocol(String httpProtocol) {
+        if (HTTP_PROTOCOL_HTTP_2_LEGACY.equals(httpProtocol)
+                || HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY.equals(httpProtocol)) {
+            return HTTP_PROTOCOL_HTTP_2;
+        }
+        return httpProtocol;
     }
 
     /**

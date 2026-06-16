@@ -101,9 +101,6 @@ public final class HTTPSamplerFactory {
             if (base.isHttp2Protocol()) {
                 return new HTTPHC5H2Impl(base);
             }
-            if (base.isHttp2PreferredProtocol()) {
-                return new HTTPHC5H2Impl(base, true);
-            }
             return new HTTPHC5Impl(base);
         } else if (IMPL_HTTP_CLIENT4.equals(impl) || IMPL_HTTP_CLIENT3_1.equals(impl)) {
             return new HTTPHC4Impl(base);
