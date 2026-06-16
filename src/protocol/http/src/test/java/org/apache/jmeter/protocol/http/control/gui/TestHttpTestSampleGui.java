@@ -23,12 +23,12 @@ import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jorphan.locale.LocalizedValue;
 import org.apache.jorphan.locale.ResourceKeyed;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class TestHttpTestSampleGui {
     private HttpTestSampleGui gui;
