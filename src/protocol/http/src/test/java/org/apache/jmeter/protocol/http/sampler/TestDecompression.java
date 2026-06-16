@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -89,7 +90,7 @@ public class TestDecompression {
                             )
             );
 
-            HTTPSampleResult res = http.sample(new URL(server.url("/gzip")), "GET", false, 1);
+            HTTPSampleResult res = http.sample(toUrl(server.url("/gzip")), "GET", false, 1);
 
             Assertions.assertAll(
                     () -> assertEquals(expectedResponse, res.getResponseDataAsString(), "response body"),

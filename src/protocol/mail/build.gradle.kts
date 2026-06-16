@@ -27,8 +27,7 @@ dependencies {
     }
     // There's no javax.activation:activation:1.2.0, so we use com.sun...
     runtimeOnly("com.sun.activation:javax.activation")
-    // This is an API-only jar. javax.activation is present in Java 8,
-    // however it is not there in Java 9
+    // This is an API-only jar. javax.activation is not bundled with Java 21.
     compileOnly("javax.activation:javax.activation-api")
     testImplementation(testFixtures(projects.src.core))
 }

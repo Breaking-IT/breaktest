@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.sampler;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.any;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -70,7 +71,7 @@ class TestRedirects {
             http.setAutoRedirects(false);
             server.stubFor(any(urlPathEqualTo("/some-location")).willReturn(
                     aResponse().withHeader("Location", server.url("/redirected")).withStatus(redirectCode)));
-            HTTPSampleResult res = http.sample(new URL(server.url("/some-location")), method, false, 1);
+            HTTPSampleResult res = http.sample(toUrl(server.url("/some-location")), method, false, 1);
             if (shouldRedirect) {
                 Assertions.assertEquals(server.url("/redirected"), res.getRedirectLocation());
             } else {
@@ -120,7 +121,7 @@ class TestRedirects {
                     .atPriority(10)
                     .willReturn(aResponse().withStatus(405)));
 
-            HTTPSampleResult res = http.sample(new URL(server.url("/original")),
+            HTTPSampleResult res = http.sample(toUrl(server.url("/original")),
                     originalMethod, false, 1);
 
             Assertions.assertEquals("200", res.getResponseCode(),
@@ -159,7 +160,7 @@ class TestRedirects {
             server.stubFor(any(urlPathEqualTo("/c")).willReturn(
                     aResponse().withStatus(200)));
 
-            HTTPSampleResult res = http.sample(new URL(server.url("/a")), "POST", false, 1);
+            HTTPSampleResult res = http.sample(toUrl(server.url("/a")), "POST", false, 1);
 
             Assertions.assertEquals("200", res.getResponseCode());
             Assertions.assertEquals("GET", res.getHTTPMethod());

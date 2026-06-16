@@ -438,10 +438,10 @@ public class DefaultSamplerCreator extends AbstractSamplerCreator {
             Map<String, String> formEncodings) throws MalformedURLException {
         URL pageUrl;
         if(sampler.isProtocolDefaultPort()) {
-            pageUrl = new URL(sampler.getProtocol(), sampler.getDomain(), request.getPath());
+            pageUrl = ConversionUtils.toUrl(sampler.getProtocol(), sampler.getDomain(), request.getPath());
         }
         else {
-            pageUrl = new URL(sampler.getProtocol(), sampler.getDomain(),
+            pageUrl = ConversionUtils.toUrl(sampler.getProtocol(), sampler.getDomain(),
                     sampler.getPort(), request.getPath());
         }
         String urlWithoutQuery = request.getUrlWithoutQuery(pageUrl);

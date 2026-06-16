@@ -88,7 +88,7 @@ The following requirements exist for running BreakTest:
 
 - Java Interpreter:
 
-  A fully compliant Java 17 Runtime Environment is required
+  A fully compliant Java 21 Runtime Environment is required
   for BreakTest to execute. A JDK with `keytool` utility is better suited
   for Recording HTTPS websites.
 
@@ -177,8 +177,8 @@ BreakTest is built using Gradle, and it uses [Gradle's Toolchains for JVM projec
 for provisioning JDKs. It means the code would search for the needed JDKs locally, or download them
 if they are not found.
 
-By default, the code would use JDK 17 for build purposes, however it would set the target release to 8,
-so the resulting artifacts would be compatible with Java 8.
+By default, the code uses JDK 21 for build purposes and targets Java 21 bytecode,
+so the resulting artifacts require Java 21 or later.
 
 The following command builds and tests BreakTest:
 
@@ -186,7 +186,7 @@ The following command builds and tests BreakTest:
 ./gradlew build
 ```
 
-If you want to use a custom JDK for building you can set `-PjdkBuildVersion=11`,
+If you want to use a custom JDK for building you can set `-PjdkBuildVersion=21`,
 and you can select `-PjdkTestVersion=21` if you want to use a different JDK for testing.
 
 You can list the available build parameters by executing

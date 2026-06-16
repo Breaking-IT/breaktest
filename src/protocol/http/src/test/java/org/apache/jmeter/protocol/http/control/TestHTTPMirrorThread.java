@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.control;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -285,7 +286,7 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
 
     @Test
     public void testStatus() throws Exception {
-        URL url = new URL("http", "localhost", HTTP_SERVER_PORT, "/");
+        URL url = toUrl("http", "localhost", HTTP_SERVER_PORT, "/");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.addRequestProperty("X-ResponseStatus", "302 Temporary Redirect");
         conn.connect();
@@ -315,7 +316,7 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
 
     @Test
     public void testHeaders() throws Exception {
-        URL url = new URL("http", "localhost", HTTP_SERVER_PORT, "/");
+        URL url = toUrl("http", "localhost", HTTP_SERVER_PORT, "/");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.addRequestProperty("X-SetHeaders", "Location: /abcd|X-Dummy: none");
         conn.connect();
@@ -327,7 +328,7 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
 
     @Test
     public void testResponseLength() throws Exception {
-        URL url = new URL("http", "localhost", HTTP_SERVER_PORT, "/");
+        URL url = toUrl("http", "localhost", HTTP_SERVER_PORT, "/");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.addRequestProperty("X-ResponseLength", "10");
         conn.connect();
@@ -338,7 +339,7 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
 
     @Test
     public void testCookie() throws Exception {
-        URL url = new URL("http", "localhost", HTTP_SERVER_PORT, "/");
+        URL url = toUrl("http", "localhost", HTTP_SERVER_PORT, "/");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.addRequestProperty("X-SetCookie", "four=2*2");
         conn.connect();
@@ -347,7 +348,7 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
 
     @Test
     public void testSleep() throws Exception {
-        URL url = new URL("http", "localhost", HTTP_SERVER_PORT, "/");
+        URL url = toUrl("http", "localhost", HTTP_SERVER_PORT, "/");
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.addRequestProperty("X-Sleep", "200");
         // use nanoTime to do timing measurement or calculation

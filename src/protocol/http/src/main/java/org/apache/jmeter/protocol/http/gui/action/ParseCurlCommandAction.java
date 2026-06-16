@@ -88,6 +88,7 @@ import org.apache.jmeter.protocol.http.gui.DNSCachePanel;
 import org.apache.jmeter.protocol.http.gui.HeaderPanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.protocol.http.util.ConversionUtils;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.services.FileServer;
@@ -305,7 +306,7 @@ public class ParseCurlCommandAction extends AbstractAction implements MenuCreato
         } else {
             httpSampler.setProperty(TestElement.COMMENTS, getDefaultComment());
         } // NOSONAR
-        URL url = new URL(request.getUrl());
+        URL url = ConversionUtils.toUrl(request.getUrl());
         httpSampler.setProtocol(url.getProtocol());
         if (url.getPort() != -1) {
             httpSampler.setPort(url.getPort());

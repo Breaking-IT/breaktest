@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.control;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -35,12 +36,12 @@ public class TestAuthManager extends JMeterTestCase {
 
     @Test
     public void testHttp() throws Exception {
-        Assertions.assertTrue(AuthManager.isSupportedProtocol(new URL("http:")));
+        Assertions.assertTrue(AuthManager.isSupportedProtocol(toUrl("http:/")));
     }
 
     @Test
     public void testHttps() throws Exception {
-        Assertions.assertTrue(AuthManager.isSupportedProtocol(new URL("https:")));
+        Assertions.assertTrue(AuthManager.isSupportedProtocol(toUrl("https:/")));
     }
 
     @Test
@@ -51,37 +52,37 @@ public class TestAuthManager extends JMeterTestCase {
         am.addFile(findTestPath("testfiles/TestAuth.txt"));
         assertEquals(9, ao.size());
         Authorization at;
-        at = am.getAuthForURL(new URL("http://a.b.c/"));
+        at = am.getAuthForURL(toUrl("http://a.b.c/"));
         assertEquals("login", at.getUser());
         assertEquals("password", at.getPass());
-        at = am.getAuthForURL(new URL("http://a.b.c:80/")); // same as above
+        at = am.getAuthForURL(toUrl("http://a.b.c:80/")); // same as above
         assertEquals("login", at.getUser());
         assertEquals("password", at.getPass());
-        at = am.getAuthForURL(new URL("http://a.b.c:443/"));// not same
+        at = am.getAuthForURL(toUrl("http://a.b.c:443/"));// not same
         assertNull(at);
-        at = am.getAuthForURL(new URL("http://a.b.c/1"));
+        at = am.getAuthForURL(toUrl("http://a.b.c/1"));
         assertEquals("login1", at.getUser());
         assertEquals("password1", at.getPass());
         assertEquals("", at.getDomain());
         assertEquals("", at.getRealm());
-        at = am.getAuthForURL(new URL("http://d.e.f/"));
+        at = am.getAuthForURL(toUrl("http://d.e.f/"));
         assertEquals("user", at.getUser());
         assertEquals("pass", at.getPass());
         assertEquals("domain", at.getDomain());
         assertEquals("realm", at.getRealm());
-        at = am.getAuthForURL(new URL("https://j.k.l/"));
+        at = am.getAuthForURL(toUrl("https://j.k.l/"));
         assertEquals("jkl", at.getUser());
         assertEquals("pass", at.getPass());
-        at = am.getAuthForURL(new URL("https://j.k.l:443/"));
+        at = am.getAuthForURL(toUrl("https://j.k.l:443/"));
         assertEquals("jkl", at.getUser());
         assertEquals("pass", at.getPass());
-        at = am.getAuthForURL(new URL("https://l.m.n/"));
+        at = am.getAuthForURL(toUrl("https://l.m.n/"));
         assertEquals("lmn443", at.getUser());
         assertEquals("pass", at.getPass());
-        at = am.getAuthForURL(new URL("https://l.m.n:443/"));
+        at = am.getAuthForURL(toUrl("https://l.m.n:443/"));
         assertEquals("lmn443", at.getUser());
         assertEquals("pass", at.getPass());
-        at = am.getAuthForURL(new URL("https://l.m.n:8443/"));
+        at = am.getAuthForURL(toUrl("https://l.m.n:8443/"));
         assertEquals("lmn8443", at.getUser());
         assertEquals("pass", at.getPass());
     }
@@ -93,7 +94,7 @@ public class TestAuthManager extends JMeterTestCase {
                 "http://example.com\tuser\tpassword\t\t\tBASIC_DIGEST".getBytes(Charset.defaultCharset()));
         AuthManager manager = new AuthManager();
         manager.addFile(authFile.getAbsolutePath());
-        Authorization authForURL = manager.getAuthForURL(new URL("http://example.com"));
+        Authorization authForURL = manager.getAuthForURL(toUrl("http://example.com"));
         assertEquals("password", authForURL.getPass());
     }
 
@@ -105,7 +106,7 @@ public class TestAuthManager extends JMeterTestCase {
                         .getBytes(Charset.defaultCharset()));
         AuthManager manager = new AuthManager();
         manager.addFile(authFile.getAbsolutePath());
-        Authorization authForURL = manager.getAuthForURL(new URL("http://example.com"));
+        Authorization authForURL = manager.getAuthForURL(toUrl("http://example.com"));
         assertEquals("password", authForURL.getPass());
         assertEquals("domain", authForURL.getDomain());
     }
@@ -118,7 +119,7 @@ public class TestAuthManager extends JMeterTestCase {
                         .getBytes(Charset.defaultCharset()));
         AuthManager manager = new AuthManager();
         manager.addFile(authFile.getAbsolutePath());
-        Authorization authForURL = manager.getAuthForURL(new URL("http://example.com"));
+        Authorization authForURL = manager.getAuthForURL(toUrl("http://example.com"));
         assertEquals("password", authForURL.getPass());
         assertEquals("domain", authForURL.getDomain());
         assertEquals(AuthManager.Mechanism.KERBEROS, authForURL.getMechanism());

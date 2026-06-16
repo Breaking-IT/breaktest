@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.parser;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.net.URL;
@@ -73,7 +74,7 @@ class TestBug60842HtmlParser {
                         new String[] { "<link href='  abc\n.css  ' rel='stylesheet'/>",
                                 "http://example.org/abc.css" },
                         new String[] { "<link href='  with spaces\n.css  ' rel='stylesheet'/>",
-                                "http://example.org/with spaces.css" },
+                                "http://example.org/with%20spaces.css" },
                         new String[] { "<link href='favicon.ico' rel='shortcut icon' type='image/vnd.microsoft.icon'/>",
                                 "http://example.org/favicon.ico" },
                         new String[] { "<link href='favicon.ico' rel='icon' type='image/vnd.microsoft.icon'/>",
@@ -109,7 +110,7 @@ class TestBug60842HtmlParser {
         final ArrayList<URLString> c = new ArrayList<>();
         parser.getEmbeddedResourceURLs("Mozilla",
                 html.getBytes(StandardCharsets.UTF_8),
-                new URL("http://example.org"), new URLCollection(c),
+                toUrl("http://example.org"), new URLCollection(c),
                 StandardCharsets.UTF_8.name());
         List<String> urlNames = c.stream().map(u -> u.toString())
                 .collect(Collectors.toList());

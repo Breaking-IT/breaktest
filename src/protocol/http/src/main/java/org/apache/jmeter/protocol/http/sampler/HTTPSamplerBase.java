@@ -1212,7 +1212,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         // Hack to allow entire URL to be provided in host field
         if (path.startsWith(HTTP_PREFIX)
                 || path.startsWith(HTTPS_PREFIX)) {
-            return new URL(path);
+            return ConversionUtils.toUrl(path);
         }
         String domain = getDomain();
         String protocol = getProtocol();
@@ -1247,9 +1247,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         }
         // If default port for protocol is used, we do not include port in URL
         if (isProtocolDefaultPort()) {
-            return new URL(protocol, domain, pathAndQuery.toString());
+            return ConversionUtils.toUrl(protocol, domain, pathAndQuery.toString());
         }
-        return new URL(protocol, domain, getPort(), pathAndQuery.toString());
+        return ConversionUtils.toUrl(protocol, domain, getPort(), pathAndQuery.toString());
     }
 
     /**

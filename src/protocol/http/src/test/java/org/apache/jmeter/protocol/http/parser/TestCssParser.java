@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.parser;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,7 +75,7 @@ public class TestCssParser extends JMeterTestCase {
             throws LinkExtractorParseException, MalformedURLException {
         List<URL> result = new ArrayList<>();
         Iterator<URL> urlIterator = parser.getEmbeddedResourceURLs(
-                "Mozilla", css.getBytes(StandardCharsets.UTF_8), new URL(
+                "Mozilla", css.getBytes(StandardCharsets.UTF_8), toUrl(
                         "http://example.org/"), StandardCharsets.UTF_8
                         .displayName());
         urlIterator.forEachRemaining(result::add);

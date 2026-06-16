@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
+
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -32,7 +34,7 @@ public final class NullURLConnection extends URLConnection {
     private final Properties data = new Properties();
 
     public NullURLConnection() throws MalformedURLException {
-        this(new URL("http://localhost"));
+        this(toUrl("http://localhost"));
     }
 
     public NullURLConnection(URL url) {

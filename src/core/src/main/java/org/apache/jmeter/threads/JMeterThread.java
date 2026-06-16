@@ -260,6 +260,7 @@ public class JMeterThread implements Runnable, Interruptible {
         this.threadName = threadName;
     }
     @Override
+    @SuppressWarnings("removal")
     public void run() {
         // threadContext is not thread-safe, so keep within thread
         JMeterContext threadContext = JMeterContextService.getContext();

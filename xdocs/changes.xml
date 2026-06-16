@@ -47,7 +47,7 @@ Earlier changes are detailed in the <a href="changes_history.html">History of Pr
 
 <br></br>
 <note>
-JMeter 6.x requires Java 17 or later for execution (Java 21 is recommended).
+BreakTest requires Java 21 or later for execution.
 </note>
 
 <!--  =================== 1.0.0 =================== -->
@@ -64,7 +64,7 @@ Summary
   <ch_section>Changes</ch_section>
   <h3>General</h3>
   <ul>
-    <li><pr>6220</pr> Require Java 17 or later for running JMeter</li>
+    <li>Require Java 21 or later for running BreakTest</li>
     <li><pr>6550</pr> Require Kotlin 1.9 or later for running JMeter</li>
     <li><pr>6274</pr> Change references to old MySQL driver to new class <code>com.mysql.cj.jdbc.Driver</code></li>
     <li><issue>6352</issue> Calculate delays in Open Model Thread Group and Precise Throughput

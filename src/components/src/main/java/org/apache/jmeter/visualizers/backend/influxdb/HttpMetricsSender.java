@@ -120,7 +120,7 @@ class HttpMetricsSender extends AbstractInfluxdbMetricsSender {
                 .disableCookieManagement()
                 .disableConnectionState()
                 .build();
-        url = new URL(influxdbUrl);
+        url = java.net.URI.create(influxdbUrl).toURL();
         token = influxDBToken;
         httpRequest = createRequest(url, token);
         httpClient.start();

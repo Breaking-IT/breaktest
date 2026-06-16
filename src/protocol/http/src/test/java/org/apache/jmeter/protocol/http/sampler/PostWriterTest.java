@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -905,7 +906,7 @@ public class PostWriterTest {
         private Map<String, String> properties = new HashMap<>();
 
         public StubURLConnection(String url) throws MalformedURLException {
-            super(new URL(url));
+            super(toUrl(url));
         }
 
         @Override
