@@ -98,6 +98,12 @@ public final class HTTPSamplerFactory {
         if (IMPL_JAVA.equals(impl) || HTTP_SAMPLER_JAVA.equals(impl)) {
             return new HTTPJavaImpl(base);
         } else if (IMPL_HTTP_CLIENT5.equals(impl)) {
+            if (base.isHttp2Protocol()) {
+                return new HTTPHC5H2Impl(base);
+            }
+            if (base.isHttp2PreferredProtocol()) {
+                return new HTTPHC5H2Impl(base, true);
+            }
             return new HTTPHC5Impl(base);
         } else if (IMPL_HTTP_CLIENT4.equals(impl) || IMPL_HTTP_CLIENT3_1.equals(impl)) {
             return new HTTPHC4Impl(base);

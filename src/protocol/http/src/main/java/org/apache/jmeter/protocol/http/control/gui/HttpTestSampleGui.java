@@ -90,11 +90,13 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     private JTextField proxyUser;
     private JPasswordField proxyPass;
     private final JComboBox<String> httpImplementation = new JComboBox<>(HTTPSamplerFactory.getImplementations());
+    private final JComboBox<String> httpProtocol = new JComboBox<>(HTTPSamplerBase.getHttpProtocolList());
     private JTextField connectTimeOut;
     private JTextField responseTimeOut;
 
     private final boolean isAJP;
     private JMeterProperty legacyStoreAsMD5;
+    private JMeterProperty legacyHttpProtocol;
 
     public HttpTestSampleGui() {
         this(false);
@@ -146,10 +148,16 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         if (legacyStoreAsMD5 != null) {
             legacyStoreAsMD5 = legacyStoreAsMD5.clone();
         }
+        legacyHttpProtocol = element.getPropertyOrNull(httpSchema.getHttpProtocol().getName());
+        if (legacyHttpProtocol != null) {
+            legacyHttpProtocol = legacyHttpProtocol.clone();
+        }
         urlConfigGui.configure(element);
         if (!isAJP) {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
             httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
+            httpProtocol.setSelectedItem(samplerBase.getString(httpSchema.getHttpProtocol()));
+            updateHttpProtocolState();
         }
     }
 
@@ -194,6 +202,13 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
             samplerBase.set(httpSchema.getImplementation(),
                     StringUtilities.isBlank(selectedImplementation) ? null : selectedImplementation);
+            if (shouldSaveHttpProtocol()) {
+                samplerBase.set(httpSchema.getHttpProtocol(), String.valueOf(httpProtocol.getSelectedItem()));
+            } else if (legacyHttpProtocol != null) {
+                samplerBase.setProperty(legacyHttpProtocol.clone());
+            } else {
+                samplerBase.removeProperty(httpSchema.getHttpProtocol());
+            }
         }
         if (legacyStoreAsMD5 != null) {
             samplerBase.setProperty(legacyStoreAsMD5.clone());
@@ -366,8 +381,36 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
                 JMeterUtils.getResString("web_server_client"))); // $NON-NLS-1$
         implPanel.add(new JLabel(JMeterUtils.getResString("http_implementation"))); // $NON-NLS-1$
         httpImplementation.addItem("");// $NON-NLS-1$
+        httpImplementation.addActionListener(e -> updateHttpProtocolState());
         implPanel.add(httpImplementation);
+        implPanel.add(new JLabel(JMeterUtils.getResString("http_wire_protocol"))); // $NON-NLS-1$
+        implPanel.add(httpProtocol);
+        updateHttpProtocolState();
         return implPanel;
+    }
+
+    private boolean isHttpProtocolAvailable() {
+        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
+        return StringUtilities.isBlank(selectedImplementation)
+                || HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation);
+    }
+
+    private boolean shouldSaveHttpProtocol() {
+        if (!isHttpProtocolAvailable()) {
+            return false;
+        }
+        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
+        String selectedProtocol = String.valueOf(httpProtocol.getSelectedItem());
+        return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation)
+                || !HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedProtocol);
+    }
+
+    private void updateHttpProtocolState() {
+        boolean enabled = isHttpProtocolAvailable();
+        httpProtocol.setEnabled(enabled);
+        if (!enabled) {
+            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+        }
     }
 
     protected JPanel createResponseProcessingPanel() {
@@ -405,6 +448,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     public void clearGui() {
         super.clearGui();
         urlConfigGui.clear();
+        legacyStoreAsMD5 = null;
+        legacyHttpProtocol = null;
     }
 
     private void enableConcurrentDwn() {

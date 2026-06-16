@@ -43,6 +43,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
@@ -87,8 +88,10 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     private JTextField proxyUser;
     private JPasswordField proxyPass;
     private final JComboBox<String> httpImplementation = new JComboBox<>(HTTPSamplerFactory.getImplementations());
+    private final JComboBox<String> httpProtocol = new JComboBox<>(HTTPSamplerBase.getHttpProtocolList());
     private JTextField connectTimeOut;
     private JTextField responseTimeOut;
+    private JMeterProperty legacyHttpProtocol;
 
     public HttpDefaultsGui() {
         super();
@@ -160,12 +163,20 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         }
 
         config.set(httpSchema.getImplementation(), String.valueOf(httpImplementation.getSelectedItem()));
+        if (shouldSaveHttpProtocol()) {
+            config.set(httpSchema.getHttpProtocol(), String.valueOf(httpProtocol.getSelectedItem()));
+        } else if (legacyHttpProtocol != null) {
+            config.setProperty(legacyHttpProtocol.clone());
+        } else {
+            config.removeProperty(httpSchema.getHttpProtocol());
+        }
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
         urlConfigGui.clear();
+        legacyHttpProtocol = null;
     }
 
     @Override
@@ -175,8 +186,14 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         urlConfigGui.configure(el);
 
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
+        legacyHttpProtocol = el.getPropertyOrNull(httpSchema.getHttpProtocol().getName());
+        if (legacyHttpProtocol != null) {
+            legacyHttpProtocol = legacyHttpProtocol.clone();
+        }
         sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
         httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
+        httpProtocol.setSelectedItem(samplerBase.getString(httpSchema.getHttpProtocol()));
+        updateHttpProtocolState();
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -335,8 +352,36 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                 JMeterUtils.getResString("web_server_client"))); // $NON-NLS-1$
         implPanel.add(new JLabel(JMeterUtils.getResString("http_implementation"))); // $NON-NLS-1$
         httpImplementation.addItem("");// $NON-NLS-1$
+        httpImplementation.addActionListener(e -> updateHttpProtocolState());
         implPanel.add(httpImplementation);
+        implPanel.add(new JLabel(JMeterUtils.getResString("http_wire_protocol"))); // $NON-NLS-1$
+        implPanel.add(httpProtocol);
+        updateHttpProtocolState();
         return implPanel;
+    }
+
+    private boolean isHttpProtocolAvailable() {
+        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
+        return StringUtilities.isBlank(selectedImplementation)
+                || HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation);
+    }
+
+    private boolean shouldSaveHttpProtocol() {
+        if (!isHttpProtocolAvailable()) {
+            return false;
+        }
+        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
+        String selectedProtocol = String.valueOf(httpProtocol.getSelectedItem());
+        return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation)
+                || !HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedProtocol);
+    }
+
+    private void updateHttpProtocolState() {
+        boolean enabled = isHttpProtocolAvailable();
+        httpProtocol.setEnabled(enabled);
+        if (!enabled) {
+            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+        }
     }
 
     /**

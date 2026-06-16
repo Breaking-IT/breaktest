@@ -87,6 +87,9 @@ public abstract class HTTPSamplerBaseSchema : TestElementSchema() {
     public val implementation: StringPropertyDescriptor<HTTPSamplerBaseSchema>
         by string("HTTPSampler.implementation")
 
+    public val httpProtocol: StringPropertyDescriptor<HTTPSamplerBaseSchema>
+        by string("HTTPSampler.http_protocol", default = HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1)
+
     public val connectTimeout: IntegerPropertyDescriptor<HTTPSamplerBaseSchema>
         by int("HTTPSampler.connect_timeout")
 

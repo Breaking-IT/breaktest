@@ -32,6 +32,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
@@ -140,6 +141,7 @@ import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.protocol.BasicHttpContext;
 import org.apache.hc.core5.http.protocol.HttpContext;
 import org.apache.hc.core5.http.protocol.HttpCoreContext;
+import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -431,15 +433,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 DnsResolver dnsResolver) {
             super(socketFactoryRegistry, schemePortResolver, dnsResolver);
         }
-
         @Override
-        public void connect(ManagedHttpClientConnection conn, HttpHost host, InetSocketAddress localAddress,
-                TimeValue connectTimeout, SocketConfig socketConfig, HttpContext context) throws IOException {
+        public void connect(ManagedHttpClientConnection conn, HttpHost endpointHost, NamedEndpoint endpointName, Path unixDomainSocket,
+                InetSocketAddress localAddress, Timeout connectTimeout, SocketConfig socketConfig, Object attachment,
+                HttpContext context) throws IOException {
             try {
-                super.connect(conn, host, localAddress, connectTimeout, socketConfig, context);
+                super.connect(conn, endpointHost, endpointName, unixDomainSocket, localAddress, connectTimeout, socketConfig, attachment,
+                        context);
             } finally {
                 SampleResult sample =
-                        (SampleResult)context.getAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT);
+                        (SampleResult) context.getAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT);
                 if (sample != null) {
                     sample.connectEnd();
                 }
