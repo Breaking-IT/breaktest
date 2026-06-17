@@ -20,10 +20,12 @@ package org.apache.jmeter.protocol.http.sampler;
 import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -93,7 +95,6 @@ public class TestDecompression {
             HTTPSampleResult res = http.sample(toUrl(server.url("/gzip")), "GET", false, 1);
 
             Assertions.assertAll(
-                    () -> assertEquals(expectedResponse, res.getResponseDataAsString(), "response body"),
                     () -> {
                         if (clientGzip == ClientGzip.NOT_REQUESTED || serverGzip == ServerGzip.NOT_SUPPORTED) {
                             assertFalse(
@@ -106,7 +107,15 @@ public class TestDecompression {
                                     () -> "clientGzip is " + clientGzip + ", so Content-Encoding: gzip header should be present"
                             );
                         }
-                    }
+                    },
+                    () -> {
+                        if (clientGzip == ClientGzip.REQUESTED && serverGzip == ServerGzip.SUPPORTED) {
+                            assertNotEquals(expectedResponse.getBytes(StandardCharsets.UTF_8).length,
+                                    res.getBodySizeAsLong(),
+                                    () -> httpImpl + " should report compressed wire body size");
+                        }
+                    },
+                    () -> assertEquals(expectedResponse, res.getResponseDataAsString(), "response body")
             );
         } finally {
             server.stop();

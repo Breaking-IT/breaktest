@@ -32,6 +32,7 @@ import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
@@ -140,6 +141,7 @@ import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.protocol.BasicHttpContext;
 import org.apache.hc.core5.http.protocol.HttpContext;
 import org.apache.hc.core5.http.protocol.HttpCoreContext;
+import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -431,15 +433,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 DnsResolver dnsResolver) {
             super(socketFactoryRegistry, schemePortResolver, dnsResolver);
         }
-
         @Override
-        public void connect(ManagedHttpClientConnection conn, HttpHost host, InetSocketAddress localAddress,
-                TimeValue connectTimeout, SocketConfig socketConfig, HttpContext context) throws IOException {
+        public void connect(ManagedHttpClientConnection conn, HttpHost endpointHost, NamedEndpoint endpointName, Path unixDomainSocket,
+                InetSocketAddress localAddress, Timeout connectTimeout, SocketConfig socketConfig, Object attachment,
+                HttpContext context) throws IOException {
             try {
-                super.connect(conn, host, localAddress, connectTimeout, socketConfig, context);
+                super.connect(conn, endpointHost, endpointName, unixDomainSocket, localAddress, connectTimeout, socketConfig, attachment,
+                        context);
             } finally {
                 SampleResult sample =
-                        (SampleResult)context.getAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT);
+                        (SampleResult) context.getAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT);
                 if (sample != null) {
                     sample.connectEnd();
                 }
@@ -695,13 +698,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             res.setResponseCode(Integer.toString(statusCode));
 
             HttpEntity entity = httpResponse.getEntity();
+            long bodyBytes = 0;
             if (entity == null) {
                 res.latencyEnd();
                 res.setResponseData(new byte[0]);
             } else {
                 try (InputStream instream = entity.getContent()) {
+                    org.apache.jorphan.io.CountingInputStream counterStream =
+                            new org.apache.jorphan.io.CountingInputStream(instream);
                     String contentEncoding = entity.getContentEncoding();
-                    readResponse(res, instream, entity.getContentLength(), contentEncoding);
+                    readResponse(res, counterStream, entity.getContentLength(), contentEncoding);
+                    bodyBytes = counterStream.getBytesRead();
                 }
             }
 
@@ -728,15 +735,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
               + (long) httpResponse.getHeaders().length // Add \r for each header
               + 1L // Add \r for initial header
               + 2L; // final \r\n before data
-            HttpConnectionMetrics metrics = (HttpConnectionMetrics) localContext.getAttribute(CONTEXT_ATTRIBUTE_METRICS);
-            Long receivedBytesBefore = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_RECEIVED_BYTES_BEFORE);
-            long totalBytes = metrics != null && receivedBytesBefore != null
-                    ? metrics.getReceivedBytesCount() - receivedBytesBefore
-                    : headerBytes + res.getResponseData().length;
             res.setHeadersSize((int)headerBytes);
-            res.setBodySize(totalBytes - headerBytes);
+            res.setBodySize(bodyBytes);
             Long sentBytes = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES);
-            res.setSentBytes(sentBytes == null ? 0 : sentBytes);
+            long sent = sentBytes == null || sentBytes <= 0 ? HTTPHC5Metrics.estimateSentBytes(request, "HTTP/1.1") : sentBytes;
+            res.setSentBytes(sent);
             if (log.isDebugEnabled()) {
                 long total = res.getHeadersSize() + res.getBodySizeAsLong();
                 log.debug("ResponseHeadersSize={} Content-Length={} Total={}",
