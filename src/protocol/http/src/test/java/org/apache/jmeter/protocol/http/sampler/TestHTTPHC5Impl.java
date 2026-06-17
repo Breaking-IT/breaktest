@@ -97,6 +97,8 @@ public class TestHTTPHC5Impl {
             assertTrue(result.isSuccessful(), result.getResponseMessage());
             assertTrue(result.getResponseHeaders().startsWith("HTTP/1.1"),
                     () -> "Expected HTTP/1.1 fallback, got: " + result.getResponseHeaders());
+            assertTrue(result.getHeadersSize() > 0,
+                    () -> "Expected fallback response headers size, got: " + result.getHeadersSize());
             assertEquals("ok", result.getResponseDataAsString());
         } finally {
             server.stop();
@@ -114,6 +116,8 @@ public class TestHTTPHC5Impl {
         assertTrue(result.getConnectTime() > 0,
                 () -> "Expected first HTTP/2 request to report connect time, got: "
                         + result.getConnectTime());
+        assertTrue(result.getHeadersSize() > 0,
+                () -> "Expected HTTP/2 response headers size, got: " + result.getHeadersSize());
     }
 
     @Test
@@ -127,6 +131,8 @@ public class TestHTTPHC5Impl {
         assertTrue(result.getConnectTime() > 0,
                 () -> "Expected first HTTP/1.1 request to report connect time, got: "
                         + result.getConnectTime());
+        assertTrue(result.getHeadersSize() > 0,
+                () -> "Expected HTTP/1.1 response headers size, got: " + result.getHeadersSize());
     }
 
     private static SampleResult sampleBreaktestApp(String httpProtocol) {
