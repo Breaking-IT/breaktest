@@ -19,8 +19,11 @@ package org.apache.jmeter.protocol.http.config.gui;
 
 import java.lang.reflect.Field;
 
+import javax.swing.JComboBox;
+
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jorphan.locale.LocalizedValue;
@@ -59,10 +62,29 @@ public class TestHttpDefaultsGui {
                 config.get(HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode()));
     }
 
+    @Test
+    public void testBlankHttpProtocolRemovesProperty() throws Exception {
+        ConfigTestElement config = (ConfigTestElement) gui.createTestElement();
+        config.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        gui.configure(config);
+
+        httpProtocol().setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
+        gui.modifyTestElement(config);
+
+        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol().getName()));
+    }
+
     @SuppressWarnings("unchecked")
     private JEnumPropertyEditor<ResponseProcessingMode> responseProcessingModeEditor() throws Exception {
         Field field = HttpDefaultsGui.class.getDeclaredField("responseProcessingMode");
         field.setAccessible(true);
         return (JEnumPropertyEditor<ResponseProcessingMode>) field.get(gui);
+    }
+
+    @SuppressWarnings("unchecked")
+    private JComboBox<String> httpProtocol() throws Exception {
+        Field field = HttpDefaultsGui.class.getDeclaredField("httpProtocol");
+        field.setAccessible(true);
+        return (JComboBox<String>) field.get(gui);
     }
 }
