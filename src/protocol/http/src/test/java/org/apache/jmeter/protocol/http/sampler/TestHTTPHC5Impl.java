@@ -42,6 +42,7 @@ public class TestHTTPHC5Impl {
     @Test
     public void factorySelectsHttp2ImplementationForHttpClient5Only() {
         assertArrayEquals(new String[] {
+                HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT,
                 HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1,
                 HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2
         }, HTTPSamplerBase.getHttpProtocolList());

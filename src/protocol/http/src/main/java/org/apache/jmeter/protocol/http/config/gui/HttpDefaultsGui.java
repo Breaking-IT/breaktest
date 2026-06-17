@@ -163,8 +163,11 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         }
 
         config.set(httpSchema.getImplementation(), String.valueOf(httpImplementation.getSelectedItem()));
-        if (shouldSaveHttpProtocol()) {
-            config.set(httpSchema.getHttpProtocol(), String.valueOf(httpProtocol.getSelectedItem()));
+        String selectedProtocol = selectedHttpProtocol();
+        if (StringUtilities.isBlank(selectedProtocol)) {
+            config.removeProperty(httpSchema.getHttpProtocol());
+        } else if (shouldSaveHttpProtocol()) {
+            config.set(httpSchema.getHttpProtocol(), selectedProtocol);
         } else if (legacyHttpProtocol != null) {
             config.setProperty(legacyHttpProtocol.clone());
         } else {
@@ -192,7 +195,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         }
         sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
         httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
-        httpProtocol.setSelectedItem(HTTPSamplerBase.normalizeHttpProtocol(samplerBase.getString(httpSchema.getHttpProtocol())));
+        httpProtocol.setSelectedItem(configuredHttpProtocol());
         updateHttpProtocolState();
     }
 
@@ -371,7 +374,10 @@ public class HttpDefaultsGui extends AbstractConfigGui {
             return false;
         }
         String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
-        String selectedProtocol = String.valueOf(httpProtocol.getSelectedItem());
+        String selectedProtocol = selectedHttpProtocol();
+        if (StringUtilities.isBlank(selectedProtocol)) {
+            return false;
+        }
         return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation)
                 || !HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedProtocol);
     }
@@ -380,8 +386,19 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         boolean enabled = isHttpProtocolAvailable();
         httpProtocol.setEnabled(enabled);
         if (!enabled) {
-            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
         }
+    }
+
+    private String configuredHttpProtocol() {
+        return legacyHttpProtocol == null
+                ? HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT
+                : HTTPSamplerBase.normalizeHttpProtocol(legacyHttpProtocol.getStringValue());
+    }
+
+    private String selectedHttpProtocol() {
+        Object selected = httpProtocol.getSelectedItem();
+        return selected == null ? HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT : selected.toString();
     }
 
     /**
