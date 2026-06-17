@@ -19,6 +19,8 @@ package org.apache.jmeter.protocol.http.control.gui;
 
 import java.lang.reflect.Field;
 
+import javax.swing.JComboBox;
+
 import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
@@ -73,10 +75,29 @@ public class TestHttpTestSampleGui {
         Assertions.assertEquals(ResponseProcessingMode.FETCH_AND_DISCARD, sampler.getResponseProcessingMode());
     }
 
+    @Test
+    public void testBlankHttpProtocolRemovesProperty() throws Exception {
+        HTTPSamplerBase sampler = (HTTPSamplerBase) gui.createTestElement();
+        sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        gui.configure(sampler);
+
+        httpProtocol().setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
+        gui.modifyTestElement(sampler);
+
+        Assertions.assertNull(sampler.getPropertyOrNull(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol().getName()));
+    }
+
     @SuppressWarnings("unchecked")
     private JEnumPropertyEditor<ResponseProcessingMode> responseProcessingModeEditor() throws Exception {
         Field field = HttpTestSampleGui.class.getDeclaredField("responseProcessingMode");
         field.setAccessible(true);
         return (JEnumPropertyEditor<ResponseProcessingMode>) field.get(gui);
+    }
+
+    @SuppressWarnings("unchecked")
+    private JComboBox<String> httpProtocol() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("httpProtocol");
+        field.setAccessible(true);
+        return (JComboBox<String>) field.get(gui);
     }
 }

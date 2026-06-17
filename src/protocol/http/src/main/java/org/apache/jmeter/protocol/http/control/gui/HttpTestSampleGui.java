@@ -156,7 +156,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         if (!isAJP) {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
             httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
-            httpProtocol.setSelectedItem(samplerBase.getHttpProtocol());
+            httpProtocol.setSelectedItem(configuredHttpProtocol());
             updateHttpProtocolState();
         }
     }
@@ -202,8 +202,11 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
             samplerBase.set(httpSchema.getImplementation(),
                     StringUtilities.isBlank(selectedImplementation) ? null : selectedImplementation);
-            if (shouldSaveHttpProtocol()) {
-                samplerBase.set(httpSchema.getHttpProtocol(), String.valueOf(httpProtocol.getSelectedItem()));
+            String selectedProtocol = selectedHttpProtocol();
+            if (StringUtilities.isBlank(selectedProtocol)) {
+                samplerBase.removeProperty(httpSchema.getHttpProtocol());
+            } else if (shouldSaveHttpProtocol()) {
+                samplerBase.set(httpSchema.getHttpProtocol(), selectedProtocol);
             } else if (legacyHttpProtocol != null) {
                 samplerBase.setProperty(legacyHttpProtocol.clone());
             } else {
@@ -400,7 +403,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             return false;
         }
         String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
-        String selectedProtocol = String.valueOf(httpProtocol.getSelectedItem());
+        String selectedProtocol = selectedHttpProtocol();
+        if (StringUtilities.isBlank(selectedProtocol)) {
+            return false;
+        }
         return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation)
                 || !HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedProtocol);
     }
@@ -409,8 +415,19 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         boolean enabled = isHttpProtocolAvailable();
         httpProtocol.setEnabled(enabled);
         if (!enabled) {
-            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
         }
+    }
+
+    private String configuredHttpProtocol() {
+        return legacyHttpProtocol == null
+                ? HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT
+                : HTTPSamplerBase.normalizeHttpProtocol(legacyHttpProtocol.getStringValue());
+    }
+
+    private String selectedHttpProtocol() {
+        Object selected = httpProtocol.getSelectedItem();
+        return selected == null ? HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT : selected.toString();
     }
 
     protected JPanel createResponseProcessingPanel() {
