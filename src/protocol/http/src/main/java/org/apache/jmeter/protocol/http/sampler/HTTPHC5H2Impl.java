@@ -32,6 +32,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
 
 import javax.net.ssl.SSLContext;
@@ -143,8 +145,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             "upgrade",
             "te");
 
-    private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
-            HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = ThreadLocal.withInitial(HashMap::new);
+    private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
+            HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
     private volatile HttpUriRequest currentRequest;
 
@@ -266,35 +268,48 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private HttpClientState setupClient(HttpClientKey key) throws GeneralSecurityException {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
-        HttpClientState clientState = clients.get(key);
-        if (clientState != null) {
+        Map<HttpClientKey, HttpClientState> clients = getThreadLocalClients();
+        synchronized (clients) {
+            HttpClientState clientState = clients.get(key);
+            if (clientState != null) {
+                return clientState;
+            }
+
+            DnsResolver resolver = createDnsResolver();
+            HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
+            Credentials proxyCredentials = createProxyCredentials(key);
+            AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
+            Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
+                    .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
+                    .build();
+            CredentialsStore credentialsProvider =
+                    new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
+            Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
+            CloseableHttpAsyncClient asyncClient = createClient(
+                    resolver,
+                    proxy,
+                    credentialsProvider,
+                    cookieSpecRegistry,
+                    authSchemeRegistry,
+                    key.versionPolicy);
+            asyncClient.start();
+            CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
+            clientState = new HttpClientState(client, asyncClient);
+            clients.put(key, clientState);
+            log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
             return clientState;
         }
+    }
 
-        DnsResolver resolver = createDnsResolver();
-        HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
-        Credentials proxyCredentials = createProxyCredentials(key);
-        AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
-        Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
-                .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
-                .build();
-        CredentialsStore credentialsProvider =
-                new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
-        Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
-        CloseableHttpAsyncClient asyncClient = createClient(
-                resolver,
-                proxy,
-                credentialsProvider,
-                cookieSpecRegistry,
-                authSchemeRegistry,
-                key.versionPolicy);
-        asyncClient.start();
-        CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
-        clientState = new HttpClientState(client, asyncClient);
-        clients.put(key, clientState);
-        log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
-        return clientState;
+    private static Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
+        return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(
+                getJMeterThreadCacheKey(),
+                ignored -> new HashMap<>(5));
+    }
+
+    private static Object getJMeterThreadCacheKey() {
+        Object thread = JMeterContextService.getContext().getThread();
+        return thread == null ? Thread.currentThread() : thread;
     }
 
     private CloseableHttpAsyncClient createClient(
@@ -661,12 +676,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static void closeThreadLocalConnections() {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
-        for (HttpClientState clientState : clients.values()) {
-            JOrphanUtils.closeQuietly(clientState.getClient());
-            JOrphanUtils.closeQuietly(clientState.getAsyncClient());
+        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey());
+        if (clients == null) {
+            return;
         }
-        clients.clear();
+        synchronized (clients) {
+            for (HttpClientState clientState : clients.values()) {
+                JOrphanUtils.closeQuietly(clientState.getClient());
+                JOrphanUtils.closeQuietly(clientState.getAsyncClient());
+            }
+        }
     }
 
     @Override

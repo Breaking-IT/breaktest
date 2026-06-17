@@ -20,7 +20,15 @@ package org.apache.jmeter.threads;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
@@ -28,6 +36,7 @@ import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.IteratingController;
+import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
@@ -92,6 +101,9 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private static final boolean APPLY_TIMER_FACTOR = Float.compare(TIMER_FACTOR,ONE_AS_FLOAT) != 0;
 
+    private static final boolean VIRTUAL_THREADS_ENABLED =
+            JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true); // $NON-NLS-1$
+
     private final Controller threadGroupLoopController;
 
     private final HashTree testTree;
@@ -153,6 +165,12 @@ public class JMeterThread implements Runnable, Interruptible {
     private volatile Sampler currentSamplerForInterruption;
 
     private final ReentrantLock interruptLock = new ReentrantLock(); // ensure that interrupt cannot overlap with shutdown
+
+    // Serializes the shared TestCompiler/controller bookkeeping (sampler configuration and
+    // SamplePackage#recoverRunningVersion) so that samplers run concurrently by the
+    // ParallelController cannot corrupt the shared controllers and compiler state. The actual
+    // sampling stays parallel. Uncontended (and therefore cheap) for normal sequential execution.
+    private final ReentrantLock compilerLock = new ReentrantLock();
 
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
@@ -497,7 +515,22 @@ public class JMeterThread implements Runnable, Interruptible {
 
             // Check if we have a sampler to sample
             if (current != null) {
-                executeSamplePackage(current, transactionSampler, transactionPack, threadContext);
+                if (current instanceof ParallelControllerSampler parallelSampler) {
+                    List<SampleResult> results = processParallelSampler(parallelSampler, threadContext);
+                    for (SampleResult result : results) {
+                        if (transactionSampler != null && !result.isIgnore()) {
+                            transactionSampler.addSubSamplerResult(result);
+                        }
+                    }
+                    if (transactionSampler == null && !results.isEmpty()) {
+                        transactionResult = results.get(results.size() - 1);
+                    }
+                } else {
+                    SampleResult result = executeSamplePackage(current, transactionSampler, transactionPack, threadContext);
+                    if (transactionSampler == null) {
+                        transactionResult = result;
+                    }
+                }
             }
 
             if (scheduler) {
@@ -549,14 +582,92 @@ public class JMeterThread implements Runnable, Interruptible {
      * Execute the sampler with its pre/post processors, timers, assertions
      * Broadcast the result to the sample listeners
      */
-    private void executeSamplePackage(Sampler current,
+    private List<SampleResult> processParallelSampler(ParallelControllerSampler parallelSampler, JMeterContext parentContext) {
+        List<Sampler> samplers = parallelSampler.getSamplers();
+        if (samplers.isEmpty()) {
+            return List.of();
+        }
+
+        int maxParallel = Math.min(parallelSampler.getMaxParallel(), samplers.size());
+        List<SampleResult> results = new ArrayList<>(samplers.size());
+        ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
+        CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
+        int nextSampler = 0;
+        int activeSamplers = 0;
+        try {
+            while (nextSampler < samplers.size() && activeSamplers < maxParallel) {
+                completionService.submit(parallelTask(samplers.get(nextSampler++), parentContext));
+                activeSamplers++;
+            }
+
+            while (activeSamplers > 0) {
+                SampleResult result = completionService.take().get();
+                activeSamplers--;
+                if (result != null) {
+                    results.add(result);
+                    parentContext.setPreviousResult(result);
+                }
+                if (running && nextSampler < samplers.size()) {
+                    completionService.submit(parallelTask(samplers.get(nextSampler++), parentContext));
+                    activeSamplers++;
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            stopThread();
+        } catch (ExecutionException e) {
+            log.error("Error while processing parallel sampler: '{}'.", parallelSampler.getName(), e.getCause());
+        } finally {
+            executor.shutdownNow();
+        }
+        return results;
+    }
+
+    private Callable<SampleResult> parallelTask(Sampler sampler, JMeterContext parentContext) {
+        return () -> {
+            JMeterContext workerContext = createParallelContext(parentContext);
+            JMeterContextService.replaceContext(workerContext);
+            try {
+                return processSampler(sampler, null, workerContext);
+            } finally {
+                workerContext.cleanAfterSample();
+                JMeterContextService.removeContext();
+            }
+        };
+    }
+
+    private static JMeterContext createParallelContext(JMeterContext parentContext) {
+        JMeterContext workerContext = new JMeterContext();
+        workerContext.setVariables(parentContext.getVariables());
+        workerContext.setPreviousResult(parentContext.getPreviousResult());
+        workerContext.setThreadNum(parentContext.getThreadNum());
+        workerContext.setThread(parentContext.getThread());
+        workerContext.setThreadGroup(parentContext.getThreadGroup());
+        workerContext.setEngine(parentContext.getEngine());
+        workerContext.setSamplingStarted(parentContext.isSamplingStarted());
+        workerContext.setRecording(parentContext.isRecording());
+        return workerContext;
+    }
+
+    private ThreadFactory createParallelThreadFactory(ParallelControllerSampler parallelSampler) {
+        AtomicInteger counter = new AtomicInteger();
+        return runnable -> {
+            String name = threadName + "-" + parallelSampler.getName() + "-parallel-" + counter.incrementAndGet();
+            if (VIRTUAL_THREADS_ENABLED) {
+                return Thread.ofVirtual().name(name).unstarted(runnable);
+            }
+            return new Thread(runnable, name);
+        };
+    }
+
+    private SampleResult executeSamplePackage(Sampler current,
             TransactionSampler transactionSampler,
             SamplePackage transactionPack,
             JMeterContext threadContext) {
 
         threadContext.setCurrentSampler(current);
         // Get the sampler ready to sample
-        SamplePackage pack = compiler.configureSampler(current);
+        SamplePackage pack = configureSamplerLocked(current);
         runPreProcessors(pack.getPreProcessors());
 
         // Hack: save the package for any transaction controllers
@@ -589,7 +700,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
                     notifyListeners(sampleListeners, result);
                 }
-                compiler.done(pack);
+                doneLocked(pack);
                 // Add the result as subsample of transaction if we are in a transaction
                 if (transactionSampler != null && !result.isIgnore()) {
                     transactionSampler.addSubSamplerResult(result);
@@ -598,7 +709,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 // This call is done by checkAssertions() , as we don't call it
                 // for isIgnore, we explictely call it here
                 setLastSampleOk(threadContext.getVariables(), result.isSuccessful());
-                compiler.done(pack);
+                doneLocked(pack);
             }
             // Check if thread or test should be stopped
             if (result.isStopThread() || (!result.isSuccessful() && onErrorStopThread)) {
@@ -614,7 +725,36 @@ public class JMeterThread implements Runnable, Interruptible {
                 threadContext.setTestLogicalAction(result.getTestLogicalAction());
             }
         } else {
-            compiler.done(pack); // Finish up
+            doneLocked(pack); // Finish up
+        }
+        return result;
+    }
+
+    /**
+     * Configures the sampler holding {@link #compilerLock} so that concurrent samplers run by a
+     * {@link org.apache.jmeter.control.ParallelController} do not mutate the shared
+     * {@link TestCompiler} state at the same time.
+     */
+    private SamplePackage configureSamplerLocked(Sampler current) {
+        compilerLock.lock();
+        try {
+            return compiler.configureSampler(current);
+        } finally {
+            compilerLock.unlock();
+        }
+    }
+
+    /**
+     * Calls {@link TestCompiler#done(SamplePackage)} holding {@link #compilerLock}.
+     * {@code done} recovers the running version of the sampler's scope, including the shared
+     * parent controllers, which is not thread-safe when several samplers finish in parallel.
+     */
+    private void doneLocked(SamplePackage pack) {
+        compilerLock.lock();
+        try {
+            compiler.done(pack);
+        } finally {
+            compilerLock.unlock();
         }
     }
 

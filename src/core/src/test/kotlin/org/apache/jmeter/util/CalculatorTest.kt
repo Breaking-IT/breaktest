@@ -112,14 +112,14 @@ class CalculatorTest {
     @Test
     fun bytesPerSecond() {
         assertEquals(0.0, calculator.bytesPerSecond, "bytesPerSecond()")
-        calculator.addSample(SampleResult(40, 30).apply { setBodySize(50L) })
+        calculator.addSample(sampleResult(10, 40).apply { setBodySize(50L) })
         assertEquals(
             50.0 * 1000 / (40 - 10.0),
             calculator.bytesPerSecond,
             0.001,
             "bytesPerSecond({50bytes, 10ms..40ms})"
         )
-        calculator.addSample(SampleResult(60, 20).apply { setBodySize(70L) })
+        calculator.addSample(sampleResult(40, 60).apply { setBodySize(70L) })
         assertEquals(
             (50 + 70.0) * 1000 / (60 - 10.0),
             calculator.bytesPerSecond,
@@ -131,19 +131,28 @@ class CalculatorTest {
     @Test
     fun sentBytesPerSecond() {
         assertEquals(0.0, calculator.sentBytesPerSecond, "sentBytesPerSecond()")
-        calculator.addSample(SampleResult(40, 30).apply { sentBytes = 50L })
+        calculator.addSample(sampleResult(10, 40).apply { sentBytes = 50L })
         assertEquals(
             50.0 * 1000 / (40 - 10.0),
             calculator.sentBytesPerSecond,
             0.001,
             "sentBytesPerSecond({sent=50bytes, 10ms..40ms})"
         )
-        calculator.addSample(SampleResult(60, 20).apply { sentBytes = 70L })
+        calculator.addSample(sampleResult(40, 60).apply { sentBytes = 70L })
         assertEquals(
             (50 + 70.0) * 1000 / (60 - 10.0),
             calculator.sentBytesPerSecond,
             0.001,
             "sentBytesPerSecond({sent=50bytes, 10ms..40ms}, {sent=70bytes, 40ms..60ms})"
         )
+    }
+
+    private fun sampleResult(start: Long, end: Long) = FixedTimeSampleResult(start, end)
+
+    private class FixedTimeSampleResult(start: Long, end: Long) : SampleResult() {
+        init {
+            setStartTime(start)
+            setEndTime(end)
+        }
     }
 }
