@@ -46,7 +46,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
     private final JBooleanPropertyEditor includeTimers =
             new JBooleanPropertyEditor(
                     TransactionControllerSchema.INSTANCE.getIncludeTimers(),
-                    "transaction_controller_parent",
+                    "transaction_controller_include_timers",
                     JMeterUtils::getResString);
 
     /**
