@@ -738,7 +738,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             res.setHeadersSize((int)headerBytes);
             res.setBodySize(bodyBytes);
             Long sentBytes = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES);
-            res.setSentBytes(sentBytes == null ? 0 : sentBytes);
+            long sent = sentBytes == null || sentBytes <= 0 ? HTTPHC5Metrics.estimateSentBytes(request, "HTTP/1.1") : sentBytes;
+            res.setSentBytes(sent);
             if (log.isDebugEnabled()) {
                 long total = res.getHeadersSize() + res.getBodySizeAsLong();
                 log.debug("ResponseHeadersSize={} Content-Length={} Total={}",

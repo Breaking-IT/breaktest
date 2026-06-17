@@ -231,6 +231,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         StatusLine statusLine = new StatusLine(httpResponse);
         int statusCode = statusLine.getStatusCode();
         res.setResponseCode(Integer.toString(statusCode));
+        res.setSentBytes(HTTPHC5Metrics.estimateSentBytes(request, statusLine.getProtocolVersion().getMajor() >= 2
+                ? "HTTP/2"
+                : "HTTP/1.1"));
         HttpEntity entity = httpResponse.getEntity();
         long bodyBytes = 0;
         if (entity == null) {
@@ -558,7 +561,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 + 3L;
         res.setHeadersSize((int) headerBytes);
         res.setBodySize(bodyBytes);
-        res.setSentBytes(0);
     }
 
     private static void updateUrlAfterRedirect(HttpClientContext clientContext, HTTPSampleResult res) {

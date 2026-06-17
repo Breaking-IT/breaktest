@@ -78,6 +78,32 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
+    public void http11ReportsSentBytes() {
+        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        server.start();
+        try {
+            server.stubFor(WireMock.get("/sent-bytes").willReturn(WireMock.aResponse().withBody("ok")));
+
+            HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+            sampler.setProtocol(HTTPConstants.PROTOCOL_HTTP);
+            sampler.setDomain("localhost");
+            sampler.setPort(server.port());
+            sampler.setPath("/sent-bytes");
+            sampler.setMethod(HTTPConstants.GET);
+            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+
+            SampleResult result = sampler.sample();
+
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertTrue(result.getSentBytes() > 0,
+                    () -> "Expected HTTP/1.1 sent bytes, got: " + result.getSentBytes());
+            assertEquals("ok", result.getResponseDataAsString());
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
     public void http2FallsBackToHttp11WhenServerDoesNotSupportHttp2() {
         WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
         server.start();
@@ -99,6 +125,8 @@ public class TestHTTPHC5Impl {
                     () -> "Expected HTTP/1.1 fallback, got: " + result.getResponseHeaders());
             assertTrue(result.getHeadersSize() > 0,
                     () -> "Expected fallback response headers size, got: " + result.getHeadersSize());
+            assertTrue(result.getSentBytes() > 0,
+                    () -> "Expected HTTP/2 fallback sent bytes, got: " + result.getSentBytes());
             assertEquals("ok", result.getResponseDataAsString());
         } finally {
             server.stop();
@@ -118,6 +146,8 @@ public class TestHTTPHC5Impl {
                         + result.getConnectTime());
         assertTrue(result.getHeadersSize() > 0,
                 () -> "Expected HTTP/2 response headers size, got: " + result.getHeadersSize());
+        assertTrue(result.getSentBytes() > 0,
+                () -> "Expected HTTP/2 sent bytes, got: " + result.getSentBytes());
     }
 
     @Test
@@ -133,6 +163,8 @@ public class TestHTTPHC5Impl {
                         + result.getConnectTime());
         assertTrue(result.getHeadersSize() > 0,
                 () -> "Expected HTTP/1.1 response headers size, got: " + result.getHeadersSize());
+        assertTrue(result.getSentBytes() > 0,
+                () -> "Expected HTTP/1.1 sent bytes, got: " + result.getSentBytes());
     }
 
     private static SampleResult sampleBreaktestApp(String httpProtocol) {
