@@ -119,6 +119,7 @@ import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
 import org.apache.jmeter.util.SSLManager;
@@ -142,6 +143,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             JMeterUtils.getPropDefault("httpclient5.request_sent_retry_enabled", false);
 
     private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", 60000);
+
+    private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
+
+    private static final int DEFAULT_HTTP2_IO_THREAD_COUNT = 1;
 
     private static final boolean RESET_STATE_ON_THREAD_GROUP_ITERATION =
             JMeterUtils.getPropDefault("httpclient.reset_state_on_thread_group_iteration", true);
@@ -283,31 +288,34 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             if (clientState != null) {
                 return clientState;
             }
-
-            DnsResolver resolver = createDnsResolver();
-            HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
-            Credentials proxyCredentials = createProxyCredentials(key);
-            AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
-            Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
-                    .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
-                    .build();
-            CredentialsStore credentialsProvider =
-                    new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
-            Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
-            CloseableHttpAsyncClient asyncClient = createClient(
-                    resolver,
-                    proxy,
-                    credentialsProvider,
-                    cookieSpecRegistry,
-                    authSchemeRegistry,
-                    key.versionPolicy);
-            asyncClient.start();
-            CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
-            clientState = new HttpClientState(client, asyncClient);
+            clientState = createClientState(key);
             clients.put(key, clientState);
-            log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
             return clientState;
         }
+    }
+
+    private HttpClientState createClientState(HttpClientKey key) throws GeneralSecurityException {
+        DnsResolver resolver = createDnsResolver();
+        HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
+        Credentials proxyCredentials = createProxyCredentials(key);
+        AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
+        Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
+                .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
+                .build();
+        CredentialsStore credentialsProvider =
+                new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
+        Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
+        H2RouteReuseConnectionManager connectionManager = createConnectionManager(resolver, key.versionPolicy);
+        CloseableHttpAsyncClient asyncClient = createClient(
+                connectionManager,
+                proxy,
+                credentialsProvider,
+                cookieSpecRegistry,
+                authSchemeRegistry);
+        asyncClient.start();
+        CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
+        log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
+        return new HttpClientState(client, asyncClient, connectionManager);
     }
 
     private static Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
@@ -322,26 +330,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private CloseableHttpAsyncClient createClient(
-            DnsResolver resolver,
+            H2RouteReuseConnectionManager connectionManager,
             HttpHost proxy,
             CredentialsStore credentialsProvider,
             Lookup<CookieSpecFactory> cookieSpecRegistry,
-            Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry,
-            HttpVersionPolicy versionPolicy)
-            throws GeneralSecurityException {
-        PoolingAsyncClientConnectionManager connectionManager = JMeterPoolingAsyncClientConnectionManagerBuilder.newBuilder()
-                .setDnsResolver(resolver)
-                .setTlsStrategy(createTlsStrategy())
-                .setDefaultConnectionConfig(ConnectionConfig.custom()
-                        .setTimeToLive(TimeValue.ofMilliseconds(TIME_TO_LIVE))
-                        .build())
-                .setDefaultTlsConfig(TlsConfig.custom()
-                        .setVersionPolicy(versionPolicy)
-                        .build())
-                .setMessageMultiplexing(true)
-                .build();
-        CloseableHttpAsyncClient asyncClient = HttpAsyncClients.custom()
-                .setConnectionManager(new H2RouteReuseConnectionManager(connectionManager))
+            Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry) {
+        return HttpAsyncClients.custom()
+                .setConnectionManager(connectionManager)
                 .setConnectionManagerShared(false)
                 .setIOReactorConfig(createIOReactorConfig())
                 .setDefaultCookieSpecRegistry(cookieSpecRegistry)
@@ -354,7 +349,25 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setDefaultAuthSchemeRegistry(authSchemeRegistry)
                 .disableContentCompression()
                 .build();
-        return asyncClient;
+    }
+
+    private static H2RouteReuseConnectionManager createConnectionManager(
+            DnsResolver resolver,
+            HttpVersionPolicy versionPolicy)
+            throws GeneralSecurityException {
+        PoolingAsyncClientConnectionManager poolingConnectionManager =
+                JMeterPoolingAsyncClientConnectionManagerBuilder.newBuilder()
+                        .setDnsResolver(resolver)
+                        .setTlsStrategy(createTlsStrategy())
+                        .setDefaultConnectionConfig(ConnectionConfig.custom()
+                                .setTimeToLive(TimeValue.ofMilliseconds(TIME_TO_LIVE))
+                                .build())
+                        .setDefaultTlsConfig(TlsConfig.custom()
+                                .setVersionPolicy(versionPolicy)
+                                .build())
+                        .setMessageMultiplexing(true)
+                        .build();
+        return new H2RouteReuseConnectionManager(poolingConnectionManager);
     }
 
     private static final class JMeterPoolingAsyncClientConnectionManagerBuilder
@@ -551,6 +564,15 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         public void close(CloseMode closeMode) {
             delegate.close(closeMode);
         }
+
+        void closeConnections() {
+            for (AsyncConnectionEndpoint endpoint : endpointRoutes.keySet()) {
+                endpoint.close(CloseMode.GRACEFUL);
+            }
+            delegate.closeIdle(TimeValue.ZERO_MILLISECONDS);
+            routeStates.clear();
+            endpointRoutes.clear();
+        }
     }
 
     private enum RouteProtocol {
@@ -668,14 +690,19 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .buildAsync();
     }
 
-    private IOReactorConfig createIOReactorConfig() {
+    IOReactorConfig createIOReactorConfig() {
         IOReactorConfig.Builder builder = IOReactorConfig.custom()
+                .setIoThreadCount(http2IoThreadCount())
                 .setSoKeepAlive(getUseKeepAlive());
         int responseTimeout = getResponseTimeout();
         if (responseTimeout > 0) {
             builder.setSoTimeout(Timeout.ofMilliseconds(responseTimeout));
         }
         return builder.build();
+    }
+
+    private static int http2IoThreadCount() {
+        return Math.max(1, JMeterUtils.getPropDefault(HTTP2_IO_THREAD_COUNT, DEFAULT_HTTP2_IO_THREAD_COUNT));
     }
 
     private static HttpRequestRetryStrategy createRetryStrategy() {
@@ -880,14 +907,30 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     @Override
     protected void notifyFirstSampleAfterLoopRestart() {
-        if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
-            closeThreadLocalConnections();
+        JMeterVariables jMeterVariables = JMeterContextService.getContext().getVariables();
+        if (jMeterVariables == null || !jMeterVariables.isSameUserOnNextIteration()) {
+            resetThreadLocalConnections();
         }
     }
 
     @Override
     protected void threadFinished() {
         closeThreadLocalConnections();
+    }
+
+    private static void resetThreadLocalConnections() {
+        if (!RESET_STATE_ON_THREAD_GROUP_ITERATION) {
+            return;
+        }
+        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.get(getJMeterThreadCacheKey());
+        if (clients == null) {
+            return;
+        }
+        synchronized (clients) {
+            for (HttpClientState clientState : clients.values()) {
+                clientState.getConnectionManager().closeConnections();
+            }
+        }
     }
 
     private static void closeThreadLocalConnections() {
@@ -939,12 +982,15 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final class HttpClientState {
         private final CloseableHttpClient client;
         private final CloseableHttpAsyncClient asyncClient;
+        private final H2RouteReuseConnectionManager connectionManager;
 
         private HttpClientState(
                 CloseableHttpClient client,
-                CloseableHttpAsyncClient asyncClient) {
+                CloseableHttpAsyncClient asyncClient,
+                H2RouteReuseConnectionManager connectionManager) {
             this.client = client;
             this.asyncClient = asyncClient;
+            this.connectionManager = connectionManager;
         }
 
         private CloseableHttpClient getClient() {
@@ -953,6 +999,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         private CloseableHttpAsyncClient getAsyncClient() {
             return asyncClient;
+        }
+
+        private H2RouteReuseConnectionManager getConnectionManager() {
+            return connectionManager;
         }
     }
 
