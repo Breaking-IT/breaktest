@@ -24,13 +24,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Base64;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.util.JMeterUtils;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
@@ -39,6 +44,17 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 public class TestHTTPHC5Impl {
+    private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
+
+    @BeforeAll
+    public static void setupJMeterProperties() throws Exception {
+        if (JMeterUtils.getJMeterProperties() == null) {
+            Path properties = Files.createTempFile("jmeter", ".properties");
+            JMeterUtils.loadJMeterProperties(properties.toString());
+            Files.deleteIfExists(properties);
+        }
+    }
+
     @Test
     public void factorySelectsHttp2ImplementationForHttpClient5Only() {
         assertArrayEquals(new String[] {
@@ -76,6 +92,42 @@ public class TestHTTPHC5Impl {
         java.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
         assertEquals(HTTPJavaImpl.class,
                 HTTPSamplerFactory.getImplementation(java.getImplementation(), java).getClass());
+    }
+
+    @Test
+    public void http2UsesSingleIoReactorThreadByDefault() {
+        Object previous = JMeterUtils.getJMeterProperties().remove(HTTP2_IO_THREAD_COUNT);
+        try {
+            IOReactorConfig config = new HTTPHC5H2Impl(new HTTPSamplerProxy()).createIOReactorConfig();
+
+            assertEquals(1, config.getIoThreadCount());
+        } finally {
+            restoreProperty(previous);
+        }
+    }
+
+    @Test
+    public void http2IoReactorThreadCountCanBeOverridden() {
+        Object previous = JMeterUtils.setProperty(HTTP2_IO_THREAD_COUNT, "3");
+        try {
+            IOReactorConfig config = new HTTPHC5H2Impl(new HTTPSamplerProxy()).createIOReactorConfig();
+
+            assertEquals(3, config.getIoThreadCount());
+        } finally {
+            restoreProperty(previous);
+        }
+    }
+
+    @Test
+    public void http2IoReactorThreadCountHasMinimumOfOne() {
+        Object previous = JMeterUtils.setProperty(HTTP2_IO_THREAD_COUNT, "0");
+        try {
+            IOReactorConfig config = new HTTPHC5H2Impl(new HTTPSamplerProxy()).createIOReactorConfig();
+
+            assertEquals(1, config.getIoThreadCount());
+        } finally {
+            restoreProperty(previous);
+        }
     }
 
     @Test
@@ -216,5 +268,13 @@ public class TestHTTPHC5Impl {
         authManager.set(-1, authUrl, "user", "pass", "", "*", Mechanism.BASIC);
         sampler.setAuthManager(authManager);
         return new HTTPHC5Impl(sampler);
+    }
+
+    private static void restoreProperty(Object previous) {
+        if (previous == null) {
+            JMeterUtils.getJMeterProperties().remove(HTTP2_IO_THREAD_COUNT);
+        } else {
+            JMeterUtils.getJMeterProperties().put(HTTP2_IO_THREAD_COUNT, previous);
+        }
     }
 }
