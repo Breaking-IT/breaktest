@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -162,6 +163,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     // @GuardedBy("lock")
     private transient Set<JMeterProperty> temporaryProperties;
+    // @GuardedBy("lock")
+    private transient Set<JMeterProperty> identityTemporaryProperties;
 
     private transient boolean runningVersion = false;
 
@@ -171,10 +174,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     private transient boolean propertiesShared = false;
 
-    // Thread-specific variables saved here to save recalculation
-    private transient JMeterContext threadContext = null;
-
-    private transient String threadName = null;
+    // Per-VU thread name and context. Held in ThreadLocals rather than instance fields so that an
+    // element instance can be safely shared across virtual users (each VU reads/writes its own
+    // value). getThreadContext() falls back to JMeterContextService (itself a ThreadLocal).
+    private static final ThreadLocal<String> THREAD_NAME = new ThreadLocal<>();
+    private static final ThreadLocal<JMeterContext> THREAD_CONTEXT = new ThreadLocal<>();
 
     /**
      * Caches the no-arg constructor per element class. {@link Class#getDeclaredConstructor(Class...)}
@@ -1007,9 +1011,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             ensureOwnProperties();
             view = null;
         }
-        if (isRunningVersion()) {
+        boolean runningVersion = isRunningVersion();
+        boolean identityTemporaryProperty = runningVersion && requiresIdentityTemporarySet(propertyToPut);
+        if (runningVersion && !identityTemporaryProperty) {
             setTemporary(propertyToPut);
-        } else {
+        } else if (!runningVersion) {
             clearTemporary(property);
         }
         JMeterProperty prop = getProperty(property.getName());
@@ -1027,6 +1033,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     propMapConcurrent.put(property.getName(), propertyToPut);
                 }
             }
+            if (identityTemporaryProperty) {
+                setTemporary(propertyToPut);
+            }
         } else {
             if (view != null && prop instanceof MultiProperty && !view.isOverlaid(prop.getName())) {
                 // Defensive: never merge into a property instance from the shared base.
@@ -1038,6 +1047,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                 }
             }
             prop.mergeIn(propertyToPut);
+            if (identityTemporaryProperty) {
+                setTemporary(prop);
+            }
         }
     }
 
@@ -1057,6 +1069,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         try (ResourceLock ignored = writeLock()) {
             if (temporaryProperties != null) {
                 temporaryProperties.remove(property);
+            }
+            if (identityTemporaryProperties != null) {
+                identityTemporaryProperties.remove(property);
             }
         }
     }
@@ -1322,6 +1337,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             if (temporaryProperties != null) {
                 temporaryProperties.clear();
             }
+            if (identityTemporaryProperties != null) {
+                identityTemporaryProperties.clear();
+            }
         }
     }
 
@@ -1331,6 +1349,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public boolean isTemporary(JMeterProperty property) {
         try (ResourceLock ignored = readLock()) {
+            if (requiresIdentityTemporarySet(property)) {
+                return identityTemporaryProperties != null && identityTemporaryProperties.contains(property);
+            }
             return temporaryProperties != null && temporaryProperties.contains(property);
         }
     }
@@ -1341,18 +1362,34 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public void setTemporary(JMeterProperty property) {
         try (ResourceLock ignored = writeLock()) {
-            if (temporaryProperties == null) {
-                // Identity set: avoids deep hashCode/equals of nested-element properties
-                Set<JMeterProperty> set = Collections.newSetFromMap(new IdentityHashMap<>());
-                temporaryProperties = lock != null ? set : Collections.synchronizedSet(set) ;
+            if (requiresIdentityTemporarySet(property)) {
+                if (identityTemporaryProperties == null) {
+                    identityTemporaryProperties = createTemporaryPropertiesSet(true);
+                }
+                identityTemporaryProperties.add(property);
+            } else {
+                if (temporaryProperties == null) {
+                    temporaryProperties = createTemporaryPropertiesSet(false);
+                }
+                temporaryProperties.add(property);
             }
-            temporaryProperties.add(property);
             if (isMergingEnclosedProperties(property)) {
                 for (JMeterProperty jMeterProperty : (MultiProperty) property) {
                     setTemporary(jMeterProperty);
                 }
             }
         }
+    }
+
+    private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
+        Set<JMeterProperty> set = identity
+                ? Collections.newSetFromMap(new IdentityHashMap<>())
+                : new LinkedHashSet<>();
+        return lock != null ? set : Collections.synchronizedSet(set);
+    }
+
+    private static boolean requiresIdentityTemporarySet(JMeterProperty property) {
+        return property instanceof TestElementProperty;
     }
 
     // While TestElementProperty is implementing MultiProperty, it works differently.
@@ -1368,12 +1405,13 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     @Override
     public JMeterContext getThreadContext() {
-        if (threadContext == null) {
-            // Only samplers have the thread context set up by JMeterThread at
-            // present, so suppress the warning for now
-            threadContext = JMeterContextService.getContext();
+        // Per-VU via ThreadLocal so a shared element instance is safe across virtual users.
+        JMeterContext context = THREAD_CONTEXT.get();
+        if (context == null) {
+            context = JMeterContextService.getContext();
+            THREAD_CONTEXT.set(context);
         }
-        return threadContext;
+        return context;
     }
 
     /**
@@ -1382,13 +1420,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     @Override
     public void setThreadContext(JMeterContext inthreadContext) {
-        // Historically an element was bound to a single context for its whole life and any
-        // attempt to rebind it signalled an element accidentally shared between threads.
-        // The ParallelController legitimately re-runs the same child elements within a single
-        // virtual user, each pass on its own worker JMeterContext, so the element must be allowed
-        // to rebind. This stays a no-op for normal sequential execution, where the same context
-        // object is handed back on every iteration.
-        this.threadContext = inthreadContext;
+        // Per-VU via ThreadLocal so a shared element instance is safe across virtual users.
+        THREAD_CONTEXT.set(inthreadContext);
     }
 
     /**
@@ -1397,7 +1430,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     @SuppressWarnings("deprecation")
     public String getThreadName() {
-        return threadName;
+        return THREAD_NAME.get();
     }
 
     /**
@@ -1407,12 +1440,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     @SuppressWarnings("deprecation")
     public void setThreadName(String inthreadName) {
-        if (threadName != null) {
-            if (!threadName.equals(inthreadName)) {
-                throw new RuntimeException("Attempting to reset the thread name");
-            }
-        }
-        this.threadName = inthreadName;
+        // Per-VU via ThreadLocal so a shared element instance is safe across virtual users.
+        THREAD_NAME.set(inthreadName);
     }
 
     protected AbstractTestElement() {
