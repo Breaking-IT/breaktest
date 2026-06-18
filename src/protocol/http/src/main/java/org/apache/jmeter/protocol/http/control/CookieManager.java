@@ -187,7 +187,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      * @throws IOException
      *             when writing to that file fails
      */
-    public void save(String authFile) throws IOException {
+    public synchronized void save(String authFile) throws IOException {
         File file = new File(authFile);
         if (!file.isAbsolute()) {
             file = new File(System.getProperty("user.dir") // $NON-NLS-1$
@@ -217,7 +217,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      * @throws IOException
      *             if reading the file fails
      */
-    public void addFile(String cookieFile) throws IOException {
+    public synchronized void addFile(String cookieFile) throws IOException {
         File file = new File(cookieFile);
         if (!file.isAbsolute()) {
             file = new File(System.getProperty("user.dir") // $NON-NLS-1$
@@ -299,7 +299,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      *
      * @param c cookie to be added
      */
-    public void add(Cookie c) {
+    public synchronized void add(Cookie c) {
         // The cookie store is a property that may be shared with other threads
         // (lightweight clone); take ownership before mutating it in place
         ensureOwnProperties();
@@ -327,7 +327,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
 
     /** {@inheritDoc} */
     @Override
-    public void clear(){
+    public synchronized void clear(){
         super.clear();
         clearCookies(); // ensure data is set up OK initially
     }
@@ -345,7 +345,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      *
      * @param index index of the cookie to remove
      */
-    public void remove(int index) {// TODO not used by GUI
+    public synchronized void remove(int index) {// TODO not used by GUI
         getCookies().remove(index);
     }
 
@@ -367,12 +367,12 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      *            URL of the request to which the returned header will be added.
      * @return the value string for the cookie header (goes after "Cookie: ").
      */
-    public String getCookieHeaderForURL(URL url) {
+    public synchronized String getCookieHeaderForURL(URL url) {
         return cookieHandler.getCookieHeaderForURL(getCookies(), url, ALLOW_VARIABLE_COOKIES);
     }
 
 
-    public void addCookieFromHeader(String cookieHeader, URL url){
+    public synchronized void addCookieFromHeader(String cookieHeader, URL url){
         cookieHandler.addCookieFromHeader(this, CHECK_COOKIES, cookieHeader, url);
     }
     /**
@@ -392,7 +392,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
         a.getDomain().equals(b.getDomain());
     }
 
-    void removeMatchingCookies(Cookie newCookie){
+    synchronized void removeMatchingCookies(Cookie newCookie){
         // The cookie store is a property that may be shared with other threads
         // (lightweight clone); take ownership before mutating it in place
         ensureOwnProperties();
@@ -415,7 +415,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
 
     /** {@inheritDoc} */
     @Override
-    public void testStarted() {
+    public synchronized void testStarted() {
         initialCookies = getCookies();
         try {
             cookieHandler = (CookieHandler) ClassTools.construct(getImplementation(), getPolicy());
@@ -445,7 +445,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
 
     /** {@inheritDoc} */
     @Override
-    public void testIterationStart(LoopIterationEvent event) {
+    public synchronized void testIterationStart(LoopIterationEvent event) {
         JMeterVariables jMeterVariables = JMeterContextService.getContext().getVariables();
         if ((getControlledByThread() && !jMeterVariables.isSameUserOnNextIteration())
                 || (!getControlledByThread() && getClearEachIteration())) {

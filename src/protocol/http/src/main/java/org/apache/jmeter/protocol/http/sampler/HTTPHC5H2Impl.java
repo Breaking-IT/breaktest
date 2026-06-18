@@ -32,12 +32,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 
 import javax.net.ssl.SSLContext;
 
 import org.apache.hc.client5.http.AuthenticationStrategy;
 import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.EndpointInfo;
+import org.apache.hc.client5.http.HttpRoute;
 import org.apache.hc.client5.http.HttpRequestRetryStrategy;
 import org.apache.hc.client5.http.RouteInfo;
 import org.apache.hc.client5.http.SchemePortResolver;
@@ -73,10 +78,13 @@ import org.apache.hc.client5.http.impl.nio.DefaultAsyncClientConnectionOperator;
 import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager;
 import org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManagerBuilder;
 import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
+import org.apache.hc.client5.http.nio.AsyncClientConnectionManager;
 import org.apache.hc.client5.http.nio.AsyncClientConnectionOperator;
+import org.apache.hc.client5.http.nio.AsyncConnectionEndpoint;
 import org.apache.hc.client5.http.nio.ManagedAsyncClientConnection;
 import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
+import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.Header;
@@ -84,6 +92,8 @@ import org.apache.hc.core5.http.HttpEntity;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.HttpRequest;
 import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.HttpVersion;
+import org.apache.hc.core5.http.ProtocolVersion;
 import org.apache.hc.core5.http.URIScheme;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.RegistryBuilder;
@@ -92,6 +102,7 @@ import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
 import org.apache.hc.core5.http.protocol.HttpContext;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
+import org.apache.hc.core5.io.CloseMode;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.ConnectionInitiator;
 import org.apache.hc.core5.reactor.IOReactorConfig;
@@ -143,8 +154,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             "upgrade",
             "te");
 
-    private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
-            HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = ThreadLocal.withInitial(HashMap::new);
+    private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
+            HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
     private volatile HttpUriRequest currentRequest;
 
@@ -266,35 +277,48 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private HttpClientState setupClient(HttpClientKey key) throws GeneralSecurityException {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
-        HttpClientState clientState = clients.get(key);
-        if (clientState != null) {
+        Map<HttpClientKey, HttpClientState> clients = getThreadLocalClients();
+        synchronized (clients) {
+            HttpClientState clientState = clients.get(key);
+            if (clientState != null) {
+                return clientState;
+            }
+
+            DnsResolver resolver = createDnsResolver();
+            HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
+            Credentials proxyCredentials = createProxyCredentials(key);
+            AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
+            Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
+                    .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
+                    .build();
+            CredentialsStore credentialsProvider =
+                    new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
+            Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
+            CloseableHttpAsyncClient asyncClient = createClient(
+                    resolver,
+                    proxy,
+                    credentialsProvider,
+                    cookieSpecRegistry,
+                    authSchemeRegistry,
+                    key.versionPolicy);
+            asyncClient.start();
+            CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
+            clientState = new HttpClientState(client, asyncClient);
+            clients.put(key, clientState);
+            log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
             return clientState;
         }
+    }
 
-        DnsResolver resolver = createDnsResolver();
-        HttpHost proxy = key.hasProxy ? new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort) : null;
-        Credentials proxyCredentials = createProxyCredentials(key);
-        AuthScope proxyAuthScope = proxyCredentials == null ? null : new AuthScope(key.proxyHost, key.proxyPort);
-        Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
-                .register(StandardCookieSpec.IGNORE, new IgnoreCookieSpecFactory())
-                .build();
-        CredentialsStore credentialsProvider =
-                new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
-        Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
-        CloseableHttpAsyncClient asyncClient = createClient(
-                resolver,
-                proxy,
-                credentialsProvider,
-                cookieSpecRegistry,
-                authSchemeRegistry,
-                key.versionPolicy);
-        asyncClient.start();
-        CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
-        clientState = new HttpClientState(client, asyncClient);
-        clients.put(key, clientState);
-        log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
-        return clientState;
+    private static Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
+        return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(
+                getJMeterThreadCacheKey(),
+                ignored -> new HashMap<>(5));
+    }
+
+    private static Object getJMeterThreadCacheKey() {
+        Object thread = JMeterContextService.getContext().getThread();
+        return thread == null ? Thread.currentThread() : thread;
     }
 
     private CloseableHttpAsyncClient createClient(
@@ -314,14 +338,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setDefaultTlsConfig(TlsConfig.custom()
                         .setVersionPolicy(versionPolicy)
                         .build())
+                .setMessageMultiplexing(true)
                 .build();
         CloseableHttpAsyncClient asyncClient = HttpAsyncClients.custom()
-                .setConnectionManager(connectionManager)
+                .setConnectionManager(new H2RouteReuseConnectionManager(connectionManager))
                 .setConnectionManagerShared(false)
                 .setIOReactorConfig(createIOReactorConfig())
                 .setDefaultCookieSpecRegistry(cookieSpecRegistry)
                 .setRedirectStrategy(new LaxRedirectStrategy())
                 .setRetryStrategy(createRetryStrategy())
+                .setUserTokenHandler((route, context) -> null)
                 .setProxyAuthenticationStrategy(getProxyAuthStrategy())
                 .setRoutePlanner(new H2RoutePlanner(proxy))
                 .setDefaultCredentialsProvider(credentialsProvider)
@@ -399,6 +425,210 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                             callback.cancelled();
                         }
                     });
+        }
+    }
+
+    private static final class H2RouteReuseConnectionManager implements AsyncClientConnectionManager {
+        private final PoolingAsyncClientConnectionManager delegate;
+        private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
+        private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
+
+        private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Future<AsyncConnectionEndpoint> lease(String id, HttpRoute route, Object state,
+                Timeout requestTimeout, FutureCallback<AsyncConnectionEndpoint> callback) {
+            RouteLeaseState routeState = routeStates.computeIfAbsent(route, ignored -> new RouteLeaseState());
+            delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
+            try {
+                routeState.awaitLeaseTurn(requestTimeout);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                BasicFuture<AsyncConnectionEndpoint> future = new BasicFuture<>(callback);
+                future.failed(e);
+                return future;
+            } catch (TimeoutException e) {
+                BasicFuture<AsyncConnectionEndpoint> future = new BasicFuture<>(callback);
+                future.failed(e);
+                return future;
+            }
+            return delegate.lease(id, route, state, requestTimeout, new FutureCallback<>() {
+                @Override
+                public void completed(AsyncConnectionEndpoint endpoint) {
+                    endpointRoutes.put(endpoint, route);
+                    routeState.leaseCompleted(endpoint);
+                    if (callback != null) {
+                        callback.completed(endpoint);
+                    }
+                }
+
+                @Override
+                public void failed(Exception ex) {
+                    routeState.releaseLeaseTurn();
+                    if (callback != null) {
+                        callback.failed(ex);
+                    }
+                }
+
+                @Override
+                public void cancelled() {
+                    routeState.releaseLeaseTurn();
+                    if (callback != null) {
+                        callback.cancelled();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void release(AsyncConnectionEndpoint endpoint, Object state, TimeValue keepAlive) {
+            delegate.release(endpoint, state, keepAlive);
+        }
+
+        @Override
+        public Future<AsyncConnectionEndpoint> connect(AsyncConnectionEndpoint endpoint,
+                ConnectionInitiator connectionInitiator, Timeout connectTimeout, Object attachment,
+                HttpContext context, FutureCallback<AsyncConnectionEndpoint> callback) {
+            HttpRoute route = endpointRoutes.get(endpoint);
+            RouteLeaseState routeState = route == null ? null : routeStates.get(route);
+            return delegate.connect(endpoint, connectionInitiator, connectTimeout, attachment, context,
+                    new FutureCallback<>() {
+                        @Override
+                        public void completed(AsyncConnectionEndpoint connectedEndpoint) {
+                            if (route != null) {
+                                endpointRoutes.put(connectedEndpoint, route);
+                            }
+                            if (routeState != null) {
+                                routeState.connectCompleted(connectedEndpoint);
+                                delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
+                            }
+                            if (callback != null) {
+                                callback.completed(connectedEndpoint);
+                            }
+                        }
+
+                        @Override
+                        public void failed(Exception ex) {
+                            if (routeState != null) {
+                                routeState.releaseLeaseTurn();
+                            }
+                            if (callback != null) {
+                                callback.failed(ex);
+                            }
+                        }
+
+                        @Override
+                        public void cancelled() {
+                            if (routeState != null) {
+                                routeState.releaseLeaseTurn();
+                            }
+                            if (callback != null) {
+                                callback.cancelled();
+                            }
+                        }
+                    });
+        }
+
+        @Override
+        public void upgrade(AsyncConnectionEndpoint endpoint, Object attachment, HttpContext context) {
+            delegate.upgrade(endpoint, attachment, context);
+        }
+
+        @Override
+        public void upgrade(AsyncConnectionEndpoint endpoint, Object attachment, HttpContext context,
+                FutureCallback<AsyncConnectionEndpoint> callback) {
+            delegate.upgrade(endpoint, attachment, context, callback);
+        }
+
+        @Override
+        public void close() {
+            delegate.close();
+        }
+
+        @Override
+        public void close(CloseMode closeMode) {
+            delegate.close(closeMode);
+        }
+    }
+
+    private enum RouteProtocol {
+        UNKNOWN,
+        HTTP_1,
+        HTTP_2
+    }
+
+    private static final class RouteLeaseState {
+        private RouteProtocol protocol = RouteProtocol.UNKNOWN;
+        private boolean leaseTurnInProgress;
+
+        synchronized void awaitLeaseTurn(Timeout timeout) throws InterruptedException, TimeoutException {
+            if (protocol == RouteProtocol.HTTP_1) {
+                return;
+            }
+            long deadline = 0;
+            if (timeout != null && timeout.isEnabled()) {
+                long timeoutMillis = timeout.toMilliseconds();
+                if (timeoutMillis == 0) {
+                    if (leaseTurnInProgress) {
+                        throw new TimeoutException("Timed out waiting for HTTP/2 route lease turn");
+                    }
+                } else {
+                    deadline = System.currentTimeMillis() + timeoutMillis;
+                }
+            }
+            while (leaseTurnInProgress) {
+                if (deadline > 0) {
+                    long remaining = deadline - System.currentTimeMillis();
+                    if (remaining <= 0) {
+                        throw new TimeoutException("Timed out waiting for HTTP/2 route lease turn");
+                    }
+                    wait(remaining);
+                } else {
+                    wait();
+                }
+            }
+            leaseTurnInProgress = true;
+        }
+
+        synchronized void leaseCompleted(AsyncConnectionEndpoint endpoint) {
+            RouteProtocol endpointProtocol = protocol(endpoint);
+            if (endpointProtocol != RouteProtocol.UNKNOWN) {
+                protocol = endpointProtocol;
+                releaseLeaseTurn();
+            } else if (endpoint.isConnected()) {
+                releaseLeaseTurn();
+            }
+        }
+
+        synchronized void connectCompleted(AsyncConnectionEndpoint endpoint) {
+            RouteProtocol endpointProtocol = protocol(endpoint);
+            if (endpointProtocol != RouteProtocol.UNKNOWN) {
+                protocol = endpointProtocol;
+            }
+            releaseLeaseTurn();
+        }
+
+        synchronized int maxConnections(int defaultMaxConnections) {
+            return protocol == RouteProtocol.HTTP_1 ? defaultMaxConnections : 1;
+        }
+
+        synchronized void releaseLeaseTurn() {
+            leaseTurnInProgress = false;
+            notifyAll();
+        }
+
+        private static RouteProtocol protocol(AsyncConnectionEndpoint endpoint) {
+            EndpointInfo endpointInfo = endpoint.getInfo();
+            ProtocolVersion protocol = endpointInfo == null ? null : endpointInfo.getProtocol();
+            if (HttpVersion.HTTP_2_0.equals(protocol)) {
+                return RouteProtocol.HTTP_2;
+            }
+            if (protocol != null) {
+                return RouteProtocol.HTTP_1;
+            }
+            return RouteProtocol.UNKNOWN;
         }
     }
 
@@ -661,12 +891,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static void closeThreadLocalConnections() {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
-        for (HttpClientState clientState : clients.values()) {
-            JOrphanUtils.closeQuietly(clientState.getClient());
-            JOrphanUtils.closeQuietly(clientState.getAsyncClient());
+        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey());
+        if (clients == null) {
+            return;
         }
-        clients.clear();
+        synchronized (clients) {
+            for (HttpClientState clientState : clients.values()) {
+                JOrphanUtils.closeQuietly(clientState.getClient());
+                JOrphanUtils.closeQuietly(clientState.getAsyncClient());
+            }
+        }
     }
 
     @Override

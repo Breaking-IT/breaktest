@@ -1382,11 +1382,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     @Override
     public void setThreadContext(JMeterContext inthreadContext) {
-        if (threadContext != null) {
-            if (inthreadContext != threadContext) {
-                throw new RuntimeException("Attempting to reset the thread context");
-            }
-        }
+        // Historically an element was bound to a single context for its whole life and any
+        // attempt to rebind it signalled an element accidentally shared between threads.
+        // The ParallelController legitimately re-runs the same child elements within a single
+        // virtual user, each pass on its own worker JMeterContext, so the element must be allowed
+        // to rebind. This stays a no-op for normal sequential execution, where the same context
+        // object is handed back on every iteration.
         this.threadContext = inthreadContext;
     }
 

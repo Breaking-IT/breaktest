@@ -2610,6 +2610,19 @@ Critical Section Controller takes locks only within one JVM, so if using Distrib
 
 </component>
 
+<component name="Parallel Controller" index="&sect-num;.2.18" width="330" height="100">
+<description>
+<p>
+The Parallel Controller executes the samplers below it concurrently within the same virtual user.
+The controller waits until all child samplers and nested controller samplers have completed before the virtual user continues.
+</p>
+</description>
+<properties>
+        <property name="Name" required="No">Descriptive name for this controller that is shown in the tree.</property>
+        <property name="Max parallel samplers" required="Yes">Maximum number of child samplers to execute at the same time. The default is <code>6</code>.</property>
+</properties>
+</component>
+
 <a href="#">^</a>
 
 </section>

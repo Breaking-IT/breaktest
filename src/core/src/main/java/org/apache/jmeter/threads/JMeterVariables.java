@@ -18,7 +18,7 @@
 package org.apache.jmeter.threads;
 
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
@@ -27,10 +27,16 @@ import org.apache.jmeter.util.JMeterUtils;
 
 /**
  * Class which defines JMeter variables.
- * These are similar to properties, but they are local to a single thread.
+ * These are normally local to a single virtual-user thread, but the
+ * {@link org.apache.jmeter.control.ParallelController} runs several samplers of
+ * the same virtual user concurrently and lets them share this instance. The
+ * backing map is therefore synchronized so that concurrent updates only race on
+ * values (last writer wins) instead of corrupting the map structure. Unlike
+ * {@link java.util.concurrent.ConcurrentHashMap} a synchronized map still allows
+ * {@code null} values, which JMeter relies on.
  */
 public class JMeterVariables {
-    private final Map<String, Object> variables = new HashMap<>();
+    private final Map<String, Object> variables = Collections.synchronizedMap(new LinkedHashMap<>());
 
     private int iteration = 0;
 
@@ -161,7 +167,7 @@ public class JMeterVariables {
      * @return the iterator
      */
     public Iterator<Map.Entry<String, Object>> getIterator(){
-        return Collections.unmodifiableMap(variables).entrySet().iterator() ;
+        return entrySet().iterator() ;
     }
 
     // Used by DebugSampler
@@ -169,7 +175,11 @@ public class JMeterVariables {
      * @return an unmodifiable view of the entries contained in {@link JMeterVariables}
      */
     public Set<Map.Entry<String, Object>> entrySet(){
-        return Collections.unmodifiableMap(variables).entrySet();
+        // Snapshot under the map lock so iteration is not affected by concurrent
+        // updates from samplers running in parallel for the same virtual user.
+        synchronized (variables) {
+            return Collections.unmodifiableMap(new LinkedHashMap<>(variables)).entrySet();
+        }
     }
 
     /**

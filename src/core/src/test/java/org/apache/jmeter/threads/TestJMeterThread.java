@@ -17,13 +17,20 @@
 
 package org.apache.jmeter.threads;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
@@ -85,6 +92,54 @@ class TestJMeterThread {
         @Override
         public long delay() {
             return delay;
+        }
+    }
+
+    private static final class TrackingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final AtomicInteger activeSamplers;
+        private final AtomicInteger maxActiveSamplers;
+        private final CountDownLatch completedSamplers;
+        private final AtomicReference<JMeterVariables> observedVariables;
+        private final AtomicBoolean sameVariables;
+
+        private TrackingSampler(String name,
+                AtomicInteger activeSamplers,
+                AtomicInteger maxActiveSamplers,
+                CountDownLatch completedSamplers,
+                AtomicReference<JMeterVariables> observedVariables,
+                AtomicBoolean sameVariables) {
+            setName(name);
+            this.activeSamplers = activeSamplers;
+            this.maxActiveSamplers = maxActiveSamplers;
+            this.completedSamplers = completedSamplers;
+            this.observedVariables = observedVariables;
+            this.sameVariables = sameVariables;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            int active = activeSamplers.incrementAndGet();
+            maxActiveSamplers.accumulateAndGet(active, Math::max);
+            JMeterVariables variables = JMeterContextService.getContext().getVariables();
+            if (!observedVariables.compareAndSet(null, variables) && observedVariables.get() != variables) {
+                sameVariables.set(false);
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            } finally {
+                activeSamplers.decrementAndGet();
+                completedSamplers.countDown();
+            }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
         }
     }
 
@@ -166,6 +221,47 @@ class TestJMeterThread {
         // the duration of this test plan should currently be around zero seconds,
         // but it is allowed to take up to maxDuration amount of time
         assertTrue(duration <= maxDuration, "Test plan should not run for longer than duration");
+    }
+
+    @Test
+    void testParallelControllerHonorsMaxParallelAndSharesVariables() throws InterruptedException {
+        AtomicInteger activeSamplers = new AtomicInteger();
+        AtomicInteger maxActiveSamplers = new AtomicInteger();
+        CountDownLatch completedSamplers = new CountDownLatch(3);
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+        AtomicBoolean sameVariables = new AtomicBoolean(true);
+
+        HashTree testTree = new HashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(2);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, new TrackingSampler(
+                "one", activeSamplers, maxActiveSamplers, completedSamplers, observedVariables, sameVariables));
+        testTree.add(parallelController, new TrackingSampler(
+                "two", activeSamplers, maxActiveSamplers, completedSamplers, observedVariables, sameVariables));
+        testTree.add(parallelController, new TrackingSampler(
+                "three", activeSamplers, maxActiveSamplers, completedSamplers, observedVariables, sameVariables));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.run();
+
+        assertTrue(completedSamplers.await(5, TimeUnit.SECONDS), "All parallel samplers should complete");
+        assertEquals(2, maxActiveSamplers.get(), "Only two samplers should run at the same time");
+        assertTrue(sameVariables.get(), "Parallel workers should share virtual user variables");
     }
 
     private static LoopController createLoopController() {
