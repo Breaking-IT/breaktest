@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.UUID;
 
+import org.apache.jmeter.testbeans.TestBeanHelper;
+import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.TestJMeterContextService;
 import org.apache.jmeter.util.BeanShellInterpreter;
@@ -98,6 +100,28 @@ class ConstantThroughputTimerTest {
         assertEquals(1000, JMeterContextService.getNumberOfThreads());
         timer.setThroughput(60000000.0);// 1000 per milli-second
         assertEquals(1, timer.calculateCurrentTarget(0)); // Should delay for 1 milli-second
+    }
+
+    @Test
+    void prepareShouldKeepLegacyCalcModeProperty() {
+        ConstantThroughputTimer timer = new ConstantThroughputTimer();
+        timer.setProperty(new StringProperty(ConstantThroughputTimer.CALC_MODE, "calcMode.2"));
+        assertEquals(ConstantThroughputTimer.Mode.AllActiveThreads, timer.getMode());
+
+        TestBeanHelper.prepare(timer);
+
+        assertEquals(ConstantThroughputTimer.Mode.AllActiveThreads, timer.getMode());
+    }
+
+    @Test
+    void prepareShouldConvertGuiModeProperty() {
+        ConstantThroughputTimer timer = new ConstantThroughputTimer();
+        timer.setProperty(new StringProperty(ConstantThroughputTimer.MODE, "calcMode.2"));
+        assertEquals(ConstantThroughputTimer.Mode.AllActiveThreads, timer.getMode());
+
+        TestBeanHelper.prepare(timer);
+
+        assertEquals(ConstantThroughputTimer.Mode.AllActiveThreads, timer.getMode());
     }
 
     @Test

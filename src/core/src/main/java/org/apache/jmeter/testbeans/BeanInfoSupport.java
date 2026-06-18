@@ -210,7 +210,10 @@ public abstract class BeanInfoSupport extends SimpleBeanInfo {
         if (property != null) {
             property.setValue(GenericTestBeanCustomizer.GUITYPE, enumClass);
             // we also provide the resource bundle
-            property.setValue(GenericTestBeanCustomizer.RESOURCE_BUNDLE, getBeanDescriptor().getValue(RESOURCE_BUNDLE));
+            Object resourceBundle = getBeanDescriptor().getValue(RESOURCE_BUNDLE);
+            if (resourceBundle != null) {
+                property.setValue(GenericTestBeanCustomizer.RESOURCE_BUNDLE, resourceBundle);
+            }
         }
         return property;
     }
