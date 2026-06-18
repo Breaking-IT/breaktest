@@ -32,6 +32,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -295,6 +296,32 @@ public class TestCacheManagerThreadIteration {
         this.cacheManager.testIterationStart(null);
         assertNull(getThreadCacheEntry(LOCAL_HOST), "After iterantion, should not find entry");
         assertFalse(this.cacheManager.inCache(url, headers), "After iterantion, should not find valid entry");
+    }
+
+    @Test
+    public void testCacheInitializedForChildSamplerThreads() throws Exception {
+        jmctx.setVariables(jmvars);
+        this.cacheManager.setUseExpires(true);
+        this.cacheManager.testIterationStart(null);
+        assertNull(getThreadCacheEntry(LOCAL_HOST), "Should not find entry");
+
+        long start = System.currentTimeMillis();
+        setExpires(makeDate(Instant.ofEpochMilli(start)));
+        setCacheControl("public, max-age=1");
+
+        AtomicReference<Throwable> childFailure = new AtomicReference<>();
+        Thread child = new Thread(() -> {
+            try {
+                cacheResult(sampleResultOK);
+            } catch (Throwable t) {
+                childFailure.set(t);
+            }
+        });
+        child.start();
+        child.join();
+
+        assertNull(childFailure.get(), "Child sampler thread should cache without failure");
+        assertNotNull(getThreadCacheEntry(LOCAL_HOST), "Parent thread should see cache entry added by child sampler thread");
     }
 
     @Test

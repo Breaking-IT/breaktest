@@ -682,6 +682,9 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
             clearCache();
         }
         useExpires = getUseExpires(); // cache the value
+        // Ensure child sampler threads inherit this virtual user's cache even
+        // when the first cache access happens inside a parallel controller.
+        getCache();
     }
 
 }

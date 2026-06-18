@@ -24,7 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.cookie.ClientCookie;
@@ -310,6 +316,44 @@ public class TestHC4CookieManager extends JMeterTestCase {
         String s = man.getCookieHeaderForURL(url);
         assertNotNull(s);
         assertEquals("mySASession=s%3AcafPSGf6UJguyhddGFFeLdHBy9CYbzIS.NhYyA26LGTAVoLxhCQUK%2F2Bs34MW5kGHmErKzG6r3XI", s);
+    }
+
+    @Test
+    public void testCookieHeaderReadWhileAddingCookies() throws Exception {
+        URL url = toUrl("https://a.b.c/");
+        for (int i = 0; i < 50; i++) {
+            man.addCookieFromHeader("initial" + i + "=value; path=/", url);
+        }
+
+        int workers = 8;
+        int iterations = 500;
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executorService = Executors.newFixedThreadPool(workers);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int worker = 0; worker < workers; worker++) {
+                int workerId = worker;
+                futures.add(executorService.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < iterations; i++) {
+                        if ((workerId + i) % 2 == 0) {
+                            man.getCookieHeaderForURL(url);
+                        } else {
+                            man.addCookieFromHeader("worker" + workerId + "_" + i + "=value; path=/", url);
+                        }
+                    }
+                    return null;
+                }));
+            }
+
+            start.countDown();
+            for (Future<?> future : futures) {
+                future.get(30, TimeUnit.SECONDS);
+            }
+        } finally {
+            executorService.shutdownNow();
+            assertTrue(executorService.awaitTermination(30, TimeUnit.SECONDS));
+        }
     }
 
     // Test multi-cookie header handling

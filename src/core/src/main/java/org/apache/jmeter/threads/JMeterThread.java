@@ -516,15 +516,11 @@ public class JMeterThread implements Runnable, Interruptible {
             // Check if we have a sampler to sample
             if (current != null) {
                 if (current instanceof ParallelControllerSampler parallelSampler) {
-                    List<SampleResult> results = processParallelSampler(parallelSampler, threadContext);
-                    for (SampleResult result : results) {
-                        if (transactionSampler != null && !result.isIgnore()) {
-                            transactionSampler.addSubSamplerResult(result);
-                        }
-                    }
-                    if (transactionSampler == null && !results.isEmpty()) {
-                        transactionResult = results.get(results.size() - 1);
-                    }
+                    // The ParallelController is transparent: its children are executed exactly as if
+                    // they were direct children of the ParallelController's parent. The enclosing
+                    // transaction (if any) is handed down so each child is attributed to it and its
+                    // listeners are filtered identically to a sequential child.
+                    processParallelSampler(parallelSampler, transactionSampler, transactionPack, threadContext);
                 } else {
                     SampleResult result = executeSamplePackage(current, transactionSampler, transactionPack, threadContext);
                     if (transactionSampler == null) {
@@ -579,24 +575,26 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     /**
-     * Execute the sampler with its pre/post processors, timers, assertions
-     * Broadcast the result to the sample listeners
+     * Runs every child of the {@link ParallelControllerSampler} concurrently. Each child is
+     * executed through {@link #executeSamplePackage} with the transaction that encloses the
+     * {@link org.apache.jmeter.control.ParallelController} (if any), so the children are recorded,
+     * attributed and filtered exactly as if they were direct, sequential children of that parent.
      */
-    private List<SampleResult> processParallelSampler(ParallelControllerSampler parallelSampler, JMeterContext parentContext) {
+    private void processParallelSampler(ParallelControllerSampler parallelSampler,
+            TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext) {
         List<Sampler> samplers = parallelSampler.getSamplers();
         if (samplers.isEmpty()) {
-            return List.of();
+            return;
         }
 
         int maxParallel = Math.min(parallelSampler.getMaxParallel(), samplers.size());
-        List<SampleResult> results = new ArrayList<>(samplers.size());
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextSampler = 0;
         int activeSamplers = 0;
         try {
             while (nextSampler < samplers.size() && activeSamplers < maxParallel) {
-                completionService.submit(parallelTask(samplers.get(nextSampler++), parentContext));
+                completionService.submit(parallelTask(samplers.get(nextSampler++), transactionSampler, transactionPack, parentContext));
                 activeSamplers++;
             }
 
@@ -604,11 +602,10 @@ public class JMeterThread implements Runnable, Interruptible {
                 SampleResult result = completionService.take().get();
                 activeSamplers--;
                 if (result != null) {
-                    results.add(result);
                     parentContext.setPreviousResult(result);
                 }
                 if (running && nextSampler < samplers.size()) {
-                    completionService.submit(parallelTask(samplers.get(nextSampler++), parentContext));
+                    completionService.submit(parallelTask(samplers.get(nextSampler++), transactionSampler, transactionPack, parentContext));
                     activeSamplers++;
                 }
             }
@@ -620,15 +617,20 @@ public class JMeterThread implements Runnable, Interruptible {
         } finally {
             executor.shutdownNow();
         }
-        return results;
     }
 
-    private Callable<SampleResult> parallelTask(Sampler sampler, JMeterContext parentContext) {
+    private Callable<SampleResult> parallelTask(Sampler sampler, TransactionSampler transactionSampler,
+            SamplePackage transactionPack, JMeterContext parentContext) {
         return () -> {
             JMeterContext workerContext = createParallelContext(parentContext);
             JMeterContextService.replaceContext(workerContext);
             try {
-                return processSampler(sampler, null, workerContext);
+                if (sampler instanceof TransactionSampler) {
+                    // A nested transaction controller (parent mode) manages its own sub-samples and
+                    // must not be folded into the enclosing transaction; run it stand-alone.
+                    return processSampler(sampler, null, workerContext);
+                }
+                return executeSamplePackage(sampler, transactionSampler, transactionPack, workerContext);
             } finally {
                 workerContext.cleanAfterSample();
                 JMeterContextService.removeContext();
@@ -701,9 +703,13 @@ public class JMeterThread implements Runnable, Interruptible {
                     notifyListeners(sampleListeners, result);
                 }
                 doneLocked(pack);
-                // Add the result as subsample of transaction if we are in a transaction
+                // Add the result as subsample of transaction if we are in a transaction.
+                // Synchronized because parallel children share one transaction sampler; this is
+                // uncontended (and therefore cheap) for normal sequential execution.
                 if (transactionSampler != null && !result.isIgnore()) {
-                    transactionSampler.addSubSamplerResult(result);
+                    synchronized (transactionSampler) {
+                        transactionSampler.addSubSamplerResult(result);
+                    }
                 }
             } else {
                 // This call is done by checkAssertions() , as we don't call it
