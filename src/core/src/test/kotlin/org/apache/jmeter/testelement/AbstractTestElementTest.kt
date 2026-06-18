@@ -20,6 +20,7 @@ package org.apache.jmeter.testelement
 import io.mockk.mockk
 import io.mockk.spyk
 import org.apache.jmeter.testelement.property.CollectionProperty
+import org.apache.jmeter.testelement.property.StringProperty
 import org.apache.jmeter.testelement.property.TestElementProperty
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -90,6 +91,128 @@ class AbstractTestElementTest {
         }
         assertTrue(sut.isTemporary(innerProp)) {
             "isTemporary($innerProp)"
+        }
+    }
+
+    @Test
+    fun `simple temporary properties keep value semantics`() {
+        val sut = spyk<AbstractTestElement>()
+        val prop = StringProperty("prop", "value")
+        val equalProp = StringProperty("prop", "value")
+
+        sut.setTemporary(prop)
+
+        assertTrue(sut.isTemporary(equalProp)) {
+            "isTemporary($equalProp)"
+        }
+    }
+
+    @Test
+    fun `shallow multi temporary properties keep value semantics`() {
+        val sut = spyk<AbstractTestElement>()
+        val prop = CollectionProperty("prop", listOf(StringProperty("child", "value")))
+        val equalProp = CollectionProperty("prop", listOf(StringProperty("child", "value")))
+
+        sut.setTemporary(prop)
+
+        assertTrue(sut.isTemporary(equalProp)) {
+            "isTemporary($equalProp)"
+        }
+    }
+
+    @Test
+    fun `test element temporary properties use identity semantics`() {
+        class Element : AbstractTestElement()
+        val sut = spyk<AbstractTestElement>()
+        val element = Element().apply {
+            setProperty(StringProperty("child", "value"))
+        }
+        val equalElement = Element().apply {
+            setProperty(StringProperty("child", "value"))
+        }
+        val prop = TestElementProperty("testvar", element)
+        val equalProp = TestElementProperty("testvar", equalElement)
+
+        sut.setTemporary(prop)
+
+        assertFalse(sut.isTemporary(equalProp)) {
+            "isTemporary($equalProp)"
+        }
+    }
+
+    @Test
+    fun `http sampler nested temporary properties use identity semantics`() {
+        class Element : AbstractTestElement()
+
+        for (propertyName in listOf("HTTPsampler.Arguments", "HTTPSampler.cookie_manager")) {
+            val sut = spyk<AbstractTestElement>()
+            val element = Element().apply {
+                setProperty(StringProperty("child", "value"))
+            }
+            val equalElement = Element().apply {
+                setProperty(StringProperty("child", "value"))
+            }
+            val prop = TestElementProperty(propertyName, element)
+            val equalProp = TestElementProperty(propertyName, equalElement)
+
+            sut.setTemporary(prop)
+
+            assertFalse(sut.isTemporary(equalProp)) {
+                "isTemporary($equalProp)"
+            }
+        }
+    }
+
+    @Test
+    fun `merged http sampler nested property is marked temporary by identity`() {
+        class Element : AbstractTestElement()
+        class MutableElement : AbstractTestElement() {
+            fun add(property: TestElementProperty) = addProperty(property)
+        }
+        val sut = MutableElement()
+        val existingElement = Element().apply {
+            setProperty(StringProperty("existing", "value"))
+        }
+        val existingProp = TestElementProperty("HTTPSampler.header_manager", existingElement)
+        val incomingElement = Element().apply {
+            setProperty(StringProperty("incoming", "value"))
+        }
+        val incomingProp = TestElementProperty("HTTPSampler.header_manager", incomingElement)
+        val equalElement = Element().apply {
+            setProperty(StringProperty("existing", "value"))
+            setProperty(StringProperty("incoming", "value"))
+        }
+
+        sut.setProperty(existingProp)
+        sut.isRunningVersion = true
+        sut.add(incomingProp)
+
+        assertTrue(sut.isTemporary(existingProp)) {
+            "isTemporary($existingProp)"
+        }
+        assertFalse(sut.isTemporary(TestElementProperty("HTTPSampler.header_manager", equalElement))) {
+            "temporary HTTP nested properties should use identity semantics"
+        }
+    }
+
+    @Test
+    fun `http header manager temporary property does not change simple property semantics`() {
+        class Element : AbstractTestElement()
+        val sut = spyk<AbstractTestElement>()
+        val prop = StringProperty("prop", "value")
+        val equalProp = StringProperty("prop", "value")
+        val headerProp = TestElementProperty(
+            "HTTPSampler.header_manager",
+            Element().apply {
+                setProperty(StringProperty("child", "value"))
+            },
+        )
+
+        sut.setTemporary(prop)
+        sut.setTemporary(headerProp)
+
+        assertTrue(sut.isTemporary(equalProp)) {
+            "isTemporary($equalProp)"
         }
     }
 }

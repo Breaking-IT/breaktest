@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -162,6 +163,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     // @GuardedBy("lock")
     private transient Set<JMeterProperty> temporaryProperties;
+    // @GuardedBy("lock")
+    private transient Set<JMeterProperty> identityTemporaryProperties;
 
     private transient boolean runningVersion = false;
 
@@ -1007,9 +1010,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             ensureOwnProperties();
             view = null;
         }
-        if (isRunningVersion()) {
+        boolean runningVersion = isRunningVersion();
+        boolean identityTemporaryProperty = runningVersion && requiresIdentityTemporarySet(propertyToPut);
+        if (runningVersion && !identityTemporaryProperty) {
             setTemporary(propertyToPut);
-        } else {
+        } else if (!runningVersion) {
             clearTemporary(property);
         }
         JMeterProperty prop = getProperty(property.getName());
@@ -1027,6 +1032,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     propMapConcurrent.put(property.getName(), propertyToPut);
                 }
             }
+            if (identityTemporaryProperty) {
+                setTemporary(propertyToPut);
+            }
         } else {
             if (view != null && prop instanceof MultiProperty && !view.isOverlaid(prop.getName())) {
                 // Defensive: never merge into a property instance from the shared base.
@@ -1038,6 +1046,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                 }
             }
             prop.mergeIn(propertyToPut);
+            if (identityTemporaryProperty) {
+                setTemporary(prop);
+            }
         }
     }
 
@@ -1057,6 +1068,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         try (ResourceLock ignored = writeLock()) {
             if (temporaryProperties != null) {
                 temporaryProperties.remove(property);
+            }
+            if (identityTemporaryProperties != null) {
+                identityTemporaryProperties.remove(property);
             }
         }
     }
@@ -1322,6 +1336,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             if (temporaryProperties != null) {
                 temporaryProperties.clear();
             }
+            if (identityTemporaryProperties != null) {
+                identityTemporaryProperties.clear();
+            }
         }
     }
 
@@ -1331,6 +1348,9 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public boolean isTemporary(JMeterProperty property) {
         try (ResourceLock ignored = readLock()) {
+            if (requiresIdentityTemporarySet(property)) {
+                return identityTemporaryProperties != null && identityTemporaryProperties.contains(property);
+            }
             return temporaryProperties != null && temporaryProperties.contains(property);
         }
     }
@@ -1341,18 +1361,34 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public void setTemporary(JMeterProperty property) {
         try (ResourceLock ignored = writeLock()) {
-            if (temporaryProperties == null) {
-                // Identity set: avoids deep hashCode/equals of nested-element properties
-                Set<JMeterProperty> set = Collections.newSetFromMap(new IdentityHashMap<>());
-                temporaryProperties = lock != null ? set : Collections.synchronizedSet(set) ;
+            if (requiresIdentityTemporarySet(property)) {
+                if (identityTemporaryProperties == null) {
+                    identityTemporaryProperties = createTemporaryPropertiesSet(true);
+                }
+                identityTemporaryProperties.add(property);
+            } else {
+                if (temporaryProperties == null) {
+                    temporaryProperties = createTemporaryPropertiesSet(false);
+                }
+                temporaryProperties.add(property);
             }
-            temporaryProperties.add(property);
             if (isMergingEnclosedProperties(property)) {
                 for (JMeterProperty jMeterProperty : (MultiProperty) property) {
                     setTemporary(jMeterProperty);
                 }
             }
         }
+    }
+
+    private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
+        Set<JMeterProperty> set = identity
+                ? Collections.newSetFromMap(new IdentityHashMap<>())
+                : new LinkedHashSet<>();
+        return lock != null ? set : Collections.synchronizedSet(set);
+    }
+
+    private static boolean requiresIdentityTemporarySet(JMeterProperty property) {
+        return property instanceof TestElementProperty;
     }
 
     // While TestElementProperty is implementing MultiProperty, it works differently.
