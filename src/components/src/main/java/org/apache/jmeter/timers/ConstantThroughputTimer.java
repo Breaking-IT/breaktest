@@ -176,6 +176,21 @@ public class ConstantThroughputTimer extends AbstractTestElement implements Time
         getSchema().getCalcMode().set(this, newMode.getResourceKey());
     }
 
+    @Override
+    public JMeterProperty getProperty(String key) {
+        if (MODE.equals(key)) {
+            JMeterProperty modeProperty = getPropertyOrNull(MODE);
+            if (modeProperty != null) {
+                return modeProperty;
+            }
+            JMeterProperty calcModeProperty = getPropertyOrNull(CALC_MODE);
+            if (calcModeProperty != null) {
+                return calcModeProperty;
+            }
+        }
+        return super.getProperty(key);
+    }
+
     /**
      * Retrieve the delay to use during test execution.
      *
@@ -303,10 +318,12 @@ public class ConstantThroughputTimer extends AbstractTestElement implements Time
     @SuppressWarnings("EnumOrdinal")
     public void setProperty(JMeterProperty property) {
         String propertyName = property.getName();
-        if (propertyName.equals("calcMode")) {
-            JMeterProperty mode = GenericTestBeanCustomizer.normalizeEnumProperty(getClass(), Mode.class, property);
-            if (mode != null) {
-                super.setProperty(mode);
+        if (CALC_MODE.equals(propertyName) || MODE.equals(propertyName)) {
+            JMeterProperty calcMode = GenericTestBeanCustomizer.normalizeEnumProperty(getClass(), Mode.class, property);
+            if (calcMode != null) {
+                calcMode.setName(CALC_MODE);
+                super.setProperty(calcMode);
+                super.removeProperty(MODE);
                 return;
             }
         }

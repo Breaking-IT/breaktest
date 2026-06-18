@@ -36,7 +36,9 @@ import org.apache.jmeter.testelement.property.MultiProperty;
 import org.apache.jmeter.testelement.property.NullProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.locale.ResourceKeyed;
 import org.apache.jorphan.util.Converter;
+import org.apache.jorphan.util.EnumUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -189,10 +191,24 @@ public class TestBeanHelper {
         } else if (jprop instanceof NullProperty) {
             value = Boolean.TRUE.equals(desc.getValue(GenericTestBeanCustomizer.NOT_UNDEFINED))
                     ? desc.getValue(GenericTestBeanCustomizer.DEFAULT) : null;
+        } else if (type.isEnum()) {
+            value = unwrapEnumProperty(jprop, type);
         } else {
             value = Converter.convert(jprop.getStringValue(), type);
         }
         return value;
+    }
+
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private static Object unwrapEnumProperty(JMeterProperty jprop, Class<?> type) {
+        String value = jprop.getStringValue();
+        if (ResourceKeyed.class.isAssignableFrom(type)) {
+            Object enumValue = EnumUtils.valueOf((Class) type, value);
+            if (enumValue != null) {
+                return enumValue;
+            }
+        }
+        return Enum.valueOf((Class<? extends Enum>) type.asSubclass(Enum.class), value);
     }
 
     private static Object unwrapCollection(MultiProperty prop, String type)

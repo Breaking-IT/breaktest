@@ -17,7 +17,9 @@
 
 package org.apache.jmeter.timers;
 
+import java.beans.BeanInfo;
 import java.beans.PropertyDescriptor;
+import java.util.Arrays;
 
 import org.apache.jmeter.testbeans.BeanInfoSupport;
 
@@ -38,13 +40,21 @@ public class ConstantThroughputTimerBeanInfo extends BeanInfoSupport {
         p.setValue(NOT_UNDEFINED, true);
         p.setValue(DEFAULT, 0.0);
 
-        // Hide old parameter that used index (setCalcMode(int); int getCalcMode())
-        p = property(ConstantThroughputTimer.CALC_MODE);
-        p.setHidden(true);
-
         p = property(ConstantThroughputTimer.MODE, ConstantThroughputTimer.Mode.class); //$NON-NLS-1$
         p.setValue(DEFAULT, ConstantThroughputTimer.Mode.ThisThreadOnly);
         p.setValue(NOT_UNDEFINED, true); // must be defined
+    }
+
+    @Override
+    public PropertyDescriptor[] getPropertyDescriptors() {
+        return Arrays.stream(super.getPropertyDescriptors())
+                .filter(p -> !ConstantThroughputTimer.CALC_MODE.equals(p.getName()))
+                .toArray(PropertyDescriptor[]::new);
+    }
+
+    @Override
+    public BeanInfo[] getAdditionalBeanInfo() {
+        return null;
     }
 
 }
