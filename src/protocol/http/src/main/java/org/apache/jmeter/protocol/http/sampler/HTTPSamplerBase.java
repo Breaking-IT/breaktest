@@ -221,6 +221,17 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     private static final int MAX_PREALLOCATE_SIZE =
             JMeterUtils.getPropDefault("httpsampler.max_preallocate_size", 16 * 1024 * 1024); // $NON-NLS-1$
 
+    /**
+     * Per-thread reusable scratch buffer for {@link #readResponse}. The read buffer is pure transient
+     * working memory (data is copied into the stored-body stream or fed to the digest before the next
+     * read), so it can be reused across samples on the same thread instead of allocating 8&nbsp;kB per
+     * response. readResponse is not re-entrant on a single thread (a sampler reads its main response,
+     * then any embedded resources, strictly sequentially), so one buffer per thread is safe.
+     */
+    private static final int READ_BUFFER_SIZE = 8192;
+    private static final ThreadLocal<byte[]> READ_BUFFER =
+            ThreadLocal.withInitial(() -> new byte[READ_BUFFER_SIZE]);
+
     private static final boolean IGNORE_FAILED_EMBEDDED_RESOURCES =
             JMeterUtils.getPropDefault("httpsampler.ignore_failed_embedded_resources", false); // $NON-NLS-1$ // default value: false
 
@@ -2163,8 +2174,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             contentEncoding = null; // already decoded
         }
 
-        // 8kB is the (max) size to have the latency ('the first packet')
-        byte[] readBuffer = new byte[Math.toIntExact(length > 0 ? Math.min(length, 8192) : 8192)];
+        // 8kB is the (max) size to have the latency ('the first packet').
+        // Per-thread reusable buffer: this is transient scratch, copied into the stored-body stream
+        // (or digest) each read, so it need not be reallocated per sample.
+        byte[] readBuffer = READ_BUFFER.get();
 
         MessageDigest md = null;
         DirectAccessByteArrayOutputStream w = null;
