@@ -37,6 +37,8 @@ public class ScriptWrapperConverter implements Converter {
     private static final String ATT_PROPERTIES = "properties"; // $NON-NLS-1$
     private static final String ATT_VERSION = "version"; // $NON-NLS-1$
     private static final String ATT_JMETER = "jmeter"; // $NON-NLS-1$
+    private static final String ATT_ORIGIN = "origin"; // $NON-NLS-1$
+    private static final String ORIGIN_BREAKTEST = "breaktest"; // $NON-NLS-1$
 
     /**
      * Returns the converter version; used to check for possible
@@ -73,6 +75,7 @@ public class ScriptWrapperConverter implements Converter {
         writer.addAttribute(ATT_VERSION, version);
         writer.addAttribute(ATT_PROPERTIES, SaveService.getPropertiesVersion());
         writer.addAttribute(ATT_JMETER, JMeterUtils.getJMeterVersion());
+        writer.addAttribute(ATT_ORIGIN, ORIGIN_BREAKTEST);
         writer.startNode(classMapper.serializedClass(wrap.testPlan.getClass()));
         context.convertAnother(wrap.testPlan);
         writer.endNode();

@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.visualizers;
 
+import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 
 /**
@@ -37,6 +38,18 @@ public interface Visualizer {
      *            the newly arrived sample
      */
     void add(SampleResult sample);
+
+    /**
+     * This method is called by sampling thread to inform the visualizer about
+     * the arrival of a new sample event. Visualizers that need event metadata
+     * can override it; others receive the contained {@link SampleResult}.
+     *
+     * @param event
+     *            the newly arrived sample event
+     */
+    default void add(SampleEvent event) {
+        add(event.getResult());
+    }
 
     /**
      * This method is used to indicate a visualizer generates statistics.

@@ -19,7 +19,9 @@ package org.apache.jmeter.threads;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
@@ -379,14 +381,17 @@ public class JMeterThread implements Runnable, Interruptible {
             transactionSampler = transSampler;
         }
 
-        Sampler realSampler = findRealSampler(sampler);
-        if (realSampler == null) {
+        Object nodeToFind = findRealSampler(sampler);
+        if (nodeToFind == null && transactionSampler != null) {
+            nodeToFind = transactionSampler.getTransactionController();
+        }
+        if (nodeToFind == null) {
             throw new IllegalStateException(
                     "Got null subSampler calling findRealSampler for:" +
                     (sampler != null ? sampler.getName() : "null") + ", sampler:" + sampler);
         }
         // Find parent controllers of current sampler
-        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(realSampler);
+        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(nodeToFind);
         testTree.traverse(pathToRootTraverser);
 
         consumer.accept(pathToRootTraverser);
@@ -599,7 +604,12 @@ public class JMeterThread implements Runnable, Interruptible {
             }
 
             while (activeSamplers > 0) {
-                SampleResult result = completionService.take().get();
+                SampleResult result = null;
+                try {
+                    result = completionService.take().get();
+                } catch (ExecutionException e) {
+                    log.error("Error while processing parallel sampler: '{}'.", parallelSampler.getName(), e.getCause());
+                }
                 activeSamplers--;
                 if (result != null) {
                     parentContext.setPreviousResult(result);
@@ -612,8 +622,6 @@ public class JMeterThread implements Runnable, Interruptible {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             stopThread();
-        } catch (ExecutionException e) {
-            log.error("Error while processing parallel sampler: '{}'.", parallelSampler.getName(), e.getCause());
         } finally {
             executor.shutdownNow();
         }
@@ -670,70 +678,80 @@ public class JMeterThread implements Runnable, Interruptible {
         threadContext.setCurrentSampler(current);
         // Get the sampler ready to sample
         SamplePackage pack = configureSamplerLocked(current);
-        runPreProcessors(pack.getPreProcessors());
+        boolean packageDone = false;
+        try {
+            runPreProcessors(pack.getPreProcessors());
 
-        // Hack: save the package for any transaction controllers
-        threadVars.putObject(PACKAGE_OBJECT, pack);
+            // Hack: save the package for any transaction controllers
+            threadVars.putObject(PACKAGE_OBJECT, pack);
 
-        delay(pack.getTimers());
-        SampleResult result = null;
-        if (running) {
-            Sampler sampler = pack.getSampler();
-            result = doSampling(threadContext, sampler);
-        }
-        // If we got any results, then perform processing on the result
-        if (result != null) {
-            if (!result.isIgnore()) {
-                int nbActiveThreadsInThreadGroup = threadGroup.getNumberOfThreads();
-                int nbTotalActiveThreads = JMeterContextService.getNumberOfThreads();
-                fillThreadInformation(result, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
-                SampleResult[] subResults = result.getSubResults();
-                if (subResults != null) {
-                    for (SampleResult subResult : subResults) {
-                        fillThreadInformation(subResult, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
-                    }
-                }
-                threadContext.setPreviousResult(result);
-                runPostProcessors(pack.getPostProcessors());
-                checkAssertions(pack.getAssertions(), result, threadContext);
-                // PostProcessors can call setIgnore, so reevaluate here
+            delay(pack.getTimers());
+            SampleResult result = null;
+            if (running) {
+                Sampler sampler = pack.getSampler();
+                result = doSampling(threadContext, sampler);
+            }
+            // If we got any results, then perform processing on the result
+            if (result != null) {
                 if (!result.isIgnore()) {
-                    // Do not send subsamples to listeners which receive the transaction sample
-                    List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
-                    notifyListeners(sampleListeners, result);
-                }
-                doneLocked(pack);
-                // Add the result as subsample of transaction if we are in a transaction.
-                // Synchronized because parallel children share one transaction sampler; this is
-                // uncontended (and therefore cheap) for normal sequential execution.
-                if (transactionSampler != null && !result.isIgnore()) {
-                    synchronized (transactionSampler) {
-                        transactionSampler.addSubSamplerResult(result);
+                    int nbActiveThreadsInThreadGroup = threadGroup.getNumberOfThreads();
+                    int nbTotalActiveThreads = JMeterContextService.getNumberOfThreads();
+                    fillThreadInformation(result, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
+                    SampleResult[] subResults = result.getSubResults();
+                    if (subResults != null) {
+                        for (SampleResult subResult : subResults) {
+                            fillThreadInformation(subResult, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
+                        }
                     }
+                    threadContext.setPreviousResult(result);
+                    runPostProcessors(pack.getPostProcessors());
+                    checkAssertions(pack.getAssertions(), result, threadContext);
+                    // PostProcessors can call setIgnore, so reevaluate here
+                    if (!result.isIgnore()) {
+                        // Do not send subsamples to listeners which receive the transaction sample
+                        List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
+                        notifyListeners(sampleListeners, result);
+                    }
+                    packageDone = true;
+                    doneLocked(pack);
+                    // Add the result as subsample of transaction if we are in a transaction.
+                    // Synchronized because parallel children share one transaction sampler; this is
+                    // uncontended (and therefore cheap) for normal sequential execution.
+                    if (transactionSampler != null && !result.isIgnore()) {
+                        synchronized (transactionSampler) {
+                            transactionSampler.addSubSamplerResult(result);
+                        }
+                    }
+                } else {
+                    // This call is done by checkAssertions() , as we don't call it
+                    // for isIgnore, we explictely call it here
+                    setLastSampleOk(threadContext.getVariables(), result.isSuccessful());
+                    packageDone = true;
+                    doneLocked(pack);
+                }
+                // Check if thread or test should be stopped
+                if (result.isStopThread() || (!result.isSuccessful() && onErrorStopThread)) {
+                    stopThread();
+                }
+                if (result.isStopTest() || (!result.isSuccessful() && onErrorStopTest)) {
+                    shutdownTest();
+                }
+                if (result.isStopTestNow() || (!result.isSuccessful() && onErrorStopTestNow)) {
+                    stopTestNow();
+                }
+                if (result.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
+                    threadContext.setTestLogicalAction(result.getTestLogicalAction());
                 }
             } else {
-                // This call is done by checkAssertions() , as we don't call it
-                // for isIgnore, we explictely call it here
-                setLastSampleOk(threadContext.getVariables(), result.isSuccessful());
+                packageDone = true;
                 doneLocked(pack);
             }
-            // Check if thread or test should be stopped
-            if (result.isStopThread() || (!result.isSuccessful() && onErrorStopThread)) {
-                stopThread();
+            return result;
+        } finally {
+            if (!packageDone) {
+                doneLocked(pack);
             }
-            if (result.isStopTest() || (!result.isSuccessful() && onErrorStopTest)) {
-                shutdownTest();
-            }
-            if (result.isStopTestNow() || (!result.isSuccessful() && onErrorStopTestNow)) {
-                stopTestNow();
-            }
-            if (result.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
-                threadContext.setTestLogicalAction(result.getTestLogicalAction());
-            }
-        } else {
-            doneLocked(pack); // Finish up
         }
-        return result;
     }
 
     /**
@@ -1194,8 +1212,27 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
+        setJMeterVariables(result, snapshotVariables(threadVars));
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
         notifier.notifyListeners(event, listeners);
+    }
+
+    private static Map<String, String> snapshotVariables(JMeterVariables variables) {
+        Map<String, String> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : variables.entrySet()) {
+            Object value = entry.getValue();
+            snapshot.put(entry.getKey(), value == null ? "" : value.toString()); // $NON-NLS-1$
+        }
+        return snapshot;
+    }
+
+    private static void setJMeterVariables(SampleResult sample, Map<String, String> variables) {
+        if (!sample.hasJMeterVariables()) {
+            sample.setJMeterVariables(variables);
+        }
+        for (SampleResult subResult : sample.getSubResults()) {
+            setJMeterVariables(subResult, variables);
+        }
     }
 
     /**

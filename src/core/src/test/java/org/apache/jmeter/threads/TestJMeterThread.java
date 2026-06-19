@@ -17,23 +17,30 @@
 
 package org.apache.jmeter.threads;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
+import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.timers.Timer;
@@ -134,6 +141,41 @@ class TestJMeterThread {
                 activeSamplers.decrementAndGet();
                 completedSamplers.countDown();
             }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
+    private static final class FailingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private FailingSampler(String name) {
+            setName(name);
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            throw new IllegalStateException("Expected test failure");
+        }
+    }
+
+    private static final class CompletingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final CountDownLatch completedSamplers;
+
+        private CompletingSampler(String name, CountDownLatch completedSamplers) {
+            setName(name);
+            this.completedSamplers = completedSamplers;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            completedSamplers.countDown();
             SampleResult result = new SampleResult();
             result.setSampleLabel(getName());
             result.sampleStart();
@@ -262,6 +304,85 @@ class TestJMeterThread {
         assertTrue(completedSamplers.await(5, TimeUnit.SECONDS), "All parallel samplers should complete");
         assertEquals(2, maxActiveSamplers.get(), "Only two samplers should run at the same time");
         assertTrue(sameVariables.get(), "Parallel workers should share virtual user variables");
+    }
+
+    @Test
+    void testParallelControllerContinuesAfterChildSamplerException() throws InterruptedException {
+        CountDownLatch completedSamplers = new CountDownLatch(1);
+
+        HashTree testTree = new HashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, new FailingSampler("failing"));
+        testTree.add(parallelController, new CompletingSampler("after-failure", completedSamplers));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.run();
+
+        assertTrue(completedSamplers.await(5, TimeUnit.SECONDS),
+                "A later parallel child should still run after an earlier child throws");
+    }
+
+    @Test
+    void testLogicalActionCanUnwindCompletedTransactionSampler() throws Exception {
+        HashTree testTree = new HashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("transaction");
+        transactionController.setGenerateParentSample(true);
+        DummySampler childSampler = createSampler();
+
+        testTree.add(loop);
+        testTree.add(loop, transactionController);
+        testTree.add(transactionController, childSampler);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        JMeterContext context = JMeterContextService.getContext();
+        context.setVariables(new JMeterVariables());
+        context.setThread(jMeterThread);
+        context.setThreadGroup(threadGroup);
+
+        Field compilerField = JMeterThread.class.getDeclaredField("compiler");
+        compilerField.setAccessible(true);
+        testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
+
+        TransactionSampler transactionSampler = new TransactionSampler(transactionController, transactionController.getName());
+        Method triggerMethod = JMeterThread.class.getDeclaredMethod(
+                "triggerLoopLogicalActionOnParentControllers",
+                Sampler.class,
+                JMeterContext.class,
+                Consumer.class);
+        triggerMethod.setAccessible(true);
+
+        assertDoesNotThrow(() -> triggerMethod.invoke(
+                jMeterThread,
+                transactionSampler,
+                context,
+                (Consumer<FindTestElementsUpToRootTraverser>) traverser -> { }));
     }
 
     private static LoopController createLoopController() {

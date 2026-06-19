@@ -37,6 +37,10 @@ public interface ResultRenderer {
 
     void setupTabPane();
 
+    default void renderSelectedTab() {
+        // NOOP
+    }
+
     void setLastSelectedTab(int index);
 
     void setRightSide(JTabbedPane rightSide);

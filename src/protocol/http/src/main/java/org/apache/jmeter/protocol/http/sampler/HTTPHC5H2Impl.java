@@ -137,6 +137,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final String CONTEXT_ATTRIBUTE_CONNECT_RECORDED = "__jmeter.C_R_H2__";
 
+    private static final String CONTEXT_ATTRIBUTE_CONNECTION_MANAGER = "__jmeter.C_M_H2__";
+
+    private static final String CONTEXT_ATTRIBUTE_NETWORK_ENDPOINT = "__jmeter.N_E_H2__";
+
     private static final int RETRY_COUNT = JMeterUtils.getPropDefault("httpclient5.retrycount", 0);
 
     private static final boolean REQUEST_SENT_RETRY_ENABLED =
@@ -204,8 +208,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             handleMethod(method, res, httpRequest, clientContext);
             removeHttp1HopByHopHeaders(httpRequest);
             clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
+            clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
             clientState.getClient().execute(httpRequest, clientContext, httpResponse -> {
-                fillSampleResult(res, httpRequest, clientContext, httpResponse);
+                fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
                 return null;
             });
             updateUrlAfterRedirect(clientContext, res);
@@ -221,6 +226,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             }
             res.setRequestHeaders(getAllHeadersExceptCookie(
                     clientContext.getRequest()));
+            recordNetworkEndpointsIfNeeded(clientContext, res, false);
             errorResult(e, res);
             return res;
         } finally {
@@ -232,6 +238,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             HTTPSampleResult res,
             HttpUriRequestBase httpRequest,
             HttpClientContext clientContext,
+            HttpClientState clientState,
             ClassicHttpResponse httpResponse) throws IOException {
         HttpRequest request = clientContext.getRequest();
         if (request == null) {
@@ -247,6 +254,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         StatusLine statusLine = new StatusLine(httpResponse);
         int statusCode = statusLine.getStatusCode();
         res.setResponseCode(Integer.toString(statusCode));
+        boolean successful = isSuccessCode(statusCode);
+        recordNetworkEndpointsIfNeeded(clientContext, res, successful, clientState);
         res.setSentBytes(HTTPHC5Metrics.estimateSentBytes(request, statusLine.getProtocolVersion().getMajor() >= 2
                 ? "HTTP/2"
                 : "HTTP/1.1"));
@@ -267,7 +276,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         currentRequest = null;
         res.setResponseCode(Integer.toString(statusCode));
         res.setResponseMessage(statusLine.getReasonPhrase());
-        res.setSuccessful(isSuccessCode(statusCode));
+        res.setSuccessful(successful);
         res.setResponseHeaders(getResponseHeaders(httpResponse));
         if (res.isRedirect()) {
             Header location = httpResponse.getLastHeader(HTTPConstants.HEADER_LOCATION);
@@ -425,6 +434,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                         @Override
                         public void completed(ManagedAsyncClientConnection result) {
                             connectEnd(context);
+                            rememberNetworkEndpoint(endpointHost, context, result);
                             callback.completed(result);
                         }
 
@@ -445,6 +455,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final PoolingAsyncClientConnectionManager delegate;
         private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
         private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
+        private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
 
         private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate) {
             this.delegate = delegate;
@@ -572,6 +583,104 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             delegate.closeIdle(TimeValue.ZERO_MILLISECONDS);
             routeStates.clear();
             endpointRoutes.clear();
+            networkEndpointsByFirstHop.clear();
+        }
+
+        void rememberNetworkEndpoint(HttpHost firstHop, NetworkEndpoint endpoint) {
+            if (firstHop != null && endpoint != null && endpoint.isComplete()) {
+                networkEndpointsByFirstHop.put(endpointKey(firstHop), endpoint);
+            }
+        }
+
+        NetworkEndpoint networkEndpointFor(RouteInfo route) {
+            HttpHost firstHop = firstHop(route);
+            return firstHop == null ? null : networkEndpointsByFirstHop.get(endpointKey(firstHop));
+        }
+    }
+
+    private static void rememberNetworkEndpoint(
+            HttpHost endpointHost,
+            HttpContext context,
+            ManagedAsyncClientConnection connection) {
+        NetworkEndpoint endpoint = NetworkEndpoint.from(connection);
+        if (!endpoint.isComplete()) {
+            return;
+        }
+        if (context != null) {
+            context.setAttribute(CONTEXT_ATTRIBUTE_NETWORK_ENDPOINT, endpoint);
+            Object manager = context.getAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER);
+            if (manager instanceof H2RouteReuseConnectionManager connectionManager) {
+                connectionManager.rememberNetworkEndpoint(endpointHost, endpoint);
+            }
+        }
+    }
+
+    private static void recordNetworkEndpointsIfNeeded(
+            HttpClientContext clientContext,
+            SampleResult sample,
+            boolean successful) {
+        recordNetworkEndpointsIfNeeded(clientContext, sample, successful, null);
+    }
+
+    private static void recordNetworkEndpointsIfNeeded(
+            HttpClientContext clientContext,
+            SampleResult sample,
+            boolean successful,
+            HttpClientState clientState) {
+        if (!shouldRecordNetworkEndpoints(successful)) {
+            return;
+        }
+        NetworkEndpoint endpoint = networkEndpointFromContext(clientContext);
+        if (endpoint == null && clientState != null) {
+            endpoint = clientState.getConnectionManager().networkEndpointFor(clientContext.getHttpRoute());
+        }
+        if (endpoint == null || !endpoint.isComplete()) {
+            return;
+        }
+        sample.setLocalEndpoint(endpoint.localEndpoint);
+        sample.setDestinationEndpoint(endpoint.destinationEndpoint);
+    }
+
+    private static NetworkEndpoint networkEndpointFromContext(HttpContext context) {
+        if (context == null) {
+            return null;
+        }
+        Object endpoint = context.getAttribute(CONTEXT_ATTRIBUTE_NETWORK_ENDPOINT);
+        return endpoint instanceof NetworkEndpoint networkEndpoint ? networkEndpoint : null;
+    }
+
+    private static HttpHost firstHop(RouteInfo route) {
+        if (route == null) {
+            return null;
+        }
+        HttpHost proxy = route.getProxyHost();
+        return proxy == null ? route.getTargetHost() : proxy;
+    }
+
+    private static String endpointKey(HttpHost host) {
+        return host.toURI();
+    }
+
+    private static final class NetworkEndpoint {
+        private final String localEndpoint;
+        private final String destinationEndpoint;
+
+        private NetworkEndpoint(String localEndpoint, String destinationEndpoint) {
+            this.localEndpoint = localEndpoint;
+            this.destinationEndpoint = destinationEndpoint;
+        }
+
+        private static NetworkEndpoint from(ManagedAsyncClientConnection connection) {
+            if (connection == null) {
+                return new NetworkEndpoint("", "");
+            }
+            return new NetworkEndpoint(
+                    formatEndpoint(connection.getLocalAddress()),
+                    formatEndpoint(connection.getRemoteAddress()));
+        }
+
+        private boolean isComplete() {
+            return !localEndpoint.isEmpty() && !destinationEndpoint.isEmpty();
         }
     }
 

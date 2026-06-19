@@ -26,6 +26,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -116,6 +117,7 @@ import org.apache.hc.client5.http.socket.PlainConnectionSocketFactory;
 import org.apache.hc.core5.http.ClassicHttpRequest;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.EndpointDetails;
 import org.apache.hc.core5.http.EntityDetails;
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpConnectionMetrics;
@@ -145,6 +147,7 @@ import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.protocol.http.api.auth.DigestParameters;
 import org.apache.jmeter.protocol.http.control.AuthManager;
@@ -526,6 +529,41 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
     };
 
+    protected static boolean shouldRecordNetworkEndpoints(boolean successful) {
+        return !successful || !JMeter.isNonGUI() || log.isDebugEnabled();
+    }
+
+    private static void recordNetworkEndpointsIfNeeded(HttpContext context, boolean successful) {
+        if (!shouldRecordNetworkEndpoints(successful)) {
+            return;
+        }
+        Object metrics = context.getAttribute(CONTEXT_ATTRIBUTE_METRICS);
+        if (!(metrics instanceof EndpointDetails endpointDetails)) {
+            return;
+        }
+        if (endpointDetails == null) {
+            return;
+        }
+        SampleResult sample = (SampleResult) context.getAttribute(CONTEXT_ATTRIBUTE_SAMPLER_RESULT);
+        if (sample == null) {
+            return;
+        }
+        sample.setLocalEndpoint(formatEndpoint(endpointDetails.getLocalAddress()));
+        sample.setDestinationEndpoint(formatEndpoint(endpointDetails.getRemoteAddress()));
+    }
+
+    protected static String formatEndpoint(SocketAddress socketAddress) {
+        if (!(socketAddress instanceof InetSocketAddress inetSocketAddress)) {
+            return socketAddress == null ? "" : socketAddress.toString();
+        }
+        InetAddress address = inetSocketAddress.getAddress();
+        String hostAddress = address == null ? inetSocketAddress.getHostString() : address.getHostAddress();
+        if (hostAddress.indexOf(':') >= 0) {
+            hostAddress = "[" + hostAddress + "]";
+        }
+        return hostAddress + ":" + inetSocketAddress.getPort();
+    }
+
     /**
      * 1 HttpClient instance per combination of (HttpClient,HttpClientKey)
      */
@@ -696,6 +734,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             StatusLine statusLine = new StatusLine(httpResponse);
             int statusCode = statusLine.getStatusCode();
             res.setResponseCode(Integer.toString(statusCode));
+            boolean successful = isSuccessCode(statusCode);
+            recordNetworkEndpointsIfNeeded(localContext, successful);
 
             HttpEntity entity = httpResponse.getEntity();
             long bodyBytes = 0;
@@ -718,7 +758,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             // Now collect the results into the HTTPSampleResult:
             res.setResponseCode(Integer.toString(statusCode));
             res.setResponseMessage(statusLine.getReasonPhrase());
-            res.setSuccessful(isSuccessCode(statusCode));
+            res.setSuccessful(successful);
             res.setResponseHeaders(getResponseHeaders(httpResponse));
             if (res.isRedirect()) {
                 final Header headerLocation = httpResponse.getLastHeader(HTTPConstants.HEADER_LOCATION);
@@ -792,6 +832,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 log.debug("Overwriting request old headers: {}", res.getRequestHeaders());
             }
             res.setRequestHeaders(getAllHeadersExceptCookie((HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST)));
+            recordNetworkEndpointsIfNeeded(localContext, false);
             errorResult(e, res);
             return res;
         } catch (RuntimeException e) {
@@ -799,6 +840,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (res.getEndTime() == 0) {
                 res.sampleEnd();
             }
+            recordNetworkEndpointsIfNeeded(localContext, false);
             errorResult(e, res);
             return res;
         } finally {

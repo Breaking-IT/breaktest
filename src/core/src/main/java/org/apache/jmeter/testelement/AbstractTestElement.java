@@ -27,7 +27,6 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1364,12 +1363,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         try (ResourceLock ignored = writeLock()) {
             if (requiresIdentityTemporarySet(property)) {
                 if (identityTemporaryProperties == null) {
-                    identityTemporaryProperties = createTemporaryPropertiesSet(true);
+                    identityTemporaryProperties = createTemporaryPropertiesSet();
                 }
                 identityTemporaryProperties.add(property);
             } else {
                 if (temporaryProperties == null) {
-                    temporaryProperties = createTemporaryPropertiesSet(false);
+                    temporaryProperties = createTemporaryPropertiesSet();
                 }
                 temporaryProperties.add(property);
             }
@@ -1381,10 +1380,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         }
     }
 
-    private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
-        Set<JMeterProperty> set = identity
-                ? Collections.newSetFromMap(new IdentityHashMap<>())
-                : new LinkedHashSet<>();
+    private Set<JMeterProperty> createTemporaryPropertiesSet() {
+        Set<JMeterProperty> set = Collections.newSetFromMap(new IdentityHashMap<>());
         return lock != null ? set : Collections.synchronizedSet(set);
     }
 
