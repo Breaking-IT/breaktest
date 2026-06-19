@@ -84,8 +84,6 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestElementSchema;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.RemoteThreadsListenerTestElement;
-import org.apache.jmeter.util.BeanShellInterpreter;
-import org.apache.jmeter.util.BeanShellServer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.SecurityProviderLoader;
 import org.apache.jmeter.util.ShutdownClient;
@@ -447,7 +445,6 @@ public class JMeter implements JMeterPlugin {
             //  at org.apache.jmeter.testelement.TestElementSchema$INSTANCE.<init>(TestElementSchema.kt:26) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
             //  at org.apache.jmeter.testelement.TestElementSchema$INSTANCE.<init>(TestElementSchema.kt) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
             //  at org.apache.jmeter.testelement.TestElementSchema.<clinit>(TestElementSchema.kt) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
-            //  at org.apache.jmeter.protocol.java.sampler.BeanShellSampler.<clinit>(BeanShellSampler.java:53) ~[ApacheJMeter_java.jar:5.5.1-SNAPSHOT]
             //  at jdk.internal.misc.Unsafe.ensureClassInitialized0(Native Method) ~[?:?]
             TestElementSchema.INSTANCE.getGuiClass();
 
@@ -597,14 +594,6 @@ public class JMeter implements JMeterPlugin {
      *
      */
     private static void startOptionalServers() {
-        int bshport = JMeterUtils.getPropDefault("beanshell.server.port", 0);// $NON-NLS-1$
-        String bshfile = JMeterUtils.getPropDefault("beanshell.server.file", "");// $NON-NLS-1$ $NON-NLS-2$
-        if (bshport > 0) {
-            log.info("Starting Beanshell server ({},{})", bshport, bshfile);
-            Runnable t = new BeanShellServer(bshport, bshfile);
-            t.run(); // NOSONAR we just evaluate some code here
-        }
-
         runInitScripts();
 
         int mirrorPort=JMeterUtils.getPropDefault("mirror.server.port", 0);// $NON-NLS-1$
@@ -626,20 +615,6 @@ public class JMeter implements JMeterPlugin {
      * Runs user configured init scripts
      */
     static void runInitScripts() {
-        // Should we run a beanshell script on startup?
-        String bshinit = JMeterUtils.getProperty("beanshell.init.file");// $NON-NLS-1$
-        if (bshinit != null){
-            log.info("Running Beanshell on file: {}", bshinit);
-            try {
-                BeanShellInterpreter bsi = new BeanShellInterpreter();
-                bsi.source(bshinit);
-            } catch (JMeterException e) {
-                if (log.isWarnEnabled()) {
-                    log.warn("Could not process Beanshell file: {}", e.getMessage());
-                }
-            }
-        }
-
         // Should we run a JSR223 script on startup?
         String jsr223Init = JMeterUtils.getProperty(JSR223_INIT_FILE);// $NON-NLS-1$
         if (jsr223Init != null){

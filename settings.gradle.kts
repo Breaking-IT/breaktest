@@ -67,7 +67,6 @@ include(
     "src:bom",
     "src:bom-testing",
     "src:bom-thirdparty",
-    "src:bshclient",
     "src:launcher",
     "src:components",
     "src:config",

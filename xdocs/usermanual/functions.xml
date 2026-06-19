@@ -132,7 +132,6 @@ Alternatively, just use <code>/</code> instead for the path separator - e.g. <co
         <tr><td>Calculation</td><td> <a href="#__RandomString">RandomString</a></td><td>generate a random string</td><td>2.6</td></tr>
         <tr><td>Calculation</td><td> <a href="#__UUID">UUID</a></td><td>generate a random type 4 UUID</td><td>2.9</td></tr>
         <tr><td>Scripting</td><td> <a href="#__groovy">groovy</a></td><td>run an Apache Groovy script</td><td>3.1</td></tr>
-        <tr><td>Scripting</td><td> <a href="#__BeanShell">BeanShell</a></td><td>run a BeanShell script</td><td>1.X</td></tr>
         <tr><td>Scripting</td><td> <a href="#__javaScript">javaScript</a></td><td>process JavaScript (Nashorn)</td><td>1.9</td></tr>
         <tr><td>Scripting</td><td> <a href="#__jexl2">jexl2</a></td><td>evaluate a Commons Jexl2 expression</td><td>jexl2(2.1.1)</td></tr>
         <tr><td>Scripting</td><td> <a href="#__jexl3">jexl3</a></td><td>evaluate a Commons Jexl3 expression</td><td>jexl3 (3.0)</td></tr>
@@ -168,7 +167,6 @@ matter to change a test to target a different server with the same test.
 <p>
 Note that variables cannot currently be nested; i.e. <code>${Var${N}}</code> does not work.
 The <code>__V</code> (variable) function can be used to do this: <code>${__V(Var${N})}</code>.
-You can also use <code>${__BeanShell(vars.get("Var${N}")}</code>.
 </p>
 <p>This type of replacement is possible without functions, but was less convenient and less intuitive.
 It required users to create default config elements that would fill in blank values of Samplers.
@@ -199,7 +197,6 @@ The following functions should work OK on the test plan:
 <li>intSum</li>
 <li>longSum</li>
 <li>machineName</li>
-<li>BeanShell</li>
 <li>groovy</li>
 <li>javaScript</li>
 <li>jexl2/jexl3</li>
@@ -237,19 +234,19 @@ be omitted.</p>
 
 <p><b>Argument values that themselves contain commas should be escaped as necessary.
 If you need to include a comma in your parameter value, escape it like so: '<code>\,</code>'.</b>
-This applies for example to the scripting functions - Javascript, Beanshell, Jexl, groovy - where it is necessary to escape any commas
+This applies for example to scripting functions such as Groovy, Javascript, and Jexl, where it is necessary to escape any commas
 that may be needed in script method calls - e.g.
 </p>
 <pre>
-${__BeanShell(vars.put("name"\,"value"))}
+${__groovy(vars.put("name"\,"value"))}
 </pre>
 <p>
 Alternatively, you can define your script as a variable, e.g. on the Test Plan:
 <pre>SCRIPT          vars.put("name","value")</pre>
 The script can then be referenced as follows:
-<pre>${__BeanShell(${SCRIPT})}</pre>
+<pre>${__groovy(${SCRIPT})}</pre>
 There is no need to escape commas in the <code>SCRIPT</code> variable because the function call is parsed before the variable is replaced with its value.
-This works well in conjunction with the JSR223 or BeanShell Samplers, as these can be used to test Javascript, Jexl and BeanShell scripts.
+This works well in conjunction with the JSR223 Sampler, which can be used to test JSR223 scripts.
 </p>
 <p>
 Functions can reference variables and other functions, for example
@@ -909,63 +906,6 @@ For example:
 </dl>
 </component>
 
-<component index="&sect-num;.5.13" name="__BeanShell">
-<description>
-    <p>
-    The BeanShell function evaluates the script passed to it, and returns the result.
-</p>
-<note>For performance it is better to use <a href="#__groovy">__groovy</a> function</note>
-<p>
-<b>For full details on using BeanShell, please see the BeanShell web-site at <a href="http://www.beanshell.org/">http://www.beanshell.org/</a>
-</b>
-</p>
-<note>
-Note that a different Interpreter is used for each independent occurrence of the function
-in a test script, but the same Interpreter is used for subsequent invocations.
-This means that variables persist across calls to the function.
-</note>
-<p>
-A single instance of a function may be called from multiple threads.
-However the function <code>execute()</code> method is synchronised.
-</p>
-<p>
-If the property "<code>beanshell.function.init</code>" is defined, it is passed to the Interpreter
-as the name of a sourced file. This can be used to define common methods and variables. There is a
-sample init file in the bin directory: <code>BeanShellFunction.bshrc</code>.
-</p>
-<p>
-The following variables are set before the script is executed:
-<ul>
-<li><code>log</code> - the <a href="https://www.slf4j.org/api/org/slf4j/Logger.html">Logger</a> for the BeanShell function (*)</li>
-<li><code>ctx</code> - <apilink href="org/apache/jmeter/threads/JMeterContext.html">JMeterContext</apilink> object</li>
-<li><code>vars</code> - <apilink href="org/apache/jmeter/threads/JMeterVariables.html">JMeterVariables</apilink> object</li>
-<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
-<li><code>threadName</code> - the threadName (String)</li>
-<li><code>Sampler</code> - the current <apilink href="org/apache/jmeter/samplers/Sampler.html">Sampler</apilink>, if any</li>
-<li><code>SampleResult</code> - the current <apilink href="org/apache/jmeter/samplers/SampleResult.html">SampleResult</apilink>, if any</li>
-</ul>
-(*) means that this is set before the init file, if any, is processed.
-Other variables vary from invocation to invocation.
-</p>
-</description>
-
-<properties>
-        <property name="BeanShell script" required="Yes">A beanshell script (not a file name)</property>
-        <property name="Name of variable" required="No">A reference name for reusing the value
-               computed by this function.</property>
-
-</properties>
-<p>
-Example:
-<dl>
-<dt><code>${__BeanShell(123*456)}</code></dt><dd>returns <code>56088</code></dd>
-<dt><code>${__BeanShell(source("function.bsh"))}</code></dt><dd>processes the script in <code>function.bsh</code></dd>
-</dl>
-</p>
-<note>
-Remember to include any necessary quotes for text strings and JMeter variables that represent text strings.
-</note>
-</component>
 
 <component index="&sect-num;.5.13" name="__groovy">
 <description>

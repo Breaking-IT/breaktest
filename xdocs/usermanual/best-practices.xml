@@ -169,159 +169,7 @@ that can be read with CSV Dataset. This avoids wasting resources at run-time.
 </p>
 </section>
 
-<section name="&sect-num;.8 BeanShell server" anchor="beanshell_server">
-<p>
-The BeanShell interpreter has a very useful feature - it can act as a server,
-which is accessible by telnet or http.
-</p>
-<note>
-There is no security. Anyone who can connect to the port can issue any BeanShell commands.
-These can provide unrestricted access to the JMeter application and the host.
-<b>Do not enable the server unless the ports are protected against access, e.g. by a firewall.</b>
-</note>
-<p>
-If you do wish to use the server, define the following in <code>jmeter.properties</code>:
-</p>
-<source>
-beanshell.server.port=9000
-beanshell.server.file=../extras/startup.bsh
-</source>
-<p>
-In the above example, the server will be started, and will listen on ports <code>9000</code> and <code>9001</code>.
-Port <code>9000</code> will be used for http access. Port <code>9001</code> will be used for telnet access.
-The <code>startup.bsh</code> file will be processed by the server, and can be used to define various functions and set up variables.
-The startup file defines methods for setting and printing JMeter and system properties.
-This is what you should see in the JMeter console:
-</p>
-<source>
-Startup script running
-Startup script completed
-Httpd started on port: 9000
-Session started on port: 9001
-</source>
-<p>
-There is a sample script (<code>extras/remote.bsh</code>) you can use to test the server.
-[Have a look at it to see how it works.]
-<br/>
-When starting it in the JMeter <code>bin</code> directory
-(adjust paths as necessary if running from elsewhere)
-the output should look like:
-<source>
-$ java -jar ../lib/bshclient.jar localhost 9000 ../extras/remote.bsh
-Connecting to BSH server on localhost:9000
-Reading responses from server &hellip;
-BeanShell 2.0b5 - by Pat Niemeyer (pat@pat.net)
-bsh % remote.bsh starting
-user.home = C:\Documents and Settings\User
-user.dir = D:\eclipseworkspaces\main\JMeter_trunk\bin
-Setting property 'EXAMPLE' to '0'.
-Setting property 'EXAMPLE' to '1'.
-Setting property 'EXAMPLE' to '2'.
-Setting property 'EXAMPLE' to '3'.
-Setting property 'EXAMPLE' to '4'.
-Setting property 'EXAMPLE' to '5'.
-Setting property 'EXAMPLE' to '6'.
-Setting property 'EXAMPLE' to '7'.
-Setting property 'EXAMPLE' to '8'.
-Setting property 'EXAMPLE' to '9'.
-EXAMPLE = 9
-remote.bsh ended
-bsh % &hellip; disconnected from server.
-</source>
-</p>
-<p>
-As a practical example, assume you have a long-running JMeter test running in CLI mode,
-and you want to vary the throughput at various times during the test.
-The test-plan includes a Constant Throughput Timer which is defined in terms of a property,
-e.g. <code>${__P(throughput)}</code>.
-The following BeanShell commands could be used to change the test:
-</p>
-<source>
-printprop("throughput");
-curr = Integer.decode(args[0]);  // Start value
-inc  = Integer.decode(args[1]);  // Increment
-end  = Integer.decode(args[2]);  // Final value
-secs = Integer.decode(args[3]);  // Wait between changes
-while(curr &lt;= end) {
-  setprop("throughput",curr.toString()); // Needs to be a string here
-  Thread.sleep(secs*1000);
-  curr += inc;
-}
-printprop("throughput");
-</source>
-<p>The script can be stored in a file (<code>throughput.bsh</code>, say), and sent to the server using <code>bshclient.jar</code>.
-For example:
-</p>
-<source>
-java -jar ../lib/bshclient.jar localhost 9000 throughput.bsh 70 5 100 60
-</source>
-</section>
-
-<section name="&sect-num;.9 BeanShell scripting" anchor="bsh_scripting">
-<note>Since JMeter 3.1, we advise switching from BeanShell to JSR223 Test Elements (see JSR223 section below for more details), and switching from <code><a href="functions.html#__BeanShell">__Beanshell</a></code> function
-to <a href="functions.html#__groovy" >__groovy</a> function.</note>
-<subsection name="&sect-num;.9.1 Overview" anchor="bsh_overview">
-<p>
-Each BeanShell test element has its own copy of the interpreter (for each thread).
-If the test element is repeatedly called, e.g. within a loop, then the interpreter is retained
-between invocations unless the "<code>Reset bsh.Interpreter before each call</code>" option is selected.
-</p>
-<p>
-Some long-running tests may cause the interpreter to use lots of memory; if this is the case try using the reset option.
-</p>
-<p>
-You can test BeanShell scripts outside JMeter by using the command-line interpreter:
-<source>
-$ java -cp bsh-xxx.jar[;other jars as needed] bsh.Interpreter file.bsh [parameters]
-</source>
-or
-<source>
-$ java -cp bsh-xxx.jar bsh.Interpreter
-bsh% source("file.bsh");
-bsh% exit(); // or use EOF key (e.g. ^Z or ^D)
-</source>
-</p>
-</subsection>
-<subsection name="&sect-num;.9.2 Sharing Variables" anchor="bsh_variables">
-<p>
-Variables can be defined in startup (initialisation) scripts.
-These will be retained across invocations of the test element, unless the reset option is used.
-</p>
-<p>
-Scripts can also access JMeter variables using the <code>get()</code> and <code>put()</code> methods of the "<code>vars</code>" variable,
-for example:
-<source>vars.get("HOST");
-vars.put("MSG","Successful");</source>
-The <code>get()</code> and <code>put()</code> methods only support variables with String values,
-but there are also <code>getObject()</code> and <code>putObject()</code> methods which can be used for arbitrary objects.
-JMeter variables are local to a thread, but can be used by all test elements (not just Beanshell).
-</p>
-<p>
-If you need to share variables between threads, then JMeter properties can be used:
-<source>
-import org.apache.jmeter.util.JMeterUtils;
-String value = JMeterUtils.getPropDefault("name","");
-JMeterUtils.setProperty("name", "value");
-</source>
-The sample <code>.bshrc</code> files contain sample definitions of <code>getprop()</code> and <code>setprop()</code> methods.
-</p>
-<p>
-Another possible method of sharing variables is to use the "<code>bsh.shared</code>" shared namespace.
-For example:
-<source>
-if (bsh.shared.myObj == void){
-    // not yet defined, so create it:
-    myObj = new AnyObject();
-}
-bsh.shared.myObj.process();
-</source>
-Rather than creating the object in the test element, it can be created in the startup file
-defined by the JMeter property "<code>beanshell.init.file</code>". This is only processed once.
-</p>
-</subsection>
-</section>
-
-<section name="&sect-num;.10 Developing script functions in Groovy or Jexl3 etc." anchor="developing_scripts">
+<section name="&sect-num;.8 Developing script functions in Groovy or Jexl3 etc." anchor="developing_scripts">
 <p>
 It's quite hard to write and test scripts as functions.
 However, JMeter has the JSR223 samplers which can be used instead with any language supporting it.
@@ -343,7 +191,7 @@ because the function call is parsed before the variable's value is interpolated.
 </p>
 </section>
 
-<section name="&sect-num;.11 Parameterising tests" anchor="parameterising_tests">
+<section name="&sect-num;.9 Parameterising tests" anchor="parameterising_tests">
 <p>
 Often it is useful to be able to re-run the same test with different settings.
 For example, changing the number of threads or loops, or changing a hostname.
@@ -366,7 +214,7 @@ The appropriate property file can be passed in to JMeter using the <code>-q</cod
 </p>
 </section>
 
-<section name="&sect-num;.12 JSR223 Elements" anchor="jsr223">
+<section name="&sect-num;.10 JSR223 Elements" anchor="jsr223">
 <p>
 For intensive load testing, the recommended scripting language is one whose ScriptingEngine implements the <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface.
 Groovy scripting engine implements <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code>. However neither Beanshell nor Javascript do so as of release date of JMeter 3.1, so it is
@@ -385,7 +233,7 @@ You can also pass them as Parameters to the script and use them this way.
 </p>
 </section>
 
-<section name="&sect-num;.13 Sharing variables between threads and thread groups" anchor="sharing_variables">
+<section name="&sect-num;.11 Sharing variables between threads and thread groups" anchor="sharing_variables">
 <p>
 Variables are local to a thread; a variable set in one thread cannot be read in another.
 This is by design. For variables that can be determined before a test starts, see
@@ -394,13 +242,12 @@ If the value is not known until the test starts, there are various options:
 <ul>
 <li>Store the variable as a property - properties are global to the JMeter instance</li>
 <li>Write variables to a file and re-read them.</li>
-<li>Use the <code>bsh.shared</code> namespace - see <a href="#bsh_variables">above</a></li>
 <li>Write your own Java classes</li>
 </ul>
 </p>
 </section>
 
-<section name="&sect-num;.14 Managing properties" anchor="properties">
+<section name="&sect-num;.12 Managing properties" anchor="properties">
 <p>When you need to modify jmeter properties, ensure you don't modify <code>jmeter.properties</code> file,
 <b>instead copy the property from <code>jmeter.properties</code> and modify its value in <code>user.properties</code> file</b>.<br/>
 Doing so will ease you migration to the next version of JMeter. <br/>
@@ -409,7 +256,7 @@ Note that in the documentation <code>jmeter.properties</code> is frequently ment
 <note><code>user.properties</code> file supersedes the properties defined in <code>jmeter.properties</code></note>
 </section>
 
-<section name="&sect-num;.15 Deprecated elements" anchor="deprecation">
+<section name="&sect-num;.13 Deprecated elements" anchor="deprecation">
 <p>It is advised not to use deprecated elements (marked as such in <a href="../changes.html">changes list</a> and in <a href="./component_reference.html">component reference</a>)
 and to migrate to new advised elements if available or new way of doing the same thing. <br/>
 Deprecated elements are removed from the menu in version N but can be enabled for migration by modifying <code>not_in_menu</code> property in <code>user.properties</code> file and removing the full class name

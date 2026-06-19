@@ -34,7 +34,6 @@ plugins {
 }
 
 var jars = arrayOf(
-    ":src:bshclient",
     ":src:launcher",
     ":src:components",
     ":src:core",
@@ -148,7 +147,6 @@ val populateLibs by tasks.registering {
         val deps = configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts
         // This ensures project exists, if project is renamed, names should be corrected here as wells
         val launcherProject = projects.src.launcher.path
-        val bshclientProject = projects.src.bshclient.path
         val jorphanProject = projects.src.jorphan.path
         listOf(libs, libsExt, binLibs).forEach {
             it.filePermissions {
@@ -169,7 +167,7 @@ val populateLibs by tasks.registering {
             // for historical reasons
             when (compId.projectPath) {
                 launcherProject -> binLibs
-                jorphanProject, bshclientProject -> libs
+                jorphanProject -> libs
                 else -> libsExt
             }.from(dep.file) {
                 // Remove version from the file name

@@ -47,8 +47,8 @@ another thread can <a href="functions.html#__P">read</a> the updated value.
 <p>
 If there is a lot of information that needs to be passed between threads, then consider using a file.
 For example you could use the <a href="component_reference.html#Save_Responses_to_a_file">Save Responses to a file</a>
-listener or perhaps a BeanShell PostProcessor in one thread, and read the file using the HTTP Sampler "<code>file:</code>" protocol,
-and extract the information using a PostProcessor or BeanShell element.
+listener or perhaps a JSR223 PostProcessor in one thread, and read the file using the HTTP Sampler "<code>file:</code>" protocol,
+and extract the information using a PostProcessor or JSR223 element.
 </p>
 <p>
 If you can derive the data before starting the test, then it may well be better to store it in a file,
@@ -65,7 +65,7 @@ You can use these to determine the correct property setting to change the loggin
 </p>
 
 <p>
-It is sometimes very useful to see Log messages to debug dynamic scripting languages like BeanShell or
+It is sometimes very useful to see Log messages to debug dynamic scripting languages like
 Apache Groovy used in JMeter.
 You can view log messages directly in BreakTest GUI, to do so:</p>
 <ul>

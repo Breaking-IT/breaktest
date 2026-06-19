@@ -57,7 +57,6 @@ val notPublishedProjects by extra {
     mutableSetOf(rootProject.path).apply {
         addAll(listOf(
             projects.src,
-            projects.src.bshclient,
             projects.src.dist,
             projects.src.distCheck,
             projects.src.examples,

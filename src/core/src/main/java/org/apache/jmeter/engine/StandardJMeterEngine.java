@@ -71,7 +71,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         JMeterUtils.getPropDefault("server.exitaftertest", false);  // $NON-NLS-1$
 
     // Allow engine and threads to be stopped from outside a thread
-    // e.g. from beanshell server
     // Assumes that there is only one instance of the engine
     // at any one time so it is not guaranteed to work ...
     private static volatile StandardJMeterEngine engine;

@@ -41,7 +41,6 @@ tasks.named<Jar>(JavaPlugin.JAR_TASK_NAME) {
         filteringCharset = "UTF-8"
         CrLfSpec(LineEndings.LF).run {
             textFrom("$rootDir/bin") {
-                text("*.bshrc")
                 text("*.groovy")
                 text("*.parameters")
                 text("*.properties")

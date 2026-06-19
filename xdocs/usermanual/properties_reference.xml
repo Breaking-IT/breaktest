@@ -1213,61 +1213,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.29 BeanShell configuration" anchor="beanshell">
-<properties>
-<property name="beanshell.server.port">
-    BeanShell Server properties.<br/>
-    Define the port number as non-zero to start the http server on that port.<br/>
-    The telnet server will be started on the next port.<br/>
-    Defaults to: <code>0</code> (i.e. don't start the server)
-    <note>
-    There is no security. Anyone who can connect to the port can issue any BeanShell commands.
-    These can provide unrestricted access to the JMeter application and the host.
-    <b>Do not enable the server unless the ports are protected against access, e.g. by a firewall.</b>
-    </note>
-</property>
-<property name="beanshell.server.file">
-    Define the server initialisation file.<br/>
-    Defaults to: <code>../extras/startup.bsh</code>
-</property>
-<property name="beanshell.init.file">
-    Define a file to be processed at startup.<br/>
-    This is processed using its own interpreter.<br/>
-    Defaults to empty value.
-</property>
-<property name="beanshell.sampler.init">
-    Define the initialisation files for BeanShell Sampler, Function and
-    other BeanShell elements.<br/>
-    <note>N.B. Beanshell test elements do not share interpreters.
-    Each element in each thread has its own interpreter.
-    This is retained between samples.</note>
-    Defaults to empty value.
-</property>
-<property name="beanshell.function.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.assertion.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.listener.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.postprocessor.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.preprocessor.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.timer.init">
-    Defaults to empty value.
-</property>
-</properties>
-    <p>
-    The file <code>BeanShellListeners.bshrc</code> contains sample definitions
-    of Test and Thread Listeners.<br/>
-    </p>
-</section>
-<section name="&sect-num;.30 MailerModel configuration" anchor="mailer">
+<section name="&sect-num;.29 MailerModel configuration" anchor="mailer">
 <properties>
 <property name="mailer.successlimit">
     Number of successful samples before a message is sent.<br/>
@@ -1279,7 +1225,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.31 CSVRead configuration" anchor="csv">
+<section name="&sect-num;.30 CSVRead configuration" anchor="csv">
 <properties>
 <property name="csvread.delimiter">
     CSVRead delimiter setting (default "<code>,</code>").<br/>
@@ -1289,7 +1235,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.32 __time() function configuration" anchor="time">
+<section name="&sect-num;.31 __time() function configuration" anchor="time">
 <properties>
 <property name="time.YMD">
     This and the following properties can be used to redefine the default time formats.<br/>
@@ -1309,7 +1255,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.33 CSV DataSet configuration" anchor="csv_dataset">
+<section name="&sect-num;.32 CSV DataSet configuration" anchor="csv_dataset">
 <properties>
 <property name="csvdataset.eofstring">
     String to return at <abbr title="end of file"><code>EOF</code></abbr> (if recycle not used).<br/>
@@ -1321,7 +1267,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.34 LDAP Sampler configuration" anchor="ldap">
+<section name="&sect-num;.33 LDAP Sampler configuration" anchor="ldap">
 <properties>
 <property name="ldapsampler.max_sorted_results">
     Maximum number of search results returned by a search that will be sorted
@@ -1349,7 +1295,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.35 Miscellaneous configuration" anchor="miscellaneous">
+<section name="&sect-num;.34 Miscellaneous configuration" anchor="miscellaneous">
 <properties>
 <property name="cssselector.parser.cache.size">
     Size of cache used by <code>CSS Selector Extractor</code> (for JODD implementation only) to store parsed CSS Selector expressions.<br/>
@@ -1619,7 +1565,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.36 Classpath configuration" anchor="classpath">
+<section name="&sect-num;.35 Classpath configuration" anchor="classpath">
 <properties>
 <property name="search_paths">
     List of directories (separated by <code>;</code>) to search for additional
@@ -1663,7 +1609,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.37 Reporting configuration" anchor="reporting">
+<section name="&sect-num;.36 Reporting configuration" anchor="reporting">
 <properties>
 <property name="jmeter.reportgenerator.apdex_satisfied_threshold">
     Sets the satisfaction threshold for the APDEX calculation (in milliseconds).<br/>
@@ -1878,7 +1824,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.38 Additional property files to load" anchor="properties">
+<section name="&sect-num;.37 Additional property files to load" anchor="properties">
 <properties>
 <property name="user.properties">
     Should JMeter automatically load additional JMeter properties?<br/>
@@ -1897,7 +1843,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.39 Thread Group Validation feature" anchor="validation">
+<section name="&sect-num;.38 Thread Group Validation feature" anchor="validation">
 <description>Validation is the name of the feature used to rapidly validate a Thread Group runs fine</description>
 <properties>
 <property name="testplan_validation.tree_cloner_class">
@@ -1930,7 +1876,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.40 Timer related feature" anchor="timer">
+<section name="&sect-num;.39 Timer related feature" anchor="timer">
 <description>Timer are used to introduce think time in your plan.</description>
 <properties>
 <property name="timer.factor">
@@ -1963,7 +1909,7 @@ JMETER-SERVER</source>
 <a href="#">^</a>
 </section>
 
-<section name="&sect-num;.41 Naming Policy" anchor="naming_policy">
+<section name="&sect-num;.40 Naming Policy" anchor="naming_policy">
 <description>Timer are used to introduce think time in your plan.</description>
 <properties>
 <property name="naming_policy.prefix">
@@ -1984,7 +1930,7 @@ JMETER-SERVER</source>
 <a href="#">^</a>
 </section>
 
-<section name="&sect-num;.42 Help" anchor="help">
+<section name="&sect-num;.41 Help" anchor="help">
 <description>Controls how documentation in JMeter is displayed</description>
 <properties>
     <property name="help.local">
@@ -1995,7 +1941,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.43 Advanced Groovy Scripting configuration" anchor="groovy">
+<section name="&sect-num;.42 Advanced Groovy Scripting configuration" anchor="groovy">
 <description>Advanced properties for configuration of scripting in Groovy</description>
 <properties>
     <property name="groovy.utilities">
@@ -2005,7 +1951,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.44 Advanced JSR-223 Scripting configuration" anchor="jsr223">
+<section name="&sect-num;.43 Advanced JSR-223 Scripting configuration" anchor="jsr223">
 <description>Advanced properties for configuration of scripting in JSR-223</description>
 <properties>
     <property name="jsr223.init.file">
@@ -2028,7 +1974,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.45 Documentation generation" anchor="docgeneration">
+<section name="&sect-num;.44 Documentation generation" anchor="docgeneration">
 <description>Advanced properties for documentation generation</description>
 <properties>
     <property name="docgeneration.schematic_xsl">
@@ -2037,7 +1983,7 @@ JMETER-SERVER</source>
     No default value</property>
 </properties>
 </section>
-<section name="&sect-num;.46 Security Provider" anchor="securityprovider">
+<section name="&sect-num;.45 Security Provider" anchor="securityprovider">
 <description>Advanced properties for documentation generation</description>
 <properties>
     <property name="security.provider">

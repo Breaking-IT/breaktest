@@ -768,7 +768,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      * @param response
      *            the new responseData value (String)
      *
-     * @deprecated - only intended for use from BeanShell code
+     * @deprecated - only intended for legacy script compatibility
      */
     @Deprecated
     public void setResponseData(String response) {
