@@ -27,6 +27,7 @@ import javax.swing.Box;
 import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 
@@ -60,6 +61,8 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
     private JLabeledTextField refNameField;
 
     private JCheckBox emptyDefaultValue;
+
+    private JCheckBox failOnNoMatch;
 
     private JRadioButton useBody;
 
@@ -106,6 +109,7 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
             rightBoundaryField.setText(boundary.getRightBoundary());
             defaultField.setText(boundary.getDefaultValue());
             emptyDefaultValue.setSelected(boundary.isEmptyDefaultValue());
+            failOnNoMatch.setSelected(boundary.isFailOnNoMatch());
             matchNumberField.setText(boundary.getMatchNumberAsString());
             refNameField.setText(boundary.getRefName());
         }
@@ -137,6 +141,7 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
             boundary.setRightBoundary(rightBoundaryField.getText());
             boundary.setDefaultValue(defaultField.getText());
             boundary.setDefaultEmptyValue(emptyDefaultValue.isSelected());
+            boundary.setFailOnNoMatch(failOnNoMatch.isSelected());
             boundary.setMatchNumber(matchNumberField.getText());
         }
     }
@@ -155,6 +160,7 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         defaultField.setText(""); //$NON-NLS-1$
         refNameField.setText(""); //$NON-NLS-1$
         emptyDefaultValue.setSelected(false);
+        failOnNoMatch.setSelected(true);
         matchNumberField.setText(""); //$NON-NLS-1$
     }
 
@@ -234,7 +240,7 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         resetContraints(gbc);
         addField(panel, matchNumberField, gbc);
         resetContraints(gbc);
-        gbc.weighty = 1;
+        gbc.weighty = 0;
 
         defaultField = new JLabeledTextField(JMeterUtils.getResString("default_value_field")); //$NON-NLS-1$
         List<JComponent> item = defaultField.getComponentList();
@@ -253,6 +259,18 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         gbc.weightx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(p, gbc.clone());
+        resetContraints(gbc);
+        panel.add(new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")), gbc.clone()); //$NON-NLS-1$
+        failOnNoMatch = new JCheckBox();
+        failOnNoMatch.setSelected(true);
+        gbc.gridx++;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(failOnNoMatch, gbc.clone());
+        resetContraints(gbc);
+        gbc.gridwidth = 2;
+        gbc.weighty = 1;
+        panel.add(Box.createVerticalGlue(), gbc.clone());
 
         return panel;
     }

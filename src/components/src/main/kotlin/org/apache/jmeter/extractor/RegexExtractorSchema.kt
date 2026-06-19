@@ -50,6 +50,9 @@ public abstract class RegexExtractorSchema : AbstractScopedTestElementSchema() {
     public val defaultIsEmpty: BooleanPropertyDescriptor<RegexExtractorSchema>
         by boolean("RegexExtractor.default_empty_value", default = false)
 
+    public val failOnNoMatch: BooleanPropertyDescriptor<RegexExtractorSchema>
+        by boolean("RegexExtractor.fail_on_no_match", default = false)
+
     public val template: StringPropertyDescriptor<RegexExtractorSchema>
         by string("RegexExtractor.template")
 }

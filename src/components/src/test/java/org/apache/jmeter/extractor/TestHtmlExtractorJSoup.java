@@ -18,7 +18,9 @@
 package org.apache.jmeter.extractor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContext;
@@ -112,6 +114,29 @@ public class TestHtmlExtractorJSoup {
         extractor.setDefaultValue("nv_value");
         extractor.process();
         assertEquals("nv_value", vars.get("regVal"));
+    }
+
+    @Test
+    public void testFailOnNoMatchDefaultsToFalse() throws Exception {
+        assertFalse(extractor.isFailOnNoMatch());
+        result.setSuccessful(true);
+        extractor.setExpression("p.missing");
+        extractor.setMatchNumber(1);
+        extractor.process();
+        assertTrue(result.isSuccessful());
+        assertEquals(0, result.getAssertionResults().length);
+    }
+
+    @Test
+    public void testFailOnNoMatchAddsAssertionFailure() throws Exception {
+        result.setSuccessful(true);
+        extractor.setExpression("p.missing");
+        extractor.setMatchNumber(1);
+        extractor.setFailOnNoMatch(true);
+        extractor.process();
+        assertFalse(result.isSuccessful());
+        assertEquals(1, result.getAssertionResults().length);
+        assertTrue(result.getAssertionResults()[0].isFailure());
     }
 
     @Test

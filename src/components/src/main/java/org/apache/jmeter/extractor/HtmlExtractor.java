@@ -51,6 +51,7 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
     private static final String REF_MATCH_NR = "_matchNr"; // $NON-NLS-1$
     private static final String UNDERSCORE = "_";  // $NON-NLS-1$
     private static final String DEFAULT_EMPTY_VALUE = "HtmlExtractor.default_empty_value"; // $NON-NLS-1$
+    private static final String FAIL_ON_NO_MATCH = "HtmlExtractor.fail_on_no_match"; // $NON-NLS-1$
 
     private Extractor extractor;
 
@@ -113,10 +114,15 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
                 match = getCorrectMatch(matches, matchNumber);
                 if (match != null) {
                     vars.put(refName, match);
+                } else if (isFailOnNoMatch()) {
+                    ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
                 }
             } else // < 0 means we save all the matches
             {
                 matchCount = matches.size();
+                if (matchCount == 0 && isFailOnNoMatch()) {
+                    ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
+                }
                 vars.put(refName + REF_MATCH_NR, Integer.toString(matchCount));// Save the count
                 for (int i = 1; i <= matchCount; i++) {
                     match = getCorrectMatch(matches, i);
@@ -304,5 +310,13 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
      */
     public boolean isEmptyDefaultValue() {
         return getPropertyAsBoolean(DEFAULT_EMPTY_VALUE);
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        setProperty(FAIL_ON_NO_MATCH, failOnNoMatch, false);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return getPropertyAsBoolean(FAIL_ON_NO_MATCH, false);
     }
 }

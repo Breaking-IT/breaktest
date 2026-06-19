@@ -23,7 +23,9 @@ import java.awt.GridBagLayout;
 import java.util.List;
 
 import javax.swing.Box;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import org.apache.jmeter.extractor.json.jmespath.JMESPathExtractor;
@@ -48,6 +50,7 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
     private JLabeledTextField jmesPathExpressionField;
     private JLabeledTextField refNameField;
     private JLabeledTextField matchNumberField;
+    private JCheckBox failOnNoMatch;
 
     public JMESPathExtractorGui() {
         super();
@@ -68,6 +71,7 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
         jmesPathExpressionField.setText(config.getJmesPathExpression());
         matchNumberField.setText(config.getMatchNumber());
         defaultValueField.setText(config.getDefaultValue());
+        failOnNoMatch.setSelected(config.isFailOnNoMatch());
     }
 
     /**
@@ -94,6 +98,7 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
             config.setJmesPathExpression(jmesPathExpressionField.getText());
             config.setDefaultValue(defaultValueField.getText());
             config.setMatchNumber(matchNumberField.getText());
+            config.setFailOnNoMatch(failOnNoMatch.isSelected());
         }
     }
 
@@ -107,6 +112,7 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
         jmesPathExpressionField.setText(""); //$NON-NLS-1$
         matchNumberField.setText(""); //$NON-NLS-1$
         defaultValueField.setText(""); //$NON-NLS-1$
+        failOnNoMatch.setSelected(true);
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or
@@ -137,9 +143,19 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
         nextLine(gbc);
         addField(panel, matchNumberField, gbc);
         nextLine(gbc);
-        nextLine(gbc);
-        gbc.weighty = 1;
         addField(panel, defaultValueField, gbc);
+        nextLine(gbc);
+        panel.add(new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")), gbc.clone()); //$NON-NLS-1$
+        failOnNoMatch = new JCheckBox();
+        failOnNoMatch.setSelected(true);
+        gbc.gridx++;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(failOnNoMatch, gbc.clone());
+        nextLine(gbc);
+        gbc.gridwidth = 2;
+        gbc.weighty = 1;
+        panel.add(Box.createVerticalGlue(), gbc.clone());
         return panel;
     }
 

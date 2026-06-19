@@ -26,6 +26,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import org.apache.jmeter.assertions.gui.XMLConfPanel;
@@ -59,6 +60,9 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
     private final JCheckBox getFragment =
         new JCheckBox(JMeterUtils.getResString("xpath_extractor_fragment"));//$NON-NLS-1$
 
+    private final JCheckBox failOnNoMatch =
+            new JCheckBox();
+
     private final XMLConfPanel xml = new XMLConfPanel();
 
     @Override
@@ -81,6 +85,7 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         refNameField.setText(xpe.getRefName());
         matchNumberField.setText(xpe.getMatchNumberAsString());
         getFragment.setSelected(xpe.getFragment());
+        failOnNoMatch.setSelected(xpe.isFailOnNoMatch());
         xml.configure(xpe);
     }
 
@@ -102,6 +107,7 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
             xpath.setMatchNumber(matchNumberField.getText());
             xpath.setXPathQuery(xpathQueryField.getText());
             xpath.setFragment(getFragment.isSelected());
+            xpath.setFailOnNoMatch(failOnNoMatch.isSelected());
             xml.modifyTestElement(xpath);
         }
     }
@@ -117,6 +123,7 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         defaultField.setText(""); // $NON-NLS-1$
         refNameField.setText(""); // $NON-NLS-1$
         matchNumberField.setText(XPathExtractor.DEFAULT_VALUE_AS_STRING); // $NON-NLS-1$
+        failOnNoMatch.setSelected(true);
         xml.setDefaultValues();
     }
 
@@ -148,6 +155,14 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         resetContraints(gbc);
         gbc.weighty = 1;
         addField(panel, defaultField, gbc);
+        resetContraints(gbc);
+        gbc.weighty = 0;
+        panel.add(new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")), gbc.clone()); //$NON-NLS-1$
+        gbc.gridx++;
+        gbc.weightx = 1;
+        gbc.fill=GridBagConstraints.HORIZONTAL;
+        failOnNoMatch.setSelected(true);
+        panel.add(failOnNoMatch, gbc.clone());
         return panel;
     }
 

@@ -21,6 +21,7 @@ import java.awt.BorderLayout;
 
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 
@@ -54,6 +55,8 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
     // Should we return fragment as text, rather than text of fragment?
     private JCheckBox getFragment;
 
+    private JCheckBox failOnNoMatch;
+
     private JSyntaxTextArea namespacesTA;
 
     @Override
@@ -77,6 +80,7 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
         matchNumberField.setText(xpe.getMatchNumberAsString());
         namespacesTA.setText(xpe.getNamespaces());
         getFragment.setSelected(xpe.getFragment());
+        failOnNoMatch.setSelected(xpe.isFailOnNoMatch());
     }
 
     @Override
@@ -96,6 +100,7 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
             xpath.setMatchNumber(matchNumberField.getText());
             xpath.setXPathQuery(xpathQueryField.getText());
             xpath.setFragment(getFragment.isSelected());
+            xpath.setFailOnNoMatch(failOnNoMatch.isSelected());
             xpath.setNamespaces(namespacesTA.getText());
         }
     }
@@ -111,6 +116,7 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
         refNameField.setText(""); // $NON-NLS-1$
         matchNumberField.setText(XPath2Extractor.DEFAULT_VALUE_AS_STRING); // $NON-NLS-1$
         namespacesTA.setText("");
+        failOnNoMatch.setSelected(true);
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -140,6 +146,11 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
 
         panel.add(JMeterUtils.labelFor(defaultField, "default_value_field"));
         panel.add(defaultField);
+
+        failOnNoMatch = new JCheckBox();
+        failOnNoMatch.setSelected(true);
+        panel.add(new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")));
+        panel.add(failOnNoMatch);
 
         namespacesTA = JSyntaxTextArea.getInstance(5, 80);
         JTextScrollPane namespaceJSP = JTextScrollPane.getInstance(namespacesTA, true);

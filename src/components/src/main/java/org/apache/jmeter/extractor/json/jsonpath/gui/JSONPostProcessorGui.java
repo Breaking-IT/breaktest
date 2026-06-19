@@ -51,6 +51,7 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
     private JLabeledTextField refNamesField;
     private JLabeledTextField matchNumbersField;
     private JCheckBox computeConcatenationField;
+    private JCheckBox failOnNoMatch;
 
     public JSONPostProcessorGui() {
         super();
@@ -73,6 +74,7 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
         matchNumbersField.setText(config.getMatchNumbers());
         defaultValuesField.setText(config.getDefaultValues());
         computeConcatenationField.setSelected(config.getComputeConcatenation());
+        failOnNoMatch.setSelected(config.isFailOnNoMatch());
     }
 
     /**
@@ -100,6 +102,7 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
             config.setDefaultValues(defaultValuesField.getText());
             config.setMatchNumbers(matchNumbersField.getText());
             config.setComputeConcatenation(computeConcatenationField.isSelected());
+            config.setFailOnNoMatch(failOnNoMatch.isSelected());
         }
     }
 
@@ -114,6 +117,7 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
         matchNumbersField.setText(""); //$NON-NLS-1$
         defaultValuesField.setText(""); //$NON-NLS-1$
         computeConcatenationField.setSelected(JSONPostProcessor.COMPUTE_CONCATENATION_DEFAULT_VALUE);
+        failOnNoMatch.setSelected(true);
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -146,8 +150,15 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
         nextLine(gbc);
         addField(panel, new JLabel(JMeterUtils.getResString("jsonpp_compute_concat")) ,computeConcatenationField, gbc);
         nextLine(gbc);
-        gbc.weighty = 1;
         addField(panel, defaultValuesField, gbc);
+        nextLine(gbc);
+        failOnNoMatch = new JCheckBox();
+        failOnNoMatch.setSelected(true);
+        addField(panel, new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")), failOnNoMatch, gbc);
+        nextLine(gbc);
+        gbc.gridwidth = 2;
+        gbc.weighty = 1;
+        panel.add(Box.createVerticalGlue(), gbc.clone());
         return panel;
     }
 

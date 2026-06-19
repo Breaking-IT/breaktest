@@ -19,6 +19,7 @@ package org.apache.jmeter.extractor;
 
 import static org.apache.jmeter.assertions.AssertionResultExtensionsKt.assertEnFailureMessageContains;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -86,6 +87,27 @@ public class TestXPathExtractor {
         assertEquals("Default", vars.get(VAL_NAME));
         assertEquals("0", vars.get(VAL_NAME_NR));
         assertNull(vars.get(VAL_NAME + "_1"));
+    }
+
+    @Test
+    public void testFailOnNoMatchDefaultsToFalse() {
+        assertFalse(extractor.isFailOnNoMatch());
+        result.setSuccessful(true);
+        extractor.setXPathQuery("/book/missing");
+        extractor.process();
+        assertTrue(result.isSuccessful());
+        assertEquals(0, result.getAssertionResults().length);
+    }
+
+    @Test
+    public void testFailOnNoMatchAddsAssertionFailure() {
+        result.setSuccessful(true);
+        extractor.setXPathQuery("/book/missing");
+        extractor.setFailOnNoMatch(true);
+        extractor.process();
+        assertFalse(result.isSuccessful());
+        assertEquals(1, result.getAssertionResults().length);
+        assertTrue(result.getAssertionResults()[0].isFailure());
     }
 
     @Test

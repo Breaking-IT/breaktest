@@ -18,7 +18,9 @@
 package org.apache.jmeter.extractor.json.jmespath;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.util.function.Consumer;
@@ -66,6 +68,37 @@ class TestJMESPathExtractor {
         processor.setJmesPathExpression("[*]");
         processor.process();
         assertEquals("1", vars.get(REFERENCE_NAME));
+    }
+
+    @Test
+    void testFailOnNoMatchDefaultsToFalse() {
+        JMeterVariables vars = new JMeterVariables();
+        SampleResult sampleResult = new SampleResult();
+        sampleResult.setSuccessful(true);
+        JMESPathExtractor processor = setupProcessor(vars, sampleResult, "{}", false, "1");
+        processor.setJmesPathExpression("missing");
+        assertFalse(processor.isFailOnNoMatch());
+
+        processor.process();
+
+        assertTrue(sampleResult.isSuccessful());
+        assertEquals(0, sampleResult.getAssertionResults().length);
+    }
+
+    @Test
+    void testFailOnNoMatchAddsAssertionFailure() {
+        JMeterVariables vars = new JMeterVariables();
+        SampleResult sampleResult = new SampleResult();
+        sampleResult.setSuccessful(true);
+        JMESPathExtractor processor = setupProcessor(vars, sampleResult, "{}", false, "1");
+        processor.setJmesPathExpression("missing");
+        processor.setFailOnNoMatch(true);
+
+        processor.process();
+
+        assertFalse(sampleResult.isSuccessful());
+        assertEquals(1, sampleResult.getAssertionResults().length);
+        assertTrue(sampleResult.getAssertionResults()[0].isFailure());
     }
 
     private static Stream<Arguments> dataOneMatch() {
