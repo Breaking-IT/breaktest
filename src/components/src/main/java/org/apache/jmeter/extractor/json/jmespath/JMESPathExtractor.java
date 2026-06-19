@@ -20,11 +20,11 @@ package org.apache.jmeter.extractor.json.jmespath;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.extractor.ExtractorFailure;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
@@ -60,6 +60,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
     private static final String REFERENCE_NAME = "JMESExtractor.referenceName"; // $NON-NLS-1$
     private static final String DEFAULT_VALUE = "JMESExtractor.defaultValue"; // $NON-NLS-1$
     private static final String MATCH_NUMBER = "JMESExtractor.matchNumber"; // $NON-NLS-1$
+    private static final String FAIL_ON_NO_MATCH = "JMESExtractor.fail_on_no_match"; // $NON-NLS-1$
     private static final String REF_MATCH_NR = "_matchNr"; // $NON-NLS-1$
     static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
             // See https://github.com/FasterXML/jackson-core/issues/991
@@ -70,6 +71,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
     public void process() {
         JMeterContext context = getThreadContext();
         JMeterVariables vars = context.getVariables();
+        SampleResult previousResult = context.getPreviousResult();
         List<String> jsonResponse = getData(vars, context);
         String refName = getRefName();
         String defaultValue = getDefaultValue();
@@ -84,6 +86,9 @@ public class JMESPathExtractor extends AbstractScopedTestElement
         clearOldRefVars(vars, refName);
         if (jsonResponse.isEmpty()) {
             handleEmptyResponse(vars, refName, defaultValue);
+            if (isFailOnNoMatch()) {
+                ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
+            }
             return;
         }
 
@@ -100,14 +105,22 @@ public class JMESPathExtractor extends AbstractScopedTestElement
             }
             // if more than one value extracted, suffix with "_index"
             int size = resultList.size();
+            boolean foundMatch;
             if (size > 1) {
-                handleListResult(vars, refName, defaultValue, matchNumber, resultList);
+                foundMatch = handleListResult(vars, refName, defaultValue, matchNumber, resultList);
             } else if (resultList.isEmpty()){
                 handleNullResult(vars, refName, defaultValue, matchNumber);
+                if (isFailOnNoMatch()) {
+                    ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
+                }
                 return;
             } else {
                 // else just one value extracted
                 handleSingleResult(vars, refName, matchNumber, resultList);
+                foundMatch = true;
+            }
+            if (!foundMatch && isFailOnNoMatch()) {
+                ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
             vars.put(refName + REF_MATCH_NR, Integer.toString(size));
         } catch (Exception e) {
@@ -126,7 +139,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
         placeObjectIntoVars(vars, refName + suffix, resultList, 0);
     }
 
-    private static void handleListResult(JMeterVariables vars, String refName, String defaultValue, int matchNumber,
+    private static boolean handleListResult(JMeterVariables vars, String refName, String defaultValue, int matchNumber,
             List<String> resultList) {
         if (matchNumber < 0) {
             // Extract all
@@ -135,11 +148,13 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                 vars.put(refName + "_" + index, extractedString); // $NON-NLS-1$
                 index++;
             }
+            return true;
         } else if (matchNumber == 0) {
             // Random extraction
             int matchSize = resultList.size();
             int matchNr = JMeterUtils.getRandomInt(matchSize);
             placeObjectIntoVars(vars, refName, resultList, matchNr);
+            return true;
         } else {
             // extract at position
             if (matchNumber > resultList.size()) {
@@ -149,8 +164,10 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                             matchNumber, resultList.size());
                 }
                 vars.put(refName, defaultValue);
+                return false;
             } else {
                 placeObjectIntoVars(vars, refName, resultList, matchNumber - 1);
+                return true;
             }
         }
     }
@@ -176,7 +193,9 @@ public class JMESPathExtractor extends AbstractScopedTestElement
             if (log.isDebugEnabled()) {
                 log.debug("JMESExtractor is using variable: {}, which content is: {}", getVariableName(), jsonResponse);
             }
-            return Arrays.asList(jsonResponse);
+            return StringUtilities.isBlank(jsonResponse)
+                    ? Collections.emptyList()
+                    : Collections.singletonList(jsonResponse);
         } else {
             SampleResult previousResult = context.getPreviousResult();
             if (previousResult != null) {
@@ -246,6 +265,14 @@ public class JMESPathExtractor extends AbstractScopedTestElement
 
     public void setDefaultValue(String defaultValue) {
         setProperty(DEFAULT_VALUE, defaultValue, ""); // $NON-NLS-1$
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        setProperty(FAIL_ON_NO_MATCH, failOnNoMatch, false);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return getPropertyAsBoolean(FAIL_ON_NO_MATCH, false);
     }
 
     public void setMatchNumber(String matchNumber) {

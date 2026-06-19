@@ -18,7 +18,9 @@
 package org.apache.jmeter.extractor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.nio.charset.StandardCharsets;
@@ -356,6 +358,47 @@ class TestJSONPostProcessor {
         assertEquals("", vars.get("var1"), "Variable var1 should get the first (empty) default value");
         assertEquals("", vars.get("var2"), "Variable var2 should get the second (empty) default value");
         assertEquals("", vars.get("var3"), "Variable var3 should get the third (empty) default value");
+    }
+
+    @Test
+    void testFailOnNoMatchDefaultsToFalse() {
+        JMeterContext context = JMeterContextService.getContext();
+        JSONPostProcessor processor = setupProcessor(context, "1", false);
+        JMeterVariables vars = new JMeterVariables();
+        SampleResult sampleResult = createSampleResult("{}");
+        sampleResult.setSuccessful(true);
+        context.setVariables(vars);
+        context.setPreviousResult(sampleResult);
+        processor.setJsonPathExpressions("$.missing");
+        processor.setRefNames("result");
+        processor.setDefaultValues("NONE");
+        assertFalse(processor.isFailOnNoMatch());
+
+        processor.process();
+
+        assertTrue(sampleResult.isSuccessful());
+        assertEquals(0, sampleResult.getAssertionResults().length);
+    }
+
+    @Test
+    void testFailOnNoMatchAddsAssertionFailure() {
+        JMeterContext context = JMeterContextService.getContext();
+        JSONPostProcessor processor = setupProcessor(context, "1", false);
+        JMeterVariables vars = new JMeterVariables();
+        SampleResult sampleResult = createSampleResult("{}");
+        sampleResult.setSuccessful(true);
+        context.setVariables(vars);
+        context.setPreviousResult(sampleResult);
+        processor.setJsonPathExpressions("$.missing");
+        processor.setRefNames("result");
+        processor.setDefaultValues("NONE");
+        processor.setFailOnNoMatch(true);
+
+        processor.process();
+
+        assertFalse(sampleResult.isSuccessful());
+        assertEquals(1, sampleResult.getAssertionResults().length);
+        assertTrue(sampleResult.getAssertionResults()[0].isFailure());
     }
 
     private static JSONPostProcessor setupProcessor(JMeterContext context, String matchNumbers) {

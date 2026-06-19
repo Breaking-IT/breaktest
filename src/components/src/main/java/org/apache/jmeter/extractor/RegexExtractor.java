@@ -112,17 +112,22 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
             vars.put(refName, defaultValue);
         }
 
+        boolean foundMatch;
         if (USE_JAVA_REGEX) {
-            extractWithJavaRegex(previousResult, vars, refName, matchNumber);
+            foundMatch = extractWithJavaRegex(previousResult, vars, refName, matchNumber);
         } else {
-            extractWithOroRegex(previousResult, vars, refName, matchNumber);
+            foundMatch = extractWithOroRegex(previousResult, vars, refName, matchNumber);
+        }
+        if (!foundMatch && isFailOnNoMatch()) {
+            ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
         }
     }
 
-    private void extractWithOroRegex(SampleResult previousResult, JMeterVariables vars, String refName, int matchNumber) {
+    private boolean extractWithOroRegex(SampleResult previousResult, JMeterVariables vars, String refName, int matchNumber) {
         Perl5Matcher matcher = JMeterUtils.getMatcher();
         String regex = getRegex();
         Pattern pattern = null;
+        boolean foundMatch = false;
         try {
             pattern = JMeterUtils.getPatternCache().getPattern(regex, Perl5Compiler.READ_ONLY_MASK);
             List<MatchResult> matches = processMatches(pattern, regex, previousResult, matchNumber, vars);
@@ -144,6 +149,7 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
                     if (match != null) {
                         vars.put(refName, generateResult(match));
                         saveGroups(vars, refName, match);
+                        foundMatch = true;
                     } else {
                         // refname has already been set to the default (if present)
                         removeGroups(vars, refName);
@@ -152,6 +158,7 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
                 {
                     removeGroups(vars, refName); // remove any single matches
                     matchCount = matches.size();
+                    foundMatch = matchCount > 0;
                     vars.put(refName + REF_MATCH_NR, Integer.toString(matchCount));// Save the count
                     for (int i = 1; i <= matchCount; i++) {
                         match = getCorrectMatch(matches, i);
@@ -173,14 +180,17 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
             }
         } catch (MalformedCachePatternException e) {
             log.error("Error in pattern: '{}'", regex);
+            foundMatch = true;
         } finally {
             JMeterUtils.clearMatcherMemory(matcher, pattern);
         }
+        return foundMatch;
     }
 
-    private void extractWithJavaRegex(SampleResult previousResult, JMeterVariables vars, String refName, int matchNumber) {
+    private boolean extractWithJavaRegex(SampleResult previousResult, JMeterVariables vars, String refName, int matchNumber) {
         String regex = getRegex();
         java.util.regex.Pattern pattern = null;
+        boolean foundMatch = false;
         try {
             pattern = JMeterUtils.compilePattern(regex);
             List<java.util.regex.MatchResult> matches = processMatches(pattern, previousResult, matchNumber, vars);
@@ -202,6 +212,7 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
                     if (match != null) {
                         vars.put(refName, generateResult(match));
                         saveGroups(vars, refName, match);
+                        foundMatch = true;
                     } else {
                         // refname has already been set to the default (if present)
                         removeGroups(vars, refName);
@@ -210,6 +221,7 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
                 {
                     removeGroups(vars, refName); // remove any single matches
                     matchCount = matches.size();
+                    foundMatch = matchCount > 0;
                     vars.put(refName + REF_MATCH_NR, Integer.toString(matchCount));// Save the count
                     for (int i = 1; i <= matchCount; i++) {
                         match = getCorrectMatchJavaRegex(matches, i);
@@ -231,7 +243,9 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
             }
         } catch (PatternSyntaxException e) {
             log.error("Error in pattern: '{}'", regex);
+            foundMatch = true;
         }
+        return foundMatch;
     }
 
     private String getInputString(SampleResult result) {
@@ -632,6 +646,14 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
      */
     public boolean isEmptyDefaultValue() {
         return get(getSchema().getDefaultIsEmpty());
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        set(getSchema().getFailOnNoMatch(), failOnNoMatch);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return get(getSchema().getFailOnNoMatch());
     }
 
     public void setTemplate(String template) {

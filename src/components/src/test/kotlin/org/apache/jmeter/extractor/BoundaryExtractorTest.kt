@@ -22,7 +22,9 @@ import org.apache.jmeter.threads.JMeterContext
 import org.apache.jmeter.threads.JMeterContextService
 import org.apache.jmeter.threads.JMeterVariables
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -178,6 +180,31 @@ class BoundaryExtractorTest {
         sut.leftBoundary = "does-not-exist"
         sut.process()
         assertVarValueEquals(DEFAULT_VAL)
+    }
+
+    @Test
+    fun `fail on no match defaults to false`() {
+        assertFalse(sut.isFailOnNoMatch)
+        prevResult.isSuccessful = true
+        sut.leftBoundary = "does-not-exist"
+
+        sut.process()
+
+        assertTrue(prevResult.isSuccessful)
+        assertEquals(0, prevResult.assertionResults.size)
+    }
+
+    @Test
+    fun `fail on no match adds assertion failure`() {
+        prevResult.isSuccessful = true
+        sut.leftBoundary = "does-not-exist"
+        sut.isFailOnNoMatch = true
+
+        sut.process()
+
+        assertFalse(prevResult.isSuccessful)
+        assertEquals(1, prevResult.assertionResults.size)
+        assertTrue(prevResult.assertionResults[0].isFailure)
     }
 
     @Test

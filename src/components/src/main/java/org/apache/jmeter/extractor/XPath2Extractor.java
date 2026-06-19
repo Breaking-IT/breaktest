@@ -73,6 +73,7 @@ public class XPath2Extractor
     private static final String FRAGMENT        = "XPathExtractor2.fragment"; // $NON-NLS-1$
     private static final String NAMESPACES      = "XPathExtractor2.namespaces"; // $NON-NLS-1$
     private static final String MATCH_NUMBER    = "XPathExtractor2.matchNumber"; // $NON-NLS-1$
+    private static final String FAIL_ON_NO_MATCH = "XPathExtractor2.fail_on_no_match"; // $NON-NLS-1$
     //- JMX file attributes
 
     private static String concat(String s1, String s2){
@@ -144,6 +145,8 @@ public class XPath2Extractor
                         vars.put(concat(refName,i+1),matches.get(i));
                     }
                 }
+            } else if (isFailOnNoMatch()) {
+                ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
             vars.remove(concat(refName,matchCount+1)); // Just in case
             // Clear any other remaining variables
@@ -209,6 +212,14 @@ public class XPath2Extractor
      */
     public void setFragment(boolean selected) {
         setProperty(FRAGMENT, selected, false);
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        setProperty(FAIL_ON_NO_MATCH, failOnNoMatch, false);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return getPropertyAsBoolean(FAIL_ON_NO_MATCH, false);
     }
 
     /*================= internal business =================*/

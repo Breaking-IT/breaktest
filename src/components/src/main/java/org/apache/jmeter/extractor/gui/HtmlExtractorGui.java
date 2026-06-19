@@ -63,6 +63,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
     private JLabeledTextField refNameField;
     private JComboBox<String> extractorImplName;
     private JCheckBox emptyDefaultValue;
+    private JCheckBox failOnNoMatch;
 
     public HtmlExtractorGui() {
         super();
@@ -83,6 +84,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
             attributeField.setText(htmlExtractor.getAttribute());
             defaultField.setText(htmlExtractor.getDefaultValue());
             emptyDefaultValue.setSelected(htmlExtractor.isEmptyDefaultValue());
+            failOnNoMatch.setSelected(htmlExtractor.isFailOnNoMatch());
             matchNumberField.setText(htmlExtractor.getMatchNumberAsString());
             refNameField.setText(htmlExtractor.getRefName());
             extractorImplName.setSelectedItem(htmlExtractor.getExtractor());
@@ -114,6 +116,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
             htmlExtractor.setAttribute(attributeField.getText());
             htmlExtractor.setDefaultValue(defaultField.getText());
             htmlExtractor.setDefaultEmptyValue(emptyDefaultValue.isSelected());
+            htmlExtractor.setFailOnNoMatch(failOnNoMatch.isSelected());
             htmlExtractor.setMatchNumber(matchNumberField.getText());
             if(extractorImplName.getSelectedIndex()< HtmlExtractor.getImplementations().length) {
                 htmlExtractor.setExtractor(HtmlExtractor.getImplementations()[extractorImplName.getSelectedIndex()]);
@@ -135,6 +138,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         defaultField.setText(""); //$NON-NLS-1$
         refNameField.setText(""); //$NON-NLS-1$
         emptyDefaultValue.setSelected(false);
+        failOnNoMatch.setSelected(true);
         matchNumberField.setText(""); //$NON-NLS-1$
     }
 
@@ -185,7 +189,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         resetContraints(gbc);
         addField(panel, matchNumberField, gbc);
         resetContraints(gbc);
-        gbc.weighty = 1;
+        gbc.weighty = 0;
 
         defaultField = new JLabeledTextField(JMeterUtils.getResString("default_value_field")); //$NON-NLS-1$
         List<JComponent> item = defaultField.getComponentList();
@@ -204,6 +208,18 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         gbc.weightx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(p, gbc.clone());
+        resetContraints(gbc);
+        panel.add(new JLabel(JMeterUtils.getResString("extractor_assertion_error_on_no_match")), gbc.clone()); //$NON-NLS-1$
+        failOnNoMatch = new JCheckBox();
+        failOnNoMatch.setSelected(true);
+        gbc.gridx++;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(failOnNoMatch, gbc.clone());
+        resetContraints(gbc);
+        gbc.gridwidth = 2;
+        gbc.weighty = 1;
+        panel.add(Box.createVerticalGlue(), gbc.clone());
 
         return panel;
     }

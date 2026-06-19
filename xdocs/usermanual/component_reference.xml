@@ -5773,6 +5773,7 @@ generate the template string, and store the result into the given variable name.
         Thus when you will for example use <code>${var}</code> (if <code>Reference Name</code> is var) in your Test Plan, if the extracted value is not found then
         <code>${var}</code> will be equal to empty string instead of containing <code>${var}</code> which may be useful if extracted value is optional.
         </property>
+        <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
 </properties>
 <p>
     If the match number is set to a non-negative number, and a match occurs, the variables are set as follows:
@@ -5887,6 +5888,7 @@ extracting the node as text or attribute value and store the result into the giv
         Thus when you will for example use <code>${var}</code> (if <code>Reference Name</code> is var) in your Test Plan, if the extracted value is not found then
         <code>${var}</code> will be equal to empty string instead of containing <code>${var}</code> which may be useful if extracted value is optional.
         </property>
+        <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
 </properties>
 <p>
     If the match number is set to a non-negative number, and a match occurs, the variables are set as follows:
@@ -5944,6 +5946,7 @@ extracting the node as text or attribute value and store the result into the giv
     </property>
     <property name="Default Value" required="yes">Default value returned when no match found.
     It is also returned if the node has no value and the fragment option is not selected.</property>
+    <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
     <property name="Namespaces aliases list" required="No">List of namespaces aliases you want to use to parse the document, one line per declaration.
     You must specify them as follow: <code>prefix=namespace</code>. This implementation makes it easier to
     use namespaces than with the old XPathExtractor version.</property>
@@ -6015,6 +6018,7 @@ extracting the node as text or attribute value and store the result into the giv
     </property>
     <property name="Default Value" required="">Default value returned when no match found.
     It is also returned if the node has no value and the fragment option is not selected.</property>
+    <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
    </properties>
    <p>To allow for use in a <complink name="ForEach Controller"/>, the following variables are set on return:</p>
    <ul>
@@ -6102,6 +6106,7 @@ where "<code>uri-for-namespace</code>" is the uri for the "<code>mynamespace</co
     </property>
     <property name="Default Value" required="">Default value returned when no match found.
     It is also returned if the node has no value and the fragment option is not selected.</property>
+    <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
    </properties>
       <p>JMESPath is a query language for JSON. It is described in an ABNF grammar with a complete specification. This ensures that the language syntax is precisely defined.
     See <a href="http://jmespath.org/">JMESPath Reference</a> for more information. Here are also some examples <a href="http://jmespath.org/tutorial.html">JMESPath Example</a>.
@@ -6259,6 +6264,7 @@ It will allow you to extract in a very easy way text content, see <a href="https
     <property name="Names of created variables" required="Yes">Semicolon separated names of variables that will contain the results of JSON-PATH expressions (must match number of JSON-PATH expressions)</property>
     <property name="JSON Path Expressions" required="Yes">Semicolon separated JSON-PATH expressions (must match number of variables)</property>
     <property name="Default Values" required="No">Semicolon separated default values if JSON-PATH expressions do not return any result(must match number of variables)</property>
+    <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found for any JSON-PATH expression.</property>
     <property name="Match Numbers" required="No">For each JSON Path Expression, if the JSON Path query leads to many results, you can choose which one(s) to extract as Variables:
     <ul>
         <li><code>0</code>: means random (Default Value)</li>
@@ -6336,6 +6342,7 @@ generate the template string, and store the result into the given variable name.
         In this case, remove the default value once debugging is complete.
         </p>
         </property>
+        <property name="Assertion error when not matched" required="No">If checked, the sampler is marked as failed with an assertion failure when no match is found.</property>
 </properties>
 <p>
     If the match number is set to a non-negative number, and a match occurs, the variables are set as follows:

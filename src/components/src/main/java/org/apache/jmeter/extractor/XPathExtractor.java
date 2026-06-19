@@ -87,6 +87,7 @@ public class XPathExtractor extends AbstractScopedTestElement implements
     private static final String VALIDATE        = "XPathExtractor.validate"; // $NON-NLS-1$
     private static final String FRAGMENT        = "XPathExtractor.fragment"; // $NON-NLS-1$
     private static final String MATCH_NUMBER    = "XPathExtractor.matchNumber"; // $NON-NLS-1$
+    private static final String FAIL_ON_NO_MATCH = "XPathExtractor.fail_on_no_match"; // $NON-NLS-1$
     //- JMX file attributes
 
 
@@ -159,6 +160,8 @@ public class XPathExtractor extends AbstractScopedTestElement implements
                         vars.put(concat(refName,i+1),matches.get(i));
                     }
                 }
+            } else if (isFailOnNoMatch()) {
+                ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
             vars.remove(concat(refName,matchCount+1)); // Just in case
             // Clear any other remaining variables
@@ -282,6 +285,14 @@ public class XPathExtractor extends AbstractScopedTestElement implements
      */
     public void setFragment(boolean selected) {
         setProperty(FRAGMENT, selected, false);
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        setProperty(FAIL_ON_NO_MATCH, failOnNoMatch, false);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return getPropertyAsBoolean(FAIL_ON_NO_MATCH, false);
     }
 
     /*================= internal business =================*/

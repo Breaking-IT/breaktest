@@ -53,6 +53,7 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
     private static final String R_BOUNDARY = "BoundaryExtractor.rboundary"; // $NON-NLS-1$
     private static final String DEFAULT_EMPTY_VALUE = "BoundaryExtractor.default_empty_value"; // $NON-NLS-1$
     private static final String DEFAULT = "BoundaryExtractor.default"; // $NON-NLS-1$
+    private static final String FAIL_ON_NO_MATCH = "BoundaryExtractor.fail_on_no_match"; // $NON-NLS-1$
     private static final String REF_MATCH_NR = "_matchNr"; // $NON-NLS-1$
     private static final char UNDERSCORE = '_';  // $NON-NLS-1$
 
@@ -112,6 +113,9 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
         try {
             prevCount = removePrevCount(vars, refName);
             List<String> matches = extractMatches(previousResult, vars, matchNumber);
+            if (matches.isEmpty() && isFailOnNoMatch()) {
+                ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
+            }
             matchCount = saveMatches(vars, refName, matchNumber, matches);
         } catch (RuntimeException e) { // NOSONAR
             if (log.isWarnEnabled()) {
@@ -391,6 +395,14 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
      */
     public boolean isEmptyDefaultValue() {
         return getPropertyAsBoolean(DEFAULT_EMPTY_VALUE);
+    }
+
+    public void setFailOnNoMatch(boolean failOnNoMatch) {
+        setProperty(FAIL_ON_NO_MATCH, failOnNoMatch, false);
+    }
+
+    public boolean isFailOnNoMatch() {
+        return getPropertyAsBoolean(FAIL_ON_NO_MATCH, false);
     }
 
     public boolean useHeaders() {

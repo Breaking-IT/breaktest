@@ -117,6 +117,31 @@ public class TestRegexExtractor {
     }
 
     @Test
+    public void testFailOnNoMatchDefaultsToFalse() {
+        assertFalse(extractor.isFailOnNoMatch());
+        result.setSuccessful(true);
+        extractor.setRegex("<value name=\"positioncount\">(.+?)</value>");
+        extractor.setTemplate("$1$");
+        extractor.setMatchNumber(1);
+        extractor.process();
+        assertTrue(result.isSuccessful());
+        assertEquals(0, result.getAssertionResults().length);
+    }
+
+    @Test
+    public void testFailOnNoMatchAddsAssertionFailure() {
+        result.setSuccessful(true);
+        extractor.setRegex("<value name=\"positioncount\">(.+?)</value>");
+        extractor.setTemplate("$1$");
+        extractor.setMatchNumber(1);
+        extractor.setFailOnNoMatch(true);
+        extractor.process();
+        assertFalse(result.isSuccessful());
+        assertEquals(1, result.getAssertionResults().length);
+        assertTrue(result.getAssertionResults()[0].isFailure());
+    }
+
+    @Test
     public void testVariableExtraction0() {
         extractor.setRegex("<(value) field=\"");
         extractor.setTemplate("$1$");
