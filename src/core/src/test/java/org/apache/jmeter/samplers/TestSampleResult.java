@@ -146,6 +146,22 @@ class TestSampleResult implements JMeterSerialTest {
     }
 
     @Test
+    void testNetworkEndpoint() {
+        SampleResult res = new SampleResult();
+
+        Assertions.assertEquals("", res.getNetworkEndpoint());
+        res.setLocalEndpoint("127.0.0.1:54321");
+        Assertions.assertEquals("", res.getNetworkEndpoint());
+        res.setDestinationEndpoint("93.184.216.34:443");
+        Assertions.assertEquals("127.0.0.1:54321 -> 93.184.216.34:443", res.getNetworkEndpoint());
+
+        SampleResult copy = new SampleResult(res);
+        Assertions.assertEquals("127.0.0.1:54321", copy.getLocalEndpoint());
+        Assertions.assertEquals("93.184.216.34:443", copy.getDestinationEndpoint());
+        Assertions.assertEquals(res.getNetworkEndpoint(), copy.getNetworkEndpoint());
+    }
+
+    @Test
     void testSubResultsTrue() throws Exception {
         testSubResults(true, 0);
     }

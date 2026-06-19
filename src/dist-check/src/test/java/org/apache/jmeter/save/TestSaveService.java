@@ -20,6 +20,7 @@ package org.apache.jmeter.save;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.ByteArrayOutputStream;
@@ -100,6 +101,20 @@ public class TestSaveService extends JMeterTestCase {
                 SaveService.PROPVERSION,
                 SaveService.getPropertyVersion(),
                 "Property Version mismatch, ensure you update SaveService#PROPVERSION field with _version property value from saveservice.properties"
+        );
+    }
+
+    @Test
+    public void testSaveTreeIncludesBreakTestOrigin() throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (out) {
+            SaveService.saveTree(new HashTree(), out);
+        }
+
+        String xml = out.toString(StandardCharsets.UTF_8);
+        assertTrue(
+                xml.matches("(?s).*<jmeterTestPlan\\b[^>]*\\borigin=\"breaktest\"[^>]*>.*"),
+                "Saved JMX root element should be marked with BreakTest origin"
         );
     }
 

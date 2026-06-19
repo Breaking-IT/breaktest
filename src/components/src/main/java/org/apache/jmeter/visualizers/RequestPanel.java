@@ -20,17 +20,10 @@ package org.apache.jmeter.visualizers;
 import java.awt.BorderLayout;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.ServiceLoader;
 
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
-import javax.swing.SwingConstants;
 
 import org.apache.jmeter.samplers.SampleResult;
-import org.apache.jmeter.util.JMeterUtils;
-import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Manipulate all classes which implements request view panel interface
@@ -38,8 +31,6 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class RequestPanel {
-
-    private static final Logger log = LoggerFactory.getLogger(RequestPanel.class);
 
     private final Deque<RequestView> listRequestView;
 
@@ -51,35 +42,12 @@ public class RequestPanel {
      */
     public RequestPanel() {
         listRequestView = new ArrayDeque<>();
-        String rawTab = JMeterUtils.getResString(RequestViewRaw.KEY_LABEL); // $NON-NLS-1$
-        RequestView rawObject = null;
-        for (RequestView requestView : JMeterUtils.loadServicesAndScanJars(
-                RequestView.class,
-                ServiceLoader.load(RequestView.class),
-                Thread.currentThread().getContextClassLoader(),
-                new LogAndIgnoreServiceLoadExceptionHandler(log)
-        )) {
-            if (rawTab.equals(requestView.getLabel())) {
-                rawObject = requestView; // use later
-            } else {
-                listRequestView.add(requestView);
-            }
-        }
-        // place raw tab in first position (first tab)
-        if (rawObject != null) {
-            listRequestView.addFirst(rawObject);
-        }
+        RequestView requestView = new RequestViewRaw();
+        requestView.init();
+        listRequestView.add(requestView);
 
-        // Prepare the Request tabbed pane
-        JTabbedPane tabbedRequest = new JTabbedPane(SwingConstants.BOTTOM);
-        for (RequestView requestView : listRequestView) {
-            requestView.init();
-            tabbedRequest.addTab(requestView.getLabel(), requestView.getPanel());
-        }
-
-        // Hint to background color on bottom tabs (grey, not blue)
         panel = new JPanel(new BorderLayout());
-        panel.add(tabbedRequest);
+        panel.add(requestView.getPanel());
     }
 
     /**

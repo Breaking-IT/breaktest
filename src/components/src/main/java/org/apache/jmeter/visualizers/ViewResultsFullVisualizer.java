@@ -32,6 +32,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -67,7 +68,10 @@ import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
+import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
 import org.apache.jorphan.gui.JMeterUIDefaults;
@@ -136,6 +140,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private int selectedTab;
     private ResultRenderer resultsRender = null;
     private Object resultsObject = null;
+    private Object renderedResponseObject = null;
     private TreeSelectionEvent lastSelectionEvent;
     private JCheckBox autoScrollCB;
     private final Queue<SampleResult> buffer = new ArrayDeque<>();
@@ -161,6 +166,18 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
             buffer.add(sample);
             dataChanged = true;
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void add(final SampleEvent event) {
+        SampleResult sample = event.getResult();
+        if (sample != null) {
+            if (!sample.hasJMeterVariables()) {
+                sample.setJMeterVariables(snapshotVariables(event));
+            }
+            add(sample);
         }
     }
 
@@ -328,6 +345,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
         resultsRender.clearData();
         resultsObject = null;
+        renderedResponseObject = null;
     }
 
     /** {@inheritDoc} */
@@ -347,6 +365,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         leftSide = createLeftPanel();
         // Prepare the common tab
         rightSide = new JTabbedPane();
+        rightSide.addChangeListener(e -> renderSelectedTabIfNeeded());
 
         // Create the split pane
         mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSide, rightSide);
@@ -391,18 +410,37 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             Object userObject = node.getUserObject();
             resultsRender.setSamplerResult(userObject);
             resultsRender.setupTabPane(); // Processes Assertions
-            // display a SampleResult
-            if (userObject instanceof SampleResult sampleResult) {
-                if (isTextDataType(sampleResult)){
-                    resultsRender.renderResult(sampleResult);
-                } else {
-                    byte[] responseBytes = sampleResult.getResponseData();
-                    if (responseBytes != null) {
-                        resultsRender.renderImage(sampleResult);
-                    }
-                }
-            }
+            renderedResponseObject = null;
+            renderSelectedTabIfNeeded();
         }
+    }
+
+    private void renderSelectedTabIfNeeded() {
+        if (resultsRender != null && resultsObject != null) {
+            resultsRender.renderSelectedTab();
+        }
+        renderSelectedResponseIfNeeded();
+    }
+
+    private void renderSelectedResponseIfNeeded() {
+        if (resultsRender == null || resultsObject == null || resultsObject == renderedResponseObject
+                || !isResponseTabSelected()) {
+            return;
+        }
+        if (resultsObject instanceof SampleResult sampleResult) {
+            if (isTextDataType(sampleResult)) {
+                resultsRender.renderResult(sampleResult);
+            } else {
+                resultsRender.renderImage(sampleResult);
+            }
+            renderedResponseObject = resultsObject;
+        }
+    }
+
+    private boolean isResponseTabSelected() {
+        int selectedIndex = rightSide.getSelectedIndex();
+        return selectedIndex >= 0
+                && JMeterUtils.getResString("view_results_tab_response").equals(rightSide.getTitleAt(selectedIndex)); // $NON-NLS-1$
     }
 
     /**
@@ -518,10 +556,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
                     // create and add a new right side at the old position
                     rightSide = new JTabbedPane();
+                    rightSide.addChangeListener(e -> renderSelectedTabIfNeeded());
                     mainSplit.add(rightSide);
                     mainSplit.setDividerLocation(dividerLocation);
                     resultsRender.setRightSide(rightSide);
                     resultsRender.setLastSelectedTab(selectedTab);
+                    renderedResponseObject = null;
                     log.debug("selectedTab={}", selectedTab);
                     resultsRender.init();
                     // To display current sampler result before change
@@ -615,4 +655,28 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void itemStateChanged(ItemEvent e) {
         // NOOP state is held by component
     }
+
+    private static Map<String, String> snapshotVariables(SampleEvent event) {
+        JMeterVariables variables = JMeterContextService.getContext().getVariables();
+        if (variables != null) {
+            Map<String, String> snapshot = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : variables.entrySet()) {
+                Object value = entry.getValue();
+                snapshot.put(entry.getKey(), value == null ? "" : value.toString()); // $NON-NLS-1$
+            }
+            return snapshot;
+        }
+
+        if (SampleEvent.getVarCount() == 0) {
+            return new LinkedHashMap<>();
+        }
+
+        Map<String, String> snapshot = new LinkedHashMap<>();
+        for (int i = 0; i < SampleEvent.getVarCount(); i++) {
+            String value = event.getVarValue(i);
+            snapshot.put(SampleEvent.getVarName(i), value == null ? "" : value); // $NON-NLS-1$
+        }
+        return snapshot;
+    }
+
 }

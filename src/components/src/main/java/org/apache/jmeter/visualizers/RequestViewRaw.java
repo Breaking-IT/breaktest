@@ -18,10 +18,11 @@
 package org.apache.jmeter.visualizers;
 
 import java.awt.BorderLayout;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.net.URL;
 
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
@@ -43,8 +44,7 @@ public class RequestViewRaw implements RequestView {
     // Used by Request Panel
     static final String KEY_LABEL = "view_results_table_request_tab_raw"; //$NON-NLS-1$
 
-    private JSyntaxTextArea headerData;
-    private JSyntaxTextArea sampleDataField;
+    private JSyntaxTextArea requestData;
 
     private JPanel paneRaw; /** request pane content */
 
@@ -52,33 +52,21 @@ public class RequestViewRaw implements RequestView {
     public void init() {
         paneRaw = new JPanel(new BorderLayout(0, 5));
 
-        sampleDataField = JSyntaxTextArea.getInstance(20, 80, true);
-        sampleDataField.setEditable(false);
-        sampleDataField.setLineWrap(true);
-        sampleDataField.setWrapStyleWord(true);
-        JPanel requestAndSearchPanel = new JPanel(new BorderLayout());
-        requestAndSearchPanel.add(new JSyntaxSearchToolBar(sampleDataField).getToolBar(), BorderLayout.NORTH);
-        requestAndSearchPanel.add(JTextScrollPane.getInstance(sampleDataField), BorderLayout.CENTER);
+        requestData = JSyntaxTextArea.getInstance(20, 80, true);
+        requestData.setEditable(false);
+        requestData.setLineWrap(true);
+        requestData.setWrapStyleWord(true);
+        JPanel requestDataAndSearchPanel = new JPanel(new BorderLayout());
+        requestDataAndSearchPanel.add(new JSyntaxSearchToolBar(requestData).getToolBar(), BorderLayout.NORTH);
+        requestDataAndSearchPanel.add(JTextScrollPane.getInstance(requestData), BorderLayout.CENTER);
 
-        headerData = JSyntaxTextArea.getInstance(20, 80, true);
-        headerData.setEditable(false);
-        headerData.setLineWrap(true);
-        headerData.setWrapStyleWord(true);
-        JPanel headerAndSearchPanel = new JPanel(new BorderLayout());
-        headerAndSearchPanel.add(new JSyntaxSearchToolBar(headerData).getToolBar(), BorderLayout.NORTH);
-        headerAndSearchPanel.add(JTextScrollPane.getInstance(headerData), BorderLayout.CENTER);
-
-        JTabbedPane tabbedPane = new JTabbedPane(JTabbedPane.TOP);
-        tabbedPane.addTab(JMeterUtils.getResString("view_results_request_body"), new JScrollPane(requestAndSearchPanel));
-        tabbedPane.addTab(JMeterUtils.getResString("view_results_request_headers"), new JScrollPane(headerAndSearchPanel));
-        paneRaw.add(GuiUtils.makeScrollPane(tabbedPane));
+        paneRaw.add(GuiUtils.makeScrollPane(requestDataAndSearchPanel));
 
     }
 
     @Override
     public void clearData() {
-        sampleDataField.setInitialText(""); //$NON-NLS-1$
-        headerData.setInitialText(""); //$NON-NLS-1$
+        requestData.setInitialText(""); //$NON-NLS-1$
     }
 
     @Override
@@ -86,19 +74,108 @@ public class RequestViewRaw implements RequestView {
         if (objectResult instanceof SampleResult sampleResult) {
             // Don't display Request headers label if rh is null or empty
             String rh = sampleResult.getRequestHeaders();
-            if (StringUtilities.isNotEmpty(rh)) {
-                headerData.setInitialText(rh);
-                sampleDataField.setCaretPosition(0);
+            String cookies = getCookies(sampleResult);
+            String requestHeaders = buildRequestHeaders(rh, cookies);
+            String body = getRequestBody(sampleResult);
+            String data = buildRequestData(buildRequestLine(sampleResult), requestHeaders, body);
+            requestData.setText(StringUtilities.isNotEmpty(data)
+                    ? data
+                    : JMeterUtils.getResString("view_results_table_request_raw_nodata")); //$NON-NLS-1$
+            requestData.setCaretPosition(0);
+        }
+    }
+
+    private static String buildRequestData(String requestLine, String requestHeaders, String requestBody) {
+        StringBuilder requestDataBuilder = new StringBuilder();
+        if (StringUtilities.isNotEmpty(requestLine)) {
+            requestDataBuilder.append(requestLine).append('\n');
+        }
+        if (StringUtilities.isNotEmpty(requestHeaders)) {
+            requestDataBuilder.append(requestHeaders);
+        }
+        if (StringUtilities.isNotEmpty(requestBody)) {
+            if (!requestDataBuilder.isEmpty()) {
+                if (requestDataBuilder.charAt(requestDataBuilder.length() - 1) != '\n') {
+                    requestDataBuilder.append('\n');
+                }
+                requestDataBuilder.append('\n');
             }
-            String data = sampleResult.getSamplerData();
-            if (StringUtilities.isNotEmpty(data)) {
-                sampleDataField.setText(data);
-                sampleDataField.setCaretPosition(0);
-            } else {
-                // add a message when no request data (ex. Java request)
-                sampleDataField.setText(JMeterUtils
-                        .getResString("view_results_table_request_raw_nodata")); //$NON-NLS-1$
-            }
+            requestDataBuilder.append(requestBody);
+        }
+        return requestDataBuilder.toString();
+    }
+
+    private static String buildRequestHeaders(String requestHeaders, String cookies) {
+        StringBuilder requestHeadersBuilder = new StringBuilder();
+        if (StringUtilities.isNotEmpty(requestHeaders)) {
+            requestHeadersBuilder.append(requestHeaders);
+        }
+        appendCookieHeader(requestHeadersBuilder, cookies);
+        return requestHeadersBuilder.toString();
+    }
+
+    private static String buildRequestLine(SampleResult sampleResult) {
+        String method = invokeStringMethod(sampleResult, "getHTTPMethod"); //$NON-NLS-1$
+        URL url = sampleResult.getURL();
+        if (StringUtilities.isEmpty(method) || url == null) {
+            return ""; //$NON-NLS-1$
+        }
+        String protocol = getHttpProtocolVersion(sampleResult);
+        if (StringUtilities.isEmpty(protocol)) {
+            return method + " " + url; //$NON-NLS-1$
+        }
+        return method + " " + url + " " + protocol; //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static String getHttpProtocolVersion(SampleResult sampleResult) {
+        String responseHeaders = sampleResult.getResponseHeaders();
+        if (StringUtilities.isEmpty(responseHeaders)) {
+            return ""; //$NON-NLS-1$
+        }
+        if (responseHeaders.startsWith("HTTP/2")) { //$NON-NLS-1$
+            return "HTTP/2.0"; //$NON-NLS-1$
+        }
+        if (responseHeaders.startsWith("HTTP/1.1")) { //$NON-NLS-1$
+            return "HTTP/1.1"; //$NON-NLS-1$
+        }
+        return ""; //$NON-NLS-1$
+    }
+
+    private static void appendCookieHeader(StringBuilder requestDataBuilder, String cookies) {
+        if (StringUtilities.isEmpty(cookies) || hasCookieHeader(requestDataBuilder)) {
+            return;
+        }
+        if (!requestDataBuilder.isEmpty() && requestDataBuilder.charAt(requestDataBuilder.length() - 1) != '\n') {
+            requestDataBuilder.append('\n');
+        }
+        requestDataBuilder.append("Cookie: ").append(cookies).append('\n'); //$NON-NLS-1$
+    }
+
+    private static boolean hasCookieHeader(StringBuilder requestDataBuilder) {
+        return requestDataBuilder.toString().lines()
+                .anyMatch(line -> line.regionMatches(true, 0, "Cookie:", 0, "Cookie:".length())); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static String getRequestBody(SampleResult sampleResult) {
+        String httpBody = invokeStringMethod(sampleResult, "getQueryString"); //$NON-NLS-1$
+        if (httpBody != null) {
+            return httpBody;
+        }
+        return sampleResult.getSamplerData();
+    }
+
+    static String getCookies(SampleResult sampleResult) {
+        String cookies = invokeStringMethod(sampleResult, "getCookies"); //$NON-NLS-1$
+        return cookies == null ? "" : cookies; //$NON-NLS-1$
+    }
+
+    private static String invokeStringMethod(SampleResult sampleResult, String methodName) {
+        try {
+            Method method = sampleResult.getClass().getMethod(methodName);
+            Object value = method.invoke(sampleResult);
+            return value instanceof String stringValue ? stringValue : null;
+        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+            return null;
         }
     }
 

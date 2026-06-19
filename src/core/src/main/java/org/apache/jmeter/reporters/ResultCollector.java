@@ -544,7 +544,7 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
         SampleResult result = event.getResult();
 
         if (isSampleWanted(result.isSuccessful())) {
-            sendToVisualizer(result);
+            sendToVisualizer(event);
             if (out != null && !isResultMarked(result) && !this.isStats) {
                 SampleSaveConfiguration config = getSaveConfig();
                 result.setSaveConfig(config);
@@ -565,9 +565,9 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
         }
     }
 
-    protected final void sendToVisualizer(SampleResult r) {
+    protected final void sendToVisualizer(SampleEvent event) {
         if (getVisualizer() != null) {
-            getVisualizer().add(r);
+            getVisualizer().add(event);
         }
     }
 

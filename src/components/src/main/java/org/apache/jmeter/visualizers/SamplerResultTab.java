@@ -20,7 +20,7 @@ package org.apache.jmeter.visualizers;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.GridLayout;
+import java.awt.Insets;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -44,6 +44,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.JTextPane;
 import javax.swing.SwingConstants;
 import javax.swing.table.TableCellRenderer;
@@ -87,7 +88,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
     private static final Logger LOGGER = LoggerFactory.getLogger(SamplerResultTab.class);
     // N.B. these are not multi-threaded, so don't make it static
     private final DateTimeFormatter dateFormat = DateTimeFormatter
-            .ofPattern("yyyy-MM-dd HH:mm:ss z")  // ISO format $NON-NLS-1$
+            .ofPattern("yyyy-MM-dd HH:mm:ss.SSS z")  // ISO format $NON-NLS-1$
             .withZone(ZoneId.systemDefault());
 
     private static final String NL = "\n"; // $NON-NLS-1$
@@ -118,10 +119,14 @@ public abstract class SamplerResultTab implements ResultRenderer {
     /** Response Data pane */
     private JPanel resultsPane;
 
+    private JPanel cookiesPane;
+
+    private JPanel variablesPane;
+
     /** Contains results; contained in resultsPane */
     protected JScrollPane resultsScrollPane;
 
-    private JSyntaxTextArea headerData;
+    private JSyntaxTextArea responseData;
     /** Response Data shown here */
     protected JEditorPane results;
 
@@ -159,11 +164,23 @@ public abstract class SamplerResultTab implements ResultRenderer {
             "view_results_table_fields_key", // $NON-NLS-1$
             "view_results_table_fields_value" }; // $NON-NLS-1$
 
+    private static final String[] COLUMNS_COOKIES = new String[] {
+            "view_results_table_cookie_name", // $NON-NLS-1$
+            "view_results_table_cookie_value" }; // $NON-NLS-1$
+
+    private static final String[] COLUMNS_VARIABLES = new String[] {
+            "view_results_table_variable_name", // $NON-NLS-1$
+            "view_results_table_variable_value" }; // $NON-NLS-1$
+
     private final ObjectTableModel resultModel;
 
     private final ObjectTableModel resHeadersModel;
 
     private final ObjectTableModel resFieldsModel;
+
+    private final ObjectTableModel cookiesModel;
+
+    private final ObjectTableModel variablesModel;
 
     private JTable tableResult = null;
 
@@ -222,17 +239,21 @@ public abstract class SamplerResultTab implements ResultRenderer {
                 new Functor[] {
                         null, null }, new Class[] {
                         String.class, String.class }, false);
+        cookiesModel = createKeyValueTableModel(COLUMNS_COOKIES);
+        variablesModel = createKeyValueTableModel(COLUMNS_VARIABLES);
     }
 
     @Override
     public void clearData() {
+        responseData.setInitialText(""); // $NON-NLS-1$
         results.setText("");// Response Data // $NON-NLS-1$
-        headerData.setInitialText(""); // $NON-NLS-1$
         requestPanel.clearData();// Request Data // $NON-NLS-1$
         stats.setText(""); // Sampler result // $NON-NLS-1$
         resultModel.clearData();
         resHeadersModel.clearData();
         resFieldsModel.clearData();
+        cookiesModel.clearData();
+        variablesModel.clearData();
     }
 
     @Override
@@ -242,216 +263,195 @@ public abstract class SamplerResultTab implements ResultRenderer {
         // Create the panels for the other tabs
         requestPanel = new RequestPanel();
         resultsPane = createResponseDataPanel();
+        cookiesPane = createTablePanel(cookiesModel);
+        variablesPane = createTablePanel(variablesModel);
     }
 
     @Override
-    @SuppressWarnings({"boxing", "JdkObsolete"})
     public void setupTabPane() {
-        // Clear all data before display a new
+        // Clear all data before display a new sample. The active tab is filled lazily below.
         this.clearData();
-        StyledDocument statsDoc = stats.getStyledDocument();
+        sampleResult = null;
+        assertionResult = null;
+        if (userObject instanceof SampleResult result) {
+            sampleResult = result;
+            setupTabPaneForSampleResult();
+        } else if (userObject instanceof AssertionResult result) {
+            assertionResult = result;
+            setupTabPaneForAssertionResult();
+        }
+    }
+
+    @Override
+    public void renderSelectedTab() {
         try {
-            if (userObject instanceof SampleResult sampleResult1) {
-                sampleResult = sampleResult1;
-                // We are displaying a SampleResult
-                setupTabPaneForSampleResult();
-                requestPanel.setSamplerResult(sampleResult);
-
-                final String samplerClass = sampleResult.getClass().getName();
-                String typeResult = samplerClass.substring(1 + samplerClass.lastIndexOf('.'));
-
-                StringBuilder statsBuff = new StringBuilder(200);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_thread_name")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getThreadName()).append(NL);
-                String startTime = dateFormat
-                        .format(Instant.ofEpochMilli(sampleResult.getStartTime()));
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_sample_start")).append(SPACE) //$NON-NLS-1$
-                        .append(startTime).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_load_time")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getTime()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_connect_time")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getConnectTime()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_latency")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getLatency()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_size_in_bytes")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getBytesAsLong()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_sent_bytes")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getSentBytes()).append(NL);
-                statsBuff
-                        .append(JMeterUtils.getResString(
-                                "view_results_size_headers_in_bytes")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getHeadersSize()).append(NL);
-                statsBuff
-                        .append(JMeterUtils.getResString(
-                                "view_results_size_body_in_bytes")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getBodySizeAsLong()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_sample_count")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getSampleCount()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_error_count")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getErrorCount()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_datatype")).append(SPACE) //$NON-NLS-1$
-                        .append(sampleResult.getDataType()).append(NL);
-                statsDoc.insertString(statsDoc.getLength(),
-                        statsBuff.toString(), null);
-                statsBuff.setLength(0); // reset for reuse
-
-                String responseCode = sampleResult.getResponseCode();
-
-                int responseLevel = 0;
-                if (responseCode != null) {
-                    try {
-                        responseLevel = Integer.parseInt(responseCode) / 100;
-                    } catch (NumberFormatException numberFormatException) {
-                        // no need to change the foreground color
-                    }
-                }
-
-                Style style = switch (responseLevel) {
-                    case 3 -> statsDoc.getStyle(STYLE_REDIRECT);
-                    case 4 -> statsDoc.getStyle(STYLE_CLIENT_ERROR);
-                    case 5 -> statsDoc.getStyle(STYLE_SERVER_ERROR);
-                    default -> null;
-                };
-
-                statsBuff.append(JMeterUtils.getResString("view_results_response_code")).append(responseCode).append(NL); //$NON-NLS-1$
-                statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), style);
-                statsBuff.setLength(0); // reset for reuse
-
-                // response message label
-                String responseMsgStr = sampleResult.getResponseMessage();
-
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_response_message")) //$NON-NLS-1$
-                        .append(responseMsgStr).append(NL);
-                statsBuff.append(NL);
-                statsBuff.append(NL);
-                statsBuff
-                        .append(typeResult + " " //$NON-NLS-1$
-                                + JMeterUtils
-                                        .getResString("view_results_fields"))
-                        .append(NL); // $NON-NLS-2$
-                statsBuff.append("ContentType: ") //$NON-NLS-1$
-                        .append(sampleResult.getContentType()).append(NL);
-                statsBuff.append("DataEncoding: ") //$NON-NLS-1$
-                        .append(sampleResult.getDataEncodingNoDefault())
-                        .append(NL);
-                statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), null);
-                statsBuff = null; // NOSONAR Help gc
-
-                // Tabbed results: fill table
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_thread_name"), //$NON-NLS-1$
-                        sampleResult.getThreadName()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_sample_start"), //$NON-NLS-1$
-                        startTime));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_load_time"), //$NON-NLS-1$
-                        sampleResult.getTime()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_connect_time"), //$NON-NLS-1$
-                        sampleResult.getConnectTime()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_latency"), //$NON-NLS-1$
-                        sampleResult.getLatency()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils
-                                .getParsedLabel("view_results_size_in_bytes"), //$NON-NLS-1$
-                        sampleResult.getBytesAsLong()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_sent_bytes"), //$NON-NLS-1$
-                        sampleResult.getSentBytes()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel(
-                                "view_results_size_headers_in_bytes"), //$NON-NLS-1$
-                        sampleResult.getHeadersSize()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel(
-                                "view_results_size_body_in_bytes"), //$NON-NLS-1$
-                        sampleResult.getBodySizeAsLong()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_sample_count"), //$NON-NLS-1$
-                        sampleResult.getSampleCount()));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel("view_results_error_count"), //$NON-NLS-1$
-                        sampleResult.getErrorCount()));
-                resultModel
-                        .addRow(new RowResult(
-                                JMeterUtils.getParsedLabel(
-                                        "view_results_response_code"), //$NON-NLS-1$
-                                responseCode));
-                resultModel.addRow(new RowResult(
-                        JMeterUtils.getParsedLabel(
-                                "view_results_response_message"), //$NON-NLS-1$
-                        responseMsgStr));
-
-                // Parsed response headers
-                LinkedHashMap<String, String> lhm = JMeterUtils.parseHeaders(sampleResult.getResponseHeaders());
-                Set<Map.Entry<String, String>> keySet = lhm.entrySet();
-                for (Map.Entry<String, String> entry : keySet) {
-                    resHeadersModel.addRow(new RowResult(entry.getKey(), entry.getValue()));
-                }
-
-                headerData.setInitialText(sampleResult.getResponseHeaders());
-
-                // Fields table
-                resFieldsModel.addRow(new RowResult("Type Result ", typeResult)); //$NON-NLS-1$
-                //not sure needs I18N?
-                resFieldsModel.addRow(new RowResult("ContentType", sampleResult.getContentType())); //$NON-NLS-1$
-                resFieldsModel.addRow(new RowResult("DataEncoding", sampleResult.getDataEncodingNoDefault())); //$NON-NLS-1$
-
-                // Reset search
-                if (activateSearchExtension) {
-                    searchTextExtension.resetTextToFind();
-                }
-
-            } else if (userObject instanceof AssertionResult result) {
-                assertionResult = result;
-
-                // We are displaying an AssertionResult
-                setupTabPaneForAssertionResult();
-
-                StringBuilder statsBuff = new StringBuilder(100);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_assertion_error")) //$NON-NLS-1$
-                        .append(assertionResult.isError()).append(NL);
-                statsBuff
-                        .append(JMeterUtils
-                                .getResString("view_results_assertion_failure")) //$NON-NLS-1$
-                        .append(assertionResult.isFailure()).append(NL);
-                statsBuff
-                        .append(JMeterUtils.getResString(
-                                "view_results_assertion_failure_message")) //$NON-NLS-1$
-                        .append(assertionResult.getFailureMessage()).append(NL);
-                statsDoc.insertString(statsDoc.getLength(),
-                        statsBuff.toString(), null);
+            if (sampleResult != null) {
+                renderSelectedSampleTab();
+            } else if (assertionResult != null && isSelectedTopLevelTab("view_results_tab_assertion")) { // $NON-NLS-1$
+                populateAssertionResult(assertionResult);
             }
-            stats.setCaretPosition(1);
         } catch (BadLocationException exc) {
             stats.setText(exc.getLocalizedMessage());
         }
+    }
+
+    private void renderSelectedSampleTab() throws BadLocationException {
+        if (isSelectedTopLevelTab("view_results_tab_sampler")) { // $NON-NLS-1$
+            populateSamplerResult(sampleResult);
+        } else if (isSelectedTopLevelTab("view_results_tab_request")) { // $NON-NLS-1$
+            requestPanel.setSamplerResult(sampleResult);
+        } else if (isSelectedTopLevelTab("view_results_request_cookies")) { // $NON-NLS-1$
+            populateCookies(sampleResult);
+        } else if (isSelectedTopLevelTab("view_results_variables")) { // $NON-NLS-1$
+            populateVariables(sampleResult);
+        } else if (isSelectedTopLevelTab("view_results_tab_response")) { // $NON-NLS-1$
+            setResponseDataText(sampleResult.getResponseHeaders(), null);
+        }
+        if (activateSearchExtension) {
+            searchTextExtension.resetTextToFind();
+        }
+    }
+
+    @SuppressWarnings({"boxing", "JdkObsolete"})
+    private void populateSamplerResult(SampleResult result) throws BadLocationException {
+        stats.setText(""); // $NON-NLS-1$
+        resultModel.clearData();
+        resHeadersModel.clearData();
+        resFieldsModel.clearData();
+
+        StyledDocument statsDoc = stats.getStyledDocument();
+        final String samplerClass = result.getClass().getName();
+        String typeResult = samplerClass.substring(1 + samplerClass.lastIndexOf('.'));
+
+        StringBuilder statsBuff = new StringBuilder(200);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_thread_name")).append(SPACE) //$NON-NLS-1$
+                .append(result.getThreadName()).append(NL);
+        String startTime = dateFormat.format(Instant.ofEpochMilli(result.getStartTime()));
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_sample_start")).append(SPACE) //$NON-NLS-1$
+                .append(startTime).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_load_time")).append(SPACE) //$NON-NLS-1$
+                .append(result.getTime()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_connect_time")).append(SPACE) //$NON-NLS-1$
+                .append(result.getConnectTime()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_latency")).append(SPACE) //$NON-NLS-1$
+                .append(result.getLatency()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_size_in_bytes")).append(SPACE) //$NON-NLS-1$
+                .append(formatSizeInBytes(result)).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_sent_bytes")).append(SPACE) //$NON-NLS-1$
+                .append(result.getSentBytes()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_size_headers_in_bytes")).append(SPACE) //$NON-NLS-1$
+                .append(result.getHeadersSize()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_size_body_in_bytes")).append(SPACE) //$NON-NLS-1$
+                .append(result.getBodySizeAsLong()).append(NL);
+        String networkEndpoint = result.getNetworkEndpoint();
+        if (!networkEndpoint.isEmpty()) {
+            statsBuff
+                    .append(JMeterUtils.getResString("view_results_network")).append(SPACE) //$NON-NLS-1$
+                    .append(networkEndpoint).append(NL);
+        }
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_sample_count")).append(SPACE) //$NON-NLS-1$
+                .append(result.getSampleCount()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_error_count")).append(SPACE) //$NON-NLS-1$
+                .append(result.getErrorCount()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_datatype")).append(SPACE) //$NON-NLS-1$
+                .append(result.getDataType()).append(NL);
+        statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), null);
+        statsBuff.setLength(0);
+
+        String responseCode = result.getResponseCode();
+        int responseLevel = 0;
+        if (responseCode != null) {
+            try {
+                responseLevel = Integer.parseInt(responseCode) / 100;
+            } catch (NumberFormatException numberFormatException) {
+                // no need to change the foreground color
+            }
+        }
+
+        Style style = switch (responseLevel) {
+            case 3 -> statsDoc.getStyle(STYLE_REDIRECT);
+            case 4 -> statsDoc.getStyle(STYLE_CLIENT_ERROR);
+            case 5 -> statsDoc.getStyle(STYLE_SERVER_ERROR);
+            default -> null;
+        };
+
+        statsBuff.append(JMeterUtils.getResString("view_results_response_code")).append(responseCode).append(NL); //$NON-NLS-1$
+        statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), style);
+        statsBuff.setLength(0);
+
+        String responseMsgStr = result.getResponseMessage();
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_response_message")) //$NON-NLS-1$
+                .append(responseMsgStr).append(NL)
+                .append(NL)
+                .append(NL)
+                .append(typeResult).append(SPACE)
+                .append(JMeterUtils.getResString("view_results_fields")).append(NL) // $NON-NLS-1$
+                .append("ContentType: ").append(result.getContentType()).append(NL) //$NON-NLS-1$
+                .append("DataEncoding: ").append(result.getStoredDataEncodingNoDefault()).append(NL); //$NON-NLS-1$
+        statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), null);
+
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_thread_name"), result.getThreadName())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sample_start"), startTime)); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_load_time"), result.getTime())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_connect_time"), result.getConnectTime())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_latency"), result.getLatency())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_size_in_bytes"), formatSizeInBytes(result))); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sent_bytes"), result.getSentBytes())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_size_headers_in_bytes"), result.getHeadersSize())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_size_body_in_bytes"), result.getBodySizeAsLong())); //$NON-NLS-1$
+        if (!networkEndpoint.isEmpty()) {
+            resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_network"), networkEndpoint)); //$NON-NLS-1$
+        }
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sample_count"), result.getSampleCount())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_error_count"), result.getErrorCount())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_response_code"), responseCode)); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_response_message"), responseMsgStr)); //$NON-NLS-1$
+
+        LinkedHashMap<String, String> lhm = JMeterUtils.parseHeaders(result.getResponseHeaders());
+        Set<Map.Entry<String, String>> keySet = lhm.entrySet();
+        for (Map.Entry<String, String> entry : keySet) {
+            resHeadersModel.addRow(new RowResult(entry.getKey(), entry.getValue()));
+        }
+
+        resFieldsModel.addRow(new RowResult("Type Result ", typeResult)); //$NON-NLS-1$
+        resFieldsModel.addRow(new RowResult("ContentType", result.getContentType())); //$NON-NLS-1$
+        resFieldsModel.addRow(new RowResult("DataEncoding", result.getStoredDataEncodingNoDefault())); //$NON-NLS-1$
+        stats.setCaretPosition(Math.min(1, statsDoc.getLength()));
+    }
+
+    private void populateAssertionResult(AssertionResult result) throws BadLocationException {
+        stats.setText(""); // $NON-NLS-1$
+        StyledDocument statsDoc = stats.getStyledDocument();
+        StringBuilder statsBuff = new StringBuilder(100);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_assertion_error")) //$NON-NLS-1$
+                .append(result.isError()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_assertion_failure")) //$NON-NLS-1$
+                .append(result.isFailure()).append(NL);
+        statsBuff
+                .append(JMeterUtils.getResString("view_results_assertion_failure_message")) //$NON-NLS-1$
+                .append(result.getFailureMessage()).append(NL);
+        statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), null);
+        stats.setCaretPosition(Math.min(1, statsDoc.getLength()));
+    }
+
+    private boolean isSelectedTopLevelTab(String resourceKey) {
+        int selectedIndex = rightSide.getSelectedIndex();
+        return selectedIndex >= 0 && JMeterUtils.getResString(resourceKey).equals(rightSide.getTitleAt(selectedIndex));
     }
 
     private void setupTabPaneForSampleResult() {
@@ -468,6 +468,12 @@ public abstract class SamplerResultTab implements ResultRenderer {
         }
         if(rightSide.indexOfTab(JMeterUtils.getResString("view_results_tab_response")) < 0) { // $NON-NLS-1$
             rightSide.addTab(JMeterUtils.getResString("view_results_tab_response"), resultsPane); // $NON-NLS-1$
+        }
+        if(rightSide.indexOfTab(JMeterUtils.getResString("view_results_request_cookies")) < 0) { // $NON-NLS-1$
+            rightSide.addTab(JMeterUtils.getResString("view_results_request_cookies"), cookiesPane); // $NON-NLS-1$
+        }
+        if(rightSide.indexOfTab(JMeterUtils.getResString("view_results_variables")) < 0) { // $NON-NLS-1$
+            rightSide.addTab(JMeterUtils.getResString("view_results_variables"), variablesPane); // $NON-NLS-1$
         }
         // restore last selected tab
         if (lastSelectedTab < rightSide.getTabCount()) {
@@ -494,6 +500,14 @@ public abstract class SamplerResultTab implements ResultRenderer {
         int responseTabIndex = rightSide.indexOfTab(JMeterUtils.getResString("view_results_tab_response")); // $NON-NLS-1$
         if(responseTabIndex >= 0) {
             rightSide.removeTabAt(responseTabIndex);
+        }
+        int cookiesTabIndex = rightSide.indexOfTab(JMeterUtils.getResString("view_results_request_cookies")); // $NON-NLS-1$
+        if(cookiesTabIndex >= 0) {
+            rightSide.removeTabAt(cookiesTabIndex);
+        }
+        int variablesTabIndex = rightSide.indexOfTab(JMeterUtils.getResString("view_results_variables")); // $NON-NLS-1$
+        if(variablesTabIndex >= 0) {
+            rightSide.removeTabAt(variablesTabIndex);
         }
     }
 
@@ -576,14 +590,14 @@ public abstract class SamplerResultTab implements ResultRenderer {
         results = new JEditorPane();
         results.setEditable(false);
 
-        headerData = JSyntaxTextArea.getInstance(20, 80, true);
-        headerData.setEditable(false);
-        headerData.setLineWrap(true);
-        headerData.setWrapStyleWord(true);
+        responseData = JSyntaxTextArea.getInstance(20, 80, true);
+        responseData.setEditable(false);
+        responseData.setLineWrap(true);
+        responseData.setWrapStyleWord(true);
 
-        JPanel headersAndSearchPanel = new JPanel(new BorderLayout());
-        headersAndSearchPanel.add(new JSyntaxSearchToolBar(headerData).getToolBar(), BorderLayout.NORTH);
-        headersAndSearchPanel.add(JTextScrollPane.getInstance(headerData), BorderLayout.CENTER);
+        JPanel responseAndSearchPanel = new JPanel(new BorderLayout());
+        responseAndSearchPanel.add(new JSyntaxSearchToolBar(responseData).getToolBar(), BorderLayout.NORTH);
+        responseAndSearchPanel.add(JTextScrollPane.getInstance(responseData), BorderLayout.CENTER);
 
         resultsScrollPane = GuiUtils.makeScrollPane(results);
         imageLabel = new JLabel();
@@ -598,13 +612,9 @@ public abstract class SamplerResultTab implements ResultRenderer {
             resultAndSearchPanel.add(searchTextExtension.getSearchToolBar(), BorderLayout.NORTH);
         }
 
-        JTabbedPane tabbedPane = new JTabbedPane(JTabbedPane.TOP);
-        tabbedPane.addTab(JMeterUtils.getResString("view_results_response_body"), new JScrollPane(resultAndSearchPanel));
-        tabbedPane.addTab(JMeterUtils.getResString("view_results_response_headers"), new JScrollPane(headersAndSearchPanel));
-
-        JPanel gPanel = new JPanel(new GridLayout(1,1));
-        gPanel.add(tabbedPane);
-        return gPanel;
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(GuiUtils.makeScrollPane(responseAndSearchPanel));
+        return panel;
     }
 
     private void showImage(Icon image) {
@@ -644,6 +654,109 @@ public abstract class SamplerResultTab implements ResultRenderer {
         TableColumn column = table.getColumnModel().getColumn(0);
         column.setMaxWidth(300);
         column.setPreferredWidth(180);
+    }
+
+    private static ObjectTableModel createKeyValueTableModel(String[] columns) {
+        return new ObjectTableModel(columns, RowResult.class,
+                new Functor[] {
+                        new Functor("getKey"), // $NON-NLS-1$
+                        new Functor("getValue") }, // $NON-NLS-1$
+                new Functor[] {
+                        null, null }, new Class[] {
+                        String.class, String.class }, false);
+    }
+
+    private static JPanel createTablePanel(ObjectTableModel model) {
+        JTable table = new JTable(model);
+        JMeterUtils.applyHiDPI(table);
+        table.setToolTipText(JMeterUtils.getResString("textbox_tooltip_cell")); // $NON-NLS-1$
+        table.addMouseListener(new TextBoxDoubleClick(table));
+        table.getTableHeader().setDefaultRenderer(new HeaderAsPropertyRenderer());
+        setFirstColumnPreferredSize(table);
+        RendererUtils.applyRenderers(table, new TableCellRenderer[] {
+                new WrappingTableCellRenderer(),
+                new WrappingTableCellRenderer()
+        });
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(GuiUtils.makeScrollPane(table));
+        return panel;
+    }
+
+    private void populateCookies(SampleResult sampleResult) {
+        cookiesModel.clearData();
+        String cookies = RequestViewRaw.getCookies(sampleResult);
+        if (cookies.isEmpty()) {
+            return;
+        }
+        for (String cookie : cookies.split(";")) { // $NON-NLS-1$
+            String trimmedCookie = cookie.trim();
+            if (trimmedCookie.isEmpty()) {
+                continue;
+            }
+            int separatorIndex = trimmedCookie.indexOf('=');
+            String name = separatorIndex < 0 ? trimmedCookie : trimmedCookie.substring(0, separatorIndex);
+            String value = separatorIndex < 0 ? "" : trimmedCookie.substring(separatorIndex + 1); //$NON-NLS-1$
+            cookiesModel.addRow(new RowResult(name, value));
+        }
+    }
+
+    private void populateVariables(SampleResult sampleResult) {
+        variablesModel.clearData();
+        for (Map.Entry<String, String> entry : sampleResult.getJMeterVariables().entrySet()) {
+            variablesModel.addRow(new RowResult(entry.getKey(), entry.getValue()));
+        }
+    }
+
+    private static final class WrappingTableCellRenderer extends JTextArea implements TableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        private WrappingTableCellRenderer() {
+            setLineWrap(true);
+            setWrapStyleWord(false);
+            setOpaque(true);
+            setMargin(new Insets(0, 3, 0, 3));
+            setAlignmentX(LEFT_ALIGNMENT);
+            setAlignmentY(TOP_ALIGNMENT);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table,
+                Object value,
+                boolean isSelected,
+                boolean hasFocus,
+                int row,
+                int column) {
+            setText(value == null ? "" : value.toString()); //$NON-NLS-1$
+            setFont(table.getFont());
+            setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+
+            int columnWidth = table.getColumnModel().getColumn(column).getWidth();
+            setSize(columnWidth, Short.MAX_VALUE);
+            int preferredHeight = Math.max(table.getRowHeight(), getPreferredSize().height);
+            if (table.getRowHeight(row) != preferredHeight) {
+                table.setRowHeight(row, preferredHeight);
+            }
+            return this;
+        }
+    }
+
+    private static String formatSizeInBytes(SampleResult sampleResult) {
+        long bytes = sampleResult.getBytesAsLong();
+        if (!sampleResult.isResponseDataCompressed()) {
+            return Long.toString(bytes);
+        }
+        long decompressedSize = sampleResult.computeDecompressedResponseDataSize();
+        if (decompressedSize < 0) {
+            return bytes + " (compressed)"; // $NON-NLS-1$
+        }
+        if (decompressedSize <= bytes) {
+            return bytes + " (compressed)"; // $NON-NLS-1$
+        }
+        long savings = Math.round((bytes - decompressedSize) * 100.0d / decompressedSize);
+        return bytes + " (decompressed: " + decompressedSize + ", " + savings + "% savings)"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
     }
 
     /**
@@ -705,11 +818,29 @@ public abstract class SamplerResultTab implements ResultRenderer {
         } catch (BadLocationException ex) {
             LOGGER.error("Error inserting text", ex);
         }
+        if (sampleResult != null) {
+            setResponseDataText(sampleResult.getResponseHeaders(), data);
+        }
         if (SIMPLE_VIEW_LIMIT >= 0 && document.getLength() > SIMPLE_VIEW_LIMIT) {
             results.setEditorKit(new NonWrappingPlainTextEditorKit(results.getEditorKit()));
         }
         KerningOptimizer.INSTANCE.configureKerning(results, document.getLength());
         results.setDocument(document);
+    }
+
+    private void setResponseDataText(String responseHeaders, String responseBody) {
+        responseData.setText(buildResponseData(responseHeaders, responseBody));
+        responseData.setCaretPosition(0);
+    }
+
+    private static String buildResponseData(String responseHeaders, String responseBody) {
+        if (responseHeaders == null || responseHeaders.isEmpty()) {
+            return responseBody == null ? "" : responseBody; // $NON-NLS-1$
+        }
+        if (responseBody == null || responseBody.isEmpty()) {
+            return responseHeaders;
+        }
+        return responseHeaders + "\n" + responseBody; // $NON-NLS-1$
     }
     static class NonWrappingPlainTextEditorKit extends EditorKit {
 

@@ -261,7 +261,7 @@ public class TransactionController extends GenericController implements SampleLi
                                 + noFailingSamples);
                 notifyListeners();
             }
-        } else {
+        } else if (transactionSampler != null) {
             Sampler subSampler = transactionSampler.getSubSampler();
             // See Bug 56811
             // triggerEndOfLoop is called when error occurs to end Main Loop

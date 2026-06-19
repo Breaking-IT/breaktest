@@ -25,7 +25,10 @@ import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -271,6 +274,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     private URL location;
 
+    private String localEndpoint = "";
+
+    private String destinationEndpoint = "";
+
+    private transient Map<String, String> jMeterVariables = Collections.emptyMap();
+
+    private transient boolean jMeterVariablesSet;
+
     private transient boolean ignore;
 
     private transient int subResultIndex;
@@ -279,6 +290,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      * Cache for responseData as string to avoid multiple computations
      */
     private transient volatile String responseDataAsString;
+
+    private transient long decompressedResponseDataSize = -1;
 
     public SampleResult() {
         this(USE_NANO_TIME, NANOTHREAD_SLEEP);
@@ -320,6 +333,9 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         latency = res.latency;
         connectTime = res.connectTime;
         location = res.location;//OK
+        localEndpoint = res.localEndpoint;//OK
+        setJMeterVariables(res.getJMeterVariables());
+        jMeterVariablesSet = res.jMeterVariablesSet;
         parent = res.parent;
         pauseTime = res.pauseTime;
         requestHeaders = res.requestHeaders;//OK
@@ -336,6 +352,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         saveConfig = res.saveConfig;
         sentBytes = res.sentBytes;
         startTime = res.startTime;//OK
+        destinationEndpoint = res.destinationEndpoint;//OK
         stopTest = res.stopTest;
         stopTestNow = res.stopTestNow;
         stopThread = res.stopThread;
@@ -740,6 +757,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public void setResponseData(byte[] response) {
         responseDataAsString = null;
+        decompressedResponseDataSize = -1;
         responseData = response == null ? EMPTY_BA : response;
     }
 
@@ -755,6 +773,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     @Deprecated
     public void setResponseData(String response) {
         responseDataAsString = null;
+        decompressedResponseDataSize = -1;
         try {
             responseData = response.getBytes(getDataEncodingWithDefault());
         } catch (UnsupportedEncodingException e) {
@@ -772,6 +791,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public void setResponseData(final String response, final String encoding) {
         responseDataAsString = null;
+        decompressedResponseDataSize = -1;
         String encodeUsing = encoding != null? encoding : DEFAULT_CHARSET;
         try {
             responseData = response.getBytes(encodeUsing);
@@ -800,7 +820,9 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         }
         if (contentEncoding != null && responseData.length > 0) {
             try {
-                return ResponseDecoderRegistry.decode(contentEncoding, responseData);
+                byte[] decoded = ResponseDecoderRegistry.decode(contentEncoding, responseData);
+                decompressedResponseDataSize = decoded.length;
+                return decoded;
             } catch (IOException e) {
                 log.warn("Failed to decompress response data", e);
             }
@@ -996,6 +1018,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         sb.append(", nanoThreadSleep=").append(nanoThreadSleep);
         sb.append(", sentBytes=").append(sentBytes);
         sb.append(", location=").append(location);
+        sb.append(", localEndpoint='").append(localEndpoint).append('\'');
+        sb.append(", destinationEndpoint='").append(destinationEndpoint).append('\'');
         sb.append(", ignore=").append(ignore);
         sb.append(", subResultIndex=").append(subResultIndex);
         sb.append(", responseDataAsString='").append(getResponseDataAsString()).append('\'');
@@ -1028,6 +1052,10 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      * @return the value of the dataEncoding
      */
     public String getDataEncodingNoDefault() {
+        return dataEncoding;
+    }
+
+    public String getStoredDataEncodingNoDefault() {
         return dataEncoding;
     }
 
@@ -1450,6 +1478,46 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         return location == null ? "" : location.toExternalForm();
     }
 
+    public void setLocalEndpoint(String localEndpoint) {
+        this.localEndpoint = localEndpoint == null ? "" : localEndpoint;
+    }
+
+    public String getLocalEndpoint() {
+        return localEndpoint;
+    }
+
+    public void setDestinationEndpoint(String destinationEndpoint) {
+        this.destinationEndpoint = destinationEndpoint == null ? "" : destinationEndpoint;
+    }
+
+    public String getDestinationEndpoint() {
+        return destinationEndpoint;
+    }
+
+    public String getNetworkEndpoint() {
+        if (localEndpoint.isEmpty() || destinationEndpoint.isEmpty()) {
+            return "";
+        }
+        return localEndpoint + " -> " + destinationEndpoint;
+    }
+
+    public void setJMeterVariables(Map<String, String> variables) {
+        if (variables == null || variables.isEmpty()) {
+            jMeterVariables = Collections.emptyMap();
+        } else {
+            jMeterVariables = Collections.unmodifiableMap(new LinkedHashMap<>(variables));
+        }
+        jMeterVariablesSet = true;
+    }
+
+    public Map<String, String> getJMeterVariables() {
+        return jMeterVariables == null ? Collections.emptyMap() : jMeterVariables;
+    }
+
+    public boolean hasJMeterVariables() {
+        return jMeterVariablesSet;
+    }
+
     /**
      * @return Returns the parent.
      */
@@ -1688,6 +1756,35 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     public void setResponseData(byte[] data, String contentEncoding) {
         responseData = data == null ? EMPTY_BA : data;
         this.contentEncoding = contentEncoding;
+        decompressedResponseDataSize = -1;
         responseDataAsString = null;
+    }
+
+    public boolean isResponseDataCompressed() {
+        return contentEncoding != null && responseData != null && responseData.length > 0;
+    }
+
+    public long getDecompressedResponseDataSize() {
+        return decompressedResponseDataSize;
+    }
+
+    public long computeDecompressedResponseDataSize() {
+        if (responseData == null) {
+            return 0;
+        }
+        if (!isResponseDataCompressed()) {
+            return responseData.length;
+        }
+        if (decompressedResponseDataSize >= 0) {
+            return decompressedResponseDataSize;
+        }
+        try {
+            byte[] decoded = ResponseDecoderRegistry.decode(contentEncoding, responseData);
+            decompressedResponseDataSize = decoded.length;
+            return decompressedResponseDataSize;
+        } catch (IOException e) {
+            log.warn("Failed to decompress response data", e);
+            return -1;
+        }
     }
 }

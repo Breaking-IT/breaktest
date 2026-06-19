@@ -20,9 +20,12 @@ package org.apache.jmeter.testelement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import java.util.List;
+
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.LoginConfig;
+import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.NullProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
@@ -68,5 +71,34 @@ public class PackageTest {
         te.addTestElement(te2);
         assertEquals(2, args.getArgumentCount());
         assertEquals("config1=configValue", args.getArgument(1).toString());
+    }
+
+    @Test
+    public void testTemporaryPropertyTrackingUsesIdentity() throws Exception {
+        ConfigTestElement config = new ConfigTestElement();
+        config.setRunningVersion(true);
+
+        config.addProperty(new HashCodeFailingCollectionProperty("temporary"));
+        config.recoverRunningVersion();
+
+        assertInstanceOf(NullProperty.class, config.getProperty("temporary"));
+    }
+
+    private static final class HashCodeFailingCollectionProperty extends CollectionProperty {
+        private static final long serialVersionUID = 1L;
+
+        private HashCodeFailingCollectionProperty(String name) {
+            super(name, List.of(new StringProperty("item", "value")));
+        }
+
+        @Override
+        public int hashCode() {
+            throw new AssertionError("Temporary property tracking must not call property hashCode()");
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return this == obj;
+        }
     }
 }
