@@ -71,7 +71,7 @@ dependencies {
     implementation("org.brotli:dec") {
         because("BrotliDecoder for HTTP response decompression")
     }
-    implementation("com.github.luben:zstd-jni") {
+    implementation("io.airlift:aircompressor") {
         because("ZstdDecoder for HTTP response decompression")
     }
     testImplementation(testFixtures(projects.src.core))

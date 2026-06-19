@@ -71,7 +71,7 @@ BreakTest can decode:
 - `br` (Brotli)
 - `zstd` (Zstandard)
 
-The zstd support bundles `zstd-jni` and is loaded through the same decoder SPI as other optional HTTP decoders.
+The zstd support bundles Airlift Aircompressor and is loaded through the same decoder SPI as other optional HTTP decoders.
 
 ## Concurrency And Shutdown
 
