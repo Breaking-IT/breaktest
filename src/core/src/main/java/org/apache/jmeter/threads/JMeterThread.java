@@ -690,6 +690,9 @@ public class JMeterThread implements Runnable, Interruptible {
             if (running) {
                 Sampler sampler = pack.getSampler();
                 result = doSampling(threadContext, sampler);
+                if (result != null) {
+                    setSourceTestElementPath(result, pack.getSourceTestElementPath());
+                }
             }
             // If we got any results, then perform processing on the result
             if (result != null) {
@@ -832,6 +835,7 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, JMeterContext threadContext) {
         // Get the transaction sample result
         SampleResult transactionResult = transactionSampler.getTransactionResult();
+        setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
         fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
 
         // Check assertions for the transaction sample
@@ -1232,6 +1236,16 @@ public class JMeterThread implements Runnable, Interruptible {
         }
         for (SampleResult subResult : sample.getSubResults()) {
             setJMeterVariables(subResult, variables);
+        }
+    }
+
+    private static void setSourceTestElementPath(SampleResult sample,
+            List<SampleResult.TestElementPathEntry> sourceTestElementPath) {
+        if (sample.getSourceTestElementPath().isEmpty()) {
+            sample.setSourceTestElementPath(sourceTestElementPath);
+        }
+        for (SampleResult subResult : sample.getSubResults()) {
+            setSourceTestElementPath(subResult, sourceTestElementPath);
         }
     }
 
