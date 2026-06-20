@@ -44,7 +44,7 @@ public final class HTTPSamplerFactory {
     //- JMX
 
     public static final String DEFAULT_CLASSNAME =
-        JMeterUtils.getPropDefault("jmeter.httpsampler", IMPL_HTTP_CLIENT5); //$NON-NLS-1$
+        JMeterUtils.getPropDefault("jmeter.httpsampler", ""); //$NON-NLS-1$ //$NON-NLS-2$
 
     private HTTPSamplerFactory() {
         // Not intended to be instantiated
@@ -60,52 +60,51 @@ public final class HTTPSamplerFactory {
     }
 
     /**
-     * Create a new instance of the required sampler type
+     * Create a new instance of the required sampler type.
+     * Legacy sampler names are accepted when loading old test plans, however all
+     * HTTP requests now use the HttpClient 5 implementation.
      *
-     * @param alias legacy sampler name, IMPL_HTTP_CLIENT3_1, IMPL_HTTP_CLIENT4, or IMPL_HTTP_CLIENT5
+     * @param alias legacy sampler name or IMPL_HTTP_CLIENT5
      * @return the appropriate sampler
-     * @throws UnsupportedOperationException if alias is not recognised
      */
     public static HTTPSamplerBase newInstance(String alias) {
-        if (StringUtilities.isEmpty(alias)) {
+        if (StringUtilities.isBlank(alias)) {
             return new HTTPSamplerProxy();
         }
-        if (alias.equals(LEGACY_HTTP_SAMPLER_JAVA) || alias.equals(LEGACY_IMPL_JAVA)) {
+        if (isKnownImplementation(alias)) {
             return new HTTPSamplerProxy(IMPL_HTTP_CLIENT5);
-        }
-        if (alias.equals(IMPL_HTTP_CLIENT5)) {
-            return new HTTPSamplerProxy(IMPL_HTTP_CLIENT5);
-        }
-        if (alias.equals(IMPL_HTTP_CLIENT4) || alias.equals(HTTP_SAMPLER_APACHE) || alias.equals(IMPL_HTTP_CLIENT3_1)) {
-            return new HTTPSamplerProxy(IMPL_HTTP_CLIENT4);
         }
         throw new IllegalArgumentException("Unknown sampler type: '" + alias+"'");
     }
 
     public static String[] getImplementations(){
-        return new String[]{IMPL_HTTP_CLIENT5, IMPL_HTTP_CLIENT4};
+        return new String[]{IMPL_HTTP_CLIENT5};
     }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
         if (HTTPSamplerBase.PROTOCOL_FILE.equals(base.getProtocol())) {
             return new HTTPFileImpl(base);
         }
-        if (StringUtilities.isBlank(impl)){
-            impl = DEFAULT_CLASSNAME;
-        }
-        if (LEGACY_IMPL_JAVA.equals(impl) || LEGACY_HTTP_SAMPLER_JAVA.equals(impl)) {
-            impl = IMPL_HTTP_CLIENT5;
-        }
-        if (IMPL_HTTP_CLIENT5.equals(impl)) {
-            if (base.isHttp2Protocol()) {
-                return new HTTPHC5H2Impl(base);
-            }
-            return new HTTPHC5Impl(base);
-        } else if (IMPL_HTTP_CLIENT4.equals(impl) || IMPL_HTTP_CLIENT3_1.equals(impl)) {
-            return new HTTPHC4Impl(base);
-        } else {
+        if (!StringUtilities.isBlank(impl) && !isKnownImplementation(impl)) {
             throw new IllegalArgumentException("Unknown implementation type: '"+impl+"'");
         }
+        if (!base.isHttp11Protocol()) {
+            return new HTTPHC5H2Impl(base);
+        }
+        return new HTTPHC5Impl(base);
+    }
+
+    public static String normalizeImplementation(String impl) {
+        return StringUtilities.isBlank(impl) ? "" : IMPL_HTTP_CLIENT5;
+    }
+
+    private static boolean isKnownImplementation(String impl) {
+        return IMPL_HTTP_CLIENT5.equals(impl)
+                || IMPL_HTTP_CLIENT4.equals(impl)
+                || HTTP_SAMPLER_APACHE.equals(impl)
+                || IMPL_HTTP_CLIENT3_1.equals(impl)
+                || LEGACY_HTTP_SAMPLER_JAVA.equals(impl)
+                || LEGACY_IMPL_JAVA.equals(impl);
     }
 
 }

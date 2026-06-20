@@ -54,7 +54,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["HttpClient5", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `GET disable param1 should send enabled param2`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             get("/test").willReturn(aResponse().withStatus(200))
@@ -80,7 +80,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["HttpClient5", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `PUT disable param2 should send enabled param1 and param3`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             put("/test").willReturn(aResponse().withStatus(200))
@@ -109,7 +109,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["HttpClient5", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `POST disable default and non-default param should send the only enabled non-default param`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/test").willReturn(aResponse().withStatus(200))

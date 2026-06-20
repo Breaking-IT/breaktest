@@ -82,7 +82,6 @@ import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.proxy.Proxy;
 import org.apache.jmeter.protocol.http.proxy.ProxyControl;
-import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.PropertyIterator;
@@ -327,11 +326,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             model.setCaptureHttpHeaders(httpHeaders.isSelected());
             model.setGroupingMode(groupingMode.getSelectedIndex());
             model.setAssertions(addAssertions.isSelected());
-            if(samplerTypeName.getSelectedIndex()< HTTPSamplerFactory.getImplementations().length) {
-                model.setSamplerTypeName(HTTPSamplerFactory.getImplementations()[samplerTypeName.getSelectedIndex()]);
-            } else {
-                model.setSamplerTypeName(USE_DEFAULT_HTTP_IMPL);
-            }
+            model.setSamplerTypeName(USE_DEFAULT_HTTP_IMPL);
             model.setSamplerRedirectAutomatically(samplerRedirectAutomatically.isSelected());
             model.setSamplerFollowRedirects(samplerFollowRedirects.isSelected());
             model.setUseKeepAlive(useKeepAlive.isSelected());
@@ -923,9 +918,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
     private JPanel createHTTPSamplerPanel() {
         DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
-        for (String s : HTTPSamplerFactory.getImplementations()){
-            m.addElement(s);
-        }
         m.addElement(USE_DEFAULT_HTTP_IMPL);
         samplerTypeName = new JComboBox<>(m);
         samplerTypeName.setSelectedItem(USE_DEFAULT_HTTP_IMPL);

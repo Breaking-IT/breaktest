@@ -224,18 +224,18 @@ https.default.protocol=SSLv3
         <property name="Port" required="No, unless proxy hostname is specified">Port the proxy server is listening to.</property>
         <property name="Username" required="No">(Optional) username for proxy server.</property>
         <property name="Password" required="No">(Optional) password for proxy server. (N.B. this is stored unencrypted in the test plan)</property>
-        <property name="Implementation" required="No"><code>HttpClient5</code>, <code>HttpClient4</code>.
-        If not specified (and not defined by HTTP Request Defaults), the default depends on the value of the JMeter property
-        <code>jmeter.httpsampler</code>, failing that, the HttpClient5 implementation is used.
-        The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
-        a separate async HttpClient 5 sampler implementation.</property>
+        <property name="Implementation" required="No">HTTP requests use the HttpClient5 sampler. Legacy implementation values
+        such as <code>Java</code> or <code>HttpClient4</code> are accepted when loading old test plans, however they are executed
+        by the HttpClient5 sampler.</property>
+        <property name="HTTP protocol" required="No"><code>HTTP/1.1</code> or <code>HTTP 2.0</code>. If not specified, HTTP/2 is preferred with HTTP/1.1 fallback.
+        Selecting <code>HTTP 2.0</code> explicitly forces HTTP/2.</property>
         <property name="Protocol" required="No"><code>HTTP</code>, <code>HTTPS</code> or <code>FILE</code>. Default: <code>HTTP</code></property>
         <property name="Method" required="Yes"><code>GET</code>, <code>POST</code>, <code>HEAD</code>, <code>TRACE</code>,
           <code>OPTIONS</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code>. The following methods related to WebDav are
           also allowed: <code>COPY</code>, <code>LOCK</code>, <code>MKCOL</code>, <code>MOVE</code>,
           <code>PROPFIND</code>, <code>PROPPATCH</code>, <code>UNLOCK</code>, <code>REPORT</code>, <code>MKCALENDAR</code>,
           <code>SEARCH</code>.
-          <p>More methods can be pre-defined for the HttpClient4 by using the JMeter property
+          <p>More methods can be pre-defined by using the JMeter property
             <code>httpsampler.user_defined_methods</code>.</p>
         </property>
         <property name="Content Encoding" required="No">
@@ -449,7 +449,7 @@ If not using a file, attach a Header Manager to the sampler and define the Conte
  i.e. only <code>text/html</code> responses will be scanned</p>
 <b>Emulating slow connections:</b><br></br>
 <p>
-<code>HttpClient4</code> supports emulation of slow connections; see the following entries in <code>jmeter.properties</code>:
+The HttpClient5 sampler supports emulation of slow connections; see the following entries in <code>jmeter.properties</code>:
 <source>
 # Define characters per second &gt; 0 to emulate slow connections
 #httpclient.socket.http.cps=0
@@ -458,22 +458,22 @@ If not using a file, attach a Header Manager to the sampler and define the Conte
 </p>
 <p><b>Response size calculation</b><br></br>
 
-<note>The <code>HttpClient4</code> implementation includes transport overhead in the response body size,
+<note>The HttpClient sampler includes transport overhead in the response body size,
 so the value may be greater than the number of bytes in the response content.</note>
 </p>
 <p>
 <b>Retry handling</b><br></br>
-By default retry has been set to 0 for HttpClient4, meaning no retry is attempted.<br/>
+By default retry has been set to 0 for HttpClient5, meaning no retry is attempted.<br/>
 The retry count can be overridden by setting the relevant JMeter property, for example:
 
 <source>
-httpclient4.retrycount=3
+httpclient5.retrycount=3
 </source>
 <note>
-With HC4 Implementation, retry will be done on Idempotent Http Methods by default.
+With HttpClient5, retry will be done on Idempotent HTTP methods by default.
 If you want to retry for all methods, then set property
 <source>
-httpclient4.request_sent_retry_enabled=true
+httpclient5.request_sent_retry_enabled=true
 </source></note>
 </p>
 <p>
@@ -3498,7 +3498,7 @@ in the Tree View Listener "<code>Request</code>" tab.
 To disable this, set the values as below, in which case authentication will only be performed in response to a challenge.
 </p>
 <p>
-In the file <code>jmeter.properties</code> set <code>httpclient4.auth.preemptive=false</code>
+In the file <code>jmeter.properties</code> set <code>httpclient5.auth.preemptive=false</code>
 </p>
 <note>
 Note: the above settings only apply to the HttpClient sampler.
@@ -3529,7 +3529,6 @@ information for the user named, "<code>jmeter</code>".</property>
   <property name="Mechanism" required="No">Type of authentication to perform. JMeter can perform different types of authentications based on used Http Samplers:
 <dl>
 <dt>HttpClient 5</dt><dd><code>BASIC</code>, <code>DIGEST</code> and <code>Kerberos</code></dd>
-<dt>HttpClient 4</dt><dd><code>BASIC</code>, <code>DIGEST</code> and <code>Kerberos</code></dd>
 </dl>
 </property>
 </properties>
@@ -3684,7 +3683,7 @@ Note also that the cookie name must be unique - if a second cookie is defined wi
   <a href="http://hc.apache.org/httpcomponents-client-ga/httpclient/apidocs/org/apache/http/cookie/CookieSpec.html">CookieSpec implementations</a>
   [Note: "<code>ignoreCookies</code>" is equivalent to omitting the CookieManager.]
  </property>
- <property name="Implementation" required="Yes"><code>HC4CookieHandler</code> (HttpClient 4.5.X API).
+  <property name="Implementation" required="Yes"><code>HC4CookieHandler</code> is retained as the default compatibility handler name for old test plans.
   Default is <code>HC4CookieHandler</code> since 3.0.
   <br></br>
   <i>[Note: If you have a website to test with IPv6 address, choose <code>HC4CookieHandler</code> (IPv6 compliant)]</i></property>
@@ -3723,11 +3722,11 @@ All port values are treated equally; a sampler that does not specify a port will
         <property name="Port" required="No">Port the web server is listening to.</property>
         <property name="Connect Timeout" required="No">Connection Timeout. Number of milliseconds to wait for a connection to open.</property>
         <property name="Response Timeout" required="No">Response Timeout. Number of milliseconds to wait for a response.</property>
-        <property name="Implementation" required="No"><code>HttpClient5</code>, <code>HttpClient4</code>.
-        If not specified the default depends on the value of the JMeter property
-        <code>jmeter.httpsampler</code>, failing that, the <code>HttpClient5</code> implementation is used.
-        The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
-        a separate async HttpClient 5 sampler implementation.</property>
+        <property name="Implementation" required="No">HTTP requests use the HttpClient5 sampler. Legacy implementation values
+        such as <code>Java</code> or <code>HttpClient4</code> are accepted when loading old test plans, however they are executed
+        by the HttpClient5 sampler.</property>
+        <property name="HTTP protocol" required="No"><code>HTTP/1.1</code> or <code>HTTP 2.0</code>. If not specified, HTTP/2 is preferred with HTTP/1.1 fallback.
+        Selecting <code>HTTP 2.0</code> explicitly forces HTTP/2.</property>
         <property name="Protocol" required="No"><code>HTTP</code> or <code>HTTPS</code>.</property>
         <property name="Content encoding" required="No">The encoding to be used for the request.</property>
         <property name="Path" required="No">The path to resource (for example, <code>/servlets/myServlet</code>). If the

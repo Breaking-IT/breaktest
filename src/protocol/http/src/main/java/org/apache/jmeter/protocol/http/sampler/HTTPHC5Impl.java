@@ -693,7 +693,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         res.sampleStart();
 
         final CacheManager cacheManager = getCacheManager();
-        if (cacheManager != null && HTTPConstants.GET.equalsIgnoreCase(method) && cacheManager.inCache(url, toLegacyHeaders(httpRequest.getHeaders()))) {
+        if (cacheManager != null && HTTPConstants.GET.equalsIgnoreCase(method) && cacheManager.inCache(url, httpRequest.getHeaders())) {
             return updateSampleResultForResourceInCache(res);
         }
         CloseableHttpResponse httpResponse = null;
@@ -813,7 +813,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
             // Save cache information
             if (cacheManager != null){
-                cacheManager.saveDetails(toLegacyResponse(httpResponse), res);
+                cacheManager.saveDetails(httpResponse, res);
             }
 
             // Follow redirects and download page resources if appropriate:
@@ -1620,23 +1620,6 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             return hdrs.toString();
         }
         return ""; ////$NON-NLS-1$
-    }
-
-    private static org.apache.http.Header[] toLegacyHeaders(Header[] headers) {
-        org.apache.http.Header[] legacyHeaders = new org.apache.http.Header[headers.length];
-        for (int i = 0; i < headers.length; i++) {
-            legacyHeaders[i] = new org.apache.http.message.BasicHeader(headers[i].getName(), headers[i].getValue());
-        }
-        return legacyHeaders;
-    }
-
-    private static org.apache.http.HttpResponse toLegacyResponse(HttpResponse response) {
-        org.apache.http.message.BasicHttpResponse legacyResponse = new org.apache.http.message.BasicHttpResponse(
-                new org.apache.http.ProtocolVersion("HTTP", 1, 1),
-                response.getCode(),
-                response.getReasonPhrase());
-        legacyResponse.setHeaders(toLegacyHeaders(response.getHeaders()));
-        return legacyResponse;
     }
 
     private static Charset toCharset(String charset) {

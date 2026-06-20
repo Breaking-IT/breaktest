@@ -26,7 +26,6 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.util.ArrayList;
 
-import org.apache.http.client.config.CookieSpecs;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.testelement.TestIterationListener;
@@ -100,7 +99,7 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      * {@link org.apache.jmeter.protocol.http.gui.CookiePanel#DEFAULT_POLICY CookiePanel#DEFAULT_POLICY}
      *
      */
-    private static final String DEFAULT_POLICY = CookieSpecs.STANDARD;
+    private static final String DEFAULT_POLICY = HC4CookieHandler.DEFAULT_POLICY_NAME;
 
     /**
      * Defines the implementation that is assumed when the JMX file does not contain an entry for it

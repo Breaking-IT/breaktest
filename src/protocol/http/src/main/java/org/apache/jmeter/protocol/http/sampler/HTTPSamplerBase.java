@@ -743,6 +743,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return HTTP_PROTOCOL_HTTP_2.equals(getHttpProtocol());
     }
 
+    public boolean isHttp11Protocol() {
+        return HTTP_PROTOCOL_HTTP_1_1.equals(getHttpProtocol());
+    }
+
     public static String normalizeHttpProtocol(String httpProtocol) {
         if (HTTP_PROTOCOL_HTTP_2_LEGACY.equals(httpProtocol)
                 || HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY.equals(httpProtocol)) {
@@ -1721,8 +1725,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         int index = res.indexOf(USER_AGENT);
         if (index >= 0) {
             // see HTTPHC3Impl#getConnectionHeaders
-            // see HTTPHC4Impl#getConnectionHeaders
-            // see HTTPHC4Impl#getConnectionHeaders
+            // see HTTPHC5Impl#getConnectionHeaders
+            // see HTTPHC5Impl#getConnectionHeaders
             //': ' is used by JMeter to fill-in requestHeaders, see getConnectionHeaders
             final String userAgentPrefix = USER_AGENT+": ";
             String userAgentHdr = res.substring(

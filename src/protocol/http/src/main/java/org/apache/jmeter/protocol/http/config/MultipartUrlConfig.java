@@ -20,10 +20,10 @@ package org.apache.jmeter.protocol.http.config;
 import java.io.Serializable;
 import java.util.regex.Matcher;
 
-import org.apache.http.HeaderElement;
-import org.apache.http.NameValuePair;
-import org.apache.http.ParseException;
-import org.apache.http.message.BasicHeaderValueParser;
+import org.apache.hc.core5.http.HeaderElement;
+import org.apache.hc.core5.http.NameValuePair;
+import org.apache.hc.core5.http.message.BasicHeaderValueParser;
+import org.apache.hc.core5.http.message.ParserCursor;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPFileArgs;
@@ -33,8 +33,6 @@ import org.apache.jorphan.util.StringUtilities;
 import org.apache.oro.text.regex.Pattern;
 import org.apache.oro.text.regex.Perl5Compiler;
 import org.apache.oro.text.regex.Perl5Matcher;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Configuration element which handles HTTP Parameters and files to be uploaded
@@ -52,8 +50,6 @@ public class MultipartUrlConfig implements Serializable {
     private final String boundary;
 
     private final Arguments args;
-
-    private static final Logger log = LoggerFactory.getLogger(MultipartUrlConfig.class);
 
     private static final boolean USE_JAVA_REGEX = !JMeterUtils.getPropDefault(
             "jmeter.regex.engine", "oro").equalsIgnoreCase("oro");
@@ -141,14 +137,9 @@ public class MultipartUrlConfig implements Serializable {
             // Check if it is form data
             if (contentDisposition != null && contentDisposition.contains("form-data")) { //$NON-NLS-1$
                 // Get the form field name
-                HeaderElement[] headerElements = null;
-                try {
-                    headerElements = BasicHeaderValueParser.parseElements(
-                            contentDisposition,
-                            BasicHeaderValueParser.INSTANCE);
-                } catch (ParseException e) {
-                    log.info("Can't parse header {}", contentDisposition, e);
-                }
+                HeaderElement[] headerElements = BasicHeaderValueParser.INSTANCE.parseElements(
+                        contentDisposition,
+                        new ParserCursor(0, contentDisposition.length()));
                 String name = "";
                 String path = null;
                 if (headerElements != null) {

@@ -40,7 +40,6 @@ import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
-import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -87,7 +86,6 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     private JTextField proxyPort;
     private JTextField proxyUser;
     private JPasswordField proxyPass;
-    private final JComboBox<String> httpImplementation = new JComboBox<>(HTTPSamplerFactory.getImplementations());
     private final JComboBox<String> httpProtocol = new JComboBox<>(HTTPSamplerBase.getHttpProtocolList());
     private JTextField connectTimeOut;
     private JTextField responseTimeOut;
@@ -112,7 +110,6 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                         new JTextComponentBinding(proxyPort, schema.getProxy().getPort()),
                         new JTextComponentBinding(proxyUser, schema.getProxy().getUsername()),
                         new JTextComponentBinding(proxyPass, schema.getProxy().getPassword()),
-                        // TODO: httpImplementation
                         new JTextComponentBinding(connectTimeOut, schema.getConnectTimeout()),
                         new JTextComponentBinding(responseTimeOut, schema.getResponseTimeout())
                 )
@@ -162,16 +159,12 @@ public class HttpDefaultsGui extends AbstractConfigGui {
             config.removeProperty(httpSchema.getIpSourceType());
         }
 
-        config.set(httpSchema.getImplementation(), String.valueOf(httpImplementation.getSelectedItem()));
+        config.removeProperty(httpSchema.getImplementation());
         String selectedProtocol = selectedHttpProtocol();
         if (StringUtilities.isBlank(selectedProtocol)) {
             config.removeProperty(httpSchema.getHttpProtocol());
-        } else if (shouldSaveHttpProtocol()) {
-            config.set(httpSchema.getHttpProtocol(), selectedProtocol);
-        } else if (legacyHttpProtocol != null) {
-            config.setProperty(legacyHttpProtocol.clone());
         } else {
-            config.removeProperty(httpSchema.getHttpProtocol());
+            config.set(httpSchema.getHttpProtocol(), selectedProtocol);
         }
     }
 
@@ -194,9 +187,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
             legacyHttpProtocol = legacyHttpProtocol.clone();
         }
         sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
-        httpImplementation.setSelectedItem(samplerBase.getString(httpSchema.getImplementation()));
         httpProtocol.setSelectedItem(configuredHttpProtocol());
-        updateHttpProtocolState();
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -208,7 +199,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
 
         // HTTP request options
         JPanel httpOptions = new HorizontalPanel();
-        httpOptions.add(getImplementationPanel());
+        httpOptions.add(getProtocolPanel());
         httpOptions.add(getTimeOutPanel());
         // AdvancedPanel (embedded resources, source address and optional tasks)
         JPanel advancedPanel = new VerticalPanel();
@@ -345,49 +336,17 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     }
 
     /**
-     * Create a panel containing the implementation details
+     * Create a panel containing the HTTP wire protocol selection
      *
      * @return the panel
      */
-    protected final JPanel getImplementationPanel(){
+    protected final JPanel getProtocolPanel(){
         JPanel implPanel = new HorizontalPanel();
         implPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("web_server_client"))); // $NON-NLS-1$
-        implPanel.add(new JLabel(JMeterUtils.getResString("http_implementation"))); // $NON-NLS-1$
-        httpImplementation.addItem("");// $NON-NLS-1$
-        httpImplementation.addActionListener(e -> updateHttpProtocolState());
-        implPanel.add(httpImplementation);
         implPanel.add(new JLabel(JMeterUtils.getResString("http_wire_protocol"))); // $NON-NLS-1$
         implPanel.add(httpProtocol);
-        updateHttpProtocolState();
         return implPanel;
-    }
-
-    private boolean isHttpProtocolAvailable() {
-        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
-        return StringUtilities.isBlank(selectedImplementation)
-                || HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation);
-    }
-
-    private boolean shouldSaveHttpProtocol() {
-        if (!isHttpProtocolAvailable()) {
-            return false;
-        }
-        String selectedImplementation = String.valueOf(httpImplementation.getSelectedItem());
-        String selectedProtocol = selectedHttpProtocol();
-        if (StringUtilities.isBlank(selectedProtocol)) {
-            return false;
-        }
-        return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(selectedImplementation)
-                || !HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedProtocol);
-    }
-
-    private void updateHttpProtocolState() {
-        boolean enabled = isHttpProtocolAvailable();
-        httpProtocol.setEnabled(enabled);
-        if (!enabled) {
-            httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
-        }
     }
 
     private String configuredHttpProtocol() {

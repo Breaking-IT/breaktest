@@ -39,7 +39,7 @@ import kotlin.time.Duration.Companion.seconds
 class HttpRequestInterruptTest : JMeterTestCase() {
     @ParameterizedTest
     @Timeout(10, unit = TimeUnit.SECONDS)
-    @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT5, HTTPSamplerFactory.IMPL_HTTP_CLIENT4])
+    @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT5])
     fun `http request interrupts`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             get("/delayed")

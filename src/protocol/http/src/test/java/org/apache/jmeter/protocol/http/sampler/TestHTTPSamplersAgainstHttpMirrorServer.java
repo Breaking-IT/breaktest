@@ -70,7 +70,6 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
     private static final java.util.regex.Pattern EMPTY_LINE_PATTERN = java.util.regex.Pattern.compile("^$",
             java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE);
     private static final int HTTP_SAMPLER = 0;
-    private static final int HTTP_SAMPLER3 = 2;
 
     /** The encodings used for http headers and control information */
     private static final String ISO_8859_1 = "ISO-8859-1"; // $NON-NLS-1$
@@ -113,21 +112,9 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         testPostRequest_UrlEncoded(HTTP_SAMPLER, ISO_8859_1, item);
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
-    public void itemised_testPostRequest_UrlEncoded3(int item) throws Exception {
-        testPostRequest_UrlEncoded(HTTP_SAMPLER3, US_ASCII, item);
-    }
-
     @Test
     public void testPostRequest_FormMultipart_0() throws Exception {
         testPostRequest_FormMultipart(HTTP_SAMPLER);
-    }
-
-    @Test
-    public void testPostRequest_FormMultipart3() throws Exception {
-        // see https://issues.apache.org/jira/browse/HTTPCLIENT-1665
-        testPostRequest_FormMultipart(HTTP_SAMPLER3);
     }
 
     @Test
@@ -136,29 +123,13 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
     }
 
     @Test
-    public void testPostRequest_FileUpload3() throws Exception {
-        // see https://issues.apache.org/jira/browse/HTTPCLIENT-1665
-        testPostRequest_FileUpload(HTTP_SAMPLER3);
-    }
-
-    @Test
     public void testPostRequest_BodyFromParameterValues() throws Exception {
         testPostRequest_BodyFromParameterValues(HTTP_SAMPLER, ISO_8859_1);
     }
 
     @Test
-    public void testPostRequest_BodyFromParameterValues3() throws Exception {
-        testPostRequest_BodyFromParameterValues(HTTP_SAMPLER3, US_ASCII);
-    }
-
-    @Test
     public void testGetRequest() throws Exception {
         testGetRequest(HTTP_SAMPLER);
-    }
-
-    @Test
-    public void testGetRequest3() throws Exception {
-        testGetRequest(HTTP_SAMPLER3);
     }
 
     @ParameterizedTest
@@ -167,15 +138,9 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         testGetRequest_Parameters(HTTP_SAMPLER, item);
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
-    public void itemised_testGetRequest_Parameters3(int item) throws Exception {
-        testGetRequest_Parameters(HTTP_SAMPLER3, item);
-    }
-
     @Test
-    public void testPutRequest_BodyFromParameterValues3() throws Exception {
-        testPutRequest_BodyFromParameterValues(HTTP_SAMPLER3, US_ASCII);
+    public void testPutRequest_BodyFromParameterValues() throws Exception {
+        testPutRequest_BodyFromParameterValues(HTTP_SAMPLER, ISO_8859_1);
     }
 
     private static void testPutRequest_BodyFromParameterValues(int samplerType, String samplerDefaultEncoding) throws Exception {
@@ -1559,7 +1524,6 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
     private static HTTPSamplerBase createHttpSampler(int samplerType) {
         return switch (samplerType) {
             case HTTP_SAMPLER -> new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
-            case HTTP_SAMPLER3 -> new HTTPSampler3();
             default -> throw new IllegalArgumentException("Unexpected type: " + samplerType);
         };
     }

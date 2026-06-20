@@ -28,8 +28,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.http.conn.DnsResolver;
-import org.apache.http.impl.conn.SystemDefaultDnsResolver;
+import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.testelement.TestIterationListener;
@@ -256,6 +256,11 @@ public class DNSCacheManager extends ConfigTestElement implements TestIterationL
             cache.put(host, addresses);
             return addresses;
         }
+    }
+
+    @Override
+    public String resolveCanonicalHostname(String host) throws UnknownHostException {
+        return systemDefaultDnsResolver.resolveCanonicalHostname(host);
     }
 
     private static void logCache(String hitOrMiss, String host, InetAddress[] addresses) {

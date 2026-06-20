@@ -537,8 +537,8 @@ breaktest -Duser.dir=/home/mstover/jmeter_stuff \
     -->
     <!-- # Enable header wire + context logging - Best for Debugging -->
     <!--
-    <Logger name="org.apache.http" level="debug" />
-    <Logger name="org.apache.http.wire" level="error" />
+    <Logger name="org.apache.hc.client5.http" level="debug" />
+    <Logger name="org.apache.hc.client5.http.wire" level="error" />
     -->
 
     <!-- SNIP -->
@@ -547,12 +547,12 @@ breaktest -Duser.dir=/home/mstover/jmeter_stuff \
 
 </Configuration>]]></source>
     <p>
-        So, if you want to change the log level for <code>org.apache.http</code> category to debug level for instance,
+        So, if you want to change the log level for <code>org.apache.hc.client5.http</code> category to debug level for instance,
         you can simply add (or uncomment) the following logger element in <code>log4j2.xml</code> file before launching JMeter.
     </p>
 <source><![CDATA[  <Loggers>
     <!-- SNIP -->
-    <Logger name="org.apache.http" level="debug" />
+    <Logger name="org.apache.hc.client5.http" level="debug" />
     <!-- SNIP -->
   </Loggers>]]></source>
     <p>

@@ -90,7 +90,6 @@
                         If you modified those settings, check that your JMeter configuration follows these settings (these are the defaults):
                         <source>
 jmeter.save.saveservice.bytes = true
-# Only available with HttpClient4
 #jmeter.save.saveservice.sent_bytes=true
 jmeter.save.saveservice.label = true
 jmeter.save.saveservice.latency = true

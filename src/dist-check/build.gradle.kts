@@ -172,8 +172,6 @@ arrayOf(
     "TestKeepAlive",
     "ResponseDecompression",
     "TestSchedulerWithTimer",
-    "Http4ImplPreemptiveBasicAuth",
-    "Http4ImplDigestAuth",
     "BUG_62847",
     "HTMLParserTestFile_2",
     "TestResultStatusAction",
@@ -195,11 +193,11 @@ createBatchTestTask("Bug54685") {
     jmeterArgument("sample_variables", "REFERENCE,JSESSIONID")
 }
 
-createBatchTestTask("Http4ImplPreemptiveBasicAuth", "Java") {
+createBatchTestTask("LegacyJavaPreemptiveBasicAuth", "Java") {
     jmeterArgument("jmeter.httpsampler", "Java")
 }
 
-for (impl in arrayOf("Java", "HttpClient4")) {
+for (impl in arrayOf("Java")) {
     createBatchTestTask("SlowCharsFeature", impl) {
         csvFile.set(outputDirectory.file("${testName.get()}_$impl.csv"))
         xmlFile.set(outputDirectory.file("${testName.get()}_$impl.xml"))
@@ -207,7 +205,7 @@ for (impl in arrayOf("Java", "HttpClient4")) {
     }
 }
 
-for (impl in arrayOf("Java", "HttpClient4", "HttpClient5")) {
+for (impl in arrayOf("Java", "HttpClient5")) {
     createBatchTestTask("TEST_HTTP", impl) {
         jmeterArgument("jmeter.httpsampler", impl)
         csvFile.set(outputDirectory.file("${testName.get()}_$impl.csv"))
@@ -248,9 +246,6 @@ tasks.check {
 }
 
 val flakyTests = listOf(
-    "batchHttp4ImplDigestAuth",
-    "batchHttp4ImplPreemptiveBasicAuthJava",
-    "batchSlowCharsFeatureHttpClient4",
     "batchSlowCharsFeatureJava",
     "batchTCP_TESTS",
     "batchTestKeepAlive",

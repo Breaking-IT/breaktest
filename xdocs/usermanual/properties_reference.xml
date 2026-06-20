@@ -387,23 +387,23 @@ Defaults to: <code>true</code>
     Enable header wire and context logging - Best for Debugging
     In log4j2.xml, set:
 <source>
-&lt;Logger name="org.apache.http" level="debug" /&gt;
-&lt;Logger name="org.apache.http.wire" level="error" /&gt;
+&lt;Logger name="org.apache.hc.client5.http" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.wire" level="error" /&gt;
 </source>
     Enable full wire and context logging
     In log4j2.xml, set:
-    <source>&lt;Logger name="org.apache.http" level="debug" /&gt;</source>
+    <source>&lt;Logger name="org.apache.hc.client5.http" level="debug" /&gt;</source>
     Enable context logging for connection management
-    <source>&lt;Logger name="org.apache.http.impl.conn" level="debug" /&gt;</source>
+    <source>&lt;Logger name="org.apache.hc.client5.http.impl.io" level="debug" /&gt;</source>
     Enable context logging for connection management / request execution
 <source>
-&lt;Logger name="org.apache.http.impl.conn" level="debug" /&gt;
-&lt;Logger name="org.apache.http.impl.client" level="debug" /&gt;
-&lt;Logger name="org.apache.http.client" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.impl.io" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.impl.classic" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.classic" level="debug" /&gt;
 </source>
 </description>
 </section>
-<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient5 and HTTPClient4)" anchor="httpclient">
+<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient5)" anchor="httpclient">
 <properties>
 <property name="hc.parameters.file">
     Define a properties file for overriding Apache HttpClient parameters.<br/>
@@ -443,49 +443,6 @@ Defaults to: <code>true</code>
 </property>
 <property name="httpclient5.default_user_agent_disabled">
     If true, default HC5 User-Agent will not be added.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.auth.preemptive">
-    Preemptively send Authorization Header when BASIC auth is used by the HttpClient4 implementation.
-    Defaults to: <code>true</code>
-</property>
-<property name="httpclient4.retrycount">
-    Number of retries to attempt.
-    Retry will be done on Idempotent Http Methods by default.
-    If you want to retry for all methods, see property <code>httpclient4.request_sent_retry_enabled</code>
-    <br/>
-    Defaults to: <code>0</code>
-</property>
-<property name="httpclient4.request_sent_retry_enabled">
-    Set this property to <code>true</code> if it's OK to retry requests that have been sent.
-    This mean that both Idempotent and non Idempotent requests will be retried.
-    This should usually be false, but it can be useful when testing against some Load Balancers like Amazon ELB.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.idletimeout">
-    Idle connection timeout (in milliseconds) to apply if the server does not send <code>Keep-Alive</code> timeout headers.<br/>
-    Defaults to: <code>0</code> (no suggested duration for <code>Keep-Alived</code> connections)
-</property>
-<property name="httpclient4.validate_after_inactivity">
-    Check connection if the elapsed time (in milliseconds) since the last use of the connection
-    exceeds this value. Ensure this value is always lower by at least 150 ms than <code>httpclient4.time_to_live</code><br/>
-    Defaults to: <code>4900</code>
-</property>
-<property name="httpclient4.time_to_live">
-    <abbr title="time to live">TTL</abbr> (in milliseconds) represents an absolute value.
-    No matter what, the connection will not be re-used beyond its TTL.<br/>
-    Defaults to: <code>60000</code>
-</property>
-<property name="httpclient4.deflate_relax_mode">
-    Ignore EOFException that some edgy application may emit to signal end of Deflated stream.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.gzip_relax_mode">
-    Ignore EOFException that some edgy application may emit to signal end of GZipped stream.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.default_user_agent_disabled">
-    If true, default HC4 User-Agent (Apache-HttpClient/X.Y.Z (Java/A.B.C_D)) will not be added.<br/>
     Defaults to: <code>false</code>
 </property>
 </properties>
@@ -717,15 +674,15 @@ Defaults to: <code>true</code>
 </property>
 <property name="jmeter.httpsampler">
     Change the default HTTP Sampler.<br/>
-    Can be one of
+    Blank or unset values use HttpClient5 with HTTP/2 preferred. Legacy values are accepted when loading old test plans and properties,
+    however they are executed by the HttpClient5 sampler.
     <dl>
         <dt><code>HTTPSampler2</code></dt>
-        <dt><code>HttpClient5</code></dt>
-        <dd>Use Apache HTTPClient version 5 classic HTTP/1.1 implementation</dd>
         <dt><code>HttpClient4</code></dt>
-        <dd>Use Apache HTTPClient version 4 as a temporary compatibility fallback</dd>
+        <dt><code>Java</code></dt>
+        <dd>Legacy values mapped to the HttpClient5 sampler</dd>
     </dl>
-    Defaults to: <code>HttpClient5</code>
+    Defaults to an empty value, which means HTTP/2 preferred with HTTP/1.1 fallback.
 </property>
 <property name="jmeter.httpclient.strict_rfc2616">
     By default JMeter tries to be more lenient with <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>
