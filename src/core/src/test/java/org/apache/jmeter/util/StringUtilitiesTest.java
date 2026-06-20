@@ -18,19 +18,11 @@
 package org.apache.jmeter.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import org.apache.jorphan.util.JOrphanUtils;
 import org.junit.jupiter.api.Test;
 
 public class StringUtilitiesTest {
-
-    @Test
-    public void testServer() throws Exception {
-        BeanShellServer bshs = new BeanShellServer(9876, "");
-        assertNotNull(bshs);
-        // Not sure we can test anything else here
-    }
 
     @Test
     public void testSub1() throws Exception {

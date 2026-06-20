@@ -24,25 +24,17 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
-import java.net.URISyntaxException;
 import java.net.URL;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.ProtocolVersion;
-import org.apache.http.StatusLine;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.message.AbstractHttpMessage;
-import org.apache.http.message.BasicHeader;
+import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.message.BasicHeader;
+import org.apache.hc.core5.http.message.BasicHttpResponse;
 import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -57,7 +49,7 @@ import org.junit.jupiter.api.Test;
 import com.github.benmanes.caffeine.cache.Cache;
 
 /**
- * Test {@link CacheManager} that uses HTTPHC4Impl
+ * Test {@link CacheManager} thread iteration behavior.
  */
 public class TestCacheManagerThreadIteration {
     private JMeterContext jmctx;
@@ -71,135 +63,9 @@ public class TestCacheManagerThreadIteration {
     protected String vary = null;
     protected URL url;
     protected HTTPSampleResult sampleResultOK;
-
-    private class HttpResponseStub extends AbstractHttpMessage implements HttpResponse {
-        private org.apache.http.Header lastModifiedHeader;
-        private org.apache.http.Header etagHeader;
-        private String expires;
-        private String cacheControl;
-        private org.apache.http.Header dateHeader;
-        private List<org.apache.http.Header> headers;
-
-        public HttpResponseStub() {
-            this.headers = new ArrayList<>();
-            this.lastModifiedHeader = new BasicHeader(HTTPConstants.LAST_MODIFIED, currentTimeInGMT);
-            this.dateHeader = new BasicHeader(HTTPConstants.DATE, currentTimeInGMT);
-            this.etagHeader = new BasicHeader(HTTPConstants.ETAG, EXPECTED_ETAG);
-        }
-
-        @Override
-        public org.apache.http.Header[] getAllHeaders() {
-            return headers.toArray(new org.apache.http.Header[headers.size()]);
-        }
-
-        @Override
-        public void addHeader(org.apache.http.Header header) {
-            headers.add(header);
-        }
-
-        @Override
-        public Header getFirstHeader(String headerName) {
-            Header[] headers = getHeaders(headerName);
-            if (headers.length > 0) {
-                return headers[0];
-            }
-            return null;
-        }
-
-        @Override
-        public Header getLastHeader(String headerName) {
-            Header[] headers = getHeaders(headerName);
-            if (headers.length > 0) {
-                return headers[headers.length - 1];
-            }
-            return null;
-        }
-
-        @Override
-        public Header[] getHeaders(String headerName) {
-            org.apache.http.Header header = null;
-            if (HTTPConstants.LAST_MODIFIED.equals(headerName)) {
-                header = this.lastModifiedHeader;
-            } else if (HTTPConstants.ETAG.equals(headerName)) {
-                header = this.etagHeader;
-            } else if (HTTPConstants.EXPIRES.equals(headerName)) {
-                header = expires == null ? null : new BasicHeader(HTTPConstants.EXPIRES, expires);
-            } else if (HTTPConstants.CACHE_CONTROL.equals(headerName)) {
-                header = cacheControl == null ? null : new BasicHeader(HTTPConstants.CACHE_CONTROL, cacheControl);
-            } else if (HTTPConstants.DATE.equals(headerName)) {
-                header = this.dateHeader;
-            } else if (HTTPConstants.VARY.equals(headerName)) {
-                header = vary == null ? null : new BasicHeader(HTTPConstants.VARY, vary);
-            }
-            if (header != null) {
-                return new org.apache.http.Header[] { header };
-            } else {
-                return super.getHeaders(headerName);
-            }
-        }
-
-        @Override
-        public ProtocolVersion getProtocolVersion() {
-            return null;
-        }
-
-        @Override
-        public StatusLine getStatusLine() {
-            return null;
-        }
-
-        @Override
-        public void setStatusLine(StatusLine statusline) {
-        }
-
-        @Override
-        public void setStatusLine(ProtocolVersion ver, int code) {
-        }
-
-        @Override
-        public void setStatusLine(ProtocolVersion ver, int code, String reason) {
-        }
-
-        @Override
-        public void setStatusCode(int code) throws IllegalStateException {
-        }
-
-        @Override
-        public void setReasonPhrase(String reason) throws IllegalStateException {
-        }
-
-        @Override
-        public HttpEntity getEntity() {
-            return null;
-        }
-
-        @Override
-        public void setEntity(HttpEntity entity) {
-        }
-
-        @Override
-        public Locale getLocale() {
-            return null;
-        }
-
-        @Override
-        public void setLocale(Locale loc) {
-        }
-    }
-
-    private class HttpPostStub extends HttpPost {
-        HttpPostStub() {
-        }
-
-        @Override
-        public java.net.URI getURI() {
-            try {
-                return url.toURI();
-            } catch (URISyntaxException e) {
-                throw new IllegalStateException();
-            }
-        }
-    }
+    private String lastModified;
+    private String expires;
+    private String cacheControl;
 
     protected String makeDate(Instant d) {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss z")
@@ -216,8 +82,7 @@ public class TestCacheManagerThreadIteration {
         return sampleResult;
     }
 
-    private HttpRequestBase httpMethod;
-    private HttpResponse httpResponse;
+    private HttpPost httpMethod;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -225,9 +90,8 @@ public class TestCacheManagerThreadIteration {
         this.currentTimeInGMT = makeDate(Instant.now());
         this.url = toUrl(LOCAL_HOST);
         this.sampleResultOK = getSampleResultWithSpecifiedResponseCode("200");
-        this.httpMethod = new HttpPostStub();
-        this.httpResponse = new HttpResponseStub();
-        this.httpMethod.setURI(this.url.toURI());
+        this.lastModified = currentTimeInGMT;
+        this.httpMethod = new HttpPost(this.url.toURI());
         jmctx = JMeterContextService.getContext();
         jmvars = new JMeterVariables();
     }
@@ -236,27 +100,41 @@ public class TestCacheManagerThreadIteration {
     public void tearDown() throws Exception {
         this.url = null;
         this.httpMethod = null;
-        this.httpResponse = null;
         this.cacheManager =  new CacheManager();
         this.currentTimeInGMT = null;
+        this.lastModified = null;
+        this.expires = null;
+        this.cacheControl = null;
         this.sampleResultOK = null;
     }
 
     protected void setExpires(String expires) {
-        ((HttpResponseStub) httpResponse).expires = expires;
+        this.expires = expires;
     }
 
     protected void setCacheControl(String cacheControl) {
-        ((HttpResponseStub) httpResponse).cacheControl = cacheControl;
+        this.cacheControl = cacheControl;
     }
 
     protected void setLastModified(String lastModified) {
-        ((HttpResponseStub) httpResponse).lastModifiedHeader = new BasicHeader(HTTPConstants.LAST_MODIFIED,
-                lastModified);
+        this.lastModified = lastModified;
     }
 
     protected void cacheResult(HTTPSampleResult result) {
-        this.cacheManager.saveDetails(httpResponse, result);
+        BasicHttpResponse response = new BasicHttpResponse(200);
+        response.setHeader(new BasicHeader(HTTPConstants.DATE, currentTimeInGMT));
+        response.setHeader(new BasicHeader(HTTPConstants.LAST_MODIFIED, lastModified));
+        response.setHeader(new BasicHeader(HTTPConstants.ETAG, EXPECTED_ETAG));
+        if (expires != null) {
+            response.setHeader(new BasicHeader(HTTPConstants.EXPIRES, expires));
+        }
+        if (cacheControl != null) {
+            response.setHeader(new BasicHeader(HTTPConstants.CACHE_CONTROL, cacheControl));
+        }
+        if (vary != null) {
+            response.setHeader(new BasicHeader(HTTPConstants.VARY, vary));
+        }
+        this.cacheManager.saveDetails(response, result);
     }
 
     protected void addRequestHeader(String requestHeader, String value) {

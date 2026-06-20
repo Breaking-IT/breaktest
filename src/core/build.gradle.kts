@@ -29,9 +29,6 @@ dependencies {
     api(projects.src.jorphan)
     testImplementation(testFixtures(projects.src.jorphan))
 
-    api("bsf:bsf") {
-        because("protected BSFManager BSFTestElement#getManager()")
-    }
     api("com.fifesoft:rsyntaxtextarea") {
         because("JSyntaxTextArea extends RSyntaxTextArea")
     }
@@ -44,7 +41,6 @@ dependencies {
         exclude("io.github.x-stream", "mxparser")
     }
     api("org.jspecify:jspecify")
-    api("org.apache.logging.log4j:log4j-1.2-api")
     api("org.apache.logging.log4j:log4j-api")
     api("org.apache.logging.log4j:log4j-core") {
         because("GuiLogEventAppender is using log4j-core to implement GUI-based log appender")
@@ -98,9 +94,6 @@ dependencies {
     implementation("com.github.weisj:darklaf-property-loader")
     implementation("com.github.weisj:darklaf-extensions-rsyntaxarea")
     implementation("com.miglayout:miglayout-swing")
-    implementation("org.apache-extras.beanshell:bsh:2.0b6") {
-        because("Direct dependency required from BeanShellInterpreter")
-    }
     implementation("org.jetbrains.lets-plot:lets-plot-batik")
     implementation("org.jetbrains.lets-plot:lets-plot-kotlin-jvm")
     implementation("org.apache.commons:commons-math3") {

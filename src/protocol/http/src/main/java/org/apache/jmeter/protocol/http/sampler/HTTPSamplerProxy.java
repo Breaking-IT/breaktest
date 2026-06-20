@@ -29,7 +29,7 @@ import org.apache.jmeter.samplers.Interruptible;
  * The actual implementation is created at run-time, and is passed a reference to this class
  * so it can get access to all the settings stored by HTTPSamplerProxy.
  */
-public final class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible {
+public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible {
 
     private static final long serialVersionUID = 1L;
 

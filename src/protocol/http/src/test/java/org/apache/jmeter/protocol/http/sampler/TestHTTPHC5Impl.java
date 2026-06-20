@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
@@ -56,12 +57,17 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
-    public void factorySelectsHttp2ImplementationForHttpClient5Only() {
+    public void factorySelectsHttpClient5Implementations() {
         assertArrayEquals(new String[] {
                 HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT,
                 HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1,
                 HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2
         }, HTTPSamplerBase.getHttpProtocolList());
+
+        HTTPSamplerProxy defaultProtocol = new HTTPSamplerProxy();
+        assertEquals(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT, defaultProtocol.getHttpProtocol());
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation(defaultProtocol.getImplementation(), defaultProtocol).getClass());
 
         HTTPSamplerProxy http2 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         http2.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
@@ -83,15 +89,25 @@ public class TestHTTPHC5Impl {
         assertEquals(HTTPHC5Impl.class,
                 HTTPSamplerFactory.getImplementation(http1.getImplementation(), http1).getClass());
 
-        HTTPSamplerProxy hc4 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT4);
-        hc4.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
-        assertEquals(HTTPHC4Impl.class,
-                HTTPSamplerFactory.getImplementation(hc4.getImplementation(), hc4).getClass());
+        HTTPSamplerProxy legacyHc4 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT4);
+        legacyHc4.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation(legacyHc4.getImplementation(), legacyHc4).getClass());
 
-        HTTPSamplerProxy java = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_JAVA);
-        java.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
-        assertEquals(HTTPJavaImpl.class,
-                HTTPSamplerFactory.getImplementation(java.getImplementation(), java).getClass());
+        HTTPSamplerProxy legacyJava = new HTTPSamplerProxy("Java");
+        legacyJava.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+        assertEquals(HTTPHC5Impl.class,
+                HTTPSamplerFactory.getImplementation(legacyJava.getImplementation(), legacyJava).getClass());
+    }
+
+    @Test
+    public void http2VersionPolicyDistinguishesDefaultFromExplicitHttp2() {
+        HTTPSamplerProxy defaultProtocol = new HTTPSamplerProxy();
+        assertEquals(HttpVersionPolicy.NEGOTIATE, new HTTPHC5H2Impl(defaultProtocol).versionPolicy());
+
+        HTTPSamplerProxy explicitHttp2 = new HTTPSamplerProxy();
+        explicitHttp2.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        assertEquals(HttpVersionPolicy.FORCE_HTTP_2, new HTTPHC5H2Impl(explicitHttp2).versionPolicy());
     }
 
     @Test
@@ -157,7 +173,7 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
-    public void http2FallsBackToHttp11WhenServerDoesNotSupportHttp2() {
+    public void defaultProtocolFallsBackToHttp11WhenServerDoesNotSupportHttp2() {
         WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
         server.start();
         try {
@@ -169,7 +185,6 @@ public class TestHTTPHC5Impl {
             sampler.setPort(server.port());
             sampler.setPath("/fallback");
             sampler.setMethod(HTTPConstants.GET);
-            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
 
             SampleResult result = sampler.sample();
 

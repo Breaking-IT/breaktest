@@ -28,9 +28,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
-import org.apache.http.HttpVersion;
-import org.apache.http.message.BasicHeader;
-import org.apache.http.message.BasicHttpResponse;
+import org.apache.hc.core5.http.HttpVersion;
+import org.apache.hc.core5.http.message.BasicHeader;
+import org.apache.hc.core5.http.message.BasicHttpResponse;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
@@ -115,7 +115,8 @@ public class TestCacheManagerHC5 extends JMeterTestCase {
     }
 
     private void cacheResult(HTTPSampleResult result, String vary) {
-        BasicHttpResponse response = new BasicHttpResponse(HttpVersion.HTTP_1_1, 200, "OK");
+        BasicHttpResponse response = new BasicHttpResponse(200, "OK");
+        response.setVersion(HttpVersion.HTTP_1_1);
         response.setHeader(new BasicHeader(HTTPConstants.DATE, currentTimeInGMT));
         response.setHeader(new BasicHeader(HTTPConstants.LAST_MODIFIED, currentTimeInGMT));
         response.setHeader(new BasicHeader(HTTPConstants.ETAG, EXPECTED_ETAG));

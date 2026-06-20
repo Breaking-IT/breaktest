@@ -128,7 +128,7 @@ public class Groovy extends AbstractFunction {
             if (!varName.isEmpty() && vars != null) {// vars will be null on TestPlan
                 vars.put(varName, resultStr);
             }
-        } catch (Exception ex) // Mainly for bsh.EvalError
+        } catch (Exception ex)
         {
             log.warn("Error running Groovy script in element named: '{}'", currentSampler.getName(), ex);
         }

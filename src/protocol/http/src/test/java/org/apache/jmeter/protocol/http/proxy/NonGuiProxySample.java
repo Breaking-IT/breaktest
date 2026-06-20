@@ -20,11 +20,11 @@ package org.apache.jmeter.protocol.http.proxy;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
-import org.apache.http.HttpHost;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.conn.DefaultProxyRoutePlanner;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.routing.DefaultProxyRoutePlanner;
+import org.apache.hc.core5.http.HttpHost;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -62,14 +62,12 @@ public class NonGuiProxySample {
         treeModel.addComponent(proxy, (JMeterTreeNode) root.getChildAt(1));
 
         proxy.startProxy();
-        HttpHost proxyHost = new HttpHost("localhost", 8282);
+        HttpHost proxyHost = new HttpHost("http", "localhost", 8282);
         DefaultProxyRoutePlanner routePlanner = new DefaultProxyRoutePlanner(
                 proxyHost);
-        CloseableHttpClient httpclient = HttpClients.custom()
-                .setRoutePlanner(routePlanner).build();
-
-        try {
-            httpclient.execute(new HttpGet("http://example.invalid"));
+        try (CloseableHttpClient httpclient = HttpClients.custom()
+                .setRoutePlanner(routePlanner).build()) {
+            httpclient.execute(new HttpGet("http://example.invalid"), response -> null);
         } catch (Exception e) {
             //
         }

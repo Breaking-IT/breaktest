@@ -23,8 +23,7 @@ import org.apache.jorphan.util.JMeterStopTestNowException;
 import org.apache.jorphan.util.JMeterStopThreadException;
 
 /**
- * Common parent class for the {@link BSFTestElement} and {@link JSR223TestElement} scripting test elements.
- * These also share the {@link ScriptingBeanInfoSupport} class for configuration.
+ * Common parent class for JSR223 scripting test elements.
  */
 public abstract class ScriptingTestElement extends AbstractTestElement {
 
@@ -37,7 +36,7 @@ public abstract class ScriptingTestElement extends AbstractTestElement {
 
     private String script = ""; // script (if file not provided)
 
-    protected String scriptLanguage = ""; // BSF/JSR223 language to use
+    protected String scriptLanguage = ""; // JSR223 language to use
 
     public final static String DEFAULT_SCRIPT_LANGUAGE = "groovy"; // if no language is chosen in GUI
 

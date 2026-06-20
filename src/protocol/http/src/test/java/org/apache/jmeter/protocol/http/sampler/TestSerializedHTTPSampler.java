@@ -37,7 +37,7 @@ public class TestSerializedHTTPSampler extends JMeterTestCase implements JMeterS
         try {
             File file = new File(getResourceFilePath("checkThatFilesAreReadRelativeToBaseDir.txt"));
             FileServer.getFileServer().setBase(file.getParentFile());
-            HTTPSamplerBase sampler = new HTTPSampler3();
+            HTTPSamplerBase sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
             sampler.setMethod("POST");
             sampler.setPath("https://httpbin.org/post");
             sampler.setHTTPFiles(new HTTPFileArg[]{new HTTPFileArg(file.getName(), "", "")});

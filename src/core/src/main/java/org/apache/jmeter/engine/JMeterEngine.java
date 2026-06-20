@@ -17,8 +17,6 @@
 
 package org.apache.jmeter.engine;
 
-import java.util.Properties;
-
 import org.apache.jorphan.collections.HashTree;
 
 /**
@@ -53,17 +51,6 @@ public interface JMeterEngine {
      * Stop test if running
      */
     void reset();
-
-    /**
-     * set Properties on engine
-     * @param p the properties to set
-     */
-    void setProperties(Properties p);
-
-    /**
-     * Exit engine
-     */
-    void exit();
 
     /**
      * @return boolean Flag to show whether engine is active (true when test is running). Set to false at end of test

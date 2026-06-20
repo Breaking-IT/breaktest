@@ -28,7 +28,7 @@ java {
 
 // We maintain the file names for backward compatibility
 val archiveName = when (name) {
-    "jorphan", "bshclient" -> name
+    "jorphan" -> name
     "launcher" -> "ApacheJMeter"
     else -> "ApacheJMeter_$name"
 }

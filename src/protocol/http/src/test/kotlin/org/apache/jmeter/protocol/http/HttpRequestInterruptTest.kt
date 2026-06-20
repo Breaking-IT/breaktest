@@ -39,7 +39,7 @@ import kotlin.time.Duration.Companion.seconds
 class HttpRequestInterruptTest : JMeterTestCase() {
     @ParameterizedTest
     @Timeout(10, unit = TimeUnit.SECONDS)
-    @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT4, HTTPSamplerFactory.HTTP_SAMPLER_JAVA])
+    @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT5])
     fun `http request interrupts`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             get("/delayed")
@@ -64,7 +64,7 @@ class HttpRequestInterruptTest : JMeterTestCase() {
             }
         }
 
-        val expectedEventRange = if (httpImplementation == HTTPSamplerFactory.HTTP_SAMPLER_JAVA) 0..5 else 1..5
+        val expectedEventRange = 1..5
         assertTrue(events.size in expectedEventRange) { "${expectedEventRange.first} to 5 interrupted events expected, got $events" }
         if (events.any { it.result.isSuccessful || it.result.isResponseCodeOK || (it.result.time + it.result.connectTime) < 500 }) {
             fail(

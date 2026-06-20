@@ -34,8 +34,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Common parent class for HttpClient implementations.
  *
- * Includes system property settings that are handled internally by the Java HTTP implementation,
- * but which need to be explicitly configured in HttpClient implementations.
+ * Includes system property settings that need to be explicitly configured in HttpClient implementations.
  */
 public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
 

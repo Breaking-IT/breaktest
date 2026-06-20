@@ -300,7 +300,7 @@ public class ThreadGroup extends AbstractThreadGroup {
     }
 
     /*
-     * Fix NPE for addThreadLock transient object in remote mode (BZ60829)
+     * Fix NPE for addThreadLock transient object (BZ60829)
      */
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();

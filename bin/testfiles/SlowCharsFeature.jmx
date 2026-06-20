@@ -205,7 +205,7 @@ SampleResult.setBytes(0);</stringProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
             <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-            <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+            <stringProp name="HTTPSampler.implementation">HttpClient5</stringProp>
             <stringProp name="HTTPSampler.connect_timeout"></stringProp>
             <stringProp name="HTTPSampler.response_timeout"></stringProp>
           </HTTPSamplerProxy>
@@ -247,7 +247,7 @@ SampleResult.setBytes(0);</stringProp>
             <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
             <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
             <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
-            <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+            <stringProp name="HTTPSampler.implementation">HttpClient5</stringProp>
             <stringProp name="HTTPSampler.connect_timeout">15000</stringProp>
             <stringProp name="HTTPSampler.response_timeout">60000</stringProp>
           </HTTPSamplerProxy>
@@ -304,7 +304,7 @@ SampleResult.setBytes(0);</stringProp>
             <assertionsResultsToSave>0</assertionsResultsToSave>
           </value>
         </objProp>
-        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient4)}.csv</stringProp>
+        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient5)}.csv</stringProp>
       </ResultCollector>
       <hashTree/>
       <ResultCollector guiclass="SimpleDataWriter" testclass="ResultCollector" testname="Simple Data Writer" enabled="true">
@@ -335,7 +335,7 @@ SampleResult.setBytes(0);</stringProp>
             <assertionsResultsToSave>0</assertionsResultsToSave>
           </value>
         </objProp>
-        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient4)}.xml</stringProp>
+        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient5)}.xml</stringProp>
       </ResultCollector>
       <hashTree/>
       <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree" enabled="true">
@@ -375,7 +375,7 @@ SampleResult.setBytes(0);</stringProp>
             <connectTime>true</connectTime>
           </value>
         </objProp>
-        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient4)}-errors.xml</stringProp>
+        <stringProp name="filename">SlowCharsFeature_${__property(jmeter.httpsampler,,HttpClient5)}-errors.xml</stringProp>
       </ResultCollector>
       <hashTree/>
     </hashTree>

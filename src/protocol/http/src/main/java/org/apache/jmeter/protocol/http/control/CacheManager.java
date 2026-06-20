@@ -30,12 +30,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.http.Header;
-import org.apache.http.HeaderElement;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.utils.DateUtils;
-import org.apache.http.message.BasicHeader;
+import org.apache.hc.core5.http.Header;
+import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.client5.http.utils.DateUtils;
+import org.apache.hc.core5.http.message.BasicHeader;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
@@ -174,7 +172,6 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
 
     /**
      * Save the Last-Modified, Etag, and Expires headers if the result is cacheable.
-     * Version for Java implementation.
      * @param conn connection
      * @param res result
      */
@@ -222,7 +219,7 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
 
     /**
      * Save the Last-Modified, Etag, and Expires headers if the result is
-     * cacheable. Version for Apache HttpClient implementation.
+     * cacheable. Version for Apache HttpClient 5 implementation.
      *
      * @param method
      *            {@link HttpResponse} to extract header information from
@@ -288,8 +285,7 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
     private static Date extractExpiresDateFromExpires(String expires) {
         Date expiresDate;
         try {
-            expiresDate = org.apache.http.client.utils.DateUtils
-                    .parseDate(expires);
+            expiresDate = Date.from(DateUtils.parseStandardDate(expires));
         } catch (IllegalArgumentException e) { // Exception handled by return
             if (log.isDebugEnabled()) {
                 log.debug("Unable to parse Expires: '{}', exception: {}", expires, e);
@@ -325,8 +321,8 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
             String expires, String etag, String url, String date) {
         if (StringUtilities.isNotEmpty(lastModified) && StringUtilities.isNotEmpty(date)) {
             try {
-                Date responseDate = DateUtils.parseDate(date);
-                Date lastModifiedAsDate = DateUtils.parseDate(lastModified);
+                Date responseDate = Date.from(DateUtils.parseStandardDate(date));
+                Date lastModifiedAsDate = Date.from(DateUtils.parseStandardDate(lastModified));
                 // see https://developer.mozilla.org/en/HTTP_Caching_FAQ
                 // see http://www.ietf.org/rfc/rfc2616.txt#13.2.4
                 return new Date(System.currentTimeMillis() + Math.round(
@@ -352,9 +348,8 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
         }
     }
 
-    // Apache HttpClient
     private static String getHeader(HttpResponse method, String name) {
-        org.apache.http.Header hdr = method.getLastHeader(name);
+        Header hdr = method.getLastHeader(name);
         return hdr != null ? hdr.getValue() : null;
     }
 
@@ -389,39 +384,12 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
      * <li>If-Modified-Since</li>
      * <li>If-None-Match</li>
      * </ul>
-     * Apache HttpClient version.
-     * @param url {@link URL} to look up in cache
-     * @param request where to set the headers
-     */
-    public void setHeaders(URL url, HttpRequestBase request) {
-        CacheEntry entry = getEntry(url.toString(), request.getAllHeaders());
-        if (log.isDebugEnabled()){
-            log.debug("setHeaders for HTTP Method:{}(OAH) URL:{} Entry:{}", request.getMethod(), url.toString(), entry);
-        }
-        if (entry != null){
-            final String lastModified = entry.getLastModified();
-            if (lastModified != null){
-                request.setHeader(HTTPConstants.IF_MODIFIED_SINCE, lastModified);
-            }
-            final String etag = entry.getEtag();
-            if (etag != null){
-                request.setHeader(HTTPConstants.IF_NONE_MATCH, etag);
-            }
-        }
-    }
-
-    /**
-     * Check the cache, and if there is a match, set the headers:
-     * <ul>
-     * <li>If-Modified-Since</li>
-     * <li>If-None-Match</li>
-     * </ul>
      * Apache HttpClient 5 version.
      * @param url {@link URL} to look up in cache
      * @param request where to set the headers
      */
     public void setHeaders(URL url, org.apache.hc.core5.http.HttpRequest request) {
-        CacheEntry entry = getEntry(url.toString(), asHeaders(request.getHeaders()));
+        CacheEntry entry = getEntry(url.toString(), request.getHeaders());
         if (log.isDebugEnabled()){
             log.debug("setHeaders for HTTP Method:{}(HC5) URL:{} Entry:{}", request.getMethod(), url.toString(), entry);
         }
@@ -511,25 +479,12 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
         return result.toArray(new Header[result.size()]);
     }
 
-    private static Header[] asHeaders(org.apache.hc.core5.http.Header[] allHeaders) {
-        Header[] result = new Header[allHeaders.length];
-        for (int i = 0; i < allHeaders.length; i++) {
-            result[i] = new BasicHeader(allHeaders[i].getName(), allHeaders[i].getValue());
-        }
-        return result;
-    }
-
     private static class HeaderAdapter implements Header {
 
         private final org.apache.jmeter.protocol.http.control.Header delegate;
 
         private HeaderAdapter(org.apache.jmeter.protocol.http.control.Header delegate) {
             this.delegate = delegate;
-        }
-
-        @Override
-        public HeaderElement[] getElements() {
-            throw new UnsupportedOperationException();
         }
 
         @Override
@@ -540,6 +495,11 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
         @Override
         public String getValue() {
             return delegate.getValue();
+        }
+
+        @Override
+        public boolean isSensitive() {
+            return false;
         }
 
     }

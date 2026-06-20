@@ -188,7 +188,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public static final String URL = "HTTPSampler.URL"; // $NON-NLS-1$
 
     /**
-     * IP source to use - does not apply to Java HTTP implementation currently
+     * IP source to use
      */
     public static final String IP_SOURCE = "HTTPSampler.ipSource"; // $NON-NLS-1$
 
@@ -741,6 +741,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public boolean isHttp2Protocol() {
         return HTTP_PROTOCOL_HTTP_2.equals(getHttpProtocol());
+    }
+
+    public boolean isHttp11Protocol() {
+        return HTTP_PROTOCOL_HTTP_1_1.equals(getHttpProtocol());
     }
 
     public static String normalizeHttpProtocol(String httpProtocol) {
@@ -1721,8 +1725,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         int index = res.indexOf(USER_AGENT);
         if (index >= 0) {
             // see HTTPHC3Impl#getConnectionHeaders
-            // see HTTPHC4Impl#getConnectionHeaders
-            // see HTTPJavaImpl#getConnectionHeaders
+            // see HTTPHC5Impl#getConnectionHeaders
+            // see HTTPHC5Impl#getConnectionHeaders
             //': ' is used by JMeter to fill-in requestHeaders, see getConnectionHeaders
             final String userAgentPrefix = USER_AGENT+": ";
             String userAgentHdr = res.substring(
@@ -2328,7 +2332,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * set IP source to use - does not apply to Java HTTP implementation currently
+     * set IP source to use
      *
      * @param value IP source to use
      */
@@ -2337,7 +2341,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * get IP source to use - does not apply to Java HTTP implementation currently
+     * get IP source to use
      *
      * @return IP source to use
      */

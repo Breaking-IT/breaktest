@@ -52,9 +52,7 @@ import org.slf4j.LoggerFactory;
  * name - this FileServer class will find the file without a problem.
  * Eventually, I want all in-test file access to be done through here, with the
  * goal of packaging up entire test plans as a directory structure that can be
- * sent via rmi to remote servers (currently, one must make sure the remote
- * server has all support files in a relative-same location) and to package up
- * test plans to execute on unknown boxes that only have Java installed.
+ * executed on unknown boxes that only have Java installed.
  */
 public class FileServer {
 

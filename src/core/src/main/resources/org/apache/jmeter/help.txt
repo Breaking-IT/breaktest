@@ -35,12 +35,3 @@ To tell BreakTest to use a proxy server:
 Open a command prompt and type:
 
 breaktest.bat(Windows)/breaktest.sh(Linux) -H [your.proxy.server] -P [your proxy server port]
-
----------------------------------------------------
-
-To run BreakTest in server mode:
-Open a command prompt and type:
-
-breaktest-server.bat(Windows)/breaktest-server(Linux)
-
----------------------------------------------------

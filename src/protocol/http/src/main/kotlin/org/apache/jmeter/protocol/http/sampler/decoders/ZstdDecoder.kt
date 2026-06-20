@@ -17,10 +17,13 @@
 
 package org.apache.jmeter.protocol.http.sampler.decoders
 
-import com.github.luben.zstd.ZstdInputStream
 import com.google.auto.service.AutoService
+import io.airlift.compress.MalformedInputException
+import io.airlift.compress.zstd.ZstdInputStream
 import org.apache.jmeter.samplers.ResponseDecoder
 import org.apiguardian.api.API
+import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStream
 
 /**
@@ -36,6 +39,20 @@ public class ZstdDecoder : ResponseDecoder {
         get() = listOf("zstd")
 
     override fun decodeStream(input: InputStream): InputStream {
-        return ZstdInputStream(input)
+        return object : FilterInputStream(ZstdInputStream(input)) {
+            override fun read(): Int =
+                try {
+                    super.read()
+                } catch (e: MalformedInputException) {
+                    throw IOException(e)
+                }
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int =
+                try {
+                    super.read(b, off, len)
+                } catch (e: MalformedInputException) {
+                    throw IOException(e)
+                }
+        }
     }
 }

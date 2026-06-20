@@ -17,12 +17,13 @@
 
 package org.apache.jmeter.protocol.http.sampler.decoders
 
-import com.github.luben.zstd.Zstd
+import io.airlift.compress.zstd.ZstdOutputStream
 import org.apache.jmeter.samplers.ResponseDecoderRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 
 class ZstdDecoderTest {
@@ -46,7 +47,10 @@ class ZstdDecoderTest {
     @Test
     fun testDecodeZstdData() {
         val original = "Hello World from zstd".toByteArray(Charsets.UTF_8)
-        val compressed = Zstd.compress(original)
+        val compressed = ByteArrayOutputStream().use { output ->
+            ZstdOutputStream(output).use { it.write(original) }
+            output.toByteArray()
+        }
 
         val decoded = decoder.decode(compressed)
 

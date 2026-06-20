@@ -41,11 +41,9 @@ dependencies {
         // to make runtime classpath consistent with the compile one.
         api("org.ow2.asm:asm:9.9")
 
-        api("bsf:bsf:2.4.0")
         api("cglib:cglib-nodep:3.3.0")
         api("com.fifesoft:rsyntaxtextarea:3.6.2")
         api("com.github.ben-manes.caffeine:caffeine:3.2.3")
-        api("com.github.luben:zstd-jni:1.5.7-11")
         api("com.github.weisj:darklaf-core:3.1.1")
         api("com.github.weisj:darklaf-extensions-rsyntaxarea:0.4.1")
         api("com.github.weisj:darklaf-property-loader:3.1.1")
@@ -72,6 +70,7 @@ dependencies {
         api("commons-logging:commons-logging:1.3.6")
         api("commons-net:commons-net:3.12.0")
         api("dnsjava:dnsjava:3.6.4")
+        api("io.airlift:aircompressor:2.0.3")
         api("io.burt:jmespath-core:0.6.0")
         api("io.burt:jmespath-jackson:0.6.0")
         api("jakarta.jms:jakarta.jms-api:3.1.0")
@@ -94,11 +93,9 @@ dependencies {
         api("net.minidev:json-smart:2.6.0")
         api("net.sf.jtidy:jtidy:r938")
         api("net.sf.saxon:Saxon-HE:12.9")
-        api("org.apache-extras.beanshell:bsh:2.0b6")
         api("org.apache.commons:commons-collections4:4.5.0")
         api("org.apache.commons:commons-dbcp2:2.9.0")
         api("org.apache.commons:commons-jexl3:3.5.0")
-        api("org.apache.commons:commons-jexl:2.1.1")
         api("org.apache.commons:commons-lang3:3.19.0") {
             because("User might still rely on commons-lang3")
         }
@@ -108,12 +105,6 @@ dependencies {
             because("User might still rely on commons-text")
         }
         api("org.apache.httpcomponents.client5:httpclient5:5.6.1")
-        api("org.apache.httpcomponents:httpasyncclient:4.1.5")
-        api("org.apache.httpcomponents:httpclient:4.5.14")
-        api("org.apache.httpcomponents:httpcore-nio:4.4.16")
-        api("org.apache.httpcomponents:httpcore:4.4.16")
-        api("org.apache.httpcomponents:httpmime:4.5.14")
-        api("org.apache.logging.log4j:log4j-1.2-api:2.26.0")
         api("org.apache.logging.log4j:log4j-api:2.26.0")
         api("org.apache.logging.log4j:log4j-core:2.26.0")
         api("org.apache.logging.log4j:log4j-slf4j2-impl:2.26.0")

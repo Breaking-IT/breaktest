@@ -775,7 +775,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      * @param response
      *            the new responseData value (String)
      *
-     * @deprecated - only intended for use from BeanShell code
+     * @deprecated - only intended for legacy script compatibility
      */
     @Deprecated
     public void setResponseData(String response) {
@@ -1576,14 +1576,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     // Bug 47394
     /**
-     * Allow custom SampleSenders to drop unwanted assertionResults
+     * Drop unwanted assertionResults.
      */
     public void removeAssertionResults() {
         this.assertionResults = null;
     }
 
     /**
-     * Allow custom SampleSenders to drop unwanted subResults
+     * Drop unwanted subResults.
      */
     public void removeSubResults() {
         this.subResults = null;

@@ -18,6 +18,10 @@
 package org.apache.jmeter.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Arrays;
 
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +35,23 @@ public class JSR223TestElementTest {
     public void testGetScriptEngineDefault() throws Exception {
         element.setScriptLanguage("");
         assertEquals("Groovy", element.getScriptEngine().getFactory().getLanguageName());
+    }
+
+    @Test
+    public void testLegacyJexlAliasesAreHiddenFromLanguageList() {
+        String[] languages = Arrays.stream(JSR223BeanInfoSupport.getLanguageNames())
+                .map(language -> language[0])
+                .toArray(String[]::new);
+
+        assertFalse(Arrays.asList(languages).contains("jexl"));
+        assertFalse(Arrays.asList(languages).contains("jexl2"));
+    }
+
+    @Test
+    public void testLegacyJexlAliasDetection() {
+        assertTrue(JSR223BeanInfoSupport.isHiddenScriptLanguageAlias("jexl"));
+        assertTrue(JSR223BeanInfoSupport.isHiddenScriptLanguageAlias("JEXL2"));
+        assertFalse(JSR223BeanInfoSupport.isHiddenScriptLanguageAlias("jexl3"));
     }
 
 }

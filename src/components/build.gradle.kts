@@ -25,16 +25,6 @@ dependencies {
     api(projects.src.core)
     testImplementation(testFixtures(projects.src.core))
 
-    api("org.apache-extras.beanshell:bsh") {
-        because(
-            """
-            BeanShell is not required for JMeter, however it is commonly used in the jmx scripts.
-            New scripts should refrain from using BeanShell though and migrate to Groovy or other
-            faster engines
-            """.trimIndent()
-        )
-    }
-
     api("javax.mail:mail") {
         exclude("javax.activation", "activation")
     }

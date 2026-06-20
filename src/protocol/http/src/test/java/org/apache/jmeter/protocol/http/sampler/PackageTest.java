@@ -18,10 +18,11 @@
 package org.apache.jmeter.protocol.http.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
-import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.junit.jupiter.api.Test;
 
@@ -29,7 +30,7 @@ public class PackageTest {
 
     @Test
     public void testConfiguring() throws Exception {
-        HTTPSamplerBase sampler = (HTTPSamplerBase) new HttpTestSampleGui().createTestElement();
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
         configure(sampler);
     }
 
@@ -45,6 +46,9 @@ public class PackageTest {
         assertEquals("config1=configValue", sampler.getArguments().getArgument(1).toString());
         sampler.recoverRunningVersion();
         config.recoverRunningVersion();
+        assertNull(sampler.getArguments());
+        sampler.setArguments(new Arguments());
+        sampler.addArgument("arg1", "val1");
         assertEquals(1, sampler.getArguments().getArgumentCount());
         sampler.addTestElement(config);
         assertEquals("config1=configValue", sampler.getArguments().getArgument(1).toString());

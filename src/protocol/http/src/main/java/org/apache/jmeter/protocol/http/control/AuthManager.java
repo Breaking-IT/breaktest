@@ -27,17 +27,11 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.security.Principal;
 import java.util.ArrayList;
 import java.util.NoSuchElementException;
 
 import javax.security.auth.Subject;
 
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.Credentials;
-import org.apache.http.auth.NTCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.jmeter.config.ConfigElement;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
@@ -94,8 +88,6 @@ public class AuthManager extends ConfigTestElement implements TestStateListener,
 
     private static final int COLUMN_COUNT = COLUMN_RESOURCE_NAMES.length;
 
-    private static final Credentials USE_JAAS_CREDENTIALS = new NullCredentials();
-
     private static final boolean DEFAULT_CLEAR_VALUE = false;
 
     /** Decides whether port should be omitted from SPN for Kerberos SPNEGO authentication */
@@ -122,18 +114,6 @@ public class AuthManager extends ConfigTestElement implements TestStateListener,
          * Kerberos Auth
          */
         KERBEROS
-    }
-
-    private static final class NullCredentials implements Credentials {
-        @Override
-        public String getPassword() {
-            return null;
-        }
-
-        @Override
-        public Principal getUserPrincipal() {
-            return null;
-        }
     }
 
     private final KerberosManager kerberosManager = new KerberosManager();
@@ -463,54 +443,6 @@ public class AuthManager extends ConfigTestElement implements TestStateListener,
     static boolean isSupportedProtocol(URL url) {
         String protocol = url.getProtocol().toLowerCase(java.util.Locale.ENGLISH);
         return protocol.equals(HTTPConstants.PROTOCOL_HTTP) || protocol.equals(HTTPConstants.PROTOCOL_HTTPS);
-    }
-
-    /**
-     * Configure credentials and auth scheme on client if an authorization is
-     * @param auth information about the authorization to use
-     * @param url the URL for which the authorization info should be used
-     * @param localContext http client context which should be set up
-     * @param credentialsProvider provider which should be set up
-     * @param localhost name of the workstation to be used for {@link NTCredentials}
-     */
-    public void setupCredentials(Authorization auth, URL url,
-            HttpClientContext localContext,
-            CredentialsProvider credentialsProvider,
-            String localhost) {
-        String username = auth.getUser();
-        String realm = auth.getRealm();
-        String domain = auth.getDomain();
-        if (log.isDebugEnabled()){
-            log.debug("{} > D={} R={} M={}", username, domain, realm, auth.getMechanism());
-        }
-        if(Mechanism.KERBEROS.equals(auth.getMechanism())) {
-            localContext.setAttribute(DynamicKerberosSchemeFactory.CONTEXT_ATTRIBUTE_STRIP_PORT,
-                    isStripPort(url));
-            credentialsProvider.setCredentials(new AuthScope(null, -1, null), USE_JAAS_CREDENTIALS);
-        } else {
-            credentialsProvider.setCredentials(
-                new AuthScope(url.getHost(), url.getPort(), realm.isEmpty() ? null : realm),
-                new NTCredentials(username, auth.getPass(), localhost, domain));
-        }
-    }
-
-    /**
-     * IE and Firefox will always strip port from the url before constructing
-     * the SPN. Chrome has an option (<code>--enable-auth-negotiate-port</code>)
-     * to include the port if it differs from <code>80</code> or
-     * <code>443</code>. That behavior can be changed by setting the jmeter
-     * property <code>kerberos.spnego.strip_port</code>.
-     *
-     * @param url to be checked
-     * @return <code>true</code> when port should omitted in SPN
-     */
-    private static boolean isStripPort(URL url) {
-        if (STRIP_PORT) {
-            return true;
-        }
-        int port = url.getPort();
-        return port == HTTPConstants.DEFAULT_HTTP_PORT ||
-                port == HTTPConstants.DEFAULT_HTTPS_PORT;
     }
 
     /**
