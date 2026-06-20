@@ -305,9 +305,9 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
             }
 
         }
-        // In case of BSF and JSR elements i want to add textAreaEditor as a listener to scriptLanguage ComboBox.
+        // Keep the script editor in sync with the selected JSR223 language.
         String beanName = this.beanInfo.getBeanDescriptor().getName();
-        if (beanName.startsWith("BSF") || beanName.startsWith("JSR223")) { // $NON-NLS-1$ $NON-NLS-2$
+        if (beanName.startsWith("JSR223")) { // $NON-NLS-1$
             WrapperEditor we = (WrapperEditor) editors[scriptLanguageIndex];
             TextAreaEditor tae = (TextAreaEditor) editors[textAreaEditorIndex];
             we.addChangeListener(tae);

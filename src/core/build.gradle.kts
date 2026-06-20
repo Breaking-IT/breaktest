@@ -29,9 +29,6 @@ dependencies {
     api(projects.src.jorphan)
     testImplementation(testFixtures(projects.src.jorphan))
 
-    api("bsf:bsf") {
-        because("protected BSFManager BSFTestElement#getManager()")
-    }
     api("com.fifesoft:rsyntaxtextarea") {
         because("JSyntaxTextArea extends RSyntaxTextArea")
     }

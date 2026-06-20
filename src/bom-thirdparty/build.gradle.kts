@@ -41,7 +41,6 @@ dependencies {
         // to make runtime classpath consistent with the compile one.
         api("org.ow2.asm:asm:9.9")
 
-        api("bsf:bsf:2.4.0")
         api("cglib:cglib-nodep:3.3.0")
         api("com.fifesoft:rsyntaxtextarea:3.6.2")
         api("com.github.ben-manes.caffeine:caffeine:3.2.3")
