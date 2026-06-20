@@ -25,6 +25,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,6 +37,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -46,6 +49,8 @@ import javax.swing.DefaultComboBoxModel;
 import javax.swing.ImageIcon;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
@@ -64,8 +69,10 @@ import javax.swing.tree.TreeSelectionModel;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.assertions.AssertionResult;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
@@ -464,6 +471,17 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.setCellRenderer(new ResultsNodeRenderer());
         jTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         jTree.addTreeSelectionListener(this);
+        jTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                showResultTreePopup(event);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showResultTreePopup(event);
+            }
+        });
         jTree.setRootVisible(false);
         jTree.setShowsRootHandles(true);
         JScrollPane treePane = new JScrollPane(jTree);
@@ -477,6 +495,113 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         autoScrollCB.addItemListener(this);
         leftPane.add(autoScrollCB, BorderLayout.SOUTH);
         return leftPane;
+    }
+
+    private void showResultTreePopup(MouseEvent event) {
+        if (!event.isPopupTrigger()) {
+            return;
+        }
+        TreePath resultPath = jTree.getPathForLocation(event.getX(), event.getY());
+        if (resultPath == null) {
+            return;
+        }
+        jTree.setSelectionPath(resultPath);
+
+        SampleResult sampleResult = getSampleResult(resultPath);
+        JMeterTreeNode testPlanNode = findTestPlanNode(sampleResult);
+        JMenuItem jumpTo = new JMenuItem("Jump to");
+        jumpTo.setEnabled(testPlanNode != null);
+        jumpTo.addActionListener(e -> jumpToTestPlanElement(testPlanNode));
+
+        JPopupMenu popup = new JPopupMenu();
+        popup.add(jumpTo);
+        popup.show(jTree, event.getX(), event.getY());
+    }
+
+    private static SampleResult getSampleResult(TreePath resultPath) {
+        Object pathComponent = resultPath.getLastPathComponent();
+        if (!(pathComponent instanceof DefaultMutableTreeNode node)) {
+            return null;
+        }
+        for (DefaultMutableTreeNode current = node; current != null; current = (DefaultMutableTreeNode) current.getParent()) {
+            if (current.getUserObject() instanceof SampleResult sampleResult) {
+                return sampleResult;
+            }
+        }
+        return null;
+    }
+
+    private static JMeterTreeNode findTestPlanNode(SampleResult sampleResult) {
+        if (sampleResult == null || sampleResult.getSourceTestElementPath().isEmpty()) {
+            return null;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return null;
+        }
+        List<SampleResult.TestElementPathEntry> sourcePath = sampleResult.getSourceTestElementPath();
+        JMeterTreeNode current = findDescendant((JMeterTreeNode) guiPackage.getTreeModel().getRoot(), sourcePath.get(0));
+        for (SampleResult.TestElementPathEntry pathEntry : sourcePath.subList(1, sourcePath.size())) {
+            current = findChild(current, pathEntry);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    private static JMeterTreeNode findDescendant(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
+        JMeterTreeNode child = findChild(parent, pathEntry);
+        if (child != null) {
+            return child;
+        }
+        Enumeration<?> children = parent.children();
+        while (children.hasMoreElements()) {
+            JMeterTreeNode descendant = findDescendant((JMeterTreeNode) children.nextElement(), pathEntry);
+            if (descendant != null) {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
+    private static JMeterTreeNode findChild(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
+        if (parent == null) {
+            return null;
+        }
+        int occurrence = 0;
+        Enumeration<?> children = parent.children();
+        while (children.hasMoreElements()) {
+            JMeterTreeNode child = (JMeterTreeNode) children.nextElement();
+            Object userObject = child.getUserObject();
+            if (userObject != null
+                    && userObject.getClass().getName().equals(pathEntry.className())
+                    && Objects.equals(child.getName(), pathEntry.name())) {
+                if (occurrence == pathEntry.occurrence()) {
+                    return child;
+                }
+                occurrence++;
+            }
+        }
+        return null;
+    }
+
+    private static void jumpToTestPlanElement(JMeterTreeNode testPlanNode) {
+        if (testPlanNode == null) {
+            return;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null || guiPackage.getTreeListener() == null) {
+            return;
+        }
+        JTree testPlanTree = guiPackage.getTreeListener().getJTree();
+        if (testPlanTree == null) {
+            return;
+        }
+        TreePath testPlanPath = new TreePath(testPlanNode.getPath());
+        testPlanTree.setSelectionPath(testPlanPath);
+        testPlanTree.scrollPathToVisible(testPlanPath);
+        testPlanTree.requestFocusInWindow();
     }
 
     /**

@@ -18,6 +18,7 @@
 package org.apache.jmeter.control
 
 import org.apache.jmeter.testelement.schema.BooleanPropertyDescriptor
+import org.apache.jmeter.testelement.schema.StringPropertyDescriptor
 import org.apiguardian.api.API
 
 /**
@@ -33,4 +34,28 @@ public abstract class TransactionControllerSchema : GenericControllerSchema() {
 
     public val includeTimers: BooleanPropertyDescriptor<TransactionControllerSchema>
         by boolean("TransactionController.includeTimers", default = true)
+
+    public val delayMode: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.delayMode", default = "Disabled")
+
+    public val fixedDelay: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.fixedDelay", default = "0")
+
+    public val delayMin: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.delayMin", default = "0")
+
+    public val delayMax: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.delayMax", default = "0")
+
+    public val pacingMode: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.pacingMode", default = "Disabled")
+
+    public val fixedPacing: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.fixedPacing", default = "0")
+
+    public val pacingMin: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.pacingMin", default = "0")
+
+    public val pacingMax: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.pacingMax", default = "0")
 }

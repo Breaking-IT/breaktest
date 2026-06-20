@@ -23,6 +23,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.jmeter.assertions.Assertion;
@@ -36,6 +37,7 @@ import org.apache.jmeter.engine.util.NoConfigMerge;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.samplers.SampleListener;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.TestElement;
@@ -245,6 +247,7 @@ public class TestCompiler implements HashTreeTraverser {
         SamplePackage pack = new SamplePackage(configs, listeners, timers, assertions,
                 posts, pres, controllers);
         pack.setSampler(sam);
+        pack.setSourceTestElementPath(createTestElementPath(stack));
         pack.setRunningVersion(true);
         samplerConfigMap.put(sam, pack);
     }
@@ -272,8 +275,40 @@ public class TestCompiler implements HashTreeTraverser {
         SamplePackage pack = new SamplePackage(configs, listeners, timers, assertions,
                 posts, pres, controllers);
         pack.setSampler(new TransactionSampler(tc, tc.getName()));
+        pack.setSourceTestElementPath(createTestElementPath(stack));
         pack.setRunningVersion(true);
         transactionControllerConfigMap.put(tc, pack);
+    }
+
+    private List<SampleResult.TestElementPathEntry> createTestElementPath(List<? extends TestElement> path) {
+        List<SampleResult.TestElementPathEntry> result = new ArrayList<>(path.size());
+        for (int i = 0; i < path.size(); i++) {
+            TestElement element = path.get(i);
+            result.add(new SampleResult.TestElementPathEntry(
+                    element.getClass().getName(),
+                    element.getName(),
+                    findSiblingOccurrence(path, i)));
+        }
+        return result;
+    }
+
+    private int findSiblingOccurrence(List<? extends TestElement> path, int depth) {
+        if (depth == 0) {
+            return 0;
+        }
+        TestElement element = path.get(depth);
+        int occurrence = 0;
+        for (Object sibling : testTree.list(path.subList(0, depth))) {
+            if (sibling == element) {
+                return occurrence;
+            }
+            if (sibling instanceof TestElement siblingElement
+                    && siblingElement.getClass().getName().equals(element.getClass().getName())
+                    && Objects.equals(siblingElement.getName(), element.getName())) {
+                occurrence++;
+            }
+        }
+        return occurrence;
     }
 
     /**

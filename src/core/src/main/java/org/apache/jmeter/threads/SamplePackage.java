@@ -25,6 +25,7 @@ import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.samplers.SampleListener;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.timers.Timer;
@@ -59,6 +60,8 @@ public class SamplePackage {
     private final List<Controller> controllers;
 
     private Sampler sampler;
+
+    private List<SampleResult.TestElementPathEntry> sourceTestElementPath = List.of();
 
     public SamplePackage(
             List<ConfigTestElement> configs,
@@ -207,6 +210,16 @@ public class SamplePackage {
      */
     public void setSampler(Sampler s) {
         sampler = s;
+    }
+
+    public List<SampleResult.TestElementPathEntry> getSourceTestElementPath() {
+        return sourceTestElementPath;
+    }
+
+    public void setSourceTestElementPath(List<SampleResult.TestElementPathEntry> sourceTestElementPath) {
+        this.sourceTestElementPath = sourceTestElementPath == null || sourceTestElementPath.isEmpty()
+                ? List.of()
+                : List.copyOf(sourceTestElementPath);
     }
 
     /**

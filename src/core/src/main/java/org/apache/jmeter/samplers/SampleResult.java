@@ -286,6 +286,12 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     private transient int subResultIndex;
 
+    private transient List<TestElementPathEntry> sourceTestElementPath = Collections.emptyList();
+
+    public record TestElementPathEntry(String className, String name, int occurrence) implements Serializable {
+        private static final long serialVersionUID = 1L;
+    }
+
     /**
      * Cache for responseData as string to avoid multiple computations
      */
@@ -336,6 +342,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         localEndpoint = res.localEndpoint;//OK
         setJMeterVariables(res.getJMeterVariables());
         jMeterVariablesSet = res.jMeterVariablesSet;
+        setSourceTestElementPath(res.getSourceTestElementPath());
         parent = res.parent;
         pauseTime = res.pauseTime;
         requestHeaders = res.requestHeaders;//OK
@@ -1516,6 +1523,16 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     public boolean hasJMeterVariables() {
         return jMeterVariablesSet;
+    }
+
+    public void setSourceTestElementPath(List<TestElementPathEntry> sourceTestElementPath) {
+        this.sourceTestElementPath = sourceTestElementPath == null || sourceTestElementPath.isEmpty()
+                ? Collections.emptyList()
+                : List.copyOf(sourceTestElementPath);
+    }
+
+    public List<TestElementPathEntry> getSourceTestElementPath() {
+        return sourceTestElementPath == null ? Collections.emptyList() : sourceTestElementPath;
     }
 
     /**

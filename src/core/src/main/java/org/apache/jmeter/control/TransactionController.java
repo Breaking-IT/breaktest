@@ -18,6 +18,8 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -30,6 +32,7 @@ import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.SamplePackage;
+import org.apache.jorphan.util.JMeterStopThreadException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +53,14 @@ public class TransactionController extends GenericController implements SampleLi
     private static final long serialVersionUID = 234L;
 
     private static final String TRUE = Boolean.toString(true); // i.e. "true"
+
+    public static final String DELAY_DISABLED = "Disabled"; // $NON-NLS-1$
+
+    public static final String DELAY_FIXED = "Fixed"; // $NON-NLS-1$
+
+    public static final String DELAY_RANDOM = "Random"; // $NON-NLS-1$
+
+    public static final String DELAY_GAUSSIAN_RANDOM = "Gaussian Random"; // $NON-NLS-1$
 
     private static final Logger log = LoggerFactory.getLogger(TransactionController.class);
 
@@ -91,10 +102,21 @@ public class TransactionController extends GenericController implements SampleLi
     private transient long prevEndTime;
 
     /**
+     * Next scheduled transaction start time, used to calculate start-to-start pacing without drift.
+     */
+    private transient long nextPacingStartTime = -1;
+
+    /**
      * Creates a Transaction Controller
      */
     public TransactionController() {
         lnf = new ListenerNotifier();
+    }
+
+    @Override
+    public void initialize() {
+        nextPacingStartTime = -1;
+        super.initialize();
     }
 
     @Override
@@ -158,6 +180,9 @@ public class TransactionController extends GenericController implements SampleLi
             if (log.isDebugEnabled()) {
                 log.debug("Start of transaction {}", getName());
             }
+            applyTransactionPacing();
+            applyTransactionDelay();
+            recordTransactionStart(System.currentTimeMillis());
             transactionSampler = new TransactionSampler(this, getName());
         }
 
@@ -195,6 +220,9 @@ public class TransactionController extends GenericController implements SampleLi
     private Sampler nextWithoutTransactionSampler() {
         if (isFirst()) // must be the start of the subtree
         {
+            applyTransactionPacing();
+            applyTransactionDelay();
+            recordTransactionStart(System.currentTimeMillis());
             calls = 0;
             noFailingSamples = 0;
             res = new SampleResult();
@@ -348,5 +376,198 @@ public class TransactionController extends GenericController implements SampleLi
      */
     public boolean isIncludeTimers() {
         return get(getSchema().getIncludeTimers());
+    }
+
+    public void setDelayMode(String delayMode) {
+        set(getSchema().getDelayMode(), delayMode);
+    }
+
+    public String getDelayMode() {
+        return get(getSchema().getDelayMode());
+    }
+
+    public void setFixedDelay(String fixedDelay) {
+        set(getSchema().getFixedDelay(), fixedDelay);
+    }
+
+    public String getFixedDelay() {
+        return getString(getSchema().getFixedDelay());
+    }
+
+    public void setDelayMin(String delayMin) {
+        set(getSchema().getDelayMin(), delayMin);
+    }
+
+    public String getDelayMin() {
+        return getString(getSchema().getDelayMin());
+    }
+
+    public void setDelayMax(String delayMax) {
+        set(getSchema().getDelayMax(), delayMax);
+    }
+
+    public String getDelayMax() {
+        return getString(getSchema().getDelayMax());
+    }
+
+    public void setPacingMode(String pacingMode) {
+        set(getSchema().getPacingMode(), pacingMode);
+    }
+
+    public String getPacingMode() {
+        return get(getSchema().getPacingMode());
+    }
+
+    public void setFixedPacing(String fixedPacing) {
+        set(getSchema().getFixedPacing(), fixedPacing);
+    }
+
+    public String getFixedPacing() {
+        return getString(getSchema().getFixedPacing());
+    }
+
+    public void setPacingMin(String pacingMin) {
+        set(getSchema().getPacingMin(), pacingMin);
+    }
+
+    public String getPacingMin() {
+        return getString(getSchema().getPacingMin());
+    }
+
+    public void setPacingMax(String pacingMax) {
+        set(getSchema().getPacingMax(), pacingMax);
+    }
+
+    public String getPacingMax() {
+        return getString(getSchema().getPacingMax());
+    }
+
+    private void applyTransactionPacing() {
+        long pacingDelay = computeTransactionPacingDelay();
+        if (pacingDelay <= 0) {
+            return;
+        }
+        sleep(pacingDelay, "pacing");
+    }
+
+    private void applyTransactionDelay() {
+        long delay = computeTransactionDelay();
+        if (delay <= 0) {
+            return;
+        }
+        sleep(delay, "delay");
+    }
+
+    private static void sleep(long delay, String reason) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new JMeterStopThreadException("Transaction Controller " + reason + " was interrupted");
+        }
+    }
+
+    private long computeTransactionDelay() {
+        String mode = getDelayMode();
+        return switch (mode) {
+            case DELAY_FIXED -> readDelayValue(getFixedDelay(), "fixed delay");
+            case DELAY_RANDOM -> randomDelay();
+            case DELAY_GAUSSIAN_RANDOM -> gaussianRandomDelay();
+            default -> 0;
+        };
+    }
+
+    private long computeTransactionPacingDelay() {
+        return computeTransactionPacingDelay(System.currentTimeMillis());
+    }
+
+    private long computeTransactionPacingDelay(long now) {
+        if (nextPacingStartTime < 0) {
+            return 0;
+        }
+        return Math.max(0, nextPacingStartTime - now);
+    }
+
+    private long computePacingTarget() {
+        String mode = getPacingMode();
+        return switch (mode) {
+            case DELAY_FIXED -> readDelayValue(getFixedPacing(), "fixed pacing");
+            case DELAY_RANDOM -> randomPacing();
+            case DELAY_GAUSSIAN_RANDOM -> gaussianRandomPacing();
+            default -> 0;
+        };
+    }
+
+    private long randomDelay() {
+        long min = readDelayValue(getDelayMin(), "minimum delay");
+        long max = readDelayValue(getDelayMax(), "maximum delay");
+        validateDelayRange(min, max);
+        return min == max ? min : ThreadLocalRandom.current().nextLong(min, max + 1);
+    }
+
+    private long randomPacing() {
+        long min = readDelayValue(getPacingMin(), "minimum pacing");
+        long max = readDelayValue(getPacingMax(), "maximum pacing");
+        validateDelayRange(min, max);
+        return min == max ? min : ThreadLocalRandom.current().nextLong(min, max + 1);
+    }
+
+    private long gaussianRandomDelay() {
+        long min = readDelayValue(getDelayMin(), "minimum delay");
+        long max = readDelayValue(getDelayMax(), "maximum delay");
+        validateDelayRange(min, max);
+        if (min == max) {
+            return min;
+        }
+        double midpoint = min + (max - min) / 2.0d;
+        double standardDeviation = (max - min) / 6.0d;
+        long delay = Math.round(midpoint + ThreadLocalRandom.current().nextGaussian() * standardDeviation);
+        return Math.clamp(delay, min, max);
+    }
+
+    private long gaussianRandomPacing() {
+        long min = readDelayValue(getPacingMin(), "minimum pacing");
+        long max = readDelayValue(getPacingMax(), "maximum pacing");
+        validateDelayRange(min, max);
+        if (min == max) {
+            return min;
+        }
+        double midpoint = min + (max - min) / 2.0d;
+        double standardDeviation = (max - min) / 6.0d;
+        long pacing = Math.round(midpoint + ThreadLocalRandom.current().nextGaussian() * standardDeviation);
+        return Math.clamp(pacing, min, max);
+    }
+
+    private void recordTransactionStart(long actualStartTime) {
+        long targetPacing = computePacingTarget();
+        if (targetPacing <= 0) {
+            nextPacingStartTime = actualStartTime;
+        } else if (nextPacingStartTime < 0) {
+            nextPacingStartTime = actualStartTime + targetPacing;
+        } else {
+            nextPacingStartTime += targetPacing;
+        }
+    }
+
+    private static long readDelayValue(String rawValue, String fieldName) {
+        try {
+            long value = Long.parseLong(rawValue.trim());
+            if (value < 0) {
+                throw new IllegalArgumentException("Transaction Controller " + fieldName + " must be >= 0");
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Transaction Controller " + fieldName
+                    + " must resolve to a whole number of milliseconds: " + rawValue, e);
+        }
+    }
+
+    private static void validateDelayRange(long min, long max) {
+        if (max < min) {
+            throw new IllegalArgumentException("Transaction Controller maximum delay must be >= minimum delay");
+        }
+        if (max == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Transaction Controller maximum delay must be less than Long.MAX_VALUE");
+        }
     }
 }
