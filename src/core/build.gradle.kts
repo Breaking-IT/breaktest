@@ -41,7 +41,6 @@ dependencies {
         exclude("io.github.x-stream", "mxparser")
     }
     api("org.jspecify:jspecify")
-    api("org.apache.logging.log4j:log4j-1.2-api")
     api("org.apache.logging.log4j:log4j-api")
     api("org.apache.logging.log4j:log4j-core") {
         because("GuiLogEventAppender is using log4j-core to implement GUI-based log appender")

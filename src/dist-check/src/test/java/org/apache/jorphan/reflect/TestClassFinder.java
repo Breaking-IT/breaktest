@@ -86,7 +86,7 @@ public class TestClassFinder {
                 libDirs,
                 new Class<?>[] { Exception.class },
                 false,
-                "org.apache.log",
+                "org.apache.logging",
                 "core");
         assertTrue(findClassesThatExtend.stream().noneMatch(s -> s.contains("core")));
         assertFalse(findClassesThatExtend.isEmpty());

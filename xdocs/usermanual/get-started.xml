@@ -605,9 +605,8 @@ breaktest -Duser.dir=/home/mstover/jmeter_stuff \
             Logger Reference
           </td>
           <td>
-            Logger reference through <code>LoggingManager</code>:
-            <source>LoggingManager.getLoggerFor(String category);
-LoggingManager.getLoggerForClass();</source>
+            Logger reference through the removed LogKit compatibility API:
+            <source>Legacy LoggingManager / LogKit Logger references</source>
           </td>
           <td>
             Use SLF4J API with either category or explicit class:
