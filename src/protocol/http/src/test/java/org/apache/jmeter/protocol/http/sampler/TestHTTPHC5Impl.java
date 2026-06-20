@@ -88,10 +88,10 @@ public class TestHTTPHC5Impl {
         assertEquals(HTTPHC4Impl.class,
                 HTTPSamplerFactory.getImplementation(hc4.getImplementation(), hc4).getClass());
 
-        HTTPSamplerProxy java = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_JAVA);
-        java.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
-        assertEquals(HTTPJavaImpl.class,
-                HTTPSamplerFactory.getImplementation(java.getImplementation(), java).getClass());
+        HTTPSamplerProxy legacyJava = new HTTPSamplerProxy("Java");
+        legacyJava.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+        assertEquals(HTTPHC5Impl.class,
+                HTTPSamplerFactory.getImplementation(legacyJava.getImplementation(), legacyJava).getClass());
     }
 
     @Test

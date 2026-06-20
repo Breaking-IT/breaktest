@@ -27,10 +27,8 @@ import org.apache.jorphan.util.StringUtilities;
  */
 public final class HTTPSamplerFactory {
 
-    // N.B. These values are used in jmeter.properties (jmeter.httpsampler) - do not change
-    // They can also be used as the implementation name
-    /** Use the default Java HTTP implementation */
-    public static final String HTTP_SAMPLER_JAVA = "HTTPSampler"; //$NON-NLS-1$
+    // Legacy sampler names accepted when loading old test plans and properties.
+    static final String LEGACY_HTTP_SAMPLER_JAVA = "HTTPSampler"; //$NON-NLS-1$
 
     /** Use Apache HTTPClient HTTP implementation */
     public static final String HTTP_SAMPLER_APACHE = "HTTPSampler2"; //$NON-NLS-1$
@@ -42,7 +40,7 @@ public final class HTTPSamplerFactory {
 
     public static final String IMPL_HTTP_CLIENT3_1 = "HttpClient3.1"; // $NON-NLS-1$
 
-    public static final String IMPL_JAVA = "Java"; // $NON-NLS-1$
+    static final String LEGACY_IMPL_JAVA = "Java"; // $NON-NLS-1$
     //- JMX
 
     public static final String DEFAULT_CLASSNAME =
@@ -64,7 +62,7 @@ public final class HTTPSamplerFactory {
     /**
      * Create a new instance of the required sampler type
      *
-     * @param alias HTTP_SAMPLER or HTTP_SAMPLER_APACHE or IMPL_HTTP_CLIENT3_1 or IMPL_HTTP_CLIENT4 or IMPL_HTTP_CLIENT5
+     * @param alias legacy sampler name, IMPL_HTTP_CLIENT3_1, IMPL_HTTP_CLIENT4, or IMPL_HTTP_CLIENT5
      * @return the appropriate sampler
      * @throws UnsupportedOperationException if alias is not recognised
      */
@@ -72,8 +70,8 @@ public final class HTTPSamplerFactory {
         if (StringUtilities.isEmpty(alias)) {
             return new HTTPSamplerProxy();
         }
-        if (alias.equals(HTTP_SAMPLER_JAVA) || alias.equals(IMPL_JAVA)) {
-            return new HTTPSamplerProxy(IMPL_JAVA);
+        if (alias.equals(LEGACY_HTTP_SAMPLER_JAVA) || alias.equals(LEGACY_IMPL_JAVA)) {
+            return new HTTPSamplerProxy(IMPL_HTTP_CLIENT5);
         }
         if (alias.equals(IMPL_HTTP_CLIENT5)) {
             return new HTTPSamplerProxy(IMPL_HTTP_CLIENT5);
@@ -85,7 +83,7 @@ public final class HTTPSamplerFactory {
     }
 
     public static String[] getImplementations(){
-        return new String[]{IMPL_HTTP_CLIENT5, IMPL_HTTP_CLIENT4, IMPL_JAVA};
+        return new String[]{IMPL_HTTP_CLIENT5, IMPL_HTTP_CLIENT4};
     }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
@@ -95,9 +93,10 @@ public final class HTTPSamplerFactory {
         if (StringUtilities.isBlank(impl)){
             impl = DEFAULT_CLASSNAME;
         }
-        if (IMPL_JAVA.equals(impl) || HTTP_SAMPLER_JAVA.equals(impl)) {
-            return new HTTPJavaImpl(base);
-        } else if (IMPL_HTTP_CLIENT5.equals(impl)) {
+        if (LEGACY_IMPL_JAVA.equals(impl) || LEGACY_HTTP_SAMPLER_JAVA.equals(impl)) {
+            impl = IMPL_HTTP_CLIENT5;
+        }
+        if (IMPL_HTTP_CLIENT5.equals(impl)) {
             if (base.isHttp2Protocol()) {
                 return new HTTPHC5H2Impl(base);
             }

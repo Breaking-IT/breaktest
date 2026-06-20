@@ -864,7 +864,7 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         assertNotNull(boundaryString);
         byte[] expectedPostBody = createExpectedFormDataOutput(boundaryString,
                 contentEncoding, titleField, titleValue, descriptionField,
-                descriptionValue, true);
+                descriptionValue, true, isHttpClient5(sampler));
         // Check request headers
         checkHeaderContentType(res.getRequestHeaders(), "multipart/form-data" + "; boundary=" + boundaryString);
         // Check post body from the result query string
@@ -913,7 +913,7 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         byte[] expectedPostBody = createExpectedFormAndUploadOutput(
                 boundaryString, contentEncoding, titleField, titleValue,
                 descriptionField, descriptionValue, fileField, fileValue,
-                fileMimeType, fileContent);
+                fileMimeType, fileContent, isHttpClient5(sampler));
         // Check request headers
         checkHeaderContentType(res.getRequestHeaders(), "multipart/form-data" + "; boundary=" + boundaryString);
         // We cannot check post body from the result query string, since that will not contain
@@ -949,11 +949,7 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         // Check URL
         assertEquals(sampler.getUrl(), res.getURL());
         // Check request headers
-        if (sampler instanceof HTTPSampler) {
-            checkHeaderContentType(res.getRequestHeaders(), null);
-        } else {
-            checkHeaderContentType(res.getRequestHeaders(), expectedContentType);
-        }
+        checkHeaderContentType(res.getRequestHeaders(), expectedContentType);
         // Check post body from the result query string
         checkArraysHaveSameContent(expectedPostBody.getBytes(contentEncoding),
                 res.getQueryString().getBytes(contentEncoding), contentEncoding,
@@ -972,11 +968,7 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             fail("No header and body section found");
         }
         // Check response headers
-        if (sampler instanceof HTTPSampler) {
-            checkHeaderContentType(res.getRequestHeaders(), null);
-        } else {
-            checkHeaderContentType(headersSent, expectedContentType);
-        }
+        checkHeaderContentType(headersSent, expectedContentType);
         // Check post body which was sent to the mirror server, and
         // sent back by the mirror server
         checkArraysHaveSameContent(expectedPostBody.getBytes(contentEncoding),
@@ -1411,7 +1403,8 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             String titleValue,
             String descriptionField,
             String descriptionValue,
-            boolean lastMultipart) throws IOException {
+            boolean lastMultipart,
+            boolean httpClient5) throws IOException {
         // The encoding used for http headers and control information
         final byte[] DASH_DASH = "--".getBytes(StandardCharsets.ISO_8859_1);
 
@@ -1422,6 +1415,10 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         output.write(boundaryString.getBytes(StandardCharsets.ISO_8859_1));
         output.write(CRLF);
 
+        if (httpClient5) {
+            output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write("Content-Disposition: form-data; name=\"".getBytes(StandardCharsets.ISO_8859_1));
         output.write(titleField.getBytes(StandardCharsets.ISO_8859_1));
         output.write("\"".getBytes(StandardCharsets.ISO_8859_1));
@@ -1432,8 +1429,10 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             output.write(contentEncoding.getBytes(StandardCharsets.ISO_8859_1));
         }
         output.write(CRLF);
-        output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
-        output.write(CRLF);
+        if (!httpClient5) {
+            output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write(CRLF);
         if (contentEncoding != null) {
             output.write(titleValue.getBytes(contentEncoding));
@@ -1444,6 +1443,10 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         output.write(DASH_DASH);
         output.write(boundaryString.getBytes(StandardCharsets.ISO_8859_1));
         output.write(CRLF);
+        if (httpClient5) {
+            output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write("Content-Disposition: form-data; name=\"".getBytes(StandardCharsets.ISO_8859_1));
         output.write(descriptionField.getBytes(StandardCharsets.ISO_8859_1));
         output.write("\"".getBytes(StandardCharsets.ISO_8859_1));
@@ -1454,8 +1457,10 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             output.write(contentEncoding.getBytes(StandardCharsets.ISO_8859_1));
         }
         output.write(CRLF);
-        output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
-        output.write(CRLF);
+        if (!httpClient5) {
+            output.write("Content-Transfer-Encoding: 8bit".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write(CRLF);
         if (contentEncoding != null) {
             output.write(descriptionValue.getBytes(contentEncoding));
@@ -1481,12 +1486,17 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             String fileField,
             File file,
             String mimeType,
-            byte[] fileContent) throws IOException {
+            byte[] fileContent,
+            boolean httpClient5) throws IOException {
         final byte[] DASH_DASH = "--".getBytes(StandardCharsets.ISO_8859_1);
 
         final ByteArrayOutputStream output = new ByteArrayOutputStream();
         // replace all backslash with double backslash
         String filename = file.getName();
+        if (httpClient5) {
+            output.write("Content-Transfer-Encoding: binary".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write("Content-Disposition: form-data; name=\"".getBytes(StandardCharsets.ISO_8859_1));
         output.write(fileField.getBytes(StandardCharsets.ISO_8859_1));
         output.write(("\"; filename=\"" + filename + "\"").getBytes(StandardCharsets.ISO_8859_1));
@@ -1494,8 +1504,10 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
         output.write("Content-Type: ".getBytes(StandardCharsets.ISO_8859_1));
         output.write(mimeType.getBytes(StandardCharsets.ISO_8859_1));
         output.write(CRLF);
-        output.write("Content-Transfer-Encoding: binary".getBytes(StandardCharsets.ISO_8859_1));
-        output.write(CRLF);
+        if (!httpClient5) {
+            output.write("Content-Transfer-Encoding: binary".getBytes(StandardCharsets.ISO_8859_1));
+            output.write(CRLF);
+        }
         output.write(CRLF);
         output.write(fileContent);
         output.write(CRLF);
@@ -1524,13 +1536,14 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
             String fileField,
             File fileValue,
             String fileMimeType,
-            byte[] fileContent) throws IOException {
+            byte[] fileContent,
+            boolean httpClient5) throws IOException {
         // Create the multi-parts
         byte[] formdataMultipart = createExpectedFormDataOutput(boundaryString,
                 contentEncoding, titleField, titleValue, descriptionField,
-                descriptionValue, false);
+                descriptionValue, false, httpClient5);
         byte[] fileMultipart = createExpectedFilepartOutput(boundaryString,
-                fileField, fileValue, fileMimeType, fileContent);
+                fileField, fileValue, fileMimeType, fileContent, httpClient5);
 
         // Join the two multiparts
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -1545,9 +1558,13 @@ public class TestHTTPSamplersAgainstHttpMirrorServer extends JMeterTestCase {
 
     private static HTTPSamplerBase createHttpSampler(int samplerType) {
         return switch (samplerType) {
-            case HTTP_SAMPLER -> new HTTPSampler();
+            case HTTP_SAMPLER -> new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
             case HTTP_SAMPLER3 -> new HTTPSampler3();
             default -> throw new IllegalArgumentException("Unexpected type: " + samplerType);
         };
+    }
+
+    private static boolean isHttpClient5(HTTPSamplerBase sampler) {
+        return HTTPSamplerFactory.IMPL_HTTP_CLIENT5.equals(sampler.getImplementation());
     }
 }

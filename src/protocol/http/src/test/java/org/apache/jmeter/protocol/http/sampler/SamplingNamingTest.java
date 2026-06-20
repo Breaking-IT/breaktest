@@ -38,7 +38,7 @@ class SamplingNamingTest extends JMeterTestCase implements JMeterSerialTest {
     private static Stream<Arguments> getImplementations() {
         return Stream.of(
                 Arguments.of(HTTPSamplerFactory.IMPL_HTTP_CLIENT4),
-                Arguments.of(HTTPSamplerFactory.IMPL_JAVA));
+                Arguments.of(HTTPSamplerFactory.IMPL_HTTP_CLIENT5));
     }
 
     @ParameterizedTest(name="Run {index}: implementation:{0}")

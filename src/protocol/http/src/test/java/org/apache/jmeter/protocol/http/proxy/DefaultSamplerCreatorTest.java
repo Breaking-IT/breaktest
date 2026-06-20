@@ -19,8 +19,8 @@ package org.apache.jmeter.protocol.http.proxy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import org.apache.jmeter.protocol.http.sampler.HTTPSampler;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -40,7 +40,7 @@ class DefaultSamplerCreatorTest {
     })
     void computeSamplerNameWithCounter(int sampleNameMode, String format, String expectedName) {
         DefaultSamplerCreator samplerCreator = new DefaultSamplerCreator();
-        HTTPSamplerBase sampler = new HTTPSampler();
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
         sampler.setPath("/some/path");
         sampler.setDomain("jmeter.invalid");
         sampler.setMethod("GET");

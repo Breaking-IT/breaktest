@@ -32,7 +32,7 @@ public class PutWriterTest {
     @Test
     public void testSetHeadersWithNoParams() throws Exception {
         URLConnection uc = new NullURLConnection();
-        HTTPSampler sampler = new HTTPSampler();
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
         sampler.setHTTPFiles(new HTTPFileArg[] { new HTTPFileArg("file1", "",
                 "mime1") });
         PutWriter pw = new PutWriter();
@@ -43,7 +43,7 @@ public class PutWriterTest {
     @Test
     public void testSetHeadersWithParams() throws Exception {
         URLConnection uc = new NullURLConnection();
-        HTTPSampler sampler = new HTTPSampler();
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
         sampler.setHTTPFiles(new HTTPFileArg[] { new HTTPFileArg("file2",
                 "param2", "mime2") });
         Arguments arguments = new Arguments();

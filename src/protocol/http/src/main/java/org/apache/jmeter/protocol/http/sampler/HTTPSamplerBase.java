@@ -188,7 +188,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public static final String URL = "HTTPSampler.URL"; // $NON-NLS-1$
 
     /**
-     * IP source to use - does not apply to Java HTTP implementation currently
+     * IP source to use
      */
     public static final String IP_SOURCE = "HTTPSampler.ipSource"; // $NON-NLS-1$
 
@@ -1722,7 +1722,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         if (index >= 0) {
             // see HTTPHC3Impl#getConnectionHeaders
             // see HTTPHC4Impl#getConnectionHeaders
-            // see HTTPJavaImpl#getConnectionHeaders
+            // see HTTPHC4Impl#getConnectionHeaders
             //': ' is used by JMeter to fill-in requestHeaders, see getConnectionHeaders
             final String userAgentPrefix = USER_AGENT+": ";
             String userAgentHdr = res.substring(
@@ -2328,7 +2328,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * set IP source to use - does not apply to Java HTTP implementation currently
+     * set IP source to use
      *
      * @param value IP source to use
      */
@@ -2337,7 +2337,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * get IP source to use - does not apply to Java HTTP implementation currently
+     * get IP source to use
      *
      * @return IP source to use
      */

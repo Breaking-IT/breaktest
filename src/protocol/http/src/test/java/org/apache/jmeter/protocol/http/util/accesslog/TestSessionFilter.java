@@ -27,7 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.jmeter.protocol.http.control.CookieManager;
-import org.apache.jmeter.protocol.http.sampler.HTTPSampler;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.junit.jupiter.api.Test;
 
 public class TestSessionFilter {
@@ -68,7 +68,7 @@ public class TestSessionFilter {
         Set<CookieManager> inUse = Collections
                 .synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
         SessionFilter filter = new SessionFilter(cm, inUse);
-        HTTPSampler sampler = new HTTPSampler();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         filter.isFiltered("1.2.3.4 ...", sampler);
         assertSame(cm.get("1.2.3.4"), sampler.getCookieManager());
         assertTrue(inUse.contains(sampler.getCookieManager()));

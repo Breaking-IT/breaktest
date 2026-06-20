@@ -64,7 +64,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 @TestElementMetadata(labelResource = "displayName")
-public class AccessLogSampler extends HTTPSampler implements TestBean,ThreadListener {
+public class AccessLogSampler extends HTTPSamplerProxy implements TestBean,ThreadListener {
     private static final Logger log = LoggerFactory.getLogger(AccessLogSampler.class);
 
     private static final long serialVersionUID = 233L; // Remember to change this when the class changes ...

@@ -60,8 +60,8 @@ public class HTTPSamplerBaseConverter extends TestElementConverter {
         final HTTPSamplerBase httpSampler = (HTTPSamplerBase) super.unmarshal(reader, context);
         // Help convert existing JMX files which use HTTPSampler[2] nodes
         String nodeName = reader.getNodeName();
-        if (nodeName.equals(HTTPSamplerFactory.HTTP_SAMPLER_JAVA)){
-            httpSampler.setImplementation(HTTPSamplerFactory.IMPL_JAVA);
+        if (nodeName.equals(HTTPSamplerFactory.LEGACY_HTTP_SAMPLER_JAVA)){
+            httpSampler.setImplementation(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         }
         if (nodeName.equals(HTTPSamplerFactory.HTTP_SAMPLER_APACHE)){
             httpSampler.setImplementation(HTTPSamplerFactory.IMPL_HTTP_CLIENT4);

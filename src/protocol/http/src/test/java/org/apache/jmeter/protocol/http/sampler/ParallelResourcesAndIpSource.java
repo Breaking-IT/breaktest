@@ -175,18 +175,7 @@ public class ParallelResourcesAndIpSource {
                 sourceIp instanceof Inet6Address && !targetHost.startsWith("[")) {
             // Connection from IPv4 to IPv6 must fail
             // Connection from IPv6 to IPv4 must fail
-            if (HTTPSamplerFactory.IMPL_JAVA.equals(httpImplementation)) {
-                // Java implementation is known to ignore source IP, so it should connect anyway
-                // pass to "successful" assertion below
-                Assumptions.assumeFalse(
-                        result.getResponseDataAsString().contains("SocketException: Protocol family unavailable"),
-                        "Java implementation might throw 'SocketException: Protocol family unavailable'"
-                                + " in case it connects from the wrong source IP");
-                Assumptions.assumeFalse(
-                        result.getResponseDataAsString().contains("BindException: Cannot assign requested address"),
-                        "Java implementation might throw 'BindException: Cannot assign requested address'"
-                                + " in case it connects from the wrong source IP");
-            } else if (result.isSuccessful() || result.isResponseCodeOK() ||
+            if (result.isSuccessful() || result.isResponseCodeOK() ||
                     !(result.getResponseDataAsString().contains("ConnectException") ||
                             result.getResponseDataAsString().contains("BindException") ||
                             // java.net.NoRouteToHostException: No route to host

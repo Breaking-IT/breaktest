@@ -419,15 +419,6 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.9 HTTP Java configuration" anchor="http_java_config">
-<properties>
-<property name="http.java.sampler.retries">
-    Number of connection retries performed by HTTP Java sampler before giving up.
-    <code>0</code> means no retry since version 3.0.<br/>
-    Defaults to: <code>0</code>
-</property>
-</properties>
-</section>
 <section name="&sect-num;.10 Apache HttpClient common properties" anchor="httpclient_common_properties">
 <properties>
 <property name="http.post_add_content_type_if_missing">
@@ -826,8 +817,6 @@ JMETER-SERVER</source>
     Change the default HTTP Sampler.<br/>
     Can be one of
     <dl>
-        <dt><code>HTTPSampler</code> or <code>Java</code></dt>
-        <dd>Use the <code>Java</code> Sampler</dd>
         <dt><code>HTTPSampler2</code></dt>
         <dt><code>HttpClient5</code></dt>
         <dd>Use Apache HTTPClient version 5 classic HTTP/1.1 implementation</dd>

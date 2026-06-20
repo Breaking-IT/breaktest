@@ -174,7 +174,6 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
 
     /**
      * Save the Last-Modified, Etag, and Expires headers if the result is cacheable.
-     * Version for Java implementation.
      * @param conn connection
      * @param res result
      */

@@ -139,8 +139,7 @@ Latency is set to the time it takes to login.
         </dd>
         <dt>HTTP Request</dt><dd>this has an implementation drop-down box, which selects the HTTP protocol implementation to be used:
           <dl>
-            <dt><code>Java</code></dt><dd>uses the HTTP implementation provided by the JVM.
-            This has some limitations in comparison with the HttpClient implementations - see below.</dd>
+            <dt><code>HttpClient5</code></dt><dd>uses Apache HttpComponents HttpClient 5.x.</dd>
             <dt><code>HTTPClient4</code></dt><dd>uses Apache HttpComponents HttpClient 4.x.</dd>
             <dt>Blank Value</dt><dd>does not set implementation on HTTP Samplers, so relies on HTTP Request Defaults if present or on <code>jmeter.httpsampler</code> property defined in <code>jmeter.properties</code></dd>
           </dl>
@@ -157,19 +156,6 @@ Latency is set to the time it takes to login.
         </ul>
         </dd>
         </dl>
-         <p>The Java HTTP implementation has some limitations:</p>
-         <ul>
-         <li>There is no control over how connections are re-used.
-         When a connection is released by JMeter, it may or may not be re-used by the same thread.</li>
-         <li>The API is best suited to single-threaded usage - various settings
-         are defined via system properties, and therefore apply to all connections.</li>
-         <li>No support of Kerberos authentication</li>
-         <li>It does not support client based certificate testing with Keystore Config.</li>
-         <li>Better control of Retry mechanism</li>
-         <li>It does not support virtual hosts.</li>
-         <li>It supports only the following methods: <code>GET</code>, <code>POST</code>, <code>HEAD</code>, <code>OPTIONS</code>, <code>PUT</code>, <code>DELETE</code> and <code>TRACE</code></li>
-         <li>Better control on DNS Caching with <complink name="DNS Cache Manager"/></li>
-         </ul>
          <note>Note: the <code>FILE</code> protocol is intended for testing purposes only.
          It is handled by the same code regardless of which HTTP Sampler is used.</note>
         <p>If the request requires server or proxy login authorization (i.e. where a browser would create a pop-up dialog box),
@@ -190,9 +176,6 @@ https.sessioncontext.shared=true
 <source>
 httpclient.reset_state_on_thread_group_iteration=true
 </source>
-        <note>
-         Note: this does not apply to the Java HTTP implementation.
-        </note>
         JMeter defaults to the SSL protocol level TLS.
         If the server needs a different level, e.g. <code>SSLv3</code>, change the JMeter property, for example:
 <source>
@@ -241,15 +224,14 @@ https.default.protocol=SSLv3
         <property name="Port" required="No, unless proxy hostname is specified">Port the proxy server is listening to.</property>
         <property name="Username" required="No">(Optional) username for proxy server.</property>
         <property name="Password" required="No">(Optional) password for proxy server. (N.B. this is stored unencrypted in the test plan)</property>
-        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient5</code>, <code>HttpClient4</code>.
+        <property name="Implementation" required="No"><code>HttpClient5</code>, <code>HttpClient4</code>.
         If not specified (and not defined by HTTP Request Defaults), the default depends on the value of the JMeter property
         <code>jmeter.httpsampler</code>, failing that, the HttpClient5 implementation is used.
         The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
         a separate async HttpClient 5 sampler implementation.</property>
         <property name="Protocol" required="No"><code>HTTP</code>, <code>HTTPS</code> or <code>FILE</code>. Default: <code>HTTP</code></property>
         <property name="Method" required="Yes"><code>GET</code>, <code>POST</code>, <code>HEAD</code>, <code>TRACE</code>,
-          <code>OPTIONS</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code> (not supported for
-          <code>JAVA</code> implementation). With <code>HttpClient5</code> and <code>HttpClient4</code>, the following methods related to WebDav are
+          <code>OPTIONS</code>, <code>PUT</code>, <code>DELETE</code>, <code>PATCH</code>. The following methods related to WebDav are
           also allowed: <code>COPY</code>, <code>LOCK</code>, <code>MKCOL</code>, <code>MOVE</code>,
           <code>PROPFIND</code>, <code>PROPPATCH</code>, <code>UNLOCK</code>, <code>REPORT</code>, <code>MKCALENDAR</code>,
           <code>SEARCH</code>.
@@ -467,27 +449,22 @@ If not using a file, attach a Header Manager to the sampler and define the Conte
  i.e. only <code>text/html</code> responses will be scanned</p>
 <b>Emulating slow connections:</b><br></br>
 <p>
-<code>HttpClient4</code> and <code>Java</code> Sampler support emulation of slow connections; see the following entries in <code>jmeter.properties</code>:
+<code>HttpClient4</code> supports emulation of slow connections; see the following entries in <code>jmeter.properties</code>:
 <source>
 # Define characters per second &gt; 0 to emulate slow connections
 #httpclient.socket.http.cps=0
 #httpclient.socket.https.cps=0
 </source>
-However the <code>Java</code> sampler only supports slow HTTPS connections.
 </p>
 <p><b>Response size calculation</b><br></br>
 
-<note>
-The <code>Java</code> implementation does not include transport overhead such as
-chunk headers in the response body size.<br></br>
-The <code>HttpClient4</code> implementation does include the overhead in the response body size,
-so the value may be greater than the number of bytes in the response content.
-</note>
+<note>The <code>HttpClient4</code> implementation includes transport overhead in the response body size,
+so the value may be greater than the number of bytes in the response content.</note>
 </p>
 <p>
 <b>Retry handling</b><br></br>
-By default retry has been set to 0 for both HttpClient4 and Java implementations, meaning no retry is attempted.<br/>
-For HttpClient4, the retry count can be overridden by setting the relevant JMeter property, for example:
+By default retry has been set to 0 for HttpClient4, meaning no retry is attempted.<br/>
+The retry count can be overridden by setting the relevant JMeter property, for example:
 
 <source>
 httpclient4.retrycount=3
@@ -498,8 +475,6 @@ If you want to retry for all methods, then set property
 <source>
 httpclient4.request_sent_retry_enabled=true
 </source></note>
-
-Note that the Java implementation does not retry neither by default, you can change this by setting <source>http.java.sampler.retries=3</source>
 </p>
 <p>
 <b>Note: Certificates does not conform to algorithm constraints</b><br></br>
@@ -977,11 +952,11 @@ are two interfaces you have to implement:</p>
 <li><code>org.apache.jmeter.protocol.http.util.accesslog.Generator</code></li>
 </ul>
 <p>The current implementation of AccessLogSampler uses the generator to create a new
-HTTPSampler. The servername, port and get images are set by AccessLogSampler. Next,
+HTTPSamplerProxy. The servername, port and get images are set by AccessLogSampler. Next,
 the parser is called with integer <code>1</code>, telling it to parse one entry. After that,
-<code>HTTPSampler.sample()</code> is called to make the request.</p>
+<code>HTTPSamplerProxy.sample()</code> is called to make the request.</p>
 <source>
-samp = (HTTPSampler) GENERATOR.generateRequest();
+samp = (HTTPSamplerProxy) GENERATOR.generateRequest();
 samp.setDomain(this.getDomain());
 samp.setPort(this.getPort());
 samp.setImageParser(this.isImageParser());
@@ -3525,10 +3500,8 @@ restricted using server authentication.  You see this type of authentication whe
 your browser to access a restricted page, and your browser displays a login dialog box.  JMeter
 transmits the login information when it encounters this type of page.</p>
 <p>
-The Authorization headers may not be shown in the Tree View Listener "<code>Request</code>" tab.
-The Java implementation does pre-emptive authentication, but it does not
-return the Authorization header when JMeter fetches the headers.
-The HttpComponents (HC 4.5.X) implementation defaults to pre-emptive since 3.2 and the header will be shown.
+The HttpComponents implementation defaults to pre-emptive authentication since 3.2 and the Authorization header will be shown
+in the Tree View Listener "<code>Request</code>" tab.
 To disable this, set the values as below, in which case authentication will only be performed in response to a challenge.
 </p>
 <p>
@@ -3562,7 +3535,7 @@ information for the user named, "<code>jmeter</code>".</property>
   <property name="Realm" required="No">The realm to use for NTLM.</property>
   <property name="Mechanism" required="No">Type of authentication to perform. JMeter can perform different types of authentications based on used Http Samplers:
 <dl>
-<dt>Java</dt><dd><code>BASIC</code></dd>
+<dt>HttpClient 5</dt><dd><code>BASIC</code>, <code>DIGEST</code> and <code>Kerberos</code></dd>
 <dt>HttpClient 4</dt><dd><code>BASIC</code>, <code>DIGEST</code> and <code>Kerberos</code></dd>
 </dl>
 </property>
@@ -3757,7 +3730,7 @@ All port values are treated equally; a sampler that does not specify a port will
         <property name="Port" required="No">Port the web server is listening to.</property>
         <property name="Connect Timeout" required="No">Connection Timeout. Number of milliseconds to wait for a connection to open.</property>
         <property name="Response Timeout" required="No">Response Timeout. Number of milliseconds to wait for a response.</property>
-        <property name="Implementation" required="No"><code>Java</code>, <code>HttpClient5</code>, <code>HttpClient4</code>.
+        <property name="Implementation" required="No"><code>HttpClient5</code>, <code>HttpClient4</code>.
         If not specified the default depends on the value of the JMeter property
         <code>jmeter.httpsampler</code>, failing that, the <code>HttpClient5</code> implementation is used.
         The <code>HttpClient5</code> implementation is the classic Apache HttpClient 5 HTTP/1.1 sampler; HTTP/2 requires
@@ -6477,7 +6450,7 @@ Both Chrome and Internet Explorer use the same trust store for certificates.
         <property name="Naming format" required="No">If <code>Use format string</code> is selected as naming scheme, a freestyle format can be given. Placeholders for the transaction name, scheme, host, port, path and counter can be given by <code>#{name}</code>, <code>#{scheme}</code>, <code>#{host}</code>, <code>#{port}</code>, <code>#{path}</code>, <code>#{url}</code> and <code>#{counter}</code>. A simple format could be "<code>#{name}-#{counter}</code>", which would be equivalent to the numbered default naming scheme. For more complex formatting Java formatting for MessageFormat can be used, as in "<code>#{counter,number,000}: #{name}-#{path}</code>", which would print the counter filled with up to three zeroes. Note that scheme is called <code>protocol</code> in the sampler GUI and host is called <code>domain</code>. Default is an empty string.</property>
         <property name="Counter start value" required="No">Can be used to reset the counter to a given value. Note, that the next sample will first increment and then use the value. If the first sampler should start with <code>1</code>, reset the counter to <code>0</code>.</property>
         <property name="Create new transaction after request (ms)">Inactivity time between two requests needed to consider them in two separate groups.</property>
-        <property name="Type" required="Yes">Which type of sampler to generate (the HTTPClient default or Java)</property>
+        <property name="Type" required="Yes">Which HTTPClient sampler type to generate</property>
         <property name="Redirect Automatically" required="Yes">Set Redirect Automatically in the generated samplers?</property>
         <property name="Follow Redirects" required="Yes">Set Follow Redirects in the generated samplers?<br/>
         <note>Note: see "Recording and redirects" section below for important information.</note>
