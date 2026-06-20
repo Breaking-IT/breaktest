@@ -1724,8 +1724,6 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         String res = sampleResult.getRequestHeaders();
         int index = res.indexOf(USER_AGENT);
         if (index >= 0) {
-            // see HTTPHC3Impl#getConnectionHeaders
-            // see HTTPHC5Impl#getConnectionHeaders
             // see HTTPHC5Impl#getConnectionHeaders
             //': ' is used by JMeter to fill-in requestHeaders, see getConnectionHeaders
             final String userAgentPrefix = USER_AGENT+": ";

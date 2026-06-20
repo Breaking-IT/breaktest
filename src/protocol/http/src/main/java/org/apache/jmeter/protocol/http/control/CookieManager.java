@@ -99,17 +99,17 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
      * {@link org.apache.jmeter.protocol.http.gui.CookiePanel#DEFAULT_POLICY CookiePanel#DEFAULT_POLICY}
      *
      */
-    private static final String DEFAULT_POLICY = HC4CookieHandler.DEFAULT_POLICY_NAME;
+    private static final String DEFAULT_POLICY = StandardCookieHandler.DEFAULT_POLICY_NAME;
 
     /**
-     * Defines the implementation that is assumed when the JMX file does not contain an entry for it
-     * MUST NOT BE CHANGED otherwise JMX files will not be correctly interpreted
-     * <p>
      * The default implementation for new CookieManager elements is defined by
      * {@link org.apache.jmeter.protocol.http.gui.CookiePanel#DEFAULT_IMPLEMENTATION CookiePanel#DEFAULT_IMPLEMENTATION}
      *
      */
-    private static final String DEFAULT_IMPLEMENTATION = HC4CookieHandler.class.getName();
+    private static final String DEFAULT_IMPLEMENTATION = StandardCookieHandler.class.getName();
+
+    private static final String LEGACY_COOKIE_HANDLER_IMPLEMENTATION =
+            "org.apache.jmeter.protocol.http.control.HC4CookieHandler"; //$NON-NLS-1$
 
     public CookieManager() {
         clearCookies(); // Ensure that there is always a collection available
@@ -167,11 +167,15 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
     }
 
     public String getImplementation() {
-        return getPropertyAsString(IMPLEMENTATION, DEFAULT_IMPLEMENTATION);
+        return normalizeImplementation(getPropertyAsString(IMPLEMENTATION, DEFAULT_IMPLEMENTATION));
     }
 
     public void setImplementation(String implementation){
-        setProperty(IMPLEMENTATION, implementation, DEFAULT_IMPLEMENTATION);
+        setProperty(IMPLEMENTATION, normalizeImplementation(implementation), DEFAULT_IMPLEMENTATION);
+    }
+
+    private static String normalizeImplementation(String implementation) {
+        return LEGACY_COOKIE_HANDLER_IMPLEMENTATION.equals(implementation) ? DEFAULT_IMPLEMENTATION : implementation;
     }
 
     /**

@@ -204,7 +204,6 @@
          <trusted-key id="E77417AC194160A3FABD04969A259C7EE636C5ED" group="com.google.errorprone"/>
          <trusted-key id="E7DC75FC24FB3C8DFE8086AD3D5839A2262CBBFB" group="org.jetbrains.kotlinx"/>
          <trusted-key id="E85AED155021AF8A6C6B7A4A7C7D8456294423BA" group="org.objenesis"/>
-         <trusted-key id="E9AF5293C334C7C0B583227D2F45F85CDF082E68" group="org.mozilla"/>
          <trusted-key id="EA23DB1360D9029481E7F2EFECDFEA3CB4493B94" group="org.apache.geronimo.specs"/>
          <trusted-key id="EAFC1F3B2FCED6AFD046C7D5734AEF3D43509290" group="org.osgi"/>
          <trusted-key id="EB1B3DE71713C9EC2E87CC26EE92349AD86DE446" group="com.google.j2objc"/>

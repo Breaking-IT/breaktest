@@ -27,9 +27,6 @@ import javax.script.SimpleScriptContext;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
-import org.apache.jmeter.util.JMeterUtils;
-import org.mozilla.javascript.Context;
-import org.mozilla.javascript.Scriptable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,58 +62,10 @@ public class IfController extends GenericController implements Serializable, Thr
 
     private static final long serialVersionUID = 242L;
 
-    private static final String NASHORN_ENGINE_NAME = "nashorn"; //$NON-NLS-1$
+    private static final String GROOVY_ENGINE_NAME = "groovy"; //$NON-NLS-1$
 
-    private static final String USE_RHINO_ENGINE_PROPERTY = "javascript.use_rhino"; //$NON-NLS-1$
-
-    private static final boolean USE_RHINO_ENGINE =
-            JMeterUtils.getPropDefault(USE_RHINO_ENGINE_PROPERTY, false) ||
-            getInstance().getEngineByName(NASHORN_ENGINE_NAME) == null;
-
-
-    private static final ThreadLocal<ScriptEngine> NASHORN_ENGINE = ThreadLocal
-            .withInitial(() -> getInstance().getEngineByName(NASHORN_ENGINE_NAME));
-
-    private interface JsEvaluator {
-        boolean evaluate(String testElementName, String condition);
-    }
-
-    private static class RhinoJsEngine implements JsEvaluator {
-        @Override
-        public boolean evaluate(String testElementName, String condition) {
-            boolean result = false;
-            // now evaluate the condition using JavaScript
-            Context cx = Context.enter();
-            try {
-                Scriptable scope = cx.initStandardObjects(null);
-                Object cxResultObject = cx.evaluateString(scope, condition
-                , "<cmd>", 1, null);
-                result = computeResultFromString(condition, Context.toString(cxResultObject));
-            } catch (Exception e) {
-                log.error("{}: error while processing [{}]", testElementName, condition, e);
-            } finally {
-                Context.exit();
-            }
-            return result;
-        }
-    }
-
-    private static class NashornJsEngine implements JsEvaluator {
-        @Override
-        public boolean evaluate(String testElementName, String condition) {
-            try {
-                ScriptContext newContext = new SimpleScriptContext();
-                newContext.setBindings(NASHORN_ENGINE.get().createBindings(), ScriptContext.ENGINE_SCOPE);
-                Object o = NASHORN_ENGINE.get().eval(condition, newContext);
-                return computeResultFromString(condition, o.toString());
-            } catch (Exception ex) {
-                log.error("{}: error while processing [{}]", testElementName, condition, ex);
-            }
-            return false;
-        }
-    }
-
-    private static final JsEvaluator JAVASCRIPT_EVALUATOR = USE_RHINO_ENGINE ? new RhinoJsEngine() : new NashornJsEngine();
+    private static final ThreadLocal<ScriptEngine> GROOVY_ENGINE = ThreadLocal
+            .withInitial(() -> getInstance().getEngineByName(GROOVY_ENGINE_NAME));
 
     /**
      * Initialization On Demand Holder pattern
@@ -178,7 +127,19 @@ public class IfController extends GenericController implements Serializable, Thr
      */
     private boolean evaluateCondition(String cond) {
         log.debug("    getCondition() : [{}]", cond);
-        return JAVASCRIPT_EVALUATOR.evaluate(getName(), cond);
+        try {
+            ScriptEngine engine = GROOVY_ENGINE.get();
+            if (engine == null) {
+                throw new IllegalStateException("Groovy JSR223 engine is not available");
+            }
+            ScriptContext newContext = new SimpleScriptContext();
+            newContext.setBindings(engine.createBindings(), ScriptContext.ENGINE_SCOPE);
+            Object result = engine.eval(cond, newContext);
+            return computeResultFromString(cond, String.valueOf(result));
+        } catch (Exception ex) {
+            log.error("{}: error while processing [{}]", getName(), cond, ex);
+        }
+        return false;
     }
 
     /**
@@ -272,6 +233,6 @@ public class IfController extends GenericController implements Serializable, Thr
 
     @Override
     public void threadFinished() {
-       NASHORN_ENGINE.remove();
+       GROOVY_ENGINE.remove();
     }
 }

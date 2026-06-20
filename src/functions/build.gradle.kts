@@ -23,7 +23,6 @@ dependencies {
     api(projects.src.components)
     testImplementation(testFixtures(projects.src.core))
 
-    implementation("org.mozilla:rhino")
     implementation("org.apache.commons:commons-jexl3")
     implementation("org.unbescape:unbescape")
     implementation("com.github.ben-manes.caffeine:caffeine")

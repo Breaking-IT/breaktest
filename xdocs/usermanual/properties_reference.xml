@@ -676,12 +676,6 @@ Defaults to: <code>true</code>
     Change the default HTTP Sampler.<br/>
     Blank or unset values use HttpClient5 with HTTP/2 preferred. Legacy values are accepted when loading old test plans and properties,
     however they are executed by the HttpClient5 sampler.
-    <dl>
-        <dt><code>HTTPSampler2</code></dt>
-        <dt><code>HttpClient4</code></dt>
-        <dt><code>Java</code></dt>
-        <dd>Legacy values mapped to the HttpClient5 sampler</dd>
-    </dl>
     Defaults to an empty value, which means HTTP/2 preferred with HTTP/1.1 fallback.
 </property>
 <property name="jmeter.httpclient.strict_rfc2616">

@@ -29,18 +29,14 @@ public final class HTTPSamplerFactory {
 
     // Legacy sampler names accepted when loading old test plans and properties.
     static final String LEGACY_HTTP_SAMPLER_JAVA = "HTTPSampler"; //$NON-NLS-1$
-
-    /** Use Apache HTTPClient HTTP implementation */
-    public static final String HTTP_SAMPLER_APACHE = "HTTPSampler2"; //$NON-NLS-1$
+    static final String LEGACY_HTTP_SAMPLER_APACHE = "HTTPSampler2"; //$NON-NLS-1$
 
     //+ JMX implementation attribute values (also displayed in GUI) - do not change
     public static final String IMPL_HTTP_CLIENT5 = "HttpClient5";  // $NON-NLS-1$
 
-    public static final String IMPL_HTTP_CLIENT4 = "HttpClient4";  // $NON-NLS-1$
-
-    public static final String IMPL_HTTP_CLIENT3_1 = "HttpClient3.1"; // $NON-NLS-1$
-
     static final String LEGACY_IMPL_JAVA = "Java"; // $NON-NLS-1$
+    private static final String LEGACY_IMPL_HTTP_CLIENT3_1 = "HttpClient3.1"; // $NON-NLS-1$
+    private static final String LEGACY_IMPL_HTTP_CLIENT4 = "HttpClient4";  // $NON-NLS-1$
     //- JMX
 
     public static final String DEFAULT_CLASSNAME =
@@ -100,9 +96,9 @@ public final class HTTPSamplerFactory {
 
     private static boolean isKnownImplementation(String impl) {
         return IMPL_HTTP_CLIENT5.equals(impl)
-                || IMPL_HTTP_CLIENT4.equals(impl)
-                || HTTP_SAMPLER_APACHE.equals(impl)
-                || IMPL_HTTP_CLIENT3_1.equals(impl)
+                || LEGACY_IMPL_HTTP_CLIENT4.equals(impl)
+                || LEGACY_HTTP_SAMPLER_APACHE.equals(impl)
+                || LEGACY_IMPL_HTTP_CLIENT3_1.equals(impl)
                 || LEGACY_HTTP_SAMPLER_JAVA.equals(impl)
                 || LEGACY_IMPL_JAVA.equals(impl);
     }

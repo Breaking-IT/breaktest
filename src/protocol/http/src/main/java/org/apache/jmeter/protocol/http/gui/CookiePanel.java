@@ -41,7 +41,7 @@ import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.gui.util.PowerTableModel;
 import org.apache.jmeter.protocol.http.control.Cookie;
 import org.apache.jmeter.protocol.http.control.CookieManager;
-import org.apache.jmeter.protocol.http.control.HC4CookieHandler;
+import org.apache.jmeter.protocol.http.control.StandardCookieHandler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
@@ -73,7 +73,7 @@ public class CookiePanel extends AbstractConfigGui implements ActionListener {
     private static final String CONTROLLED_BY_THREADGROUP = "Controlled_By_ThreadGroup"; //$NON-NLS-1$
     //--
 
-    private static final String DEFAULT_POLICY = HC4CookieHandler.DEFAULT_POLICY_NAME;
+    private static final String DEFAULT_POLICY = StandardCookieHandler.DEFAULT_POLICY_NAME;
     private static final String[] COLUMN_RESOURCE_NAMES = {
             "name",   //$NON-NLS-1$
             "value",  //$NON-NLS-1$
@@ -289,7 +289,7 @@ public class CookiePanel extends AbstractConfigGui implements ActionListener {
         controlledByThreadGroup.addActionListener(this);
         policy = new JLabeledChoice(
                 JMeterUtils.getResString("cookie_manager_policy"), //$NON-NLS-1$
-                new HC4CookieHandler().getPolicies());
+                new StandardCookieHandler().getPolicies());
         setLayout(new BorderLayout());
         setBorder(makeBorder());
         JPanel northPanel = new JPanel();
