@@ -96,7 +96,6 @@ dependencies {
         api("org.apache.commons:commons-collections4:4.5.0")
         api("org.apache.commons:commons-dbcp2:2.9.0")
         api("org.apache.commons:commons-jexl3:3.5.0")
-        api("org.apache.commons:commons-jexl:2.1.1")
         api("org.apache.commons:commons-lang3:3.19.0") {
             because("User might still rely on commons-lang3")
         }
