@@ -223,11 +223,6 @@ public class HttpRequestHdr {
         if (url.startsWith("/")) { // it must be a proxied HTTPS request
             url = HTTPS + "://" + paramHttps + url; // $NON-NLS-1$
         }
-        // JAVA Impl accepts URLs with unsafe characters so don't do anything
-        if(HTTPSamplerFactory.IMPL_JAVA.equals(httpSamplerName)) {
-            log.debug("First Line url: {}", url);
-            return;
-        }
         try {
             // See Bug 54482
             URI testCleanUri = new URI(url);

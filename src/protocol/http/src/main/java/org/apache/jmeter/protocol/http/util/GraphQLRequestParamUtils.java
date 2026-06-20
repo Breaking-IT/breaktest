@@ -25,7 +25,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.util.regex.Pattern;
 
-import org.apache.http.entity.ContentType;
+import org.apache.hc.core5.http.ContentType;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.protocol.http.config.GraphQLRequestParams;

@@ -30,7 +30,6 @@ import java.util.concurrent.locks.LockSupport;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.engine.util.NoThreadClone;
-import org.apache.jmeter.samplers.Remoteable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -49,7 +48,7 @@ import org.slf4j.LoggerFactory;
  */
 public class BackendListener
         extends AbstractTestElement
-        implements Backend, Serializable, SampleListener, TestStateListener, NoThreadClone, Remoteable {
+        implements Backend, Serializable, SampleListener, TestStateListener, NoThreadClone {
 
     private static final class ListenerClientData {
         private BackendListenerClient client;
@@ -95,8 +94,7 @@ public class BackendListener
     private static final transient SampleResult FINAL_SAMPLE_RESULT = new SampleResult();
 
     /**
-     * This is needed for distributed testing where there is 1 instance
-     * per server. But we need the total to be shared.
+     * Share listener client data across clones of the same test element.
      */
     private static final Map<String, ListenerClientData> queuesByTestElementName =
             new ConcurrentHashMap<>();
@@ -303,8 +301,7 @@ public class BackendListener
             myName = getName();
             listenerClientData = queuesByTestElementName.get(myName);
             if (listenerClientData == null) {
-                // We need to do this to ensure in Distributed testing
-                // that only 1 instance of BackendListenerClient is used
+                // Ensure only one BackendListenerClient is used per test element.
                 clientClass = initClass(); // may be null
                 BackendListenerClient backendListenerClient = createBackendListenerClientImpl(clientClass);
                 BackendListenerContext context = new BackendListenerContext((Arguments) getArguments().clone());

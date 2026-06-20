@@ -37,7 +37,7 @@ class JMeterTest extends JMeterTestCase implements JMeterSerialTest {
     void testFailureWhenJmxDoesNotExist() {
         JMeter jmeter = new JMeter();
         try {
-            jmeter.runNonGui("testPlan.jmx", null, false, null, false);
+            jmeter.runNonGui("testPlan.jmx", null, false);
             Assertions.fail("Expected ConfigurationException to be thrown");
         } catch (ConfigurationException e) {
             Assertions.assertTrue(e.getMessage().contains("doesn't exist or can't be opened"),
@@ -71,7 +71,7 @@ class JMeterTest extends JMeterTestCase implements JMeterSerialTest {
 
         try {
             JMeter jmeter = new JMeter();
-            jmeter.runNonGui(temp.getAbsolutePath(), null, false, null, false);
+            jmeter.runNonGui(temp.getAbsolutePath(), null, false);
         } finally {
             Assertions.assertTrue(temp.delete(), () ->"File " + temp.getAbsolutePath() + " should have been deleted");
         }
@@ -119,7 +119,7 @@ class JMeterTest extends JMeterTestCase implements JMeterSerialTest {
         }
         JMeter jmeter = new JMeter();
         try {
-            jmeter.runNonGui(temp.getAbsolutePath(), null, false, null, false);
+            jmeter.runNonGui(temp.getAbsolutePath(), null, false);
             Assertions.fail("Expected ConfigurationException to be thrown");
         } catch (ConfigurationException e) {
             Assertions.assertTrue(e.getMessage().contains("Error in NonGUIDriver Problem loading XML from"),

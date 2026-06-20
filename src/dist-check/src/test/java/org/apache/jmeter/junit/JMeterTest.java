@@ -636,13 +636,6 @@ public class JMeterTest extends JMeterTestCase {
             if (className.equals("org.apache.jmeter.gui.menu.StaticJMeterGUIComponent")) {
                 continue;
             }
-            if (className.endsWith("RemoteJMeterEngineImpl")) {
-                continue; // Don't try to instantiate remote server
-            }
-            if (className.endsWith("RemoteSampleListenerImpl")) {
-                // TODO: Cannot start. travis-job-e984b3d5-f93f-4b0f-b6c0-50988a5ece9d is a loopback address.
-                continue;
-            }
             if (className.startsWith("org.apache.jmeter.testelement.schema.") &&
                     className.endsWith("PropertyDescriptor")) {
                 // PropertyDescriptors do not have no-arg constructor

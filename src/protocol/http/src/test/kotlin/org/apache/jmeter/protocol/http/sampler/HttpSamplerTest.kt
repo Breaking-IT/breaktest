@@ -60,7 +60,7 @@ class HttpSamplerTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["Java", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `upload file uses percent encoding for filename`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/upload")
@@ -113,8 +113,12 @@ class HttpSamplerTest : JMeterTestCase() {
                     aMultipart("file_parameter")
                         .withHeader(
                             "Content-Disposition",
-                            // Only CR, LF, and % should be percent-encoded
-                            containing("filename=\"testfile привет %.txt\"")
+                            if (httpImplementation == HTTPSamplerFactory.IMPL_HTTP_CLIENT5) {
+                                containing("filename=\"testfile%20%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82%20%25.txt\"")
+                            } else {
+                                // Only CR, LF, and % should be percent-encoded
+                                containing("filename=\"testfile привет %.txt\"")
+                            }
                         )
                         .withBody(equalTo("hello, привет"))
                 )
@@ -122,7 +126,7 @@ class HttpSamplerTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["Java", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `one parameter`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/upload").willReturn(aResponse().withStatus(200))
@@ -163,7 +167,7 @@ class HttpSamplerTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["Java", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `two parameters`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/upload").willReturn(aResponse().withStatus(200))
@@ -212,7 +216,7 @@ class HttpSamplerTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["Java", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `two parameters and file`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/upload").willReturn(aResponse().withStatus(200))
@@ -274,7 +278,7 @@ class HttpSamplerTest : JMeterTestCase() {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["Java", "HttpClient4"])
+    @ValueSource(strings = ["HttpClient5"])
     fun `two parameters and two files`(httpImplementation: String, server: WireMockRuntimeInfo) {
         server.wireMock.register(
             post("/upload").willReturn(aResponse().withStatus(200))

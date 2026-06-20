@@ -25,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.engine.util.NoThreadClone;
-import org.apache.jmeter.samplers.Remoteable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -58,7 +57,7 @@ import org.slf4j.LoggerFactory;
  *
  */
 public class Summariser extends AbstractTestElement
-    implements Serializable, SampleListener, TestStateListener, NoThreadClone, Remoteable {
+    implements Serializable, SampleListener, TestStateListener, NoThreadClone {
 
     /*
      * N.B. NoThreadClone is used to ensure that the testStarted() methods will share the same
@@ -264,10 +263,6 @@ public class Summariser extends AbstractTestElement
      * Called once for each Summariser in the test plan.
      * There may be more than one summariser with the same name,
      * however they will all be called before the test proper starts.
-     * <p>
-     * However, note that this applies to a single test only.
-     * When running in client-server mode, testStarted() may be
-     * invoked after sampleOccurred().
      * <p>
      * {@inheritDoc}
      */

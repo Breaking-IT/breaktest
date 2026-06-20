@@ -201,7 +201,7 @@ public final class JMeterContextService {
     }
 
     /**
-     * Set variables for JMeter client in a distributed test (INTERNAL API)
+     * Set client-side variables (INTERNAL API).
      * @param clientSideVariables {@link JMeterVariables}
      */
     public static void initClientSideVariables(JMeterVariables clientSideVariables) {
@@ -209,7 +209,7 @@ public final class JMeterContextService {
     }
 
     /**
-     * Reset client side variables in a distributed mode
+     * Reset client-side variables.
      */
     public static void resetClientSideVariables() {
         JMeterContextService.variables = null;

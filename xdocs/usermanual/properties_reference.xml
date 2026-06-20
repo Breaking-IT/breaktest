@@ -216,7 +216,7 @@ Defaults to: <code>true</code>
 <property name="jmeter.toolbar">
     Toolbar list.<br/>
     Defaults to:
-    <source>new,open,close,save,save_as_testplan,|,cut,copy,paste,|,expand,collapse,toggle,|,test_start,test_stop,test_shutdown,|,test_start_remote_all,test_stop_remote_all,test_shutdown_remote_all,|,test_clear,test_clear_all,|,search,search_reset,|,function_helper,help</source>
+    <source>new,open,close,save,save_as_testplan,|,cut,copy,paste,|,expand,collapse,toggle,|,test_start,test_stop,test_shutdown,|,test_clear,test_clear_all,|,search,search_reset,|,function_helper,help</source>
 </property>
 <property name="jmeter.toolbar.icons.size">
     Available sizes are: <code>22x22</code>, <code>32x32</code>, <code>48x48</code>. Suggested value for HiDPI mode is
@@ -313,118 +313,11 @@ Defaults to: <code>true</code>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.7 Remote hosts and RMI configuration" anchor="remote">
-<properties>
-<property name="remote_hosts">
-    Remote Hosts - comma delimited, for example
-    <source>remote_hosts=localhost:1099,localhost:2010</source>
-    Defaults to: <code>127.0.0.1</code></property>
-<property name="server_port">
-    RMI port to be used by the server (must start <code>rmiregistry</code> with same port).
-    To change the port to (say) <code>1234</code>:<br/>
-    On the server(s):
-    <ol>
-        <li><code>set server_port=1234</code></li>
-        <li>start <code>rmiregistry</code> with port <code>1234</code></li>
-    </ol>
-    On Windows this can be done by:
-    <source>SET SERVER_PORT=1234
-JMETER-SERVER</source>
-    On Unix:
-    <source>SERVER_PORT=1234 breaktest-server</source>
-    On the Windows client:
-    <source>set remote_hosts=<em>server</em>:1234</source>
-    On the Unix client:
-    <source>export remote_hosts=<em>server</em>:1234</source>
-    Defaults to: <code>1099</code>
-</property>
-<property name="client.rmi.localport">
-    Parameter that controls the RMI ports used by <code>RemoteSampleListenerImpl</code> and <code>RemoteThreadsListenerImpl</code> (The Controller)<br/>
-    Default value is <code>0</code>, which means ports are randomly assigned.
-    If this is non-zero, it will be used as the base for local port numbers for the client engine.
-    At the moment JMeter will open up to three ports beginning with the port defined in this property.
-    <note>You may need to open corresponding ports in the firewall on the Controller machine.</note>
-    Defaults to: <code>0</code>
-</property>
-<property name="client.tries">
-    When distributed test is starting, there may be several attempts to initialize remote engines.<br/>
-    By default, only a single try is made. Increase this property to make it retry additional times.<br/>
-    Defaults to: <code>1</code>
-</property>
-<property name="client.retries_delay">
-    If initialization is retried, this property sets the delay between those attempts in milliseconds.<br/>
-    Defaults to: <code>5000</code>
-</property>
-<property name="client.continue_on_fail">
-    When all initialization tries were made, the test will fail, if any remote engines are failed.<br/>
-    Set this property to <code>true</code> to ignore failed nodes and proceed with test.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="server.rmi.port">
-    To change the default port (<code>1099</code>) used to access the server.<br/>
-    Defaults to: <code>1099</code>
-</property>
-<property name="server.rmi.localport">
-    To use a specific port for the JMeter server engine, define this property before starting the server.<br/>
-    Defaults to: <code>4000</code>
-</property>
-<property name="server.rmi.create">
-    From JMeter version 2.3.1, the JMeter server creates the RMI registry as part of the server process.<br/>
-    Set this property to <code>false</code>, to stop the server creating the RMI registry.<br/>
-    Defaults to: <code>true</code>
-</property>
-<property name="server.exitaftertest">
-    From JMeter version 2.3.1, define this property to cause JMeter to exit after the first test.<br/>
-    Defaults to: <code>true</code>
-</property>
-<property name="server.rmi.ssl.keystore.type">
-    Type of keystore for RMI connection security. Possible values are dependent on the JVM in use, but commonly supported are <code>JKS</code> and <code>PKCS12</code>.
-    Defaults to: <code>JKS</code>
-</property>
-<property name="server.rmi.ssl.keystore.file">
-    Keystore file that contains private key
-    Defaults to: <code>rmi_keystore.jks</code>
-</property>
-<property name="server.rmi.ssl.keystore.password">
-    Password of Keystore
-    Defaults to: <code>changeit</code>
-</property>
-<property name="server.rmi.ssl.keystore.alias">
-    Key alias
-    Defaults to: <code>rmi</code>
-</property>
-<property name="server.rmi.ssl.truststore.type">
-    Type of truststore for RMI connection security
-    Defaults to: the value of <code>server.rmi.ssl.keystore.type</code>, which is <code>JKS</code>
-</property>
-<property name="server.rmi.ssl.truststore.file">
-    Keystore file that contains certificate
-    Defaults to: the value of <code>server.rmi.ssl.keystore.file</code>, which is <code>rmi_keystore.jks</code>
-</property>
-<property name="server.rmi.ssl.truststore.password">
-    Password of Trust store
-    Defaults to: the value of <code>server.rmi.ssl.keystore.password</code>, which is <code>changeit</code>
-</property>
-<property name="server.rmi.ssl.disable">
-    Set this to <code>true</code> if you don't want to use SSL for RMI
-    Defaults to: <code>false</code>
-</property>
-</properties>
-</section>
 <section name="&sect-num;.8 Include Controller" anchor="include_controller">
 <properties>
 <property name="includecontroller.prefix">
     Prefix used by <code>IncludeController</code> when building file names.<br/>
     Defaults to empty value
-</property>
-</properties>
-</section>
-<section name="&sect-num;.9 HTTP Java configuration" anchor="http_java_config">
-<properties>
-<property name="http.java.sampler.retries">
-    Number of connection retries performed by HTTP Java sampler before giving up.
-    <code>0</code> means no retry since version 3.0.<br/>
-    Defaults to: <code>0</code>
 </property>
 </properties>
 </section>
@@ -494,23 +387,23 @@ JMETER-SERVER</source>
     Enable header wire and context logging - Best for Debugging
     In log4j2.xml, set:
 <source>
-&lt;Logger name="org.apache.http" level="debug" /&gt;
-&lt;Logger name="org.apache.http.wire" level="error" /&gt;
+&lt;Logger name="org.apache.hc.client5.http" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.wire" level="error" /&gt;
 </source>
     Enable full wire and context logging
     In log4j2.xml, set:
-    <source>&lt;Logger name="org.apache.http" level="debug" /&gt;</source>
+    <source>&lt;Logger name="org.apache.hc.client5.http" level="debug" /&gt;</source>
     Enable context logging for connection management
-    <source>&lt;Logger name="org.apache.http.impl.conn" level="debug" /&gt;</source>
+    <source>&lt;Logger name="org.apache.hc.client5.http.impl.io" level="debug" /&gt;</source>
     Enable context logging for connection management / request execution
 <source>
-&lt;Logger name="org.apache.http.impl.conn" level="debug" /&gt;
-&lt;Logger name="org.apache.http.impl.client" level="debug" /&gt;
-&lt;Logger name="org.apache.http.client" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.impl.io" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.impl.classic" level="debug" /&gt;
+&lt;Logger name="org.apache.hc.client5.http.classic" level="debug" /&gt;
 </source>
 </description>
 </section>
-<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient5 and HTTPClient4)" anchor="httpclient">
+<section name="&sect-num;.13 Apache HttpComponents HTTPClient configuration (HTTPClient5)" anchor="httpclient">
 <properties>
 <property name="hc.parameters.file">
     Define a properties file for overriding Apache HttpClient parameters.<br/>
@@ -550,49 +443,6 @@ JMETER-SERVER</source>
 </property>
 <property name="httpclient5.default_user_agent_disabled">
     If true, default HC5 User-Agent will not be added.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.auth.preemptive">
-    Preemptively send Authorization Header when BASIC auth is used by the HttpClient4 implementation.
-    Defaults to: <code>true</code>
-</property>
-<property name="httpclient4.retrycount">
-    Number of retries to attempt.
-    Retry will be done on Idempotent Http Methods by default.
-    If you want to retry for all methods, see property <code>httpclient4.request_sent_retry_enabled</code>
-    <br/>
-    Defaults to: <code>0</code>
-</property>
-<property name="httpclient4.request_sent_retry_enabled">
-    Set this property to <code>true</code> if it's OK to retry requests that have been sent.
-    This mean that both Idempotent and non Idempotent requests will be retried.
-    This should usually be false, but it can be useful when testing against some Load Balancers like Amazon ELB.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.idletimeout">
-    Idle connection timeout (in milliseconds) to apply if the server does not send <code>Keep-Alive</code> timeout headers.<br/>
-    Defaults to: <code>0</code> (no suggested duration for <code>Keep-Alived</code> connections)
-</property>
-<property name="httpclient4.validate_after_inactivity">
-    Check connection if the elapsed time (in milliseconds) since the last use of the connection
-    exceeds this value. Ensure this value is always lower by at least 150 ms than <code>httpclient4.time_to_live</code><br/>
-    Defaults to: <code>4900</code>
-</property>
-<property name="httpclient4.time_to_live">
-    <abbr title="time to live">TTL</abbr> (in milliseconds) represents an absolute value.
-    No matter what, the connection will not be re-used beyond its TTL.<br/>
-    Defaults to: <code>60000</code>
-</property>
-<property name="httpclient4.deflate_relax_mode">
-    Ignore EOFException that some edgy application may emit to signal end of Deflated stream.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.gzip_relax_mode">
-    Ignore EOFException that some edgy application may emit to signal end of GZipped stream.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="httpclient4.default_user_agent_disabled">
-    If true, default HC4 User-Agent (Apache-HttpClient/X.Y.Z (Java/A.B.C_D)) will not be added.<br/>
     Defaults to: <code>false</code>
 </property>
 </properties>
@@ -824,17 +674,15 @@ JMETER-SERVER</source>
 </property>
 <property name="jmeter.httpsampler">
     Change the default HTTP Sampler.<br/>
-    Can be one of
+    Blank or unset values use HttpClient5 with HTTP/2 preferred. Legacy values are accepted when loading old test plans and properties,
+    however they are executed by the HttpClient5 sampler.
     <dl>
-        <dt><code>HTTPSampler</code> or <code>Java</code></dt>
-        <dd>Use the <code>Java</code> Sampler</dd>
         <dt><code>HTTPSampler2</code></dt>
-        <dt><code>HttpClient5</code></dt>
-        <dd>Use Apache HTTPClient version 5 classic HTTP/1.1 implementation</dd>
         <dt><code>HttpClient4</code></dt>
-        <dd>Use Apache HTTPClient version 4 as a temporary compatibility fallback</dd>
+        <dt><code>Java</code></dt>
+        <dd>Legacy values mapped to the HttpClient5 sampler</dd>
     </dl>
-    Defaults to: <code>HttpClient5</code>
+    Defaults to an empty value, which means HTTP/2 preferred with HTTP/1.1 fallback.
 </property>
 <property name="jmeter.httpclient.strict_rfc2616">
     By default JMeter tries to be more lenient with <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>
@@ -975,93 +823,6 @@ JMETER-SERVER</source>
 <property name="wmlParser.types">
     Used by HTTPSamplerBase to associate wmlParser with content types below.<br/>
     Defaults to: <code>text/vnd.wap.wml</code>
-</property>
-</properties>
-</section>
-<section name="&sect-num;.22 Remote batching configuration" anchor="remote_batching_config">
-    <p>
-    Configure how SampleResults are sent from server to client when using distributed testing.
-    </p>
-    <note>Note that the mode is currently resolved on the client, while other properties
-    (e.g. <code>time_threshold</code>) are resolved on the server.</note>
-    <p>
-    Since JMeter version 2.9, default is <code>StrippedBatch</code>, which returns samples in
-    batch mode (every 100 samples or every minute by default).<br/>
-    You can set mode by configuring:
-    </p>
-    <source>mode=<em>one of the possible modes below</em></source>
-    <note>StrippedBatch strips response data from SampleResult, so if you need the response data, change to another mode.</note>
-    <p>
-    Possible modes are:
-    </p>
-    <dl>
-        <dt><code>Standard</code></dt>
-        <dd>Sends SampleResult one by one</dd>
-        <dt><code>Batch</code></dt>
-        <dd>Accumulates SampleResults before sending them. Configured by
-        properties <code>num_sample_threshold</code> and <code>time_threshold</code></dd>
-        <dt><code>Statistical</code></dt>
-        <dd>returns sample summary statistics. Configured by
-        properties <code>key_on_threadname</code> and <code>time_threshold</code></dd>
-        <dt><code>Stripped</code></dt>
-        <dd>Similar to <code>Standard</code> mode but strips Response from SampleResult.
-        Configured by property <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>StrippedBatch</code></dt>
-        <dd>Same as <code>Batch</code> but strips Response from SampleResult.
-        Configured by properties <code>num_sample_threshold</code>, <code>time_threshold</code>
-        and <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>Asynch</code></dt>
-        <dd>Asynchronous sender; uses a queue and background worker process to return the samples.
-        Configured by property <code>asynch.batch.queue.size</code></dd>
-        <dt><code>StrippedAsynch</code></dt>
-        <dd>Same as <code>Asynch</code> but strips response data from SampleResult.
-        Configured by properties <code>asynch.batch.queue.size</code>
-        and <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>StrippedDiskStore</code></dt>
-        <dd>Same as <code>DiskStore</code> but strips response data from SampleResult</dd>
-        <dt>Class extending <apilink href="org/apache/jmeter/samplers/AbstractSampleSender.html"><code>AbstractSampleSender</code></apilink> (<code>org.example.load.MySampleSender</code> for example)</dt>
-        <dd>A custom implementation of your choice</dd>
-    </dl>
-<properties>
-<property name="sample_sender_client_configured">
-    How is Sample sender implementations configured:<br/>
-    <dl>
-        <dt><code>true</code></dt><dd>(default) means client configuration will be used</dd>
-        <dt><code>false</code></dt><dd>means server configuration will be used</dd>
-    </dl>
-    Defaults to: <code>true</code>
-</property>
-<property name="sample_sender_strip_also_on_error">
-    By default when Stripping modes are used JMeter since version 3.1 will strip
-    response even for SampleResults in error. If you want to revert to previous
-    behaviour (no stripping of Responses in error) set this property to <code>false</code><br/>
-    Defaults to: <code>true</code>
-</property>
-
-<property name="mode">
-    Remote batching support.<br/>
-    Since JMeter version 2.9, default is <code>StrippedBatch</code>, which returns samples in
-    batch mode (every 100 samples or every minute by default).<br/>
-    <note>Note also that StrippedBatch strips response data from SampleResult, so if you need
-    the response data, change to another mode.</note>
-</property>
-
-<property name="key_on_threadname">
-    Set to <code>true</code> to key statistical samples on <code>threadName</code> rather than <code>threadGroup</code>.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="num_sample_threshold">
-    Number of SampleResults to accumulate before sending to client.<br/>
-    Defaults to: <code>100</code>
-</property>
-<property name="time_threshold">
-    Time to retain SampleResults before sending them to client.
-    Value is in milliseconds.<br/>
-    Defaults to: <code>60000</code>
-</property>
-<property name="asynch.batch.queue.size">
-    Default queue size used by <code>Async</code> mode.<br/>
-    Defaults to: <code>100</code>
 </property>
 </properties>
 </section>
@@ -1213,61 +974,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.29 BeanShell configuration" anchor="beanshell">
-<properties>
-<property name="beanshell.server.port">
-    BeanShell Server properties.<br/>
-    Define the port number as non-zero to start the http server on that port.<br/>
-    The telnet server will be started on the next port.<br/>
-    Defaults to: <code>0</code> (i.e. don't start the server)
-    <note>
-    There is no security. Anyone who can connect to the port can issue any BeanShell commands.
-    These can provide unrestricted access to the JMeter application and the host.
-    <b>Do not enable the server unless the ports are protected against access, e.g. by a firewall.</b>
-    </note>
-</property>
-<property name="beanshell.server.file">
-    Define the server initialisation file.<br/>
-    Defaults to: <code>../extras/startup.bsh</code>
-</property>
-<property name="beanshell.init.file">
-    Define a file to be processed at startup.<br/>
-    This is processed using its own interpreter.<br/>
-    Defaults to empty value.
-</property>
-<property name="beanshell.sampler.init">
-    Define the initialisation files for BeanShell Sampler, Function and
-    other BeanShell elements.<br/>
-    <note>N.B. Beanshell test elements do not share interpreters.
-    Each element in each thread has its own interpreter.
-    This is retained between samples.</note>
-    Defaults to empty value.
-</property>
-<property name="beanshell.function.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.assertion.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.listener.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.postprocessor.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.preprocessor.init">
-    Defaults to empty value.
-</property>
-<property name="beanshell.timer.init">
-    Defaults to empty value.
-</property>
-</properties>
-    <p>
-    The file <code>BeanShellListeners.bshrc</code> contains sample definitions
-    of Test and Thread Listeners.<br/>
-    </p>
-</section>
-<section name="&sect-num;.30 MailerModel configuration" anchor="mailer">
+<section name="&sect-num;.29 MailerModel configuration" anchor="mailer">
 <properties>
 <property name="mailer.successlimit">
     Number of successful samples before a message is sent.<br/>
@@ -1279,7 +986,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.31 CSVRead configuration" anchor="csv">
+<section name="&sect-num;.30 CSVRead configuration" anchor="csv">
 <properties>
 <property name="csvread.delimiter">
     CSVRead delimiter setting (default "<code>,</code>").<br/>
@@ -1289,7 +996,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.32 __time() function configuration" anchor="time">
+<section name="&sect-num;.31 __time() function configuration" anchor="time">
 <properties>
 <property name="time.YMD">
     This and the following properties can be used to redefine the default time formats.<br/>
@@ -1309,7 +1016,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.33 CSV DataSet configuration" anchor="csv_dataset">
+<section name="&sect-num;.32 CSV DataSet configuration" anchor="csv_dataset">
 <properties>
 <property name="csvdataset.eofstring">
     String to return at <abbr title="end of file"><code>EOF</code></abbr> (if recycle not used).<br/>
@@ -1321,7 +1028,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.34 LDAP Sampler configuration" anchor="ldap">
+<section name="&sect-num;.33 LDAP Sampler configuration" anchor="ldap">
 <properties>
 <property name="ldapsampler.max_sorted_results">
     Maximum number of search results returned by a search that will be sorted
@@ -1349,7 +1056,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.35 Miscellaneous configuration" anchor="miscellaneous">
+<section name="&sect-num;.34 Miscellaneous configuration" anchor="miscellaneous">
 <properties>
 <property name="cssselector.parser.cache.size">
     Size of cache used by <code>CSS Selector Extractor</code> (for JODD implementation only) to store parsed CSS Selector expressions.<br/>
@@ -1483,11 +1190,6 @@ JMETER-SERVER</source>
     Number of milliseconds to wait for a thread to stop.<br/>
     Defaults to: <code>5000</code>
 </property>
-<property name="jmeterengine.remote.system.exit">
-    Whether to invoke <code>System.exit(0)</code> in server exit code after
-    stopping RMI.<br/>
-    Defaults to: <code>false</code>
-</property>
 <property name="jmeterengine.stopfail.system.exit">
     Whether to call <code>System.exit(1)</code> on failure to stop threads in CLI mode.<br/>
     This only takes effect if the test was explicitly requested to stop.<br/>
@@ -1619,7 +1321,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.36 Classpath configuration" anchor="classpath">
+<section name="&sect-num;.35 Classpath configuration" anchor="classpath">
 <properties>
 <property name="search_paths">
     List of directories (separated by <code>;</code>) to search for additional
@@ -1663,7 +1365,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.37 Reporting configuration" anchor="reporting">
+<section name="&sect-num;.36 Reporting configuration" anchor="reporting">
 <properties>
 <property name="jmeter.reportgenerator.apdex_satisfied_threshold">
     Sets the satisfaction threshold for the APDEX calculation (in milliseconds).<br/>
@@ -1878,7 +1580,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.38 Additional property files to load" anchor="properties">
+<section name="&sect-num;.37 Additional property files to load" anchor="properties">
 <properties>
 <property name="user.properties">
     Should JMeter automatically load additional JMeter properties?<br/>
@@ -1897,7 +1599,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.39 Thread Group Validation feature" anchor="validation">
+<section name="&sect-num;.38 Thread Group Validation feature" anchor="validation">
 <description>Validation is the name of the feature used to rapidly validate a Thread Group runs fine</description>
 <properties>
 <property name="testplan_validation.tree_cloner_class">
@@ -1930,7 +1632,7 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.40 Timer related feature" anchor="timer">
+<section name="&sect-num;.39 Timer related feature" anchor="timer">
 <description>Timer are used to introduce think time in your plan.</description>
 <properties>
 <property name="timer.factor">
@@ -1963,7 +1665,7 @@ JMETER-SERVER</source>
 <a href="#">^</a>
 </section>
 
-<section name="&sect-num;.41 Naming Policy" anchor="naming_policy">
+<section name="&sect-num;.40 Naming Policy" anchor="naming_policy">
 <description>Timer are used to introduce think time in your plan.</description>
 <properties>
 <property name="naming_policy.prefix">
@@ -1984,7 +1686,7 @@ JMETER-SERVER</source>
 <a href="#">^</a>
 </section>
 
-<section name="&sect-num;.42 Help" anchor="help">
+<section name="&sect-num;.41 Help" anchor="help">
 <description>Controls how documentation in JMeter is displayed</description>
 <properties>
     <property name="help.local">
@@ -1995,7 +1697,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.43 Advanced Groovy Scripting configuration" anchor="groovy">
+<section name="&sect-num;.42 Advanced Groovy Scripting configuration" anchor="groovy">
 <description>Advanced properties for configuration of scripting in Groovy</description>
 <properties>
     <property name="groovy.utilities">
@@ -2005,7 +1707,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.44 Advanced JSR-223 Scripting configuration" anchor="jsr223">
+<section name="&sect-num;.43 Advanced JSR-223 Scripting configuration" anchor="jsr223">
 <description>Advanced properties for configuration of scripting in JSR-223</description>
 <properties>
     <property name="jsr223.init.file">
@@ -2028,7 +1730,7 @@ JMETER-SERVER</source>
 </properties>
 </section>
 
-<section name="&sect-num;.45 Documentation generation" anchor="docgeneration">
+<section name="&sect-num;.44 Documentation generation" anchor="docgeneration">
 <description>Advanced properties for documentation generation</description>
 <properties>
     <property name="docgeneration.schematic_xsl">
@@ -2037,7 +1739,7 @@ JMETER-SERVER</source>
     No default value</property>
 </properties>
 </section>
-<section name="&sect-num;.46 Security Provider" anchor="securityprovider">
+<section name="&sect-num;.45 Security Provider" anchor="securityprovider">
 <description>Advanced properties for documentation generation</description>
 <properties>
     <property name="security.provider">

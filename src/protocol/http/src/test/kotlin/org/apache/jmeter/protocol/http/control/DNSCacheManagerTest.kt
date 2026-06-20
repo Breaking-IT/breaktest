@@ -21,10 +21,10 @@ import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
-import org.apache.jmeter.protocol.http.sampler.HTTPSampler
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory
 import org.apache.jmeter.protocol.http.sampler.ResultAsString
 import org.apache.jmeter.protocol.http.util.MockDnsServer
+import org.apache.jmeter.protocol.http.util.HTTPConstants
 import org.apache.jmeter.wiremock.WireMockExtension
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -214,11 +214,6 @@ class DNSCacheManagerTest {
         httpImplementation: String,
         server: WireMockServer
     ) {
-        assumeTrue(
-            httpImplementation != HTTPSamplerFactory.IMPL_JAVA,
-            "Java implementation does not support custom DNS resolver yet"
-        )
-
         // Set up WireMock to respond to requests
         server.stubFor(
             get(urlEqualTo("/index.html"))
@@ -248,14 +243,13 @@ class DNSCacheManagerTest {
                     when (mockDnsServer.localAddress) {
                         is Inet4Address -> "127.0.0.1"
                         is Inet6Address -> "[::1]"
-                        else -> TODO("Unexpected address type of mockDnsServer.localAddress: ${mockDnsServer.localAddress::class.simpleName}")
                     } + ":" + mockDnsServer.boundPort
                 )
             }
 
             val http = HTTPSamplerFactory.newInstance(httpImplementation).apply {
                 dnsResolver = dns
-                method = HTTPSampler.GET
+                method = HTTPConstants.GET
                 port = server.port()
                 domain = testDomainName
                 path = "/index.html"

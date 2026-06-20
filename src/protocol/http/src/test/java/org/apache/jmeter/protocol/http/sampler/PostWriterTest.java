@@ -59,7 +59,7 @@ public class PostWriterTest {
     private static byte[] TEST_FILE_CONTENT;
 
     private StubURLConnection connection;
-    private HTTPSampler sampler;
+    private HTTPSamplerBase sampler;
     private File temporaryFile;
 
     private PostWriter postWriter;
@@ -67,7 +67,7 @@ public class PostWriterTest {
     @BeforeEach
     public void setUp() throws Exception {
         establishConnection();
-        sampler = new HTTPSampler();// This must be the original (Java) HTTP sampler
+        sampler = new HTTPSamplerProxy();
         postWriter=new PostWriter();
 
         // Create the test file content
@@ -623,28 +623,28 @@ public class PostWriterTest {
     }
 
     /** setup commons parts of HTTPSampler with a no filename. */
-    private static void setupNoFilename(HTTPSampler httpSampler) {
+    private static void setupNoFilename(HTTPSamplerBase httpSampler) {
         setupFilepart(httpSampler, "upload", null, "application/octet-stream");
     }
 
-    private void setupFilepart(HTTPSampler httpSampler) {
+    private void setupFilepart(HTTPSamplerBase httpSampler) {
         setupFilepart(httpSampler, "upload", temporaryFile, "text/plain");
     }
 
-    private static void setupFilepart(HTTPSampler httpSampler, String fileField, File file, String mimeType) {
+    private static void setupFilepart(HTTPSamplerBase httpSampler, String fileField, File file, String mimeType) {
         HTTPFileArg[] hfa = {new HTTPFileArg(file == null ? "" : file.getAbsolutePath(), fileField, mimeType)};
         httpSampler.setHTTPFiles(hfa);
     }
 
-    private static void setupFormData(HTTPSampler httpSampler) {
+    private static void setupFormData(HTTPSamplerBase httpSampler) {
         setupFormData(httpSampler, "mytitle", "mydescription");
     }
 
-    private static void setupFormData(HTTPSampler httpSampler, String titleValue, String descriptionValue) {
+    private static void setupFormData(HTTPSamplerBase httpSampler, String titleValue, String descriptionValue) {
         setupFormData(httpSampler, false, titleValue, descriptionValue);
     }
 
-    private static void setupFormData(HTTPSampler httpSampler, boolean isEncoded, String titleValue, String descriptionValue) {
+    private static void setupFormData(HTTPSamplerBase httpSampler, boolean isEncoded, String titleValue, String descriptionValue) {
         Arguments args = new Arguments();
         HTTPArgument argument1 = new HTTPArgument("title", titleValue, isEncoded);
         HTTPArgument argument2 = new HTTPArgument("description", descriptionValue, isEncoded);

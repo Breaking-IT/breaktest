@@ -441,7 +441,6 @@ only one Manager is used, but there is currently no way to specify <em>which</em
 JMeter <em>properties</em> are defined in <code>jmeter.properties</code> (see <a href="get-started.html#configuring_jmeter">Getting Started - Configuring JMeter</a> for more details).
 <br></br>
 Properties are global to jmeter, and are mostly used to define some of the defaults JMeter uses.
-For example the property <code>remote_hosts</code> defines the servers that JMeter will try to run remotely.
 Properties can be referenced in test plans
 - see <a href="functions.html#__property">Functions - read a property</a> -
 but cannot be used for thread-specific values.

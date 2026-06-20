@@ -17,7 +17,6 @@
 
 package org.apache.jmeter.protocol.http.sampler
 
-import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.matching
 import com.github.tomakehurst.wiremock.matching.RequestPatternBuilder
 
@@ -27,14 +26,18 @@ fun RequestPatternBuilder.withRequestBody(
 ) = apply {
     // normalize line endings to CRLF
     val normalizedBody = body.replace("\r\n", "\n").replace("\n", "\r\n")
+    val expectedBody = if (httpImplementation == HTTPSamplerFactory.IMPL_HTTP_CLIENT5) {
+        Regex("(Content-Disposition: [^\r\n]+\r\n)(Content-Type: [^\r\n]+\r\n)(Content-Transfer-Encoding: [^\r\n]+\r\n)")
+            .replace(normalizedBody) {
+                "${it.groupValues[3]}${it.groupValues[1]}${it.groupValues[2]}"
+            }
+    } else {
+        normalizedBody
+    }
     withRequestBody(
-        if (httpImplementation == "Java") {
-            equalTo(normalizedBody)
-        } else {
-            matching(
-                normalizedBody
-                    .replace(PostWriter.BOUNDARY, "[^ \\n\\r]{1,69}?")
-            )
-        }
+        matching(
+            expectedBody
+                .replace(PostWriter.BOUNDARY, "[^ \\n\\r]{1,69}?")
+        )
     )
 }

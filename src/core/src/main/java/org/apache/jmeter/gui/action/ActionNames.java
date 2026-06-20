@@ -74,14 +74,6 @@ public final class ActionNames {
     public static final String OPEN_RECENT      = "open_recent"; // $NON-NLS-1$
     public static final String TEMPLATES        = "templates"; // $NON-NLS-1$
     public static final String PASTE            = "Paste"; // $NON-NLS-1$
-    public static final String REMOTE_EXIT      = "remote_exit"; // $NON-NLS-1$
-    public static final String REMOTE_EXIT_ALL  = "remote_exit_all"; // $NON-NLS-1$
-    public static final String REMOTE_SHUT      = "remote_shut"; // $NON-NLS-1$
-    public static final String REMOTE_SHUT_ALL  = "remote_shut_all"; // $NON-NLS-1$
-    public static final String REMOTE_START     = "remote_start"; // $NON-NLS-1$
-    public static final String REMOTE_START_ALL = "remote_start_all"; // $NON-NLS-1$
-    public static final String REMOTE_STOP      = "remote_stop"; // $NON-NLS-1$
-    public static final String REMOTE_STOP_ALL  = "remote_stop_all"; // $NON-NLS-1$
     public static final String REMOVE           = "remove"; // $NON-NLS-1$
     public static final String RESTART          = "restart"; // $NON-NLS-1$
     public static final String REVERT_PROJECT   = "revert_project"; // $NON-NLS-1$

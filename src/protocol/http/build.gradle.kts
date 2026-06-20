@@ -63,15 +63,13 @@ dependencies {
     implementation("dnsjava:dnsjava")
     implementation("org.apache.httpcomponents.client5:httpclient5")
     implementation("org.apache.httpcomponents.core5:httpcore5-h2")
-    implementation("org.apache.httpcomponents:httpmime")
-    implementation("org.apache.httpcomponents:httpcore")
     implementation("com.miglayout:miglayout-swing")
     implementation("com.fasterxml.jackson.core:jackson-core")
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.brotli:dec") {
         because("BrotliDecoder for HTTP response decompression")
     }
-    implementation("com.github.luben:zstd-jni") {
+    implementation("io.airlift:aircompressor") {
         because("ZstdDecoder for HTTP response decompression")
     }
     testImplementation(testFixtures(projects.src.core))

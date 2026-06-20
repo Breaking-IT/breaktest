@@ -25,7 +25,7 @@
 <!ENTITY vellip   "&#x022EE;" >
 ]>
 
-<document prev="build-programmatic-test-plan.html" next="remote-test.html" id="$Id$">
+<document prev="build-programmatic-test-plan.html" next="generating-dashboard.html" id="$Id$">
 
 <properties>
   <title>User's Manual: Listeners</title>
@@ -271,7 +271,7 @@ Most of the listeners currently keep a copy of every sample they display, apart 
 </p>
 <ul>
 <li>Simple Data Writer</li>
-<li>BeanShell/JSR223 Listener</li>
+<li>JSR223 Listener</li>
 <li>Mailer Visualizer</li>
 <li>Monitor Results</li>
 <li>Summary Report</li>

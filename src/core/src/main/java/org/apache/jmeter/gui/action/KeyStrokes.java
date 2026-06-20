@@ -73,7 +73,6 @@ public final class KeyStrokes {
     public static final KeyStroke EXIT              = KeyStroke.getKeyStroke(KeyEvent.VK_Q, CONTROL_MASK);
     public static final KeyStroke ACTION_START      = KeyStroke.getKeyStroke(KeyEvent.VK_R, CONTROL_MASK);
     public static final KeyStroke ACTION_START_NO_PAUSE  = KeyStroke.getKeyStroke(KeyEvent.VK_N, CONTROL_MASK | InputEvent.SHIFT_DOWN_MASK);
-    public static final KeyStroke REMOTE_START_ALL  = KeyStroke.getKeyStroke(KeyEvent.VK_R, CONTROL_MASK | InputEvent.SHIFT_DOWN_MASK);
     public static final KeyStroke SAVE              = KeyStroke.getKeyStroke(KeyEvent.VK_S, CONTROL_MASK);
     public static final KeyStroke SAVE_ALL_AS       = KeyStroke.getKeyStroke(KeyEvent.VK_S, CONTROL_MASK | InputEvent.SHIFT_DOWN_MASK);
     public static final KeyStroke SEARCH_TREE       = KeyStroke.getKeyStroke(KeyEvent.VK_F, CONTROL_MASK);
@@ -82,8 +81,6 @@ public final class KeyStrokes {
     public static final KeyStroke PASTE             = KeyStroke.getKeyStroke(KeyEvent.VK_V, CONTROL_MASK);
     public static final KeyStroke WHAT_CLASS        = KeyStroke.getKeyStroke(KeyEvent.VK_W, CONTROL_MASK);
     public static final KeyStroke CUT               = KeyStroke.getKeyStroke(KeyEvent.VK_X, CONTROL_MASK);
-    public static final KeyStroke REMOTE_STOP_ALL   = KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.ALT_DOWN_MASK);
-    public static final KeyStroke REMOTE_SHUT_ALL   = KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.ALT_DOWN_MASK);
 
     public static final KeyStroke REMOVE            = KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0);
     public static final KeyStroke ACTION_STOP       = KeyStroke.getKeyStroke(KeyEvent.VK_PERIOD, CONTROL_MASK);

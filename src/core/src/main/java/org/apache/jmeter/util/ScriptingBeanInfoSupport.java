@@ -33,7 +33,7 @@ import org.apache.jmeter.testbeans.gui.FileEditor;
 import org.apache.jmeter.testbeans.gui.TextAreaEditor;
 
 /**
- * Parent class to define common GUI parameters for BSF and JSR223 test elements
+ * Parent class to define common GUI parameters for JSR223 test elements
  */
 public abstract class ScriptingBeanInfoSupport extends BeanInfoSupport {
 
@@ -50,11 +50,7 @@ public abstract class ScriptingBeanInfoSupport extends BeanInfoSupport {
 
         p = property("scriptLanguage"); // $NON-NLS-1$
         p.setValue(NOT_UNDEFINED, true);
-        if (JSR223TestElement.class.isAssignableFrom(beanClass) ) {
-            p.setValue(DEFAULT, "groovy"); // $NON-NLS-1$
-        } else {
-            p.setValue(DEFAULT, ""); // $NON-NLS-1$
-        }
+        p.setValue(DEFAULT, "groovy"); // $NON-NLS-1$
         if (rb != null) {
             p.setValue(RESOURCE_BUNDLE, rb);
         }

@@ -181,7 +181,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         HttpUriRequestBase httpRequest;
         HttpClientState clientState;
         try {
-            HttpVersionPolicy versionPolicy = HttpVersionPolicy.NEGOTIATE;
+            HttpVersionPolicy versionPolicy = versionPolicy();
             HttpClientKey key = createHttpClientKey(url, versionPolicy);
             clientState = setupClient(key);
             httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
@@ -199,7 +199,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         res.sampleStart();
         CacheManager cacheManager = getCacheManager();
         if (cacheManager != null && HTTPConstants.GET.equalsIgnoreCase(method)
-                && cacheManager.inCache(url, toLegacyHeaders(httpRequest.getHeaders()))) {
+                && cacheManager.inCache(url, httpRequest.getHeaders())) {
             return updateSampleResultForResourceInCache(res);
         }
 
@@ -216,7 +216,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             updateUrlAfterRedirect(clientContext, res);
             HttpResponse response = clientContext.getResponse();
             if (cacheManager != null && response != null) {
-                cacheManager.saveDetails(toLegacyResponse(response), res);
+                cacheManager.saveDetails(response, res);
             }
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (IOException | RuntimeException e) {
@@ -232,6 +232,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         } finally {
             currentRequest = null;
         }
+    }
+
+    HttpVersionPolicy versionPolicy() {
+        return testElement.isHttp2Protocol() ? HttpVersionPolicy.FORCE_HTTP_2 : HttpVersionPolicy.NEGOTIATE;
     }
 
     private void fillSampleResult(
@@ -986,23 +990,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     .append(header.getValue())
                     .append('\n');
         }
-    }
-
-    private static org.apache.http.Header[] toLegacyHeaders(Header[] headers) {
-        org.apache.http.Header[] legacyHeaders = new org.apache.http.Header[headers.length];
-        for (int i = 0; i < headers.length; i++) {
-            legacyHeaders[i] = new org.apache.http.message.BasicHeader(headers[i].getName(), headers[i].getValue());
-        }
-        return legacyHeaders;
-    }
-
-    private static org.apache.http.HttpResponse toLegacyResponse(HttpResponse response) {
-        org.apache.http.message.BasicHttpResponse legacyResponse = new org.apache.http.message.BasicHttpResponse(
-                new org.apache.http.ProtocolVersion("HTTP", 2, 0),
-                response.getCode(),
-                response.getReasonPhrase());
-        legacyResponse.setHeaders(toLegacyHeaders(response.getHeaders()));
-        return legacyResponse;
     }
 
     private static void saveConnectionCookies(HttpResponse method, URL u, CookieManager cookieManager) {

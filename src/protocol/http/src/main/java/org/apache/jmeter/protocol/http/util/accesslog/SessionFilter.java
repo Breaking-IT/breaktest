@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 
 import org.apache.jmeter.protocol.http.control.CookieManager;
-import org.apache.jmeter.protocol.http.sampler.HTTPSampler;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.testelement.TestCloneable;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.ThreadListener;
@@ -175,7 +175,7 @@ public class SessionFilter implements Filter, Serializable, TestCloneable,Thread
     public boolean isFiltered(String path,TestElement sampler) {
         String ipAddr = getIpAddress(path);
         CookieManager cm = getCookieManager(ipAddr);
-        ((HTTPSampler)sampler).setCookieManager(cm);
+        ((HTTPSamplerBase)sampler).setCookieManager(cm);
         return false;
     }
 

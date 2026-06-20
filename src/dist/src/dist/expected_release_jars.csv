@@ -1,6 +1,7 @@
 30245,accessors-smart-2.6.0.jar
 31170,annotations-26.0.2-1.jar
 6806,apiguardian-api-1.1.2.jar
+255256,aircompressor-2.0.3.jar
 126122,asm-9.9.jar
 485992,batik-anim-1.17.jar
 424429,batik-awt-util-1.17.jar
@@ -20,15 +21,12 @@
 129208,batik-transcoder-1.17.jar
 127142,batik-util-1.17.jar
 33826,batik-xml-1.17.jar
-113369,bsf-2.4.0.jar
-389033,bsh-2.0b6.jar
 1020615,caffeine-3.2.3.jar
 401021,commons-codec-1.20.0.jar
 588337,commons-collections-3.2.2.jar
 898652,commons-collections4-4.5.0.jar
 211301,commons-dbcp2-2.9.0.jar
 585274,commons-io-2.21.0.jar
-267634,commons-jexl-2.1.1.jar
 558963,commons-jexl3-3.5.0.jar
 931901,commons-jvm-4.8.0.jar
 709075,commons-lang3-3.19.0.jar
@@ -67,11 +65,9 @@
 223994,groovy-xml-5.0.4.jar
 126373,hamcrest-3.0.jar
 2403,hamcrest-core-3.0.jar
-181512,httpasyncclient-4.1.5.jar
-785639,httpclient-4.5.14.jar
-327891,httpcore-4.4.16.jar
-368896,httpcore-nio-4.4.16.jar
-41727,httpmime-4.5.14.jar
+1054142,httpclient5-5.6.1.jar
+952936,httpcore5-5.4.jar
+263347,httpcore5-h2-5.4.jar
 82104,jackson-annotations-2.21.jar
 595531,jackson-core-2.21.2.jar
 1701926,jackson-databind-2.21.2.jar
@@ -102,7 +98,6 @@
 675271,kotlinx-datetime-jvm-0.6.2.jar
 996,lets-plot-batik-4.8.0.jar
 996,lets-plot-common-4.8.0.jar
-359197,log4j-1.2-api-2.26.0.jar
 351126,log4j-api-2.26.0.jar
 2015101,log4j-core-2.26.0.jar
 30211,log4j-slf4j2-impl-2.26.0.jar

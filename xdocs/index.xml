@@ -70,7 +70,7 @@
     <li><b>Highly Extensible core:</b>
       <ul>
         <li>Pluggable Samplers allow unlimited testing capabilities.</li>
-        <li><b>Scriptable Samplers</b> (JSR223-compatible languages like <a href="http://groovy-lang.org">Groovy</a> and BeanShell)</li>
+        <li><b>Scriptable Samplers</b> (JSR223-compatible languages like <a href="http://groovy-lang.org">Groovy</a>)</li>
         <li>Several load statistics may be chosen with <b>pluggable timers</b>.</li>
         <li>Data analysis and <b>visualization plugins</b> allow great extensibility
         as well as personalization.</li>
@@ -103,7 +103,6 @@ Nor does it render the HTML pages as a browser does
 
 <h2>Tutorials</h2>
 <ul>
-<li><a href="usermanual/breaktest_distributed_testing_step_by_step.html">Distributed Testing</a></li>
 <li><a href="usermanual/breaktest_proxy_step_by_step.html">Recording Tests</a></li>
 <li><a href="usermanual/junitsampler_tutorial.html">JUnit Sampler</a></li>
 <li><a href="usermanual/breaktest_accesslog_sampler_step_by_step.html">Access Log Sampler</a></li>

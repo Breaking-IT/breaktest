@@ -163,7 +163,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
     private static final int GROUPING_IN_TRANSACTION_CONTROLLERS = 4;
 
     // Original numeric order (we now use strings)
-    private static final String SAMPLER_TYPE_HTTP_SAMPLER_JAVA = "0";
+    private static final String SAMPLER_TYPE_LEGACY_HTTP_SAMPLER = "0";
     private static final String SAMPLER_TYPE_HTTP_SAMPLER_HC3_1 = "1";
     private static final String SAMPLER_TYPE_HTTP_SAMPLER_HC4 = "2";
 
@@ -455,12 +455,12 @@ public class ProxyControl extends GenericController implements NonTestElement {
     public String getSamplerTypeName() {
         // Convert the old numeric types - just in case someone wants to reload the workbench
         String type = getPropertyAsString(SAMPLER_TYPE_NAME);
-        if (SAMPLER_TYPE_HTTP_SAMPLER_JAVA.equals(type)) {
-            type = HTTPSamplerFactory.IMPL_JAVA;
+        if (SAMPLER_TYPE_LEGACY_HTTP_SAMPLER.equals(type)) {
+            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
         } else if (SAMPLER_TYPE_HTTP_SAMPLER_HC3_1.equals(type)) {
-            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT4;
+            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
         } else if (SAMPLER_TYPE_HTTP_SAMPLER_HC4.equals(type)) {
-            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT4;
+            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
         }
         return type;
     }
@@ -1637,12 +1637,14 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
     }
 
-    @SuppressWarnings("deprecation")
     private static boolean isValid(String subject) {
         String[] parts = subject.split("\\.");
         return !parts[0].endsWith("*") // not a wildcard
-                || parts.length >= 3
-                && org.apache.http.conn.ssl.AbstractVerifier.acceptableCountryWildcard(subject);
+                || parts.length >= 3 && !isCountryCodeSecondLevelWildcard(parts);
+    }
+
+    private static boolean isCountryCodeSecondLevelWildcard(String[] parts) {
+        return parts.length == 3 && parts[1].length() <= 3 && parts[2].length() == 2;
     }
 
     // This should only be called for a specific host

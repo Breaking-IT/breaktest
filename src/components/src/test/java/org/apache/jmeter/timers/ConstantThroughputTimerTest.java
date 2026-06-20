@@ -26,9 +26,7 @@ import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.TestJMeterContextService;
-import org.apache.jmeter.util.BeanShellInterpreter;
 import org.apache.jmeter.util.ScriptingTestElement;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class ConstantThroughputTimerTest {
@@ -122,22 +120,6 @@ class ConstantThroughputTimerTest {
         TestBeanHelper.prepare(timer);
 
         assertEquals(ConstantThroughputTimer.Mode.AllActiveThreads, timer.getMode());
-    }
-
-    @Test
-    void testTimerBSH() throws Exception {
-        Assumptions.assumeTrue(BeanShellInterpreter.isInterpreterPresent(),
-                "BeanShell jar should be on the classpath, otherwise the test makes no sense");
-        BeanShellTimer timer = new BeanShellTimer();
-
-        timer.setScript("\"60\"");
-        assertEquals(60, timer.delay());
-
-        timer.setScript("60");
-        assertEquals(60, timer.delay());
-
-        timer.setScript("5*3*4");
-        assertEquals(60, timer.delay());
     }
 
     @Test

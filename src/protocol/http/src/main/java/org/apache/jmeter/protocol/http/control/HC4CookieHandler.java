@@ -17,33 +17,12 @@
 
 package org.apache.jmeter.protocol.http.control;
 
+import java.net.HttpCookie;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 
-import org.apache.http.Header;
-import org.apache.http.client.config.CookieSpecs;
-import org.apache.http.client.protocol.HttpClientContext;
-import org.apache.http.config.Registry;
-import org.apache.http.config.RegistryBuilder;
-import org.apache.http.conn.util.PublicSuffixMatcher;
-import org.apache.http.conn.util.PublicSuffixMatcherLoader;
-import org.apache.http.cookie.ClientCookie;
-import org.apache.http.cookie.CookieOrigin;
-import org.apache.http.cookie.CookieSpec;
-import org.apache.http.cookie.CookieSpecProvider;
-import org.apache.http.cookie.MalformedCookieException;
-import org.apache.http.impl.cookie.BasicClientCookie;
-import org.apache.http.impl.cookie.DefaultCookieSpecProvider;
-import org.apache.http.impl.cookie.IgnoreSpecProvider;
-import org.apache.http.impl.cookie.NetscapeDraftSpecProvider;
-import org.apache.http.impl.cookie.RFC2109SpecProvider;
-import org.apache.http.impl.cookie.RFC2965SpecProvider;
-import org.apache.http.impl.cookie.RFC6265CookieSpecProvider;
-import org.apache.http.message.BasicHeader;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
-import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.slf4j.Logger;
@@ -53,39 +32,21 @@ public class HC4CookieHandler implements CookieHandler {
     private static final Logger log = LoggerFactory.getLogger(HC4CookieHandler.class);
 
     // Needed by CookiePanel
-    public static final String DEFAULT_POLICY_NAME = CookieSpecs.STANDARD; // NOSONAR
+    public static final String DEFAULT_POLICY_NAME = "standard"; // NOSONAR
 
-    @SuppressWarnings("deprecation")
     private static final String[] AVAILABLE_POLICIES = new String[]{
         DEFAULT_POLICY_NAME,
-        CookieSpecs.STANDARD_STRICT,
-        CookieSpecs.IGNORE_COOKIES,
-        CookieSpecs.NETSCAPE,
-        CookieSpecs.DEFAULT,
+        "standard-strict",
+        "ignoreCookies",
+        "netscape",
+        "default",
         "rfc2109",
         "rfc2965",
-        CookieSpecs.BEST_MATCH,
-        CookieSpecs.BROWSER_COMPATIBILITY
+        "best-match",
+        "compatibility"
     };
 
-    private final transient CookieSpec cookieSpec;
-
-    private static final PublicSuffixMatcher publicSuffixMatcher = PublicSuffixMatcherLoader.getDefault();
-    @SuppressWarnings("deprecation")
-    private static final Registry<CookieSpecProvider> registry  =
-            RegistryBuilder.<CookieSpecProvider>create()
-            // case is ignored bug registry as it converts to lowerCase(Locale.US)
-            .register(CookieSpecs.BEST_MATCH, new DefaultCookieSpecProvider(publicSuffixMatcher))
-            .register(CookieSpecs.BROWSER_COMPATIBILITY, new DefaultCookieSpecProvider(publicSuffixMatcher))
-            .register(CookieSpecs.STANDARD, new RFC6265CookieSpecProvider())
-            .register("rfc2109", new RFC2109SpecProvider(publicSuffixMatcher, true)) //$NON-NLS-1$
-            .register("rfc2965", new RFC2965SpecProvider(publicSuffixMatcher, true)) //$NON-NLS-1$
-            .register(CookieSpecs.STANDARD_STRICT, new RFC6265CookieSpecProvider(
-                    org.apache.http.impl.cookie.RFC6265CookieSpecProvider.CompatibilityLevel.STRICT, null))
-            .register(CookieSpecs.DEFAULT, new DefaultCookieSpecProvider(publicSuffixMatcher))
-            .register(CookieSpecs.IGNORE_COOKIES, new IgnoreSpecProvider())
-            .register(CookieSpecs.NETSCAPE, new NetscapeDraftSpecProvider())
-            .build();
+    private final transient boolean ignoreCookies;
 
     /**
      * Default constructor that uses {@link HC4CookieHandler#DEFAULT_POLICY_NAME}
@@ -96,11 +57,7 @@ public class HC4CookieHandler implements CookieHandler {
 
     public HC4CookieHandler(String policy) {
         super();
-        if (policy.equalsIgnoreCase("default")) { // tweak diff HC3 vs HC4
-            policy = CookieSpecs.DEFAULT;
-        }
-        HttpClientContext context = HttpClientContext.create();
-        this.cookieSpec = registry.lookup(policy).create(context);
+        this.ignoreCookies = "ignoreCookies".equalsIgnoreCase(policy);
     }
 
     @Override
@@ -111,50 +68,36 @@ public class HC4CookieHandler implements CookieHandler {
             if (debugEnabled) {
                 log.debug("Received Cookie: {} From: {}", cookieHeader, url.toExternalForm());
             }
-            String protocol = url.getProtocol();
-            String host = url.getHost();
-            int port= HTTPSamplerBase.getDefaultPort(protocol,url.getPort());
-            String path = url.getPath();
-            boolean isSecure=HTTPSamplerBase.isSecure(protocol);
-
-            List<org.apache.http.cookie.Cookie> cookies = null;
-
-            CookieOrigin cookieOrigin = new CookieOrigin(host, port, path, isSecure);
-            BasicHeader basicHeader = new BasicHeader(HTTPConstants.HEADER_SET_COOKIE, cookieHeader);
-
+            List<HttpCookie> cookies;
             try {
-                cookies = cookieSpec.parse(basicHeader, cookieOrigin);
-            } catch (MalformedCookieException e) {
+                cookies = HttpCookie.parse(cookieHeader);
+            } catch (IllegalArgumentException e) {
                 log.error("Unable to add the cookie", e);
+                return;
             }
             if (cookies == null) {
                 return;
             }
-            for (org.apache.http.cookie.Cookie cookie : cookies) {
+            for (HttpCookie cookie : cookies) {
                 try {
                     if (checkCookies) {
-                        try {
-                            cookieSpec.validate(cookie, cookieOrigin);
-                        } catch (MalformedCookieException e) { // This means the cookie was wrong for the URL
+                        if (!matches(cookie, url)) {
                             log.info("Not storing invalid cookie: <{}> for URL {} ({})",
-                                cookieHeader, url, e.getLocalizedMessage());
+                                cookieHeader, url, "URI mismatch");
                             continue;
                         }
                     }
-                    Date expiryDate = cookie.getExpiryDate();
-                    long exp = 0;
-                    if (expiryDate!= null) {
-                        exp=expiryDate.getTime();
-                    }
+                    long maxAge = cookie.getMaxAge();
+                    long exp = maxAge < 0 ? 0 : System.currentTimeMillis() + maxAge * 1000;
                     Cookie newCookie = new Cookie(
                             cookie.getName(),
                             cookie.getValue(),
-                            cookie.getDomain(),
-                            cookie.getPath(),
-                            cookie.isSecure(),
+                            cookie.getDomain() == null ? url.getHost() : cookie.getDomain(),
+                            cookie.getPath() == null ? defaultPath(url) : cookie.getPath(),
+                            cookie.getSecure(),
                             exp / 1000,
-                            ((BasicClientCookie)cookie).containsAttribute(ClientCookie.PATH_ATTR),
-                            ((BasicClientCookie)cookie).containsAttribute(ClientCookie.DOMAIN_ATTR),
+                            cookie.getPath() != null,
+                            cookie.getDomain() != null,
                             cookie.getVersion());
 
                     // Store session cookies as well as unexpired ones
@@ -175,7 +118,10 @@ public class HC4CookieHandler implements CookieHandler {
     @Override
     public String getCookieHeaderForURL(CollectionProperty cookiesCP, URL url,
             boolean allowVariableCookie) {
-        List<org.apache.http.cookie.Cookie> c =
+        if (ignoreCookies) {
+            return null;
+        }
+        List<HttpCookie> c =
                 getCookiesForUrl(cookiesCP, url, allowVariableCookie);
 
         boolean debugEnabled = log.isDebugEnabled();
@@ -185,11 +131,12 @@ public class HC4CookieHandler implements CookieHandler {
         if (c.isEmpty()) {
             return null;
         }
-        List<Header> lstHdr = cookieSpec.formatCookies(c);
-
         StringBuilder sbHdr = new StringBuilder();
-        for (Header header : lstHdr) {
-            sbHdr.append(header.getValue());
+        for (HttpCookie cookie : c) {
+            if (!sbHdr.isEmpty()) {
+                sbHdr.append("; ");
+            }
+            sbHdr.append(cookie.getName()).append('=').append(cookie.getValue());
         }
 
         return sbHdr.toString();
@@ -204,9 +151,9 @@ public class HC4CookieHandler implements CookieHandler {
      * @return array of HttpClient cookies
      *
      */
-    List<org.apache.http.cookie.Cookie> getCookiesForUrl(
+    List<HttpCookie> getCookiesForUrl(
             CollectionProperty cookiesCP, URL url, boolean allowVariableCookie) {
-        List<org.apache.http.cookie.Cookie> cookies = new ArrayList<>();
+        List<HttpCookie> cookies = new ArrayList<>();
 
         for (JMeterProperty jMeterProperty : cookiesCP) {
             Cookie jmcookie = (Cookie) jMeterProperty.getObjectValue();
@@ -219,17 +166,9 @@ public class HC4CookieHandler implements CookieHandler {
                 jmcookie.setRunningVersion(false);
             }
         }
-        String host = url.getHost();
-        String protocol = url.getProtocol();
-        int port = HTTPSamplerBase.getDefaultPort(protocol, url.getPort());
-        String path = url.getPath();
-        boolean secure = HTTPSamplerBase.isSecure(protocol);
-
-        CookieOrigin cookieOrigin = new CookieOrigin(host, port, path, secure);
-
-        List<org.apache.http.cookie.Cookie> cookiesValid = new ArrayList<>();
-        for (org.apache.http.cookie.Cookie cookie : cookies) {
-            if (cookieSpec.match(cookie, cookieOrigin)) {
+        List<HttpCookie> cookiesValid = new ArrayList<>();
+        for (HttpCookie cookie : cookies) {
+            if (matches(cookie, url)) {
                 cookiesValid.add(cookie);
             }
         }
@@ -241,22 +180,39 @@ public class HC4CookieHandler implements CookieHandler {
      * Create an HttpClient cookie from a JMeter cookie
      */
     @SuppressWarnings("JavaUtilDate")
-    private static org.apache.http.cookie.Cookie makeCookie(Cookie jmc) {
+    private static HttpCookie makeCookie(Cookie jmc) {
         long exp = jmc.getExpiresMillis();
-        BasicClientCookie ret = new BasicClientCookie(jmc.getName(),
-                jmc.getValue());
-        ret.setDomain(jmc.getDomain());
-        ret.setPath(jmc.getPath());
-        ret.setExpiryDate(exp > 0 ? new Date(exp) : null); // use null for no expiry
+        HttpCookie ret = new HttpCookie(jmc.getName(), jmc.getValue());
+        if (jmc.isDomainSpecified()) {
+            ret.setDomain(jmc.getDomain());
+        }
+        if (jmc.isPathSpecified()) {
+            ret.setPath(jmc.getPath());
+        }
+        ret.setMaxAge(exp > 0 ? Math.max(0, (exp - System.currentTimeMillis()) / 1000) : -1);
         ret.setSecure(jmc.getSecure());
         ret.setVersion(jmc.getVersion());
-        if(jmc.isDomainSpecified()) {
-            ret.setAttribute(ClientCookie.DOMAIN_ATTR, jmc.getDomain());
-        }
-        if(jmc.isPathSpecified()) {
-            ret.setAttribute(ClientCookie.PATH_ATTR, jmc.getPath());
-        }
         return ret;
+    }
+
+    private static boolean matches(HttpCookie cookie, URL url) {
+        String protocol = url.getProtocol();
+        if (cookie.getSecure() && !HTTPSamplerBase.isSecure(protocol)) {
+            return false;
+        }
+        String domain = cookie.getDomain();
+        String host = url.getHost();
+        if (domain != null && !HttpCookie.domainMatches(domain, host)) {
+            return false;
+        }
+        String cookiePath = cookie.getPath();
+        return cookiePath == null || url.getPath().startsWith(cookiePath);
+    }
+
+    private static String defaultPath(URL url) {
+        String path = url.getPath();
+        int lastSlash = path.lastIndexOf('/');
+        return lastSlash <= 0 ? "/" : path.substring(0, lastSlash);
     }
 
     @Override

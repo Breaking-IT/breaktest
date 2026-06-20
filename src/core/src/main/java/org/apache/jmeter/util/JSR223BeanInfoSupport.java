@@ -24,6 +24,7 @@ import java.util.ListResourceBundle;
 import java.util.Locale;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 import javax.script.ScriptEngineFactory;
 import javax.script.ScriptEngineManager;
@@ -36,6 +37,8 @@ import org.apache.jmeter.testbeans.TestBean;
 public abstract class JSR223BeanInfoSupport extends ScriptingBeanInfoSupport {
 
     private static final String[] LANGUAGE_TAGS;
+
+    private static final Set<String> HIDDEN_SCRIPT_LANGUAGE_ALIASES = Set.of("jexl", "jexl2");
 
     /**
      * Will be removed in next version following 3.2
@@ -53,7 +56,10 @@ public abstract class JSR223BeanInfoSupport extends ScriptingBeanInfoSupport {
         for(ScriptEngineFactory fact : engineFactories){
             List<String> names = fact.getNames();
             for(String shortName : names) {
-                nameMap.put(shortName.toLowerCase(Locale.ENGLISH), fact);
+                String key = shortName.toLowerCase(Locale.ENGLISH);
+                if (!isHiddenScriptLanguageAlias(key)) {
+                    nameMap.put(key, fact);
+                }
             }
         }
         LANGUAGE_TAGS = nameMap.keySet().toArray(new String[nameMap.size()]);
@@ -91,6 +97,10 @@ public abstract class JSR223BeanInfoSupport extends ScriptingBeanInfoSupport {
      */
     public static final String[][] getLanguageNames() {
         return CONSTANT_LANGUAGE_NAMES.clone();
+    }
+
+    static boolean isHiddenScriptLanguageAlias(String shortName) {
+        return HIDDEN_SCRIPT_LANGUAGE_ALIASES.contains(shortName.toLowerCase(Locale.ENGLISH));
     }
 
 }
