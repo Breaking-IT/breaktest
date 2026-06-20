@@ -18,15 +18,9 @@
 package org.apache.jmeter.engine;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
-import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -59,16 +53,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Runs JMeter tests, either directly for local GUI and non-GUI invocations,
- * or started by {@link RemoteJMeterEngineImpl} when running in server mode.
+ * Runs JMeter tests for local GUI and non-GUI invocations.
  */
 public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(StandardJMeterEngine.class);
-
-    // Should we exit at end of the test? (only applies to server, because host is non-null)
-    private static final boolean EXIT_AFTER_TEST =
-        JMeterUtils.getPropDefault("server.exitaftertest", false);  // $NON-NLS-1$
 
     // Allow engine and threads to be stopped from outside a thread
     // Assumes that there is only one instance of the engine
@@ -81,9 +70,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
      * The list is merged with the testListeners and then cleared.
      */
     private static final List<TestStateListener> testList = new ArrayList<>();
-
-    /** Whether to call System.exit(0) in exit after stopping RMI */
-    private static final boolean REMOTE_SYSTEM_EXIT = JMeterUtils.getPropDefault("jmeterengine.remote.system.exit", false);
 
     /** Whether to call System.exit(1) if threads won't stop */
     private static final boolean SYSTEM_EXIT_ON_STOP_FAIL = JMeterUtils.getPropDefault("jmeterengine.stopfail.system.exit", true);
@@ -121,17 +107,10 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     private HashTree test;
 
-    private final String host;
-
     // The list of current thread groups; may be setUp, main, or tearDown.
     private final List<AbstractThreadGroup> groups = new CopyOnWriteArrayList<>();
 
     public StandardJMeterEngine() {
-        this(null);
-    }
-
-    public StandardJMeterEngine(String host) {
-        this.host = host;
         // Hack to allow external control
         initSingletonEngine(this);
     }
@@ -179,8 +158,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         return wasStopped;
     }
 
-    // End of code to allow engine to be controlled remotely
-
     @Override
     public void configure(HashTree testTree) {
         // Is testplan serialised?
@@ -199,12 +176,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void runTest() throws JMeterEngineException {
-        if (host != null){
-            Instant now = Instant.now();
-            String nowAsString = formatLikeDate(now);
-            System.out.println("Starting the test on host "  // NOSONAR Intentional
-                    + host + " @ " + nowAsString + " (" + now.toEpochMilli() + ')');
-        }
         try {
             runningTest = EXECUTOR_SERVICE.submit(this);
         } catch (Exception err) {
@@ -218,14 +189,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         runningTest.get(duration.toMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private static String formatLikeDate(Instant instant) {
-        return DateTimeFormatter
-                .ofLocalizedDateTime(FormatStyle.LONG)
-                .withLocale(Locale.ROOT)
-                .withZone(ZoneId.systemDefault())
-                .format(instant);
-    }
-
     private static void removeThreadGroups(List<?> elements) {
         Iterator<?> iter = elements.iterator();
         while (iter.hasNext()) { // Can't use for loop here because we remove elements
@@ -236,23 +199,19 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
-    private void notifyTestListenersOfStart(SearchByClass<? extends TestStateListener> testListeners) {
+    private static void notifyTestListenersOfStart(SearchByClass<? extends TestStateListener> testListeners) {
         for (TestStateListener tl : testListeners.getSearchResults()) {
             try {
                 if (tl instanceof TestBean) {
                     TestBeanHelper.prepare((TestElement) tl);
                 }
-                if (host == null) {
-                    tl.testStarted();
-                } else {
-                    tl.testStarted(host);
-                }
+                tl.testStarted();
             } catch (Throwable e) {
                 // TODO: we should not be logging the exceptions multiple times, however, currently GUI does not
                 //   monitor if the running test fails, so we log the exception for the users to see in the logs
-                log.error("Unable to execute testStarted({}) for test element {}", host, tl, e);
+                log.error("Unable to execute testStarted() for test element {}", tl, e);
                 throw new IllegalStateException(
-                        "Unable to execute testStarted(" + host + ") for test element " + tl, e);
+                        "Unable to execute testStarted() for test element " + tl, e);
             }
         }
     }
@@ -261,24 +220,9 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         log.info("Notifying test listeners of end of test");
         for (TestStateListener tl : testListeners.getSearchResults()) {
             try {
-                if (host == null) {
-                    tl.testEnded();
-                } else {
-                    tl.testEnded(host);
-                }
+                tl.testEnded();
             } catch (Exception e) {
                 log.warn("Error encountered during shutdown of "+tl.toString(),e);
-            }
-        }
-        if (host != null) {
-            log.info("Test has ended on host {} ", host);
-            Instant now = Instant.now();
-            String nowAsString = formatLikeDate(now);
-            System.out.println("Finished the test on host "  // NOSONAR Intentional
-                    + host + " @ " + nowAsString + " (" + now.toEpochMilli() + ')'
-                    +(EXIT_AFTER_TEST ? " - exit requested." : ""));
-            if (EXIT_AFTER_TEST){
-                exit();
             }
         }
         active=false;
@@ -594,41 +538,12 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
-    /**
-     * Remote exit
-     * Called by RemoteJMeterEngineImpl.rexit()
-     * and by notifyTestListenersOfEnd() iff exitAfterTest is true;
-     * in turn that is called by the run() method and the StopTest class
-     * also called
-     */
-    @Override
-    @SuppressWarnings("FutureReturnValueIgnored")
-    public void exit() {
-        ClientJMeterEngine.tidyRMI(log); // This should be enough to allow server to exit.
-        if (REMOTE_SYSTEM_EXIT) { // default is false
-            log.warn("About to run System.exit(0) on {}", host);
-            // Needs to be run in a separate thread to allow RMI call to return OK
-            EXECUTOR_SERVICE.submit(() -> {
-                pause(1000); // Allow RMI to complete
-                log.info("Bye from {}", host);
-                System.out.println("Bye from "+host); // NOSONAR Intentional
-                System.exit(0); // NOSONAR Intentional
-            });
-        }
-    }
-
     private static void pause(long ms){
         try {
             TimeUnit.MILLISECONDS.sleep(ms);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    @Override
-    public void setProperties(Properties p) {
-        log.info("Applying properties {}", p);
-        JMeterUtils.getJMeterProperties().putAll(p);
     }
 
     @Override

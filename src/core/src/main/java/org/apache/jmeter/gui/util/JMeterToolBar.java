@@ -262,9 +262,6 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, false);
         buttonStates.put(ActionNames.UNDO, false);
         buttonStates.put(ActionNames.REDO, false);
-        buttonStates.put(ActionNames.REMOTE_START_ALL, true);
-        buttonStates.put(ActionNames.REMOTE_STOP_ALL, false);
-        buttonStates.put(ActionNames.REMOTE_SHUT_ALL, false);
         updateButtons(buttonStates);
     }
 
@@ -280,20 +277,6 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, !started);
         buttonStates.put(ActionNames.ACTION_STOP, started);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, started);
-        updateButtons(buttonStates);
-    }
-
-    /**
-     * Change state of buttons on remote test
-     *
-     * @param started
-     *            Flag whether the test is started
-     */
-    public void setRemoteTestStarted(boolean started) {
-        Map<String, Boolean> buttonStates = new HashMap<>(3);
-        buttonStates.put(ActionNames.REMOTE_START_ALL, !started);
-        buttonStates.put(ActionNames.REMOTE_STOP_ALL, started);
-        buttonStates.put(ActionNames.REMOTE_SHUT_ALL, started);
         updateButtons(buttonStates);
     }
 

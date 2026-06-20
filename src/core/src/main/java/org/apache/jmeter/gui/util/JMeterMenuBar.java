@@ -22,7 +22,6 @@ import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.ServiceLoader;
@@ -56,7 +55,6 @@ import org.apache.jmeter.util.LocaleChangeEvent;
 import org.apache.jmeter.util.LocaleChangeListener;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
-import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.logging.log4j.Level;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,20 +76,11 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     private JMenu runMenu;
     private JMenuItem runStart;
     private JMenuItem runStartNoTimers;
-    private JMenu remoteStart;
-    private final Collection<JMenuItem> remoteEngineStart;
     private JMenuItem runStop;
     private JMenuItem runShut;
-    private JMenu remoteStop;
-    private JMenu remoteShut;
-    private final Collection<JMenuItem> remoteEngineStop;
-    private final Collection<JMenuItem> remoteEngineShut;
     private JMenu optionsMenu;
     private JMenu helpMenu;
     private JMenu toolsMenu;
-    private String[] remoteHosts;
-    private JMenu remoteExit;
-    private final Collection<JMenuItem> remoteEngineExit;
     private JMenu searchMenu;
     private final Collection<MenuCreator> menuCreators =
             JMeterUtils.loadServicesAndScanJars(
@@ -111,16 +100,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     public JMeterMenuBar() {
         // List for recent files menu items
         fileLoadRecentFiles = new ArrayList<>();
-        // Lists for remote engines menu items
-        remoteEngineStart = new ArrayList<>();
-        remoteEngineStop = new ArrayList<>();
-        remoteEngineShut = new ArrayList<>();
-        remoteEngineExit = new ArrayList<>();
-        remoteHosts = JOrphanUtils.split(JMeterUtils.getPropDefault("remote_hosts", ""), ","); //$NON-NLS-1$
-        if (remoteHosts.length == 1 && remoteHosts[0].isEmpty()) {
-            remoteHosts = new String[0];
-        }
-        this.getRemoteItems();
         createMenuBar();
         JMeterUtils.addLocaleChangeListener(this);
     }
@@ -438,31 +417,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         runMenu.add(runStop);
         runMenu.add(runShut);
         runMenu.addSeparator();
-
-        if (remoteStart != null) {
-            runMenu.add(remoteStart);
-        }
-        JMenuItem remoteStartAll = makeMenuItemRes("remote_start_all", ActionNames.REMOTE_START_ALL, KeyStrokes.REMOTE_START_ALL);
-        runMenu.add(remoteStartAll);
-        if (remoteStop != null) {
-            runMenu.add(remoteStop);
-        }
-        JMenuItem remoteStopAll = makeMenuItemRes("remote_stop_all", 'X', ActionNames.REMOTE_STOP_ALL, KeyStrokes.REMOTE_STOP_ALL);
-        runMenu.add(remoteStopAll);
-
-        if (remoteShut != null) {
-            runMenu.add(remoteShut);
-        }
-        JMenuItem remoteShutAll = makeMenuItemRes("remote_shut_all", 'X', ActionNames.REMOTE_SHUT_ALL, KeyStrokes.REMOTE_SHUT_ALL);
-        runMenu.add(remoteShutAll);
-
-        if (remoteExit != null) {
-            runMenu.add(remoteExit);
-        }
-        JMenuItem remoteExitAll = makeMenuItemRes("remote_exit_all", ActionNames.REMOTE_EXIT_ALL);
-        runMenu.add(remoteExitAll);
-
-        runMenu.addSeparator();
         runMenu.add(runClear);
         runMenu.add(runClearAll);
 
@@ -597,47 +551,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         }
     }
 
-    public void setRunning(boolean running, String host) {
-        log.info("setRunning({}, {})", running, host);
-        if (org.apache.jmeter.gui.MainFrame.LOCAL.equals(host)) {
-            return;
-        }
-        Iterator<JMenuItem> iter = remoteEngineStart.iterator();
-        Iterator<JMenuItem> iter2 = remoteEngineStop.iterator();
-        Iterator<JMenuItem> iter3 = remoteEngineExit.iterator();
-        Iterator<JMenuItem> iter4 = remoteEngineShut.iterator();
-        while (iter.hasNext() && iter2.hasNext() && iter3.hasNext() &&iter4.hasNext()) {
-            JMenuItem start = iter.next();
-            JMenuItem stop = iter2.next();
-            JMenuItem exit = iter3.next();
-            JMenuItem shut = iter4.next();
-            if (start.getText().equals(host)) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Found start host: {}", start.getText());
-                }
-                start.setEnabled(!running);
-            }
-            if (stop.getText().equals(host)) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Found stop  host: {}", stop.getText());
-                }
-                stop.setEnabled(running);
-            }
-            if (exit.getText().equals(host)) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Found exit  host: {}", exit.getText());
-                }
-                exit.setEnabled(true);
-            }
-            if (shut.getText().equals(host)) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Found shut  host: {}", exit.getText());
-                }
-                shut.setEnabled(running);
-            }
-        }
-    }
-
     /** {@inheritDoc} */
     @Override
     public void setEnabled(boolean enable) {
@@ -645,38 +558,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         runStartNoTimers.setEnabled(!enable);
         runStop.setEnabled(enable);
         runShut.setEnabled(enable);
-    }
-
-    private void getRemoteItems() {
-        if (remoteHosts.length > 0) {
-            remoteStart = makeMenuRes("remote_start"); //$NON-NLS-1$
-            remoteStop = makeMenuRes("remote_stop"); //$NON-NLS-1$
-            remoteShut = makeMenuRes("remote_shut"); //$NON-NLS-1$
-            remoteExit = makeMenuRes("remote_exit"); //$NON-NLS-1$
-
-            for (int i = 0; i < remoteHosts.length; i++) {
-                remoteHosts[i] = remoteHosts[i].trim();
-
-                JMenuItem item = makeMenuItemNoRes(remoteHosts[i], ActionNames.REMOTE_START);
-                remoteEngineStart.add(item);
-                remoteStart.add(item);
-
-                item = makeMenuItemNoRes(remoteHosts[i], ActionNames.REMOTE_STOP);
-                item.setEnabled(false);
-                remoteEngineStop.add(item);
-                remoteStop.add(item);
-
-                item = makeMenuItemNoRes(remoteHosts[i], ActionNames.REMOTE_SHUT);
-                item.setEnabled(false);
-                remoteEngineShut.add(item);
-                remoteShut.add(item);
-
-                item = makeMenuItemNoRes(remoteHosts[i],ActionNames.REMOTE_EXIT);
-                item.setEnabled(false);
-                remoteEngineExit.add(item);
-                remoteExit.add(item);
-            }
-        }
     }
 
     /** {@inheritDoc} */
@@ -750,13 +631,7 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
 
     /**
      * Return true if component name is a resource.<br/>
-     * i.e it is not a hostname:<br/>
-     *
-     * <tt>ActionNames.REMOTE_START</tt><br/>
-     * <tt>ActionNames.REMOTE_STOP</tt><br/>
-     * <tt>ActionNames.REMOTE_EXIT</tt><br/>
-     *
-     * nor a filename:<br/>
+     * i.e it is not a filename:<br/>
      * <tt>ActionNames.OPEN_RECENT</tt>
      *
      * nor a look and feel prefix:<br/>
@@ -767,18 +642,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
             return false;
         }
         if (ActionNames.ADD.equals(actionCommand)){//
-            return false;
-        }
-        if (ActionNames.REMOTE_START.equals(actionCommand)){//
-            return false;
-        }
-        if (ActionNames.REMOTE_STOP.equals(actionCommand)){//
-            return false;
-        }
-        if (ActionNames.REMOTE_SHUT.equals(actionCommand)){//
-            return false;
-        }
-        if (ActionNames.REMOTE_EXIT.equals(actionCommand)){//
             return false;
         }
         if (ActionNames.OPEN_RECENT.equals(actionCommand)){//
@@ -812,21 +675,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         JMenu menu = makeMenuRes(resource);
         menu.setMnemonic(mnemonic);
         return menu;
-    }
-
-    /**
-     * Make a menuItem using a fixed label which is also used as the item name.
-     * This is used for items such as recent files and hostnames which are not resources
-     * @param label (this is not used as a resource key)
-     * @param actionCommand
-     * @return the menu item
-     */
-    private static JMenuItem makeMenuItemNoRes(String label, String actionCommand) {
-        JMenuItem menuItem = new JMenuItem(label);
-        menuItem.setName(label);
-        menuItem.setActionCommand(actionCommand);
-        menuItem.addActionListener(ActionRouter.getInstance());
-        return menuItem;
     }
 
     private static JMenuItem makeMenuItemRes(String resource, String actionCommand) {

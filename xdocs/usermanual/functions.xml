@@ -306,7 +306,6 @@ replacement string") parsed by this function</li>
 <li><code>${refName_g#}</code> to refer to the n<sup>th</sup> group parsed by this function.</li>
 <li><code>${refName_matchNr}</code> to refer to the number of groups found by this function.</li>
 </ul>
-<note>If using distributed testing, ensure you switch mode (see <code>jmeter.properties</code>) so that it's not a stripping one, see <bugzilla>56376</bugzilla></note>
 </p>
 </description>
 

@@ -42,10 +42,7 @@ public class PreCompiler implements HashTreeTraverser {
 
     private final ValueReplacer replacer;
 
-//   Used by both StandardJMeterEngine and ClientJMeterEngine.
-//   In the latter case, only ResultCollectors are updated,
-//   as only these are relevant to the client, and updating
-//   other elements causes all sorts of problems.
+//   Used by StandardJMeterEngine.
     private final boolean isClientSide; // skip certain processing for remote tests
 
     private JMeterVariables clientSideVariables;

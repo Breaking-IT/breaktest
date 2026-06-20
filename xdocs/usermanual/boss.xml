@@ -119,7 +119,7 @@ JMeter is also supported within Commercial Cloud PAAS if you don't want to manag
 <p>Don't forget JMeter batch (CLI) mode. This mode should be used during load testing for many reasons:
 <ul>
 <li>If you have a powerful server that supports Java but perhaps does not have a fast graphics implementation, or where you need to login remotely.</li>
-<li>Batch (CLI) mode can reduce the network traffic compared with using a remote display or client-server mode.</li>
+<li>Batch (CLI) mode can reduce the network traffic compared with using a remote display.</li>
 <li>Java AWT Thread used for GUI mode can alter injection behaviour by blocking sometimes</li>
 </ul>
 The batch log file can then be loaded into JMeter on a workstation for analysis, or you can

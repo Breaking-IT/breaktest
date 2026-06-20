@@ -45,7 +45,6 @@
          <item name="Upstream FAQ (Wiki)"             href="https://cwiki.apache.org/confluence/display/JMETER/JMeterFAQ"/>
      </menu>
      <menu name="Tutorials">
-        <item name="Distributed Testing" href="/usermanual/breaktest_distributed_testing_step_by_step.html"/>
         <item name="Recording Tests"     href="/usermanual/breaktest_proxy_step_by_step.html"/>
         <item name="JUnit Sampler"         href="/usermanual/junitsampler_tutorial.html"/>
         <item name="Access Log Sampler"     href="/usermanual/breaktest_accesslog_sampler_step_by_step.html"/>

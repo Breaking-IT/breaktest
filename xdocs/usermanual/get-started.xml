@@ -211,9 +211,6 @@ See the <a href="#classpath">BreakTest Classpath</a> section for more details on
 <p>To install a release build, simply unzip the zip/tar file into the directory
 where you want BreakTest to be installed.  Provided that you have a JRE/JDK correctly installed
 and the <code>JAVA_HOME</code> environment variable set, there is nothing more for you to do.</p>
-<note>
-There can be problems (especially with client-server mode) if the directory path contains any spaces.
-</note>
 <p>
 The installation directory structure should look something like this (where <code>X.Y</code> is version number):
 <source>
@@ -247,14 +244,12 @@ Windows script files (the .CMD files require Win2K or later):
 <dt><code>breaktest.bat</code></dt><dd>run BreakTest (in GUI mode by default)</dd>
 <dt><code>breaktestw.cmd</code></dt><dd>run BreakTest without the windows shell console (in GUI mode by default)</dd>
 <dt><code>breaktest-n.cmd</code></dt><dd>drop a JMX file on this to run a CLI mode test</dd>
-<dt><code>breaktest-n-r.cmd</code></dt><dd>drop a JMX file on this to run a CLI mode test remotely</dd>
 <dt><code>breaktest-t.cmd</code></dt><dd>drop a JMX file on this to load it in GUI mode</dd>
-<dt><code>breaktest-server.bat</code></dt><dd>start BreakTest in server mode</dd>
 <dt><code>mirror-server.cmd</code></dt><dd>runs the JMeter Mirror Server in CLI mode</dd>
 <dt><code>shutdown.cmd</code></dt><dd>Run the Shutdown client to stop a CLI mode instance gracefully</dd>
 <dt><code>stoptest.cmd</code></dt><dd>Run the Shutdown client to stop a CLI mode instance abruptly</dd>
 </dl>
-<note>The special name <code>LAST</code> can be used with <code>breaktest-n.cmd</code>, <code>breaktest-t.cmd</code> and <code>breaktest-n-r.cmd</code>
+<note>The special name <code>LAST</code> can be used with <code>breaktest-n.cmd</code> and <code>breaktest-t.cmd</code>
 and means the last test plan that was run interactively.</note>
 
 <p>
@@ -294,7 +289,6 @@ Un*x script files; should work on most Linux/Unix systems:
 </p>
 <dl>
 <dt><code>breaktest</code></dt><dd>run BreakTest (in GUI mode by default). Defines some JVM settings which may not work for all JVMs.</dd>
-<dt><code>breaktest-server</code></dt><dd>start BreakTest in server mode (calls breaktest script with appropriate parameters)</dd>
 <dt><code>breaktest.sh</code></dt><dd>very basic BreakTest script (You may need to adapt JVM options like memory settings).</dd>
 <dt><code>mirror-server.sh</code></dt><dd>runs the JMeter Mirror Server in CLI mode</dd>
 <dt><code>shutdown.sh</code></dt><dd>Run the Shutdown client to stop a CLI mode instance gracefully</dd>
@@ -459,8 +453,6 @@ the following command options:</p>
 <dt><code>-t</code></dt><dd>[name of JMX file that contains the Test Plan].</dd>
 <dt><code>-l</code></dt><dd>[name of JTL file to log sample results to].</dd>
 <dt><code>-j</code></dt><dd>[name of JMeter run log file].</dd>
-<dt><code>-r</code></dt><dd>Run the test in the servers specified by the JMeter property "<code>remote_hosts</code>"</dd>
-<dt><code>-R</code></dt><dd>[list of remote servers] Run the test in the specified remote servers</dd>
 <dt><code>-g</code></dt><dd>[path to CSV file] generate report dashboard only</dd>
 <dt><code>-e</code></dt><dd>generate report dashboard after load test</dd>
 <dt><code>-o</code></dt><dd>output folder where to generate the report dashboard after load test. Folder must not exist or be empty</dd>
@@ -479,37 +471,6 @@ Normally this is not necessary.
 </p>
 </subsection>
 
-<subsection name="&sect-num;.4.5 Server Mode" anchor="server">
-<p>For <a href="remote-test.html">distributed testing</a>, run BreakTest in server mode on the remote node(s), and then control the server(s) from the GUI.
-You can also use CLI mode to run remote tests.
-To start the server(s), run <code>breaktest-server[.bat]</code> on each server host.</p>
-<p>The script also lets you specify the optional firewall/proxy server information:</p>
-<dl>
-<dt><code>-H</code></dt><dd>[proxy server hostname or ip address]</dd>
-<dt><code>-P</code></dt><dd>[proxy server port]</dd>
-</dl>
-<b>Example</b>:
-<source>breaktest-server -H my.proxy.server -P 8000</source>
-<p>If you want the server to exit after a single test has been run, then define the JMeter property <code>server.exitaftertest=true</code>.
-</p>
-<p>To run the test from the client in CLI mode, use the following command:</p>
-<source>
-breaktest -n -t testplan.jmx -r [-Gprop=val] [-Gglobal.properties] [-X]
-</source>
-where:
-<dl>
-<dt><code>-G</code></dt><dd>is used to define JMeter properties to be set in the servers</dd>
-<dt><code>-X</code></dt><dd>means exit the servers at the end of the test</dd>
-<dt><code>-Rserver1,server2</code></dt><dd>can be used instead of <code>-r</code> to provide a list of servers to start.
-Overrides <code>remote_hosts</code>, but does not define the property.</dd>
-</dl>
-<p>
-If the property <code>jmeterengine.remote.system.exit</code> is set to <code>true</code> (default is <code>false</code>),
-then JMeter will invoke <code>System.exit(0)</code> after stopping RMI at the end of a test.
-Normally this is not necessary.
-</p>
-</subsection>
-
 <subsection name="&sect-num;.4.6 Overriding Properties Via The Command Line" anchor="override">
 <p>Java system properties and JMeter properties can be overridden directly on the command lin
 (instead of modifying <code>jmeter.properties</code>).
@@ -517,8 +478,6 @@ To do so, use the following options:</p>
 <dl>
 <dt><code>-D[prop_name]=[value]</code></dt><dd>defines a java system property value.</dd>
 <dt><code>-J[prop_name]=[value]</code></dt><dd>defines a local JMeter property.</dd>
-<dt><code>-G[prop_name]=[value]</code></dt><dd>defines a JMeter property to be sent to all remote servers.</dd>
-<dt><code>-G[propertyfile]</code></dt><dd>defines a file containing JMeter properties to be sent to all remote servers.</dd>
 <dt><code>-L[category]=[priority]</code></dt><dd>overrides a logging setting, setting a particular category to the given priority level.</dd>
 </dl>
 <p>The <code>-L</code> flag can also be used without the category name to set the root logging level.</p>
@@ -526,7 +485,6 @@ To do so, use the following options:</p>
 </p>
 <source>
 breaktest -Duser.dir=/home/mstover/jmeter_stuff \
-    -Jremote_hosts=127.0.0.1 -Ljmeter.engine=DEBUG
 </source>
 <source>breaktest -LDEBUG</source>
 <note>
@@ -777,10 +735,6 @@ These are shown below.</p>
         Set password for proxy server that JMeter is to use
     -J, --jmeterproperty &lt;argument&gt;=&lt;value&gt;
         Define additional JMeter properties
-    -G, --globalproperty &lt;argument&gt;=&lt;value&gt;
-        Define Global properties (sent to servers)
-        e.g. -Gport=123
-         or -Gglobal.properties
     -D, --systemproperty &lt;argument&gt;=&lt;value&gt;
         Define additional system properties
     -S, --systemPropertyFile &lt;argument&gt;
@@ -789,14 +743,8 @@ These are shown below.</p>
         force delete existing results files and web report folder if present before starting the test
     -L, --loglevel &lt;argument&gt;=&lt;value&gt;
         [category=]level e.g. jorphan=INFO, jmeter.util=DEBUG or com.example.foo=WARN
-    -r, --runremote
-        Start remote servers (as defined in remote_hosts)
-    -R, --remotestart &lt;argument&gt;
-        Start these remote servers (overrides remote_hosts)
     -d, --homedir &lt;argument&gt;
         the jmeter home directory to use
-    -X, --remoteexit
-        Exit the remote servers at end of test (CLI mode)
     -g, --reportonly &lt;argument&gt;
         generate report dashboard only, from a test results file
     -e, --reportatendofloadtests
@@ -852,10 +800,6 @@ If set to <code>0</code> (default value), then JMeter does not print non-termina
     implementation if you don't want to use the built-in Java implementation.
     </property>
     <property name="xml.parser">You can specify an implementation as your XML parser.</property>
-  <property name="remote_hosts">Comma-delimited list of remote JMeter hosts (or <code>host:port</code> if required).
-    If you are running JMeter in a distributed environment, list the machines where
-  you have JMeter remote servers running.  This will allow you to control those
-    servers from this machine's GUI</property>
   <property name="not_in_menu">A list of components you do not want to see in
     JMeter's menus.  As JMeter has more and more components added, you may wish to
   customize your JMeter to show only those components you are interested in.

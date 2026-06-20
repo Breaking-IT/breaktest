@@ -2457,9 +2457,6 @@ by only one thread as a named lock will be taken before executing children of co
 <properties>
         <property name="Lock Name" required="Yes">Lock that will be taken by controller, ensure you use different lock names for unrelated sections</property>
 </properties>
-<note>
-Critical Section Controller takes locks only within one JVM, so if using Distributed testing ensure your use case does not rely on all threads of all JVMs blocking.
-</note>
 
 </component>
 
@@ -2534,8 +2531,6 @@ This causes strict XML parsers to fail. Consider using non-strict XML parsers to
 </p>
 <note>
 The file name can contain function and/or variable references.
-However variable references do not work in client-server mode (functions work OK).
-This is because the file is created on the client, and the client does not run the test locally so does not set up variables.
 </note>
 <p><b>Listeners can use a lot of memory if there are a lot of samples.</b>
 Most of the listeners currently keep a copy of every sample in their scope, apart from:
@@ -3397,9 +3392,7 @@ By default, a Graphite implementation is provided.
   <property name="Name" required="">Descriptive name for this element that is shown in the tree.</property>
   <property name="Filename" required="Yes">Name of the file to be read.
   <b>Relative file names are resolved with respect to the path of the active test plan.</b>
-  <b>For distributed testing, the CSV file must be stored on the server host system in the correct relative directory to where the JMeter server is started.</b>
-  Absolute file names are also supported, but note that they are unlikely to work in remote mode,
-  unless the remote server has the same directory structure.
+  Absolute file names are also supported.
   If the same physical file is referenced in two different ways - e.g. <code>csvdata.txt</code> and <code>./csvdata.txt</code> -
   then these are treated as different files.
   If the OS does not distinguish between upper and lower case, <code>csvData.TXT</code> would also be opened separately.
@@ -4962,10 +4955,6 @@ points of the test plan.
 If timeout in milliseconds is set to <code>0</code> and number of threads never reaches "<code>Number of Simultaneous Users to Group by</code>" then Test will pause infinitely.
 Only a forced stop will stop it. Setting Timeout in milliseconds is an option to consider in this case.
 </note>
-<note>
-Synchronizing timer blocks only within one JVM, so if using Distributed testing ensure you never set "<code>Number of Simultaneous Users to Group by</code>" to a value superior to the number of users
-of its containing Thread group considering 1 injector only.
-</note>
 
 </component>
 
@@ -5056,10 +5045,6 @@ expressions are used to find matches.</p>
 Matches are performed using <code>protocol</code>, <code>host</code>, <code>path</code> and <code>parameter names</code>.
 The target sampler cannot contain parameters that are not in the response links.
 </note>
-<note>
-If using distributed testing, ensure you switch mode (see <code>jmeter.properties</code>) so that it's not a stripping one, see <bugzilla>56376</bugzilla>
-</note>
-
 <example title="Spidering Example" anchor="spider_example">
 <p>Consider a simple example: let's say you wanted JMeter to &quot;spider&quot; through your site,
 hitting link after link parsed from the HTML returned from your server (this is not
@@ -5128,10 +5113,6 @@ Clever users will even determine that this modifier can be used to grab values t
         URL Encode value when writing parameter
         </property>
 </properties>
-
-<note>
-If using distributed testing, ensure you switch mode (see <code>jmeter.properties</code>) so that it's not a stripping one, see <bugzilla>56376</bugzilla>.
-</note>
 
 </component>
 

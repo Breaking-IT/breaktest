@@ -17,12 +17,12 @@
   -->
 
 <!DOCTYPE document[
-<!ENTITY sect-num '14'>
+<!ENTITY sect-num '13'>
 <!ENTITY hellip   "&#x02026;" >
 <!ENTITY rarr     "&#x02192;" >
 ]>
 
-<document prev="remote-test.html" next="realtime-results.html" id="$Id$">
+<document prev="listeners.html" next="realtime-results.html" id="$Id$">
     <properties>
         <title>User's Manual: Generating Dashboard Report</title>
     </properties>
@@ -60,9 +60,7 @@
                             <li>Latency vs Request per second (Ignores Transaction Controller Sample Results): <figure width="1373" height="543" image="dashboard/report_latencies_vs_request.png" ></figure></li>
                             <li>Response time Overview (Excludes Transaction Controller Sample Results): <figure width="1645" height="562" image="dashboard/response_time_overview.png" ></figure></li>
                             <li>Response times percentiles (Includes Transaction Controller Sample Results): <figure width="1374" height="551" image="dashboard/report_response_time_percentiles.png" ></figure></li>
-                            <li>Times vs Threads (Includes Transaction Controller Sample Results): <figure width="1373" height="567" image="dashboard/report_time_vs_threads.png" ></figure>
-                            <note>In distributed mode, this graph shows a horizontal axis the number of threads for 1 server. It's a current limitation</note>
-                            </li>
+                            <li>Times vs Threads (Includes Transaction Controller Sample Results): <figure width="1373" height="567" image="dashboard/report_time_vs_threads.png" ></figure>                            </li>
                             <li>Response Time Distribution (Includes Transaction Controller Sample Results): <figure width="1373" height="549" image="dashboard/report_response_time_distribution.png" ></figure></li>
                         </ul>
                     </li>

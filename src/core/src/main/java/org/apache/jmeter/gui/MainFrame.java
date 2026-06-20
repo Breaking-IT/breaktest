@@ -94,7 +94,6 @@ import org.apache.jmeter.gui.util.JMeterMenuBar;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.samplers.Clearable;
-import org.apache.jmeter.samplers.Remoteable;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestStateListener;
@@ -111,12 +110,11 @@ import org.slf4j.LoggerFactory;
  * The main JMeter frame, containing the menu bar, test tree, and an area for
  * JMeter component GUIs.
  */
-public class MainFrame extends JFrame implements TestStateListener, Remoteable, DropTargetListener, Clearable, ActionListener {
+public class MainFrame extends JFrame implements TestStateListener, DropTargetListener, Clearable, ActionListener {
 
     private static final long serialVersionUID = 241L;
 
-    // This is used to keep track of local (non-remote) tests
-    // The name is chosen to be an unlikely host-name
+    // This is used to keep track of test state notifications.
     public static final String LOCAL = "*local*"; // $NON-NLS-1$
 
     // The application name
@@ -466,12 +464,7 @@ public class MainFrame extends JFrame implements TestStateListener, Remoteable, 
         computeTestDurationTimer.start();
         runningIndicator.setIcon(runningIcon);
         activeAndTotalThreads.setText("0/0"); // $NON-NLS-1$
-        menuBar.setRunning(true, host);
-        if (LOCAL.equals(host)) {
-            toolbar.setLocalTestStarted(true);
-        } else {
-            toolbar.setRemoteTestStarted(true);
-        }
+        toolbar.setLocalTestStarted(true);
     }
 
     /**
@@ -486,7 +479,7 @@ public class MainFrame extends JFrame implements TestStateListener, Remoteable, 
     }
 
     /**
-     * Called when a test is ended on the remote system. This implementation
+     * Called when a test is ended. This implementation
      * stops the running indicator and closes the stopping message dialog.
      *
      * @param host
@@ -500,12 +493,7 @@ public class MainFrame extends JFrame implements TestStateListener, Remoteable, 
             JMeterContextService.endTest();
             computeTestDurationTimer.stop();
         }
-        menuBar.setRunning(false, host);
-        if (LOCAL.equals(host)) {
-            toolbar.setLocalTestStarted(false);
-        } else {
-            toolbar.setRemoteTestStarted(false);
-        }
+        toolbar.setLocalTestStarted(false);
         if (stoppingMessage != null) {
             stoppingMessage.dispose();
             stoppingMessage = null;

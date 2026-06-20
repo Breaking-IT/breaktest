@@ -43,9 +43,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.StringTokenizer;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import javax.script.Bindings;
@@ -59,10 +57,7 @@ import org.apache.commons.cli.avalon.CLOption;
 import org.apache.commons.cli.avalon.CLOptionDescriptor;
 import org.apache.commons.cli.avalon.CLUtil;
 import org.apache.jmeter.control.ReplaceableController;
-import org.apache.jmeter.engine.ClientJMeterEngine;
-import org.apache.jmeter.engine.DistributedRunner;
 import org.apache.jmeter.engine.JMeterEngine;
-import org.apache.jmeter.engine.RemoteJMeterEngineImpl;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
@@ -75,15 +70,10 @@ import org.apache.jmeter.report.config.ConfigurationException;
 import org.apache.jmeter.report.dashboard.ReportGenerator;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.reporters.Summariser;
-import org.apache.jmeter.rmi.RmiUtils;
-import org.apache.jmeter.samplers.Remoteable;
-import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.TestElementSchema;
 import org.apache.jmeter.testelement.TestStateListener;
-import org.apache.jmeter.threads.RemoteThreadsListenerTestElement;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.SecurityProviderLoader;
 import org.apache.jmeter.util.ShutdownClient;
@@ -146,8 +136,6 @@ public class JMeter implements JMeterPlugin {
     private static final int NONGUI_OPT         = 'n';// $NON-NLS-1$
     private static final int PROPFILE_OPT       = 'p';// $NON-NLS-1$
     private static final int PROPFILE2_OPT      = 'q';// $NON-NLS-1$
-    private static final int REMOTE_OPT         = 'r';// $NON-NLS-1$
-    private static final int SERVER_OPT         = 's';// $NON-NLS-1$
     private static final int TESTFILE_OPT       = 't';// $NON-NLS-1$
     private static final int PROXY_USERNAME     = 'u';// $NON-NLS-1$
     private static final int VERSION_OPT        = 'v';// $NON-NLS-1$
@@ -157,16 +145,13 @@ public class JMeter implements JMeterPlugin {
     private static final int FORCE_DELETE_RESULT_FILE      = 'f';// $NON-NLS-1$
 
     private static final int SYSTEM_PROPERTY    = 'D';// $NON-NLS-1$
-    private static final int JMETER_GLOBAL_PROP = 'G';// $NON-NLS-1$
     private static final int PROXY_SCHEME       = 'E';// $NON-NLS-1$
     private static final int PROXY_HOST         = 'H';// $NON-NLS-1$
     private static final int JMETER_PROPERTY    = 'J';// $NON-NLS-1$
     private static final int LOGLEVEL           = 'L';// $NON-NLS-1$
     private static final int NONPROXY_HOSTS     = 'N';// $NON-NLS-1$
     private static final int PROXY_PORT         = 'P';// $NON-NLS-1$
-    private static final int REMOTE_OPT_PARAM   = 'R';// $NON-NLS-1$
     private static final int SYSTEM_PROPFILE    = 'S';// $NON-NLS-1$
-    private static final int REMOTE_STOP        = 'X';// $NON-NLS-1$
 
     private static final String JMX_SUFFIX = ".JMX"; // $NON-NLS-1$
 
@@ -214,9 +199,6 @@ public class JMeter implements JMeterPlugin {
     private static final CLOptionDescriptor D_NONGUI_OPT =
             new CLOptionDescriptor("nongui", CLOptionDescriptor.ARGUMENT_DISALLOWED, NONGUI_OPT,
                     "run BreakTest in nongui mode");
-    private static final CLOptionDescriptor D_SERVER_OPT =
-            new CLOptionDescriptor("server", CLOptionDescriptor.ARGUMENT_DISALLOWED, SERVER_OPT,
-                    "run the BreakTest server");
     private static final CLOptionDescriptor D_PROXY_SCHEME =
             new CLOptionDescriptor("proxyScheme", CLOptionDescriptor.ARGUMENT_REQUIRED, PROXY_SCHEME,
                     "Set a proxy scheme to use for the proxy server");
@@ -239,10 +221,6 @@ public class JMeter implements JMeterPlugin {
             new CLOptionDescriptor("jmeterproperty", CLOptionDescriptor.DUPLICATES_ALLOWED
                     | CLOptionDescriptor.ARGUMENTS_REQUIRED_2, JMETER_PROPERTY,
                     "Define additional JMeter properties");
-    private static final CLOptionDescriptor D_JMETER_GLOBAL_PROP =
-            new CLOptionDescriptor("globalproperty", CLOptionDescriptor.DUPLICATES_ALLOWED
-                    | CLOptionDescriptor.ARGUMENTS_REQUIRED_2, JMETER_GLOBAL_PROP,
-                    "Define Global properties (sent to servers)\n\t\te.g. -Gport=123 or -Gglobal.properties");
     private static final CLOptionDescriptor D_SYSTEM_PROPERTY =
             new CLOptionDescriptor("systemproperty", CLOptionDescriptor.DUPLICATES_ALLOWED
                     | CLOptionDescriptor.ARGUMENTS_REQUIRED_2, SYSTEM_PROPERTY,
@@ -255,23 +233,14 @@ public class JMeter implements JMeterPlugin {
             new CLOptionDescriptor("loglevel", CLOptionDescriptor.DUPLICATES_ALLOWED
                     | CLOptionDescriptor.ARGUMENTS_REQUIRED_2, LOGLEVEL,
                     "[category=]level e.g. jorphan=INFO, jmeter.util=DEBUG or com.example.foo=WARN");
-    private static final CLOptionDescriptor D_REMOTE_OPT =
-            new CLOptionDescriptor("runremote", CLOptionDescriptor.ARGUMENT_DISALLOWED, REMOTE_OPT,
-                    "Start remote servers (as defined in remote_hosts)");
-    private static final CLOptionDescriptor D_REMOTE_OPT_PARAM =
-            new CLOptionDescriptor("remotestart", CLOptionDescriptor.ARGUMENT_REQUIRED, REMOTE_OPT_PARAM,
-                    "Start these remote servers (overrides remote_hosts)");
     private static final CLOptionDescriptor D_JMETER_HOME_OPT =
             new CLOptionDescriptor("homedir", CLOptionDescriptor.ARGUMENT_REQUIRED, JMETER_HOME_OPT,
                     "the jmeter home directory to use");
-    private static final CLOptionDescriptor D_REMOTE_STOP =
-            new CLOptionDescriptor("remoteexit", CLOptionDescriptor.ARGUMENT_DISALLOWED, REMOTE_STOP,
-                    "Exit the remote servers at end of test (non-GUI)");
     private static final CLOptionDescriptor D_REPORT_GENERATING_OPT =
             new CLOptionDescriptor("reportonly",
                     CLOptionDescriptor.ARGUMENT_REQUIRED, REPORT_GENERATING_OPT,
                     "generate report dashboard only, from a test results file",
-                    new CLOptionDescriptor[]{ D_NONGUI_OPT, D_REMOTE_OPT, D_REMOTE_OPT_PARAM, D_LOGFILE_OPT }); // disallowed
+                    new CLOptionDescriptor[]{ D_NONGUI_OPT, D_LOGFILE_OPT }); // disallowed
     private static final CLOptionDescriptor D_REPORT_AT_END_OPT =
             new CLOptionDescriptor("reportatendofloadtests",
                     CLOptionDescriptor.ARGUMENT_DISALLOWED, REPORT_AT_END_OPT,
@@ -310,7 +279,6 @@ public class JMeter implements JMeterPlugin {
             D_JMLOGCONF_OPT,
             D_JMLOGFILE_OPT,
             D_NONGUI_OPT,
-            D_SERVER_OPT,
             D_PROXY_SCHEME,
             D_PROXY_HOST,
             D_PROXY_PORT,
@@ -318,25 +286,15 @@ public class JMeter implements JMeterPlugin {
             D_PROXY_USERNAME,
             D_PROXY_PASSWORD,
             D_JMETER_PROPERTY,
-            D_JMETER_GLOBAL_PROP,
             D_SYSTEM_PROPERTY,
             D_SYSTEM_PROPFILE,
             D_FORCE_DELETE_RESULT_FILE,
             D_LOGLEVEL,
-            D_REMOTE_OPT,
-            D_REMOTE_OPT_PARAM,
             D_JMETER_HOME_OPT,
-            D_REMOTE_STOP,
             D_REPORT_GENERATING_OPT,
             D_REPORT_AT_END_OPT,
             D_REPORT_OUTPUT_FOLDER_OPT,
     };
-
-    /** Properties to be sent to remote servers */
-    private Properties remoteProps;
-
-    /** should remote engines be stopped at end of non-GUI test? */
-    private boolean remoteStop;
 
     /** should delete result file / report folder before start ? */
     private boolean deleteResultFile = false;
@@ -357,15 +315,6 @@ public class JMeter implements JMeterPlugin {
     public void start(String[] args) {
         CLArgsParser parser = new CLArgsParser(args, options);
         String error = parser.getErrorString();
-        if (error == null){// Check option combinations
-            boolean gui = parser.getArgumentById(NONGUI_OPT)==null;
-            boolean nonGuiOnly = parser.getArgumentById(REMOTE_OPT)!=null
-                               || parser.getArgumentById(REMOTE_OPT_PARAM)!=null
-                               || parser.getArgumentById(REMOTE_STOP)!=null;
-            if (gui && nonGuiOnly) {
-                error = "-r and -R and -X are only valid in non-GUI mode";
-            }
-        }
         if (null != error) {
             System.err.println("Error: " + error);//NOSONAR
             System.out.println("Usage");//NOSONAR
@@ -426,28 +375,6 @@ public class JMeter implements JMeterPlugin {
             JMeterUtils.setProperty("START.YMD", getFormatter("yyyyMMdd").format(now));// $NON-NLS-1$ $NON-NLS-2$
             JMeterUtils.setProperty("START.HMS", getFormatter("HHmmss").format(now));// $NON-NLS-1$ $NON-NLS-2$
 
-            // For unknown reason, TestElementSchema might fail to initialize in remote execution mode
-            // It reproduces with Java 11.0.13, and the error is StackOverflowError with the following stacktrace
-            // The workaround is to initialize Kotlin reflection before deserializing the test plan.
-            //  at java.security.SecureClassLoader.defineClass(SecureClassLoader.java:174) ~[?:?]
-            //  at java.net.URLClassLoader.defineClass(URLClassLoader.java:555) ~[?:?]
-            //  at java.net.URLClassLoader$1.run(URLClassLoader.java:458) ~[?:?]
-            //  at java.net.URLClassLoader$1.run(URLClassLoader.java:452) ~[?:?]
-            //  at java.security.AccessController.doPrivileged(Native Method) ~[?:?]
-            //  at java.net.URLClassLoader.findClass(URLClassLoader.java:451) ~[?:?]
-            //  at java.lang.ClassLoader.loadClass(ClassLoader.java:589) ~[?:?]
-            //  at org.apache.jmeter.DynamicClassLoader.loadClass(DynamicClassLoader.java:81) ~[ApacheJMeter.jar:5.5.1-SNAPSHOT]
-            //  at java.lang.ClassLoader.loadClass(ClassLoader.java:522) ~[?:?]
-            //  at kotlin.jvm.internal.ClassReference.<clinit>(ClassReference.kt:156) ~[kotlin-stdlib-1.8.21.jar:1.8.21-release-380(1.8.21)]
-            //  at kotlin.jvm.internal.ReflectionFactory.getOrCreateKotlinClass(ReflectionFactory.java:30) ~[kotlin-stdlib-1.8.21.jar)]
-            //  at kotlin.jvm.internal.Reflection.getOrCreateKotlinClass(Reflection.java:60) ~[kotlin-stdlib-1.8.21.jar:1.8.21-release-380(1.8.21)]
-            //  at org.apache.jmeter.testelement.TestElementSchema.<init>(TestElementSchema.kt:33) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
-            //  at org.apache.jmeter.testelement.TestElementSchema$INSTANCE.<init>(TestElementSchema.kt:26) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
-            //  at org.apache.jmeter.testelement.TestElementSchema$INSTANCE.<init>(TestElementSchema.kt) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
-            //  at org.apache.jmeter.testelement.TestElementSchema.<clinit>(TestElementSchema.kt) ~[ApacheJMeter_core.jar:5.5.1-SNAPSHOT]
-            //  at jdk.internal.misc.Unsafe.ensureClassInitialized0(Native Method) ~[?:?]
-            TestElementSchema.INSTANCE.getGuiClass();
-
             if (parser.getArgumentById(VERSION_OPT) != null) {
                 displayAsciiArt();
             } else if (parser.getArgumentById(HELP_OPT) != null) {
@@ -456,16 +383,6 @@ public class JMeter implements JMeterPlugin {
             } else if (parser.getArgumentById(OPTIONS_OPT) != null) {
                 displayAsciiArt();
                 System.out.println(CLUtil.describeOptions(options).toString());//NOSONAR
-            } else if (parser.getArgumentById(SERVER_OPT) != null) {
-                // Start the server
-                try {
-                    RemoteJMeterEngineImpl.startServer(RmiUtils.getRmiRegistryPort()); // $NON-NLS-1$
-                    startOptionalServers();
-                } catch (Exception ex) {
-                    System.err.println("Server failed to start: "+ex);//NOSONAR
-                    log.error("Giving up, as server failed with:", ex);
-                    throw ex;
-                }
             } else {
                 String testFile=null;
                 CLOption testFileOpt = parser.getArgumentById(TESTFILE_OPT);
@@ -489,10 +406,6 @@ public class JMeter implements JMeterPlugin {
                 } else { // NON-GUI must be true
                     extractAndSetReportOutputFolder(parser, deleteResultFile);
 
-                    CLOption remoteTest = parser.getArgumentById(REMOTE_OPT_PARAM);
-                    if (remoteTest == null) {
-                        remoteTest = parser.getArgumentById(REMOTE_OPT);
-                    }
                     CLOption jtl = parser.getArgumentById(LOGFILE_OPT);
                     String jtlFile = null;
                     if (jtl != null) {
@@ -503,7 +416,7 @@ public class JMeter implements JMeterPlugin {
                         throw new IllegalUserActionException(
                                 "Option -"+ ((char)REPORT_AT_END_OPT)+" requires -"+((char)LOGFILE_OPT )+ " option");
                     }
-                    startNonGui(testFile, jtlFile, remoteTest, reportAtEndOpt != null);
+                    startNonGui(testFile, jtlFile, reportAtEndOpt != null);
                     startOptionalServers();
                 }
             }
@@ -726,7 +639,6 @@ public class JMeter implements JMeterPlugin {
         }
 
         Properties jmeterProps = JMeterUtils.getJMeterProperties();
-        remoteProps = new Properties();
 
         // Add local JMeter properties, if the file is found
         String userProp = JMeterUtils.getPropDefault("user.properties",""); //$NON-NLS-1$
@@ -810,28 +722,6 @@ public class JMeter implements JMeterPlugin {
                         jmeterProps.remove(name);
                     }
                 }
-                case JMETER_GLOBAL_PROP -> {
-                    if (!value.isEmpty()) { // Set it
-                        log.info("Setting Global property: {}={}", name, value);
-                        remoteProps.setProperty(name, value);
-                    } else {
-                        File propFile = new File(name);
-                        if (propFile.canRead()) {
-                            log.info("Setting Global properties from the file {}", name);
-                            try (FileInputStream fis = new FileInputStream(propFile)) {
-                                remoteProps.load(fis);
-                            } catch (FileNotFoundException e) { // NOSONAR
-                                if (log.isWarnEnabled()) {
-                                    log.warn("Could not find properties file: {}", e.getLocalizedMessage());
-                                }
-                            } catch (IOException e) { // NOSONAR
-                                if (log.isWarnEnabled()) {
-                                    log.warn("Could not load properties file: {}", e.getLocalizedMessage());
-                                }
-                            }
-                        }
-                    }
-                }
                 case LOGLEVEL -> {
                     if (!value.isEmpty()) { // Set category
                         log.info("LogLevel: {}={}", name, value);
@@ -855,7 +745,6 @@ public class JMeter implements JMeterPlugin {
                         }
                     }
                 }
-                case REMOTE_STOP -> remoteStop = true;
                 case FORCE_DELETE_RESULT_FILE -> deleteResultFile = true;
                 default -> {
                 }
@@ -863,10 +752,6 @@ public class JMeter implements JMeterPlugin {
             }
         }
 
-        String sampleVariables = (String) jmeterProps.get(SampleEvent.SAMPLE_VARIABLES);
-        if (sampleVariables != null){
-            remoteProps.put(SampleEvent.SAMPLE_VARIABLES, sampleVariables);
-        }
         jmeterProps.put("jmeter.version", JMeterUtils.getJMeterVersion());
     }
 
@@ -884,36 +769,25 @@ public class JMeter implements JMeterPlugin {
         return jmlogfile;
     }
 
-    private void startNonGui(String testFile, String logFile, CLOption remoteStart, boolean generateReportDashboard)
+    private void startNonGui(String testFile, String logFile, boolean generateReportDashboard)
             throws IllegalUserActionException, ConfigurationException {
         // add a system property so samplers can check to see if JMeter
         // is running in NonGui mode
         System.setProperty(JMETER_NON_GUI, "true");// $NON-NLS-1$
         JMeter driver = new JMeter();// TODO - why does it create a new instance?
-        driver.remoteProps = this.remoteProps;
-        driver.remoteStop = this.remoteStop;
         driver.deleteResultFile = this.deleteResultFile;
 
         PluginManager.install(this, false);
 
-        String remoteHostsString = null;
-        if (remoteStart != null) {
-            remoteHostsString = remoteStart.getArgument();
-            if (remoteHostsString == null) {
-                remoteHostsString = JMeterUtils.getPropDefault(
-                        "remote_hosts", //$NON-NLS-1$
-                        "127.0.0.1");//NOSONAR $NON-NLS-1$
-            }
-        }
         if (testFile == null) {
             throw new IllegalUserActionException("Non-GUI runs require a test plan");
         }
-        driver.runNonGui(testFile, logFile, remoteStart != null, remoteHostsString, generateReportDashboard);
+        driver.runNonGui(testFile, logFile, generateReportDashboard);
     }
 
     // run test in batch mode
     @SuppressWarnings("JdkObsolete")
-    void runNonGui(String testFile, String logFile, boolean remoteStart, String remoteHostsString, boolean generateReportDashboard)
+    void runNonGui(String testFile, String logFile, boolean generateReportDashboard)
             throws ConfigurationException {
         try {
             File f = new File(testFile);
@@ -978,39 +852,15 @@ public class JMeter implements JMeterPlugin {
                 reportGenerator = new ReportGenerator(logFile, resultCollector);
             }
 
-            // Used for remote notification of threads start/stop,see BUG 54152
-            // Summariser uses this feature to compute correctly number of threads
-            // when NON GUI mode is used
-            clonedTree.add(clonedTree.getArray()[0], new RemoteThreadsListenerTestElement());
-
             List<JMeterEngine> engines = new ArrayList<>();
             println("Created the tree successfully using "+testFile);
-            if (!remoteStart) {
-                JMeterEngine engine = new StandardJMeterEngine();
-                clonedTree.add(clonedTree.getArray()[0], new ListenToTest(
-                        org.apache.jmeter.JMeter.ListenToTest.RunMode.LOCAL, false, reportGenerator));
-                engine.configure(clonedTree);
-                Instant now = Instant.now();
-                println("Starting standalone test @ "+ formatLikeDate(now) + " (" + now.toEpochMilli() + ')');
-                engines.add(engine);
-                engine.runTest();
-            } else {
-                java.util.StringTokenizer st = new java.util.StringTokenizer(remoteHostsString.trim(), ",");//$NON-NLS-1$
-                List<String> hosts = new ArrayList<>();
-                while (st.hasMoreElements()) {
-                    hosts.add(((String) st.nextElement()).trim());
-                }
-                ListenToTest testListener = new ListenToTest(
-                        org.apache.jmeter.JMeter.ListenToTest.RunMode.REMOTE, remoteStop, reportGenerator);
-                clonedTree.add(clonedTree.getArray()[0], testListener);
-                DistributedRunner distributedRunner=new DistributedRunner(this.remoteProps);
-                distributedRunner.setStdout(System.out); // NOSONAR
-                distributedRunner.setStdErr(System.err); // NOSONAR
-                distributedRunner.init(hosts, clonedTree);
-                engines.addAll(distributedRunner.getEngines());
-                testListener.setStartedRemoteEngines(engines);
-                distributedRunner.start();
-            }
+            JMeterEngine engine = new StandardJMeterEngine();
+            clonedTree.add(clonedTree.getArray()[0], new ListenToTest(reportGenerator));
+            engine.configure(clonedTree);
+            Instant now = Instant.now();
+            println("Starting standalone test @ "+ formatLikeDate(now) + " (" + now.toEpochMilli() + ')');
+            engines.add(engine);
+            engine.runTest();
             startUdpDaemon(engines);
         } catch (ConfigurationException e) {
             throw e;
@@ -1150,70 +1000,22 @@ public class JMeter implements JMeterPlugin {
 
     /**
      * Listen to test and handle tidyup after non-GUI test completes.
-     * If running a remote test, then after waiting a few seconds for listeners to finish files,
-     * it calls ClientJMeterEngine.tidyRMI() to deal with the Naming Timer Thread.
      */
-    private static class ListenToTest implements TestStateListener, Remoteable {
-        enum RunMode {
-            LOCAL,
-            REMOTE
-        }
-
-        private AtomicInteger startedRemoteEngines = new AtomicInteger(0);
-
-        private final ConcurrentLinkedQueue<JMeterEngine> remoteEngines = new ConcurrentLinkedQueue<>();
-
+    private static class ListenToTest implements TestStateListener {
         private final ReportGenerator reportGenerator;
 
-        private final RunMode runMode;
-
-        private final boolean remoteStop;
-
-        /**
-         * Listener for remote test
-         * @param runMode RunMode
-         * @param remoteStop
-         * @param reportGenerator {@link ReportGenerator}
-         */
-        private ListenToTest(RunMode runMode, boolean remoteStop, ReportGenerator reportGenerator) {
-            this.runMode = runMode;
-            this.remoteStop = remoteStop;
+        private ListenToTest(ReportGenerator reportGenerator) {
             this.reportGenerator = reportGenerator;
-        }
-
-        private void setStartedRemoteEngines(List<? extends JMeterEngine> engines) {
-            if (runMode != RunMode.REMOTE) {
-                throw new IllegalArgumentException("This method should only be called in RunMode.REMOTE");
-            }
-            this.remoteEngines.clear();
-            this.remoteEngines.addAll(engines);
-            this.startedRemoteEngines = new AtomicInteger(remoteEngines.size());
-        }
-
-        @Override
-        // N.B. this is called by a daemon RMI thread from the remote host
-        public void testEnded(String host) {
-            final long now=System.currentTimeMillis();
-            log.info("Finished remote host: {} ({})", host, now);
-            if (startedRemoteEngines.decrementAndGet() <= 0) {
-                log.info("All remote engines have ended test, starting RemoteTestStopper thread");
-                Thread stopSoon = new Thread(() -> endTest(true), "RemoteTestStopper");
-                // the calling thread is a daemon; this thread must not be
-                // see Bug 59391
-                stopSoon.setDaemon(false);
-                stopSoon.start();
-            }
         }
 
         @Override
         public void testEnded() {
-            endTest(false);
+            endTest();
         }
 
         @Override
-        public void testStarted(String host) {
-            final long now=System.currentTimeMillis();
-            log.info("Started remote host:  {} ({})", host, now);
+        public void testEnded(String host) {
+            testEnded();
         }
 
         @Override
@@ -1224,30 +1026,14 @@ public class JMeter implements JMeterPlugin {
             }
         }
 
-        @SuppressWarnings("JdkObsolete")
-        private void endTest(boolean isDistributed) {
-            Instant now = Instant.now();
-            if (isDistributed) {
-                println("Tidying up remote @ " + formatLikeDate(now) + " (" + now.toEpochMilli() + ')');
-            } else {
-                println("Tidying up ...    @ " + formatLikeDate(now) + " (" + now.toEpochMilli() + ')');
-            }
+        @Override
+        public void testStarted(String host) {
+            testStarted();
+        }
 
-            if (isDistributed) {
-                if (remoteStop) {
-                    println("Exiting remote servers:"+remoteEngines);
-                    for (JMeterEngine engine : remoteEngines){
-                        println("Exiting remote server:"+engine);
-                        engine.exit();
-                    }
-                }
-                try {
-                    TimeUnit.SECONDS.sleep(5); // Allow listeners to close files
-                } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
-                ClientJMeterEngine.tidyRMI(log);
-            }
+        private void endTest() {
+            Instant now = Instant.now();
+            println("Tidying up ...    @ " + formatLikeDate(now) + " (" + now.toEpochMilli() + ')');
 
             if(reportGenerator != null) {
                 try {

@@ -216,7 +216,7 @@ Defaults to: <code>true</code>
 <property name="jmeter.toolbar">
     Toolbar list.<br/>
     Defaults to:
-    <source>new,open,close,save,save_as_testplan,|,cut,copy,paste,|,expand,collapse,toggle,|,test_start,test_stop,test_shutdown,|,test_start_remote_all,test_stop_remote_all,test_shutdown_remote_all,|,test_clear,test_clear_all,|,search,search_reset,|,function_helper,help</source>
+    <source>new,open,close,save,save_as_testplan,|,cut,copy,paste,|,expand,collapse,toggle,|,test_start,test_stop,test_shutdown,|,test_clear,test_clear_all,|,search,search_reset,|,function_helper,help</source>
 </property>
 <property name="jmeter.toolbar.icons.size">
     Available sizes are: <code>22x22</code>, <code>32x32</code>, <code>48x48</code>. Suggested value for HiDPI mode is
@@ -310,104 +310,6 @@ gui.quick_9=ViewResultsFullVisualizer
 Enable auto saving of the .jmx file before start run a test plan<br/>
 When enabled, before the run, the .jmx will be saved and also backed up to the directory pointed.<br/>
 Defaults to: <code>true</code>
-</property>
-</properties>
-</section>
-<section name="&sect-num;.7 Remote hosts and RMI configuration" anchor="remote">
-<properties>
-<property name="remote_hosts">
-    Remote Hosts - comma delimited, for example
-    <source>remote_hosts=localhost:1099,localhost:2010</source>
-    Defaults to: <code>127.0.0.1</code></property>
-<property name="server_port">
-    RMI port to be used by the server (must start <code>rmiregistry</code> with same port).
-    To change the port to (say) <code>1234</code>:<br/>
-    On the server(s):
-    <ol>
-        <li><code>set server_port=1234</code></li>
-        <li>start <code>rmiregistry</code> with port <code>1234</code></li>
-    </ol>
-    On Windows this can be done by:
-    <source>SET SERVER_PORT=1234
-JMETER-SERVER</source>
-    On Unix:
-    <source>SERVER_PORT=1234 breaktest-server</source>
-    On the Windows client:
-    <source>set remote_hosts=<em>server</em>:1234</source>
-    On the Unix client:
-    <source>export remote_hosts=<em>server</em>:1234</source>
-    Defaults to: <code>1099</code>
-</property>
-<property name="client.rmi.localport">
-    Parameter that controls the RMI ports used by <code>RemoteSampleListenerImpl</code> and <code>RemoteThreadsListenerImpl</code> (The Controller)<br/>
-    Default value is <code>0</code>, which means ports are randomly assigned.
-    If this is non-zero, it will be used as the base for local port numbers for the client engine.
-    At the moment JMeter will open up to three ports beginning with the port defined in this property.
-    <note>You may need to open corresponding ports in the firewall on the Controller machine.</note>
-    Defaults to: <code>0</code>
-</property>
-<property name="client.tries">
-    When distributed test is starting, there may be several attempts to initialize remote engines.<br/>
-    By default, only a single try is made. Increase this property to make it retry additional times.<br/>
-    Defaults to: <code>1</code>
-</property>
-<property name="client.retries_delay">
-    If initialization is retried, this property sets the delay between those attempts in milliseconds.<br/>
-    Defaults to: <code>5000</code>
-</property>
-<property name="client.continue_on_fail">
-    When all initialization tries were made, the test will fail, if any remote engines are failed.<br/>
-    Set this property to <code>true</code> to ignore failed nodes and proceed with test.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="server.rmi.port">
-    To change the default port (<code>1099</code>) used to access the server.<br/>
-    Defaults to: <code>1099</code>
-</property>
-<property name="server.rmi.localport">
-    To use a specific port for the JMeter server engine, define this property before starting the server.<br/>
-    Defaults to: <code>4000</code>
-</property>
-<property name="server.rmi.create">
-    From JMeter version 2.3.1, the JMeter server creates the RMI registry as part of the server process.<br/>
-    Set this property to <code>false</code>, to stop the server creating the RMI registry.<br/>
-    Defaults to: <code>true</code>
-</property>
-<property name="server.exitaftertest">
-    From JMeter version 2.3.1, define this property to cause JMeter to exit after the first test.<br/>
-    Defaults to: <code>true</code>
-</property>
-<property name="server.rmi.ssl.keystore.type">
-    Type of keystore for RMI connection security. Possible values are dependent on the JVM in use, but commonly supported are <code>JKS</code> and <code>PKCS12</code>.
-    Defaults to: <code>JKS</code>
-</property>
-<property name="server.rmi.ssl.keystore.file">
-    Keystore file that contains private key
-    Defaults to: <code>rmi_keystore.jks</code>
-</property>
-<property name="server.rmi.ssl.keystore.password">
-    Password of Keystore
-    Defaults to: <code>changeit</code>
-</property>
-<property name="server.rmi.ssl.keystore.alias">
-    Key alias
-    Defaults to: <code>rmi</code>
-</property>
-<property name="server.rmi.ssl.truststore.type">
-    Type of truststore for RMI connection security
-    Defaults to: the value of <code>server.rmi.ssl.keystore.type</code>, which is <code>JKS</code>
-</property>
-<property name="server.rmi.ssl.truststore.file">
-    Keystore file that contains certificate
-    Defaults to: the value of <code>server.rmi.ssl.keystore.file</code>, which is <code>rmi_keystore.jks</code>
-</property>
-<property name="server.rmi.ssl.truststore.password">
-    Password of Trust store
-    Defaults to: the value of <code>server.rmi.ssl.keystore.password</code>, which is <code>changeit</code>
-</property>
-<property name="server.rmi.ssl.disable">
-    Set this to <code>true</code> if you don't want to use SSL for RMI
-    Defaults to: <code>false</code>
 </property>
 </properties>
 </section>
@@ -967,93 +869,6 @@ JMETER-SERVER</source>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.22 Remote batching configuration" anchor="remote_batching_config">
-    <p>
-    Configure how SampleResults are sent from server to client when using distributed testing.
-    </p>
-    <note>Note that the mode is currently resolved on the client, while other properties
-    (e.g. <code>time_threshold</code>) are resolved on the server.</note>
-    <p>
-    Since JMeter version 2.9, default is <code>StrippedBatch</code>, which returns samples in
-    batch mode (every 100 samples or every minute by default).<br/>
-    You can set mode by configuring:
-    </p>
-    <source>mode=<em>one of the possible modes below</em></source>
-    <note>StrippedBatch strips response data from SampleResult, so if you need the response data, change to another mode.</note>
-    <p>
-    Possible modes are:
-    </p>
-    <dl>
-        <dt><code>Standard</code></dt>
-        <dd>Sends SampleResult one by one</dd>
-        <dt><code>Batch</code></dt>
-        <dd>Accumulates SampleResults before sending them. Configured by
-        properties <code>num_sample_threshold</code> and <code>time_threshold</code></dd>
-        <dt><code>Statistical</code></dt>
-        <dd>returns sample summary statistics. Configured by
-        properties <code>key_on_threadname</code> and <code>time_threshold</code></dd>
-        <dt><code>Stripped</code></dt>
-        <dd>Similar to <code>Standard</code> mode but strips Response from SampleResult.
-        Configured by property <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>StrippedBatch</code></dt>
-        <dd>Same as <code>Batch</code> but strips Response from SampleResult.
-        Configured by properties <code>num_sample_threshold</code>, <code>time_threshold</code>
-        and <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>Asynch</code></dt>
-        <dd>Asynchronous sender; uses a queue and background worker process to return the samples.
-        Configured by property <code>asynch.batch.queue.size</code></dd>
-        <dt><code>StrippedAsynch</code></dt>
-        <dd>Same as <code>Asynch</code> but strips response data from SampleResult.
-        Configured by properties <code>asynch.batch.queue.size</code>
-        and <code>sample_sender_strip_also_on_error</code></dd>
-        <dt><code>StrippedDiskStore</code></dt>
-        <dd>Same as <code>DiskStore</code> but strips response data from SampleResult</dd>
-        <dt>Class extending <apilink href="org/apache/jmeter/samplers/AbstractSampleSender.html"><code>AbstractSampleSender</code></apilink> (<code>org.example.load.MySampleSender</code> for example)</dt>
-        <dd>A custom implementation of your choice</dd>
-    </dl>
-<properties>
-<property name="sample_sender_client_configured">
-    How is Sample sender implementations configured:<br/>
-    <dl>
-        <dt><code>true</code></dt><dd>(default) means client configuration will be used</dd>
-        <dt><code>false</code></dt><dd>means server configuration will be used</dd>
-    </dl>
-    Defaults to: <code>true</code>
-</property>
-<property name="sample_sender_strip_also_on_error">
-    By default when Stripping modes are used JMeter since version 3.1 will strip
-    response even for SampleResults in error. If you want to revert to previous
-    behaviour (no stripping of Responses in error) set this property to <code>false</code><br/>
-    Defaults to: <code>true</code>
-</property>
-
-<property name="mode">
-    Remote batching support.<br/>
-    Since JMeter version 2.9, default is <code>StrippedBatch</code>, which returns samples in
-    batch mode (every 100 samples or every minute by default).<br/>
-    <note>Note also that StrippedBatch strips response data from SampleResult, so if you need
-    the response data, change to another mode.</note>
-</property>
-
-<property name="key_on_threadname">
-    Set to <code>true</code> to key statistical samples on <code>threadName</code> rather than <code>threadGroup</code>.<br/>
-    Defaults to: <code>false</code>
-</property>
-<property name="num_sample_threshold">
-    Number of SampleResults to accumulate before sending to client.<br/>
-    Defaults to: <code>100</code>
-</property>
-<property name="time_threshold">
-    Time to retain SampleResults before sending them to client.
-    Value is in milliseconds.<br/>
-    Defaults to: <code>60000</code>
-</property>
-<property name="asynch.batch.queue.size">
-    Default queue size used by <code>Async</code> mode.<br/>
-    Defaults to: <code>100</code>
-</property>
-</properties>
-</section>
 <section name="&sect-num;.23 JDBC Request configuration" anchor="jdbc_request">
 <properties>
 <property name="jdbcsampler.nullmarker">
@@ -1417,11 +1232,6 @@ JMETER-SERVER</source>
 <property name="jmeterengine.threadstop.wait">
     Number of milliseconds to wait for a thread to stop.<br/>
     Defaults to: <code>5000</code>
-</property>
-<property name="jmeterengine.remote.system.exit">
-    Whether to invoke <code>System.exit(0)</code> in server exit code after
-    stopping RMI.<br/>
-    Defaults to: <code>false</code>
 </property>
 <property name="jmeterengine.stopfail.system.exit">
     Whether to call <code>System.exit(1)</code> on failure to stop threads in CLI mode.<br/>

@@ -128,7 +128,6 @@ For Windows, there are also some other scripts which you can drag-and-drop
 a JMX file onto:
 
 - `breaktest-n.cmd` - runs the file as a non-GUI test
-- `breaktest-n-r.cmd` - runs the file as a non-GUI remote (client-server) test
 - `breaktest-t.cmd` - loads the file ready to run it as a GUI test
 
 ## Documentation

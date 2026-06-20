@@ -1559,14 +1559,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     // Bug 47394
     /**
-     * Allow custom SampleSenders to drop unwanted assertionResults
+     * Drop unwanted assertionResults.
      */
     public void removeAssertionResults() {
         this.assertionResults = null;
     }
 
     /**
-     * Allow custom SampleSenders to drop unwanted subResults
+     * Drop unwanted subResults.
      */
     public void removeSubResults() {
         this.subResults = null;
