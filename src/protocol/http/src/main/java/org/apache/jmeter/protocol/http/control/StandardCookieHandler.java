@@ -21,6 +21,7 @@ import java.net.HttpCookie;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.testelement.property.CollectionProperty;
@@ -28,34 +29,27 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class HC4CookieHandler implements CookieHandler {
-    private static final Logger log = LoggerFactory.getLogger(HC4CookieHandler.class);
+public class StandardCookieHandler implements CookieHandler {
+    private static final Logger log = LoggerFactory.getLogger(StandardCookieHandler.class);
 
     // Needed by CookiePanel
     public static final String DEFAULT_POLICY_NAME = "standard"; // NOSONAR
 
     private static final String[] AVAILABLE_POLICIES = new String[]{
         DEFAULT_POLICY_NAME,
-        "standard-strict",
-        "ignoreCookies",
-        "netscape",
-        "default",
-        "rfc2109",
-        "rfc2965",
-        "best-match",
-        "compatibility"
+        "ignoreCookies"
     };
 
     private final transient boolean ignoreCookies;
 
     /**
-     * Default constructor that uses {@link HC4CookieHandler#DEFAULT_POLICY_NAME}
+     * Default constructor that uses {@link StandardCookieHandler#DEFAULT_POLICY_NAME}
      */
-    public HC4CookieHandler() {
+    public StandardCookieHandler() {
         this(DEFAULT_POLICY_NAME);
     }
 
-    public HC4CookieHandler(String policy) {
+    public StandardCookieHandler(String policy) {
         super();
         this.ignoreCookies = "ignoreCookies".equalsIgnoreCase(policy);
     }
@@ -81,7 +75,7 @@ public class HC4CookieHandler implements CookieHandler {
             for (HttpCookie cookie : cookies) {
                 try {
                     if (checkCookies) {
-                        if (!matches(cookie, url)) {
+                        if (!canStore(cookie, url)) {
                             log.info("Not storing invalid cookie: <{}> for URL {} ({})",
                                 cookieHeader, url, "URI mismatch");
                             continue;
@@ -202,11 +196,45 @@ public class HC4CookieHandler implements CookieHandler {
         }
         String domain = cookie.getDomain();
         String host = url.getHost();
-        if (domain != null && !HttpCookie.domainMatches(domain, host)) {
+        if (domain != null && !domainMatches(domain, host)) {
             return false;
         }
         String cookiePath = cookie.getPath();
-        return cookiePath == null || url.getPath().startsWith(cookiePath);
+        return cookiePath == null || pathMatches(url.getPath(), cookiePath);
+    }
+
+    private static boolean canStore(HttpCookie cookie, URL url) {
+        String protocol = url.getProtocol();
+        if (cookie.getSecure() && !HTTPSamplerBase.isSecure(protocol)) {
+            return false;
+        }
+        String domain = cookie.getDomain();
+        return domain == null || domainMatches(domain, url.getHost());
+    }
+
+    private static boolean pathMatches(String requestPath, String cookiePath) {
+        String normalizedRequestPath = requestPath == null || requestPath.isEmpty() ? "/" : requestPath;
+        if (normalizedRequestPath.equals(cookiePath)) {
+            return true;
+        }
+        if (!normalizedRequestPath.startsWith(cookiePath)) {
+            return false;
+        }
+        return cookiePath.endsWith("/")
+                || normalizedRequestPath.length() > cookiePath.length()
+                && normalizedRequestPath.charAt(cookiePath.length()) == '/';
+    }
+
+    private static boolean domainMatches(String domain, String host) {
+        String normalizedDomain = domain.toLowerCase(Locale.ROOT);
+        if (normalizedDomain.startsWith(".")) {
+            normalizedDomain = normalizedDomain.substring(1);
+        }
+        if (normalizedDomain.endsWith(".")) {
+            normalizedDomain = normalizedDomain.substring(0, normalizedDomain.length() - 1);
+        }
+        String normalizedHost = host.toLowerCase(Locale.ROOT);
+        return normalizedHost.equals(normalizedDomain) || normalizedHost.endsWith("." + normalizedDomain);
     }
 
     private static String defaultPath(URL url) {

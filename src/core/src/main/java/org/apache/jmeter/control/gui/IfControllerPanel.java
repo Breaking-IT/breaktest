@@ -210,7 +210,7 @@ public class IfControllerPanel extends AbstractControllerGui implements ChangeLi
         conditionPanel.add(useLastSampleStatusButton);
         conditionPanel.add(ifControllerTipLabel);
 
-        // Use expression instead of Javascript
+        // Use expression instead of Groovy
         useExpression = new JCheckBox(JMeterUtils.getResString("if_controller_expression")); // $NON-NLS-1$
         useExpression.addChangeListener(this);
         conditionPanel.add(useExpression, "span 2"); // $NON-NLS-1$

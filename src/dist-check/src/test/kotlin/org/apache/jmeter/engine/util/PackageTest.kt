@@ -116,11 +116,7 @@ class PackageTest {
 
     @Test
     fun testFunctionParse1() {
-        val prop = StringProperty(
-            "date",
-            "\${__javaScript((new Date().getDate() / 100).toString()" +
-                ".substr(\${__javaScript(1+1,d\\,ay)}\\,2),heute)}"
-        )
+        val prop = StringProperty("date", "\${__groovy(40 + \${__groovy(1+1,d\\,ay)},heute)}")
         val newProp = transformer.transformValue(prop)
         newProp.setRunningVersion(true)
 

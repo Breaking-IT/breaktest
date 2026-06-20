@@ -162,10 +162,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
     private static final int GROUPING_STORE_FIRST_ONLY = 3;
     private static final int GROUPING_IN_TRANSACTION_CONTROLLERS = 4;
 
-    // Original numeric order (we now use strings)
-    private static final String SAMPLER_TYPE_LEGACY_HTTP_SAMPLER = "0";
-    private static final String SAMPLER_TYPE_HTTP_SAMPLER_HC3_1 = "1";
-    private static final String SAMPLER_TYPE_HTTP_SAMPLER_HC4 = "2";
+    // Legacy numeric sampler type values from old JMX workbench files.
+    private static final Set<String> LEGACY_NUMERIC_SAMPLER_TYPES = Set.of("0", "1", "2");
 
     private long sampleGap;
 
@@ -453,13 +451,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public String getSamplerTypeName() {
-        // Convert the old numeric types - just in case someone wants to reload the workbench
         String type = getPropertyAsString(SAMPLER_TYPE_NAME);
-        if (SAMPLER_TYPE_LEGACY_HTTP_SAMPLER.equals(type)) {
-            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
-        } else if (SAMPLER_TYPE_HTTP_SAMPLER_HC3_1.equals(type)) {
-            type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
-        } else if (SAMPLER_TYPE_HTTP_SAMPLER_HC4.equals(type)) {
+        if (LEGACY_NUMERIC_SAMPLER_TYPES.contains(type)) {
             type = HTTPSamplerFactory.IMPL_HTTP_CLIENT5;
         }
         return type;

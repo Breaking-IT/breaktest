@@ -225,8 +225,7 @@ https.default.protocol=SSLv3
         <property name="Username" required="No">(Optional) username for proxy server.</property>
         <property name="Password" required="No">(Optional) password for proxy server. (N.B. this is stored unencrypted in the test plan)</property>
         <property name="Implementation" required="No">HTTP requests use the HttpClient5 sampler. Legacy implementation values
-        such as <code>Java</code> or <code>HttpClient4</code> are accepted when loading old test plans, however they are executed
-        by the HttpClient5 sampler.</property>
+        from old test plans are accepted when loading and are executed by the HttpClient5 sampler.</property>
         <property name="HTTP protocol" required="No"><code>HTTP/1.1</code> or <code>HTTP 2.0</code>. If not specified, HTTP/2 is preferred with HTTP/1.1 fallback.
         Selecting <code>HTTP 2.0</code> explicitly forces HTTP/2.</property>
         <property name="Protocol" required="No"><code>HTTP</code>, <code>HTTPS</code> or <code>FILE</code>. Default: <code>HTTP</code></property>
@@ -3683,10 +3682,8 @@ Note also that the cookie name must be unique - if a second cookie is defined wi
   <a href="http://hc.apache.org/httpcomponents-client-ga/httpclient/apidocs/org/apache/http/cookie/CookieSpec.html">CookieSpec implementations</a>
   [Note: "<code>ignoreCookies</code>" is equivalent to omitting the CookieManager.]
  </property>
-  <property name="Implementation" required="Yes"><code>HC4CookieHandler</code> is retained as the default compatibility handler name for old test plans.
-  Default is <code>HC4CookieHandler</code> since 3.0.
-  <br></br>
-  <i>[Note: If you have a website to test with IPv6 address, choose <code>HC4CookieHandler</code> (IPv6 compliant)]</i></property>
+  <property name="Implementation" required="Yes">The standard cookie handler is used. Legacy implementation values
+  from old test plans are accepted when loading and are mapped to the standard cookie handler.</property>
   <property name="User-Defined Cookies" required="No (discouraged, unless you know what you're doing)">This
   gives you the opportunity to use hardcoded cookies that will be used by all threads during the test execution.
   <br></br>
@@ -3723,8 +3720,7 @@ All port values are treated equally; a sampler that does not specify a port will
         <property name="Connect Timeout" required="No">Connection Timeout. Number of milliseconds to wait for a connection to open.</property>
         <property name="Response Timeout" required="No">Response Timeout. Number of milliseconds to wait for a response.</property>
         <property name="Implementation" required="No">HTTP requests use the HttpClient5 sampler. Legacy implementation values
-        such as <code>Java</code> or <code>HttpClient4</code> are accepted when loading old test plans, however they are executed
-        by the HttpClient5 sampler.</property>
+        from old test plans are accepted when loading and are executed by the HttpClient5 sampler.</property>
         <property name="HTTP protocol" required="No"><code>HTTP/1.1</code> or <code>HTTP 2.0</code>. If not specified, HTTP/2 is preferred with HTTP/1.1 fallback.
         Selecting <code>HTTP 2.0</code> explicitly forces HTTP/2.</property>
         <property name="Protocol" required="No"><code>HTTP</code> or <code>HTTPS</code>.</property>

@@ -108,8 +108,6 @@ dependencies {
     implementation("org.freemarker:freemarker")
     implementation("org.jodd:jodd-core")
     implementation("org.jodd:jodd-props")
-    implementation("org.mozilla:rhino")
-    implementation("org.mozilla:rhino-engine")
     implementation("org.slf4j:jcl-over-slf4j")
 
     testImplementation("commons-net:commons-net")

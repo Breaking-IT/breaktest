@@ -46,7 +46,7 @@ class TestIfController extends JMeterTestCase {
         ifCont.setUseExpression(false);
         ifCont.setEvaluateAll(false);
         WhileController whileController = new WhileController();
-        whileController.setCondition("${__javaScript(\"true\" != \"false\")}");
+        whileController.setCondition("${__groovy(true != false)}");
         whileController.addTestElement(new TestSampler("Sample1"));
 
         controller.addTestElement(ifCont);

@@ -104,7 +104,7 @@ public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
 
     static {
         if (!JMeterUtils.getPropDefault("httpclient.timeout", "").isEmpty()) { //$NON-NLS-1$
-            log.warn("You're using property 'httpclient.timeout' that will soon be deprecated for HttpClient3.1, you should either set "
+            log.warn("You're using legacy property 'httpclient.timeout'; set "
                     + "timeout in HTTP Request GUI, HTTP Request Defaults or set http.socket.timeout in httpclient.parameters");
         }
         if (!NONPROXY_HOSTS.isEmpty()) {
