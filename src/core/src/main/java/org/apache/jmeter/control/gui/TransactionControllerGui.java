@@ -21,6 +21,7 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 
+import javax.swing.Box;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -198,36 +199,12 @@ public class TransactionControllerGui extends AbstractControllerGui {
         constraints.anchor = GridBagConstraints.WEST;
         constraints.fill = GridBagConstraints.HORIZONTAL;
 
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        delayPanel.add(new JLabel(JMeterUtils.getResString("transaction_controller_delay_option")), constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        delayPanel.add(delayMode, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        delayPanel.add(fixedDelayLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        delayPanel.add(fixedDelay, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        delayPanel.add(delayMinLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        delayPanel.add(delayMin, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        delayPanel.add(delayMaxLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        delayPanel.add(delayMax, constraints);
+        addControlRow(delayPanel, constraints, 0,
+                new JLabel(JMeterUtils.getResString("transaction_controller_delay_option")), delayMode);
+        addControlRow(delayPanel, constraints, 1, fixedDelayLabel, fixedDelay);
+        addControlRow(delayPanel, constraints, 2, delayMinLabel, delayMin);
+        addControlRow(delayPanel, constraints, 3, delayMaxLabel, delayMax);
+        addHorizontalSpacer(delayPanel, constraints);
 
         delayMode.addActionListener(e -> updateDelayFields());
         updateDelayFields();
@@ -260,40 +237,33 @@ public class TransactionControllerGui extends AbstractControllerGui {
         constraints.anchor = GridBagConstraints.WEST;
         constraints.fill = GridBagConstraints.HORIZONTAL;
 
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        pacingPanel.add(new JLabel(JMeterUtils.getResString("transaction_controller_pacing_option")), constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        pacingPanel.add(pacingMode, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        pacingPanel.add(fixedPacingLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        pacingPanel.add(fixedPacing, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        pacingPanel.add(pacingMinLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        pacingPanel.add(pacingMin, constraints);
-
-        constraints.gridy++;
-        constraints.gridx = 0;
-        constraints.weightx = 0;
-        pacingPanel.add(pacingMaxLabel, constraints);
-        constraints.gridx = 1;
-        constraints.weightx = 1.0d;
-        pacingPanel.add(pacingMax, constraints);
+        addControlRow(pacingPanel, constraints, 0,
+                new JLabel(JMeterUtils.getResString("transaction_controller_pacing_option")), pacingMode);
+        addControlRow(pacingPanel, constraints, 1, fixedPacingLabel, fixedPacing);
+        addControlRow(pacingPanel, constraints, 2, pacingMinLabel, pacingMin);
+        addControlRow(pacingPanel, constraints, 3, pacingMaxLabel, pacingMax);
+        addHorizontalSpacer(pacingPanel, constraints);
 
         pacingMode.addActionListener(e -> updatePacingFields());
         updatePacingFields();
         return pacingPanel;
+    }
+
+    private static void addControlRow(
+            JPanel panel, GridBagConstraints constraints, int row, JLabel label, java.awt.Component control) {
+        constraints.gridx = 0;
+        constraints.gridy = row;
+        constraints.weightx = 0;
+        panel.add(label, constraints);
+        constraints.gridx = 1;
+        panel.add(control, constraints);
+    }
+
+    private static void addHorizontalSpacer(JPanel panel, GridBagConstraints constraints) {
+        constraints.gridx = 2;
+        constraints.gridy = 0;
+        constraints.weightx = 1.0d;
+        panel.add(Box.createHorizontalGlue(), constraints);
     }
 
     private void updatePacingFields() {

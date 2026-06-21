@@ -433,13 +433,15 @@ Defaults to: <code>true</code>
 </property>
 <property name="httpclient5.validate_after_inactivity">
     Check connection if the elapsed time (in milliseconds) since the last use of the connection
-    exceeds this value. Ensure this value is always lower by at least 150 ms than <code>httpclient5.time_to_live</code><br/>
+    exceeds this value. When <code>httpclient5.time_to_live</code> is positive, ensure this value is always lower
+    by at least 150 ms than <code>httpclient5.time_to_live</code><br/>
     Defaults to: <code>4900</code>
 </property>
 <property name="httpclient5.time_to_live">
     <abbr title="time to live">TTL</abbr> (in milliseconds) represents an absolute value.
-    No matter what, the connection will not be re-used beyond its TTL in the HttpClient5 implementation.<br/>
-    Defaults to: <code>60000</code>
+    When set to a positive value, the connection will not be re-used beyond its TTL in the HttpClient5 implementation.
+    Negative values disable TTL-based connection expiry.<br/>
+    Defaults to: <code>-1</code>
 </property>
 <property name="httpclient5.default_user_agent_disabled">
     If true, default HC5 User-Agent will not be added.<br/>

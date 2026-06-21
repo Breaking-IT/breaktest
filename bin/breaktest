@@ -20,7 +20,7 @@
 ##   JVM_ARGS - optional java args, e.g. -Dprop=val
 ##
 ##   e.g.
-##   JVM_ARGS="-Xms1g -Xmx1g" breaktest etc.
+##   JVM_ARGS="-Xms256m -Xmx2g" breaktest etc.
 ##
 ##   Do not set the variables in this script. Instead put them into a script
 ##   setenv.sh in JMETER_HOME/bin to keep your customizations separate.
@@ -39,7 +39,7 @@
 ##
 ##   HEAP             (Optional) Java runtime options for memory management
 ##                    used when BreakTest is started.
-##                    Defaults to "-Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m"
+##                    Defaults to "-Xms256m -Xmx2g -XX:MaxMetaspaceSize=256m"
 ##
 ##   JMETER_HOME      (Optional) May point to your BreakTest install dir. If empty
 ##                    it will be set relativ to this script.
@@ -164,7 +164,7 @@ esac
 
 # This is the base heap size -- you may increase or decrease it to fit your
 # system's memory availability:
-: "${HEAP:="-Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m"}"
+: "${HEAP:="-Xms256m -Xmx2g -XX:MaxMetaspaceSize=256m"}"
 
 # Set language
 # Default to en_EN

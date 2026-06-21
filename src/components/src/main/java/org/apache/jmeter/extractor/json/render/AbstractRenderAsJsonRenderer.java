@@ -37,7 +37,6 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
-import org.apache.jmeter.visualizers.RenderAsJSON;
 import org.apache.jmeter.visualizers.ResultRenderer;
 import org.apache.jmeter.visualizers.ViewResultsFullVisualizer;
 import org.apache.jorphan.gui.GuiUtils;
@@ -53,8 +52,6 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 abstract class AbstractRenderAsJsonRenderer implements ResultRenderer, ActionListener {
 
     protected static final String NO_MATCH = "NO MATCH"; //$NON-NLS-1$
-    private static final String TAB_SEPARATOR = "    "; //$NON-NLS-1$
-
     private static final String TESTER_COMMAND = "TESTER_COMMAND"; // $NON-NLS-1$
 
     private JPanel jsonWithExtractorPanel;
@@ -121,7 +118,7 @@ abstract class AbstractRenderAsJsonRenderer implements ResultRenderer, ActionLis
     @Override
     public void renderResult(SampleResult sampleResult) {
         String response = ViewResultsFullVisualizer.getResponseAsString(sampleResult);
-        jsonDataField.setText(response == null ? "" : RenderAsJSON.prettyJSON(response, TAB_SEPARATOR));  //$NON-NLS-1$
+        jsonDataField.setText(response == null ? "" : response);  //$NON-NLS-1$
         jsonDataField.setCaretPosition(0);
     }
 

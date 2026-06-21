@@ -678,7 +678,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         treevar.setToolTipText("");
         treevar.setCellRenderer(getCellRenderer());
         treevar.setRootVisible(false);
-        treevar.setShowsRootHandles(true);
+        treevar.setShowsRootHandles(false);
+        treevar.expandRow(0);
 
         treeListener.setJTree(treevar);
         treevar.addTreeSelectionListener(treeListener);

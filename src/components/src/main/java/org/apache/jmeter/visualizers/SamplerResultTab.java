@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,6 +38,7 @@ import javax.swing.Action;
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -46,6 +48,7 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextPane;
+import javax.swing.JToolBar;
 import javax.swing.SwingConstants;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -72,10 +75,13 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.SearchTextExtension.JEditorPaneSearchProvider;
 import org.apache.jorphan.gui.GuiUtils;
+import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.gui.ObjectTableModel;
 import org.apache.jorphan.gui.RendererUtils;
 import org.apache.jorphan.gui.ui.KerningOptimizer;
 import org.apache.jorphan.reflect.Functor;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jsoup.Jsoup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -114,6 +120,9 @@ public abstract class SamplerResultTab implements ResultRenderer {
     private static final int SIMPLE_VIEW_LIMIT =
             JMeterUtils.getPropDefault("view.results.tree.simple_view_limit", 10_000); // $NON-NLS-1$
 
+    private static final int MAX_SINGLE_LINE_BODY_SIZE =
+            JMeterUtils.getPropDefault("view.results.tree.max_single_line_body_size", 100_000); // $NON-NLS-1$
+
     private JTextPane stats;
 
     /** Response Data pane */
@@ -143,6 +152,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
     private Object userObject = null; // Could be SampleResult or AssertionResult
 
     private SampleResult sampleResult = null;
+
+    private String rawResponseBody = "";
+
+    private JButton loadBodyButton;
 
     private AssertionResult assertionResult = null;
 
@@ -246,6 +259,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
     @Override
     public void clearData() {
         responseData.setInitialText(""); // $NON-NLS-1$
+        rawResponseBody = ""; // $NON-NLS-1$
+        if (loadBodyButton != null) {
+            loadBodyButton.setEnabled(false);
+        }
         results.setText("");// Response Data // $NON-NLS-1$
         requestPanel.clearData();// Request Data // $NON-NLS-1$
         stats.setText(""); // Sampler result // $NON-NLS-1$
@@ -272,6 +289,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         // Clear all data before display a new sample. The active tab is filled lazily below.
         this.clearData();
         sampleResult = null;
+        rawResponseBody = "";
         assertionResult = null;
         if (userObject instanceof SampleResult result) {
             sampleResult = result;
@@ -358,6 +376,18 @@ public abstract class SamplerResultTab implements ResultRenderer {
                     .append(JMeterUtils.getResString("view_results_network")).append(SPACE) //$NON-NLS-1$
                     .append(networkEndpoint).append(NL);
         }
+        String protocolVersion = result.getProtocolVersion();
+        if (!protocolVersion.isEmpty()) {
+            statsBuff
+                    .append(JMeterUtils.getResString("view_results_protocol_version")).append(SPACE) //$NON-NLS-1$
+                    .append(protocolVersion).append(NL);
+        }
+        String tlsVersion = result.getTlsVersion();
+        if (!tlsVersion.isEmpty()) {
+            statsBuff
+                    .append(JMeterUtils.getResString("view_results_tls_version")).append(SPACE) //$NON-NLS-1$
+                    .append(tlsVersion).append(NL);
+        }
         statsBuff
                 .append(JMeterUtils.getResString("view_results_sample_count")).append(SPACE) //$NON-NLS-1$
                 .append(result.getSampleCount()).append(NL);
@@ -394,9 +424,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         String responseMsgStr = result.getResponseMessage();
         statsBuff
                 .append(JMeterUtils.getResString("view_results_response_message")) //$NON-NLS-1$
-                .append(responseMsgStr).append(NL)
-                .append(NL)
-                .append(NL)
+                .append(responseMsgStr).append(NL).append(NL)
                 .append(typeResult).append(SPACE)
                 .append(JMeterUtils.getResString("view_results_fields")).append(NL) // $NON-NLS-1$
                 .append("ContentType: ").append(result.getContentType()).append(NL) //$NON-NLS-1$
@@ -414,6 +442,12 @@ public abstract class SamplerResultTab implements ResultRenderer {
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_size_body_in_bytes"), result.getBodySizeAsLong())); //$NON-NLS-1$
         if (!networkEndpoint.isEmpty()) {
             resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_network"), networkEndpoint)); //$NON-NLS-1$
+        }
+        if (!protocolVersion.isEmpty()) {
+            resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_protocol_version"), protocolVersion)); //$NON-NLS-1$
+        }
+        if (!tlsVersion.isEmpty()) {
+            resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_tls_version"), tlsVersion)); //$NON-NLS-1$
         }
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sample_count"), result.getSampleCount())); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_error_count"), result.getErrorCount())); //$NON-NLS-1$
@@ -592,11 +626,22 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
         responseData = JSyntaxTextArea.getInstance(20, 80, true);
         responseData.setEditable(false);
-        responseData.setLineWrap(true);
-        responseData.setWrapStyleWord(true);
+        responseData.setLineWrap(false);
+        responseData.setWrapStyleWord(false);
+        responseData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
 
         JPanel responseAndSearchPanel = new JPanel(new BorderLayout());
-        responseAndSearchPanel.add(new JSyntaxSearchToolBar(responseData).getToolBar(), BorderLayout.NORTH);
+        JToolBar responseSearchToolBar = new JSyntaxSearchToolBar(responseData).getToolBar();
+        JButton prettyPrintButton = new JButton(JMeterUtils.getResString("view_results_pretty_print")); // $NON-NLS-1$
+        JFactory.small(prettyPrintButton);
+        prettyPrintButton.addActionListener(e -> prettyPrintResponseData());
+        responseSearchToolBar.add(prettyPrintButton);
+        loadBodyButton = new JButton(JMeterUtils.getResString("view_results_load_body")); // $NON-NLS-1$
+        JFactory.small(loadBodyButton);
+        loadBodyButton.setEnabled(false);
+        loadBodyButton.addActionListener(e -> loadResponseBody());
+        responseSearchToolBar.add(loadBodyButton);
+        responseAndSearchPanel.add(responseSearchToolBar, BorderLayout.NORTH);
         responseAndSearchPanel.add(JTextScrollPane.getInstance(responseData), BorderLayout.CENTER);
 
         resultsScrollPane = GuiUtils.makeScrollPane(results);
@@ -813,7 +858,6 @@ public abstract class SamplerResultTab implements ResultRenderer {
         Document blank = new DefaultStyledDocument();
         results.setDocument(blank);
         try {
-            data = ViewResultsFullVisualizer.wrapLongLines(data);
             document.insertString(0, data == null ? "" : data, null);
         } catch (BadLocationException ex) {
             LOGGER.error("Error inserting text", ex);
@@ -829,8 +873,195 @@ public abstract class SamplerResultTab implements ResultRenderer {
     }
 
     private void setResponseDataText(String responseHeaders, String responseBody) {
-        responseData.setText(buildResponseData(responseHeaders, responseBody));
+        if (responseBody != null) {
+            rawResponseBody = responseBody;
+        }
+        String bodyToShow = responseBody == null ? rawResponseBody : responseBody;
+        boolean withholdBody = shouldWithholdBody(bodyToShow);
+        if (loadBodyButton != null) {
+            loadBodyButton.setEnabled(withholdBody);
+        }
+        responseData.setText(buildResponseData(responseHeaders, withholdBody
+                ? withheldBodyMessage(bodyToShow)
+                : bodyToShow));
+        responseData.setSyntaxEditingStyle(sampleResult == null
+                ? SyntaxConstants.SYNTAX_STYLE_NONE
+                : syntaxStyle(sampleResult));
         responseData.setCaretPosition(0);
+    }
+
+    private void loadResponseBody() {
+        if (sampleResult == null) {
+            return;
+        }
+        if (loadBodyButton != null) {
+            loadBodyButton.setEnabled(false);
+        }
+        responseData.setText(buildResponseData(sampleResult.getResponseHeaders(), rawResponseBody));
+        responseData.setSyntaxEditingStyle(syntaxStyle(sampleResult));
+        responseData.setCaretPosition(0);
+    }
+
+    private void prettyPrintResponseData() {
+        if (sampleResult == null || rawResponseBody.isEmpty()) {
+            return;
+        }
+        if (loadBodyButton != null) {
+            loadBodyButton.setEnabled(false);
+        }
+        String prettyBody = prettyPrint(rawResponseBody, sampleResult);
+        responseData.setText(buildResponseData(sampleResult.getResponseHeaders(), prettyBody));
+        responseData.setSyntaxEditingStyle(syntaxStyle(sampleResult));
+        responseData.setCaretPosition(0);
+    }
+
+    private static String syntaxStyle(SampleResult result) {
+        String contentType = result.getContentType().toLowerCase(Locale.ENGLISH);
+        String path = result.getURL() == null ? "" : result.getURL().getPath().toLowerCase(Locale.ENGLISH); // $NON-NLS-1$
+        if (isJson(contentType, path)) {
+            return SyntaxConstants.SYNTAX_STYLE_JSON;
+        }
+        if (isCss(contentType, path)) {
+            return SyntaxConstants.SYNTAX_STYLE_CSS;
+        }
+        if (isJavaScript(contentType, path)) {
+            return SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT;
+        }
+        if (contentType.contains("html") || path.endsWith(".html") || path.endsWith(".htm")) { // $NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            return SyntaxConstants.SYNTAX_STYLE_HTML;
+        }
+        if (contentType.contains("xml") || path.endsWith(".xml") || path.endsWith(".svg")) { // $NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            return SyntaxConstants.SYNTAX_STYLE_XML;
+        }
+        return SyntaxConstants.SYNTAX_STYLE_NONE;
+    }
+
+    private static String prettyPrint(String text, SampleResult result) {
+        String contentType = result.getContentType().toLowerCase(Locale.ENGLISH);
+        String path = result.getURL() == null ? "" : result.getURL().getPath().toLowerCase(Locale.ENGLISH); // $NON-NLS-1$
+        if (isJson(contentType, path)) {
+            return RenderAsJSON.prettyJSON(text);
+        }
+        if (isHtmlOrXml(contentType, path)) {
+            return Jsoup.parse(text).html();
+        }
+        if (isCss(contentType, path) || isJavaScript(contentType, path)) {
+            return prettyPrintBracedText(text);
+        }
+        String prettyJson = RenderAsJSON.prettyJSON(text);
+        if (!prettyJson.equals(text)) {
+            return prettyJson;
+        }
+        return text;
+    }
+
+    private static boolean isJson(String contentType, String path) {
+        return contentType.contains("json") || path.endsWith(".json"); // $NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean isHtmlOrXml(String contentType, String path) {
+        return contentType.contains("html")
+                || contentType.contains("xml")
+                || path.endsWith(".html") // $NON-NLS-1$
+                || path.endsWith(".htm") // $NON-NLS-1$
+                || path.endsWith(".xml") // $NON-NLS-1$
+                || path.endsWith(".svg"); // $NON-NLS-1$
+    }
+
+    private static boolean isCss(String contentType, String path) {
+        return contentType.contains("css") || path.endsWith(".css"); // $NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean isJavaScript(String contentType, String path) {
+        return contentType.contains("javascript")
+                || contentType.contains("ecmascript")
+                || path.endsWith(".js") // $NON-NLS-1$
+                || path.endsWith(".mjs"); // $NON-NLS-1$
+    }
+
+    private static String prettyPrintBracedText(String text) {
+        StringBuilder result = new StringBuilder(text.length() + Math.min(text.length() / 4, 4096));
+        int indent = 0;
+        boolean quoted = false;
+        char quote = 0;
+        boolean escaped = false;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (quoted) {
+                result.append(ch);
+                if (escaped) {
+                    escaped = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                } else if (ch == quote) {
+                    quoted = false;
+                }
+                continue;
+            }
+            if (ch == '"' || ch == '\'' || ch == '`') {
+                quoted = true;
+                quote = ch;
+                result.append(ch);
+                continue;
+            }
+            switch (ch) {
+                case '{' -> {
+                    result.append(ch);
+                    appendNewLineAndIndent(result, ++indent);
+                }
+                case '}' -> {
+                    trimTrailingWhitespace(result);
+                    appendNewLineAndIndent(result, Math.max(0, --indent));
+                    result.append(ch);
+                }
+                case ';' -> {
+                    result.append(ch);
+                    appendNewLineAndIndent(result, indent);
+                }
+                case ',' -> {
+                    result.append(ch);
+                    appendNewLineAndIndent(result, indent);
+                }
+                default -> {
+                    result.append(ch);
+                }
+            }
+        }
+        return result.toString();
+    }
+
+    private static void appendNewLineAndIndent(StringBuilder text, int indent) {
+        trimTrailingWhitespace(text);
+        text.append('\n');
+        text.append("    ".repeat(Math.max(0, indent))); // $NON-NLS-1$
+    }
+
+    private static void trimTrailingWhitespace(StringBuilder text) {
+        while (!text.isEmpty() && Character.isWhitespace(text.charAt(text.length() - 1))) {
+            text.setLength(text.length() - 1);
+        }
+    }
+
+    private static boolean shouldWithholdBody(String responseBody) {
+        return MAX_SINGLE_LINE_BODY_SIZE > 0 && hasLineLongerThan(responseBody, MAX_SINGLE_LINE_BODY_SIZE);
+    }
+
+    private static boolean hasLineLongerThan(String text, int maxLineLength) {
+        int currentLineLength = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\n' || ch == '\r') {
+                currentLineLength = 0;
+            } else if (++currentLineLength > maxLineLength) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String withheldBodyMessage(String responseBody) {
+        return JMeterUtils.getResString("view_results_body_too_long_single_line") // $NON-NLS-1$
+                .formatted(responseBody.length(), MAX_SINGLE_LINE_BODY_SIZE);
     }
 
     private static String buildResponseData(String responseHeaders, String responseBody) {

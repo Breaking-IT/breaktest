@@ -153,11 +153,15 @@ class TestSampleResult implements JMeterSerialTest {
         res.setLocalEndpoint("127.0.0.1:54321");
         Assertions.assertEquals("", res.getNetworkEndpoint());
         res.setDestinationEndpoint("93.184.216.34:443");
+        res.setProtocolVersion("HTTP/2");
+        res.setTlsVersion("TLSv1.3");
         Assertions.assertEquals("127.0.0.1:54321 -> 93.184.216.34:443", res.getNetworkEndpoint());
 
         SampleResult copy = new SampleResult(res);
         Assertions.assertEquals("127.0.0.1:54321", copy.getLocalEndpoint());
         Assertions.assertEquals("93.184.216.34:443", copy.getDestinationEndpoint());
+        Assertions.assertEquals("HTTP/2", copy.getProtocolVersion());
+        Assertions.assertEquals("TLSv1.3", copy.getTlsVersion());
         Assertions.assertEquals(res.getNetworkEndpoint(), copy.getNetworkEndpoint());
     }
 
@@ -351,6 +355,38 @@ class TestSampleResult implements JMeterSerialTest {
         Assertions.assertEquals("aBCd", res.getDataEncodingWithDefault());
         Assertions.assertEquals("aBCd", res.getDataEncodingNoDefault());
         Assertions.assertEquals("text", res.getDataType());
+
+        res.setEncodingAndType("font/woff2");
+        Assertions.assertEquals("bin", res.getDataType());
+
+        res.setEncodingAndType("FONT/WOFF2");
+        Assertions.assertEquals("bin", res.getDataType());
+
+        for (String contentType : new String[] {
+                "application/octet-stream",
+                "application/pdf",
+                "application/pdf; charset=UTF-8",
+                "application/wasm",
+                "application/zip",
+                "application/x-gzip",
+                "application/x-protobuf",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }) {
+            res.setEncodingAndType(contentType);
+            Assertions.assertEquals("bin", res.getDataType(), contentType);
+        }
+
+        for (String contentType : new String[] {
+                "application/json",
+                "application/ld+json",
+                "application/xml",
+                "application/rss+xml",
+                "image/svg+xml",
+                "audio/mpegurl"
+        }) {
+            res.setEncodingAndType(contentType);
+            Assertions.assertEquals("text", res.getDataType(), contentType);
+        }
     }
 
     // sleep and return how long we actually slept

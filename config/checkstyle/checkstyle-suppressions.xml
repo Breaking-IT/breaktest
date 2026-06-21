@@ -23,6 +23,7 @@
 <suppressions>
     <suppress checks="NewlineAtEndOfFile" files=".*.properties"/>
     <suppress checks="FileLength" files="HTTPSamplerBase.java"/>
+    <suppress checks="FileLength" files="HTTPHC5Impl.java"/>
     <!-- Slightly more lenient for tests -->
     <suppress checks="(EmptyCatchBlock|AvoidEscapedUnicodeCharacters)"
               files="test[\\/].*"/>

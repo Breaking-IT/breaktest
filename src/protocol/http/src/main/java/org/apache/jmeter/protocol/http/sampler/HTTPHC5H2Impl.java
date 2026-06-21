@@ -38,6 +38,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
 
 import org.apache.hc.client5.http.AuthenticationStrategy;
 import org.apache.hc.client5.http.DnsResolver;
@@ -146,7 +147,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final boolean REQUEST_SENT_RETRY_ENABLED =
             JMeterUtils.getPropDefault("httpclient5.request_sent_retry_enabled", false);
 
-    private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", 60000);
+    private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", -1);
 
     private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
 
@@ -258,6 +259,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         StatusLine statusLine = new StatusLine(httpResponse);
         int statusCode = statusLine.getStatusCode();
         res.setResponseCode(Integer.toString(statusCode));
+        res.setProtocolVersion(formatProtocolVersion(statusLine.getProtocolVersion()));
         boolean successful = isSuccessCode(statusCode);
         recordNetworkEndpointsIfNeeded(clientContext, res, successful, clientState);
         res.setSentBytes(HTTPHC5Metrics.estimateSentBytes(request, statusLine.getProtocolVersion().getMajor() >= 2
@@ -643,6 +645,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
         sample.setLocalEndpoint(endpoint.localEndpoint);
         sample.setDestinationEndpoint(endpoint.destinationEndpoint);
+        sample.setTlsVersion(endpoint.tlsVersion);
     }
 
     private static NetworkEndpoint networkEndpointFromContext(HttpContext context) {
@@ -668,19 +671,23 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final class NetworkEndpoint {
         private final String localEndpoint;
         private final String destinationEndpoint;
+        private final String tlsVersion;
 
-        private NetworkEndpoint(String localEndpoint, String destinationEndpoint) {
+        private NetworkEndpoint(String localEndpoint, String destinationEndpoint, String tlsVersion) {
             this.localEndpoint = localEndpoint;
             this.destinationEndpoint = destinationEndpoint;
+            this.tlsVersion = tlsVersion;
         }
 
         private static NetworkEndpoint from(ManagedAsyncClientConnection connection) {
             if (connection == null) {
-                return new NetworkEndpoint("", "");
+                return new NetworkEndpoint("", "", "");
             }
+            SSLSession sslSession = connection.getSSLSession();
             return new NetworkEndpoint(
                     formatEndpoint(connection.getLocalAddress()),
-                    formatEndpoint(connection.getRemoteAddress()));
+                    formatEndpoint(connection.getRemoteAddress()),
+                    sslSession == null ? "" : sslSession.getProtocol());
         }
 
         private boolean isComplete() {
