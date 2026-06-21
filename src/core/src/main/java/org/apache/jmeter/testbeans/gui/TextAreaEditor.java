@@ -25,7 +25,9 @@ import java.beans.PropertyChangeListener;
 import java.beans.PropertyDescriptor;
 import java.beans.PropertyEditorSupport;
 import java.util.Locale;
+import java.util.function.Supplier;
 
+import org.apache.jmeter.ai.gui.Jsr223AiHelper;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 
@@ -121,6 +123,10 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
     @Override
     public Object getValue() {
         return textUI.getText();
+    }
+
+    void installJsr223AiHelper(String elementType, Supplier<String> languageSupplier) {
+        Jsr223AiHelper.install(textUI, elementType, languageSupplier, this::firePropertyChange);
     }
 
     /** {@inheritDoc} */

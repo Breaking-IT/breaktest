@@ -644,3 +644,34 @@ val runGui by tasks.registering(JavaExec::class) {
         }
     }
 }
+
+val runAgentMcp by tasks.registering(JavaExec::class) {
+    group = "Development"
+    description = "Builds and starts the BreakTest Agent MCP stdio server"
+    dependsOn(createDist)
+    buildParameters.testJdk?.let {
+        javaLauncher.set(javaToolchains.launcherFor(it))
+    }
+
+    workingDir = File(project.rootDir, "bin")
+    mainClass.set("org.apache.jmeter.ai.mcp.BreakTestAgentMcpServer")
+    classpath(configurations.runtimeClasspath)
+    args(project.rootDir.absolutePath)
+    standardInput = System.`in`
+}
+
+val runGuiWithAgent by tasks.registering(JavaExec::class) {
+    group = "Development"
+    description = "Builds and starts BreakTest GUI with the local Agent service enabled"
+    dependsOn(createDist)
+    buildParameters.testJdk?.let {
+        javaLauncher.set(javaToolchains.launcherFor(it))
+    }
+
+    workingDir = File(project.rootDir, "bin")
+    mainClass.set("org.apache.jmeter.NewDriver")
+    classpath("$rootDir/bin/ApacheJMeter.jar")
+    jvmArgs("-Xss256k")
+    jvmArgs("-XX:MaxMetaspaceSize=256m")
+    jvmArgs("-Dbreaktest.agent.enabled=true")
+}

@@ -311,6 +311,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
             WrapperEditor we = (WrapperEditor) editors[scriptLanguageIndex];
             TextAreaEditor tae = (TextAreaEditor) editors[textAreaEditorIndex];
             we.addChangeListener(tae);
+            tae.installJsr223AiHelper(beanName, we::getAsText);
         }
 
         // Obtain message formats:

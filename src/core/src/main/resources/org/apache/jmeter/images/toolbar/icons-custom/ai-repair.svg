@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="chip" x1="26" y1="24" x2="102" y2="104" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#27d3ff"/>
+      <stop offset="0.55" stop-color="#5a7dff"/>
+      <stop offset="1" stop-color="#8f4dff"/>
+    </linearGradient>
+    <linearGradient id="tool" x1="58" y1="56" x2="105" y2="111" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9e2ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="20" y="20" width="76" height="76" rx="18" fill="#101827"/>
+  <rect x="24" y="24" width="68" height="68" rx="15" fill="url(#chip)"/>
+  <rect x="32" y="32" width="52" height="52" rx="10" fill="#101827" opacity="0.86"/>
+
+  <path d="M24 43H12M24 58H12M24 73H12M104 43H92M104 58H92M104 73H92M43 24V12M58 24V12M73 24V12M43 104V92M58 104V92M73 104V92"
+        fill="none" stroke="#72efff" stroke-width="7" stroke-linecap="round"/>
+
+  <circle cx="46" cy="58" r="6" fill="#74f7ff"/>
+  <circle cx="70" cy="48" r="6" fill="#b69cff"/>
+  <circle cx="72" cy="70" r="6" fill="#74f7ff"/>
+  <path d="M51 56L65 50M51 61L67 68M70 54L72 64"
+        fill="none" stroke="#d8fbff" stroke-width="4" stroke-linecap="round"/>
+
+  <path d="M103 21L108 34L121 39L108 44L103 57L98 44L85 39L98 34Z"
+        fill="#ffffff"/>
+  <path d="M106 10L109 17L116 20L109 23L106 30L103 23L96 20L103 17Z"
+        fill="#72efff"/>
+
+  <path d="M83 68C88 63 96 62 102 66L94 74L101 81L109 73C113 80 112 88 107 93C101 99 93 100 86 97L61 122L50 111L75 86C72 80 77 74 83 68Z"
+        fill="#0b1020" opacity="0.35"/>
+  <path d="M80 64C86 58 95 57 102 62L92 72L100 80L110 70C114 78 113 87 107 93C101 99 92 100 84 96L60 120L48 108L72 84C68 76 74 70 80 64Z"
+        fill="url(#tool)"/>
+  <path d="M60 120L48 108L56 100L68 112Z"
+        fill="#7aa2ff"/>
+  <path d="M80 64C86 58 95 57 102 62L92 72L100 80L110 70C114 78 113 87 107 93C101 99 92 100 84 96L60 120L48 108L72 84C68 76 74 70 80 64Z"
+        fill="none" stroke="#101827" stroke-width="4" stroke-linejoin="round"/>
+</svg>
