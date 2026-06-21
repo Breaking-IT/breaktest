@@ -31,6 +31,7 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.util.StringUtilities;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import com.google.auto.service.AutoService;
 
@@ -54,8 +55,9 @@ public class RequestViewRaw implements RequestView {
 
         requestData = JSyntaxTextArea.getInstance(20, 80, true);
         requestData.setEditable(false);
-        requestData.setLineWrap(true);
-        requestData.setWrapStyleWord(true);
+        requestData.setLineWrap(false);
+        requestData.setWrapStyleWord(false);
+        requestData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         JPanel requestDataAndSearchPanel = new JPanel(new BorderLayout());
         requestDataAndSearchPanel.add(new JSyntaxSearchToolBar(requestData).getToolBar(), BorderLayout.NORTH);
         requestDataAndSearchPanel.add(JTextScrollPane.getInstance(requestData), BorderLayout.CENTER);

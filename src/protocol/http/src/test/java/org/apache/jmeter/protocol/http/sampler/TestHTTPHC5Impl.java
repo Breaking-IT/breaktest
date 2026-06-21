@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
@@ -108,6 +109,12 @@ public class TestHTTPHC5Impl {
         HTTPSamplerProxy explicitHttp2 = new HTTPSamplerProxy();
         explicitHttp2.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
         assertEquals(HttpVersionPolicy.FORCE_HTTP_2, new HTTPHC5H2Impl(explicitHttp2).versionPolicy());
+    }
+
+    @Test
+    public void protocolVersionIsFormattedForDisplay() {
+        assertEquals("HTTP/1.1", HTTPHC5Impl.formatProtocolVersion(HttpVersion.HTTP_1_1));
+        assertEquals("HTTP/2", HTTPHC5Impl.formatProtocolVersion(HttpVersion.HTTP_2_0));
     }
 
     @Test

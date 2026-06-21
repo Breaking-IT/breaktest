@@ -77,8 +77,15 @@ public class CollapseExpandTreeBranch extends AbstractAction {
                 boolean collapse = ActionNames.COLLAPSE.equals(e.getActionCommand());
 
                 expandCollapseNode(jTree, path, collapse);
+                if (collapse && isTopLevelPath(path)) {
+                    jTree.expandPath(path);
+                }
             }
         }
+    }
+
+    private static boolean isTopLevelPath(TreePath path) {
+        return path.getPathCount() == 2;
     }
 
     @SuppressWarnings("JdkObsolete")

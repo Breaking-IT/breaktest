@@ -19,7 +19,6 @@ package org.apache.jmeter.visualizers;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
-import org.jsoup.Jsoup;
 
 import com.google.auto.service.AutoService;
 
@@ -35,7 +34,7 @@ public class RenderAsHTMLFormatted extends SamplerResultTab implements ResultRen
 
     private void showHTMLFormattedResponse(String response) {
         results.setContentType("text/plain"); // $NON-NLS-1$
-        setTextOptimized(response == null ? "" : Jsoup.parse(response).html()); // $NON-NLS-1$
+        setTextOptimized(response == null ? "" : response); // $NON-NLS-1$
         results.setCaretPosition(0);
         resultsScrollPane.setViewportView(results);
         // Bug 55111 - Refresh JEditor pane size depending on the presence or absence of scrollbars

@@ -57,7 +57,7 @@ public object JMeterGuiLauncher {
         println("For load testing, use CLI Mode (was NON GUI):") // NOSONAR
         println("   jmeter -n -t [jmx file] -l [results file] -e -o [Path to web report folder]") // NOSONAR
         println("& increase Java Heap to meet your test requirements:") // NOSONAR
-        println("   Modify current env variable HEAP=\"-Xms1g -Xmx1g -XX:MaxMetaspaceSize=256m\" in the jmeter batch file") // NOSONAR
+        println("   Modify current env variable HEAP=\"-Xms256m -Xmx2g -XX:MaxMetaspaceSize=256m\" in the BreakTest startup script") // NOSONAR
         println("Check : https://jmeter.apache.org/usermanual/best-practices.html") // NOSONAR
         println("================================================================================") // NOSONAR
 

@@ -48,6 +48,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
+import javax.net.ssl.SSLSession;
 import javax.security.auth.Subject;
 
 import org.apache.hc.client5.http.AuthenticationStrategy;
@@ -128,6 +129,7 @@ import org.apache.hc.core5.http.HttpRequest;
 import org.apache.hc.core5.http.HttpRequestInterceptor;
 import org.apache.hc.core5.http.HttpResponse;
 import org.apache.hc.core5.http.NameValuePair;
+import org.apache.hc.core5.http.ProtocolVersion;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.Registry;
 import org.apache.hc.core5.http.config.RegistryBuilder;
@@ -197,6 +199,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final String CONTEXT_ATTRIBUTE_METRICS = "__jmeter.M__";
 
     private static final String CONTEXT_ATTRIBUTE_RECEIVED_BYTES_BEFORE = "__jmeter.R_B__";
+
+    private static final String CONTEXT_ATTRIBUTE_TLS_VERSION = "__jmeter.T_V__";
 
     private static final String CONTEXT_ATTRIBUTE_LOCAL_ADDRESS = "__jmeter.L_A__";
 
@@ -481,7 +485,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private static final int VALIDITY_AFTER_INACTIVITY_TIMEOUT = JMeterUtils.getPropDefault("httpclient5.validate_after_inactivity", 4900);
 
-    private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", 60000);
+    private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", -1);
 
     private static final boolean BASIC_AUTH_PREEMPTIVE = JMeterUtils.getPropDefault("httpclient5.auth.preemptive", true);
 
@@ -524,6 +528,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             context.setAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES, sentBytesCount);
             context.setAttribute(CONTEXT_ATTRIBUTE_RECEIVED_BYTES_BEFORE, receivedBytesBefore);
             context.setAttribute(CONTEXT_ATTRIBUTE_METRICS, metrics);
+            if (conn instanceof ManagedHttpClientConnection managedConnection) {
+                SSLSession sslSession = managedConnection.getSSLSession();
+                if (sslSession != null) {
+                    context.setAttribute(CONTEXT_ATTRIBUTE_TLS_VERSION, sslSession.getProtocol());
+                }
+            }
             log.debug("Sent {} bytes", sentBytesCount);
             return response;
         }
@@ -562,6 +572,18 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             hostAddress = "[" + hostAddress + "]";
         }
         return hostAddress + ":" + inetSocketAddress.getPort();
+    }
+
+    protected static String formatProtocolVersion(ProtocolVersion protocolVersion) {
+        if (protocolVersion == null) {
+            return "";
+        }
+        if ("HTTP".equals(protocolVersion.getProtocol())
+                && protocolVersion.getMajor() == 2
+                && protocolVersion.getMinor() == 0) {
+            return "HTTP/2";
+        }
+        return protocolVersion.toString();
     }
 
     /**
@@ -734,6 +756,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             StatusLine statusLine = new StatusLine(httpResponse);
             int statusCode = statusLine.getStatusCode();
             res.setResponseCode(Integer.toString(statusCode));
+            res.setProtocolVersion(formatProtocolVersion(statusLine.getProtocolVersion()));
+            Object tlsVersion = localContext.getAttribute(CONTEXT_ATTRIBUTE_TLS_VERSION);
+            if (tlsVersion instanceof String version) {
+                res.setTlsVersion(version);
+            }
             boolean successful = isSuccessCode(statusCode);
             recordNetworkEndpointsIfNeeded(localContext, successful);
 

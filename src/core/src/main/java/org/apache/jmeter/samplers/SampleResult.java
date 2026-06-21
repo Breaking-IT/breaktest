@@ -102,9 +102,45 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     // List of types that are known to be binary
     private static final String[] BINARY_TYPES = {
-        "image/",       //$NON-NLS-1$
-        "audio/",       //$NON-NLS-1$
-        "video/",       //$NON-NLS-1$
+        "application/cbor", //$NON-NLS-1$
+        "application/epub+zip", //$NON-NLS-1$
+        "application/gzip", //$NON-NLS-1$
+        "application/java-archive", //$NON-NLS-1$
+        "application/msword", //$NON-NLS-1$
+        "application/octet-stream", //$NON-NLS-1$
+        "application/pdf", //$NON-NLS-1$
+        "application/pkcs7-mime", //$NON-NLS-1$
+        "application/pkcs8", //$NON-NLS-1$
+        "application/protobuf", //$NON-NLS-1$
+        "application/vnd.android.package-archive", //$NON-NLS-1$
+        "application/vnd.apple.pkpass", //$NON-NLS-1$
+        "application/vnd.google.protobuf", //$NON-NLS-1$
+        "application/vnd.ms-excel", //$NON-NLS-1$
+        "application/vnd.ms-fontobject", //$NON-NLS-1$
+        "application/vnd.ms-powerpoint", //$NON-NLS-1$
+        "application/vnd.oasis.opendocument.", //$NON-NLS-1$
+        "application/vnd.openxmlformats-officedocument.", //$NON-NLS-1$
+        "application/vnd.rar", //$NON-NLS-1$
+        "application/wasm", //$NON-NLS-1$
+        "application/x-7z-compressed", //$NON-NLS-1$
+        "application/x-bzip", //$NON-NLS-1$
+        "application/x-bzip2", //$NON-NLS-1$
+        "application/x-font-woff", //$NON-NLS-1$
+        "application/x-gzip", //$NON-NLS-1$
+        "application/x-java-archive", //$NON-NLS-1$
+        "application/x-pkcs12", //$NON-NLS-1$
+        "application/x-protobuf", //$NON-NLS-1$
+        "application/x-rar-compressed", //$NON-NLS-1$
+        "application/x-shockwave-flash", //$NON-NLS-1$
+        "application/x-tar", //$NON-NLS-1$
+        "application/x-x509-ca-cert", //$NON-NLS-1$
+        "application/x-xz", //$NON-NLS-1$
+        "application/x-zip-compressed", //$NON-NLS-1$
+        "application/zip", //$NON-NLS-1$
+        "audio/", //$NON-NLS-1$
+        "font/", //$NON-NLS-1$
+        "image/", //$NON-NLS-1$
+        "video/", //$NON-NLS-1$
         };
 
     // List of types that are known to be ascii, although they may appear to be binary
@@ -278,6 +314,10 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     private String destinationEndpoint = "";
 
+    private String protocolVersion = "";
+
+    private String tlsVersion = "";
+
     private transient Map<String, String> jMeterVariables = Collections.emptyMap();
 
     private transient boolean jMeterVariablesSet;
@@ -340,6 +380,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         connectTime = res.connectTime;
         location = res.location;//OK
         localEndpoint = res.localEndpoint;//OK
+        protocolVersion = res.protocolVersion;//OK
+        tlsVersion = res.tlsVersion;//OK
         setJMeterVariables(res.getJMeterVariables());
         jMeterVariablesSet = res.jMeterVariablesSet;
         setSourceTestElementPath(res.getSourceTestElementPath());
@@ -941,13 +983,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      * @return true if content-type is of type binary.
      */
     public static boolean isBinaryType(String ct){
+        String contentType = ct.toLowerCase(java.util.Locale.ENGLISH);
         for (String entry : NON_BINARY_TYPES){
-            if (ct.startsWith(entry)){
+            if (contentType.startsWith(entry)){
                 return false;
             }
         }
         for (String binaryType : BINARY_TYPES) {
-            if (ct.startsWith(binaryType)) {
+            if (contentType.startsWith(binaryType)) {
                 return true;
             }
         }
@@ -1027,6 +1070,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         sb.append(", location=").append(location);
         sb.append(", localEndpoint='").append(localEndpoint).append('\'');
         sb.append(", destinationEndpoint='").append(destinationEndpoint).append('\'');
+        sb.append(", protocolVersion='").append(protocolVersion).append('\'');
+        sb.append(", tlsVersion='").append(tlsVersion).append('\'');
         sb.append(", ignore=").append(ignore);
         sb.append(", subResultIndex=").append(subResultIndex);
         sb.append(", responseDataAsString='").append(getResponseDataAsString()).append('\'');
@@ -1506,6 +1551,22 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
             return "";
         }
         return localEndpoint + " -> " + destinationEndpoint;
+    }
+
+    public void setProtocolVersion(String protocolVersion) {
+        this.protocolVersion = protocolVersion == null ? "" : protocolVersion;
+    }
+
+    public String getProtocolVersion() {
+        return protocolVersion;
+    }
+
+    public void setTlsVersion(String tlsVersion) {
+        this.tlsVersion = tlsVersion == null ? "" : tlsVersion;
+    }
+
+    public String getTlsVersion() {
+        return tlsVersion;
     }
 
     public void setJMeterVariables(Map<String, String> variables) {
