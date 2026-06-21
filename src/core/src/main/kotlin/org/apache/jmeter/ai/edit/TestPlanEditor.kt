@@ -32,6 +32,7 @@ public data class BoundaryCorrelationRequest(
     val leftBoundary: String,
     val rightBoundary: String,
     val literal: String,
+    val failOnNoMatch: Boolean = true,
 )
 
 public data class RegexCorrelationRequest(
@@ -46,6 +47,7 @@ public data class RegexCorrelationRequest(
     val defaultValue: String = "NOT_FOUND",
     val useField: String = "body",
     val literal: String,
+    val failOnNoMatch: Boolean = true,
 )
 
 public data class LiteralReplacementRequest(
@@ -111,6 +113,12 @@ public class TestPlanEditor {
     public fun createRegexExtractor(request: RegexCorrelationRequest): TestElement {
         val clazz = Class.forName("org.apache.jmeter.extractor.RegexExtractor")
         val extractor = clazz.getDeclaredConstructor().newInstance() as TestElement
+        configureRegexExtractor(extractor, request)
+        return extractor
+    }
+
+    public fun configureRegexExtractor(extractor: TestElement, request: RegexCorrelationRequest) {
+        val clazz = extractor::class.java
         extractor.name = "AI Regex Extractor - ${request.variableName}"
         clazz.getMethod("setRefName", String::class.java).invoke(extractor, request.variableName)
         clazz.getMethod("setRegex", String::class.java).invoke(extractor, request.regex)
@@ -118,12 +126,18 @@ public class TestPlanEditor {
         clazz.getMethod("setDefaultValue", String::class.java).invoke(extractor, request.defaultValue)
         clazz.getMethod("setMatchNumber", String::class.java).invoke(extractor, request.matchNumber)
         clazz.getMethod("setUseField", String::class.java).invoke(extractor, request.useField)
-        return extractor
+        clazz.getMethod("setFailOnNoMatch", Boolean::class.javaPrimitiveType).invoke(extractor, request.failOnNoMatch)
     }
 
     public fun createResponseAssertion(request: ResponseAssertionRequest): TestElement {
         val clazz = Class.forName("org.apache.jmeter.assertions.ResponseAssertion")
         val assertion = clazz.getDeclaredConstructor().newInstance() as TestElement
+        configureResponseAssertion(assertion, request)
+        return assertion
+    }
+
+    public fun configureResponseAssertion(assertion: TestElement, request: ResponseAssertionRequest) {
+        val clazz = assertion::class.java
         assertion.name = request.assertionName
         when (request.field.lowercase()) {
             "headers", "responseheaders" -> clazz.getMethod("setTestFieldResponseHeaders").invoke(assertion)
@@ -139,7 +153,6 @@ public class TestPlanEditor {
             else -> clazz.getMethod("setToSubstringType").invoke(assertion)
         }
         clazz.getMethod("addTestString", String::class.java).invoke(assertion, request.pattern)
-        return assertion
     }
 
     private fun selectSampler(
@@ -177,13 +190,19 @@ public class TestPlanEditor {
     public fun createBoundaryExtractor(request: BoundaryCorrelationRequest): TestElement {
         val clazz = Class.forName("org.apache.jmeter.extractor.BoundaryExtractor")
         val extractor = clazz.getDeclaredConstructor().newInstance() as TestElement
+        configureBoundaryExtractor(extractor, request)
+        return extractor
+    }
+
+    public fun configureBoundaryExtractor(extractor: TestElement, request: BoundaryCorrelationRequest) {
+        val clazz = extractor::class.java
         extractor.name = "AI Boundary Extractor - ${request.variableName}"
         clazz.getMethod("setRefName", String::class.java).invoke(extractor, request.variableName)
         clazz.getMethod("setLeftBoundary", String::class.java).invoke(extractor, request.leftBoundary)
         clazz.getMethod("setRightBoundary", String::class.java).invoke(extractor, request.rightBoundary)
         clazz.getMethod("setDefaultValue", String::class.java).invoke(extractor, "NOT_FOUND")
         clazz.getMethod("setMatchNumber", String::class.java).invoke(extractor, "1")
-        return extractor
+        clazz.getMethod("setFailOnNoMatch", Boolean::class.javaPrimitiveType).invoke(extractor, request.failOnNoMatch)
     }
 
     public fun replaceLiteral(

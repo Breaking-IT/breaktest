@@ -33,10 +33,14 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JProgressBar
 import javax.swing.JScrollPane
+import javax.swing.JSplitPane
+import javax.swing.JTable
 import javax.swing.JTextArea
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.Timer
+import javax.swing.table.AbstractTableModel
+import javax.swing.tree.TreePath
 
 public object AiAutoScriptingLogWindow {
     private const val MAX_LINE_LENGTH = 2_000
@@ -46,8 +50,10 @@ public object AiAutoScriptingLogWindow {
     private var textArea: JTextArea? = null
     private var statusLabel: JLabel? = null
     private var progressBar: JProgressBar? = null
+    private var changeTable: JTable? = null
     private var startedAt: Instant? = null
     private val timer = Timer(1_000) { updateStatus() }
+    private val changeModel = ChangeTableModel()
 
     @JvmStatic
     public fun showWindow() {
@@ -73,6 +79,7 @@ public object AiAutoScriptingLogWindow {
     public fun startRun() {
         onEdt {
             startedAt = Instant.now()
+            changeModel.clear()
             ensureDialog().isVisible = true
             ensureProgressBar().isIndeterminate = true
             ensureStatusLabel().text = "Running..."
@@ -93,9 +100,39 @@ public object AiAutoScriptingLogWindow {
     }
 
     @JvmStatic
+    public fun recordChange(type: String, nodeName: String, summary: String, details: String?, path: TreePath?) {
+        onEdt {
+            ensureDialog().isVisible = true
+            changeModel.add(
+                ChangeEntry(
+                    time = LocalTime.now(ZoneId.systemDefault()).format(timeFormat),
+                    type = type,
+                    nodeName = nodeName,
+                    summary = summary,
+                    details = details.orEmpty(),
+                    path = path,
+                )
+            )
+        }
+    }
+
+    @JvmStatic
+    public fun changes(): List<Map<String, String>> =
+        changeModel.snapshot().map {
+            mapOf(
+                "time" to it.time,
+                "type" to it.type,
+                "nodeName" to it.nodeName,
+                "summary" to it.summary,
+                "details" to it.details,
+            )
+        }
+
+    @JvmStatic
     public fun clear() {
         onEdt {
             ensureTextArea().text = ""
+            changeModel.clear()
         }
     }
 
@@ -106,11 +143,22 @@ public object AiAutoScriptingLogWindow {
             contentPane.layout = BorderLayout()
             contentPane.add(toolbar(), BorderLayout.NORTH)
             contentPane.add(
-                JScrollPane(
-                    ensureTextArea(),
-                    ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
-                    ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED,
-                ),
+                JSplitPane(
+                    JSplitPane.VERTICAL_SPLIT,
+                    JScrollPane(
+                        ensureTextArea(),
+                        ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED,
+                    ),
+                    JScrollPane(
+                        ensureChangeTable(),
+                        ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                        ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED,
+                    ),
+                ).apply {
+                    resizeWeight = 0.68
+                    dividerLocation = 330
+                },
                 BorderLayout.CENTER,
             )
             minimumSize = Dimension(460, 280)
@@ -162,6 +210,38 @@ public object AiAutoScriptingLogWindow {
         return area
     }
 
+    private fun ensureChangeTable(): JTable {
+        changeTable?.let { return it }
+        val table = JTable(changeModel).apply {
+            fillsViewportHeight = true
+            autoCreateRowSorter = true
+            rowHeight = 22
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(event: java.awt.event.MouseEvent) {
+                    if (event.clickCount < 2) {
+                        return
+                    }
+                    val viewRow = selectedRow.takeIf { it >= 0 } ?: return
+                    val modelRow = convertRowIndexToModel(viewRow)
+                    changeModel.pathAt(modelRow)?.let(::selectNode)
+                }
+            })
+        }
+        table.columnModel.getColumn(0).preferredWidth = 72
+        table.columnModel.getColumn(1).preferredWidth = 130
+        table.columnModel.getColumn(2).preferredWidth = 180
+        table.columnModel.getColumn(3).preferredWidth = 260
+        changeTable = table
+        return table
+    }
+
+    private fun selectNode(path: TreePath) {
+        val tree = GuiPackage.getInstance()?.mainFrame?.tree ?: return
+        tree.selectionPath = path
+        tree.scrollPathToVisible(path)
+        tree.requestFocusInWindow()
+    }
+
     private fun updateStatus() {
         val start = startedAt ?: return
         val elapsed = Duration.between(start, Instant.now()).seconds
@@ -208,5 +288,51 @@ public object AiAutoScriptingLogWindow {
         val text = document.getText(0, minOf(document.length, excess + 2_000))
         val removeUntil = text.indexOf('\n', excess).takeIf { it >= 0 }?.plus(1) ?: excess
         document.remove(0, removeUntil)
+    }
+
+    private data class ChangeEntry(
+        val time: String,
+        val type: String,
+        val nodeName: String,
+        val summary: String,
+        val details: String,
+        val path: TreePath?,
+    )
+
+    private class ChangeTableModel : AbstractTableModel() {
+        private val columns = arrayOf("Time", "Change", "Node", "Summary", "Details")
+        private val rows = mutableListOf<ChangeEntry>()
+
+        override fun getRowCount(): Int = rows.size
+
+        override fun getColumnCount(): Int = columns.size
+
+        override fun getColumnName(column: Int): String = columns[column]
+
+        override fun getValueAt(rowIndex: Int, columnIndex: Int): Any =
+            when (columnIndex) {
+                0 -> rows[rowIndex].time
+                1 -> rows[rowIndex].type
+                2 -> rows[rowIndex].nodeName
+                3 -> rows[rowIndex].summary
+                else -> rows[rowIndex].details
+            }
+
+        fun add(entry: ChangeEntry) {
+            rows += entry
+            fireTableRowsInserted(rows.lastIndex, rows.lastIndex)
+        }
+
+        fun clear() {
+            val last = rows.lastIndex
+            rows.clear()
+            if (last >= 0) {
+                fireTableRowsDeleted(0, last)
+            }
+        }
+
+        fun pathAt(row: Int): TreePath? = rows.getOrNull(row)?.path
+
+        fun snapshot(): List<ChangeEntry> = rows.toList()
     }
 }

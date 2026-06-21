@@ -26,11 +26,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -64,7 +59,6 @@ public class CodexAiRepair extends AbstractAction {
     private static final Logger log = LoggerFactory.getLogger(CodexAiRepair.class);
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static final Set<String> COMMANDS;
-    private static final DateTimeFormatter REPAIR_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final boolean SHOW_RAW_CODEX_OUTPUT =
             JMeterUtils.getPropDefault("breaktest.codex.show_raw_output", false);
 
@@ -98,8 +92,7 @@ public class CodexAiRepair extends AbstractAction {
             AiAutoScriptingLogWindow.startRun();
             BreakTestAgentGuiService.start();
             String backupPath = BreakTestAgentGuiService.createBackupForOpenPlan();
-            String repairPath = createRepairClone(backupPath, gui);
-            AiRunRequest runRequest = request.withRepairPaths(backupPath, repairPath);
+            AiRunRequest runRequest = request.withBackupPath(backupPath);
 
             Thread worker = new Thread(() -> runCodex(runRequest), "BreakTest AI Auto Scripting");
             worker.setDaemon(true);
@@ -110,41 +103,6 @@ public class CodexAiRepair extends AbstractAction {
             postActivity("AI Auto Scripting failed to start: " + ex.getMessage());
             AiAutoScriptingLogWindow.finishRun("Failed to start");
         }
-    }
-
-    private static String createRepairClone(String backupPath, GuiPackage gui) throws IOException {
-        if (backupPath == null || backupPath.isBlank()) {
-            throw new IOException("Could not create AI backup for open plan");
-        }
-        File cloneSource = repairCloneSource(backupPath, gui);
-        File repairFile = repairCloneFile(backupPath, gui);
-        repairFile.getParentFile().mkdirs();
-        Files.copy(cloneSource.toPath(), repairFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        postActivity("Created AI repair clone: " + repairFile.getPath());
-        postActivity("AI repair clone source: " + cloneSource.getPath());
-        return repairFile.getPath();
-    }
-
-    private static File repairCloneSource(String backupPath, GuiPackage gui) {
-        String testPlanFile = gui == null ? null : gui.getTestPlanFile();
-        if (testPlanFile != null && !testPlanFile.isBlank()) {
-            File savedPlan = new File(testPlanFile);
-            if (savedPlan.isFile()) {
-                return savedPlan;
-            }
-        }
-        return new File(backupPath);
-    }
-
-    private static File repairCloneFile(String backupPath, GuiPackage gui) {
-        String testPlanFile = gui == null ? null : gui.getTestPlanFile();
-        File source = testPlanFile == null || testPlanFile.isBlank() ? new File(backupPath) : new File(testPlanFile);
-        File directory = source.getAbsoluteFile().getParentFile();
-        String fileName = source.getName();
-        int dot = fileName.lastIndexOf('.');
-        String baseName = dot > 0 ? fileName.substring(0, dot) : fileName;
-        String timestamp = LocalDateTime.now(ZoneId.systemDefault()).format(REPAIR_TIME_FORMAT);
-        return new File(directory, baseName + ".agent-repaired-" + timestamp + ".jmx");
     }
 
     @Override
@@ -245,31 +203,32 @@ public class CodexAiRepair extends AbstractAction {
         return """
                 Use $breaktest-jmeter-repair.
 
-                Repair and harden a cloned BreakTest/JMeter .jmx script. Do not live-edit the open GUI test plan.
+                Repair and harden the currently open BreakTest/JMeter GUI plan through the BreakTest MCP server.
 
                 Requirements:
                 - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
-                - A GUI backup and a separate repair clone are created before this run starts.
+                - A GUI backup is created before this run starts. Use it only as a rollback safety net.
                 - Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `./bin/breaktest-agent-tool <tool-name> '<json-arguments>'`.
-                - Use GUI tools only for progress/status/context: gui_status, agent_activity, inspect_open_plan, get_ai_knowledge_open_plan, and optionally update_ai_knowledge_open_plan after a validated reusable learning.
-                - Do not call live open-plan edit tools for this run: apply_boundary_correlation_open_plan, apply_regex_correlation_open_plan, replace_literal_open_plan, add_response_assertion_open_plan, or set_redirect_mode_open_plan.
-                - Use file-backed tools and direct file edits on the repair clone: inspect_jmx, validate_jmx, apply_boundary_correlation, repair_boundary_correlation_once, plus careful XML/JMX edits with scripts when needed.
+                - Prefer GUI-backed MCP tools: inspect_open_plan, validate_open_plan, agent_activity, get_ai_knowledge_open_plan, update_ai_knowledge_open_plan, list_agent_changes_open_plan, and open-plan edit tools.
+                - Use live open-plan edit tools for supported changes: apply_boundary_correlation_open_plan, apply_regex_correlation_open_plan, replace_literal_open_plan, add_response_assertion_open_plan, and set_redirect_mode_open_plan.
+                - The GUI edit tools create elements through BreakTest/JMeter GUI components. If a live edit tool fails, report it with agent_activity and continue with other safe GUI-backed edits.
                 - First call `./bin/breaktest-agent-tool agent_activity '{"level":"info","message":"Starting AI Auto Scripting"}'` so progress is visible in the BreakTest AI Auto Scripting window.
-                - Do not edit the original open plan file or the backup clone. Edit only the repair output clone listed in Context.
-                - Do not start a separate MCP server by hand. Use the supported BreakTest agent bridge command for validation/inspection, and local scripts only for editing the repair clone.
+                - Keep the open BreakTest test plan as the live edit surface so changes are visible in the GUI.
+                - Do not start a separate MCP server by hand. Use the supported BreakTest agent bridge command for validation, inspection, and edits.
                 - Read BreakTest AI Knowledge before repairing. Reuse applicable confirmed project patterns for correlations, assertions, variables, timestamps, dependencies, and randomization.
                 - After a validated successful repair, update BreakTest AI Knowledge with only reusable learnings that were confirmed by inspection or validation. Include what thread group/transaction proved the pattern.
                 - Work from top to bottom through the selected thread group. For each transaction, review the previous transaction's extracted values before blaming the current failing request.
                 - A failing callback, payment, basket, or order request can be a symptom of earlier static data. Check upstream requests first for stale login state, redirect/session/correlation cookies, request verification tokens, anti-forgery values, product/ticket/order IDs, and timestamps.
-                - Validate the repair clone with `validate_jmx`, not `validate_open_plan`, in bounded runs with maxSamples and stopOnFirstFailure.
+                - Validate with `validate_open_plan` in bounded runs with maxSamples and stopOnFirstFailure.
                 - A first validation failure is a starting point, not the full scope. If validation blocks early, continue by inspecting the whole open plan and auditing later transactions statically.
                 - Use `plan.samplers[*].transactionName` and `plan.dynamicValueCandidates[*].transactionName` from inspect/validate results to group work by transaction and sampler order.
                 - Use `plan.dynamicValueCandidates` as a structured checklist for hard-coded UUIDs, IDs, tokens, hashes, nonces, and epoch timestamps in requests that were not reached by validation.
                 - For each dynamic value candidate, decide whether it has enough evidence for a live correlation edit, should become a runtime-generated value, or must be reported as a candidate needing source-response evidence.
-                - Do not stop solely because the first failing request lacks a confirmed source response. Continue reviewing other requests and transactions, apply safe file-backed correlations/assertions/replacements where the source/target/literal/pattern is known, and include unresolved candidates in the audit.
+                - Do not stop solely because the first failing request lacks a confirmed source response. Continue reviewing other requests and transactions, apply safe GUI-backed correlations/assertions/replacements where the source/target/literal/pattern is known, and include unresolved candidates in the audit.
                 - Prefer regular expression extractors for dynamic values when a regex can robustly capture the value. Use boundary extractors when boundaries are clearer.
+                - For extractors whose variable is required by later requests, set failOnNoMatch=true so missing correlations fail clearly.
                 - Add meaningful response assertions as transactions become understandable. Replace literals with `${variable}` references, User Defined Variables, or runtime functions where appropriate.
-                - Automatic redirects can hide the intermediate response that issues dynamic values. If a sampler's automatic redirects prevent seeing or extracting code/state/location/header values, adjust redirect settings in the repair clone to make intermediate responses observable when safe.
+                - Automatic redirects can hide the intermediate response that issues dynamic values. If a sampler's automatic redirects prevent seeing or extracting code/state/location/header values, adjust redirect settings in the open plan to make intermediate responses observable when safe.
                 - Keep progress updates concise: report validations, edits, blockers, and audit results. Do not echo prompts, code, full XML, or long tool payloads.
                 - Review all transactions, POST bodies, URL/query/path values, cookies, and headers for dynamic UUIDs, IDs, random strings, timestamps, csrf/requestverification tokens, and bearer/access tokens.
                 - Detect millisecond epoch timestamps, typically 13-digit current-era values. Check whether they came from an earlier response and should be correlated, or whether they should be generated at runtime as the current epoch timestamp in milliseconds.
@@ -281,18 +240,18 @@ public class CodexAiRepair extends AbstractAction {
                 - Randomize scenario data where practical by selecting from prior responses instead of replaying fixed IDs.
                 - Do not disable samplers merely to make the test green.
 
-                Before finishing, provide an audit table with transaction name, assertion status, dynamic values reviewed, correlations added, and remaining blockers.
+                Before finishing, call list_agent_changes_open_plan and provide:
+                - an audit table with transaction name, assertion status, dynamic values reviewed, correlations added, and remaining blockers.
+                - a concise change list matching the BreakTest AI Auto Scripting table.
 
                 Context:
                 - Open plan file: %s
-                - Backup clone, do not edit: %s
-                - Repair output clone, edit this file: %s
+                - Backup before live edits: %s
                 - Selected node: %s
                 %s
                 """.formatted(
                 testPlanFile == null ? "(unknown)" : testPlanFile,
                 request.backupPath().isBlank() ? "(unknown)" : request.backupPath(),
-                request.repairPath().isBlank() ? "(unknown)" : request.repairPath(),
                 selectedNode == null ? "(unknown)" : selectedNode,
                 userInstructionBlock(request)
         );
@@ -389,21 +348,19 @@ public class CodexAiRepair extends AbstractAction {
         private final String focus;
         private final String instructions;
         private final String backupPath;
-        private final String repairPath;
 
         private AiRunRequest(String focus, String instructions) {
-            this(focus, instructions, "", "");
+            this(focus, instructions, "");
         }
 
-        private AiRunRequest(String focus, String instructions, String backupPath, String repairPath) {
+        private AiRunRequest(String focus, String instructions, String backupPath) {
             this.focus = focus == null ? "" : focus;
             this.instructions = instructions == null ? "" : instructions;
             this.backupPath = backupPath == null ? "" : backupPath;
-            this.repairPath = repairPath == null ? "" : repairPath;
         }
 
-        private AiRunRequest withRepairPaths(String backupPath, String repairPath) {
-            return new AiRunRequest(focus, instructions, backupPath, repairPath);
+        private AiRunRequest withBackupPath(String backupPath) {
+            return new AiRunRequest(focus, instructions, backupPath);
         }
 
         private String focus() {
@@ -416,10 +373,6 @@ public class CodexAiRepair extends AbstractAction {
 
         private String backupPath() {
             return backupPath;
-        }
-
-        private String repairPath() {
-            return repairPath;
         }
 
         private boolean hasUserInput() {

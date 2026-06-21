@@ -169,6 +169,12 @@ public object BreakTestAgentMcpServer {
                 emptyList(),
             ))
             add(tool(
+                "list_agent_changes_open_plan",
+                "Return the current AI Auto Scripting change table from the running BreakTest GUI.",
+                emptyMap(),
+                emptyList(),
+            ))
+            add(tool(
                 "agent_activity",
                 "Post a live Codex/agent progress update into the running BreakTest AI Auto Scripting window.",
                 mapOf(
@@ -191,6 +197,7 @@ public object BreakTestAgentMcpServer {
                     "leftBoundary" to "string",
                     "rightBoundary" to "string",
                     "literal" to "string",
+                    "failOnNoMatch" to "boolean",
                 ),
                 listOf("variableName", "leftBoundary", "rightBoundary", "literal"),
             ))
@@ -209,6 +216,7 @@ public object BreakTestAgentMcpServer {
                     "defaultValue" to "string",
                     "useField" to "string",
                     "literal" to "string",
+                    "failOnNoMatch" to "boolean",
                 ),
                 listOf("variableName", "regex", "literal"),
             ))
@@ -359,6 +367,7 @@ public object BreakTestAgentMcpServer {
                 "backup_open_plan" -> callGuiTool("backup_open_plan", arguments)
                 "get_ai_knowledge_open_plan" -> callGuiTool("get_ai_knowledge_open_plan", arguments)
                 "update_ai_knowledge_open_plan" -> callGuiTool("update_ai_knowledge_open_plan", arguments)
+                "list_agent_changes_open_plan" -> callGuiTool("list_agent_changes_open_plan", arguments)
                 "agent_activity" -> callGuiTool("agent_activity", arguments)
                 "apply_boundary_correlation_open_plan" -> callGuiTool("apply_boundary_correlation_open_plan", arguments)
                 "apply_regex_correlation_open_plan" -> callGuiTool("apply_regex_correlation_open_plan", arguments)
@@ -406,6 +415,7 @@ public object BreakTestAgentMcpServer {
             "backup_open_plan",
             "get_ai_knowledge_open_plan",
             "update_ai_knowledge_open_plan",
+            "list_agent_changes_open_plan",
             "agent_activity",
             "apply_boundary_correlation_open_plan",
             "apply_regex_correlation_open_plan",

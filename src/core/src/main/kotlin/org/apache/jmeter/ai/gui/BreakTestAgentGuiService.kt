@@ -199,6 +199,7 @@ public object BreakTestAgentGuiService {
             "backup_open_plan" -> mapOf("backupPath" to createBackupForOpenPlan())
             "get_ai_knowledge_open_plan" -> getAiKnowledgeOpenPlan()
             "update_ai_knowledge_open_plan" -> updateAiKnowledgeOpenPlan(arguments)
+            "list_agent_changes_open_plan" -> AiAutoScriptingLogWindow.changes()
             "agent_activity" -> handleAgentActivity(arguments)
             "apply_boundary_correlation_open_plan" -> applyBoundaryCorrelationOpenPlan(arguments)
             "apply_regex_correlation_open_plan" -> applyRegexCorrelationOpenPlan(arguments)
@@ -257,6 +258,12 @@ public object BreakTestAgentGuiService {
                 "Updated AI scripting knowledge",
                 details = arguments.path("summary").takeIfPresent()?.asText(),
             )
+            recordChange(
+                "Updated knowledge",
+                node,
+                "Updated reusable AI scripting knowledge",
+                arguments.path("summary").takeIfPresent()?.asText(),
+            )
             mapOf(
                 "updated" to true,
                 "nodeName" to element.name,
@@ -276,10 +283,11 @@ public object BreakTestAgentGuiService {
                 val source = selectSampler(samplerNodes, request.sourceSamplerIndex, request.sourceSamplerLabel, "source")
                 val target = selectSampler(samplerNodes, request.targetSamplerIndex, request.targetSamplerLabel, "target")
                 val editor = TestPlanEditor()
-                val extractor = editor.createBoundaryExtractor(request)
-                val extractorNode = JMeterTreeNode(extractor, gui.treeModel)
-                extractorNode.isEnabled = extractor.isEnabled
-                gui.treeModel.insertNodeInto(extractorNode, source, source.childCount)
+                val extractorNode = addConfiguredComponent(
+                    gui,
+                    source,
+                    "org.apache.jmeter.extractor.gui.BoundaryExtractorGui",
+                ) { editor.configureBoundaryExtractor(it, request) }
                 val variableReference = "\${${request.variableName}}"
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
@@ -298,12 +306,24 @@ public object BreakTestAgentGuiService {
                     "Applied live boundary correlation",
                     details = "${request.variableName}: ${source.testElement.name} -> ${targetElement.name}",
                 )
+                recordChange(
+                    "Added extractor",
+                    extractorNode,
+                    "Boundary extractor `${request.variableName}`",
+                    "${source.testElement.name} -> ${targetElement.name}; failOnNoMatch=${request.failOnNoMatch}",
+                )
+                recordChange(
+                    "Updated sampler",
+                    target,
+                    "Replaced literal with $variableReference",
+                    "Replacements: $replacements",
+                )
                 TestPlanEditResult(
                     sourceSamplerLabel = source.testElement.name.orEmpty(),
                     targetSamplerLabel = targetElement.name.orEmpty(),
                     variableReference = variableReference,
                     replacements = replacements,
-                    extractorClass = extractor::class.java.name,
+                    extractorClass = extractorNode.testElement::class.java.name,
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -322,10 +342,11 @@ public object BreakTestAgentGuiService {
                 val source = selectSampler(samplerNodes, request.sourceSamplerIndex, request.sourceSamplerLabel, "source")
                 val target = selectSampler(samplerNodes, request.targetSamplerIndex, request.targetSamplerLabel, "target")
                 val editor = TestPlanEditor()
-                val extractor = editor.createRegexExtractor(request)
-                val extractorNode = JMeterTreeNode(extractor, gui.treeModel)
-                extractorNode.isEnabled = extractor.isEnabled
-                gui.treeModel.insertNodeInto(extractorNode, source, source.childCount)
+                val extractorNode = addConfiguredComponent(
+                    gui,
+                    source,
+                    "org.apache.jmeter.extractor.gui.RegexExtractorGui",
+                ) { editor.configureRegexExtractor(it, request) }
                 val variableReference = "\${${request.variableName}}"
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
@@ -340,12 +361,24 @@ public object BreakTestAgentGuiService {
                     "Applied live regex correlation",
                     details = "${request.variableName}: ${source.testElement.name} -> ${targetElement.name}",
                 )
+                recordChange(
+                    "Added extractor",
+                    extractorNode,
+                    "Regex extractor `${request.variableName}`",
+                    "${source.testElement.name} -> ${targetElement.name}; failOnNoMatch=${request.failOnNoMatch}",
+                )
+                recordChange(
+                    "Updated sampler",
+                    target,
+                    "Replaced literal with $variableReference",
+                    "Replacements: $replacements",
+                )
                 TestPlanEditResult(
                     sourceSamplerLabel = source.testElement.name.orEmpty(),
                     targetSamplerLabel = targetElement.name.orEmpty(),
                     variableReference = variableReference,
                     replacements = replacements,
-                    extractorClass = extractor::class.java.name,
+                    extractorClass = extractorNode.testElement::class.java.name,
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -383,6 +416,12 @@ public object BreakTestAgentGuiService {
                     "Applied live literal replacement",
                     details = "${target.testElement.name}: ${request.literal} -> ${request.replacement}",
                 )
+                recordChange(
+                    "Updated sampler",
+                    target,
+                    "Replaced literal with ${request.replacement}",
+                    "Replacements: $replacements",
+                )
                 LiteralReplacementResult(target.testElement.name.orEmpty(), replacements)
             } finally {
                 gui.endUndoTransaction()
@@ -403,19 +442,26 @@ public object BreakTestAgentGuiService {
                     request.targetSamplerLabel,
                     "target",
                 )
-                val assertion = TestPlanEditor().createResponseAssertion(request)
-                val assertionNode = JMeterTreeNode(assertion, gui.treeModel)
-                assertionNode.isEnabled = assertion.isEnabled
-                gui.treeModel.insertNodeInto(assertionNode, target, target.childCount)
+                val assertionNode = addConfiguredComponent(
+                    gui,
+                    target,
+                    "org.apache.jmeter.assertions.gui.AssertionGui",
+                ) { TestPlanEditor().configureResponseAssertion(it, request) }
                 markEdited(gui, target, assertionNode)
                 postActivity(
                     "info",
                     "Added live response assertion",
                     details = "${target.testElement.name}: ${request.pattern}",
                 )
+                recordChange(
+                    "Added assertion",
+                    assertionNode,
+                    "Response assertion",
+                    request.pattern,
+                )
                 mapOf(
                     "targetSamplerLabel" to target.testElement.name,
-                    "assertionName" to assertion.name,
+                    "assertionName" to assertionNode.testElement.name,
                     "pattern" to request.pattern,
                 )
             } finally {
@@ -446,6 +492,12 @@ public object BreakTestAgentGuiService {
                     "Updated redirect mode",
                     details = "${element.name}: follow=${request.followRedirects}, auto=${request.autoRedirects}",
                 )
+                recordChange(
+                    "Updated sampler",
+                    target,
+                    "Updated redirect mode",
+                    "follow=${request.followRedirects}, auto=${request.autoRedirects}",
+                )
                 mapOf(
                     "targetSamplerLabel" to element.name,
                     "followRedirects" to request.followRedirects,
@@ -453,8 +505,20 @@ public object BreakTestAgentGuiService {
                 )
             } finally {
                 gui.endUndoTransaction()
-            }
         }
+    }
+
+    private fun addConfiguredComponent(
+        gui: GuiPackage,
+        parent: JMeterTreeNode,
+        guiClassName: String,
+        configure: (TestElement) -> Unit,
+    ): JMeterTreeNode {
+        val element = gui.createTestElement(guiClassName)
+            ?: throw IllegalStateException("Could not create test element from $guiClassName")
+        configure(element)
+        return gui.treeModel.addComponent(element, parent)
+    }
 
     private fun setRedirectProperty(element: TestElement, setter: String, fallbackProperty: String, value: Boolean) {
         runCatching {
@@ -470,6 +534,16 @@ public object BreakTestAgentGuiService {
         gui.mainFrame.tree.expandPath(TreePath(changedNode.path))
         gui.mainFrame.tree.selectionPath = TreePath(selectNode.path)
         gui.mainFrame.repaint()
+    }
+
+    private fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
+        AiAutoScriptingLogWindow.recordChange(
+            type,
+            node.testElement.name.orEmpty(),
+            summary,
+            details,
+            TreePath(node.path),
+        )
     }
 
     private fun ensureBackupForOpenPlan(gui: GuiPackage) {
@@ -549,6 +623,7 @@ public object BreakTestAgentGuiService {
             leftBoundary = arguments.requiredText("leftBoundary"),
             rightBoundary = arguments.requiredText("rightBoundary"),
             literal = arguments.requiredText("literal"),
+            failOnNoMatch = arguments.path("failOnNoMatch").takeIfPresent()?.asBoolean() ?: true,
         )
 
     private fun regexCorrelationRequest(arguments: JsonNode): RegexCorrelationRequest =
@@ -564,6 +639,7 @@ public object BreakTestAgentGuiService {
             defaultValue = arguments.path("defaultValue").takeIfPresent()?.asText() ?: "NOT_FOUND",
             useField = arguments.path("useField").takeIfPresent()?.asText() ?: "body",
             literal = arguments.requiredText("literal"),
+            failOnNoMatch = arguments.path("failOnNoMatch").takeIfPresent()?.asBoolean() ?: true,
         )
 
     private fun literalReplacementRequest(arguments: JsonNode): LiteralReplacementRequest =
