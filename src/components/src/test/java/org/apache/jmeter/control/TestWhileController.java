@@ -364,4 +364,105 @@ public class TestWhileController extends JMeterTestCase {
             fail(e.toString());
         }
     }
+
+    @Test
+    public void testStructuredConditionsMatchAll() throws Exception {
+        GenericController controller = new GenericController();
+        WhileController whileCont = new WhileController();
+        whileCont.addCondition(new WhileControllerCondition("${keepGoing}", WhileController.Operator.EQUALS.getId(), "true"));
+        whileCont.addCondition(new WhileControllerCondition("10", WhileController.Operator.GREATER_THAN.getId(), "2"));
+        whileCont.addTestElement(new TestSampler("one"));
+        whileCont.addTestElement(new TestSampler("two"));
+        controller.addTestElement(whileCont);
+        controller.addTestElement(new TestSampler("after"));
+
+        jmvars.put("keepGoing", "true");
+        new ValueReplacer().replaceValues(whileCont);
+        setRunning(whileCont);
+        controller.initialize();
+
+        assertEquals("one", nextName(controller));
+        jmvars.put("keepGoing", "false");
+        assertEquals("two", nextName(controller));
+        assertEquals("after", nextName(controller));
+        assertNull(nextName(controller));
+    }
+
+    @Test
+    public void testStructuredConditionsMatchAny() throws Exception {
+        GenericController controller = new GenericController();
+        WhileController whileCont = new WhileController();
+        whileCont.setConditionMatch(WhileController.MATCH_ANY);
+        whileCont.addCondition(new WhileControllerCondition("${value}", WhileController.Operator.MATCHES_REGEX.getId(), "\\d+"));
+        whileCont.addCondition(new WhileControllerCondition("${value}", WhileController.Operator.STARTS_WITH.getId(), "a"));
+        whileCont.addTestElement(new TestSampler("one"));
+        controller.addTestElement(whileCont);
+        controller.addTestElement(new TestSampler("after"));
+
+        jmvars.put("value", "abc");
+        new ValueReplacer().replaceValues(whileCont);
+        setRunning(whileCont);
+        controller.initialize();
+
+        assertEquals("one", nextName(controller));
+        jmvars.put("value", "nope");
+        assertEquals("after", nextName(controller));
+        assertNull(nextName(controller));
+    }
+
+    @Test
+    public void testStructuredConditionsSkipWhenFalseOnEntry() throws Exception {
+        GenericController controller = new GenericController();
+        WhileController whileCont = new WhileController();
+        whileCont.addCondition(new WhileControllerCondition("${keepGoing}", WhileController.Operator.EQUALS.getId(), "true"));
+        whileCont.addTestElement(new TestSampler("one"));
+        controller.addTestElement(whileCont);
+        controller.addTestElement(new TestSampler("after"));
+
+        jmvars.put("keepGoing", "false");
+        new ValueReplacer().replaceValues(whileCont);
+        setRunning(whileCont);
+        controller.initialize();
+
+        assertEquals("after", nextName(controller));
+        assertNull(nextName(controller));
+    }
+
+    @Test
+    public void testStructuredVariableExistenceCondition() throws Exception {
+        GenericController controller = new GenericController();
+        WhileController whileCont = new WhileController();
+        whileCont.addCondition(new WhileControllerCondition("${present}", WhileController.Operator.EXISTS.getId(), ""));
+        whileCont.addTestElement(new TestSampler("one"));
+        controller.addTestElement(whileCont);
+        controller.addTestElement(new TestSampler("after"));
+
+        jmvars.put("present", "value");
+        new ValueReplacer().replaceValues(whileCont);
+        setRunning(whileCont);
+        controller.initialize();
+
+        assertEquals("one", nextName(controller));
+        jmvars.remove("present");
+        assertEquals("after", nextName(controller));
+        assertNull(nextName(controller));
+    }
+
+    @Test
+    public void testLegacyConditionWinsWhenBothModesHaveContent() throws Exception {
+        GenericController controller = new GenericController();
+        WhileController whileCont = new WhileController();
+        whileCont.setCondition("false");
+        whileCont.addCondition(new WhileControllerCondition("10", WhileController.Operator.EQUALS.getId(), "10"));
+        whileCont.addTestElement(new TestSampler("one"));
+        controller.addTestElement(whileCont);
+        controller.addTestElement(new TestSampler("after"));
+
+        new ValueReplacer().replaceValues(whileCont);
+        setRunning(whileCont);
+        controller.initialize();
+
+        assertEquals("after", nextName(controller));
+        assertNull(nextName(controller));
+    }
 }
