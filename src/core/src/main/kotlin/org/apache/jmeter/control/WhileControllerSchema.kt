@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.control
 
+import org.apache.jmeter.testelement.schema.CollectionPropertyDescriptor
 import org.apache.jmeter.testelement.schema.StringPropertyDescriptor
 import org.apiguardian.api.API
 
@@ -30,4 +31,10 @@ public abstract class WhileControllerSchema : GenericControllerSchema() {
 
     public val condition: StringPropertyDescriptor<WhileControllerSchema>
         by string("WhileController.condition")
+
+    public val conditions: CollectionPropertyDescriptor<WhileControllerSchema>
+        by collection("WhileController.conditions")
+
+    public val conditionMatch: StringPropertyDescriptor<WhileControllerSchema>
+        by string("WhileController.conditionMatch", default = WhileController.MATCH_ALL)
 }

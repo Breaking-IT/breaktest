@@ -18,6 +18,7 @@
 package org.apache.jmeter.control
 
 import org.apache.jmeter.testelement.schema.BooleanPropertyDescriptor
+import org.apache.jmeter.testelement.schema.CollectionPropertyDescriptor
 import org.apache.jmeter.testelement.schema.StringPropertyDescriptor
 import org.apiguardian.api.API
 
@@ -37,4 +38,10 @@ public abstract class IfControllerSchema : GenericControllerSchema() {
 
     public val useExpression: BooleanPropertyDescriptor<IfControllerSchema>
         by boolean("IfController.useExpression", default = false)
+
+    public val conditions: CollectionPropertyDescriptor<IfControllerSchema>
+        by collection("IfController.conditions")
+
+    public val conditionMatch: StringPropertyDescriptor<IfControllerSchema>
+        by string("IfController.conditionMatch", default = IfController.MATCH_ALL)
 }

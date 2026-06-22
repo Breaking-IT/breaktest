@@ -59,6 +59,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.apache.jmeter.config.gui.ObsoleteGui;
 import org.apache.jmeter.control.IfControllerSchema;
 import org.apache.jmeter.control.LoopControllerSchema;
+import org.apache.jmeter.control.WhileControllerSchema;
 import org.apache.jmeter.control.gui.TestFragmentControllerGui;
 import org.apache.jmeter.dsl.DslPrinterTraverser;
 import org.apache.jmeter.extractor.RegexExtractorSchema;
@@ -377,6 +378,10 @@ public class JMeterTest extends JMeterTestCase {
         // TODO: migrate to editable checkboxes
         IGNORED_PROPERTIES.add(IfControllerSchema.INSTANCE.getEvaluateAll());
         IGNORED_PROPERTIES.add(IfControllerSchema.INSTANCE.getUseExpression());
+        IGNORED_PROPERTIES.add(IfControllerSchema.INSTANCE.getConditions());
+        IGNORED_PROPERTIES.add(IfControllerSchema.INSTANCE.getConditionMatch());
+        IGNORED_PROPERTIES.add(WhileControllerSchema.INSTANCE.getConditions());
+        IGNORED_PROPERTIES.add(WhileControllerSchema.INSTANCE.getConditionMatch());
         IGNORED_PROPERTIES.add(HTTPSamplerBaseSchema.INSTANCE.getPostBodyRaw());
         // TODO: LoopControlPanel does not set continueForever properly
         IGNORED_PROPERTIES.add(LoopControllerSchema.INSTANCE.getContinueForever());
