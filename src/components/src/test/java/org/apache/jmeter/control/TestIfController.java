@@ -19,8 +19,10 @@ package org.apache.jmeter.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.junit.stubs.TestSampler;
 import org.apache.jmeter.modifiers.CounterConfig;
@@ -296,5 +298,130 @@ class TestIfController extends JMeterTestCase {
 
         Sampler sampler = controller.next();
         assertNotNull(sampler);
+    }
+
+    @Test
+    void shouldRunWhenAllStructuredConditionsMatch() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("");
+        ifCont.setUseExpression(true);
+        ifCont.setConditionMatch(IfController.MATCH_ALL);
+        ifCont.addCondition(new IfControllerCondition("Hello World", IfController.Operator.CONTAINS.getId(), "World"));
+        ifCont.addCondition(new IfControllerCondition("10", IfController.Operator.GREATER_THAN.getId(), "2"));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNotNull(controller.next());
+    }
+
+    @Test
+    void shouldSkipWhenAnyStructuredConditionFailsInMatchAllMode() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("");
+        ifCont.setUseExpression(true);
+        ifCont.setConditionMatch(IfController.MATCH_ALL);
+        ifCont.addCondition(new IfControllerCondition("Hello World", IfController.Operator.CONTAINS.getId(), "World"));
+        ifCont.addCondition(new IfControllerCondition("10", IfController.Operator.LESS_THAN.getId(), "2"));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNull(controller.next());
+    }
+
+    @Test
+    void shouldRunWhenOneStructuredConditionMatchesInMatchAnyMode() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("");
+        ifCont.setUseExpression(true);
+        ifCont.setConditionMatch(IfController.MATCH_ANY);
+        ifCont.addCondition(new IfControllerCondition("abc", IfController.Operator.MATCHES_REGEX.getId(), "\\d+"));
+        ifCont.addCondition(new IfControllerCondition("abc", IfController.Operator.STARTS_WITH.getId(), "a"));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNotNull(controller.next());
+    }
+
+    @Test
+    void shouldUseLegacyEvaluatorWhenStructuredConditionsAreEmpty() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("true");
+        ifCont.setUseExpression(true);
+        ifCont.addCondition(new IfControllerCondition("", IfController.Operator.EQUALS.getId(), ""));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNotNull(controller.next());
+    }
+
+    @Test
+    void shouldEvaluateVariableExistenceConditions() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("");
+        ifCont.setUseExpression(true);
+        ifCont.addCondition(new IfControllerCondition("present", IfController.Operator.EXISTS.getId(), ""));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        JMeterVariables vars = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(vars);
+        vars.put("present", "value");
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNotNull(controller.next());
+    }
+
+    @Test
+    void shouldEvaluateVariableExistenceConditionsAfterFunctionReplacement() throws Exception {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("");
+        ifCont.setUseExpression(true);
+        ifCont.addCondition(new IfControllerCondition("${present}", IfController.Operator.EXISTS.getId(), ""));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        new ValueReplacer().replaceValues(ifCont);
+        JMeterVariables vars = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(vars);
+        vars.put("present", "value");
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNotNull(controller.next());
+    }
+
+    @Test
+    void shouldPreferLegacyConditionWhenBothModesHaveContent() {
+        GenericController controller = new GenericController();
+        IfController ifCont = new IfController("false");
+        ifCont.setUseExpression(true);
+        ifCont.addCondition(new IfControllerCondition("10", IfController.Operator.EQUALS.getId(), "10"));
+        ifCont.addTestElement(new TestSampler("sample1"));
+        controller.addTestElement(ifCont);
+
+        controller.initialize();
+        controller.setRunningVersion(true);
+        ifCont.setRunningVersion(true);
+
+        assertNull(controller.next());
     }
 }

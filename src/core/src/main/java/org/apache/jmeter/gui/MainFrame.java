@@ -24,6 +24,7 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
@@ -71,6 +72,8 @@ import javax.swing.JSplitPane;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.MenuElement;
+import javax.swing.Scrollable;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -142,6 +145,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     /** The main panel where components display their GUIs. */
     private JScrollPane mainPanel;
+
+    /** The scrollable view inside the main panel. */
+    private ScrollableMainPanel mainPanelView;
 
     /** The panel where the test tree is shown. */
     private JScrollPane treePanel;
@@ -430,7 +436,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     }
 
     public void setMainPanel(JComponent comp) {
-        mainPanel.setViewportView(comp);
+        mainPanelView.setMainPanel(comp);
     }
 
     public JTree getTree() {
@@ -619,8 +625,49 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      *
      * @return the main scroll pane
      */
-    private static JScrollPane createMainPanel() {
-        return new JScrollPane();
+    private JScrollPane createMainPanel() {
+        mainPanelView = new ScrollableMainPanel();
+        return new JScrollPane(mainPanelView);
+    }
+
+    private static class ScrollableMainPanel extends JPanel implements Scrollable {
+        private static final long serialVersionUID = 240L;
+
+        ScrollableMainPanel() {
+            super(new BorderLayout());
+        }
+
+        void setMainPanel(JComponent comp) {
+            removeAll();
+            add(comp, BorderLayout.CENTER);
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return getParent() != null && getPreferredSize().height <= getParent().getHeight();
+        }
     }
 
     /**
