@@ -19,6 +19,7 @@ package org.apache.jmeter.threads;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,6 +39,7 @@ import java.util.function.Consumer;
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
+import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.IteratingController;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionSampler;
@@ -173,6 +176,10 @@ public class JMeterThread implements Runnable, Interruptible {
     // ParallelController cannot corrupt the shared controllers and compiler state. The actual
     // sampling stays parallel. Uncontended (and therefore cheap) for normal sequential execution.
     private final ReentrantLock compilerLock = new ReentrantLock();
+
+    private final List<Future<?>> forkTasks = Collections.synchronizedList(new ArrayList<>());
+
+    private final List<ExecutorService> forkExecutors = Collections.synchronizedList(new ArrayList<>());
 
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
@@ -328,8 +335,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
                 // It would be possible to add finally for Thread Loop here
                 if (threadGroupLoopController.isDone()) {
-                    running = false;
                     log.info("Thread is done: {}", threadName);
+                    break;
                 }
             }
         }
@@ -354,6 +361,8 @@ public class JMeterThread implements Runnable, Interruptible {
         } catch (ThreadDeath e) {
             throw e; // Must not ignore this one
         } finally {
+            waitForForksToFinish();
+            running = false;
             currentSamplerForInterruption = null; // prevent any further interrupts
             interruptLock.lock();  // make sure current interrupt is finished, prevent another starting yet
             try {
@@ -520,7 +529,9 @@ public class JMeterThread implements Runnable, Interruptible {
 
             // Check if we have a sampler to sample
             if (current != null) {
-                if (current instanceof ParallelControllerSampler parallelSampler) {
+                if (current instanceof ForkControllerSampler forkSampler) {
+                    startForkSampler(forkSampler, threadContext);
+                } else if (current instanceof ParallelControllerSampler parallelSampler) {
                     // The ParallelController is transparent: its children are executed exactly as if
                     // they were direct children of the ParallelController's parent. The enclosing
                     // transaction (if any) is handed down so each child is attributed to it and its
@@ -569,6 +580,80 @@ public class JMeterThread implements Runnable, Interruptible {
         }
 
         return transactionResult;
+    }
+
+    /**
+     * Starts the child flow of a {@link ForkControllerSampler} on its own worker and returns
+     * immediately so the main virtual-user flow can continue.
+     */
+    private void startForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext) {
+        List<Sampler> samplers = forkSampler.getSamplers();
+        if (samplers.isEmpty()) {
+            return;
+        }
+
+        ExecutorService executor = Executors.newThreadPerTaskExecutor(createForkThreadFactory(forkSampler));
+        forkExecutors.add(executor);
+        Future<?> task = executor.submit(() -> {
+            try {
+                runForkSampler(forkSampler, parentContext);
+            } finally {
+                forkExecutors.remove(executor);
+                executor.shutdown();
+            }
+        });
+        forkTasks.add(task);
+    }
+
+    private void runForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext) {
+        JMeterContext workerContext = createParallelContext(parentContext);
+        JMeterContextService.replaceContext(workerContext);
+        try {
+            for (Sampler sampler : forkSampler.getSamplers()) {
+                if (!running) {
+                    return;
+                }
+                processSampler(sampler, null, workerContext);
+                workerContext.cleanAfterSample();
+                if (workerContext.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
+                    workerContext.setTestLogicalAction(TestLogicalAction.CONTINUE);
+                    return;
+                }
+            }
+        } finally {
+            workerContext.cleanAfterSample();
+            JMeterContextService.removeContext();
+        }
+    }
+
+    private void waitForForksToFinish() {
+        while (true) {
+            Future<?> task;
+            synchronized (forkTasks) {
+                forkTasks.removeIf(Future::isDone);
+                if (forkTasks.isEmpty()) {
+                    return;
+                }
+                task = forkTasks.get(0);
+            }
+            try {
+                task.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                stopForksNow();
+                return;
+            } catch (ExecutionException e) {
+                log.error("Error while processing fork sampler.", e.getCause());
+            }
+        }
+    }
+
+    private void stopForksNow() {
+        synchronized (forkExecutors) {
+            for (ExecutorService executor : forkExecutors) {
+                executor.shutdownNow();
+            }
+        }
     }
 
     private void fillThreadInformation(SampleResult result,
@@ -663,6 +748,17 @@ public class JMeterThread implements Runnable, Interruptible {
         AtomicInteger counter = new AtomicInteger();
         return runnable -> {
             String name = threadName + "-" + parallelSampler.getName() + "-parallel-" + counter.incrementAndGet();
+            if (VIRTUAL_THREADS_ENABLED) {
+                return Thread.ofVirtual().name(name).unstarted(runnable);
+            }
+            return new Thread(runnable, name);
+        };
+    }
+
+    private ThreadFactory createForkThreadFactory(ForkControllerSampler forkSampler) {
+        AtomicInteger counter = new AtomicInteger();
+        return runnable -> {
+            String name = threadName + "-" + forkSampler.getName() + "-fork-" + counter.incrementAndGet();
             if (VIRTUAL_THREADS_ENABLED) {
                 return Thread.ofVirtual().name(name).unstarted(runnable);
             }
@@ -1050,6 +1146,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopTestNow() {
         running = false;
         log.info("Stop Test Now detected by thread: {}", threadName);
+        stopForksNow();
         if (engine != null) {
             engine.stopTest();
         }

@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.TransactionController;
@@ -175,6 +176,70 @@ class TestJMeterThread {
 
         @Override
         public SampleResult sample(Entry e) {
+            completedSamplers.countDown();
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
+    private static final class BlockingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final CountDownLatch started;
+        private final CountDownLatch release;
+        private final AtomicReference<JMeterVariables> observedVariables;
+
+        private BlockingSampler(String name, CountDownLatch started, CountDownLatch release,
+                AtomicReference<JMeterVariables> observedVariables) {
+            setName(name);
+            this.started = started;
+            this.release = release;
+            this.observedVariables = observedVariables;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            observedVariables.compareAndSet(null, JMeterContextService.getContext().getVariables());
+            started.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
+    private static final class VariableRecordingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final CountDownLatch completedSamplers;
+        private final AtomicReference<JMeterVariables> observedVariables;
+        private final AtomicBoolean sameVariables;
+
+        private VariableRecordingSampler(String name, CountDownLatch completedSamplers,
+                AtomicReference<JMeterVariables> observedVariables, AtomicBoolean sameVariables) {
+            setName(name);
+            this.completedSamplers = completedSamplers;
+            this.observedVariables = observedVariables;
+            this.sameVariables = sameVariables;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            JMeterVariables variables = JMeterContextService.getContext().getVariables();
+            if (!observedVariables.compareAndSet(null, variables) && observedVariables.get() != variables) {
+                sameVariables.set(false);
+            }
             completedSamplers.countDown();
             SampleResult result = new SampleResult();
             result.setSampleLabel(getName());
@@ -336,6 +401,55 @@ class TestJMeterThread {
 
         assertTrue(completedSamplers.await(5, TimeUnit.SECONDS),
                 "A later parallel child should still run after an earlier child throws");
+    }
+
+    @Test
+    void testForkControllerContinuesMainFlowAndSharesVariables() throws InterruptedException {
+        CountDownLatch forkStarted = new CountDownLatch(1);
+        CountDownLatch releaseFork = new CountDownLatch(1);
+        CountDownLatch forkFinished = new CountDownLatch(1);
+        CountDownLatch mainFlowContinued = new CountDownLatch(1);
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+        AtomicBoolean sameVariables = new AtomicBoolean(true);
+
+        HashTree testTree = new HashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new BlockingSampler("fork-child", forkStarted, releaseFork, observedVariables));
+        testTree.add(forkController, new CompletingSampler("fork-after-main-finished", forkFinished));
+        testTree.add(loop, new VariableRecordingSampler(
+                "main-after-fork", mainFlowContinued, observedVariables, sameVariables));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-controller-test");
+        runner.start();
+
+        assertTrue(forkStarted.await(5, TimeUnit.SECONDS), "Fork child should start");
+        assertTrue(mainFlowContinued.await(5, TimeUnit.SECONDS),
+                "Main flow should continue while the fork child is still running");
+        assertTrue(runner.isAlive(), "Virtual user should wait for the active fork before finishing");
+
+        releaseFork.countDown();
+        runner.join(5000);
+
+        assertTrue(forkFinished.await(5, TimeUnit.SECONDS),
+                "Fork flow should continue after the main flow has completed");
+        assertFalse(runner.isAlive(), "Virtual user should finish after the fork child completes");
+        assertTrue(sameVariables.get(), "Fork worker should share virtual user variables");
     }
 
     @Test
