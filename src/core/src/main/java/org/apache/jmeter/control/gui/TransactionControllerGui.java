@@ -200,6 +200,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
         constraints.fill = GridBagConstraints.NONE;
         constraints.weightx = 0;
         timingPanel.add(timingMode, constraints);
+        addHorizontalSpacer(timingPanel, constraints);
         timingMode.setToolTipText(JMeterUtils.getResString("transaction_controller_timing_mode_tooltip"));
         return timingPanel;
     }
@@ -278,6 +279,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
         constraints.gridx = 2;
         constraints.gridy = 0;
         constraints.weightx = 1.0d;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
         panel.add(Box.createHorizontalGlue(), constraints);
     }
 
