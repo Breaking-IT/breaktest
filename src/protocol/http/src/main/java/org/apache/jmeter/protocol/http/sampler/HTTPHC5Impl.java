@@ -151,6 +151,7 @@ import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.protocol.http.api.auth.DigestParameters;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
@@ -213,12 +214,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final String CONTENT_TRANSFER_ENCODING_BINARY = "binary";
 
     private static final class ManagedCredentialsProvider implements CredentialsStore {
-        private final AuthManager authManager;
+        private final List<AuthManagerCredential> authManagerCredentials;
         private final Credentials proxyCredentials;
         private final AuthScope proxyAuthScope;
 
         private ManagedCredentialsProvider(AuthManager authManager, AuthScope proxyAuthScope, Credentials proxyCredentials) {
-            this.authManager = authManager;
+            this.authManagerCredentials = createAuthManagerCredentials(authManager);
             this.proxyAuthScope = proxyAuthScope;
             this.proxyCredentials = proxyCredentials;
         }
@@ -234,11 +235,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (this.proxyAuthScope != null && authScope.equals(proxyAuthScope)) {
                 return proxyCredentials;
             }
-            final Authorization authorization = getAuthorizationForAuthScope(authScope);
-            if (authorization == null) {
-                return null;
-            }
-            return new UsernamePasswordCredentials(authorization.getUser(), authorization.getPass().toCharArray());
+            AuthManagerCredential authManagerCredential = getAuthorizationForAuthScope(authScope);
+            return authManagerCredential == null ? null : authManagerCredential.credentials;
         }
 
         /**
@@ -249,38 +247,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
          * @param authScope information which destination we want to get credentials for
          * @return matching authorization information entry from the AuthManager
          */
-        private Authorization getAuthorizationForAuthScope(AuthScope authScope) {
+        private AuthManagerCredential getAuthorizationForAuthScope(AuthScope authScope) {
             if (authScope == null) {
                 return null;
             }
-            if (authManager == null) {
-                log.debug("No authManager found");
-                return null;
-            }
-            for (JMeterProperty authProp : authManager.getAuthObjects()) {
-                Object authObject = authProp.getObjectValue();
-                if (authObject instanceof Authorization auth) {
-                    if (!authScope.getRealm().equals(auth.getRealm())) {
-                        continue;
-                    }
-                    try {
-                        URL authUrl = ConversionUtils.toUrl(auth.getURL());
-                        if (authUrl.getHost().equals(authScope.getHost()) && getPort(authUrl) == authScope.getPort()) {
-                            return auth;
-                        }
-                    } catch (MalformedURLException e) {
-                        log.debug("Invalid URL {} in authManager", auth.getURL());
-                    }
+            for (AuthManagerCredential authManagerCredential : authManagerCredentials) {
+                if (authManagerCredential.matches(authScope)) {
+                    return authManagerCredential;
                 }
             }
             return null;
-        }
-
-        private static int getPort(URL url) {
-            if (url.getPort() == -1) {
-                return url.getProtocol().equals("https") ? 443 : 80;
-            }
-            return url.getPort();
         }
 
         @Override
@@ -430,7 +406,65 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         } else {
             credentialsProvider.setCredentials(
                 new AuthScope(url.getProtocol(), url.getHost(), url.getPort(), realm.isEmpty() ? null : realm, null),
-                new UsernamePasswordCredentials(username, auth.getPass().toCharArray()));
+                credentialsForAuthorization(auth));
+        }
+    }
+
+    static Credentials credentialsForAuthorization(Authorization auth) {
+        String user = resolveVariables(auth.getUser());
+        String password = resolveVariables(auth.getPass());
+        String domain = resolveVariables(auth.getDomain());
+        if (!StringUtilities.isEmpty(domain)) {
+            return new NTCredentials(user, password.toCharArray(), LOCALHOST, domain);
+        }
+        return new UsernamePasswordCredentials(user, password.toCharArray());
+    }
+
+    static String resolveVariables(String value) {
+        return new CompoundVariable(value).execute();
+    }
+
+    static List<AuthManagerCredential> createAuthManagerCredentials(AuthManager authManager) {
+        List<AuthManagerCredential> credentials = new ArrayList<>();
+        if (authManager == null) {
+            log.debug("No authManager found");
+            return credentials;
+        }
+        for (JMeterProperty authProp : authManager.getAuthObjects()) {
+            Object authObject = authProp.getObjectValue();
+            if (authObject instanceof Authorization auth) {
+                try {
+                    credentials.add(new AuthManagerCredential(ConversionUtils.toUrl(resolveVariables(auth.getURL())), auth));
+                } catch (MalformedURLException e) {
+                    log.debug("Invalid URL {} in authManager", auth.getURL());
+                }
+            }
+        }
+        return credentials;
+    }
+
+    static final class AuthManagerCredential {
+        private final URL url;
+        private final String realm;
+        final Credentials credentials;
+
+        private AuthManagerCredential(URL url, Authorization authorization) {
+            this.url = url;
+            this.realm = StringUtilities.isEmpty(authorization.getRealm()) ? null : authorization.getRealm();
+            this.credentials = credentialsForAuthorization(authorization);
+        }
+
+        boolean matches(AuthScope authScope) {
+            return Objects.equals(realm, authScope.getRealm())
+                    && url.getHost().equals(authScope.getHost())
+                    && getPort(url) == authScope.getPort();
+        }
+
+        private static int getPort(URL url) {
+            if (url.getPort() == -1) {
+                return url.getProtocol().equals("https") ? 443 : 80;
+            }
+            return url.getPort();
         }
     }
 
@@ -488,6 +522,13 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final int TIME_TO_LIVE = JMeterUtils.getPropDefault("httpclient5.time_to_live", -1);
 
     private static final boolean BASIC_AUTH_PREEMPTIVE = JMeterUtils.getPropDefault("httpclient5.auth.preemptive", true);
+
+    private static final List<String> AUTH_SCHEME_PRIORITY = Arrays.asList(
+            StandardAuthScheme.NTLM,
+            StandardAuthScheme.SPNEGO,
+            StandardAuthScheme.KERBEROS,
+            StandardAuthScheme.DIGEST,
+            StandardAuthScheme.BASIC);
 
     private static final KerberosConfig KERBEROS_CONFIG = KerberosConfig.custom()
             .setStripPort(AuthManager.STRIP_PORT)
@@ -1442,6 +1483,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         rCB.setRedirectsEnabled(getAutoRedirects());
         rCB.setMaxRedirects(HTTPSamplerBase.MAX_REDIRECTS);
+        rCB.setTargetPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
+        rCB.setProxyPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
         httpRequest.setConfig(rCB.build());
         // a well-behaved browser is supposed to send 'Connection: close'
         // with the last request to an HTTP server. Instead, most browsers

@@ -28,6 +28,7 @@ import java.net.URL;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -43,14 +44,15 @@ import javax.net.ssl.SSLSession;
 import org.apache.hc.client5.http.AuthenticationStrategy;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.EndpointInfo;
-import org.apache.hc.client5.http.HttpRoute;
 import org.apache.hc.client5.http.HttpRequestRetryStrategy;
+import org.apache.hc.client5.http.HttpRoute;
 import org.apache.hc.client5.http.RouteInfo;
 import org.apache.hc.client5.http.SchemePortResolver;
 import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.apache.hc.client5.http.auth.AuthScope;
 import org.apache.hc.client5.http.auth.Credentials;
 import org.apache.hc.client5.http.auth.CredentialsStore;
+import org.apache.hc.client5.http.auth.NTCredentials;
 import org.apache.hc.client5.http.auth.StandardAuthScheme;
 import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
@@ -73,6 +75,7 @@ import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
 import org.apache.hc.client5.http.impl.auth.BasicSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.DigestSchemeFactory;
+import org.apache.hc.client5.http.impl.auth.NTLMSchemeFactory;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.cookie.IgnoreCookieSpecFactory;
 import org.apache.hc.client5.http.impl.nio.DefaultAsyncClientConnectionOperator;
@@ -130,6 +133,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** HTTP/2 sampler implementation using Apache HttpClient 5.x async transport. */
+@SuppressWarnings("deprecation")
 public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final Logger log = LoggerFactory.getLogger(HTTPHC5H2Impl.class);
@@ -838,6 +842,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         return RegistryBuilder.<org.apache.hc.client5.http.auth.AuthSchemeFactory>create()
                 .register(StandardAuthScheme.BASIC, new BasicSchemeFactory())
                 .register(StandardAuthScheme.DIGEST, new DigestSchemeFactory())
+                .register(StandardAuthScheme.NTLM, new NTLMSchemeFactory())
                 .build();
     }
 
@@ -854,6 +859,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static Credentials createProxyCredentials(HttpClientKey key) {
         if (!key.hasProxy || StringUtilities.isEmpty(key.proxyUser)) {
             return null;
+        }
+        if (!StringUtilities.isEmpty(PROXY_DOMAIN)) {
+            return new NTCredentials(key.proxyUser, key.proxyPass.toCharArray(), LOCALHOST, PROXY_DOMAIN);
         }
         return new UsernamePasswordCredentials(key.proxyUser, key.proxyPass.toCharArray());
     }
@@ -1170,12 +1178,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static final class ManagedCredentialsProvider implements CredentialsStore {
-        private final AuthManager authManager;
+        private final List<AuthManagerCredential> authManagerCredentials;
         private final AuthScope proxyAuthScope;
         private final Credentials proxyCredentials;
 
         private ManagedCredentialsProvider(AuthManager authManager, AuthScope proxyAuthScope, Credentials proxyCredentials) {
-            this.authManager = authManager;
+            this.authManagerCredentials = createAuthManagerCredentials(authManager);
             this.proxyAuthScope = proxyAuthScope;
             this.proxyCredentials = proxyCredentials;
         }
@@ -1190,44 +1198,20 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             if (proxyAuthScope != null && authScope.equals(proxyAuthScope)) {
                 return proxyCredentials;
             }
-            Authorization authorization = getAuthorizationForAuthScope(authScope);
-            if (authorization == null) {
-                return null;
-            }
-            return new UsernamePasswordCredentials(authorization.getUser(), authorization.getPass().toCharArray());
+            AuthManagerCredential authManagerCredential = getAuthorizationForAuthScope(authScope);
+            return authManagerCredential == null ? null : authManagerCredential.credentials;
         }
 
-        private Authorization getAuthorizationForAuthScope(AuthScope authScope) {
-            if (authScope == null || authManager == null) {
+        private AuthManagerCredential getAuthorizationForAuthScope(AuthScope authScope) {
+            if (authScope == null) {
                 return null;
             }
-            for (JMeterProperty authProp : authManager.getAuthObjects()) {
-                Object authObject = authProp.getObjectValue();
-                if (authObject instanceof Authorization auth && matches(authScope, auth)) {
-                    return auth;
+            for (AuthManagerCredential authManagerCredential : authManagerCredentials) {
+                if (authManagerCredential.matches(authScope)) {
+                    return authManagerCredential;
                 }
             }
             return null;
-        }
-
-        private static boolean matches(AuthScope authScope, Authorization auth) {
-            try {
-                URL authUrl = ConversionUtils.toUrl(auth.getURL());
-                String realm = StringUtilities.isEmpty(auth.getRealm()) ? null : auth.getRealm();
-                return Objects.equals(realm, authScope.getRealm())
-                        && authUrl.getHost().equals(authScope.getHost())
-                        && getPort(authUrl) == authScope.getPort();
-            } catch (MalformedURLException e) {
-                log.debug("Invalid URL {} in authManager", auth.getURL());
-                return false;
-            }
-        }
-
-        private static int getPort(URL url) {
-            if (url.getPort() == -1) {
-                return url.getProtocol().equals("https") ? 443 : 80;
-            }
-            return url.getPort();
         }
 
         @Override
