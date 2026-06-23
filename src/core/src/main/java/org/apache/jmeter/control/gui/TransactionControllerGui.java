@@ -52,12 +52,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
                     "transaction_controller_parent",
                     JMeterUtils::getResString);
 
-    /** if selected, add duration of timers to total runtime */
-    private final JBooleanPropertyEditor includeTimers =
-            new JBooleanPropertyEditor(
-                    TransactionControllerSchema.INSTANCE.getIncludeTimers(),
-                    "transaction_controller_include_timers",
-                    JMeterUtils::getResString);
+    private final JComboBox<TimingModeOption> timingMode = new JComboBox<>(TimingModeOption.values());
 
     private final JComboBox<String> delayMode = new JComboBox<>(new String[] {
             TransactionController.DELAY_DISABLED,
@@ -109,7 +104,6 @@ public class TransactionControllerGui extends AbstractControllerGui {
     public TransactionControllerGui() {
         init();
         bindingGroup.add(generateParentSample);
-        bindingGroup.add(includeTimers);
     }
 
     @Override
@@ -129,6 +123,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
             fixedPacing.setText(transactionController.getFixedPacing());
             pacingMin.setText(transactionController.getPacingMin());
             pacingMax.setText(transactionController.getPacingMax());
+            timingMode.setSelectedItem(TimingModeOption.fromMode(transactionController.getTimingMode()));
             updateDelayFields();
             updatePacingFields();
         }
@@ -146,6 +141,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
             transactionController.setFixedPacing(fixedPacing.getText());
             transactionController.setPacingMin(pacingMin.getText());
             transactionController.setPacingMax(pacingMax.getText());
+            transactionController.setTimingMode(((TimingModeOption) timingMode.getSelectedItem()).mode);
         }
     }
 
@@ -153,7 +149,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
     public void assignDefaultValues(TestElement element) {
         super.assignDefaultValues(element);
         // See https://github.com/apache/jmeter/issues/3282
-        ((TransactionController) element).setIncludeTimers(false);
+        ((TransactionController) element).setTimingMode(TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES);
     }
 
     @Override
@@ -163,6 +159,7 @@ public class TransactionControllerGui extends AbstractControllerGui {
         fixedDelay.setText("0"); // $NON-NLS-1$
         delayMin.setText("0"); // $NON-NLS-1$
         delayMax.setText("0"); // $NON-NLS-1$
+        timingMode.setSelectedItem(TimingModeOption.fromMode(TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES));
         pacingMode.setSelectedItem(TransactionController.DELAY_DISABLED);
         fixedPacing.setText("0"); // $NON-NLS-1$
         pacingMin.setText("0"); // $NON-NLS-1$
@@ -184,9 +181,27 @@ public class TransactionControllerGui extends AbstractControllerGui {
         setBorder(makeBorder());
         add(makeTitlePanel());
         add(generateParentSample);
-        add(includeTimers);
+        add(createTimingModePanel());
         add(createDelayPanel());
         add(createPacingPanel());
+    }
+
+    private JPanel createTimingModePanel() {
+        JPanel timingPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.insets = new Insets(2, 2, 2, 2);
+        constraints.anchor = GridBagConstraints.WEST;
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        constraints.weightx = 0;
+        timingPanel.add(new JLabel(JMeterUtils.getResString("transaction_controller_timing_mode")), constraints);
+        constraints.gridx = 1;
+        constraints.fill = GridBagConstraints.NONE;
+        constraints.weightx = 0;
+        timingPanel.add(timingMode, constraints);
+        timingMode.setToolTipText(JMeterUtils.getResString("transaction_controller_timing_mode_tooltip"));
+        return timingPanel;
     }
 
     private JPanel createDelayPanel() {
@@ -280,5 +295,46 @@ public class TransactionControllerGui extends AbstractControllerGui {
         pacingMax.setVisible(random);
         revalidate();
         repaint();
+    }
+
+    private static class TimingModeOption {
+        private static final TimingModeOption[] VALUES = new TimingModeOption[] {
+                new TimingModeOption(
+                        TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES,
+                        "transaction_controller_timing_mode_sum_child_samples"),
+                new TimingModeOption(
+                        TransactionController.TIMING_MODE_TOTAL_INCLUDE_TIMERS,
+                        "transaction_controller_timing_mode_total_include_timers"),
+                new TimingModeOption(
+                        TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS,
+                        "transaction_controller_timing_mode_total_exclude_timers"),
+        };
+
+        private final String mode;
+
+        private final String label;
+
+        private TimingModeOption(String mode, String labelResource) {
+            this.mode = mode;
+            this.label = JMeterUtils.getResString(labelResource);
+        }
+
+        private static TimingModeOption[] values() {
+            return VALUES.clone();
+        }
+
+        private static TimingModeOption fromMode(String mode) {
+            for (TimingModeOption option : VALUES) {
+                if (option.mode.equals(mode)) {
+                    return option;
+                }
+            }
+            return VALUES[0];
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
     }
 }

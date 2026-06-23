@@ -42,6 +42,7 @@ import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.IteratingController;
 import org.apache.jmeter.control.ParallelControllerSampler;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
@@ -55,6 +56,7 @@ import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleMonitor;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.AbstractScopedAssertion;
 import org.apache.jmeter.testelement.AbstractTestElement;
@@ -158,6 +160,8 @@ public class JMeterThread implements Runnable, Interruptible {
      * The following variables may be set/read from multiple threads.
      */
     private volatile boolean running; // may be set from a different thread
+
+    private volatile List<? extends Timer> currentTimersForInterruption;
 
     private volatile boolean onErrorStopTest;
 
@@ -781,7 +785,15 @@ public class JMeterThread implements Runnable, Interruptible {
             // Hack: save the package for any transaction controllers
             threadVars.putObject(PACKAGE_OBJECT, pack);
 
-            delay(pack.getTimers());
+            TimerPause timerPause = delay(pack.getTimers());
+            if (transactionSampler != null && timerPause != null) {
+                synchronized (transactionSampler) {
+                    transactionSampler.addTimerPause(timerPause.startTime, timerPause.endTime);
+                }
+            }
+            if (timerPause != null) {
+                TransactionController.addTimerPauseToActiveTransactions(threadVars, timerPause.startTime, timerPause.endTime);
+            }
             SampleResult result = null;
             if (running) {
                 Sampler sampler = pack.getSampler();
@@ -1088,13 +1100,35 @@ public class JMeterThread implements Runnable, Interruptible {
         return threadName;
     }
 
+    public boolean isRunning() {
+        return running;
+    }
+
     /**
      * Set running flag to false which will interrupt JMeterThread on next flag test.
      * This is a clean shutdown.
      */
     public void stop() { // Called by StandardJMeterEngine, TestAction and AccessLogSampler
         running = false;
+        stopTimers();
+        stopSampler();
         log.info("Stopping: {}", threadName);
+    }
+
+    private void stopTimers() {
+        List<? extends Timer> timers = currentTimersForInterruption;
+        if (timers != null) {
+            for (Timer timer : timers) {
+                timer.stop();
+            }
+        }
+    }
+
+    private void stopSampler() {
+        Sampler sampler = currentSamplerForInterruption;
+        if (sampler instanceof StoppableSampler stoppableSampler) {
+            stoppableSampler.stop();
+        }
     }
 
     /** {@inheritDoc} */
@@ -1253,53 +1287,63 @@ public class JMeterThread implements Runnable, Interruptible {
      *
      * @param timers to be used for calculating the delay
      */
-    private void delay(List<? extends Timer> timers) {
-        long totalDelay = 0;
-        for (Timer timer : timers) {
-            TestBeanHelper.prepare((TestElement) timer);
-            long delay = timer.delay();
-            if (APPLY_TIMER_FACTOR && timer.isModifiable()) {
-                if (log.isDebugEnabled()) {
-                    log.debug("Applying TIMER_FACTOR:{} on timer:{} for thread:{}", TIMER_FACTOR,
-                            ((TestElement) timer).getName(), getThreadName());
-                }
-                delay = Math.round(delay * TIMER_FACTOR);
-            }
-            totalDelay += delay;
-        }
-        if (totalDelay > 0) {
-            if (scheduler) {
-                // We reduce pause to ensure end of test is not delayed by a sleep ending after test scheduled end
-                // See Bug 60049
-                totalDelay = TIMER_SERVICE.adjustDelay(totalDelay, endTime, false);
-                if (totalDelay < 0) {
-                    log.debug("The delay would be longer than the scheduled period, so stop thread now.");
-                    running = false;
-                    return;
-                }
-            }
-            // Use granular sleeps to allow quick response to shutdown
-            long start = System.currentTimeMillis();
-            long end = start + totalDelay;
-            long now;
-            long pause = TIMER_GRANULARITY;
-            while (running && (now = System.currentTimeMillis()) < end) {
-                long togo = end - now;
-                if (togo < pause) {
-                    pause = togo;
-                }
-                try {
-                    TimeUnit.MILLISECONDS.sleep(pause);
-                } catch (InterruptedException e) {
-                    if (running) { // NOSONAR running may have been changed from another thread
-                        log.warn("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
-                                threadName, System.currentTimeMillis() - start, totalDelay);
+    private TimerPause delay(List<? extends Timer> timers) {
+        currentTimersForInterruption = timers;
+        try {
+            long totalDelay = 0;
+            for (Timer timer : timers) {
+                TestBeanHelper.prepare((TestElement) timer);
+                long delay = timer.delay();
+                if (APPLY_TIMER_FACTOR && timer.isModifiable()) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Applying TIMER_FACTOR:{} on timer:{} for thread:{}", TIMER_FACTOR,
+                                ((TestElement) timer).getName(), getThreadName());
                     }
-                    Thread.currentThread().interrupt();
-                    break;
+                    delay = Math.round(delay * TIMER_FACTOR);
                 }
+                totalDelay += delay;
             }
+            if (totalDelay > 0) {
+                if (scheduler) {
+                    // We reduce pause to ensure end of test is not delayed by a sleep ending after test scheduled end
+                    // See Bug 60049
+                    totalDelay = TIMER_SERVICE.adjustDelay(totalDelay, endTime, false);
+                    if (totalDelay < 0) {
+                        log.debug("The delay would be longer than the scheduled period, so stop thread now.");
+                        running = false;
+                        return null;
+                    }
+                }
+                // Use granular sleeps to allow quick response to shutdown
+                long start = System.currentTimeMillis();
+                long end = start + totalDelay;
+                long now;
+                long pause = TIMER_GRANULARITY;
+                while (running && (now = System.currentTimeMillis()) < end) {
+                    long togo = end - now;
+                    if (togo < pause) {
+                        pause = togo;
+                    }
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(pause);
+                    } catch (InterruptedException e) {
+                        if (running) { // NOSONAR running may have been changed from another thread
+                            log.warn("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
+                                    threadName, System.currentTimeMillis() - start, totalDelay);
+                        }
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+                return new TimerPause(start, System.currentTimeMillis());
+            }
+            return null;
+        } finally {
+            currentTimersForInterruption = null;
         }
+    }
+
+    private record TimerPause(long startTime, long endTime) {
     }
 
     void notifyTestListeners() {

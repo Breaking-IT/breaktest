@@ -239,7 +239,7 @@ public class WhileController extends GenericController implements Serializable, 
      */
     @Override
     public Sampler next(){
-        updateIterationIndex(getName(), getIterCount());
+        updateIterationIndex(getName(), getIterationIndexValue(getIterCount()));
         try {
             if (isFirst() && endOfLoop(false)) {
                 resetBreakLoop();
@@ -248,7 +248,7 @@ public class WhileController extends GenericController implements Serializable, 
             }
             return super.next();
         } finally {
-            updateIterationIndex(getName(), getIterCount());
+            updateIterationIndex(getName(), getIterationIndexValue(getIterCount()));
         }
     }
 
@@ -280,6 +280,19 @@ public class WhileController extends GenericController implements Serializable, 
 
     public void setConditionMatch(String conditionMatch) {
         set(getSchema().getConditionMatch(), MATCH_ANY.equals(conditionMatch) ? MATCH_ANY : MATCH_ALL);
+    }
+
+    public void setIndexStartsAtOne(boolean indexStartsAtOne) {
+        set(getSchema().getIndexStartsAtOne(), indexStartsAtOne);
+    }
+
+    public boolean isIndexStartsAtOne() {
+        return get(getSchema().getIndexStartsAtOne());
+    }
+
+    @Override
+    protected int getIterationIndexValue(int zeroBasedIndex) {
+        return zeroBasedIndex + (isIndexStartsAtOne() ? 1 : 0);
     }
 
     public CollectionProperty getConditions() {

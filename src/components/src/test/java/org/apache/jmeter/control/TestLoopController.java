@@ -130,6 +130,27 @@ public class TestLoopController extends JMeterTestCase {
     }
 
     @Test
+    public void testLoopIndexCanStartAtOne() {
+        JMeterContext jmctx = JMeterContextService.getContext();
+        JMeterVariables variables = new JMeterVariables();
+        jmctx.setVariables(variables);
+
+        LoopController loop = new LoopController();
+        String lcName = "LC";
+        loop.setName(lcName);
+        loop.setLoops(2);
+        loop.setIndexStartsAtOne(true);
+        loop.addTestElement(new TestSampler("run"));
+        loop.setRunningVersion(true);
+        loop.initialize();
+
+        assertNotNull(loop.next());
+        assertEquals(Integer.valueOf(1), variables.getObject(GenericController.getIndexVariableName(lcName)));
+        assertNotNull(loop.next());
+        assertEquals(Integer.valueOf(2), variables.getObject(GenericController.getIndexVariableName(lcName)));
+    }
+
+    @Test
     public void testBug54467() throws Exception {
         JMeterContext jmctx = JMeterContextService.getContext();
         String lcName = "LC";

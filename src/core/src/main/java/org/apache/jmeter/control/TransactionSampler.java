@@ -17,9 +17,11 @@
 
 package org.apache.jmeter.control;
 
-
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.jmeter.config.ConfigTestElement;
@@ -54,6 +56,8 @@ public class TransactionSampler extends AbstractSampler {
     private long totalTime = 0;
 
     private long totalConnectTime = 0;
+
+    private final List<long[]> timerPauses = new ArrayList<>();
 
     /**
      * @deprecated only for use by test code
@@ -119,6 +123,12 @@ public class TransactionSampler extends AbstractSampler {
         totalConnectTime += res.getConnectTime();
     }
 
+    public void addTimerPause(long startTime, long endTime) {
+        if (endTime > startTime) {
+            timerPauses.add(new long[] { startTime, endTime });
+        }
+    }
+
     protected void setTransactionDone() {
         this.transactionDone = true;
         // Set the overall status for the transaction sample
@@ -129,14 +139,43 @@ public class TransactionSampler extends AbstractSampler {
         if (transactionSampleResult.isSuccessful()) {
             transactionSampleResult.setResponseCodeOK();
         }
-        // Bug 50080 (not include pause time when generate parent)
-        if (!transactionController.isIncludeTimers()) {
+        String timingMode = transactionController.getTimingMode();
+        if (TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES.equals(timingMode)) {
+            // Bug 50080 (not include pause time when generate parent)
             long end = transactionSampleResult.currentTimeInMillis();
             transactionSampleResult.setIdleTime(end
                     - transactionSampleResult.getStartTime() - totalTime);
             transactionSampleResult.setEndTime(end);
+        } else if (TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(timingMode)) {
+            long end = transactionSampleResult.getEndTime();
+            if (end == 0) {
+                end = transactionSampleResult.currentTimeInMillis();
+            }
+            transactionSampleResult.setIdleTime(getMergedTimerPauseTime());
+            transactionSampleResult.setEndTime(end);
         }
         transactionSampleResult.setConnectTime(totalConnectTime);
+    }
+
+    private long getMergedTimerPauseTime() {
+        if (timerPauses.isEmpty()) {
+            return 0;
+        }
+        timerPauses.sort(Comparator.comparingLong(interval -> interval[0]));
+        long pause = 0;
+        long currentStart = timerPauses.get(0)[0];
+        long currentEnd = timerPauses.get(0)[1];
+        for (int i = 1; i < timerPauses.size(); i++) {
+            long[] interval = timerPauses.get(i);
+            if (interval[0] <= currentEnd) {
+                currentEnd = Math.max(currentEnd, interval[1]);
+            } else {
+                pause += currentEnd - currentStart;
+                currentStart = interval[0];
+                currentEnd = interval[1];
+            }
+        }
+        return pause + currentEnd - currentStart;
     }
 
     protected void setSubSampler(Sampler subSampler) {

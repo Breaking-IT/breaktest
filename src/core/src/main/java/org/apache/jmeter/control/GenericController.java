@@ -32,6 +32,7 @@ import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.threads.TestCompilerHelper;
+import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,6 +100,14 @@ public class GenericController extends AbstractTestElement implements Controller
     @Override
     public PropertiesAccessor<? extends GenericController, ? extends GenericControllerSchema> getProps() {
         return new PropertiesAccessor<>(this, getSchema());
+    }
+
+    public static String getIndexVariableName(String elementName) {
+        return JMeterUtils.formatJMeterExportedVariableName(elementName + INDEX_VAR_NAME_SUFFIX);
+    }
+
+    protected int getIterationIndexValue(int zeroBasedIndex) {
+        return zeroBasedIndex;
     }
 
     @Override

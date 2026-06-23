@@ -20,6 +20,8 @@ package org.apache.jmeter.timers;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
@@ -86,6 +88,32 @@ public class SyncTimerTest {
             timer::delay);
     }
 
+    @Test
+    public void testStopReleasesWaitingThread() throws Exception {
+        SyncTimer timer = new SyncTimer();
+        timer.setGroupSize(2);
+        timer.testStarted();
+        AtomicBoolean delayCompleted = new AtomicBoolean(false);
+
+        Thread waitingThread = new Thread(() -> {
+            timer.delay();
+            delayCompleted.set(true);
+        });
+        waitingThread.start();
+
+        waitUntilBlocked(waitingThread);
+        timer.stop();
+
+        waitingThread.join(1000);
+        boolean releasedByStop = !waitingThread.isAlive();
+        if (!releasedByStop) {
+            waitingThread.interrupt();
+            waitingThread.join(1000);
+        }
+        assertTrue(releasedByStop, "Stop should release a thread waiting in the SyncTimer barrier");
+        assertTrue(delayCompleted.get(), "Stop should release a thread waiting in the SyncTimer barrier");
+    }
+
     private static long timeDelay(SyncTimer timer) {
         long start = System.currentTimeMillis();
         timer.delay();
@@ -99,6 +127,17 @@ public class SyncTimerTest {
         JMeterThread thread = new JMeterThread(hashTree, null, null);
         JMeterContextService.getContext().setThread(thread);
         thread.setEndTime(System.currentTimeMillis() + schedulerDuration);
+    }
+
+    private static void waitUntilBlocked(Thread waitingThread) throws InterruptedException {
+        long waitUntil = System.currentTimeMillis() + 1000;
+        while (System.currentTimeMillis() < waitUntil) {
+            Thread.State state = waitingThread.getState();
+            if (state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) {
+                return;
+            }
+            Thread.sleep(10);
+        }
     }
 
 }
