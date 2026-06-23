@@ -59,8 +59,12 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.apache.jmeter.config.gui.ObsoleteGui;
 import org.apache.jmeter.control.IfControllerSchema;
 import org.apache.jmeter.control.LoopControllerSchema;
+import org.apache.jmeter.control.TransactionControllerSchema;
 import org.apache.jmeter.control.WhileControllerSchema;
+import org.apache.jmeter.control.gui.LoopControlPanel;
 import org.apache.jmeter.control.gui.TestFragmentControllerGui;
+import org.apache.jmeter.control.gui.TransactionControllerGui;
+import org.apache.jmeter.control.gui.WhileControllerGui;
 import org.apache.jmeter.dsl.DslPrinterTraverser;
 import org.apache.jmeter.extractor.RegexExtractorSchema;
 import org.apache.jmeter.gui.GuiComponentHolder;
@@ -387,6 +391,9 @@ public class JMeterTest extends JMeterTestCase {
         IGNORED_PROPERTIES.add(LoopControllerSchema.INSTANCE.getContinueForever());
         IGNORED_PROPERTIES.add(RegexExtractorSchema.INSTANCE.getMatchTarget());
         IGNORED_PROPERTIES.add(RegexExtractorSchema.INSTANCE.getDefaultIsEmpty());
+        // TODO: support expressions in TransactionControllerGui dropdowns
+        IGNORED_PROPERTIES.add(TransactionControllerSchema.INSTANCE.getDelayMode());
+        IGNORED_PROPERTIES.add(TransactionControllerSchema.INSTANCE.getPacingMode());
         // TODO: support expressions?
         IGNORED_PROPERTIES.add(HTTPSamplerBaseSchema.INSTANCE.getIpSourceType());
         IGNORED_PROPERTIES.add(HTTPSamplerBaseSchema.INSTANCE.getImplementation());
@@ -434,6 +441,21 @@ public class JMeterTest extends JMeterTestCase {
             if (guiItem.getClass() == OpenModelThreadGroupGui.class && (
                     property.equals(ThreadGroupSchema.INSTANCE.getNumThreads()) ||
                             property.equals(ThreadGroupSchema.INSTANCE.getSameUserOnNextIteration()))) {
+                continue;
+            }
+            if (guiItem.getClass() == LoopControlPanel.class &&
+                    property.equals(LoopControllerSchema.INSTANCE.getIndexStartsAtOne())) {
+                continue;
+            }
+            if (guiItem.getClass() == WhileControllerGui.class &&
+                    property.equals(WhileControllerSchema.INSTANCE.getIndexStartsAtOne())) {
+                continue;
+            }
+            if (guiItem.getClass() == TransactionControllerGui.class && (
+                    property.equals(TransactionControllerSchema.INSTANCE.getIncludeTimers()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getTimingMode()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getDelayMode()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getPacingMode()))) {
                 continue;
             }
             el.set(property, "${test_" + property.getName() + "}");

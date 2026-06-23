@@ -15,34 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.jmeter.timers;
-
-import java.io.Serializable;
+package org.apache.jmeter.samplers;
 
 /**
- * This interface defines those methods that must be implemented by timer
- * plugins.
+ * Samplers which can release a clean shutdown wait should implement this interface.
  */
-public interface Timer extends Serializable {
-    /**
-     * This method is called after a sampling process is done to know how much
-     * time the sampling thread has to wait until sampling again.
-     *
-     * @return the computed delay value.
-     */
-    long delay();
+public interface StoppableSampler {
 
     /**
-     * @return true if factor can be applied to it
+     * Stop the current operation because the owning thread is shutting down cleanly.
      */
-    default boolean isModifiable() {
-        return false;
-    }
-
-    /**
-     * Called when the owning thread is asked to stop while the timer might be computing a delay.
-     */
-    default void stop() {
-        // NOOP
-    }
+    void stop();
 }

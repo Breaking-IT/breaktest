@@ -18,6 +18,9 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -32,6 +35,7 @@ import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.SamplePackage;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.JMeterStopThreadException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +58,12 @@ public class TransactionController extends GenericController implements SampleLi
 
     private static final String TRUE = Boolean.toString(true); // i.e. "true"
 
+    private static final String ACTIVE_NON_PARENT_TRANSACTIONS =
+            "TransactionController.activeNonParentTransactions"; // $NON-NLS-1$
+
+    private static final int TIMER_GRANULARITY =
+            JMeterUtils.getPropDefault("jmeterthread.timer.granularity", 1000); // $NON-NLS-1$
+
     public static final String DELAY_DISABLED = "Disabled"; // $NON-NLS-1$
 
     public static final String DELAY_FIXED = "Fixed"; // $NON-NLS-1$
@@ -61,6 +71,12 @@ public class TransactionController extends GenericController implements SampleLi
     public static final String DELAY_RANDOM = "Random"; // $NON-NLS-1$
 
     public static final String DELAY_GAUSSIAN_RANDOM = "Gaussian Random"; // $NON-NLS-1$
+
+    public static final String TIMING_MODE_SUM_CHILD_SAMPLES = "sum_child_samples"; // $NON-NLS-1$
+
+    public static final String TIMING_MODE_TOTAL_INCLUDE_TIMERS = "total_include_timers"; // $NON-NLS-1$
+
+    public static final String TIMING_MODE_TOTAL_EXCLUDE_TIMERS = "total_exclude_timers"; // $NON-NLS-1$
 
     private static final Logger log = LoggerFactory.getLogger(TransactionController.class);
 
@@ -94,6 +110,8 @@ public class TransactionController extends GenericController implements SampleLi
      * Only used in NON parent Mode
      */
     private transient long pauseTime;
+
+    private transient List<long[]> timerPauses = new ArrayList<>();
 
     /**
      * Previous end time
@@ -232,6 +250,8 @@ public class TransactionController extends GenericController implements SampleLi
             res.sampleStart();
             prevEndTime = res.getStartTime();//???
             pauseTime = 0;
+            timerPauses = new ArrayList<>();
+            registerActiveNonParentTransaction();
         }
         boolean isLast = current==super.subControllersAndSamplers.size();
         Sampler returnValue = super.next();
@@ -239,9 +259,11 @@ public class TransactionController extends GenericController implements SampleLi
         {
             if (res != null) {
                 // See BUG 55816
-                if (!isIncludeTimers()) {
+                if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(getTimingMode())) {
                     long processingTimeOfLastChild = res.currentTimeInMillis() - prevEndTime;
                     pauseTime += processingTimeOfLastChild;
+                } else if (TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(getTimingMode())) {
+                    pauseTime += getMergedTimerPauseTime();
                 }
                 res.setIdleTime(pauseTime+res.getIdleTime());
                 res.sampleEnd();
@@ -253,6 +275,7 @@ public class TransactionController extends GenericController implements SampleLi
                     res.setResponseCodeOK();
                 }
                 notifyListeners();
+                unregisterActiveNonParentTransaction();
             }
         }
         else {
@@ -280,6 +303,9 @@ public class TransactionController extends GenericController implements SampleLi
     public void triggerEndOfLoop() {
         if(!isGenerateParentSample()) {
             if (res != null) {
+                if (TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(getTimingMode())) {
+                    pauseTime += getMergedTimerPauseTime();
+                }
                 res.setIdleTime(pauseTime + res.getIdleTime());
                 res.sampleEnd();
                 res.setSuccessful(TRUE.equals(JMeterContextService.getContext().getVariables().get(JMeterThread.LAST_SAMPLE_OK)));
@@ -288,6 +314,7 @@ public class TransactionController extends GenericController implements SampleLi
                                 + calls + ", number of failing samples : "
                                 + noFailingSamples);
                 notifyListeners();
+                unregisterActiveNonParentTransaction();
             }
         } else if (transactionSampler != null) {
             Sampler subSampler = transactionSampler.getSubSampler();
@@ -337,7 +364,7 @@ public class TransactionController extends GenericController implements SampleLi
                 res.setThreadName(sampleResult.getThreadName());
                 res.setBytes(res.getBytesAsLong() + sampleResult.getBytesAsLong());
                 res.setSentBytes(res.getSentBytes() + sampleResult.getSentBytes());
-                if (!isIncludeTimers()) {// Accumulate waiting time for later
+                if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(getTimingMode())) {// Accumulate waiting time for later
                     pauseTime += sampleResult.getEndTime() - sampleResult.getTime() - prevEndTime;
                     prevEndTime = sampleResult.getEndTime();
                 }
@@ -361,12 +388,72 @@ public class TransactionController extends GenericController implements SampleLi
     public void sampleStopped(SampleEvent e) {
     }
 
+    public static void addTimerPauseToActiveTransactions(JMeterVariables variables, long startTime, long endTime) {
+        Object activeTransactions = variables.getObject(ACTIVE_NON_PARENT_TRANSACTIONS);
+        if (!(activeTransactions instanceof List<?> transactions)) {
+            return;
+        }
+        for (Object transaction : transactions) {
+            if (transaction instanceof TransactionController transactionController) {
+                transactionController.addTimerPause(startTime, endTime);
+            }
+        }
+    }
+
+    private void addTimerPause(long startTime, long endTime) {
+        if (endTime > startTime) {
+            timerPauses.add(new long[] { startTime, endTime });
+        }
+    }
+
+    private long getMergedTimerPauseTime() {
+        if (timerPauses.isEmpty()) {
+            return 0;
+        }
+        timerPauses.sort(Comparator.comparingLong(interval -> interval[0]));
+        long pause = 0;
+        long currentStart = timerPauses.get(0)[0];
+        long currentEnd = timerPauses.get(0)[1];
+        for (int i = 1; i < timerPauses.size(); i++) {
+            long[] interval = timerPauses.get(i);
+            if (interval[0] <= currentEnd) {
+                currentEnd = Math.max(currentEnd, interval[1]);
+            } else {
+                pause += currentEnd - currentStart;
+                currentStart = interval[0];
+                currentEnd = interval[1];
+            }
+        }
+        return pause + currentEnd - currentStart;
+    }
+
+    private void registerActiveNonParentTransaction() {
+        activeNonParentTransactions().add(this);
+    }
+
+    private void unregisterActiveNonParentTransaction() {
+        activeNonParentTransactions().remove(this);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<TransactionController> activeNonParentTransactions() {
+        JMeterVariables variables = getThreadContext().getVariables();
+        Object activeTransactions = variables.getObject(ACTIVE_NON_PARENT_TRANSACTIONS);
+        if (activeTransactions instanceof List<?>) {
+            return (List<TransactionController>) activeTransactions;
+        }
+        List<TransactionController> transactions = new ArrayList<>();
+        variables.putObject(ACTIVE_NON_PARENT_TRANSACTIONS, transactions);
+        return transactions;
+    }
+
     /**
      * Whether to include timers and pre/post processor time in overall sample.
      * @param includeTimers Flag whether timers and pre/post processor should be included in overall sample
      */
     public void setIncludeTimers(boolean includeTimers) {
         set(getSchema().getIncludeTimers(), includeTimers);
+        setTimingMode(includeTimers ? TIMING_MODE_TOTAL_INCLUDE_TIMERS : TIMING_MODE_SUM_CHILD_SAMPLES);
     }
 
     /**
@@ -375,7 +462,32 @@ public class TransactionController extends GenericController implements SampleLi
      * @return boolean (defaults to true for backwards compatibility)
      */
     public boolean isIncludeTimers() {
-        return get(getSchema().getIncludeTimers());
+        return !TIMING_MODE_SUM_CHILD_SAMPLES.equals(getTimingMode());
+    }
+
+    public void setTimingMode(String timingMode) {
+        if (TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(timingMode)) {
+            set(getSchema().getTimingMode(), TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
+            set(getSchema().getIncludeTimers(), true);
+        } else if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(timingMode)) {
+            set(getSchema().getTimingMode(), TIMING_MODE_SUM_CHILD_SAMPLES);
+            set(getSchema().getIncludeTimers(), false);
+        } else {
+            set(getSchema().getTimingMode(), TIMING_MODE_TOTAL_INCLUDE_TIMERS);
+            set(getSchema().getIncludeTimers(), true);
+        }
+    }
+
+    public String getTimingMode() {
+        String timingMode = getString(getSchema().getTimingMode());
+        if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(timingMode)
+                || TIMING_MODE_TOTAL_INCLUDE_TIMERS.equals(timingMode)
+                || TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(timingMode)) {
+            return timingMode;
+        }
+        return get(getSchema().getIncludeTimers())
+                ? TIMING_MODE_TOTAL_INCLUDE_TIMERS
+                : TIMING_MODE_SUM_CHILD_SAMPLES;
     }
 
     public void setDelayMode(String delayMode) {
@@ -459,12 +571,30 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     private static void sleep(long delay, String reason) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(delay);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new JMeterStopThreadException("Transaction Controller " + reason + " was interrupted");
+        JMeterThread thread = JMeterContextService.getContext().getThread();
+        long start = System.currentTimeMillis();
+        long end = start + delay;
+        long now;
+        long pause = TIMER_GRANULARITY;
+        while (isRunning(thread) && (now = System.currentTimeMillis()) < end) {
+            long togo = end - now;
+            if (togo < pause) {
+                pause = togo;
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(pause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (isRunning(thread)) {
+                    throw new JMeterStopThreadException("Transaction Controller " + reason + " was interrupted");
+                }
+                break;
+            }
         }
+    }
+
+    private static boolean isRunning(JMeterThread thread) {
+        return thread == null || thread.isRunning();
     }
 
     private long computeTransactionDelay() {

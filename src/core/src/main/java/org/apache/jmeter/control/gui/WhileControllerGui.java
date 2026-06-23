@@ -19,6 +19,7 @@ package org.apache.jmeter.control.gui;
 
 import java.awt.BorderLayout;
 import java.awt.FontMetrics;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentAdapter;
@@ -30,17 +31,20 @@ import javax.swing.ButtonGroup;
 import javax.swing.DefaultCellEditor;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.ListSelectionModel;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 import javax.swing.JTable;
+import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
 import javax.swing.table.TableColumn;
 
+import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.WhileController;
 import org.apache.jmeter.control.WhileControllerCondition;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
@@ -105,6 +109,10 @@ public class WhileControllerGui extends AbstractControllerGui
 
     private JLabel conditionLabel;
 
+    private JCheckBox indexStartsAtOne;
+
+    private JTextField indexVariableName;
+
     /** The name of the condition field component. */
     private static final String CONDITION = "While_Condition"; // $NON-NLS-1$
 
@@ -131,6 +139,7 @@ public class WhileControllerGui extends AbstractControllerGui
             theCondition.setText(whileController.getCondition());
             matchAny.setSelected(WhileController.MATCH_ANY.equals(whileController.getConditionMatch()));
             matchAll.setSelected(!matchAny.isSelected());
+            indexStartsAtOne.setSelected(whileController.isIndexStartsAtOne());
             conditionTableModel.clearData();
             PropertyIterator iterator = whileController.getConditions().iterator();
             while (iterator.hasNext()) {
@@ -145,6 +154,7 @@ public class WhileControllerGui extends AbstractControllerGui
                 }
             }
             conditionTableModel.fireTableDataChanged();
+            updateIndexVariableName();
             updateModeControls();
         }
 
@@ -175,6 +185,7 @@ public class WhileControllerGui extends AbstractControllerGui
             }
             whileController.setConditionMatch(matchAny.isSelected() ? WhileController.MATCH_ANY : WhileController.MATCH_ALL);
             whileController.setConditions(getConditionRows());
+            whileController.setIndexStartsAtOne(indexStartsAtOne.isSelected());
         }
     }
 
@@ -187,6 +198,8 @@ public class WhileControllerGui extends AbstractControllerGui
         theCondition.setText(""); // $NON-NLS-1$
         conditionTableModel.clearData();
         matchAll.setSelected(true);
+        indexStartsAtOne.setSelected(false);
+        updateIndexVariableName();
         updateModeControls();
     }
 
@@ -202,6 +215,7 @@ public class WhileControllerGui extends AbstractControllerGui
         setLayout(new BorderLayout(0, 5));
         setBorder(makeBorder());
         add(makeTitlePanel(), BorderLayout.NORTH);
+        watchNameField();
         add(createConditionPanel(), BorderLayout.CENTER);
     }
 
@@ -212,6 +226,8 @@ public class WhileControllerGui extends AbstractControllerGui
      */
     private JPanel createConditionPanel() {
         JPanel conditionPanel = new JPanel(new MigLayout("fill, wrap 1, insets 0", "[fill,grow]"));
+
+        conditionPanel.add(createIndexPanel(), "growx, wmin 0"); // $NON-NLS-1$
 
         structuredConditionLabel = new JLabel(JMeterUtils.getResString("while_controller_conditions")); // $NON-NLS-1$
         conditionPanel.add(structuredConditionLabel);
@@ -228,6 +244,32 @@ public class WhileControllerGui extends AbstractControllerGui
         conditionPanel.add(theConditionJSP, "push, grow, wmin 0"); // $NON-NLS-1$
 
         return conditionPanel;
+    }
+
+    private JPanel createIndexPanel() {
+        JPanel panel = new JPanel(new MigLayout("fillx, wrap 1, insets 0", "[fill,grow]")); // $NON-NLS-1$ // $NON-NLS-2$
+        indexStartsAtOne = new JCheckBox(JMeterUtils.getResString("controller_index_start_at_one")); // $NON-NLS-1$
+        panel.add(indexStartsAtOne); // $NON-NLS-1$
+        JPanel variablePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        variablePanel.add(new JLabel(JMeterUtils.getResString("controller_index_variable"))); // $NON-NLS-1$
+        variablePanel.add(javax.swing.Box.createHorizontalStrut(5));
+        indexVariableName = new JTextField(35);
+        indexVariableName.setEditable(false);
+        variablePanel.add(indexVariableName);
+        panel.add(variablePanel); // $NON-NLS-1$
+        updateIndexVariableName();
+        return panel;
+    }
+
+    private void updateIndexVariableName() {
+        if (indexVariableName != null) {
+            indexVariableName.setText(GenericController.getIndexVariableName(getName()));
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void watchNameField() {
+        getNamePanel().getNameField().getDocument().addDocumentListener(this);
     }
 
     private JPanel createStructuredConditionPanel() {
@@ -420,16 +462,19 @@ public class WhileControllerGui extends AbstractControllerGui
 
     @Override
     public void insertUpdate(DocumentEvent e) {
+        updateIndexVariableName();
         updateModeControls();
     }
 
     @Override
     public void removeUpdate(DocumentEvent e) {
+        updateIndexVariableName();
         updateModeControls();
     }
 
     @Override
     public void changedUpdate(DocumentEvent e) {
+        updateIndexVariableName();
         updateModeControls();
     }
 

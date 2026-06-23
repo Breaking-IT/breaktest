@@ -18,6 +18,7 @@
 package org.apache.jmeter.control.gui;
 
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
@@ -26,7 +27,10 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
+import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
@@ -43,7 +47,7 @@ import org.apiguardian.api.API;
  */
 @GUIMenuSortOrder(3)
 @TestElementMetadata(labelResource = "loop_controller_title")
-public class LoopControlPanel extends AbstractControllerGui implements ActionListener {
+public class LoopControlPanel extends AbstractControllerGui implements ActionListener, DocumentListener {
     private static final long serialVersionUID = 241L;
 
     /**
@@ -59,6 +63,10 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
     private JTextField loops;
 
     private JLabel loopsLabel;
+
+    private JCheckBox indexStartsAtOne;
+
+    private JTextField indexVariableName;
 
     /**
      * Boolean indicating whether or not this component should display its name.
@@ -125,9 +133,16 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
         super.configure(element);
         if (element instanceof LoopController loopController) {
             setState(loopController.getLoopString());
+            if (indexStartsAtOne != null) {
+                indexStartsAtOne.setSelected(loopController.isIndexStartsAtOne());
+            }
         } else {
             setState(1);
+            if (indexStartsAtOne != null) {
+                indexStartsAtOne.setSelected(false);
+            }
         }
+        updateIndexVariableName();
     }
 
     /* Implements JMeterGUIComponent.createTestElement() */
@@ -148,6 +163,9 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
             } else {
                 loopController.setLoops(LoopController.INFINITE_LOOP_COUNT);
             }
+            if (indexStartsAtOne != null) {
+                loopController.setIndexStartsAtOne(indexStartsAtOne.isSelected());
+            }
         }
     }
 
@@ -160,6 +178,10 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
 
         loops.setText("1"); // $NON-NLS-1$
         infinite.setSelected(false);
+        if (indexStartsAtOne != null) {
+            indexStartsAtOne.setSelected(false);
+        }
+        updateIndexVariableName();
     }
 
     /**
@@ -200,6 +222,7 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
             setLayout(new BorderLayout(0, 5));
             setBorder(makeBorder());
             add(makeTitlePanel(), BorderLayout.NORTH);
+            watchNameField();
 
             JPanel mainPanel = new JPanel(new BorderLayout());
             mainPanel.add(createLoopCountPanel(), BorderLayout.NORTH);
@@ -243,7 +266,48 @@ public class LoopControlPanel extends AbstractControllerGui implements ActionLis
         loopPanel.add(Box.createHorizontalStrut(loopsLabel.getPreferredSize().width + loops.getPreferredSize().width
                 + infinite.getPreferredSize().width), BorderLayout.NORTH);
 
+        if (displayName) {
+            JPanel indexPanel = new JPanel(new BorderLayout(5, 0));
+            indexStartsAtOne = new JCheckBox(JMeterUtils.getResString("controller_index_start_at_one")); // $NON-NLS-1$
+            indexPanel.add(indexStartsAtOne, BorderLayout.NORTH);
+            JPanel variablePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+            variablePanel.add(new JLabel(JMeterUtils.getResString("controller_index_variable"))); // $NON-NLS-1$
+            variablePanel.add(Box.createHorizontalStrut(5));
+            indexVariableName = new JTextField(35);
+            indexVariableName.setEditable(false);
+            variablePanel.add(indexVariableName);
+            indexPanel.add(variablePanel, BorderLayout.CENTER);
+            loopPanel.add(indexPanel, BorderLayout.SOUTH);
+            updateIndexVariableName();
+        }
+
         return loopPanel;
+    }
+
+    private void updateIndexVariableName() {
+        if (indexVariableName != null) {
+            indexVariableName.setText(GenericController.getIndexVariableName(getName()));
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void watchNameField() {
+        getNamePanel().getNameField().getDocument().addDocumentListener(this);
+    }
+
+    @Override
+    public void insertUpdate(DocumentEvent e) {
+        updateIndexVariableName();
+    }
+
+    @Override
+    public void removeUpdate(DocumentEvent e) {
+        updateIndexVariableName();
+    }
+
+    @Override
+    public void changedUpdate(DocumentEvent e) {
+        updateIndexVariableName();
     }
 
     /**

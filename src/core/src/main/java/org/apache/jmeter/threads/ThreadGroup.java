@@ -596,7 +596,10 @@ public class ThreadGroup extends AbstractThreadGroup {
                         long elapsedInMillis = System.currentTimeMillis() - startTimeInMillis;
                         final int perThreadDelayInMillis =
                                 Math.round((rampUpOriginInMillis - elapsedInMillis) / (float) (numThreads - threadNumber));
-                        pause(Math.max(0, perThreadDelayInMillis)); // ramp-up delay (except first)
+                        delayBy(Math.max(0, perThreadDelayInMillis)); // ramp-up delay (except first)
+                        if (!running) {
+                            break;
+                        }
                     }
                     if (usingScheduler && System.currentTimeMillis() > endtime) {
                         break; // no point continuing beyond the end time
