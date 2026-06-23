@@ -25,6 +25,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,12 +51,17 @@ import javax.swing.JTextField;
 import javax.swing.JTree;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.assertions.Assertion;
+import org.apache.jmeter.config.ConfigElement;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.Searchable;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.documentation.VisibleForTesting;
 import org.apache.jorphan.gui.ComponentUtil;
@@ -71,7 +77,15 @@ import net.miginfocom.swing.MigLayout;
  */
 public class SearchTreeDialog extends JDialog implements ActionListener { // NOSONAR
 
-    record SearchConditions(String word, Boolean caseSensitive, Boolean regex) {}
+    record SearchConditions(String word, Boolean caseSensitive, Boolean regex, Set<NodeType> nodeTypes) {}
+
+    enum NodeType {
+        PRE_PROCESSOR,
+        POST_PROCESSOR,
+        ASSERTION,
+        TIMER,
+        CONFIG_ELEMENT
+    }
 
     private static final long serialVersionUID = -4436834972710248247L;
 
@@ -104,6 +118,16 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private JCheckBox isRegexpCB;
 
     private JCheckBox isCaseSensitiveCB;
+
+    private JCheckBox flagPreProcessorsCB;
+
+    private JCheckBox flagPostProcessorsCB;
+
+    private JCheckBox flagAssertionsCB;
+
+    private JCheckBox flagTimersCB;
+
+    private JCheckBox flagConfigElementsCB;
 
 
     private transient SearchConditions lastSearchConditions = null;
@@ -181,6 +205,19 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         searchCriterionPanel.add(isCaseSensitiveCB);
         searchCriterionPanel.add(isRegexpCB);
 
+        JPanel flagNodeTypesPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        flagNodeTypesPanel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("search_flag_node_types")));
+        flagPreProcessorsCB = createFlagNodeTypeCheckBox("menu_pre_processors");
+        flagPostProcessorsCB = createFlagNodeTypeCheckBox("menu_post_processors");
+        flagAssertionsCB = createFlagNodeTypeCheckBox("menu_assertions");
+        flagTimersCB = createFlagNodeTypeCheckBox("menu_timer");
+        flagConfigElementsCB = createFlagNodeTypeCheckBox("menu_config_element");
+        flagNodeTypesPanel.add(flagPreProcessorsCB);
+        flagNodeTypesPanel.add(flagPostProcessorsCB);
+        flagNodeTypesPanel.add(flagAssertionsCB);
+        flagNodeTypesPanel.add(flagTimersCB);
+        flagNodeTypesPanel.add(flagConfigElementsCB);
+
         JPanel searchPanel = new JPanel();
         searchPanel.setLayout(new MigLayout("fillx, wrap 2", "[][fill,grow]"));
         searchPanel.setBorder(BorderFactory.createEmptyBorder(7, 3, 3, 3));
@@ -190,6 +227,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         searchPanel.add(replaceTF);
         searchPanel.add(statusLabel, "span 2");
         searchPanel.add(searchCriterionPanel, "span 2");
+        searchPanel.add(flagNodeTypesPanel, "span 2");
         resetSearchButton = createButton("menu_search_reset");
         resetSearchButton.addActionListener(this);
         searchPanel.add(resetSearchButton);
@@ -221,6 +259,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         buttonsPanel.add(replaceAllButton);
         buttonsPanel.add(replaceAndFindButton);
         buttonsPanel.add(cancelButton);
+        updateReplaceControlsState();
 
         JPanel searchAndReplacePanel = new JPanel();
         searchAndReplacePanel.setLayout(new BorderLayout());
@@ -235,6 +274,13 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private static JButton createButton(String messageKey) {
         return new JButton(JMeterUtils.getResString(messageKey));
+    }
+
+    private JCheckBox createFlagNodeTypeCheckBox(String messageKey) {
+        JCheckBox checkBox = new JCheckBox(JMeterUtils.getResString(messageKey), false);
+        JFactory.small(checkBox);
+        checkBox.addActionListener(e -> updateReplaceControlsState());
+        return checkBox;
     }
 
     /**
@@ -254,11 +300,11 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         } else if (source == nextButton ||
                 source == previousButton) {
             doNavigateToSearchResult(source == nextButton);
-        } else if (source == replaceAllButton){
+        } else if (source == replaceAllButton && !isNodeTypeFlagMode()){
             doReplaceAll(e);
-        } else if (!lastSearchResult.isEmpty() && source == replaceButton){
+        } else if (!lastSearchResult.isEmpty() && source == replaceButton && !isNodeTypeFlagMode()){
             doReplace();
-        } else if (source == replaceAndFindButton){
+        } else if (source == replaceAndFindButton && !isNodeTypeFlagMode()){
             if(!lastSearchResult.isEmpty()) {
                 doReplace();
             }
@@ -301,20 +347,25 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private JMeterTreeNode doNavigateToSearchResult(boolean isNext) {
+        SearchConditions currentSearchConditions = currentSearchConditions();
         boolean doSearchAgain =
                 lastSearchConditions == null ||
-                !new SearchConditions(searchTF.getText(), isCaseSensitiveCB.isSelected(), isRegexpCB.isSelected())
-                .equals(lastSearchConditions);
+                !currentSearchConditions.equals(lastSearchConditions);
         if(doSearchAgain) {
             String wordToSearch = searchTF.getText();
-            if (StringUtilities.isEmpty(wordToSearch)) {
+            Set<NodeType> nodeTypes = currentSearchConditions.nodeTypes();
+            if (nodeTypes.isEmpty() && StringUtilities.isEmpty(wordToSearch)) {
                 this.lastSearchConditions = null;
                 return null;
             } else {
-                this.lastSearchConditions = new SearchConditions(wordToSearch, isCaseSensitiveCB.isSelected(), isRegexpCB.isSelected());
+                this.lastSearchConditions = currentSearchConditions;
             }
-            Searcher searcher = createSearcher(wordToSearch);
-            searchInTree(GuiPackage.getInstance(), searcher, wordToSearch);
+            if (nodeTypes.isEmpty()) {
+                Searcher searcher = createSearcher(wordToSearch);
+                searchInTree(GuiPackage.getInstance(), searcher, wordToSearch);
+            } else {
+                flagNodeTypesInTree(GuiPackage.getInstance(), nodeTypes);
+            }
         }
         if(!lastSearchResult.isEmpty()) {
             if(isNext) {
@@ -337,22 +388,24 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private void doSearch(ActionEvent e) {
         boolean expand = e.getSource()==searchAndExpandButton;
         String wordToSearch = searchTF.getText();
-        if (StringUtilities.isEmpty(wordToSearch)) {
+        Set<NodeType> nodeTypes = getSelectedNodeTypes();
+        if (nodeTypes.isEmpty() && StringUtilities.isEmpty(wordToSearch)) {
             this.lastSearchConditions = null;
             return;
         } else {
-            this.lastSearchConditions = new SearchConditions(wordToSearch, isCaseSensitiveCB.isSelected(), isRegexpCB.isSelected());
+            this.lastSearchConditions = currentSearchConditions();
         }
 
         // reset previous result
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
         // do search
-        Searcher searcher = createSearcher(wordToSearch);
         GuiPackage guiPackage = GuiPackage.getInstance();
         guiPackage.beginUndoTransaction();
         int numberOfMatches = 0;
         try {
-            Map.Entry<Integer, Set<JMeterTreeNode>> result = searchInTree(guiPackage, searcher, wordToSearch);
+            Map.Entry<Integer, Set<JMeterTreeNode>> result = nodeTypes.isEmpty()
+                    ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch)
+                    : flagNodeTypesInTree(guiPackage, nodeTypes);
             numberOfMatches = result.getKey();
             markConcernedNodes(expand, result.getValue());
         } finally {
@@ -398,6 +451,71 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.lastSearchResult.clear();
         this.lastSearchResult.addAll(nodes);
         return Map.entry(numberOfMatches, nodes);
+    }
+
+    private Map.Entry<Integer, Set<JMeterTreeNode>> flagNodeTypesInTree(GuiPackage guiPackage, Set<NodeType> nodeTypes) {
+        int numberOfMatches = 0;
+        JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
+        Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
+        for (JMeterTreeNode jMeterTreeNode : jMeterTreeModel.getNodesOfType(TestElement.class)) {
+            TestElement testElement = (TestElement) jMeterTreeNode.getUserObject();
+            if (matchesAnySelectedNodeType(testElement, nodeTypes)) {
+                numberOfMatches++;
+                nodes.add(jMeterTreeNode);
+            }
+        }
+        this.currentSearchIndex = -1;
+        this.lastSearchResult.clear();
+        this.lastSearchResult.addAll(nodes);
+        return Map.entry(numberOfMatches, nodes);
+    }
+
+    static boolean matchesAnySelectedNodeType(TestElement testElement, Set<NodeType> nodeTypes) {
+        return nodeTypes.contains(NodeType.PRE_PROCESSOR) && testElement instanceof PreProcessor
+                || nodeTypes.contains(NodeType.POST_PROCESSOR) && testElement instanceof PostProcessor
+                || nodeTypes.contains(NodeType.ASSERTION) && testElement instanceof Assertion
+                || nodeTypes.contains(NodeType.TIMER) && testElement instanceof Timer
+                || nodeTypes.contains(NodeType.CONFIG_ELEMENT) && testElement instanceof ConfigElement;
+    }
+
+    private SearchConditions currentSearchConditions() {
+        return new SearchConditions(
+                searchTF.getText(),
+                isCaseSensitiveCB.isSelected(),
+                isRegexpCB.isSelected(),
+                Set.copyOf(getSelectedNodeTypes()));
+    }
+
+    private Set<NodeType> getSelectedNodeTypes() {
+        Set<NodeType> nodeTypes = EnumSet.noneOf(NodeType.class);
+        if (flagPreProcessorsCB.isSelected()) {
+            nodeTypes.add(NodeType.PRE_PROCESSOR);
+        }
+        if (flagPostProcessorsCB.isSelected()) {
+            nodeTypes.add(NodeType.POST_PROCESSOR);
+        }
+        if (flagAssertionsCB.isSelected()) {
+            nodeTypes.add(NodeType.ASSERTION);
+        }
+        if (flagTimersCB.isSelected()) {
+            nodeTypes.add(NodeType.TIMER);
+        }
+        if (flagConfigElementsCB.isSelected()) {
+            nodeTypes.add(NodeType.CONFIG_ELEMENT);
+        }
+        return nodeTypes;
+    }
+
+    private boolean isNodeTypeFlagMode() {
+        return !getSelectedNodeTypes().isEmpty();
+    }
+
+    private void updateReplaceControlsState() {
+        boolean enabled = !isNodeTypeFlagMode();
+        replaceTF.setEnabled(enabled);
+        replaceButton.setEnabled(enabled);
+        replaceAllButton.setEnabled(enabled);
+        replaceAndFindButton.setEnabled(enabled);
     }
 
     /**
