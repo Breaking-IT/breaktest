@@ -479,9 +479,12 @@ public class JMeterThread implements Runnable, Interruptible {
      * if there are some other controllers (SimpleController or other implementations) between this TransactionSampler and the real sampler,
      * triggerEndOfLoop will not be called for those controllers leaving them in "ugly" state.
      * the following method will try to find the sampler that really generate an error
-     * @return {@link Sampler}
+     * @return tree node that should be used to find the sampler's parent controllers
      */
-    private static Sampler findRealSampler(Sampler sampler) {
+    private static Object findRealSampler(Sampler sampler) {
+        if (sampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
+            return parallelSampler.getController();
+        }
         Sampler realSampler = sampler;
         while (realSampler instanceof TransactionSampler transSampler) {
             realSampler = transSampler.getSubSampler();
@@ -686,6 +689,7 @@ public class JMeterThread implements Runnable, Interruptible {
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextSampler = 0;
         int activeSamplers = 0;
+        boolean startNextLoop = false;
         try {
             while (nextSampler < samplers.size() && activeSamplers < maxParallel) {
                 completionService.submit(parallelTask(samplers.get(nextSampler++), transactionSampler, transactionPack, parentContext));
@@ -702,8 +706,14 @@ public class JMeterThread implements Runnable, Interruptible {
                 activeSamplers--;
                 if (result != null) {
                     parentContext.setPreviousResult(result);
+                    if (result.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
+                        parentContext.setTestLogicalAction(result.getTestLogicalAction());
+                    }
+                    if (!result.isSuccessful() && onErrorStartNextLoop) {
+                        startNextLoop = true;
+                    }
                 }
-                if (running && nextSampler < samplers.size()) {
+                if (running && !startNextLoop && nextSampler < samplers.size()) {
                     completionService.submit(parallelTask(samplers.get(nextSampler++), transactionSampler, transactionPack, parentContext));
                     activeSamplers++;
                 }
@@ -713,6 +723,9 @@ public class JMeterThread implements Runnable, Interruptible {
             stopThread();
         } finally {
             executor.shutdownNow();
+        }
+        if (startNextLoop) {
+            setLastSampleOk(parentContext.getVariables(), false);
         }
     }
 

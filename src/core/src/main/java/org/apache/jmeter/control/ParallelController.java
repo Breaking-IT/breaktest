@@ -72,7 +72,7 @@ public class ParallelController extends GenericController implements Serializabl
         }
 
         samplerReturned = true;
-        return new ParallelControllerSampler(getName(), getMaxParallel(), samplers);
+        return new ParallelControllerSampler(this, getName(), getMaxParallel(), samplers);
     }
 
     public int getMaxParallel() {
