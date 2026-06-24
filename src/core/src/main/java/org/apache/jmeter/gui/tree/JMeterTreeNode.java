@@ -108,11 +108,13 @@ public class JMeterTreeNode extends DefaultMutableTreeNode implements NamedTreeN
             return;
         }
         this.markedBySearch = tagged;
-        List<JMeterTreeNode> nodesToParent = getPathToThreadGroup();
-        for (JMeterTreeNode jMeterTreeNode : nodesToParent) {
-            // Ignore me
-            if(jMeterTreeNode != this) {
-                jMeterTreeNode.setChildrenNodesHaveMatched(true);
+        if (tagged) {
+            List<JMeterTreeNode> nodesToParent = getPathToThreadGroup();
+            for (JMeterTreeNode jMeterTreeNode : nodesToParent) {
+                // Ignore me
+                if(jMeterTreeNode != this) {
+                    jMeterTreeNode.setChildrenNodesHaveMatched(true);
+                }
             }
         }
 
