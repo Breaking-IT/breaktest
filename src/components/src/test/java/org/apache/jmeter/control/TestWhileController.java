@@ -66,6 +66,23 @@ public class TestWhileController extends JMeterTestCase {
         return s.getName();
     }
 
+    @Test
+    public void testWhileIndexCanStartAtOne() {
+        WhileController whileController = new WhileController();
+        String name = "While Controller";
+        whileController.setName(name);
+        whileController.setCondition("true");
+        whileController.setIndexStartsAtOne(true);
+        whileController.addTestElement(new TestSampler("run"));
+        whileController.setRunningVersion(true);
+        whileController.initialize();
+
+        assertEquals("run", nextName(whileController));
+        assertEquals(Integer.valueOf(1), jmvars.getObject(GenericController.getIndexVariableName(name)));
+        assertEquals("run", nextName(whileController));
+        assertEquals(Integer.valueOf(2), jmvars.getObject(GenericController.getIndexVariableName(name)));
+    }
+
     // While (blank), previous sample OK - should loop until false
     @Test
     public void testBlankPrevOK() throws Exception {

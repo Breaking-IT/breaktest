@@ -35,6 +35,9 @@ public abstract class TransactionControllerSchema : GenericControllerSchema() {
     public val includeTimers: BooleanPropertyDescriptor<TransactionControllerSchema>
         by boolean("TransactionController.includeTimers", default = true)
 
+    public val timingMode: StringPropertyDescriptor<TransactionControllerSchema>
+        by string("TransactionController.timingMode")
+
     public val delayMode: StringPropertyDescriptor<TransactionControllerSchema>
         by string("TransactionController.delayMode", default = "Disabled")
 

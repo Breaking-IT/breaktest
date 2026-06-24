@@ -28,6 +28,7 @@ import org.apache.jmeter.protocol.jms.client.ReceiveSubscriber;
 import org.apache.jmeter.protocol.jms.control.gui.JMSSubscriberGui;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.util.JMeterUtils;
@@ -56,7 +57,7 @@ import jakarta.jms.TextMessage;
 // Note: originally the code did use the ClientPool to "share" subscribers, however since the
 // key was "this" and each sampler is unique - nothing was actually shared.
 
-public class SubscriberSampler extends BaseJMSSampler implements Interruptible, ThreadListener, TestStateListener {
+public class SubscriberSampler extends BaseJMSSampler implements Interruptible, StoppableSampler, ThreadListener, TestStateListener {
 
     private static final long serialVersionUID = 240L;
 
@@ -187,6 +188,9 @@ public class SubscriberSampler extends BaseJMSSampler implements Interruptible, 
                     extractContent(buffer, propBuffer, msg, read == loop);
                 }
             } catch (JMSException e) {
+                if (interrupted) {
+                    break;
+                }
                 String errorCode = Optional.ofNullable(e.getErrorCode()).orElse("");
                 log.warn("Error [{}] {}", errorCode, e.toString(), e);
 
@@ -389,8 +393,14 @@ public class SubscriberSampler extends BaseJMSSampler implements Interruptible, 
     @Override
     public boolean interrupt() {
         boolean oldvalue = interrupted;
-        interrupted = true;   // so we break the loops in SampleWithListener and SampleWithReceive
+        stop();
         return !oldvalue;
+    }
+
+    @Override
+    public void stop() {
+        interrupted = true;   // so we break the loops in SampleWithListener and SampleWithReceive
+        cleanup();
     }
 
     // ----------- get/set methods ------------------- //

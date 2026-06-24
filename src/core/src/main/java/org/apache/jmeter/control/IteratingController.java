@@ -20,7 +20,6 @@ package org.apache.jmeter.control;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
-import org.apache.jmeter.util.JMeterUtils;
 
 /**
  * Identify controller that does iterations
@@ -46,7 +45,7 @@ public interface IteratingController extends LoopIterationListener {
         JMeterVariables variables = JMeterContextService.getContext().getVariables();
         if(variables != null) {
             variables.putObject(
-                    JMeterUtils.formatJMeterExportedVariableName(elementName+GenericController.INDEX_VAR_NAME_SUFFIX), iterCount);
+                    GenericController.getIndexVariableName(elementName), iterCount);
         }
     }
 

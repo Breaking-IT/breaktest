@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.control
 
+import org.apache.jmeter.testelement.schema.BooleanPropertyDescriptor
 import org.apache.jmeter.testelement.schema.CollectionPropertyDescriptor
 import org.apache.jmeter.testelement.schema.StringPropertyDescriptor
 import org.apiguardian.api.API
@@ -37,4 +38,7 @@ public abstract class WhileControllerSchema : GenericControllerSchema() {
 
     public val conditionMatch: StringPropertyDescriptor<WhileControllerSchema>
         by string("WhileController.conditionMatch", default = WhileController.MATCH_ALL)
+
+    public val indexStartsAtOne: BooleanPropertyDescriptor<WhileControllerSchema>
+        by boolean("WhileController.index_starts_at_one", default = false)
 }

@@ -116,8 +116,10 @@ public class SyncTimer extends AbstractTestElement implements Timer, Serializabl
         /**
          * @see java.util.concurrent.CyclicBarrier#reset()
          */
-        private void reset() {
-            barrier.reset();
+        private synchronized void reset() {
+            if (barrier != null) {
+                barrier.reset();
+            }
         }
 
         /**
@@ -267,6 +269,14 @@ public class SyncTimer extends AbstractTestElement implements Timer, Serializabl
     @Override
     public void threadFinished() {
         // NOOP
+    }
+
+    @Override
+    public void stop() {
+        BarrierWrapper currentBarrier = barrier;
+        if (currentBarrier != null) {
+            currentBarrier.reset();
+        }
     }
 
     /**

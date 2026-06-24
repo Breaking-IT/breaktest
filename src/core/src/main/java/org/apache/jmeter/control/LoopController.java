@@ -88,6 +88,19 @@ public class LoopController extends GenericController implements Serializable, I
         return getString(getSchema().getLoops());
     }
 
+    public void setIndexStartsAtOne(boolean indexStartsAtOne) {
+        set(getSchema().getIndexStartsAtOne(), indexStartsAtOne);
+    }
+
+    public boolean isIndexStartsAtOne() {
+        return get(getSchema().getIndexStartsAtOne());
+    }
+
+    @Override
+    protected int getIterationIndexValue(int zeroBasedIndex) {
+        return zeroBasedIndex + (isIndexStartsAtOne() ? 1 : 0);
+    }
+
     /**
      * Determines whether the loop will return any samples if it is rerun.
      *
@@ -107,7 +120,7 @@ public class LoopController extends GenericController implements Serializable, I
      */
     @Override
     public Sampler next() {
-        updateIterationIndex(getName(), loopCount);
+        updateIterationIndex(getName(), getIterationIndexValue(loopCount));
         try {
             if(endOfLoop()) {
                 if (!getContinueForever()) {
@@ -118,7 +131,7 @@ public class LoopController extends GenericController implements Serializable, I
             }
             return super.next();
         } finally {
-            updateIterationIndex(getName(), loopCount);
+            updateIterationIndex(getName(), getIterationIndexValue(loopCount));
         }
     }
 

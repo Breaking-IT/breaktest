@@ -42,6 +42,7 @@ import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.timers.Timer;
@@ -183,6 +184,22 @@ class TestJMeterThread {
             result.setSuccessful(true);
             result.sampleEnd();
             return result;
+        }
+    }
+
+    private static final class StopTrackingSampler extends AbstractSampler implements StoppableSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final AtomicBoolean stopped = new AtomicBoolean(false);
+
+        @Override
+        public SampleResult sample(Entry e) {
+            return null;
+        }
+
+        @Override
+        public void stop() {
+            stopped.set(true);
         }
     }
 
@@ -450,6 +467,23 @@ class TestJMeterThread {
                 "Fork flow should continue after the main flow has completed");
         assertFalse(runner.isAlive(), "Virtual user should finish after the fork child completes");
         assertTrue(sameVariables.get(), "Fork worker should share virtual user variables");
+    }
+
+    @Test
+    void testStopNotifiesStoppableSampler() throws Exception {
+        HashTree testTree = new HashTree();
+        LoopController samplerController = createLoopController();
+        testTree.add(samplerController);
+        StopTrackingSampler sampler = new StopTrackingSampler();
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, null, null);
+        Field currentSamplerField = JMeterThread.class.getDeclaredField("currentSamplerForInterruption");
+        currentSamplerField.setAccessible(true);
+        currentSamplerField.set(jMeterThread, sampler);
+
+        jMeterThread.stop();
+
+        assertTrue(sampler.stopped.get(), "Clean shutdown should notify samplers that opt into stop handling");
     }
 
     @Test

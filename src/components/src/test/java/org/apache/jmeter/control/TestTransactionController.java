@@ -30,8 +30,10 @@ import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.sampler.DebugSampler;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.test.samplers.CollectSamplesListener;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
@@ -240,6 +242,37 @@ public class TestTransactionController extends JMeterTestCase {
         recordTransactionStart(controller, 1103);
 
         assertEquals(97, computeTransactionPacingDelay(controller, 1103));
+    }
+
+    @Test
+    public void testTimingModeMigratesOldIncludeTimersProperty() {
+        TransactionController controller = new TransactionController();
+        controller.setProperty(new BooleanProperty(
+                TransactionControllerSchema.INSTANCE.getIncludeTimers().getName(), true));
+
+        assertEquals(TransactionController.TIMING_MODE_TOTAL_INCLUDE_TIMERS, controller.getTimingMode());
+
+        controller.setProperty(new BooleanProperty(
+                TransactionControllerSchema.INSTANCE.getIncludeTimers().getName(), false));
+
+        assertEquals(TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES, controller.getTimingMode());
+    }
+
+    @Test
+    public void testTimingModeCanExcludeMergedTimerPauses() {
+        TransactionController controller = new TransactionController();
+        controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
+        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
+        long transactionStart = sampler.getTransactionResult().getStartTime();
+        SampleResult child = SampleResult.createTestSample(transactionStart + 25, transactionStart + 225);
+
+        sampler.addSubSamplerResult(child);
+        sampler.addTimerPause(transactionStart + 50, transactionStart + 125);
+        sampler.addTimerPause(transactionStart + 100, transactionStart + 175);
+        sampler.setTransactionDone();
+
+        assertEquals(125, sampler.getTransactionResult().getIdleTime());
+        assertEquals(100, sampler.getTransactionResult().getTime());
     }
 
     private static long computeTransactionDelay(TransactionController controller) throws Exception {

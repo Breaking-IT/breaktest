@@ -114,6 +114,9 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         super.assignDefaultValues(element);
         element.set(ThreadGroupSchema.INSTANCE.getNumThreads(), 1);
         element.set(ThreadGroupSchema.INSTANCE.getRampTime(), 1);
+        if (showDelayedStart) {
+            element.set(ThreadGroupSchema.INSTANCE.getDelayedStart(), true);
+        }
         element.set(AbstractThreadGroupSchema.INSTANCE.getSameUserOnNextIteration(), true);
         ((AbstractThreadGroup) element).setSamplerController((LoopController) loopPanel.createTestElement());
     }

@@ -32,6 +32,9 @@ public abstract class LoopControllerSchema : GenericControllerSchema() {
     public val loops: IntegerPropertyDescriptor<LoopControllerSchema>
         by int("LoopController.loops")
 
+    public val indexStartsAtOne: BooleanPropertyDescriptor<LoopControllerSchema>
+        by boolean("LoopController.index_starts_at_one", default = false)
+
     /**
      * In spite of the name, this is actually used to determine if the loop controller is repeatable.
      *

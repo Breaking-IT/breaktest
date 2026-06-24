@@ -27,15 +27,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.List;
 
+import org.apache.hc.client5.http.auth.Credentials;
+import org.apache.hc.client5.http.auth.NTCredentials;
+import org.apache.hc.client5.http.auth.StandardAuthScheme;
+import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
+import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -284,12 +293,96 @@ public class TestHTTPHC5Impl {
         assertEquals("Bearer token", request.getLastHeader(HTTPConstants.HEADER_AUTHORIZATION).getValue());
     }
 
+    @Test
+    public void authManagerCredentialsWithoutDomainUseUsernamePasswordCredentials() {
+        Credentials credentials = HTTPHC5Impl.credentialsForAuthorization(authorizationWithDomain(""));
+
+        assertTrue(credentials instanceof UsernamePasswordCredentials);
+        UsernamePasswordCredentials userPassCredentials = (UsernamePasswordCredentials) credentials;
+        assertEquals("user", userPassCredentials.getUserName());
+        assertArrayEquals("pass".toCharArray(), userPassCredentials.getUserPassword());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void authManagerCredentialsWithDomainUseNtCredentials() {
+        Credentials credentials = HTTPHC5Impl.credentialsForAuthorization(authorizationWithDomain("DOMAIN"));
+
+        assertTrue(credentials instanceof NTCredentials);
+        NTCredentials ntCredentials = (NTCredentials) credentials;
+        assertEquals("user", ntCredentials.getUserName());
+        assertArrayEquals("pass".toCharArray(), ntCredentials.getPassword());
+        assertEquals("DOMAIN", ntCredentials.getDomain());
+        assertEquals("DOMAIN", ntCredentials.getNetbiosDomain());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void requestConfigPrefersNtlmForChallengeAuthentication() throws Exception {
+        HTTPHC5Impl sampler = new HTTPHC5Impl(new HTTPSamplerProxy());
+        HttpGet request = new HttpGet(new URI("https://example.test/secure"));
+
+        sampler.setupRequest(new URI("https://example.test/secure").toURL(), request, null);
+
+        RequestConfig config = request.getConfig();
+        List<String> expected = List.of(
+                StandardAuthScheme.NTLM,
+                StandardAuthScheme.SPNEGO,
+                StandardAuthScheme.KERBEROS,
+                StandardAuthScheme.DIGEST,
+                StandardAuthScheme.BASIC);
+        assertEquals(expected, config.getTargetPreferredAuthSchemes());
+        assertEquals(expected, config.getProxyPreferredAuthSchemes());
+    }
+
+    @Test
+    public void authManagerUrlsResolveJMeterVariables() {
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("fedHost", "acc.fed.example.test");
+        JMeterContextService.getContext().setVariables(variables);
+
+        assertEquals("https://acc.fed.example.test/adfs/ls/",
+                HTTPHC5Impl.resolveVariables("https://${fedHost}/adfs/ls/"));
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void authManagerCredentialsResolveJMeterVariables() {
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("authUser", "resolved-user");
+        variables.put("authPass", "resolved-pass");
+        variables.put("authDomain", "RESOLVED");
+        JMeterContextService.getContext().setVariables(variables);
+        AuthManager authManager = new AuthManager();
+        authManager.set(-1,
+                "http://example.test/secure/",
+                "${authUser}",
+                "${authPass}",
+                "${authDomain}",
+                "",
+                Mechanism.BASIC);
+
+        Credentials credentials = HTTPHC5Impl.credentialsForAuthorization(authManager.get(0));
+
+        assertTrue(credentials instanceof NTCredentials);
+        NTCredentials ntCredentials = (NTCredentials) credentials;
+        assertEquals("resolved-user", ntCredentials.getUserName());
+        assertArrayEquals("resolved-pass".toCharArray(), ntCredentials.getPassword());
+        assertEquals("RESOLVED", ntCredentials.getDomain());
+    }
+
     private static HTTPHC5Impl samplerWithAuth(String authUrl) {
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         AuthManager authManager = new AuthManager();
         authManager.set(-1, authUrl, "user", "pass", "", "*", Mechanism.BASIC);
         sampler.setAuthManager(authManager);
         return new HTTPHC5Impl(sampler);
+    }
+
+    private static Authorization authorizationWithDomain(String domain) {
+        AuthManager authManager = new AuthManager();
+        authManager.set(-1, "http://example.test/secure/", "user", "pass", domain, "", Mechanism.BASIC);
+        return authManager.get(0);
     }
 
     private static void restoreProperty(Object previous) {
