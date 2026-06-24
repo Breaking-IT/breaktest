@@ -28,13 +28,18 @@ public object BreakTestAgentToolCli {
     @JvmStatic
     public fun main(args: Array<String>) {
         if (args.isEmpty() || args[0] == "--help" || args[0] == "-h") {
-            System.err.println("Usage: breaktest-agent-tool <tool-name> [json-arguments] [jmeter-home]")
+            System.err.println("Usage: breaktest-agent-tool <tool-name|tools|tools/list> [json-arguments] [jmeter-home]")
             kotlin.system.exitProcess(if (args.isEmpty()) 2 else 0)
         }
         val tool = args[0]
         val argumentsJson = args.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "{}"
         val jmeterHome = args.getOrNull(2)
         BreakTestAgentMcpServer.initializeForCli(jmeterHome)
+        if (tool == "tools" || tool == "tools/list") {
+            print(BreakTestAgentMcpServer.toolsListForCli())
+            println()
+            return
+        }
         val result = BreakTestAgentMcpServer.callToolForCli(tool, mapper.readTree(argumentsJson))
         print(result)
         println()

@@ -18,11 +18,15 @@
 package org.apache.jmeter.ai
 
 import org.apache.jmeter.junit.JMeterTestCase
+import org.apache.jmeter.testelement.AbstractTestElement
 import org.apache.jmeter.testelement.TestPlan
+import org.apache.jmeter.testelement.property.StringProperty
+import org.apache.jmeter.testelement.property.TestElementProperty
 import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.threads.ThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jmeter.treebuilder.oneRequest
+import org.apache.jorphan.collections.ListedHashTree
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -101,4 +105,262 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
         assertTrue(context.dynamicValueCandidates.any { it.literal == bearer })
         assertTrue(context.dynamicValueCandidates.all { it.transactionName == "04_Transaction" })
     }
+
+    @Test
+    fun `summarize reports nested dynamic request value candidates`() {
+        val uuid = "5d3bd642-5ced-49b6-9af7-5f945057a8ef"
+        val nestedArgument = FakeRequestElement().apply {
+            name = "HTTP Argument"
+            setProperty(StringProperty("Argument.value", "selectedBasketItem=$uuid"))
+        }
+        val sampler = ScriptRepairSampler("POST /basket").apply {
+            setProperty(TestElementProperty("HTTPsampler.Arguments", nestedArgument))
+        }
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +sampler
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertTrue(
+            context.dynamicValueCandidates.any {
+                it.literal == uuid &&
+                    it.propertyName == "Argument.value" &&
+                    it.samplerName == "POST /basket"
+            },
+        )
+    }
+
+    @Test
+    fun `summarize suppresses low signal static asset dynamic candidates`() {
+        val assetHash = "app-b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "GET /assets/$assetHash.js",
+                        success = true,
+                        requestBody = "/assets/$assetHash.js",
+                    )
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertTrue(context.dynamicValueCandidates.none { it.literal.contains("b4763075") })
+    }
+
+    @Test
+    fun `dynamic analyzer can include static asset requests when requested`() {
+        val assetId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "GET /assets/runtime.$assetId.js",
+                        success = true,
+                        requestBody = "/assets/runtime.$assetId.js",
+                    )
+                }
+            }
+        }
+
+        assertTrue(AgentDynamicValueAnalyzer().analyze(tree).none { it.literal == assetId })
+        assertTrue(
+            AgentDynamicValueAnalyzer(includeStaticAssetRequests = true)
+                .analyze(tree)
+                .any { it.literal == assetId },
+        )
+    }
+
+    @Test
+    fun `dynamic analyzer prioritizes functional request values before static asset noise`() {
+        val assetId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val transactionId = "38240dbe-3d24-4222-a967-dce8da3df796"
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "GET /assets/runtime.$assetId.js",
+                        success = true,
+                        requestBody = "/assets/runtime.$assetId.js",
+                    )
+                    +ScriptRepairSampler(
+                        "POST /api/tickets",
+                        success = true,
+                        requestBody = """{"transactionId":"$transactionId"}""",
+                    )
+                }
+            }
+        }
+
+        val candidate = AgentDynamicValueAnalyzer(includeStaticAssetRequests = true)
+            .analyze(tree, limit = 1)
+            .single()
+
+        assertEquals(transactionId, candidate.literal)
+        assertTrue(candidate.priority > 100)
+    }
+
+    @Test
+    fun `summarize still reports functional api path opaque ids`() {
+        val pageId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "GET /api/tickets/$pageId",
+                        success = true,
+                        requestBody = "/api/tickets/$pageId",
+                    )
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertTrue(context.dynamicValueCandidates.any { it.literal == pageId })
+    }
+
+    @Test
+    fun `summarize reports fixed uuid in partially parameterized json body`() {
+        val transactionId = "38240dbe-3d24-4222-a967-dce8da3df796"
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "POST /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
+                        success = true,
+                        requestBody = """
+                            {"transactionId":"$transactionId","tickets":[{"productId":"${'$'}{stl_product_id}","drawId":"${'$'}{stl_draw_id}"}]}
+                        """.trimIndent(),
+                    )
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+        val candidate = context.dynamicValueCandidates.single { it.literal == transactionId }
+
+        assertEquals("uuid", candidate.kind)
+        assertTrue(candidate.reason.contains("browser/client-generated"))
+    }
+
+    @Test
+    fun `summarize reports credential and formatted date time candidates`() {
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "POST /login",
+                        success = true,
+                        requestBody = "username=jane@example.test&password=Secret-123&appointment=2026-01-31 23:00:01",
+                    )
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertTrue(
+            context.dynamicValueCandidates.any {
+                it.kind == "credential" && it.literal == "jane@example.test"
+            },
+        )
+        assertTrue(
+            context.dynamicValueCandidates.any {
+                it.kind == "credential" && it.literal == "Secret-123"
+            },
+        )
+        assertTrue(
+            context.dynamicValueCandidates.any {
+                it.kind == "date-time" && it.literal == "2026-01-31 23:00:01"
+            },
+        )
+    }
+
+    @Test
+    fun `summarize reports draw id candidates in json bodies`() {
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler(
+                        "POST /api/basket/verify",
+                        success = true,
+                        requestBody = """{"drawId":"20260620JUL","productId":"${'$'}{product_id}"}""",
+                    )
+                }
+            }
+        }
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertTrue(
+            context.dynamicValueCandidates.any {
+                it.kind == "draw-id" && it.literal == "20260620JUL"
+            },
+        )
+    }
+
+    @Test
+    fun `summarize reports extractor context under samplers`() {
+        val testPlan = TestPlan("Test Plan")
+        val threadGroup = ThreadGroup().apply { name = "Thread Group" }
+        val transaction = TransactionController().apply { name = "03_Transaction" }
+        val sampler = ScriptRepairSampler("POST /u/login")
+        val extractor = FakeRegexExtractor().apply { name = "AI Regex Extractor - auth0_resume_state" }
+
+        val tree = ListedHashTree()
+        val testPlanTree = tree.add(testPlan)
+        val threadGroupTree = testPlanTree.add(threadGroup)
+        val transactionTree = threadGroupTree.add(transaction)
+        val samplerTree = transactionTree.add(sampler)
+        samplerTree.add(extractor)
+
+        val context = AgentPlanSummarizer().summarize(tree)
+
+        assertEquals(1, context.extractors.size)
+        val summary = context.extractors.single()
+        assertEquals("POST /u/login", summary.samplerName)
+        assertEquals("03_Transaction", summary.transactionName)
+        assertEquals("auth0_resume_state", summary.variableName)
+        assertEquals("state=([^&]+)", summary.regex)
+        assertEquals("headers", summary.useField)
+        assertEquals(true, summary.failOnNoMatch)
+    }
+
+    class FakeRegexExtractor : AbstractTestElement() {
+        fun getRefName(): String = "auth0_resume_state"
+
+        fun getRegex(): String = "state=([^&]+)"
+
+        fun getMatchNumberAsString(): String = "1"
+
+        fun getDefaultValue(): String = "NOT_FOUND"
+
+        fun isFailOnNoMatch(): Boolean = true
+
+        fun useHeaders(): Boolean = true
+
+        fun useRequestHeaders(): Boolean = false
+
+        fun useUnescapedBody(): Boolean = false
+
+        fun useBodyAsDocument(): Boolean = false
+
+        fun useUrl(): Boolean = false
+
+        fun useCode(): Boolean = false
+
+        fun useMessage(): Boolean = false
+
+        fun useBody(): Boolean = false
+    }
+
+    class FakeRequestElement : AbstractTestElement()
 }

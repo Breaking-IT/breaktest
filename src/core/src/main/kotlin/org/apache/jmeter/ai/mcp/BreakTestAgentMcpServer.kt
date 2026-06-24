@@ -68,6 +68,10 @@ public object BreakTestAgentMcpServer {
     public fun callToolForCli(name: String, arguments: JsonNode): String =
         mapper.writeValueAsString(executeTool(name, arguments))
 
+    @JvmStatic
+    public fun toolsListForCli(): String =
+        mapper.writeValueAsString(toolsListResult())
+
     private fun initializeBreakTestHome(jmeterHomeArgument: String?) {
         val home = jmeterHomeArgument
             ?: System.getProperty("jmeter.home")
@@ -154,17 +158,18 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "get_ai_knowledge_open_plan",
-                "Read or create the BreakTest AI Knowledge element in the currently open GUI plan.",
+                "Read or create the BreakTest AI Knowledge element in the currently open GUI plan. Returns the selected node path, whether the selected knowledge is default/empty, and all available knowledge nodes so agents can confirm they loaded the intended project learnings.",
                 emptyMap(),
                 emptyList(),
             ))
             add(tool(
                 "update_ai_knowledge_open_plan",
-                "Replace the BreakTest AI Knowledge JSON in the currently open GUI plan.",
+                "Replace the BreakTest AI Knowledge JSON in the currently open GUI plan. Full AI repair runs must call this before finishing. Preserve existing arrays and append reusable run learnings to projectHints, correlationPatterns, assertionPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, and learnedFromThreadGroups. Include selected Thread Group and transaction/request evidence. Default/empty knowledge is rejected unless allowDefault=true.",
                 mapOf(
                     "knowledgeJson" to "string",
                     "knowledge" to "object",
                     "summary" to "string",
+                    "allowDefault" to "boolean",
                 ),
                 emptyList(),
             ))
@@ -187,7 +192,7 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "apply_boundary_correlation_open_plan",
-                "Add a Boundary Extractor to the running BreakTest GUI plan and replace a literal in the open plan.",
+                "Add a Boundary Extractor to the running BreakTest GUI plan and replace a literal in the open plan. Provide evidenceSource and evidence details proving the extractor boundaries came from a validated response, recorded response, or AI Knowledge. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                 mapOf(
                     "sourceSamplerIndex" to "number",
                     "sourceSamplerLabel" to "string",
@@ -198,12 +203,15 @@ public object BreakTestAgentMcpServer {
                     "rightBoundary" to "string",
                     "literal" to "string",
                     "failOnNoMatch" to "boolean",
+                    "evidenceSource" to "string",
+                    "evidence" to "string",
+                    "allowStaticInference" to "boolean",
                 ),
-                listOf("variableName", "leftBoundary", "rightBoundary", "literal"),
+                listOf("variableName", "leftBoundary", "rightBoundary", "literal", "evidenceSource", "evidence"),
             ))
             add(tool(
                 "apply_regex_correlation_open_plan",
-                "Add a Regex Extractor to the running BreakTest GUI plan and replace a literal in the open plan.",
+                "Add a Regex Extractor to the running BreakTest GUI plan and replace a literal. If no target sampler is specified, the literal is replaced across request/config data in the open plan while element names remain unchanged. useField accepts body, headers, request_headers, unescaped, as_document, url, code, or message. Provide evidenceSource and evidence details proving the regex came from a validated response, recorded response, or AI Knowledge. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                 mapOf(
                     "sourceSamplerIndex" to "number",
                     "sourceSamplerLabel" to "string",
@@ -217,12 +225,44 @@ public object BreakTestAgentMcpServer {
                     "useField" to "string",
                     "literal" to "string",
                     "failOnNoMatch" to "boolean",
+                    "evidenceSource" to "string",
+                    "evidence" to "string",
+                    "allowStaticInference" to "boolean",
                 ),
-                listOf("variableName", "regex", "literal"),
+                listOf("variableName", "regex", "literal", "evidenceSource", "evidence"),
+            ))
+            add(tool(
+                "update_regex_extractor_open_plan",
+                "Update an existing Regex Extractor under a source sampler by variableName. Use this instead of replace_literal_open_plan for changing regex, useField, template, matchNumber, defaultValue, or failOnNoMatch.",
+                mapOf(
+                    "sourceSamplerIndex" to "number",
+                    "sourceSamplerLabel" to "string",
+                    "variableName" to "string",
+                    "regex" to "string",
+                    "template" to "string",
+                    "matchNumber" to "string",
+                    "defaultValue" to "string",
+                    "useField" to "string",
+                    "failOnNoMatch" to "boolean",
+                ),
+                listOf("variableName"),
             ))
             add(tool(
                 "replace_literal_open_plan",
-                "Replace a literal inside one target sampler subtree in the running BreakTest GUI plan.",
+                "Replace a literal in one target sampler subtree, or in the whole running BreakTest GUI plan when no target sampler is specified. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "literal" to "string",
+                    "replacement" to "string",
+                    "includeNames" to "boolean",
+                    "excludeUserDefinedVariables" to "boolean",
+                ),
+                listOf("literal", "replacement"),
+            ))
+            add(tool(
+                "replace_literal_in_names_open_plan",
+                "Replace a literal only in element names in the running BreakTest GUI plan, or under one target sampler when specified. Use this after parameterizing request data to turn stale UUIDs/IDs in sampler labels into static display placeholders such as {basket_page_id}. This rejects ${'$'}{variable} replacements because element names must stay static.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
@@ -232,8 +272,90 @@ public object BreakTestAgentMcpServer {
                 listOf("literal", "replacement"),
             ))
             add(tool(
+                "set_user_defined_variable_open_plan",
+                "Create or update a top-level Test Plan User Defined Variable in the running BreakTest GUI plan. For credentials, pass the preserved original literal value, not the ${'$'}{variable} reference; self-referential values are rejected.",
+                mapOf(
+                    "name" to "string",
+                    "value" to "string",
+                ),
+                listOf("name", "value"),
+            ))
+            add(tool(
+                "list_http_arguments_open_plan",
+                "List HTTP arguments exposed by a target sampler, including actual argument names, values, and alwaysEncode flags. Use this before credential or POST form edits when names are uncertain.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "set_http_argument_encode_open_plan",
+                "Set the alwaysEncode flag on matching HTTP arguments in a sampler. Use this before replacing encoded form values with \${variable} references when the variable syntax would otherwise be percent-encoded.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "argumentName" to "string",
+                    "argumentValue" to "string",
+                    "alwaysEncode" to "boolean",
+                ),
+                listOf("alwaysEncode"),
+            ))
+            add(tool(
+                "set_http_argument_value_open_plan",
+                "Set the value of a matching HTTP argument in a target sampler, optionally setting alwaysEncode in the same edit. Use this for POST form arguments such as username/password when literal replacement or encoding edits are ambiguous.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "argumentName" to "string",
+                    "argumentValue" to "string",
+                    "newValue" to "string",
+                    "alwaysEncode" to "boolean",
+                ),
+                listOf("newValue"),
+            ))
+            add(tool(
+                "search_open_plan_values",
+                "Search string-valued open-plan properties for a literal or regex. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the Test Plan variables table is not counted as a stale request value.",
+                mapOf(
+                    "literal" to "string",
+                    "regex" to "string",
+                    "includeNames" to "boolean",
+                    "excludeUserDefinedVariables" to "boolean",
+                    "maxMatches" to "number",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "audit_dynamic_request_values_open_plan",
+                "Audit the open GUI plan for hard-coded request-looking dynamic values in paths, query strings, bodies, cookies, and headers, including UUIDs, bearer/JWT tokens, csrf/request-verification tokens, credentials, long opaque IDs, numeric IDs, drawId-style fields, formatted date-times, and epoch-millisecond timestamps. Static browser assets such as CSS, JavaScript, images, fonts, and source maps are ignored by default; set includeStaticAssets=true only when those asset responses are relevant to a failure. Use this after inspection and again before finishing; a green validation run does not clear unresolved high-confidence candidates.",
+                mapOf(
+                    "maxCandidates" to "number",
+                    "includeStaticAssets" to "boolean",
+                    "threadGroupName" to "string",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "add_jsr223_open_plan",
+                "Add a GUI-backed JSR223 Groovy element to the test plan, an enabled Thread Group, or a target sampler. Supports elementType sampler, preprocessor, postprocessor, assertion, or timer. Preprocessors, postprocessors, and assertions must target a specific sampler; use elementType=sampler for setup code under a Thread Group.",
+                mapOf(
+                    "parentType" to "string",
+                    "threadGroupName" to "string",
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "elementType" to "string",
+                    "name" to "string",
+                    "language" to "string",
+                    "parameters" to "string",
+                    "cacheKey" to "string",
+                    "script" to "string",
+                ),
+                listOf("script"),
+            ))
+            add(tool(
                 "add_response_assertion_open_plan",
-                "Add a Response Assertion to a sampler in the running BreakTest GUI plan.",
+                "Add a Response Assertion to a sampler in the running BreakTest GUI plan. Assertion patterns must be meaningful response markers; weak single-word/generic patterns such as tickets, succes, Mijn, or juli are rejected unless allowWeakPattern=true. Provide evidenceSource and evidence details proving the marker came from a validated response, recorded response, or AI Knowledge. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
@@ -241,17 +363,45 @@ public object BreakTestAgentMcpServer {
                     "pattern" to "string",
                     "field" to "string",
                     "matchType" to "string",
+                    "allowWeakPattern" to "boolean",
+                    "evidenceSource" to "string",
+                    "evidence" to "string",
+                    "allowStaticInference" to "boolean",
+                ),
+                listOf("pattern", "evidenceSource", "evidence"),
+            ))
+            add(tool(
+                "update_response_assertion_open_plan",
+                "Update one existing Response Assertion under a target sampler. Use this to fix assertion pattern, field, or match type without touching request bodies or other sampler data. Provide assertionName and/or currentPattern to identify the assertion. Weak single-word/generic patterns are rejected unless allowWeakPattern=true.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "assertionName" to "string",
+                    "currentPattern" to "string",
+                    "pattern" to "string",
+                    "field" to "string",
+                    "matchType" to "string",
+                    "allowWeakPattern" to "boolean",
                 ),
                 listOf("pattern"),
             ))
             add(tool(
                 "set_redirect_mode_open_plan",
-                "Set followRedirects and/or autoRedirects on an HTTP sampler in the running BreakTest GUI plan.",
+                "Set followRedirects and/or autoRedirects on an HTTP sampler in the running BreakTest GUI plan. Use only as a diagnostic edit after inspection proves an intermediate response/header is hidden by redirect handling; post the reason and revalidate immediately because redirect changes can alter auth/payment behavior.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
                     "followRedirects" to "boolean",
                     "autoRedirects" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "move_think_times_to_transactions_open_plan",
+                "Move standalone ThinkTime TestAction sampler nodes with timer children into the next Transaction Controller's transaction-level delay fields, then remove the standalone ThinkTime nodes by default. Use this for requests like moving separate think time timers to transaction level instead of probing or editing TransactionController.delayMode/delayMin/delayMax with literal replacement.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "removeOriginal" to "boolean",
                 ),
                 emptyList(),
             ))
@@ -371,9 +521,20 @@ public object BreakTestAgentMcpServer {
                 "agent_activity" -> callGuiTool("agent_activity", arguments)
                 "apply_boundary_correlation_open_plan" -> callGuiTool("apply_boundary_correlation_open_plan", arguments)
                 "apply_regex_correlation_open_plan" -> callGuiTool("apply_regex_correlation_open_plan", arguments)
+                "update_regex_extractor_open_plan" -> callGuiTool("update_regex_extractor_open_plan", arguments)
                 "replace_literal_open_plan" -> callGuiTool("replace_literal_open_plan", arguments)
+                "replace_literal_in_names_open_plan" -> callGuiTool("replace_literal_in_names_open_plan", arguments)
+                "set_user_defined_variable_open_plan" -> callGuiTool("set_user_defined_variable_open_plan", arguments)
+                "list_http_arguments_open_plan" -> callGuiTool("list_http_arguments_open_plan", arguments)
+                "set_http_argument_encode_open_plan" -> callGuiTool("set_http_argument_encode_open_plan", arguments)
+                "set_http_argument_value_open_plan" -> callGuiTool("set_http_argument_value_open_plan", arguments)
+                "search_open_plan_values" -> callGuiTool("search_open_plan_values", arguments)
+                "audit_dynamic_request_values_open_plan" -> callGuiTool("audit_dynamic_request_values_open_plan", arguments)
+                "add_jsr223_open_plan" -> callGuiTool("add_jsr223_open_plan", arguments)
                 "add_response_assertion_open_plan" -> callGuiTool("add_response_assertion_open_plan", arguments)
+                "update_response_assertion_open_plan" -> callGuiTool("update_response_assertion_open_plan", arguments)
                 "set_redirect_mode_open_plan" -> callGuiTool("set_redirect_mode_open_plan", arguments)
+                "move_think_times_to_transactions_open_plan" -> callGuiTool("move_think_times_to_transactions_open_plan", arguments)
                 "inspect_jmx" -> inspectJmx(arguments)
                 "validate_jmx" -> validateJmx(arguments)
                 "apply_boundary_correlation" -> applyBoundaryCorrelation(arguments)
@@ -419,9 +580,20 @@ public object BreakTestAgentMcpServer {
             "agent_activity",
             "apply_boundary_correlation_open_plan",
             "apply_regex_correlation_open_plan",
+            "update_regex_extractor_open_plan",
             "replace_literal_open_plan",
+            "replace_literal_in_names_open_plan",
+            "set_user_defined_variable_open_plan",
+            "list_http_arguments_open_plan",
+            "set_http_argument_encode_open_plan",
+            "set_http_argument_value_open_plan",
+            "search_open_plan_values",
+            "audit_dynamic_request_values_open_plan",
+            "add_jsr223_open_plan",
             "add_response_assertion_open_plan",
+            "update_response_assertion_open_plan",
             "set_redirect_mode_open_plan",
+            "move_think_times_to_transactions_open_plan",
         )
 
     private fun postGuiActivityIfAvailable(level: String, message: String, details: String? = null) {
@@ -511,7 +683,7 @@ public object BreakTestAgentMcpServer {
         )
 
     internal fun dslCharacterLimit(arguments: JsonNode): Int? {
-        if (arguments.path("includeDsl").takeIfPresent()?.asBoolean() == false) {
+        if (arguments.path("includeDsl").takeIfPresent()?.asBoolean() != true) {
             return 0
         }
         return arguments.path("dslCharacterLimit").takeIfPresent()?.asInt() ?: DEFAULT_DSL_CHARACTER_LIMIT
@@ -536,7 +708,7 @@ public object BreakTestAgentMcpServer {
     private fun callGuiTool(name: String, arguments: JsonNode): Any {
         val descriptor = BreakTestAgentGuiService.descriptorFile()
         require(descriptor.isFile) {
-            "BreakTest GUI agent is not running. Start BreakTest with -Dbreaktest.agent.enabled=true first."
+            "BreakTest GUI agent is not running. Start BreakTest GUI from this build first, or check that breaktest.agent.enabled was not set to false."
         }
         val details = mapper.readTree(descriptor)
         val host = details.path("host").asText("127.0.0.1")

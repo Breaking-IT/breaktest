@@ -88,7 +88,7 @@ public final class Jsr223AiHelper {
             Runnable changedCallback) {
         if (RUNNING.get()) {
             AiAutoScriptingLogWindow.append("JSR223 AI Helper is already running.");
-            AiAutoScriptingLogWindow.showWindow();
+            AiAutoScriptingLogWindow.showLog();
             return;
         }
         JTextArea request = new JTextArea(7, 56);
@@ -125,7 +125,7 @@ public final class Jsr223AiHelper {
         if (!RUNNING.compareAndSet(false, true)) {
             return;
         }
-        AiAutoScriptingLogWindow.showWindow();
+        AiAutoScriptingLogWindow.showLog();
         AiAutoScriptingLogWindow.startRun();
         AiAutoScriptingLogWindow.append("JSR223 AI Helper: generating script update.");
         Thread worker = new Thread(

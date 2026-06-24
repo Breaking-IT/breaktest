@@ -47,19 +47,101 @@ public object AiAutoScriptingLogWindow {
     private const val MAX_DOCUMENT_LENGTH = 120_000
     private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss")
     private var dialog: EscapeDialog? = null
+    private var contentPanel: JPanel? = null
     private var textArea: JTextArea? = null
     private var statusLabel: JLabel? = null
     private var progressBar: JProgressBar? = null
     private var changeTable: JTable? = null
+    private var stopButton: JButton? = null
+    private var placementButton: JButton? = null
+    private var separateWindowMode = false
     private var startedAt: Instant? = null
+    private var stopHandler: Runnable? = null
     private val timer = Timer(1_000) { updateStatus() }
     private val changeModel = ChangeTableModel()
 
     @JvmStatic
     public fun showWindow() {
         onEdt {
+            separateWindowMode = true
             ensureDialog().isVisible = true
             placeBesideMainFrame()
+            updatePlacementButton()
+        }
+    }
+
+    @JvmStatic
+    public fun showLog() {
+        if (separateWindowMode) {
+            showWindow()
+        } else {
+            showDocked()
+        }
+    }
+
+    @JvmStatic
+    public fun showDocked() {
+        onEdt {
+            separateWindowMode = false
+            dialog?.isVisible = false
+            GuiPackage.getInstance()?.mainFrame?.showAiLogPanel()
+            updatePlacementButton()
+        }
+    }
+
+    @JvmStatic
+    public fun toggleVisibility() {
+        onEdt {
+            if (separateWindowMode) {
+                val currentDialog = ensureDialog()
+                currentDialog.isVisible = !currentDialog.isVisible
+                if (currentDialog.isVisible) {
+                    placeBesideMainFrame()
+                }
+            } else {
+                val mainFrame = GuiPackage.getInstance()?.mainFrame ?: return@onEdt
+                if (mainFrame.isAiLogPanelVisible) {
+                    mainFrame.hideAiLogPanel()
+                } else {
+                    showDocked()
+                }
+            }
+            updatePlacementButton()
+        }
+    }
+
+    @JvmStatic
+    public fun dockedComponent(): JPanel {
+        ensureContentPanel()
+        return contentPanel ?: error("AI log panel was not created")
+    }
+
+    @JvmStatic
+    public fun useSeparateWindow() {
+        showWindow()
+    }
+
+    @JvmStatic
+    public fun useDockedPanel() {
+        showDocked()
+    }
+
+    @JvmStatic
+    public fun isSeparateWindowMode(): Boolean = separateWindowMode
+
+    @JvmStatic
+    public fun isDockedVisible(): Boolean =
+        GuiPackage.getInstance()?.mainFrame?.isAiLogPanelVisible ?: false
+
+    @JvmStatic
+    public fun isSeparateWindowVisible(): Boolean =
+        dialog?.isVisible == true
+
+    @JvmStatic
+    public fun hideDocked() {
+        onEdt {
+            GuiPackage.getInstance()?.mainFrame?.hideAiLogPanel()
+            updatePlacementButton()
         }
     }
 
@@ -68,10 +150,17 @@ public object AiAutoScriptingLogWindow {
         val line = "${LocalTime.now(ZoneId.systemDefault()).format(timeFormat)} ${message.compactForDisplay()}\n"
         onEdt {
             val area = ensureTextArea()
-            ensureDialog().isVisible = true
             area.append(line)
             trimDocument(area)
             area.caretPosition = area.document.length
+        }
+    }
+
+    @JvmStatic
+    public fun setStopHandler(handler: Runnable?) {
+        onEdt {
+            stopHandler = handler
+            updateStopButton()
         }
     }
 
@@ -80,9 +169,10 @@ public object AiAutoScriptingLogWindow {
         onEdt {
             startedAt = Instant.now()
             changeModel.clear()
-            ensureDialog().isVisible = true
+            showLog()
             ensureProgressBar().isIndeterminate = true
             ensureStatusLabel().text = "Running..."
+            updateStopButton()
             if (!timer.isRunning) {
                 timer.start()
             }
@@ -96,13 +186,13 @@ public object AiAutoScriptingLogWindow {
             startedAt = null
             ensureProgressBar().isIndeterminate = false
             ensureStatusLabel().text = status
+            updateStopButton()
         }
     }
 
     @JvmStatic
     public fun recordChange(type: String, nodeName: String, summary: String, details: String?, path: TreePath?) {
         onEdt {
-            ensureDialog().isVisible = true
             changeModel.add(
                 ChangeEntry(
                     time = LocalTime.now(ZoneId.systemDefault()).format(timeFormat),
@@ -141,8 +231,19 @@ public object AiAutoScriptingLogWindow {
         val mainFrame = GuiPackage.getInstance()?.mainFrame
         val newDialog = EscapeDialog(mainFrame, "AI Auto Scripting", false).apply {
             contentPane.layout = BorderLayout()
-            contentPane.add(toolbar(), BorderLayout.NORTH)
-            contentPane.add(
+            contentPane.add(ensureContentPanel(), BorderLayout.CENTER)
+            minimumSize = Dimension(460, 280)
+            size = Dimension(620, 520)
+        }
+        dialog = newDialog
+        return newDialog
+    }
+
+    private fun ensureContentPanel(): JPanel {
+        contentPanel?.let { return it }
+        val panel = JPanel(BorderLayout()).apply {
+            add(toolbar(), BorderLayout.NORTH)
+            add(
                 JSplitPane(
                     JSplitPane.VERTICAL_SPLIT,
                     JScrollPane(
@@ -157,15 +258,13 @@ public object AiAutoScriptingLogWindow {
                     ),
                 ).apply {
                     resizeWeight = 0.68
-                    dividerLocation = 330
+                    dividerLocation = 250
                 },
                 BorderLayout.CENTER,
             )
-            minimumSize = Dimension(460, 280)
-            size = Dimension(620, 520)
         }
-        dialog = newDialog
-        return newDialog
+        contentPanel = panel
+        return panel
     }
 
     private fun toolbar(): JPanel =
@@ -175,10 +274,62 @@ public object AiAutoScriptingLogWindow {
                 add(ensureProgressBar(), BorderLayout.WEST)
                 add(ensureStatusLabel(), BorderLayout.CENTER)
             }, BorderLayout.CENTER)
-            add(JButton("Clear").apply {
-                addActionListener { clear() }
+            add(JPanel(BorderLayout(6, 0)).apply {
+                add(JButton("Clear").apply {
+                    addActionListener { clear() }
+                }, BorderLayout.WEST)
+                add(JPanel(BorderLayout(6, 0)).apply {
+                    add(ensureStopButton(), BorderLayout.WEST)
+                    add(ensurePlacementButton(), BorderLayout.EAST)
+                }, BorderLayout.EAST)
             }, BorderLayout.EAST)
         }
+
+    private fun ensureStopButton(): JButton {
+        stopButton?.let { return it }
+        val button = JButton("Stop").apply {
+            isEnabled = false
+            toolTipText = "Stop the running AI Auto Scripting process"
+            addActionListener {
+                isEnabled = false
+                stopHandler?.run()
+            }
+        }
+        stopButton = button
+        updateStopButton()
+        return button
+    }
+
+    private fun updateStopButton() {
+        stopButton?.isEnabled = stopHandler != null && startedAt != null
+    }
+
+    private fun ensurePlacementButton(): JButton {
+        placementButton?.let { return it }
+        val button = JButton().apply {
+            addActionListener {
+                if (separateWindowMode) {
+                    showDocked()
+                } else {
+                    showWindow()
+                }
+            }
+        }
+        placementButton = button
+        updatePlacementButton()
+        return button
+    }
+
+    private fun updatePlacementButton() {
+        placementButton?.let {
+            it.text = if (separateWindowMode) "Dock" else "Open Window"
+            it.toolTipText = if (separateWindowMode) {
+                "Show AI log at the bottom of the main BreakTest window"
+            } else {
+                "Show AI log in a separate window"
+            }
+        }
+    }
 
     private fun ensureProgressBar(): JProgressBar {
         progressBar?.let { return it }
