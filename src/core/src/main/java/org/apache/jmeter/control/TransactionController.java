@@ -555,6 +555,9 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     private void applyTransactionPacing() {
+        if (JMeterContextService.isValidationRun()) {
+            return;
+        }
         long pacingDelay = computeTransactionPacingDelay();
         if (pacingDelay <= 0) {
             return;
@@ -563,6 +566,9 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     private void applyTransactionDelay() {
+        if (JMeterContextService.isValidationRun()) {
+            return;
+        }
         long delay = computeTransactionDelay();
         if (delay <= 0) {
             return;
