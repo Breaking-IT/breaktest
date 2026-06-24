@@ -46,7 +46,6 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRootPane;
@@ -446,8 +445,15 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                     JMeterUtils.getResString("search_tree_matches"), result.numberOfMatches()));
             return;
         }
-        if (!confirmRemoveMatching(nodesToRemove)) {
+        List<JMeterTreeNode> confirmedNodesToRemove = confirmRemoveMatching(nodesToRemove);
+        if (confirmedNodesToRemove == null) {
             searchTF.requestFocusInWindow();
+            return;
+        }
+        if (confirmedNodesToRemove.isEmpty()) {
+            searchTF.requestFocusInWindow();
+            statusLabel.setText(MessageFormat.format(
+                    JMeterUtils.getResString("search_remove_matching_status"), 0));
             return;
         }
 
@@ -458,7 +464,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         int removed = 0;
         guiPackage.beginUndoTransaction();
         try {
-            for (JMeterTreeNode node : sortedForRemoval(nodesToRemove)) {
+            for (JMeterTreeNode node : sortedForRemoval(confirmedNodesToRemove)) {
                 if (removeMatchingNode(guiPackage, node)) {
                     removed++;
                 }
@@ -485,12 +491,14 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         return flagNodeTypesInTree(guiPackage, searchConditions.nodeTypes());
     }
 
-    private boolean confirmRemoveMatching(List<JMeterTreeNode> nodesToRemove) {
-        JList<String> matchedElements = new JList<>(
-                nodesToRemove.stream()
-                        .map(SearchTreeDialog::formatNodePath)
-                        .toArray(String[]::new));
-        matchedElements.setVisibleRowCount(Math.min(12, nodesToRemove.size()));
+    private List<JMeterTreeNode> confirmRemoveMatching(List<JMeterTreeNode> nodesToRemove) {
+        List<JCheckBox> matchedElementCheckboxes = nodesToRemove.stream()
+                .map(node -> new JCheckBox(formatNodePath(node), true))
+                .toList();
+        JPanel matchedElements = new JPanel(new GridLayout(0, 1));
+        for (JCheckBox matchedElementCheckbox : matchedElementCheckboxes) {
+            matchedElements.add(matchedElementCheckbox);
+        }
         JScrollPane scrollPane = new JScrollPane(matchedElements);
         scrollPane.setPreferredSize(new Dimension(520, 260));
 
@@ -499,12 +507,22 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 JMeterUtils.getResString("search_remove_matching_confirm"), nodesToRemove.size())), BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        return JOptionPane.showConfirmDialog(
+        int result = JOptionPane.showConfirmDialog(
                 this,
                 panel,
                 JMeterUtils.getResString("search_remove_matching_title"),
                 JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION;
+                JOptionPane.WARNING_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) {
+            return null;
+        }
+        List<JMeterTreeNode> selectedNodes = new ArrayList<>();
+        for (int i = 0; i < matchedElementCheckboxes.size(); i++) {
+            if (matchedElementCheckboxes.get(i).isSelected()) {
+                selectedNodes.add(nodesToRemove.get(i));
+            }
+        }
+        return selectedNodes;
     }
 
     private static String formatNodePath(JMeterTreeNode node) {
