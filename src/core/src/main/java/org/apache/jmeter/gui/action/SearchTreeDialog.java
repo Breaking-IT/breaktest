@@ -25,6 +25,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -45,8 +46,11 @@ import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JRootPane;
+import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.JTree;
 import javax.swing.tree.TreePath;
@@ -104,6 +108,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private JButton replaceAllButton;
 
     private JButton replaceAndFindButton;
+
+    private JButton removeMatchingButton;
 
     private JButton resetSearchButton;
 
@@ -233,7 +239,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         searchPanel.add(resetSearchButton);
 
 
-        JPanel buttonsPanel = new JPanel(new GridLayout(9, 1));
+        JPanel buttonsPanel = new JPanel(new GridLayout(10, 1));
         searchButton = createButton("search_search_all"); //$NON-NLS-1$
         searchButton.addActionListener(this);
         nextButton = createButton("search_next"); //$NON-NLS-1$
@@ -248,6 +254,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         replaceAllButton.addActionListener(this);
         replaceAndFindButton = createButton("search_replace_and_find"); //$NON-NLS-1$
         replaceAndFindButton.addActionListener(this);
+        removeMatchingButton = createButton("search_remove_matching"); //$NON-NLS-1$
+        removeMatchingButton.addActionListener(this);
         cancelButton = createButton("cancel"); //$NON-NLS-1$
         cancelButton.addActionListener(this);
         buttonsPanel.add(nextButton);
@@ -258,6 +266,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         buttonsPanel.add(replaceButton);
         buttonsPanel.add(replaceAllButton);
         buttonsPanel.add(replaceAndFindButton);
+        buttonsPanel.add(removeMatchingButton);
         buttonsPanel.add(cancelButton);
         updateReplaceControlsState();
 
@@ -309,6 +318,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 doReplace();
             }
             doNavigateToSearchResult(true);
+        } else if (source == removeMatchingButton) {
+            doRemoveMatching(e);
         } else if(source == resetSearchButton) {
             doResetSearch(e);
         }
@@ -418,6 +429,116 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                         JMeterUtils.getResString("search_tree_matches"), numberOfMatches));
     }
 
+    private void doRemoveMatching(ActionEvent e) {
+        SearchConditions currentSearchConditions = currentSearchConditions();
+        String wordToSearch = currentSearchConditions.word();
+        Set<NodeType> nodeTypes = currentSearchConditions.nodeTypes();
+        if (nodeTypes.isEmpty() && StringUtilities.isEmpty(wordToSearch)) {
+            this.lastSearchConditions = null;
+            return;
+        }
+
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        SearchResult result = findMatchingNodes(guiPackage, currentSearchConditions);
+        List<JMeterTreeNode> nodesToRemove = new ArrayList<>(result.nodes());
+        if (nodesToRemove.isEmpty()) {
+            statusLabel.setText(MessageFormat.format(
+                    JMeterUtils.getResString("search_tree_matches"), result.numberOfMatches()));
+            return;
+        }
+        if (!confirmRemoveMatching(nodesToRemove)) {
+            searchTF.requestFocusInWindow();
+            return;
+        }
+
+        // Save any change to current node before mutating the tree.
+        guiPackage.updateCurrentNode();
+        ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
+
+        int removed = 0;
+        guiPackage.beginUndoTransaction();
+        try {
+            for (JMeterTreeNode node : sortedForRemoval(nodesToRemove)) {
+                if (removeMatchingNode(guiPackage, node)) {
+                    removed++;
+                }
+            }
+        } finally {
+            guiPackage.endUndoTransaction();
+        }
+
+        this.lastSearchConditions = null;
+        this.currentSearchIndex = -1;
+        this.lastSearchResult.clear();
+        selectRootNode(guiPackage);
+        guiPackage.refreshCurrentGui();
+        guiPackage.getMainFrame().repaint();
+        searchTF.requestFocusInWindow();
+        statusLabel.setText(MessageFormat.format(
+                JMeterUtils.getResString("search_remove_matching_status"), removed));
+    }
+
+    private SearchResult findMatchingNodes(GuiPackage guiPackage, SearchConditions searchConditions) {
+        if (searchConditions.nodeTypes().isEmpty()) {
+            return searchInTree(guiPackage, createSearcher(searchConditions.word()), searchConditions.word());
+        }
+        return flagNodeTypesInTree(guiPackage, searchConditions.nodeTypes());
+    }
+
+    private boolean confirmRemoveMatching(List<JMeterTreeNode> nodesToRemove) {
+        JList<String> matchedElements = new JList<>(
+                nodesToRemove.stream()
+                        .map(SearchTreeDialog::formatNodePath)
+                        .toArray(String[]::new));
+        matchedElements.setVisibleRowCount(Math.min(12, nodesToRemove.size()));
+        JScrollPane scrollPane = new JScrollPane(matchedElements);
+        scrollPane.setPreferredSize(new Dimension(520, 260));
+
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.add(new JLabel(MessageFormat.format(
+                JMeterUtils.getResString("search_remove_matching_confirm"), nodesToRemove.size())), BorderLayout.NORTH);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        return JOptionPane.showConfirmDialog(
+                this,
+                panel,
+                JMeterUtils.getResString("search_remove_matching_title"),
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION;
+    }
+
+    private static String formatNodePath(JMeterTreeNode node) {
+        return String.join(" > ",
+                List.of(node.getPath()).stream()
+                        .map(pathNode -> ((JMeterTreeNode) pathNode).getName())
+                        .toList());
+    }
+
+    private static List<JMeterTreeNode> sortedForRemoval(List<JMeterTreeNode> nodes) {
+        return nodes.stream()
+                .sorted(Comparator.comparingInt(JMeterTreeNode::getLevel).reversed())
+                .toList();
+    }
+
+    private static boolean removeMatchingNode(GuiPackage guiPackage, JMeterTreeNode node) {
+        TestElement testElement = node.getTestElement();
+        if (!testElement.canRemove()) {
+            logger.warn("Cannot remove matching search element {} because it is busy", testElement.getName());
+            return false;
+        }
+        guiPackage.getTreeModel().removeNodeFromParent(node);
+        guiPackage.removeNode(testElement);
+        testElement.removed();
+        return true;
+    }
+
+    private static void selectRootNode(GuiPackage guiPackage) {
+        Object root = guiPackage.getTreeModel().getRoot();
+        if (root instanceof JMeterTreeNode rootNode) {
+            guiPackage.getMainFrame().getTree().setSelectionPath(new TreePath(rootNode.getPath()));
+        }
+    }
+
     /**
      * @param wordToSearch
      * @return
@@ -430,7 +551,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         }
     }
 
-    private Map.Entry<Integer, Set<JMeterTreeNode>> searchInTree(GuiPackage guiPackage, Searcher searcher, String wordToSearch) {
+    private SearchResult searchInTree(GuiPackage guiPackage, Searcher searcher, String wordToSearch) {
         int numberOfMatches = 0;
         JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
@@ -450,10 +571,10 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.currentSearchIndex = -1;
         this.lastSearchResult.clear();
         this.lastSearchResult.addAll(nodes);
-        return Map.entry(numberOfMatches, nodes);
+        return new SearchResult(numberOfMatches, nodes);
     }
 
-    private Map.Entry<Integer, Set<JMeterTreeNode>> flagNodeTypesInTree(GuiPackage guiPackage, Set<NodeType> nodeTypes) {
+    private SearchResult flagNodeTypesInTree(GuiPackage guiPackage, Set<NodeType> nodeTypes) {
         int numberOfMatches = 0;
         JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
@@ -467,7 +588,25 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.currentSearchIndex = -1;
         this.lastSearchResult.clear();
         this.lastSearchResult.addAll(nodes);
-        return Map.entry(numberOfMatches, nodes);
+        return new SearchResult(numberOfMatches, nodes);
+    }
+
+    private record SearchResult(Integer numberOfMatches, Set<JMeterTreeNode> nodes)
+            implements Map.Entry<Integer, Set<JMeterTreeNode>> {
+        @Override
+        public Integer getKey() {
+            return numberOfMatches;
+        }
+
+        @Override
+        public Set<JMeterTreeNode> getValue() {
+            return nodes;
+        }
+
+        @Override
+        public Set<JMeterTreeNode> setValue(Set<JMeterTreeNode> value) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     static boolean matchesAnySelectedNodeType(TestElement testElement, Set<NodeType> nodeTypes) {
