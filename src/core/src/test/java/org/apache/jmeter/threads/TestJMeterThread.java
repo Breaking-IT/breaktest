@@ -507,7 +507,9 @@ class TestJMeterThread {
         context.setThread(jMeterThread);
 
         TestCompiler.initialize();
-        testTree.traverse(new TestCompiler(testTree));
+        Field compilerField = JMeterThread.class.getDeclaredField("compiler");
+        compilerField.setAccessible(true);
+        testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
         parallelController.initialize();
         ParallelControllerSampler parallelSampler = (ParallelControllerSampler) parallelController.next();
         AtomicBoolean sawParallelController = new AtomicBoolean();
@@ -529,6 +531,71 @@ class TestJMeterThread {
 
         assertTrue(sawParallelController.get(),
                 "Synthetic parallel sampler should resolve to the real ParallelController in the test tree");
+    }
+
+    @Test
+    void testTransactionWrappedParallelControllerSamplerLogicalActionUsesSourceController() throws Exception {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("transaction");
+        transactionController.setGenerateParentSample(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, transactionController);
+        testTree.add(transactionController, parallelController);
+        testTree.add(parallelController, createSampler());
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("transaction-parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        JMeterContext context = JMeterContextService.getContext();
+        context.setVariables(new JMeterVariables());
+        context.setThread(jMeterThread);
+        context.setThreadGroup(threadGroup);
+
+        TestCompiler.initialize();
+        Field compilerField = JMeterThread.class.getDeclaredField("compiler");
+        compilerField.setAccessible(true);
+        testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
+        parallelController.initialize();
+        ParallelControllerSampler parallelSampler = (ParallelControllerSampler) parallelController.next();
+        TransactionSampler transactionSampler = new TransactionSampler(transactionController, transactionController.getName());
+        setSubSampler(transactionSampler, parallelSampler);
+        AtomicBoolean sawParallelController = new AtomicBoolean();
+        AtomicBoolean sawTransactionController = new AtomicBoolean();
+        Method triggerMethod = JMeterThread.class.getDeclaredMethod(
+                "triggerLoopLogicalActionOnParentControllers",
+                Sampler.class,
+                JMeterContext.class,
+                Consumer.class);
+        triggerMethod.setAccessible(true);
+
+        triggerMethod.invoke(
+                jMeterThread,
+                transactionSampler,
+                context,
+                (Consumer<FindTestElementsUpToRootTraverser>) traverser -> {
+                    List<Controller> controllers = traverser.getControllersToRoot();
+                    sawParallelController.set(controllers.contains(parallelController));
+                    sawTransactionController.set(controllers.contains(transactionController));
+                });
+
+        assertTrue(sawParallelController.get(),
+                "Transaction-wrapped parallel sampler should resolve to the real ParallelController");
+        assertTrue(sawTransactionController.get(),
+                "Start Next Thread Loop should unwind the enclosing TransactionController");
     }
 
     @Test
@@ -684,6 +751,12 @@ class TestJMeterThread {
         processParallelSampler.setAccessible(true);
         processParallelSampler.invoke(jMeterThread, parallelSampler, null, null, context);
         return context;
+    }
+
+    private static void setSubSampler(TransactionSampler transactionSampler, Sampler subSampler) throws Exception {
+        Method setSubSampler = TransactionSampler.class.getDeclaredMethod("setSubSampler", Sampler.class);
+        setSubSampler.setAccessible(true);
+        setSubSampler.invoke(transactionSampler, subSampler);
     }
 
     private static Timer createConstantTimer(long delay) {

@@ -482,12 +482,12 @@ public class JMeterThread implements Runnable, Interruptible {
      * @return tree node that should be used to find the sampler's parent controllers
      */
     private static Object findRealSampler(Sampler sampler) {
-        if (sampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
-            return parallelSampler.getController();
-        }
         Sampler realSampler = sampler;
         while (realSampler instanceof TransactionSampler transSampler) {
             realSampler = transSampler.getSubSampler();
+        }
+        if (realSampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
+            return parallelSampler.getController();
         }
         return realSampler;
     }
