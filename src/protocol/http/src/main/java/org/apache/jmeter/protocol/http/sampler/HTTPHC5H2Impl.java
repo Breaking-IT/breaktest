@@ -25,6 +25,7 @@ import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.channels.SelectionKey;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.HashMap;
@@ -72,6 +73,7 @@ import org.apache.hc.client5.http.impl.DefaultAuthenticationStrategy;
 import org.apache.hc.client5.http.impl.DefaultHttpRequestRetryStrategy;
 import org.apache.hc.client5.http.impl.LaxRedirectStrategy;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
+import org.apache.hc.client5.http.impl.async.HttpAsyncClientBuilder;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
 import org.apache.hc.client5.http.impl.auth.BasicSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.DigestSchemeFactory;
@@ -91,6 +93,7 @@ import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ClassicHttpResponse;
+import org.apache.hc.core5.http.ConnectionClosedException;
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpEntity;
 import org.apache.hc.core5.http.HttpHost;
@@ -98,6 +101,7 @@ import org.apache.hc.core5.http.HttpRequest;
 import org.apache.hc.core5.http.HttpResponse;
 import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http.ProtocolVersion;
+import org.apache.hc.core5.http.RequestNotExecutedException;
 import org.apache.hc.core5.http.URIScheme;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.RegistryBuilder;
@@ -105,11 +109,14 @@ import org.apache.hc.core5.http.message.BufferedHeader;
 import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
 import org.apache.hc.core5.http.protocol.HttpContext;
+import org.apache.hc.core5.http2.H2ConnectionException;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.io.CloseMode;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.ConnectionInitiator;
 import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.hc.core5.reactor.IOSession;
+import org.apache.hc.core5.reactor.IOSessionListener;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -157,6 +164,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final int DEFAULT_HTTP2_IO_THREAD_COUNT = 1;
 
+    private static final String HTTP2_CLOSED_SESSION_RETRY_COUNT =
+            "httpsampler.hc5.h2.closed_session_retry_count";
+
+    private static final int CLOSED_SESSION_RETRY_COUNT = Math.max(0,
+            JMeterUtils.getPropDefault(HTTP2_CLOSED_SESSION_RETRY_COUNT, 1));
+
+    private static final String HTTP2_DEBUG_CONNECTION_CLOSURE =
+            "httpsampler.hc5.h2.debug_connection_closure";
+
+    private static final boolean DEBUG_CONNECTION_CLOSURE =
+            JMeterUtils.getPropDefault(HTTP2_DEBUG_CONNECTION_CLOSURE, false);
+
     private static final boolean RESET_STATE_ON_THREAD_GROUP_ITERATION =
             JMeterUtils.getPropDefault("httpclient.reset_state_on_thread_group_iteration", true);
 
@@ -181,66 +200,109 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     protected HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth) {
         log.debug("Start HTTP/2 sample {} method {} followingRedirect {} depth {}",
                 url, method, areFollowingRedirect, frameDepth);
-        HTTPSampleResult res = createSampleResult(url, method);
-        HttpClientContext clientContext = HttpClientContext.create();
-        HttpUriRequestBase httpRequest;
-        HttpClientState clientState;
-        try {
-            HttpVersionPolicy versionPolicy = versionPolicy();
-            HttpClientKey key = createHttpClientKey(url, versionPolicy);
-            clientState = setupClient(key);
-            httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
-            setupRequest(url, httpRequest, res);
-            removeHttp1HopByHopHeaders(httpRequest);
-            setupPreemptiveBasicAuth(url, httpRequest);
-            setupLocalAddress(clientContext);
-        } catch (Exception e) {
-            res.sampleStart();
-            res.sampleEnd();
-            errorResult(e, res);
-            return res;
-        }
-
-        res.sampleStart();
-        CacheManager cacheManager = getCacheManager();
-        if (cacheManager != null && HTTPConstants.GET.equalsIgnoreCase(method)
-                && cacheManager.inCache(url, httpRequest.getHeaders())) {
-            return updateSampleResultForResourceInCache(res);
-        }
-
-        try {
-            currentRequest = httpRequest;
-            handleMethod(method, res, httpRequest, clientContext);
-            removeHttp1HopByHopHeaders(httpRequest);
-            clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
-            clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
-            clientState.getClient().execute(httpRequest, clientContext, httpResponse -> {
-                fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
-                return null;
-            });
-            updateUrlAfterRedirect(clientContext, res);
-            HttpResponse response = clientContext.getResponse();
-            if (cacheManager != null && response != null) {
-                cacheManager.saveDetails(response, res);
-            }
-            return resultProcessing(areFollowingRedirect, frameDepth, res);
-        } catch (IOException | RuntimeException e) {
-            log.debug("HTTP/2 sample failed", e);
-            if (res.getEndTime() == 0) {
+        int attempt = 0;
+        for (;;) {
+            HTTPSampleResult res = createSampleResult(url, method);
+            HttpClientContext clientContext = HttpClientContext.create();
+            HttpUriRequestBase httpRequest;
+            HttpClientState clientState;
+            try {
+                HttpVersionPolicy versionPolicy = versionPolicy();
+                HttpClientKey key = createHttpClientKey(url, versionPolicy);
+                clientState = setupClient(key);
+                httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
+                setupRequest(url, httpRequest, res);
+                removeHttp1HopByHopHeaders(httpRequest);
+                setupPreemptiveBasicAuth(url, httpRequest);
+                setupLocalAddress(clientContext);
+            } catch (Exception e) {
+                res.sampleStart();
                 res.sampleEnd();
+                errorResult(e, res);
+                return res;
             }
-            res.setRequestHeaders(getAllHeadersExceptCookie(
-                    clientContext.getRequest()));
-            recordNetworkEndpointsIfNeeded(clientContext, res, false);
-            errorResult(e, res);
-            return res;
-        } finally {
-            currentRequest = null;
+
+            res.sampleStart();
+            CacheManager cacheManager = getCacheManager();
+            if (cacheManager != null && HTTPConstants.GET.equalsIgnoreCase(method)
+                    && cacheManager.inCache(url, httpRequest.getHeaders())) {
+                return updateSampleResultForResourceInCache(res);
+            }
+
+            try {
+                currentRequest = httpRequest;
+                handleMethod(method, res, httpRequest, clientContext);
+                removeHttp1HopByHopHeaders(httpRequest);
+                clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
+                clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
+                clientState.getClient().execute(httpRequest, clientContext, httpResponse -> {
+                    fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
+                    return null;
+                });
+                updateUrlAfterRedirect(clientContext, res);
+                HttpResponse response = clientContext.getResponse();
+                if (cacheManager != null && response != null) {
+                    cacheManager.saveDetails(response, res);
+                }
+                return resultProcessing(areFollowingRedirect, frameDepth, res);
+            } catch (IOException | RuntimeException e) {
+                log.debug("HTTP/2 sample failed", e);
+                if (res.getEndTime() == 0) {
+                    res.sampleEnd();
+                }
+                if (shouldRetryClosedSessionFailure(e, method, attempt)) {
+                    attempt++;
+                    currentRequest = null;
+                    clientState.getConnectionManager().closeConnections();
+                    log.debug("Retrying HTTP/2 sample after closed session failure; attempt {}/{} {} {}",
+                            attempt, CLOSED_SESSION_RETRY_COUNT, method, url, e);
+                    continue;
+                }
+                res.setRequestHeaders(getAllHeadersExceptCookie(
+                        clientContext.getRequest()));
+                recordNetworkEndpointsIfNeeded(clientContext, res, false);
+                errorResult(e, res);
+                return res;
+            } finally {
+                currentRequest = null;
+            }
         }
     }
 
     HttpVersionPolicy versionPolicy() {
         return testElement.isHttp2Protocol() ? HttpVersionPolicy.FORCE_HTTP_2 : HttpVersionPolicy.NEGOTIATE;
+    }
+
+    private static boolean shouldRetryClosedSessionFailure(
+            Exception exception,
+            String method,
+            int attempt) {
+        return attempt < CLOSED_SESSION_RETRY_COUNT
+                && isRetryableMethod(method)
+                && isClosedSessionFailure(exception);
+    }
+
+    private static boolean isRetryableMethod(String method) {
+        return REQUEST_SENT_RETRY_ENABLED
+                || HTTPConstants.GET.equalsIgnoreCase(method)
+                || HTTPConstants.HEAD.equalsIgnoreCase(method)
+                || HTTPConstants.OPTIONS.equalsIgnoreCase(method)
+                || HTTPConstants.PUT.equalsIgnoreCase(method)
+                || HTTPConstants.DELETE.equalsIgnoreCase(method)
+                || HTTPConstants.TRACE.equalsIgnoreCase(method);
+    }
+
+    private static boolean isClosedSessionFailure(Throwable exception) {
+        for (Throwable current = exception; current != null; current = current.getCause()) {
+            if (current instanceof ConnectionClosedException
+                    || current instanceof RequestNotExecutedException) {
+                return true;
+            }
+            if (current instanceof H2ConnectionException && "Stream closed".equals(current.getMessage())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void fillSampleResult(
@@ -324,8 +386,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         CredentialsStore credentialsProvider =
                 new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials);
         Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry = createAuthSchemeRegistry();
-        H2RouteReuseConnectionManager connectionManager = createConnectionManager(resolver, key.versionPolicy);
+        H2RouteReuseConnectionManager connectionManager = createConnectionManager(resolver, key);
         CloseableHttpAsyncClient asyncClient = createClient(
+                key,
                 connectionManager,
                 proxy,
                 credentialsProvider,
@@ -349,12 +412,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private CloseableHttpAsyncClient createClient(
+            HttpClientKey key,
             H2RouteReuseConnectionManager connectionManager,
             HttpHost proxy,
             CredentialsStore credentialsProvider,
             Lookup<CookieSpecFactory> cookieSpecRegistry,
             Lookup<org.apache.hc.client5.http.auth.AuthSchemeFactory> authSchemeRegistry) {
-        return HttpAsyncClients.custom()
+        HttpAsyncClientBuilder builder = HttpAsyncClients.custom()
                 .setConnectionManager(connectionManager)
                 .setConnectionManagerShared(false)
                 .setIOReactorConfig(createIOReactorConfig())
@@ -366,13 +430,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setRoutePlanner(new H2RoutePlanner(proxy))
                 .setDefaultCredentialsProvider(credentialsProvider)
                 .setDefaultAuthSchemeRegistry(authSchemeRegistry)
-                .disableContentCompression()
-                .build();
+                .disableContentCompression();
+        if (DEBUG_CONNECTION_CLOSURE) {
+            builder.setIOSessionListener(new H2ConnectionClosureDebugSessionListener(key.toString()));
+        }
+        return builder.build();
     }
 
     private static H2RouteReuseConnectionManager createConnectionManager(
             DnsResolver resolver,
-            HttpVersionPolicy versionPolicy)
+            HttpClientKey key)
             throws GeneralSecurityException {
         PoolingAsyncClientConnectionManager poolingConnectionManager =
                 JMeterPoolingAsyncClientConnectionManagerBuilder.newBuilder()
@@ -382,11 +449,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                                 .setTimeToLive(TimeValue.ofMilliseconds(TIME_TO_LIVE))
                                 .build())
                         .setDefaultTlsConfig(TlsConfig.custom()
-                                .setVersionPolicy(versionPolicy)
+                                .setVersionPolicy(key.versionPolicy)
                                 .build())
                         .setMessageMultiplexing(true)
                         .build();
-        return new H2RouteReuseConnectionManager(poolingConnectionManager);
+        return new H2RouteReuseConnectionManager(poolingConnectionManager, key.toString());
     }
 
     private static final class JMeterPoolingAsyncClientConnectionManagerBuilder
@@ -463,12 +530,14 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final class H2RouteReuseConnectionManager implements AsyncClientConnectionManager {
         private final PoolingAsyncClientConnectionManager delegate;
+        private final String authority;
         private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
         private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
 
-        private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate) {
+        private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate, String authority) {
             this.delegate = delegate;
+            this.authority = authority;
         }
 
         @Override
@@ -476,14 +545,23 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 Timeout requestTimeout, FutureCallback<AsyncConnectionEndpoint> callback) {
             RouteLeaseState routeState = routeStates.computeIfAbsent(route, ignored -> new RouteLeaseState());
             delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
+            logConnectionClosureDebug(
+                    "manager lease-start authority={} id={} route={} state={} requestTimeout={} protocol={} thread={}",
+                    authority, id, route, state, requestTimeout, routeState.protocol(), Thread.currentThread().getName());
             try {
                 routeState.awaitLeaseTurn(requestTimeout);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                warnConnectionClosureDebug(
+                        "manager lease-interrupted authority={} id={} route={} requestTimeout={} thread={} exception={}",
+                        authority, id, route, requestTimeout, Thread.currentThread().getName(), exceptionSummary(e));
                 BasicFuture<AsyncConnectionEndpoint> future = new BasicFuture<>(callback);
                 future.failed(e);
                 return future;
             } catch (TimeoutException e) {
+                warnConnectionClosureDebug(
+                        "manager lease-timeout authority={} id={} route={} requestTimeout={} thread={} exception={}",
+                        authority, id, route, requestTimeout, Thread.currentThread().getName(), exceptionSummary(e));
                 BasicFuture<AsyncConnectionEndpoint> future = new BasicFuture<>(callback);
                 future.failed(e);
                 return future;
@@ -493,6 +571,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 public void completed(AsyncConnectionEndpoint endpoint) {
                     endpointRoutes.put(endpoint, route);
                     routeState.leaseCompleted(endpoint);
+                    logConnectionClosureDebug(
+                            "manager lease-completed authority={} id={} route={} endpoint={} protocol={} thread={}",
+                            authority, id, route, endpointIdentity(endpoint), routeState.protocol(),
+                            Thread.currentThread().getName());
                     if (callback != null) {
                         callback.completed(endpoint);
                     }
@@ -501,6 +583,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 @Override
                 public void failed(Exception ex) {
                     routeState.releaseLeaseTurn();
+                    warnConnectionClosureDebug(
+                            "manager lease-failed authority={} id={} route={} thread={} exception={}",
+                            authority, id, route, Thread.currentThread().getName(), exceptionSummary(ex));
                     if (callback != null) {
                         callback.failed(ex);
                     }
@@ -509,6 +594,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 @Override
                 public void cancelled() {
                     routeState.releaseLeaseTurn();
+                    warnConnectionClosureDebug(
+                            "manager lease-cancelled authority={} id={} route={} thread={}",
+                            authority, id, route, Thread.currentThread().getName());
                     if (callback != null) {
                         callback.cancelled();
                     }
@@ -518,6 +606,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         @Override
         public void release(AsyncConnectionEndpoint endpoint, Object state, TimeValue keepAlive) {
+            logConnectionClosureDebug(
+                    "manager release authority={} route={} endpoint={} state={} keepAlive={} thread={}",
+                    authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), state, keepAlive,
+                    Thread.currentThread().getName());
             delegate.release(endpoint, state, keepAlive);
         }
 
@@ -527,17 +619,15 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 HttpContext context, FutureCallback<AsyncConnectionEndpoint> callback) {
             HttpRoute route = endpointRoutes.get(endpoint);
             RouteLeaseState routeState = route == null ? null : routeStates.get(route);
+            logConnectionClosureDebug(
+                    "manager connect-start authority={} route={} endpoint={} connectTimeout={} attachment={} thread={}",
+                    authority, route, endpointIdentity(endpoint), connectTimeout, attachment,
+                    Thread.currentThread().getName());
             return delegate.connect(endpoint, connectionInitiator, connectTimeout, attachment, context,
                     new FutureCallback<>() {
                         @Override
                         public void completed(AsyncConnectionEndpoint connectedEndpoint) {
-                            if (route != null) {
-                                endpointRoutes.put(connectedEndpoint, route);
-                            }
-                            if (routeState != null) {
-                                routeState.connectCompleted(connectedEndpoint);
-                                delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
-                            }
+                            connectCompleted(route, routeState, connectedEndpoint);
                             if (callback != null) {
                                 callback.completed(connectedEndpoint);
                             }
@@ -545,9 +635,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
                         @Override
                         public void failed(Exception ex) {
-                            if (routeState != null) {
-                                routeState.releaseLeaseTurn();
-                            }
+                            connectFailed(route, routeState, endpoint, ex);
                             if (callback != null) {
                                 callback.failed(ex);
                             }
@@ -555,9 +643,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
                         @Override
                         public void cancelled() {
-                            if (routeState != null) {
-                                routeState.releaseLeaseTurn();
-                            }
+                            connectCancelled(route, routeState, endpoint);
                             if (callback != null) {
                                 callback.cancelled();
                             }
@@ -565,31 +651,94 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     });
         }
 
+        private void connectCompleted(
+                HttpRoute route,
+                RouteLeaseState routeState,
+                AsyncConnectionEndpoint connectedEndpoint) {
+            if (route != null) {
+                endpointRoutes.put(connectedEndpoint, route);
+            }
+            if (routeState != null) {
+                routeState.connectCompleted(connectedEndpoint);
+                delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
+            }
+            logConnectionClosureDebug(
+                    "manager connect-completed authority={} route={} endpoint={} protocol={} thread={}",
+                    authority, route, endpointIdentity(connectedEndpoint),
+                    routeState == null ? RouteProtocol.UNKNOWN : routeState.protocol(),
+                    Thread.currentThread().getName());
+        }
+
+        private void connectFailed(
+                HttpRoute route,
+                RouteLeaseState routeState,
+                AsyncConnectionEndpoint endpoint,
+                Exception ex) {
+            if (routeState != null) {
+                routeState.releaseLeaseTurn();
+            }
+            warnConnectionClosureDebug(
+                    "manager connect-failed authority={} route={} endpoint={} thread={} exception={}",
+                    authority, route, endpointIdentity(endpoint), Thread.currentThread().getName(),
+                    exceptionSummary(ex));
+        }
+
+        private void connectCancelled(
+                HttpRoute route,
+                RouteLeaseState routeState,
+                AsyncConnectionEndpoint endpoint) {
+            if (routeState != null) {
+                routeState.releaseLeaseTurn();
+            }
+            warnConnectionClosureDebug(
+                    "manager connect-cancelled authority={} route={} endpoint={} thread={}",
+                    authority, route, endpointIdentity(endpoint), Thread.currentThread().getName());
+        }
+
         @Override
         public void upgrade(AsyncConnectionEndpoint endpoint, Object attachment, HttpContext context) {
+            logConnectionClosureDebug(
+                    "manager upgrade authority={} route={} endpoint={} attachment={} thread={}",
+                    authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), attachment,
+                    Thread.currentThread().getName());
             delegate.upgrade(endpoint, attachment, context);
         }
 
         @Override
         public void upgrade(AsyncConnectionEndpoint endpoint, Object attachment, HttpContext context,
                 FutureCallback<AsyncConnectionEndpoint> callback) {
+            logConnectionClosureDebug(
+                    "manager upgrade-async authority={} route={} endpoint={} attachment={} thread={}",
+                    authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), attachment,
+                    Thread.currentThread().getName());
             delegate.upgrade(endpoint, attachment, context, callback);
         }
 
         @Override
         public void close() {
+            warnConnectionClosureDebug("manager close localClose=true authority={} thread={}",
+                    authority, Thread.currentThread().getName());
             delegate.close();
         }
 
         @Override
         public void close(CloseMode closeMode) {
+            warnConnectionClosureDebug("manager close localClose=true authority={} closeMode={} thread={}",
+                    authority, closeMode, Thread.currentThread().getName());
             delegate.close(closeMode);
         }
 
         void closeConnections() {
             for (AsyncConnectionEndpoint endpoint : endpointRoutes.keySet()) {
+                warnConnectionClosureDebug(
+                        "manager closeConnections endpoint-close localClose=true authority={} route={} endpoint={} closeMode={} thread={}",
+                        authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), CloseMode.GRACEFUL,
+                        Thread.currentThread().getName());
                 endpoint.close(CloseMode.GRACEFUL);
             }
+            warnConnectionClosureDebug(
+                    "manager closeConnections closeIdle localClose=true authority={} endpointCount={} routeCount={} thread={}",
+                    authority, endpointRoutes.size(), routeStates.size(), Thread.currentThread().getName());
             delegate.closeIdle(TimeValue.ZERO_MILLISECONDS);
             routeStates.clear();
             endpointRoutes.clear();
@@ -670,6 +819,143 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static String endpointKey(HttpHost host) {
         return host.toURI();
+    }
+
+    private static void logConnectionClosureDebug(String message, Object... args) {
+        if (DEBUG_CONNECTION_CLOSURE) {
+            log.info("[H2 closure debug] " + message, args);
+        }
+    }
+
+    private static void warnConnectionClosureDebug(String message, Object... args) {
+        if (DEBUG_CONNECTION_CLOSURE) {
+            log.warn("[H2 closure debug] " + message, args);
+        }
+    }
+
+    private static String formatSession(IOSession session) {
+        if (session == null) {
+            return "<null-session>";
+        }
+        try {
+            return "sessionId=" + session.getId()
+                    + " status=" + session.getStatus()
+                    + " local=" + formatEndpoint(session.getLocalAddress())
+                    + " remote=" + formatEndpoint(session.getRemoteAddress())
+                    + " eventMask=" + formatEventMask(session.getEventMask())
+                    + " timeout=" + session.getSocketTimeout()
+                    + " lastRead=" + session.getLastReadTime()
+                    + " lastWrite=" + session.getLastWriteTime()
+                    + " hasCommands=" + session.hasCommands();
+        } catch (RuntimeException e) {
+            return "sessionId=" + session.getId() + " <format-error " + e.getClass().getName() + ": "
+                    + e.getMessage() + '>';
+        }
+    }
+
+    private static String formatEventMask(int eventMask) {
+        if (eventMask == 0) {
+            return "0";
+        }
+        StringBuilder buffer = new StringBuilder();
+        appendEventMask(buffer, eventMask, SelectionKey.OP_CONNECT, "CONNECT");
+        appendEventMask(buffer, eventMask, SelectionKey.OP_ACCEPT, "ACCEPT");
+        appendEventMask(buffer, eventMask, SelectionKey.OP_READ, "READ");
+        appendEventMask(buffer, eventMask, SelectionKey.OP_WRITE, "WRITE");
+        int knownMask = SelectionKey.OP_CONNECT | SelectionKey.OP_ACCEPT | SelectionKey.OP_READ | SelectionKey.OP_WRITE;
+        int unknownMask = eventMask & ~knownMask;
+        if (unknownMask != 0) {
+            if (buffer.length() > 0) {
+                buffer.append('|');
+            }
+            buffer.append("0x").append(Integer.toHexString(unknownMask));
+        }
+        return buffer.toString();
+    }
+
+    private static void appendEventMask(StringBuilder buffer, int eventMask, int value, String name) {
+        if ((eventMask & value) == 0) {
+            return;
+        }
+        if (buffer.length() > 0) {
+            buffer.append('|');
+        }
+        buffer.append(name);
+    }
+
+    private static String endpointIdentity(AsyncConnectionEndpoint endpoint) {
+        if (endpoint == null) {
+            return "<null-endpoint>";
+        }
+        try {
+            return endpoint.getClass().getSimpleName()
+                    + '@' + Integer.toHexString(System.identityHashCode(endpoint))
+                    + " connected=" + endpoint.isConnected()
+                    + " info=" + endpoint.getInfo();
+        } catch (RuntimeException e) {
+            return endpoint.getClass().getSimpleName()
+                    + '@' + Integer.toHexString(System.identityHashCode(endpoint))
+                    + " <format-error " + e.getClass().getName() + ": " + e.getMessage() + '>';
+        }
+    }
+
+    private static String exceptionSummary(Exception ex) {
+        if (ex == null) {
+            return "<null-exception>";
+        }
+        return ex.getClass().getName()
+                + ": " + ex.getMessage()
+                + " connectionClosed=" + (ex instanceof ConnectionClosedException);
+    }
+
+    private static final class H2ConnectionClosureDebugSessionListener implements IOSessionListener {
+        private final String authority;
+
+        private H2ConnectionClosureDebugSessionListener(String authority) {
+            this.authority = authority;
+        }
+
+        @Override
+        public void connected(IOSession session) {
+            logConnectionClosureDebug("session connected authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
+
+        @Override
+        public void startTls(IOSession session) {
+            logConnectionClosureDebug("session startTls authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
+
+        @Override
+        public void inputReady(IOSession session) {
+            logConnectionClosureDebug("session inputReady authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
+
+        @Override
+        public void outputReady(IOSession session) {
+            logConnectionClosureDebug("session outputReady authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
+
+        @Override
+        public void timeout(IOSession session) {
+            warnConnectionClosureDebug("session timeout authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
+
+        @Override
+        public void exception(IOSession session, Exception ex) {
+            warnConnectionClosureDebug("session exception authority={} thread={} {} exception={}",
+                    authority, Thread.currentThread().getName(), formatSession(session), exceptionSummary(ex));
+        }
+
+        @Override
+        public void disconnected(IOSession session) {
+            warnConnectionClosureDebug("session disconnected authority={} thread={} {}",
+                    authority, Thread.currentThread().getName(), formatSession(session));
+        }
     }
 
     private static final class NetworkEndpoint {
@@ -758,6 +1044,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         synchronized int maxConnections(int defaultMaxConnections) {
             return protocol == RouteProtocol.HTTP_1 ? defaultMaxConnections : 1;
+        }
+
+        synchronized RouteProtocol protocol() {
+            return protocol;
         }
 
         synchronized void releaseLeaseTurn() {
