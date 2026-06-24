@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,9 +34,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
+import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.samplers.AbstractSampler;
@@ -47,6 +50,7 @@ import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
 class TestJMeterThread {
@@ -182,6 +186,30 @@ class TestJMeterThread {
             result.setSampleLabel(getName());
             result.sampleStart();
             result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
+    private static final class ResultStatusSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final boolean successful;
+        private final AtomicInteger calls;
+
+        private ResultStatusSampler(String name, boolean successful, AtomicInteger calls) {
+            setName(name);
+            this.successful = successful;
+            this.calls = calls;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            calls.incrementAndGet();
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(successful);
             result.sampleEnd();
             return result;
         }
@@ -348,14 +376,14 @@ class TestJMeterThread {
     }
 
     @Test
-    void testParallelControllerHonorsMaxParallelAndSharesVariables() throws InterruptedException {
+    void testParallelControllerHonorsMaxParallelAndSharesVariables() throws Exception {
         AtomicInteger activeSamplers = new AtomicInteger();
         AtomicInteger maxActiveSamplers = new AtomicInteger();
         CountDownLatch completedSamplers = new CountDownLatch(3);
         AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
         AtomicBoolean sameVariables = new AtomicBoolean(true);
 
-        HashTree testTree = new HashTree();
+        HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
         loop.setContinueForever(false);
@@ -381,7 +409,7 @@ class TestJMeterThread {
         JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
         jMeterThread.setThreadName("parallel-thread");
         jMeterThread.setThreadGroup(threadGroup);
-        jMeterThread.run();
+        processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
 
         assertTrue(completedSamplers.await(5, TimeUnit.SECONDS), "All parallel samplers should complete");
         assertEquals(2, maxActiveSamplers.get(), "Only two samplers should run at the same time");
@@ -389,10 +417,10 @@ class TestJMeterThread {
     }
 
     @Test
-    void testParallelControllerContinuesAfterChildSamplerException() throws InterruptedException {
+    void testParallelControllerContinuesAfterChildSamplerException() throws Exception {
         CountDownLatch completedSamplers = new CountDownLatch(1);
 
-        HashTree testTree = new HashTree();
+        HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
         loop.setContinueForever(false);
@@ -414,10 +442,93 @@ class TestJMeterThread {
         JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
         jMeterThread.setThreadName("parallel-thread");
         jMeterThread.setThreadGroup(threadGroup);
-        jMeterThread.run();
+        processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
 
         assertTrue(completedSamplers.await(5, TimeUnit.SECONDS),
                 "A later parallel child should still run after an earlier child throws");
+    }
+
+    @Test
+    void testParallelControllerStartNextLoopOnErrorSkipsUnstartedChildren() throws Exception {
+        AtomicInteger failingCalls = new AtomicInteger();
+        AtomicInteger sameParallelAfterFailureCalls = new AtomicInteger();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, new ResultStatusSampler("failing", false, failingCalls));
+        testTree.add(parallelController, new ResultStatusSampler(
+                "same-parallel-after-failure", true, sameParallelAfterFailureCalls));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.setOnErrorStartNextLoop(true);
+        JMeterContext context = processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
+
+        assertEquals(1, failingCalls.get(), "The failing sampler should run");
+        assertEquals(0, sameParallelAfterFailureCalls.get(),
+                "Start Next Thread Loop should not launch later parallel children after a failure");
+        assertEquals("false", context.getVariables().get(JMeterThread.LAST_SAMPLE_OK),
+                "Later parallel successes must not overwrite the failed state");
+    }
+
+    @Test
+    void testParallelControllerSamplerLogicalActionUsesSourceController() throws Exception {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, createSampler());
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, null, new ListenerNotifier());
+        JMeterContext context = JMeterContextService.getContext();
+        context.setVariables(new JMeterVariables());
+        context.setThread(jMeterThread);
+
+        TestCompiler.initialize();
+        testTree.traverse(new TestCompiler(testTree));
+        parallelController.initialize();
+        ParallelControllerSampler parallelSampler = (ParallelControllerSampler) parallelController.next();
+        AtomicBoolean sawParallelController = new AtomicBoolean();
+        Method triggerMethod = JMeterThread.class.getDeclaredMethod(
+                "triggerLoopLogicalActionOnParentControllers",
+                Sampler.class,
+                JMeterContext.class,
+                Consumer.class);
+        triggerMethod.setAccessible(true);
+
+        triggerMethod.invoke(
+                jMeterThread,
+                parallelSampler,
+                context,
+                (Consumer<FindTestElementsUpToRootTraverser>) traverser -> {
+                    List<Controller> controllers = traverser.getControllersToRoot();
+                    sawParallelController.set(controllers.contains(parallelController));
+                });
+
+        assertTrue(sawParallelController.get(),
+                "Synthetic parallel sampler should resolve to the real ParallelController in the test tree");
     }
 
     @Test
@@ -544,6 +655,35 @@ class TestJMeterThread {
         DummySampler result = new DummySampler();
         result.setName("Call me");
         return result;
+    }
+
+    private static JMeterContext processParallelSamplerDirect(
+            HashTree testTree,
+            ParallelController parallelController,
+            JMeterThread jMeterThread,
+            ThreadGroup threadGroup) throws Exception {
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables variables = new JMeterVariables();
+        context.setVariables(variables);
+        context.setThread(jMeterThread);
+        context.setThreadGroup(threadGroup);
+
+        TestCompiler.initialize();
+        Field compilerField = JMeterThread.class.getDeclaredField("compiler");
+        compilerField.setAccessible(true);
+        testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
+
+        parallelController.initialize();
+        ParallelControllerSampler parallelSampler = (ParallelControllerSampler) parallelController.next();
+        Method processParallelSampler = JMeterThread.class.getDeclaredMethod(
+                "processParallelSampler",
+                ParallelControllerSampler.class,
+                TransactionSampler.class,
+                SamplePackage.class,
+                JMeterContext.class);
+        processParallelSampler.setAccessible(true);
+        processParallelSampler.invoke(jMeterThread, parallelSampler, null, null, context);
+        return context;
     }
 
     private static Timer createConstantTimer(long delay) {
