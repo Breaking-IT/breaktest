@@ -23,6 +23,7 @@ import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -61,6 +62,7 @@ import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.Searchable;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.testelement.TestElement;
@@ -80,7 +82,8 @@ import net.miginfocom.swing.MigLayout;
  */
 public class SearchTreeDialog extends JDialog implements ActionListener { // NOSONAR
 
-    record SearchConditions(String word, Boolean caseSensitive, Boolean regex, Set<NodeType> nodeTypes) {}
+    record SearchConditions(String word, Boolean caseSensitive, Boolean regex,
+            Boolean recordedExchanges, Set<NodeType> nodeTypes) {}
 
     enum NodeType {
         PRE_PROCESSOR,
@@ -123,6 +126,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private JCheckBox isRegexpCB;
 
     private JCheckBox isCaseSensitiveCB;
+
+    private JCheckBox includeRecordedExchangesCB;
 
     private JCheckBox flagPreProcessorsCB;
 
@@ -201,14 +206,19 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         statusLabel.setMinimumSize(new Dimension(100, 20));
         isRegexpCB = new JCheckBox(JMeterUtils.getResString("search_text_chkbox_regexp"), false); //$NON-NLS-1$
         isCaseSensitiveCB = new JCheckBox(JMeterUtils.getResString("search_text_chkbox_case"), true); //$NON-NLS-1$
+        includeRecordedExchangesCB = new JCheckBox(
+                JMeterUtils.getResString("search_text_chkbox_recorded_exchanges"), false); //$NON-NLS-1$
 
         JFactory.small(isRegexpCB);
         JFactory.small(isCaseSensitiveCB);
+        JFactory.small(includeRecordedExchangesCB);
+        includeRecordedExchangesCB.addActionListener(e -> updateReplaceControlsState());
 
         JPanel searchCriterionPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         searchCriterionPanel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("search_matching"))); //$NON-NLS-1$
         searchCriterionPanel.add(isCaseSensitiveCB);
         searchCriterionPanel.add(isRegexpCB);
+        searchCriterionPanel.add(includeRecordedExchangesCB);
 
         JPanel flagNodeTypesPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
         flagNodeTypesPanel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("search_flag_node_types")));
@@ -372,7 +382,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             }
             if (nodeTypes.isEmpty()) {
                 Searcher searcher = createSearcher(wordToSearch);
-                searchInTree(GuiPackage.getInstance(), searcher, wordToSearch);
+                searchInTree(GuiPackage.getInstance(), searcher, wordToSearch,
+                        currentSearchConditions.recordedExchanges());
             } else {
                 flagNodeTypesInTree(GuiPackage.getInstance(), nodeTypes);
             }
@@ -414,7 +425,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         int numberOfMatches = 0;
         try {
             Map.Entry<Integer, Set<JMeterTreeNode>> result = nodeTypes.isEmpty()
-                    ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch)
+                    ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch,
+                            includeRecordedExchangesCB.isSelected())
                     : flagNodeTypesInTree(guiPackage, nodeTypes);
             numberOfMatches = result.getKey();
             markConcernedNodes(expand, result.getValue());
@@ -486,7 +498,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private SearchResult findMatchingNodes(GuiPackage guiPackage, SearchConditions searchConditions) {
         if (searchConditions.nodeTypes().isEmpty()) {
-            return searchInTree(guiPackage, createSearcher(searchConditions.word()), searchConditions.word());
+            return searchInTree(guiPackage, createSearcher(searchConditions.word()), searchConditions.word(),
+                    searchConditions.recordedExchanges());
         }
         return flagNodeTypesInTree(guiPackage, searchConditions.nodeTypes());
     }
@@ -569,14 +582,20 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         }
     }
 
-    private SearchResult searchInTree(GuiPackage guiPackage, Searcher searcher, String wordToSearch) {
+    private SearchResult searchInTree(GuiPackage guiPackage, Searcher searcher, String wordToSearch,
+            boolean includeRecordedExchanges) {
         int numberOfMatches = 0;
         JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
+        Path testPlanFile = testPlanFile(guiPackage);
         for (JMeterTreeNode jMeterTreeNode : jMeterTreeModel.getNodesOfType(Searchable.class)) {
             try {
                 Searchable searchable = (Searchable) jMeterTreeNode.getUserObject();
-                List<String> searchableTokens = searchable.getSearchableTokens();
+                List<String> searchableTokens = new ArrayList<>(searchable.getSearchableTokens());
+                if (includeRecordedExchanges && testPlanFile != null) {
+                    searchableTokens.addAll(RecordedHarExchangeResolver.searchableTokensFor(
+                            jMeterTreeNode, testPlanFile));
+                }
                 boolean result = searcher.search(searchableTokens);
                 if (result) {
                     numberOfMatches++;
@@ -590,6 +609,11 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.lastSearchResult.clear();
         this.lastSearchResult.addAll(nodes);
         return new SearchResult(numberOfMatches, nodes);
+    }
+
+    private static Path testPlanFile(GuiPackage guiPackage) {
+        String testPlanFile = guiPackage.getTestPlanFile();
+        return StringUtilities.isEmpty(testPlanFile) ? null : Path.of(testPlanFile);
     }
 
     private SearchResult flagNodeTypesInTree(GuiPackage guiPackage, Set<NodeType> nodeTypes) {
@@ -640,6 +664,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 searchTF.getText(),
                 isCaseSensitiveCB.isSelected(),
                 isRegexpCB.isSelected(),
+                includeRecordedExchangesCB.isSelected(),
                 Set.copyOf(getSelectedNodeTypes()));
     }
 
@@ -668,7 +693,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private void updateReplaceControlsState() {
-        boolean enabled = !isNodeTypeFlagMode();
+        boolean enabled = !isNodeTypeFlagMode() && !includeRecordedExchangesCB.isSelected();
         replaceTF.setEnabled(enabled);
         replaceButton.setEnabled(enabled);
         replaceAllButton.setEnabled(enabled);
@@ -714,7 +739,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         GuiPackage guiPackage = GuiPackage.getInstance();
         boolean caseSensitiveReplacement = isCaseSensitiveCB.isSelected();
         int totalReplaced = 0;
-        Map.Entry<Integer, Set<JMeterTreeNode>> result = searchInTree(guiPackage, searcher, wordToSearch);
+        Map.Entry<Integer, Set<JMeterTreeNode>> result = searchInTree(guiPackage, searcher, wordToSearch, false);
         Set<JMeterTreeNode> matchingNodes = result.getValue();
         Set<JMeterTreeNode> replacedNodes = new HashSet<>();
         for (JMeterTreeNode jMeterTreeNode : matchingNodes) {

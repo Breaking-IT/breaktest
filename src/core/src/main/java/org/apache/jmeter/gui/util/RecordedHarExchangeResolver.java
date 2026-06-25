@@ -1,0 +1,796 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.jmeter.gui.util;
+
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import javax.swing.tree.TreeNode;
+
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.TestElement;
+import org.apache.jorphan.util.StringUtilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+
+public final class RecordedHarExchangeResolver {
+
+    public static final String HAR_FILENAME = "BreakTest.har.filename"; // $NON-NLS-1$
+    public static final String HAR_MD5 = "BreakTest.har.md5"; // $NON-NLS-1$
+    public static final String HAR_ENTRY_INDEX = "BreakTest.har.entryIndex"; // $NON-NLS-1$
+    public static final String HAR_STARTED_DATE_TIME = "BreakTest.har.startedDateTime"; // $NON-NLS-1$
+    public static final String HAR_REQUEST_METHOD = "BreakTest.har.requestMethod"; // $NON-NLS-1$
+    public static final String HAR_REQUEST_URL = "BreakTest.har.requestUrl"; // $NON-NLS-1$
+
+    private static final Logger LOG = LoggerFactory.getLogger(RecordedHarExchangeResolver.class);
+    private static final ObjectMapper JSON = JsonMapper.builder().build();
+    private static final Map<Path, CachedHar> HAR_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> TEXTUAL_MIME_TYPES = Set.of(
+            "application/ecmascript", // $NON-NLS-1$
+            "application/graphql", // $NON-NLS-1$
+            "application/javascript", // $NON-NLS-1$
+            "application/json", // $NON-NLS-1$
+            "application/problem+json", // $NON-NLS-1$
+            "application/x-www-form-urlencoded", // $NON-NLS-1$
+            "application/xhtml+xml", // $NON-NLS-1$
+            "application/xml", // $NON-NLS-1$
+            "multipart/form-data"); // $NON-NLS-1$
+
+    private RecordedHarExchangeResolver() {
+    }
+
+    public static Resolution resolveFor(SampleResult sampleResult) {
+        JMeterTreeNode samplerNode = findTestPlanNode(sampleResult);
+        if (samplerNode == null) {
+            return Resolution.notLinked();
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null || StringUtilities.isEmpty(guiPackage.getTestPlanFile())) {
+            return Resolution.diagnostic(Status.TEST_PLAN_FILE_UNKNOWN,
+                    "Unable to locate the current JMX file, so the linked HAR path cannot be resolved."); // $NON-NLS-1$
+        }
+        return resolveFor(samplerNode, Path.of(guiPackage.getTestPlanFile()));
+    }
+
+    public static Resolution resolveFor(TestElement sampler) {
+        if (sampler == null) {
+            return Resolution.notLinked();
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return Resolution.notLinked();
+        }
+        if (StringUtilities.isEmpty(guiPackage.getTestPlanFile())) {
+            return Resolution.diagnostic(Status.TEST_PLAN_FILE_UNKNOWN,
+                    "Unable to locate the current JMX file, so the linked HAR path cannot be resolved."); // $NON-NLS-1$
+        }
+        JMeterTreeNode samplerNode = guiPackage.getNodeOf(sampler);
+        if (samplerNode == null
+                && guiPackage.getCurrentNode() != null
+                && guiPackage.getCurrentNode().getTestElement() == sampler) {
+            samplerNode = guiPackage.getCurrentNode();
+        }
+        if (samplerNode == null) {
+            SamplerHarMetadata samplerMetadata = SamplerHarMetadata.from(sampler);
+            if (samplerMetadata.isEmpty()) {
+                return Resolution.notLinked();
+            }
+            return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
+                    "The sampler has BreakTest HAR metadata, but its parent ThreadGroup metadata could not be found."); // $NON-NLS-1$
+        }
+        return resolveFor(samplerNode, Path.of(guiPackage.getTestPlanFile()));
+    }
+
+    public static Resolution checkLinkFor(TestElement sampler) {
+        if (sampler == null) {
+            return Resolution.notLinked();
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return Resolution.notLinked();
+        }
+        if (StringUtilities.isEmpty(guiPackage.getTestPlanFile())) {
+            return Resolution.diagnostic(Status.TEST_PLAN_FILE_UNKNOWN,
+                    "Unable to locate the current JMX file, so the linked HAR path cannot be resolved."); // $NON-NLS-1$
+        }
+        JMeterTreeNode samplerNode = guiPackage.getNodeOf(sampler);
+        if (samplerNode == null
+                && guiPackage.getCurrentNode() != null
+                && guiPackage.getCurrentNode().getTestElement() == sampler) {
+            samplerNode = guiPackage.getCurrentNode();
+        }
+        if (samplerNode == null) {
+            SamplerHarMetadata samplerMetadata = SamplerHarMetadata.from(sampler);
+            if (samplerMetadata.isEmpty()) {
+                return Resolution.notLinked();
+            }
+            return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
+                    "The sampler has BreakTest HAR metadata, but its parent ThreadGroup metadata could not be found."); // $NON-NLS-1$
+        }
+        TestElement harSource = findHarSource(samplerNode);
+        if (harSource == null) {
+            return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
+                    "The sampler has BreakTest HAR metadata, but no parent ThreadGroup contains "
+                            + HAR_FILENAME + "."); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+        HarFileCheck check = checkHarFile(harSource, Path.of(guiPackage.getTestPlanFile()));
+        if (check.status() == Status.FOUND) {
+            return Resolution.diagnostic(Status.FOUND,
+                    "Recorded data is available. Select this tab to load it from the linked HAR file."); // $NON-NLS-1$
+        }
+        return Resolution.diagnostic(check.status(), check.diagnosticText());
+    }
+
+    public static Resolution resolveFor(JMeterTreeNode samplerNode, Path testPlanFile) {
+        if (samplerNode == null || testPlanFile == null) {
+            return Resolution.notLinked();
+        }
+        TestElement sampler = samplerNode.getTestElement();
+        SamplerHarMetadata samplerMetadata = SamplerHarMetadata.from(sampler);
+        if (samplerMetadata.isEmpty()) {
+            return Resolution.notLinked();
+        }
+        TestElement harSource = findHarSource(samplerNode);
+        if (harSource == null) {
+            return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
+                    "The sampler has BreakTest HAR metadata, but no parent ThreadGroup contains "
+                            + HAR_FILENAME + "."); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+        String harFilename = harSource.getPropertyAsString(HAR_FILENAME);
+        if (StringUtilities.isEmpty(harFilename)) {
+            return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
+                    "The parent ThreadGroup does not contain " + HAR_FILENAME + "."); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+        Path harPath = resolveHarPath(testPlanFile, harFilename).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(harPath)) {
+            return Resolution.diagnostic(Status.HAR_FILE_NOT_FOUND,
+                    "Linked HAR file was not found.\n\nTried path:\n" + harPath); // $NON-NLS-1$
+        }
+
+        try {
+            String expectedMd5 = harSource.getPropertyAsString(HAR_MD5);
+            CachedHar cachedHar = cachedHar(harPath);
+            if (StringUtilities.isNotEmpty(expectedMd5) && !expectedMd5.equalsIgnoreCase(cachedHar.md5())) {
+                return Resolution.diagnostic(Status.MD5_MISMATCH,
+                        "Linked HAR file MD5 does not match the JMX metadata.\n\n"
+                                + "HAR path:\n" + harPath + "\n\n"
+                                + "Expected MD5:\n" + expectedMd5 + "\n\n"
+                                + "Actual MD5:\n" + cachedHar.md5()); // $NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            }
+            JsonNode entries = cachedHar.entries();
+            if (entries == null) {
+                entries = parseHarEntries(harPath, cachedHar.bytes());
+            }
+            JsonNode finalEntries = entries;
+            Optional<JsonNode> entry = samplerMetadata.entryIndex()
+                    .flatMap(entryIndex -> entryAt(finalEntries, entryIndex));
+            if (entry.isEmpty()) {
+                entry = findByRequestMetadata(entries, samplerMetadata);
+            }
+            if (entry.isEmpty()) {
+                return Resolution.diagnostic(Status.ENTRY_NOT_FOUND,
+                        "The linked HAR was found and matched, but no HAR entry matched this sampler."); // $NON-NLS-1$
+            }
+            return Resolution.found(toRecordedExchange(entry.orElseThrow()));
+        } catch (IOException | RuntimeException ex) {
+            LOG.debug("Unable to load linked HAR {}", harPath, ex);
+            return Resolution.diagnostic(Status.IO_ERROR,
+                    "Unable to read the linked HAR file.\n\nPath:\n" + harPath + "\n\nError:\n"
+                            + ex.getMessage()); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+    }
+
+    public static Optional<RecordedExchange> findFor(SampleResult sampleResult) {
+        return resolveFor(sampleResult).exchange();
+    }
+
+    public static Optional<RecordedExchange> findFor(JMeterTreeNode samplerNode, Path testPlanFile) {
+        return resolveFor(samplerNode, testPlanFile).exchange();
+    }
+
+    public static List<String> searchableTokensFor(JMeterTreeNode samplerNode, Path testPlanFile) {
+        return resolveFor(samplerNode, testPlanFile)
+                .exchange()
+                .map(exchange -> List.of(exchange.request(), exchange.response()))
+                .orElseGet(List::of);
+    }
+
+    public static HarFileCheck checkHarFile(TestElement harSource, Path testPlanFile) {
+        if (harSource == null || testPlanFile == null) {
+            return HarFileCheck.diagnostic(Status.HAR_SOURCE_NOT_FOUND, null, "", "", // $NON-NLS-1$ //$NON-NLS-2$
+                    "Unable to check linked HAR metadata because the JMX or HAR source is missing."); // $NON-NLS-1$
+        }
+        String harFilename = harSource.getPropertyAsString(HAR_FILENAME);
+        return checkHarFile(harFilename, harSource.getPropertyAsString(HAR_MD5), testPlanFile);
+    }
+
+    public static HarFileCheck checkHarFile(String harFilename, String expectedMd5, Path testPlanFile) {
+        if (testPlanFile == null) {
+            return HarFileCheck.diagnostic(Status.TEST_PLAN_FILE_UNKNOWN, null, expectedMd5, "", // $NON-NLS-1$
+                    "Unable to check linked HAR metadata because the JMX path is missing."); // $NON-NLS-1$
+        }
+        if (StringUtilities.isEmpty(harFilename)) {
+            return HarFileCheck.diagnostic(Status.HAR_SOURCE_NOT_FOUND, null, "", "", // $NON-NLS-1$ //$NON-NLS-2$
+                    "The HAR source does not contain " + HAR_FILENAME + "."); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+        Path harPath = resolveHarPath(testPlanFile, harFilename).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(harPath)) {
+            return HarFileCheck.diagnostic(Status.HAR_FILE_NOT_FOUND, harPath,
+                    expectedMd5, "", // $NON-NLS-1$
+                    "Linked HAR file was not found."); // $NON-NLS-1$
+        }
+        try {
+            CachedHar cachedHar = cachedHar(harPath);
+            if (StringUtilities.isNotEmpty(expectedMd5) && !expectedMd5.equalsIgnoreCase(cachedHar.md5())) {
+                return HarFileCheck.diagnostic(Status.MD5_MISMATCH, harPath, expectedMd5, cachedHar.md5(),
+                        "Linked HAR file MD5 does not match the JMX metadata."); // $NON-NLS-1$
+            }
+            return HarFileCheck.found(harPath, expectedMd5, cachedHar.md5());
+        } catch (IOException | RuntimeException ex) {
+            LOG.debug("Unable to preflight linked HAR {}", harPath, ex);
+            return HarFileCheck.diagnostic(Status.IO_ERROR, harPath, expectedMd5, "", // $NON-NLS-1$
+                    "Unable to read the linked HAR file: " + ex.getMessage()); // $NON-NLS-1$
+        }
+    }
+
+    private static JMeterTreeNode findTestPlanNode(SampleResult sampleResult) {
+        if (sampleResult == null || sampleResult.getSourceTestElementPath().isEmpty()) {
+            return null;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return null;
+        }
+        List<SampleResult.TestElementPathEntry> sourcePath = sampleResult.getSourceTestElementPath();
+        JMeterTreeNode current = findDescendant((JMeterTreeNode) guiPackage.getTreeModel().getRoot(), sourcePath.get(0));
+        for (SampleResult.TestElementPathEntry pathEntry : sourcePath.subList(1, sourcePath.size())) {
+            current = findChild(current, pathEntry);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
+    }
+
+    private static JMeterTreeNode findDescendant(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
+        JMeterTreeNode child = findChild(parent, pathEntry);
+        if (child != null) {
+            return child;
+        }
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            JMeterTreeNode descendant = findDescendant((JMeterTreeNode) parent.getChildAt(i), pathEntry);
+            if (descendant != null) {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
+    private static JMeterTreeNode findChild(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
+        if (parent == null) {
+            return null;
+        }
+        int occurrence = 0;
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            JMeterTreeNode child = (JMeterTreeNode) parent.getChildAt(i);
+            Object userObject = child.getUserObject();
+            if (userObject != null
+                    && userObject.getClass().getName().equals(pathEntry.className())
+                    && Objects.equals(child.getName(), pathEntry.name())) {
+                if (occurrence == pathEntry.occurrence()) {
+                    return child;
+                }
+                occurrence++;
+            }
+        }
+        return null;
+    }
+
+    private static TestElement findHarSource(JMeterTreeNode samplerNode) {
+        for (TreeNode node = samplerNode; node instanceof JMeterTreeNode;) {
+            JMeterTreeNode current = (JMeterTreeNode) node;
+            TestElement element = current.getTestElement();
+            if (StringUtilities.isNotEmpty(element.getPropertyAsString(HAR_FILENAME))) {
+                return element;
+            }
+            node = current.getParent();
+        }
+        return null;
+    }
+
+    private static Path resolveHarPath(Path testPlanFile, String harFilename) {
+        Path baseDirectory = testPlanFile.toAbsolutePath().getParent();
+        if (baseDirectory == null) {
+            baseDirectory = Path.of(".").toAbsolutePath();
+        }
+        return baseDirectory.resolve(harFilename).normalize();
+    }
+
+    private static CachedHar cachedHar(Path harPath) throws IOException {
+        Path cacheKey = harPath.toAbsolutePath().normalize();
+        long lastModified = Files.getLastModifiedTime(cacheKey).toMillis();
+        long size = Files.size(cacheKey);
+        CachedHar cached = HAR_CACHE.get(cacheKey);
+        if (cached != null && cached.lastModified() == lastModified && cached.size() == size) {
+            return cached;
+        }
+        byte[] harBytes = Files.readAllBytes(cacheKey);
+        CachedHar har = new CachedHar(lastModified, size, md5Hex(harBytes), harBytes, null);
+        HAR_CACHE.put(cacheKey, har);
+        return har;
+    }
+
+    private static JsonNode parseHarEntries(Path harPath, byte[] harBytes) throws IOException {
+        JsonNode root = JSON.readTree(harBytes);
+        JsonNode entries = root.path("log").path("entries"); // $NON-NLS-1$ //$NON-NLS-2$
+        CachedHar cached = HAR_CACHE.get(harPath.toAbsolutePath().normalize());
+        if (cached != null) {
+            HAR_CACHE.put(harPath.toAbsolutePath().normalize(),
+                    new CachedHar(cached.lastModified(), cached.size(), cached.md5(), cached.bytes(), entries));
+        }
+        return entries;
+    }
+
+    private static String md5Hex(byte[] data) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("MD5").digest(data)); // $NON-NLS-1$
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("MD5 digest is not available", e); // $NON-NLS-1$
+        }
+    }
+
+    private static Optional<JsonNode> entryAt(JsonNode entries, int entryIndex) {
+        if (!entries.isArray() || entryIndex < 0 || entryIndex >= entries.size()) {
+            return Optional.empty();
+        }
+        return Optional.of(entries.get(entryIndex));
+    }
+
+    private static Optional<JsonNode> findByRequestMetadata(JsonNode entries, SamplerHarMetadata samplerMetadata) {
+        if (!entries.isArray()
+                || StringUtilities.isEmpty(samplerMetadata.requestMethod())
+                || StringUtilities.isEmpty(samplerMetadata.requestUrl())) {
+            return Optional.empty();
+        }
+        for (JsonNode entry : entries) {
+            JsonNode request = entry.path("request"); // $NON-NLS-1$
+            if (!samplerMetadata.requestMethod().equals(request.path("method").asText()) // $NON-NLS-1$
+                    || !samplerMetadata.requestUrl().equals(request.path("url").asText())) { // $NON-NLS-1$
+                continue;
+            }
+            if (StringUtilities.isNotEmpty(samplerMetadata.startedDateTime())
+                    && !samplerMetadata.startedDateTime().equals(entry.path("startedDateTime").asText())) { // $NON-NLS-1$
+                continue;
+            }
+            return Optional.of(entry);
+        }
+        return Optional.empty();
+    }
+
+    private static RecordedExchange toRecordedExchange(JsonNode entry) {
+        return new RecordedExchange(formatRequest(entry.path("request")), formatResponse(entry.path("response"))); // $NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static String formatRequest(JsonNode request) {
+        StringBuilder builder = new StringBuilder();
+        appendLine(builder,
+                request.path("method").asText(), // $NON-NLS-1$
+                request.path("url").asText(), // $NON-NLS-1$
+                displayHttpVersion(request.path("httpVersion").asText())); // $NON-NLS-1$
+        appendHeaders(builder, request.path("headers"), true); // $NON-NLS-1$
+        String body = requestBody(request.path("postData")); // $NON-NLS-1$
+        appendBody(builder, body);
+        return builder.toString();
+    }
+
+    private static String formatResponse(JsonNode response) {
+        StringBuilder builder = new StringBuilder();
+        String httpVersion = response.path("httpVersion").asText(); // $NON-NLS-1$
+        appendLine(builder,
+                displayHttpVersion(httpVersion),
+                response.path("status").isMissingNode() ? "" : response.path("status").asText(), // $NON-NLS-1$ //$NON-NLS-2$
+                isHttp2(httpVersion) ? "" : response.path("statusText").asText()); // $NON-NLS-1$ //$NON-NLS-2$
+        appendHeaders(builder, response.path("headers"), false); // $NON-NLS-1$
+        appendBody(builder, responseBody(response.path("content"))); // $NON-NLS-1$
+        return builder.toString();
+    }
+
+    private static String displayHttpVersion(String httpVersion) {
+        return "HTTP/2.0".equalsIgnoreCase(httpVersion) ? "HTTP/2" : httpVersion; // $NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static boolean isHttp2(String httpVersion) {
+        return "HTTP/2".equalsIgnoreCase(httpVersion) // $NON-NLS-1$
+                || "HTTP/2.0".equalsIgnoreCase(httpVersion); // $NON-NLS-1$
+    }
+
+    private static void appendLine(StringBuilder builder, String... parts) {
+        boolean needsSpace = false;
+        for (String part : parts) {
+            if (StringUtilities.isEmpty(part)) {
+                continue;
+            }
+            if (needsSpace) {
+                builder.append(' ');
+            }
+            builder.append(part);
+            needsSpace = true;
+        }
+        if (!builder.isEmpty()) {
+            builder.append('\n');
+        }
+    }
+
+    private static void appendHeaders(StringBuilder builder, JsonNode headers, boolean sort) {
+        if (!headers.isArray()) {
+            return;
+        }
+        List<String> headerLines = new ArrayList<>();
+        for (JsonNode header : headers) {
+            String name = header.path("name").asText(); // $NON-NLS-1$
+            if (StringUtilities.isEmpty(name)) {
+                continue;
+            }
+            headerLines.add(name + ": " + header.path("value").asText()); // $NON-NLS-1$
+        }
+        if (sort) {
+            headerLines.sort(Comparator
+                    .comparing(RecordedHarExchangeResolver::headerName, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(String::compareToIgnoreCase));
+        }
+        for (String headerLine : headerLines) {
+            builder.append(headerLine).append('\n');
+        }
+    }
+
+    private static String headerName(String headerLine) {
+        int separator = headerLine.indexOf(':');
+        return separator < 0 ? headerLine : headerLine.substring(0, separator);
+    }
+
+    private static void appendBody(StringBuilder builder, String body) {
+        if (StringUtilities.isEmpty(body)) {
+            return;
+        }
+        if (!builder.isEmpty() && builder.charAt(builder.length() - 1) != '\n') {
+            builder.append('\n');
+        }
+        if (!builder.isEmpty()) {
+            builder.append('\n');
+        }
+        builder.append(body);
+    }
+
+    private static String requestBody(JsonNode postData) {
+        String text = contentText(postData);
+        if (text != null) {
+            return text;
+        }
+        JsonNode params = postData.path("params"); // $NON-NLS-1$
+        if (!params.isArray()) {
+            return ""; // $NON-NLS-1$
+        }
+        StringBuilder builder = new StringBuilder();
+        for (JsonNode param : params) {
+            if (!builder.isEmpty()) {
+                builder.append('\n');
+            }
+            builder.append(param.path("name").asText()).append('=').append(param.path("value").asText()); // $NON-NLS-1$ //$NON-NLS-2$
+        }
+        return builder.toString();
+    }
+
+    private static String responseBody(JsonNode content) {
+        String text = contentText(content);
+        return text == null ? "" : text; // $NON-NLS-1$
+    }
+
+    private static String contentText(JsonNode content) {
+        String text = content.path("text").asText(null); // $NON-NLS-1$
+        if (text == null) {
+            return null;
+        }
+        String mimeType = content.path("mimeType").asText(); // $NON-NLS-1$
+        if (isBinaryMimeType(mimeType)) {
+            return ""; // $NON-NLS-1$
+        }
+        if (!"base64".equalsIgnoreCase(content.path("encoding").asText())) { // $NON-NLS-1$ //$NON-NLS-2$
+            return text;
+        }
+
+        try {
+            byte[] decoded = Base64.getDecoder().decode(text);
+            Charset charset = charsetFromMimeType(mimeType);
+            if (!looksLikeText(decoded, charset)) {
+                return ""; // $NON-NLS-1$
+            }
+            return new String(decoded, charset);
+        } catch (IllegalArgumentException e) {
+            return text;
+        }
+    }
+
+    private static boolean isBinaryMimeType(String mimeType) {
+        String mediaType = mediaType(mimeType);
+        if (StringUtilities.isEmpty(mediaType)) {
+            return false;
+        }
+        return !mediaType.startsWith("text/") // $NON-NLS-1$
+                && !TEXTUAL_MIME_TYPES.contains(mediaType)
+                && !mediaType.endsWith("+json") // $NON-NLS-1$
+                && !mediaType.endsWith("+xml"); // $NON-NLS-1$
+    }
+
+    private static String mediaType(String mimeType) {
+        if (StringUtilities.isEmpty(mimeType)) {
+            return ""; // $NON-NLS-1$
+        }
+        return mimeType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT); // $NON-NLS-1$
+    }
+
+    private static boolean looksLikeText(byte[] bytes, Charset charset) {
+        String text = new String(bytes, charset);
+        int checked = 0;
+        int controls = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char current = text.charAt(i);
+            if (current == '\uFFFD') {
+                return false;
+            }
+            if (Character.isISOControl(current)
+                    && current != '\n'
+                    && current != '\r'
+                    && current != '\t') {
+                controls++;
+            }
+            checked++;
+        }
+        return checked == 0 || controls * 10 <= checked;
+    }
+
+    private static Charset charsetFromMimeType(String mimeType) {
+        if (StringUtilities.isEmpty(mimeType)) {
+            return StandardCharsets.UTF_8;
+        }
+        for (String part : mimeType.split(";")) { // $NON-NLS-1$
+            String trimmed = part.trim();
+            if (trimmed.toLowerCase(Locale.ROOT).startsWith("charset=")) { // $NON-NLS-1$
+                try {
+                    return Charset.forName(trimmed.substring("charset=".length()).trim()); // $NON-NLS-1$
+                } catch (RuntimeException ignored) {
+                    return StandardCharsets.UTF_8;
+                }
+            }
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    public enum Status {
+        NOT_LINKED,
+        FOUND,
+        TEST_PLAN_FILE_UNKNOWN,
+        HAR_SOURCE_NOT_FOUND,
+        HAR_FILE_NOT_FOUND,
+        MD5_MISMATCH,
+        ENTRY_NOT_FOUND,
+        IO_ERROR
+    }
+
+    public static final class Resolution {
+        private final Status status;
+        private final RecordedExchange exchange;
+        private final String diagnostic;
+
+        private Resolution(Status status, RecordedExchange exchange, String diagnostic) {
+            this.status = status;
+            this.exchange = exchange;
+            this.diagnostic = diagnostic;
+        }
+
+        public static Resolution notLinked() {
+            return new Resolution(Status.NOT_LINKED, null, ""); // $NON-NLS-1$
+        }
+
+        public static Resolution found(RecordedExchange exchange) {
+            return new Resolution(Status.FOUND, exchange, ""); // $NON-NLS-1$
+        }
+
+        public static Resolution diagnostic(Status status, String diagnostic) {
+            return new Resolution(status, null, diagnostic);
+        }
+
+        public Status status() {
+            return status;
+        }
+
+        public Optional<RecordedExchange> exchange() {
+            return Optional.ofNullable(exchange);
+        }
+
+        public boolean shouldShowTabs() {
+            return status != Status.NOT_LINKED;
+        }
+
+        public String requestText() {
+            return exchange == null ? diagnostic : exchange.request();
+        }
+
+        public String responseText() {
+            return exchange == null ? diagnostic : exchange.response();
+        }
+    }
+
+    public static final class RecordedExchange {
+        private final String request;
+        private final String response;
+
+        RecordedExchange(String request, String response) {
+            this.request = request;
+            this.response = response;
+        }
+
+        public String request() {
+            return request;
+        }
+
+        public String response() {
+            return response;
+        }
+    }
+
+    public record HarFileCheck(Status status, Path harPath, String expectedMd5, String actualMd5, String diagnostic) {
+        public static HarFileCheck found(Path harPath, String expectedMd5, String actualMd5) {
+            return new HarFileCheck(Status.FOUND, harPath, expectedMd5, actualMd5, ""); // $NON-NLS-1$
+        }
+
+        public static HarFileCheck diagnostic(Status status, Path harPath, String expectedMd5, String actualMd5,
+                String diagnostic) {
+            return new HarFileCheck(status, harPath, expectedMd5, actualMd5, diagnostic);
+        }
+
+        public String diagnosticText() {
+            if (status == Status.HAR_FILE_NOT_FOUND) {
+                return diagnostic + "\n\nTried path:\n" + harPath; // $NON-NLS-1$
+            }
+            if (status == Status.MD5_MISMATCH) {
+                return diagnostic + "\n\nHAR path:\n" + harPath
+                        + "\n\nExpected MD5:\n" + expectedMd5
+                        + "\n\nActual MD5:\n" + actualMd5; // $NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+            }
+            if (status == Status.IO_ERROR && harPath != null) {
+                return diagnostic + "\n\nPath:\n" + harPath; // $NON-NLS-1$
+            }
+            return diagnostic;
+        }
+    }
+
+    private static final class CachedHar {
+        private final long lastModified;
+        private final long size;
+        private final String md5;
+        private final byte[] bytes;
+        private final JsonNode entries;
+
+        CachedHar(long lastModified, long size, String md5, byte[] bytes, JsonNode entries) {
+            this.lastModified = lastModified;
+            this.size = size;
+            this.md5 = md5;
+            this.bytes = bytes;
+            this.entries = entries;
+        }
+
+        long lastModified() {
+            return lastModified;
+        }
+
+        long size() {
+            return size;
+        }
+
+        String md5() {
+            return md5;
+        }
+
+        byte[] bytes() {
+            return bytes;
+        }
+
+        JsonNode entries() {
+            return entries;
+        }
+    }
+
+    private static final class SamplerHarMetadata {
+        private final Optional<Integer> entryIndex;
+        private final String startedDateTime;
+        private final String requestMethod;
+        private final String requestUrl;
+
+        SamplerHarMetadata(Optional<Integer> entryIndex, String startedDateTime,
+                String requestMethod, String requestUrl) {
+            this.entryIndex = entryIndex;
+            this.startedDateTime = startedDateTime;
+            this.requestMethod = requestMethod;
+            this.requestUrl = requestUrl;
+        }
+
+        static SamplerHarMetadata from(TestElement sampler) {
+            return new SamplerHarMetadata(
+                    parseInteger(sampler.getPropertyAsString(HAR_ENTRY_INDEX)),
+                    sampler.getPropertyAsString(HAR_STARTED_DATE_TIME),
+                    sampler.getPropertyAsString(HAR_REQUEST_METHOD),
+                    sampler.getPropertyAsString(HAR_REQUEST_URL));
+        }
+
+        boolean isEmpty() {
+            return entryIndex.isEmpty()
+                    && StringUtilities.isEmpty(startedDateTime)
+                    && StringUtilities.isEmpty(requestMethod)
+                    && StringUtilities.isEmpty(requestUrl);
+        }
+
+        Optional<Integer> entryIndex() {
+            return entryIndex;
+        }
+
+        String startedDateTime() {
+            return startedDateTime;
+        }
+
+        String requestMethod() {
+            return requestMethod;
+        }
+
+        String requestUrl() {
+            return requestUrl;
+        }
+
+        private static Optional<Integer> parseInteger(String value) {
+            if (StringUtilities.isEmpty(value)) {
+                return Optional.empty();
+            }
+            try {
+                return Optional.of(Integer.parseInt(value));
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+    }
+}

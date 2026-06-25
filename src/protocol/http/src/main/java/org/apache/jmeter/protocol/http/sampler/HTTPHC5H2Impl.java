@@ -212,7 +212,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 clientState = setupClient(key);
                 httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
                 setupRequest(url, httpRequest, res);
-                removeHttp1HopByHopHeaders(httpRequest);
+                removeHeadersUnsupportedByHttp2(httpRequest);
                 setupPreemptiveBasicAuth(url, httpRequest);
                 setupLocalAddress(clientContext);
             } catch (Exception e) {
@@ -232,7 +232,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             try {
                 currentRequest = httpRequest;
                 handleMethod(method, res, httpRequest, clientContext);
-                removeHttp1HopByHopHeaders(httpRequest);
+                removeHeadersUnsupportedByHttp2(httpRequest);
                 clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
                 clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
                 clientState.getClient().execute(httpRequest, clientContext, httpResponse -> {
@@ -1216,7 +1216,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         return result;
     }
 
-    private static void removeHttp1HopByHopHeaders(HttpRequest request) {
+    static void removeHeadersUnsupportedByHttp2(HttpRequest request) {
         for (Header connectionHeader : request.getHeaders(HTTPConstants.HEADER_CONNECTION)) {
             for (String token : connectionHeader.getValue().split(",")) {
                 String headerName = token.trim();
@@ -1228,6 +1228,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         for (String headerName : HOP_BY_HOP_HEADERS) {
             request.removeHeaders(headerName);
         }
+        // HttpClient sets HTTP/2 :authority from the request URI. Replaying a HAR Host
+        // header as a regular field creates a duplicate authority signal and some
+        // front doors reject it with HTTP 400.
+        request.removeHeaders(HEADER_HOST);
     }
 
     private static void setResponseSizes(HTTPSampleResult res, HttpResponse response, long bodyBytes) {
@@ -1261,15 +1265,28 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private static String getResponseHeaders(HttpResponse response) {
+    static String getResponseHeaders(HttpResponse response) {
         Header[] rh = response.getHeaders();
         StringBuilder headerBuf = new StringBuilder(40 * (rh.length + 1));
-        headerBuf.append(new StatusLine(response));
-        headerBuf.append('\n');
+        appendResponseStatusLine(headerBuf, response);
         for (Header responseHeader : rh) {
             writeHeader(headerBuf, responseHeader);
         }
         return headerBuf.toString();
+    }
+
+    private static void appendResponseStatusLine(StringBuilder headerBuf, HttpResponse response) {
+        StatusLine statusLine = new StatusLine(response);
+        ProtocolVersion protocolVersion = statusLine.getProtocolVersion();
+        headerBuf.append(formatProtocolVersion(protocolVersion))
+                .append(' ')
+                .append(statusLine.getStatusCode());
+        String reasonPhrase = statusLine.getReasonPhrase();
+        if ((protocolVersion == null || protocolVersion.getMajor() < 2)
+                && StringUtilities.isNotEmpty(reasonPhrase)) {
+            headerBuf.append(' ').append(reasonPhrase);
+        }
+        headerBuf.append('\n');
     }
 
     private static String getAllHeadersExceptCookie(HttpRequest method) {

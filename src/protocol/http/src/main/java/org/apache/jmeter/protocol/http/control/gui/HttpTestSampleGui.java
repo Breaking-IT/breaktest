@@ -36,6 +36,10 @@ import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HorizontalPanel;
+import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
+import org.apache.jmeter.gui.util.JSyntaxTextArea;
+import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -46,9 +50,11 @@ import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.util.StringUtilities;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import net.miginfocom.swing.MigLayout;
 
@@ -61,7 +67,20 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     private static final long serialVersionUID = 242L;
 
+    private static final String RECORDED_REQUEST_TAB = "Recorded Request"; // $NON-NLS-1$
+
+    private static final String RECORDED_RESPONSE_TAB = "Recorded Response"; // $NON-NLS-1$
+
     private UrlConfigGui urlConfigGui;
+    private JTabbedPane configTabbedPane;
+    private JPanel recordedRequestPane;
+    private JPanel recordedResponsePane;
+    private JSyntaxTextArea recordedRequestData;
+    private JSyntaxTextArea recordedResponseData;
+    private TestElement recordedHarElement;
+    private RecordedHarExchangeResolver.Resolution recordedHarResolution =
+            RecordedHarExchangeResolver.Resolution.notLinked();
+    private boolean recordedHarExchangeLoaded;
     private final JBooleanPropertyEditor retrieveEmbeddedResources = new JBooleanPropertyEditor(
             HTTPSamplerBaseSchema.INSTANCE.getRetrieveEmbeddedResources(),
             "web_testing_retrieve_images",
@@ -154,6 +173,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
             httpProtocol.setSelectedItem(configuredHttpProtocol());
         }
+        updateRecordedHarTabs(element);
     }
 
     /**
@@ -238,20 +258,97 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
      *         and the Advanced tab by default
      */
     protected JTabbedPane createTabbedConfigPane() {
-        final JTabbedPane tabbedPane = new JTabbedPane();
+        configTabbedPane = new JTabbedPane();
 
         // URL CONFIG
         urlConfigGui = createUrlConfigGui();
+        recordedRequestPane = createRecordedDataPanel(true);
+        recordedResponsePane = createRecordedDataPanel(false);
 
-        tabbedPane.add(JMeterUtils
+        configTabbedPane.add(JMeterUtils
                 .getResString("web_testing_basic"), urlConfigGui);
 
         // AdvancedPanel (embedded resources, source address and optional tasks)
         final JPanel advancedPanel = createAdvancedConfigPanel();
-        tabbedPane.add(JMeterUtils
+        configTabbedPane.add(JMeterUtils
                 .getResString("web_testing_advanced"), advancedPanel);
+        configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
 
-        return tabbedPane;
+        return configTabbedPane;
+    }
+
+    private JPanel createRecordedDataPanel(boolean request) {
+        JSyntaxTextArea textArea = JSyntaxTextArea.getInstance(20, 80, true);
+        textArea.setEditable(false);
+        textArea.setLineWrap(false);
+        textArea.setWrapStyleWord(false);
+        textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        if (request) {
+            recordedRequestData = textArea;
+        } else {
+            recordedResponseData = textArea;
+        }
+
+        JPanel contentAndSearch = new JPanel(new BorderLayout());
+        contentAndSearch.add(new JSyntaxSearchToolBar(textArea).getToolBar(), BorderLayout.NORTH);
+        contentAndSearch.add(JTextScrollPane.getInstance(textArea), BorderLayout.CENTER);
+
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.add(GuiUtils.makeScrollPane(contentAndSearch));
+        return panel;
+    }
+
+    private void updateRecordedHarTabs(TestElement element) {
+        recordedHarElement = element;
+        recordedHarResolution = RecordedHarExchangeResolver.checkLinkFor(element);
+        recordedHarExchangeLoaded = false;
+        recordedRequestData.setText(recordedHarResolution.requestText());
+        recordedRequestData.setCaretPosition(0);
+        recordedResponseData.setText(recordedHarResolution.responseText());
+        recordedResponseData.setCaretPosition(0);
+
+        if (recordedHarResolution.shouldShowTabs()) {
+            if (configTabbedPane.indexOfTab(RECORDED_REQUEST_TAB) < 0) {
+                configTabbedPane.addTab(RECORDED_REQUEST_TAB, recordedRequestPane);
+            }
+            if (configTabbedPane.indexOfTab(RECORDED_RESPONSE_TAB) < 0) {
+                configTabbedPane.addTab(RECORDED_RESPONSE_TAB, recordedResponsePane);
+            }
+            populateSelectedRecordedHarTab();
+        } else {
+            removeTab(RECORDED_REQUEST_TAB);
+            removeTab(RECORDED_RESPONSE_TAB);
+        }
+    }
+
+    private void populateSelectedRecordedHarTab() {
+        if (recordedHarElement == null || recordedHarExchangeLoaded
+                || recordedHarResolution.status() != RecordedHarExchangeResolver.Status.FOUND
+                || !isRecordedHarTabSelected()) {
+            return;
+        }
+        recordedHarResolution = RecordedHarExchangeResolver.resolveFor(recordedHarElement);
+        recordedHarExchangeLoaded = true;
+        recordedRequestData.setText(recordedHarResolution.requestText());
+        recordedRequestData.setCaretPosition(0);
+        recordedResponseData.setText(recordedHarResolution.responseText());
+        recordedResponseData.setCaretPosition(0);
+    }
+
+    private boolean isRecordedHarTabSelected() {
+        int selectedIndex = configTabbedPane.getSelectedIndex();
+        if (selectedIndex < 0) {
+            return false;
+        }
+        String selectedTitle = configTabbedPane.getTitleAt(selectedIndex);
+        return RECORDED_REQUEST_TAB.equals(selectedTitle) || RECORDED_RESPONSE_TAB.equals(selectedTitle);
+    }
+
+    private void removeTab(String title) {
+        int tabIndex = configTabbedPane.indexOfTab(title);
+        if (tabIndex >= 0) {
+            configTabbedPane.removeTabAt(tabIndex);
+        }
     }
 
     /**

@@ -18,21 +18,33 @@
 package org.apache.jmeter.protocol.http.control.gui;
 
 import java.lang.reflect.Field;
+import java.nio.file.Path;
 
 import javax.swing.JComboBox;
+import javax.swing.JTabbedPane;
 
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
+import org.apache.jmeter.gui.tree.JMeterTreeListener;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jorphan.locale.LocalizedValue;
 import org.apache.jorphan.locale.ResourceKeyed;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TestHttpTestSampleGui {
+    @TempDir
+    private Path tempDir;
+
     private HttpTestSampleGui gui;
 
     @BeforeEach
@@ -87,6 +99,56 @@ public class TestHttpTestSampleGui {
         Assertions.assertNull(sampler.getPropertyOrNull(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol().getName()));
     }
 
+    @Test
+    public void testModifyTestElementPreservesBreakTestHarMetadata() {
+        HTTPSamplerBase sampler = (HTTPSamplerBase) gui.createTestElement();
+        sampler.setProperty("BreakTest.har.entryIndex", "1");
+        sampler.setProperty("BreakTest.har.startedDateTime", "2026-06-25T09:33:35.535+02:00");
+        sampler.setProperty("BreakTest.har.effectiveStartDateTime", "2026-06-25T09:33:35.535+02:00");
+        sampler.setProperty("BreakTest.har.requestMethod", "GET");
+        sampler.setProperty("BreakTest.har.requestUrl", "https://example.invalid/style.css");
+        gui.configure(sampler);
+
+        gui.modifyTestElement(sampler);
+
+        Assertions.assertEquals("1", sampler.getPropertyAsString("BreakTest.har.entryIndex"));
+        Assertions.assertEquals("2026-06-25T09:33:35.535+02:00",
+                sampler.getPropertyAsString("BreakTest.har.startedDateTime"));
+        Assertions.assertEquals("2026-06-25T09:33:35.535+02:00",
+                sampler.getPropertyAsString("BreakTest.har.effectiveStartDateTime"));
+        Assertions.assertEquals("GET", sampler.getPropertyAsString("BreakTest.har.requestMethod"));
+        Assertions.assertEquals("https://example.invalid/style.css",
+                sampler.getPropertyAsString("BreakTest.har.requestUrl"));
+    }
+
+    @Test
+    public void testRecordedHarTabsShowMissingFileDiagnostic() throws Exception {
+        HTTPSamplerBase sampler = (HTTPSamplerBase) gui.createTestElement();
+        sampler.setName("sampler");
+        sampler.setProperty("BreakTest.har.entryIndex", "1");
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Thread Group");
+        threadGroup.setProperty("BreakTest.har.filename", "missing.har");
+        threadGroup.setProperty("BreakTest.har.md5", "00000000000000000000000000000000");
+
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        setTestPlanFile(tempDir.resolve("plan.jmx"));
+        JMeterTreeNode threadGroupNode = new JMeterTreeNode(threadGroup, treeModel);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(threadGroupNode);
+        threadGroupNode.add(samplerNode);
+
+        gui.configure(sampler);
+
+        Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
+        Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
+        Assertions.assertTrue(recordedRequestData().getText().contains(
+                tempDir.resolve("missing.har").toAbsolutePath().normalize().toString()));
+    }
+
     @SuppressWarnings("unchecked")
     private JEnumPropertyEditor<ResponseProcessingMode> responseProcessingModeEditor() throws Exception {
         Field field = HttpTestSampleGui.class.getDeclaredField("responseProcessingMode");
@@ -99,5 +161,23 @@ public class TestHttpTestSampleGui {
         Field field = HttpTestSampleGui.class.getDeclaredField("httpProtocol");
         field.setAccessible(true);
         return (JComboBox<String>) field.get(gui);
+    }
+
+    private JTabbedPane configTabbedPane() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("configTabbedPane");
+        field.setAccessible(true);
+        return (JTabbedPane) field.get(gui);
+    }
+
+    private JSyntaxTextArea recordedRequestData() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("recordedRequestData");
+        field.setAccessible(true);
+        return (JSyntaxTextArea) field.get(gui);
+    }
+
+    private static void setTestPlanFile(Path testPlanFile) throws Exception {
+        Field testPlanFileField = GuiPackage.class.getDeclaredField("testPlanFile");
+        testPlanFileField.setAccessible(true);
+        testPlanFileField.set(GuiPackage.getInstance(), testPlanFile.toString());
     }
 }

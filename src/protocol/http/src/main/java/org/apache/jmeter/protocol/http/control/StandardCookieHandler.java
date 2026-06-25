@@ -155,19 +155,14 @@ public class StandardCookieHandler implements CookieHandler {
             if (allowVariableCookie) {
                 jmcookie.setRunningVersion(true);
             }
-            cookies.add(makeCookie(jmcookie));
+            if (matches(jmcookie, url)) {
+                cookies.add(makeCookie(jmcookie));
+            }
             if (allowVariableCookie) {
                 jmcookie.setRunningVersion(false);
             }
         }
-        List<HttpCookie> cookiesValid = new ArrayList<>();
-        for (HttpCookie cookie : cookies) {
-            if (matches(cookie, url)) {
-                cookiesValid.add(cookie);
-            }
-        }
-
-        return cookiesValid;
+        return cookies;
     }
 
     /**
@@ -189,18 +184,22 @@ public class StandardCookieHandler implements CookieHandler {
         return ret;
     }
 
-    private static boolean matches(HttpCookie cookie, URL url) {
+    private static boolean matches(Cookie cookie, URL url) {
         String protocol = url.getProtocol();
         if (cookie.getSecure() && !HTTPSamplerBase.isSecure(protocol)) {
             return false;
         }
         String domain = cookie.getDomain();
         String host = url.getHost();
-        if (domain != null && !domainMatches(domain, host)) {
+        if (cookie.isDomainSpecified()) {
+            if (!domainMatches(domain, host)) {
+                return false;
+            }
+        } else if (!host.equalsIgnoreCase(domain)) {
             return false;
         }
         String cookiePath = cookie.getPath();
-        return cookiePath == null || pathMatches(url.getPath(), cookiePath);
+        return cookiePath == null || cookiePath.isEmpty() || pathMatches(url.getPath(), cookiePath);
     }
 
     private static boolean canStore(HttpCookie cookie, URL url) {

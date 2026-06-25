@@ -36,6 +36,7 @@ import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.core5.http.HttpVersion;
+import org.apache.hc.core5.http.message.BasicHttpResponse;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
@@ -124,6 +125,34 @@ public class TestHTTPHC5Impl {
     public void protocolVersionIsFormattedForDisplay() {
         assertEquals("HTTP/1.1", HTTPHC5Impl.formatProtocolVersion(HttpVersion.HTTP_1_1));
         assertEquals("HTTP/2", HTTPHC5Impl.formatProtocolVersion(HttpVersion.HTTP_2_0));
+    }
+
+    @Test
+    public void http2RemovesHttp1SpecificRequestHeaders() throws Exception {
+        HttpGet request = new HttpGet(new URI("https://example.test/resource"));
+        request.addHeader(HTTPConstants.HEADER_HOST, "example.test");
+        request.addHeader(HTTPConstants.HEADER_CONNECTION, "Foo, Bar");
+        request.addHeader("Foo", "foo-value");
+        request.addHeader("Bar", "bar-value");
+        request.addHeader("X-Custom", "custom-value");
+
+        HTTPHC5H2Impl.removeHeadersUnsupportedByHttp2(request);
+
+        assertFalse(request.containsHeader(HTTPConstants.HEADER_HOST));
+        assertFalse(request.containsHeader(HTTPConstants.HEADER_CONNECTION));
+        assertFalse(request.containsHeader("Foo"));
+        assertFalse(request.containsHeader("Bar"));
+        assertTrue(request.containsHeader("X-Custom"));
+        assertEquals("custom-value", request.getFirstHeader("X-Custom").getValue());
+    }
+
+    @Test
+    public void http2ResponseHeadersUseHttp2StatusLineWithoutReasonPhrase() {
+        BasicHttpResponse response = new BasicHttpResponse(200, "OK");
+        response.setVersion(HttpVersion.HTTP_2);
+        response.addHeader("Content-Type", "text/plain");
+
+        assertEquals("HTTP/2 200\nContent-Type: text/plain\n", HTTPHC5H2Impl.getResponseHeaders(response));
     }
 
     @Test
