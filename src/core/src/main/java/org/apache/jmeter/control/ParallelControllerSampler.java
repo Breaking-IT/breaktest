@@ -30,17 +30,23 @@ import org.apache.jmeter.samplers.Sampler;
 public class ParallelControllerSampler extends AbstractSampler {
     private static final long serialVersionUID = 240L;
 
+    private final ParallelController controller;
     private final int maxParallel;
     private final List<Sampler> samplers;
 
     public ParallelControllerSampler() {
-        this("", 1, List.of());
+        this(null, "", 1, List.of());
     }
 
-    ParallelControllerSampler(String name, int maxParallel, List<Sampler> samplers) {
+    ParallelControllerSampler(ParallelController controller, String name, int maxParallel, List<Sampler> samplers) {
+        this.controller = controller;
         this.maxParallel = maxParallel;
         this.samplers = List.copyOf(samplers);
         setName(name);
+    }
+
+    public ParallelController getController() {
+        return controller;
     }
 
     public int getMaxParallel() {
