@@ -140,6 +140,7 @@ public object JMeterGuiLauncher {
             }
             GuiPackage.getInstance().testPlanFile = f.absolutePath
             Load.insertLoadedTree(1, tree)
+            Load.scheduleBreakTestHarPreflight(f)
         } catch (e: ConversionException) {
             log.error("Failure loading test file", e)
             JMeterUtils.reportErrorToUser(SaveService.CEtoString(e))

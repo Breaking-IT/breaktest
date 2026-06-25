@@ -19,6 +19,8 @@ package org.apache.jmeter.testelement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.apache.jmeter.testelement.property.StringProperty;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -30,5 +32,17 @@ public class TestElementTest {
     @ValueSource(strings = {TestElement.NAME})
     public void fieldBackwardCompatibility(String name) {
         assertEquals("TestElement.name", name);
+    }
+
+    @Test
+    public void clearPreservesBreakTestMetadata() {
+        TestPlan testPlan = new TestPlan();
+        testPlan.setProperty(new StringProperty("BreakTest.har.entryIndex", "42"));
+        testPlan.setProperty(new StringProperty("ordinary.property", "removed"));
+
+        testPlan.clear();
+
+        assertEquals("42", testPlan.getPropertyAsString("BreakTest.har.entryIndex"));
+        assertEquals("", testPlan.getPropertyAsString("ordinary.property"));
     }
 }
