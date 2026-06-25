@@ -63,6 +63,8 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     private static final Logger log = LoggerFactory.getLogger(AbstractTestElement.class);
 
+    private static final String BREAKTEST_PROPERTY_PREFIX = "BreakTest."; // $NON-NLS-1$
+
     /**
      * Protects access to {@link #propMap} and {@link #temporaryProperties} when the element is shared across threads.
      * The assumption is that the properties are not changed during a test run, so read locks are used
@@ -726,6 +728,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     @Override
     public void clear() {
         try (ResourceLock ignored = writeLock()) {
+            List<JMeterProperty> breakTestProperties = copyBreakTestProperties();
             if (isPropertiesShared()) {
                 // Don't mutate the shared view; replace it with a fresh owned map
                 Map<String, JMeterProperty> newPropMap = new LinkedHashMap<>();
@@ -734,11 +737,29 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             } else {
                 propMap.clear();
             }
+            restoreProperties(breakTestProperties);
             invalidateSharedSnapshot();
             Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
             if (propMapConcurrent != null) {
                 propMapConcurrent.clear();
+                propMapConcurrent.putAll(propMap);
             }
+        }
+    }
+
+    private List<JMeterProperty> copyBreakTestProperties() {
+        List<JMeterProperty> result = new ArrayList<>();
+        for (JMeterProperty property : propMap.values()) {
+            if (property.getName().startsWith(BREAKTEST_PROPERTY_PREFIX)) {
+                result.add(property.clone());
+            }
+        }
+        return result;
+    }
+
+    private void restoreProperties(List<JMeterProperty> properties) {
+        for (JMeterProperty property : properties) {
+            propMap.put(property.getName(), property);
         }
     }
 

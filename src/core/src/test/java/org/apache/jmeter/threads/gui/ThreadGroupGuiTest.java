@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.threads.gui;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -39,5 +40,19 @@ class ThreadGroupGuiTest {
 
         assertFalse(setupThreadGroup.get(ThreadGroupSchema.INSTANCE.getDelayedStart()));
         assertFalse(postThreadGroup.get(ThreadGroupSchema.INSTANCE.getDelayedStart()));
+    }
+
+    @Test
+    void modifyTestElementPreservesBreakTestHarMetadata() {
+        ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+        threadGroup.setProperty("BreakTest.har.filename", "recording.har");
+        threadGroup.setProperty("BreakTest.har.md5", "3d8eeea2288e42557c6c4ced7920243b");
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertEquals("recording.har", threadGroup.getPropertyAsString("BreakTest.har.filename"));
+        assertEquals("3d8eeea2288e42557c6c4ced7920243b", threadGroup.getPropertyAsString("BreakTest.har.md5"));
     }
 }

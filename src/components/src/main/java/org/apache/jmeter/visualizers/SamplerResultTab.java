@@ -70,6 +70,7 @@ import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.TextBoxDialoger.TextBoxDoubleClick;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
@@ -111,6 +112,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     protected static final String REQUEST_VIEW_COMMAND = "change_request_view"; // $NON-NLS-1$
 
+    private static final String RECORDED_REQUEST_TAB = "Recorded Request"; // $NON-NLS-1$
+
+    private static final String RECORDED_RESPONSE_TAB = "Recorded Response"; // $NON-NLS-1$
+
     private static final String STYLE_SERVER_ERROR = "ServerError"; // $NON-NLS-1$
 
     private static final String STYLE_CLIENT_ERROR = "ClientError"; // $NON-NLS-1$
@@ -132,12 +137,26 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     private JPanel variablesPane;
 
+    private JPanel recordedRequestPane;
+
+    private JPanel recordedResponsePane;
+
     /** Contains results; contained in resultsPane */
     protected JScrollPane resultsScrollPane;
 
     private JSyntaxTextArea responseData;
     /** Response Data shown here */
     protected JEditorPane results;
+
+    private JSyntaxTextArea recordedRequestData;
+
+    private JSyntaxTextArea recordedResponseData;
+
+    private JSyntaxSearchToolBar responseSearchToolBar;
+
+    private JSyntaxSearchToolBar recordedRequestSearchToolBar;
+
+    private JSyntaxSearchToolBar recordedResponseSearchToolBar;
 
     private JLabel imageLabel;
 
@@ -154,6 +173,9 @@ public abstract class SamplerResultTab implements ResultRenderer {
     private SampleResult sampleResult = null;
 
     private String rawResponseBody = "";
+
+    private RecordedHarExchangeResolver.Resolution recordedHarResolution =
+            RecordedHarExchangeResolver.Resolution.notLinked();
 
     private JButton loadBodyButton;
 
@@ -260,6 +282,14 @@ public abstract class SamplerResultTab implements ResultRenderer {
     public void clearData() {
         responseData.setInitialText(""); // $NON-NLS-1$
         rawResponseBody = ""; // $NON-NLS-1$
+        recordedHarResolution = RecordedHarExchangeResolver.Resolution.notLinked();
+        updateDiffButtons();
+        if (recordedRequestData != null) {
+            recordedRequestData.setInitialText(""); // $NON-NLS-1$
+        }
+        if (recordedResponseData != null) {
+            recordedResponseData.setInitialText(""); // $NON-NLS-1$
+        }
         if (loadBodyButton != null) {
             loadBodyButton.setEnabled(false);
         }
@@ -278,10 +308,12 @@ public abstract class SamplerResultTab implements ResultRenderer {
         rightSide.addTab(
                 JMeterUtils.getResString("view_results_tab_sampler"), createResponseMetadataPanel()); // $NON-NLS-1$
         // Create the panels for the other tabs
-        requestPanel = new RequestPanel();
+        requestPanel = new RequestPanel(this::recordedRequestDiffContent);
         resultsPane = createResponseDataPanel();
         cookiesPane = createTablePanel(cookiesModel);
         variablesPane = createTablePanel(variablesModel);
+        recordedRequestPane = createRecordedDataPanel(true);
+        recordedResponsePane = createRecordedDataPanel(false);
     }
 
     @Override
@@ -318,6 +350,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
             populateSamplerResult(sampleResult);
         } else if (isSelectedTopLevelTab("view_results_tab_request")) { // $NON-NLS-1$
             requestPanel.setSamplerResult(sampleResult);
+        } else if (isSelectedLiteralTopLevelTab(RECORDED_REQUEST_TAB)) {
+            populateRecordedRequest();
+        } else if (isSelectedLiteralTopLevelTab(RECORDED_RESPONSE_TAB)) {
+            populateRecordedResponse();
         } else if (isSelectedTopLevelTab("view_results_request_cookies")) { // $NON-NLS-1$
             populateCookies(sampleResult);
         } else if (isSelectedTopLevelTab("view_results_variables")) { // $NON-NLS-1$
@@ -488,7 +524,13 @@ public abstract class SamplerResultTab implements ResultRenderer {
         return selectedIndex >= 0 && JMeterUtils.getResString(resourceKey).equals(rightSide.getTitleAt(selectedIndex));
     }
 
+    private boolean isSelectedLiteralTopLevelTab(String tabTitle) {
+        int selectedIndex = rightSide.getSelectedIndex();
+        return selectedIndex >= 0 && tabTitle.equals(rightSide.getTitleAt(selectedIndex));
+    }
+
     private void setupTabPaneForSampleResult() {
+        recordedHarResolution = RecordedHarExchangeResolver.resolveFor(sampleResult);
         // restore tabbed pane parsed if needed
         if (tabbedResult.getTabCount() < 2) {
             tabbedResult.insertTab(JMeterUtils.getResString("view_results_table_result_tab_parsed"), null, paneParsed, null, 1); //$NON-NLS-1$
@@ -509,6 +551,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         if(rightSide.indexOfTab(JMeterUtils.getResString("view_results_variables")) < 0) { // $NON-NLS-1$
             rightSide.addTab(JMeterUtils.getResString("view_results_variables"), variablesPane); // $NON-NLS-1$
         }
+        updateRecordedTabs();
         // restore last selected tab
         if (lastSelectedTab < rightSide.getTabCount()) {
             rightSide.setSelectedIndex(lastSelectedTab);
@@ -531,6 +574,8 @@ public abstract class SamplerResultTab implements ResultRenderer {
         if(requestTabIndex >= 0) {
             rightSide.removeTabAt(requestTabIndex);
         }
+        removeTab(RECORDED_REQUEST_TAB);
+        removeTab(RECORDED_RESPONSE_TAB);
         int responseTabIndex = rightSide.indexOfTab(JMeterUtils.getResString("view_results_tab_response")); // $NON-NLS-1$
         if(responseTabIndex >= 0) {
             rightSide.removeTabAt(responseTabIndex);
@@ -620,6 +665,120 @@ public abstract class SamplerResultTab implements ResultRenderer {
         return panel;
     }
 
+    private JPanel createRecordedDataPanel(boolean request) {
+        JSyntaxTextArea textArea = JSyntaxTextArea.getInstance(20, 80, true);
+        textArea.setEditable(false);
+        textArea.setLineWrap(false);
+        textArea.setWrapStyleWord(false);
+        textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        if (request) {
+            recordedRequestData = textArea;
+            recordedRequestSearchToolBar = new JSyntaxSearchToolBar(textArea);
+            recordedRequestSearchToolBar.setDiffContentSupplier(this::recordedRequestDiffContent);
+            recordedRequestSearchToolBar.setDiffButtonVisible(false);
+        } else {
+            recordedResponseData = textArea;
+            recordedResponseSearchToolBar = new JSyntaxSearchToolBar(textArea);
+            recordedResponseSearchToolBar.setDiffContentSupplier(this::recordedResponseDiffContent);
+            recordedResponseSearchToolBar.setDiffButtonVisible(false);
+        }
+        JPanel contentAndSearch = new JPanel(new BorderLayout());
+        contentAndSearch.add((request ? recordedRequestSearchToolBar : recordedResponseSearchToolBar).getToolBar(),
+                BorderLayout.NORTH);
+        contentAndSearch.add(JTextScrollPane.getInstance(textArea), BorderLayout.CENTER);
+
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.add(GuiUtils.makeScrollPane(contentAndSearch));
+        return panel;
+    }
+
+    private void updateRecordedTabs() {
+        if (recordedHarResolution.shouldShowTabs()) {
+            if (rightSide.indexOfTab(RECORDED_REQUEST_TAB) < 0) {
+                rightSide.addTab(RECORDED_REQUEST_TAB, recordedRequestPane);
+            }
+            if (rightSide.indexOfTab(RECORDED_RESPONSE_TAB) < 0) {
+                rightSide.addTab(RECORDED_RESPONSE_TAB, recordedResponsePane);
+            }
+        } else {
+            removeTab(RECORDED_REQUEST_TAB);
+            removeTab(RECORDED_RESPONSE_TAB);
+        }
+        updateDiffButtons();
+    }
+
+    private void removeTab(String title) {
+        int tabIndex = rightSide.indexOfTab(title);
+        if (tabIndex >= 0) {
+            rightSide.removeTabAt(tabIndex);
+        }
+    }
+
+    private void populateRecordedRequest() {
+        recordedRequestData.setText(recordedHarResolution.requestText());
+        recordedRequestData.setCaretPosition(0);
+    }
+
+    private void populateRecordedResponse() {
+        recordedResponseData.setText(recordedHarResolution.responseText());
+        recordedResponseData.setCaretPosition(0);
+    }
+
+    private void updateDiffButtons() {
+        boolean visible = recordedHarResolution.exchange().isPresent();
+        if (requestPanel != null) {
+            requestPanel.setDiffButtonVisible(visible);
+        }
+        if (responseSearchToolBar != null) {
+            responseSearchToolBar.setDiffButtonVisible(visible);
+        }
+        if (recordedRequestSearchToolBar != null) {
+            recordedRequestSearchToolBar.setDiffButtonVisible(visible);
+        }
+        if (recordedResponseSearchToolBar != null) {
+            recordedResponseSearchToolBar.setDiffButtonVisible(visible);
+        }
+    }
+
+    private JSyntaxSearchToolBar.DiffContent recordedRequestDiffContent() {
+        return recordedHarResolution.exchange()
+                .map(exchange -> new JSyntaxSearchToolBar.DiffContent(
+                        exchange.request(), replayedRequestText()))
+                .orElse(null);
+    }
+
+    private JSyntaxSearchToolBar.DiffContent recordedResponseDiffContent() {
+        return recordedHarResolution.exchange()
+                .map(exchange -> new JSyntaxSearchToolBar.DiffContent(
+                        exchange.response(), replayedResponseText()))
+                .orElse(null);
+    }
+
+    private String replayedRequestText() {
+        if (sampleResult == null) {
+            return ""; // $NON-NLS-1$
+        }
+        return RequestViewRaw.formatRequest(sampleResult);
+    }
+
+    String replayedResponseText() {
+        if (sampleResult == null) {
+            return ""; // $NON-NLS-1$
+        }
+        return buildResponseData(sampleResult.getResponseHeaders(), replayedResponseBodyForDiff());
+    }
+
+    private String replayedResponseBodyForDiff() {
+        if (!rawResponseBody.isEmpty()) {
+            return rawResponseBody;
+        }
+        if (SampleResult.BINARY.equals(sampleResult.getDataType())
+                && sampleResult.getResponseData().length > 0) {
+            return ""; // $NON-NLS-1$
+        }
+        return sampleResult.getResponseDataAsString();
+    }
+
     private JPanel createResponseDataPanel() {
         results = new JEditorPane();
         results.setEditable(false);
@@ -631,17 +790,20 @@ public abstract class SamplerResultTab implements ResultRenderer {
         responseData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
 
         JPanel responseAndSearchPanel = new JPanel(new BorderLayout());
-        JToolBar responseSearchToolBar = new JSyntaxSearchToolBar(responseData).getToolBar();
+        responseSearchToolBar = new JSyntaxSearchToolBar(responseData);
+        responseSearchToolBar.setDiffContentSupplier(this::recordedResponseDiffContent);
+        responseSearchToolBar.setDiffButtonVisible(false);
+        JToolBar responseSearchToolBarComponent = responseSearchToolBar.getToolBar();
         JButton prettyPrintButton = new JButton(JMeterUtils.getResString("view_results_pretty_print")); // $NON-NLS-1$
         JFactory.small(prettyPrintButton);
         prettyPrintButton.addActionListener(e -> prettyPrintResponseData());
-        responseSearchToolBar.add(prettyPrintButton);
+        responseSearchToolBarComponent.add(prettyPrintButton);
         loadBodyButton = new JButton(JMeterUtils.getResString("view_results_load_body")); // $NON-NLS-1$
         JFactory.small(loadBodyButton);
         loadBodyButton.setEnabled(false);
         loadBodyButton.addActionListener(e -> loadResponseBody());
-        responseSearchToolBar.add(loadBodyButton);
-        responseAndSearchPanel.add(responseSearchToolBar, BorderLayout.NORTH);
+        responseSearchToolBarComponent.add(loadBodyButton);
+        responseAndSearchPanel.add(responseSearchToolBarComponent, BorderLayout.NORTH);
         responseAndSearchPanel.add(JTextScrollPane.getInstance(responseData), BorderLayout.CENTER);
 
         resultsScrollPane = GuiUtils.makeScrollPane(results);

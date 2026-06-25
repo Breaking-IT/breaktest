@@ -42,6 +42,39 @@ class StandardCookieHandlerTest {
     }
 
     @Test
+    void shouldNotSendHostOnlyCookieToAnotherHost() throws Exception {
+        CookieManager cookieManager = new CookieManager();
+        StandardCookieHandler handler = new StandardCookieHandler();
+        URL sourceUrl = URI.create("https://www.lotteries-acc.nl/inloggen").toURL();
+        URL sameHostUrl = URI.create("https://www.lotteries-acc.nl/statics/nlportal-header.js").toURL();
+        URL otherHostUrl = URI.create("https://nedwin.sand-box.nl/statics/nlportal-header.js").toURL();
+
+        handler.addCookieFromHeader(cookieManager, true,
+                "__Host-nlportal.redirect=https%253A%252F%252Fstaatsloterij.lotteries-acc.nl%252F; path=/; secure; samesite=lax",
+                sourceUrl);
+
+        assertEquals(1, cookieManager.getCookieCount());
+        assertEquals("__Host-nlportal.redirect=https%253A%252F%252Fstaatsloterij.lotteries-acc.nl%252F",
+                handler.getCookieHeaderForURL(cookieManager.getCookies(), sameHostUrl, true));
+        assertNull(handler.getCookieHeaderForURL(cookieManager.getCookies(), otherHostUrl, true));
+    }
+
+    @Test
+    void shouldNotSendHostOnlyCookieToSubdomain() throws Exception {
+        CookieManager cookieManager = new CookieManager();
+        StandardCookieHandler handler = new StandardCookieHandler();
+        URL sourceUrl = URI.create("https://www.lotteries-acc.nl/inloggen").toURL();
+        URL subdomainUrl = URI.create("https://staatsloterij.lotteries-acc.nl/").toURL();
+
+        handler.addCookieFromHeader(cookieManager, true,
+                "__Host-nlportal.redirect=value; path=/; secure; samesite=lax",
+                sourceUrl);
+
+        assertEquals(1, cookieManager.getCookieCount());
+        assertNull(handler.getCookieHeaderForURL(cookieManager.getCookies(), subdomainUrl, true));
+    }
+
+    @Test
     void shouldStoreCookieForDifferentPathOnSameOrigin() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();

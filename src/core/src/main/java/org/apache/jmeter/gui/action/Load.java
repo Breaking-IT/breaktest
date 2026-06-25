@@ -20,7 +20,10 @@ package org.apache.jmeter.gui.action;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import javax.swing.JFileChooser;
@@ -33,6 +36,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.FocusRequester;
 import org.apache.jmeter.gui.util.MenuFactory;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.TestElement;
@@ -136,6 +140,7 @@ public class Load extends AbstractActionWithNoRunningTest {
                     // TODO should setBaseForScript be called here rather than
                     // above?
                     guiPackage.setTestPlanFile(f.getAbsolutePath());
+                    scheduleBreakTestHarPreflight(f);
                 }
             } catch (NoClassDefFoundError ex) {// Allow for missing optional jars
                 reportError("Missing jar file. {}", ex, true);
@@ -159,6 +164,80 @@ public class Load extends AbstractActionWithNoRunningTest {
             guiPackage.updateCurrentGui();
             guiPackage.getMainFrame().repaint();
         }
+    }
+
+    public static void scheduleBreakTestHarPreflight(File jmxFile) {
+        Path testPlanFile = jmxFile.toPath().toAbsolutePath().normalize();
+        List<BreakTestHarReference> references = collectBreakTestHarReferences(
+                GuiPackage.getInstance().getTreeModel().getTestPlan());
+        if (references.isEmpty()) {
+            return;
+        }
+        Thread harPreflight = new Thread(() -> {
+            try {
+                for (BreakTestHarReference reference : references) {
+                    log.info("BreakTest HAR reference detected in JMX: source='{}', file='{}', expectedMd5='{}'",
+                            reference.sourceName(), reference.filename(), reference.expectedMd5());
+                    RecordedHarExchangeResolver.HarFileCheck check = RecordedHarExchangeResolver.checkHarFile(
+                            reference.filename(), reference.expectedMd5(), testPlanFile);
+                    switch (check.status()) {
+                        case FOUND ->
+                            log.info("BreakTest HAR file found and MD5 matched: path='{}', md5='{}'",
+                                    check.harPath(), check.actualMd5());
+                        case HAR_FILE_NOT_FOUND ->
+                            log.warn("BreakTest HAR file not found: tried path='{}'",
+                                    check.harPath());
+                        case MD5_MISMATCH ->
+                            log.warn("BreakTest HAR file found but MD5 did not match: path='{}', expectedMd5='{}', actualMd5='{}'",
+                                    check.harPath(), check.expectedMd5(), check.actualMd5());
+                        default ->
+                            log.warn("BreakTest HAR reference check failed: source='{}', file='{}', status='{}', detail='{}'",
+                                    reference.sourceName(), reference.filename(), check.status(), check.diagnostic());
+                    }
+                }
+            } catch (RuntimeException ex) {
+                log.warn("BreakTest HAR reference check failed unexpectedly", ex);
+            }
+        }, "BreakTest HAR preflight"); // $NON-NLS-1$
+        harPreflight.setDaemon(true);
+        harPreflight.start();
+    }
+
+    static List<BreakTestHarReference> collectBreakTestHarReferences(HashTree tree) {
+        List<BreakTestHarReference> references = new ArrayList<>();
+        collectBreakTestHarReferences(tree, references, new HashSet<>());
+        return references;
+    }
+
+    private static void collectBreakTestHarReferences(HashTree tree, List<BreakTestHarReference> references,
+            Set<String> seenReferences) {
+        for (Object item : tree.list()) {
+            TestElement element = testElementFromTreeItem(item);
+            if (element != null) {
+                String filename = element.getPropertyAsString(RecordedHarExchangeResolver.HAR_FILENAME);
+                if (!filename.isEmpty()) {
+                    String expectedMd5 = element.getPropertyAsString(RecordedHarExchangeResolver.HAR_MD5);
+                    String referenceKey = filename + '\0' + expectedMd5;
+                    if (seenReferences.add(referenceKey)) {
+                        references.add(new BreakTestHarReference(element.getName(), filename, expectedMd5));
+                    }
+                }
+            }
+            collectBreakTestHarReferences(tree.getTree(item), references, seenReferences);
+        }
+    }
+
+    private static TestElement testElementFromTreeItem(Object item) {
+        if (item instanceof TestElement element) {
+            return element;
+        }
+        if (item instanceof JMeterTreeNode treeNode) {
+            return treeNode.getTestElement();
+        }
+        return null;
+    }
+
+    record BreakTestHarReference(String sourceName, String filename, String expectedMd5) {
     }
 
     /**

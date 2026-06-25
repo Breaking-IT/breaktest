@@ -20,9 +20,11 @@ package org.apache.jmeter.visualizers;
 import java.awt.BorderLayout;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.function.Supplier;
 
 import javax.swing.JPanel;
 
+import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.samplers.SampleResult;
 
 /**
@@ -41,8 +43,12 @@ public class RequestPanel {
      * and Create Request Panel
      */
     public RequestPanel() {
+        this(null);
+    }
+
+    public RequestPanel(Supplier<JSyntaxSearchToolBar.DiffContent> diffContentSupplier) {
         listRequestView = new ArrayDeque<>();
-        RequestView requestView = new RequestViewRaw();
+        RequestView requestView = new RequestViewRaw(diffContentSupplier);
         requestView.init();
         listRequestView.add(requestView);
 
@@ -75,6 +81,14 @@ public class RequestPanel {
      */
     public JPanel getPanel() {
         return panel;
+    }
+
+    public void setDiffButtonVisible(boolean visible) {
+        for (RequestView requestView : listRequestView) {
+            if (requestView instanceof RequestViewRaw raw) {
+                raw.setDiffButtonVisible(visible);
+            }
+        }
     }
 
 }

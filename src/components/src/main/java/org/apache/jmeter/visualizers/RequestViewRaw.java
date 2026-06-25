@@ -21,6 +21,10 @@ import java.awt.BorderLayout;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.function.Supplier;
 
 import javax.swing.JPanel;
 
@@ -49,6 +53,18 @@ public class RequestViewRaw implements RequestView {
 
     private JPanel paneRaw; /** request pane content */
 
+    private JSyntaxSearchToolBar searchToolBar;
+
+    private final Supplier<JSyntaxSearchToolBar.DiffContent> diffContentSupplier;
+
+    public RequestViewRaw() {
+        this(null);
+    }
+
+    public RequestViewRaw(Supplier<JSyntaxSearchToolBar.DiffContent> diffContentSupplier) {
+        this.diffContentSupplier = diffContentSupplier;
+    }
+
     @Override
     public void init() {
         paneRaw = new JPanel(new BorderLayout(0, 5));
@@ -59,7 +75,10 @@ public class RequestViewRaw implements RequestView {
         requestData.setWrapStyleWord(false);
         requestData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         JPanel requestDataAndSearchPanel = new JPanel(new BorderLayout());
-        requestDataAndSearchPanel.add(new JSyntaxSearchToolBar(requestData).getToolBar(), BorderLayout.NORTH);
+        searchToolBar = new JSyntaxSearchToolBar(requestData);
+        searchToolBar.setDiffContentSupplier(diffContentSupplier);
+        searchToolBar.setDiffButtonVisible(false);
+        requestDataAndSearchPanel.add(searchToolBar.getToolBar(), BorderLayout.NORTH);
         requestDataAndSearchPanel.add(JTextScrollPane.getInstance(requestData), BorderLayout.CENTER);
 
         paneRaw.add(GuiUtils.makeScrollPane(requestDataAndSearchPanel));
@@ -74,17 +93,27 @@ public class RequestViewRaw implements RequestView {
     @Override
     public void setSamplerResult(Object objectResult) {
         if (objectResult instanceof SampleResult sampleResult) {
-            // Don't display Request headers label if rh is null or empty
-            String rh = sampleResult.getRequestHeaders();
-            String cookies = getCookies(sampleResult);
-            String requestHeaders = buildRequestHeaders(rh, cookies);
-            String body = getRequestBody(sampleResult);
-            String data = buildRequestData(buildRequestLine(sampleResult), requestHeaders, body);
+            String data = formatRequest(sampleResult);
             requestData.setText(StringUtilities.isNotEmpty(data)
                     ? data
                     : JMeterUtils.getResString("view_results_table_request_raw_nodata")); //$NON-NLS-1$
             requestData.setCaretPosition(0);
         }
+    }
+
+    void setDiffButtonVisible(boolean visible) {
+        if (searchToolBar != null) {
+            searchToolBar.setDiffButtonVisible(visible);
+        }
+    }
+
+    static String formatRequest(SampleResult sampleResult) {
+        // Don't display Request headers label if rh is null or empty
+        String rh = sampleResult.getRequestHeaders();
+        String cookies = getCookies(sampleResult);
+        String requestHeaders = buildRequestHeaders(rh, cookies);
+        String body = getRequestBody(sampleResult);
+        return buildRequestData(buildRequestLine(sampleResult), requestHeaders, body);
     }
 
     private static String buildRequestData(String requestLine, String requestHeaders, String requestBody) {
@@ -113,7 +142,7 @@ public class RequestViewRaw implements RequestView {
             requestHeadersBuilder.append(requestHeaders);
         }
         appendCookieHeader(requestHeadersBuilder, cookies);
-        return requestHeadersBuilder.toString();
+        return sortedHeaderLines(requestHeadersBuilder.toString());
     }
 
     private static String buildRequestLine(SampleResult sampleResult) {
@@ -135,7 +164,7 @@ public class RequestViewRaw implements RequestView {
             return ""; //$NON-NLS-1$
         }
         if (responseHeaders.startsWith("HTTP/2")) { //$NON-NLS-1$
-            return "HTTP/2.0"; //$NON-NLS-1$
+            return "HTTP/2"; //$NON-NLS-1$
         }
         if (responseHeaders.startsWith("HTTP/1.1")) { //$NON-NLS-1$
             return "HTTP/1.1"; //$NON-NLS-1$
@@ -156,6 +185,29 @@ public class RequestViewRaw implements RequestView {
     private static boolean hasCookieHeader(StringBuilder requestDataBuilder) {
         return requestDataBuilder.toString().lines()
                 .anyMatch(line -> line.regionMatches(true, 0, "Cookie:", 0, "Cookie:".length())); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static String sortedHeaderLines(String requestHeaders) {
+        if (StringUtilities.isEmpty(requestHeaders)) {
+            return ""; //$NON-NLS-1$
+        }
+        List<String> lines = new ArrayList<>();
+        requestHeaders.lines()
+                .filter(StringUtilities::isNotEmpty)
+                .forEach(lines::add);
+        lines.sort(Comparator
+                .comparing(RequestViewRaw::headerName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(String::compareToIgnoreCase));
+        StringBuilder sortedHeaders = new StringBuilder();
+        for (String line : lines) {
+            sortedHeaders.append(line).append('\n');
+        }
+        return sortedHeaders.toString();
+    }
+
+    private static String headerName(String headerLine) {
+        int separator = headerLine.indexOf(':');
+        return separator < 0 ? headerLine : headerLine.substring(0, separator);
     }
 
     private static String getRequestBody(SampleResult sampleResult) {
