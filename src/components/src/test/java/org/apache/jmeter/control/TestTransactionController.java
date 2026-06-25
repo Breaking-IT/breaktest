@@ -19,6 +19,7 @@ package org.apache.jmeter.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -51,6 +52,10 @@ public class TestTransactionController extends JMeterTestCase {
 
     private static final Method COMPUTE_TRANSACTION_PACING_DELAY;
 
+    private static final Method APPLY_TRANSACTION_DELAY;
+
+    private static final Method APPLY_TRANSACTION_PACING;
+
     private static final Method RECORD_TRANSACTION_START;
 
     private static final Field NEXT_PACING_START_TIME;
@@ -62,6 +67,10 @@ public class TestTransactionController extends JMeterTestCase {
             COMPUTE_TRANSACTION_PACING_DELAY =
                     TransactionController.class.getDeclaredMethod("computeTransactionPacingDelay", long.class);
             COMPUTE_TRANSACTION_PACING_DELAY.setAccessible(true);
+            APPLY_TRANSACTION_DELAY = TransactionController.class.getDeclaredMethod("applyTransactionDelay");
+            APPLY_TRANSACTION_DELAY.setAccessible(true);
+            APPLY_TRANSACTION_PACING = TransactionController.class.getDeclaredMethod("applyTransactionPacing");
+            APPLY_TRANSACTION_PACING.setAccessible(true);
             RECORD_TRANSACTION_START =
                     TransactionController.class.getDeclaredMethod("recordTransactionStart", long.class);
             RECORD_TRANSACTION_START.setAccessible(true);
@@ -177,6 +186,24 @@ public class TestTransactionController extends JMeterTestCase {
     }
 
     @Test
+    public void testValidationRunSkipsTransactionDelay() throws Exception {
+        TransactionController controller = new TransactionController();
+        controller.setDelayMode(TransactionController.DELAY_FIXED);
+        controller.setFixedDelay("1000");
+
+        JMeterContextService.setValidationRun(true);
+        try {
+            long start = System.currentTimeMillis();
+            invokeVoid(APPLY_TRANSACTION_DELAY, controller);
+
+            assertTrue(System.currentTimeMillis() - start < 500,
+                    "Transaction delay should not sleep during validation");
+        } finally {
+            JMeterContextService.setValidationRun(false);
+        }
+    }
+
+    @Test
     public void testPacingDoesNotDelayFirstIteration() throws Exception {
         TransactionController controller = new TransactionController();
         controller.setPacingMode(TransactionController.DELAY_FIXED);
@@ -233,6 +260,25 @@ public class TestTransactionController extends JMeterTestCase {
     }
 
     @Test
+    public void testValidationRunSkipsTransactionPacing() throws Exception {
+        TransactionController controller = new TransactionController();
+        controller.setPacingMode(TransactionController.DELAY_FIXED);
+        controller.setFixedPacing("1000");
+        setNextPacingStartTime(controller, System.currentTimeMillis() + 1000);
+
+        JMeterContextService.setValidationRun(true);
+        try {
+            long start = System.currentTimeMillis();
+            invokeVoid(APPLY_TRANSACTION_PACING, controller);
+
+            assertTrue(System.currentTimeMillis() - start < 500,
+                    "Transaction pacing should not sleep during validation");
+        } finally {
+            JMeterContextService.setValidationRun(false);
+        }
+    }
+
+    @Test
     public void testPacingCompensatesForDrift() throws Exception {
         TransactionController controller = new TransactionController();
         controller.setPacingMode(TransactionController.DELAY_FIXED);
@@ -286,6 +332,21 @@ public class TestTransactionController extends JMeterTestCase {
     private static long invokeLong(Method method, TransactionController controller, Object... args) throws Exception {
         try {
             return (Long) method.invoke(controller, args);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw e;
+        }
+    }
+
+    private static void invokeVoid(Method method, TransactionController controller) throws Exception {
+        try {
+            method.invoke(controller);
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException runtimeException) {
