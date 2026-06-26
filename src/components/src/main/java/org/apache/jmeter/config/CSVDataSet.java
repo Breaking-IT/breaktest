@@ -17,7 +17,18 @@
 
 package org.apache.jmeter.config;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
+import java.io.Reader;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
@@ -32,6 +43,7 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.io.BomInputStream;
 import org.apache.jorphan.locale.ResourceKeyed;
 import org.apache.jorphan.util.JMeterStopThreadException;
 import org.apache.jorphan.util.JOrphanUtils;
@@ -103,6 +115,8 @@ public class CSVDataSet extends ConfigTestElement
     private transient String delimiter;
 
     private transient boolean quoted;
+
+    private transient boolean randomOrder;
 
     private transient boolean recycle = true;
 
@@ -198,7 +212,7 @@ public class CSVDataSet extends ConfigTestElement
         setAlias(context, fileName);
         final String names = getVariableNames();
         if (StringUtilities.isEmpty(names)) {
-            String header = server.reserveFile(fileName, getFileEncoding(), alias, true);
+            String header = server.reserveFile(fileName, getFileEncoding(), alias, true, randomOrder);
             try {
                 vars = CSVSaveService.csvSplitString(header, delim.charAt(0));
                 firstLineIsNames = true;
@@ -206,7 +220,7 @@ public class CSVDataSet extends ConfigTestElement
                 throw new IllegalArgumentException("Could not split CSV header line from file:" + fileName,e);
             }
         } else {
-            server.reserveFile(fileName, getFileEncoding(), alias, ignoreFirstLine);
+            server.reserveFile(fileName, getFileEncoding(), alias, ignoreFirstLine, randomOrder);
             vars = JOrphanUtils.split(names, ","); // $NON-NLS-1$
         }
         trimVarNames(vars);
@@ -296,6 +310,14 @@ public class CSVDataSet extends ConfigTestElement
         this.quoted = quoted;
     }
 
+    public boolean isRandomOrder() {
+        return randomOrder;
+    }
+
+    public void setRandomOrder(boolean randomOrder) {
+        this.randomOrder = randomOrder;
+    }
+
     public boolean getRecycle() {
         return recycle;
     }
@@ -340,5 +362,152 @@ public class CSVDataSet extends ConfigTestElement
      */
     public void setIgnoreFirstLine(boolean ignoreFirstLine) {
         this.ignoreFirstLine = ignoreFirstLine;
+    }
+
+    /**
+     * Reads a preview of the CSV rows without reserving the file for test execution.
+     *
+     * @param sampleCount maximum number of data samples to return
+     * @return a list of variable assignment lines formatted for display
+     * @throws IOException when the file cannot be read or parsed
+     */
+    public List<String> readFirstSample(int sampleCount) throws IOException {
+        if (sampleCount <= 0) {
+            return new ArrayList<>();
+        }
+        String delim = normalizeDelimiter();
+        PreviewData previewData;
+        if (getQuotedData()) {
+            previewData = readQuotedPreviewData(delim.charAt(0));
+        } else {
+            previewData = readPlainPreviewData(delim);
+        }
+        return formatPreview(previewData, sampleCount);
+    }
+
+    private PreviewData readPlainPreviewData(String delim) throws IOException {
+        String[] variableNames = {};
+        List<String[]> dataRows = new ArrayList<>();
+        try (BufferedReader reader = createPreviewReader()) {
+            if (StringUtilities.isEmpty(getVariableNames())) {
+                String header = reader.readLine();
+                if (header == null) {
+                    return new PreviewData(variableNames, dataRows);
+                }
+                variableNames = CSVSaveService.csvSplitString(header, delim.charAt(0));
+            } else if (isIgnoreFirstLine()) {
+                variableNames = parseVariableNames();
+                reader.readLine(); // NOSONAR skip configured header line
+            } else {
+                variableNames = parseVariableNames();
+            }
+            String line;
+            while ((line = reader.readLine()) != null) {
+                dataRows.add(JOrphanUtils.split(line, delim, false));
+            }
+        }
+        if (isRandomOrder()) {
+            shuffle(dataRows);
+        }
+        return new PreviewData(variableNames, dataRows);
+    }
+
+    private PreviewData readQuotedPreviewData(char delim) throws IOException {
+        String[] variableNames = {};
+        List<String[]> dataRows = new ArrayList<>();
+        try (BufferedReader reader = createPreviewReader()) {
+            if (StringUtilities.isEmpty(getVariableNames())) {
+                String[] header = CSVSaveService.csvReadFile(reader, delim);
+                if (header.length == 0) {
+                    return new PreviewData(variableNames, dataRows);
+                }
+                variableNames = header;
+            } else if (isIgnoreFirstLine()) {
+                variableNames = parseVariableNames();
+                CSVSaveService.csvReadFile(reader, delim);
+            } else {
+                variableNames = parseVariableNames();
+            }
+            while (true) {
+                String[] dataRow = CSVSaveService.csvReadFile(reader, delim);
+                if (dataRow.length == 0) {
+                    break;
+                }
+                dataRows.add(dataRow);
+            }
+        }
+        if (isRandomOrder()) {
+            shuffle(dataRows);
+        }
+        return new PreviewData(variableNames, dataRows);
+    }
+
+    private static List<String> formatPreview(PreviewData previewData, int sampleCount) {
+        List<String> lines = new ArrayList<>();
+        if (previewData.variableNames.length == 0) {
+            return lines;
+        }
+        trimVarNames(previewData.variableNames);
+        lines.add(String.join(",", previewData.variableNames));
+        int samplesToDisplay = Math.min(sampleCount, previewData.dataRows.size());
+        for (int rowIndex = 0; rowIndex < samplesToDisplay; rowIndex++) {
+            String[] values = previewData.dataRows.get(rowIndex);
+            for (int valueIndex = 0; valueIndex < previewData.variableNames.length && valueIndex < values.length;
+                    valueIndex++) {
+                lines.add("${" + previewData.variableNames[valueIndex] + "} = " + values[valueIndex]);
+            }
+            lines.add("------------");
+        }
+        return lines;
+    }
+
+    private String[] parseVariableNames() {
+        String[] variableNames = JOrphanUtils.split(getVariableNames(), ","); // $NON-NLS-1$
+        trimVarNames(variableNames);
+        return variableNames;
+    }
+
+    private BufferedReader createPreviewReader() throws IOException {
+        String fileName = getFilename();
+        if (StringUtilities.isEmpty(fileName)) {
+            throw new IllegalArgumentException("Filename must not be null or empty");
+        }
+        File file = FileServer.getFileServer().resolveFile(fileName.trim());
+        if (!file.canRead() || !file.isFile()) {
+            throw new IllegalArgumentException("File " + file.getName() + " must exist and be readable");
+        }
+        String charsetName = getFileEncoding();
+        Path filePath = file.toPath();
+        if (StringUtilities.isNotBlank(charsetName)) {
+            return Files.newBufferedReader(filePath, Charset.forName(charsetName));
+        }
+        BufferedInputStream stream = new BufferedInputStream(Files.newInputStream(filePath));
+        Reader reader = BomInputStream.reader(stream);
+        return new BufferedReader(reader);
+    }
+
+    private String normalizeDelimiter() {
+        String delim = getDelimiter();
+        if ("\\t".equals(delim)) { // $NON-NLS-1$
+            return "\t"; // $NON-NLS-1$
+        }
+        if (delim == null || delim.isEmpty()) {
+            return ",";
+        }
+        return delim;
+    }
+
+    private static void shuffle(List<?> rows) {
+        Collections.shuffle(rows, ThreadLocalRandom.current());
+    }
+
+    private static class PreviewData {
+        private final String[] variableNames;
+        private final List<String[]> dataRows;
+
+        private PreviewData(String[] variableNames, List<String[]> dataRows) {
+            this.variableNames = variableNames;
+            this.dataRows = dataRows;
+        }
     }
 }
