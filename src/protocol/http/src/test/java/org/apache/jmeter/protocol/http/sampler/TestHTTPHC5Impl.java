@@ -85,10 +85,15 @@ public class TestHTTPHC5Impl {
         assertEquals(HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(http2.getImplementation(), http2).getClass());
 
-        HTTPSamplerProxy http2Legacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
-        http2Legacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP/2");
+        HTTPSamplerProxy http2SpaceLegacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        http2SpaceLegacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP 2.0");
         assertEquals(HTTPHC5H2Impl.class,
-                HTTPSamplerFactory.getImplementation(http2Legacy.getImplementation(), http2Legacy).getClass());
+                HTTPSamplerFactory.getImplementation(http2SpaceLegacy.getImplementation(), http2SpaceLegacy).getClass());
+
+        HTTPSamplerProxy http2DotLegacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        http2DotLegacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP/2.0");
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation(http2DotLegacy.getImplementation(), http2DotLegacy).getClass());
 
         HTTPSamplerProxy http2PreferredLegacy = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         http2PreferredLegacy.set(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol(), "HTTP/2 preferred");

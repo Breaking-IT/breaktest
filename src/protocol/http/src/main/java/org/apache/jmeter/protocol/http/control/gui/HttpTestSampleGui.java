@@ -36,6 +36,7 @@ import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HorizontalPanel;
+import org.apache.jmeter.gui.util.InfoButton;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
@@ -98,6 +99,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
                     JMeterUtils::getResString,
                     "response_processing_inherit"
             );
+    private final InfoButton responseProcessingInfo = new InfoButton(
+            JMeterUtils.getResString("response_processing_info_title"),
+            JMeterUtils.getResString("response_processing_info"));
     private JTextField embeddedAllowRE; // regular expression used to match against embedded resource URLs to allow
     private JTextField embeddedExcludeRE; // regular expression used to match against embedded resource URLs to exclude
     private JTextField sourceIpAddr;
@@ -488,7 +492,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         JPanel panel = new JPanel(new MigLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("response_processing_title"))); // $NON-NLS-1$
-        panel.add(responseProcessingMode, "span");
+        panel.add(responseProcessingMode, "split 2");
+        panel.add(responseProcessingInfo);
         return panel;
     }
 

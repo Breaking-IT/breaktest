@@ -43,6 +43,18 @@ public abstract class AbstractThreadGroupSchema : TestElementSchema() {
     public val sameUserOnNextIteration: BooleanPropertyDescriptor<AbstractThreadGroupSchema>
         by boolean("ThreadGroup.same_user_on_next_iteration", default = true)
 
+    public val pacingMode: StringPropertyDescriptor<AbstractThreadGroupSchema>
+        by string("ThreadGroup.pacingMode", default = "Disabled")
+
+    public val fixedPacing: StringPropertyDescriptor<AbstractThreadGroupSchema>
+        by string("ThreadGroup.fixedPacing", default = "0")
+
+    public val pacingMin: StringPropertyDescriptor<AbstractThreadGroupSchema>
+        by string("ThreadGroup.pacingMin", default = "0")
+
+    public val pacingMax: StringPropertyDescriptor<AbstractThreadGroupSchema>
+        by string("ThreadGroup.pacingMax", default = "0")
+
     // TODO: implement EnumPropertyDescriptor or TransformedPropertyDescriptor, so that we can use enum values
     //  in get and set
     public val onSampleError: StringPropertyDescriptor<AbstractThreadGroupSchema>
