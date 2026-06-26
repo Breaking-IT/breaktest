@@ -67,6 +67,11 @@ class UnmodifiableJMeterVariables extends JMeterVariables {
     }
 
     @Override
+    public void clear() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void put(String key, String value) {
         throw new UnsupportedOperationException();
     }

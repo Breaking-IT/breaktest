@@ -99,6 +99,13 @@ public class JMeterVariables {
     }
 
     /**
+     * Remove all variables.
+     */
+    public void clear() {
+        variables.clear();
+    }
+
+    /**
      * Creates or updates a variable with a String value.
      *
      * @param key the variable name

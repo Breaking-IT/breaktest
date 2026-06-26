@@ -169,9 +169,11 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public static final String HTTP_PROTOCOL_HTTP_1_1 = "HTTP/1.1"; // $NON-NLS-1$
 
-    public static final String HTTP_PROTOCOL_HTTP_2 = "HTTP 2.0"; // $NON-NLS-1$
+    public static final String HTTP_PROTOCOL_HTTP_2 = "HTTP/2"; // $NON-NLS-1$
 
-    private static final String HTTP_PROTOCOL_HTTP_2_LEGACY = "HTTP/2"; // $NON-NLS-1$
+    private static final String HTTP_PROTOCOL_HTTP_2_SPACE_LEGACY = "HTTP 2.0"; // $NON-NLS-1$
+
+    private static final String HTTP_PROTOCOL_HTTP_2_DOT_LEGACY = "HTTP/2.0"; // $NON-NLS-1$
 
     private static final String HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY = "HTTP/2 preferred"; // $NON-NLS-1$
 
@@ -748,7 +750,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public static String normalizeHttpProtocol(String httpProtocol) {
-        if (HTTP_PROTOCOL_HTTP_2_LEGACY.equals(httpProtocol)
+        if (HTTP_PROTOCOL_HTTP_2_SPACE_LEGACY.equals(httpProtocol)
+                || HTTP_PROTOCOL_HTTP_2_DOT_LEGACY.equals(httpProtocol)
                 || HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY.equals(httpProtocol)) {
             return HTTP_PROTOCOL_HTTP_2;
         }

@@ -96,6 +96,10 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             JMeterUtils.getResString("thread_group_pacing_info_title"),
             JMeterUtils.getResString("thread_group_pacing_info"));
 
+    private final InfoButton sameUserInfo = new InfoButton(
+            JMeterUtils.getResString("threadgroup_same_user_info_title"),
+            JMeterUtils.getResString("threadgroup_same_user_info"));
+
     private JPanel fixedPacingFieldPanel;
 
     private JPanel pacingMinFieldPanel;
@@ -259,7 +263,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         threadPropsPanel.add(loopController.getInfinite(), "gapleft push");
         threadPropsPanel.add(loopController.getLoops());
         addPacingControls(threadPropsPanel);
-        threadPropsPanel.add(sameUserBox, "span 2");
+        threadPropsPanel.add(createSameUserPanel(), "span 2");
         if (showDelayedStart) {
             delayedStart = new JBooleanPropertyEditor(
                     ThreadGroupSchema.INSTANCE.getDelayedStart(),
@@ -277,6 +281,13 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         threadPropsPanel.add(delayLabel);
         threadPropsPanel.add(delay);
         add(threadPropsPanel, BorderLayout.CENTER);
+    }
+
+    private JPanel createSameUserPanel() {
+        JPanel sameUserPanel = new JPanel(new MigLayout("insets 0", "[][6][]"));
+        sameUserPanel.add(sameUserBox);
+        sameUserPanel.add(sameUserInfo);
+        return sameUserPanel;
     }
 
     private void addPacingControls(JPanel threadPropsPanel) {

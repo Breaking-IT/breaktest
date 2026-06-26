@@ -20,6 +20,7 @@ package org.apache.jmeter.threads;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -300,6 +301,31 @@ class TestJMeterThread {
         }
     }
 
+    private static final class IterationVariableSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final AtomicInteger calls = new AtomicInteger();
+        private final AtomicReference<String> secondIterationRuntimeValue = new AtomicReference<>();
+        private final AtomicReference<String> secondIterationInitialValue = new AtomicReference<>();
+
+        @Override
+        public SampleResult sample(Entry e) {
+            JMeterVariables variables = JMeterContextService.getContext().getVariables();
+            if (calls.incrementAndGet() == 1) {
+                variables.put("runtime", "dirty");
+            } else {
+                secondIterationRuntimeValue.set(variables.get("runtime"));
+                secondIterationInitialValue.set(variables.get("initial"));
+            }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
     private static class ThrowingThreadListener implements ThreadListener {
         private boolean throwError;
 
@@ -378,6 +404,28 @@ class TestJMeterThread {
         // the duration of this test plan should currently be around zero seconds,
         // but it is allowed to take up to maxDuration amount of time
         assertTrue(duration <= maxDuration, "Test plan should not run for longer than duration");
+    }
+
+    @Test
+    void testDifferentUserOnNextIterationClearsRuntimeVariables() {
+        IterationVariableSampler sampler = runTwoIterationsWithSameUserSetting(false);
+
+        assertEquals(2, sampler.calls.get(), "Sampler should run in both iterations");
+        assertNull(sampler.secondIterationRuntimeValue.get(),
+                "Runtime variables from the previous user should be cleared");
+        assertEquals("seed", sampler.secondIterationInitialValue.get(),
+                "Initial thread variables should be restored like a fresh thread");
+    }
+
+    @Test
+    void testSameUserOnNextIterationKeepsRuntimeVariables() {
+        IterationVariableSampler sampler = runTwoIterationsWithSameUserSetting(true);
+
+        assertEquals(2, sampler.calls.get(), "Sampler should run in both iterations");
+        assertEquals("dirty", sampler.secondIterationRuntimeValue.get(),
+                "Runtime variables should be preserved for the same user");
+        assertEquals("seed", sampler.secondIterationInitialValue.get(),
+                "Initial thread variables should remain available");
     }
 
     @Test
@@ -826,6 +874,33 @@ class TestJMeterThread {
         jMeterThread.setThreadName("thread-group-pacing-thread");
         jMeterThread.setThreadGroup(threadGroup);
         return new ThreadGroupPacingFixture(threadGroup, jMeterThread);
+    }
+
+    private static IterationVariableSampler runTwoIterationsWithSameUserSetting(boolean sameUserOnNextIteration) {
+        HashTree testTree = new HashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        IterationVariableSampler sampler = new IterationVariableSampler();
+        sampler.setName("iteration variable sampler");
+        testTree.add(loop);
+        testTree.add(loop, sampler);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterVariables initialVariables = new JMeterVariables();
+        initialVariables.put("initial", "seed");
+
+        JMeterThread jMeterThread = new JMeterThread(
+                testTree, threadGroup, new ListenerNotifier(), sameUserOnNextIteration);
+        jMeterThread.setThreadName("iteration-variable-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.putVariables(initialVariables);
+        jMeterThread.run();
+        return sampler;
     }
 
     private record ThreadGroupPacingFixture(ThreadGroup threadGroup, JMeterThread jMeterThread) {
