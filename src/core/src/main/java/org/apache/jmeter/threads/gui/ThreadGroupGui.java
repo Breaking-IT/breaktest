@@ -22,18 +22,26 @@ import static org.apache.jmeter.util.JMeterUtils.labelFor;
 import java.awt.BorderLayout;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.MessageFormat;
 import java.util.Arrays;
+import java.util.Locale;
 
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.gui.LoopControlPanel;
 import org.apache.jmeter.gui.JBooleanPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.util.InfoButton;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.AbstractThreadGroupSchema;
@@ -59,6 +67,40 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private final JTextField rampInput = new JTextField();
 
     private final boolean showDelayedStart;
+
+    private final JComboBox<String> pacingMode = new JComboBox<>(new String[] {
+            AbstractThreadGroup.PACING_DISABLED,
+            AbstractThreadGroup.PACING_FIXED,
+            AbstractThreadGroup.PACING_RANDOM,
+            AbstractThreadGroup.PACING_GAUSSIAN_RANDOM,
+    });
+
+    private final JTextField fixedPacing = new JTextField(12);
+
+    private final JTextField pacingMin = new JTextField(12);
+
+    private final JTextField pacingMax = new JTextField(12);
+
+    private final JLabel fixedPacingLabel =
+            new JLabel(JMeterUtils.getResString("thread_group_pacing_fixed"));
+
+    private final JLabel pacingMinLabel =
+            new JLabel(JMeterUtils.getResString("thread_group_pacing_min"));
+
+    private final JLabel pacingMaxLabel =
+            new JLabel(JMeterUtils.getResString("thread_group_pacing_max"));
+
+    private final JLabel pacingRate = new JLabel();
+
+    private final InfoButton pacingInfo = new InfoButton(
+            JMeterUtils.getResString("thread_group_pacing_info_title"),
+            JMeterUtils.getResString("thread_group_pacing_info"));
+
+    private JPanel fixedPacingFieldPanel;
+
+    private JPanel pacingMinFieldPanel;
+
+    private JPanel pacingMaxFieldPanel;
 
     private JBooleanPropertyEditor delayedStart;
 
@@ -130,6 +172,10 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     public void modifyTestElement(TestElement tg) {
         super.modifyTestElement(tg);
         if (tg instanceof AbstractThreadGroup abstractThreadGroup) {
+            abstractThreadGroup.setPacingMode((String) pacingMode.getSelectedItem());
+            abstractThreadGroup.setFixedPacing(fixedPacing.getText());
+            abstractThreadGroup.setPacingMin(pacingMin.getText());
+            abstractThreadGroup.setPacingMax(pacingMax.getText());
             abstractThreadGroup.setSamplerController((LoopController) loopPanel.createTestElement());
         }
     }
@@ -138,6 +184,13 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     public void configure(TestElement tg) {
         super.configure(tg);
         loopPanel.configure((TestElement) tg.getProperty(AbstractThreadGroup.MAIN_CONTROLLER).getObjectValue());
+        if (tg instanceof AbstractThreadGroup abstractThreadGroup) {
+            pacingMode.setSelectedItem(abstractThreadGroup.getPacingMode());
+            fixedPacing.setText(abstractThreadGroup.getFixedPacing());
+            pacingMin.setText(abstractThreadGroup.getPacingMin());
+            pacingMax.setText(abstractThreadGroup.getPacingMax());
+            updatePacingFields();
+        }
         toggleSchedulerFields();
     }
 
@@ -177,11 +230,16 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     // Initialise the gui field values
     private void initGui(){
         loopPanel.clearGui();
+        pacingMode.setSelectedItem(AbstractThreadGroup.PACING_DISABLED);
+        fixedPacing.setText("0"); // $NON-NLS-1$
+        pacingMin.setText("0"); // $NON-NLS-1$
+        pacingMax.setText("0"); // $NON-NLS-1$
+        updatePacingFields();
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
         // THREAD PROPERTIES
-        JPanel threadPropsPanel = new JPanel(new MigLayout("fillx, wrap 2", "[][fill,grow]"));
+        JPanel threadPropsPanel = new JPanel(new MigLayout("fillx, wrap 2, hidemode 3", "[][fill,grow]"));
         threadPropsPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("thread_properties"))); // $NON-NLS-1$
 
@@ -200,6 +258,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         threadPropsPanel.add(loopController.getLoopsLabel(), "split 2");
         threadPropsPanel.add(loopController.getInfinite(), "gapleft push");
         threadPropsPanel.add(loopController.getLoops());
+        addPacingControls(threadPropsPanel);
         threadPropsPanel.add(sameUserBox, "span 2");
         if (showDelayedStart) {
             delayedStart = new JBooleanPropertyEditor(
@@ -218,6 +277,116 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         threadPropsPanel.add(delayLabel);
         threadPropsPanel.add(delay);
         add(threadPropsPanel, BorderLayout.CENTER);
+    }
+
+    private void addPacingControls(JPanel threadPropsPanel) {
+        JPanel pacingOptionPanel = new JPanel(new MigLayout("insets 0, fillx", "[][10][][6][]push"));
+        pacingOptionPanel.add(pacingMode, "w pref!, growx 0");
+        pacingOptionPanel.add(pacingRate);
+        pacingOptionPanel.add(pacingInfo);
+        pacingMode.addActionListener(e -> updatePacingFields());
+
+        fixedPacingFieldPanel = createPacingFieldPanel(fixedPacing);
+        pacingMinFieldPanel = createPacingFieldPanel(pacingMin);
+        pacingMaxFieldPanel = createPacingFieldPanel(pacingMax);
+
+        threadPropsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_pacing_option")));
+        threadPropsPanel.add(pacingOptionPanel, "growx");
+        threadPropsPanel.add(fixedPacingLabel);
+        threadPropsPanel.add(fixedPacingFieldPanel, "growx");
+        threadPropsPanel.add(pacingMinLabel);
+        threadPropsPanel.add(pacingMinFieldPanel, "growx");
+        threadPropsPanel.add(pacingMaxLabel);
+        threadPropsPanel.add(pacingMaxFieldPanel, "growx");
+
+        addPacingDocumentListener(fixedPacing);
+        addPacingDocumentListener(pacingMin);
+        addPacingDocumentListener(pacingMax);
+        updatePacingFields();
+    }
+
+    private static JPanel createPacingFieldPanel(JTextField field) {
+        JPanel panel = new JPanel(new MigLayout("insets 0", "[pref!]"));
+        panel.add(field, "w pref!, growx 0");
+        return panel;
+    }
+
+    private void updatePacingFields() {
+        String mode = (String) pacingMode.getSelectedItem();
+        boolean fixed = AbstractThreadGroup.PACING_FIXED.equals(mode);
+        boolean random = AbstractThreadGroup.PACING_RANDOM.equals(mode)
+                || AbstractThreadGroup.PACING_GAUSSIAN_RANDOM.equals(mode);
+
+        fixedPacingLabel.setVisible(fixed);
+        fixedPacingFieldPanel.setVisible(fixed);
+        pacingMinLabel.setVisible(random);
+        pacingMinFieldPanel.setVisible(random);
+        pacingMaxLabel.setVisible(random);
+        pacingMaxFieldPanel.setVisible(random);
+        pacingRate.setText(formatPacingRate(mode, fixedPacing.getText(), pacingMin.getText(), pacingMax.getText()));
+        pacingRate.setVisible(!pacingRate.getText().isEmpty());
+        pacingInfo.setVisible(!AbstractThreadGroup.PACING_DISABLED.equals(mode));
+        revalidate();
+        repaint();
+    }
+
+    private void addPacingDocumentListener(JTextField field) {
+        field.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updatePacingFields();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updatePacingFields();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updatePacingFields();
+            }
+        });
+    }
+
+    static String formatPacingRate(String mode, String fixedPacing, String pacingMin, String pacingMax) {
+        Long pacing = switch (mode) {
+            case AbstractThreadGroup.PACING_FIXED -> parsePositiveLong(fixedPacing);
+            case AbstractThreadGroup.PACING_RANDOM, AbstractThreadGroup.PACING_GAUSSIAN_RANDOM ->
+                    averagePacing(pacingMin, pacingMax);
+            default -> null;
+        };
+        if (pacing == null || pacing <= 0) {
+            return ""; // $NON-NLS-1$
+        }
+        double perMinute = 60_000d / pacing;
+        String pattern = JMeterUtils.getResString("thread_group_pacing_rate");
+        if (pattern.startsWith("[res_key=")) { // $NON-NLS-1$
+            pattern = "{0} iterations/min"; // $NON-NLS-1$
+        }
+        return MessageFormat.format(pattern, formatPacingRateValue(perMinute));
+    }
+
+    private static String formatPacingRateValue(double perMinute) {
+        return new DecimalFormat("0.##", DecimalFormatSymbols.getInstance(Locale.ROOT)).format(perMinute);
+    }
+
+    private static Long averagePacing(String pacingMin, String pacingMax) {
+        Long min = parsePositiveLong(pacingMin);
+        Long max = parsePositiveLong(pacingMax);
+        if (min == null || max == null || max < min) {
+            return null;
+        }
+        return min + (max - min) / 2;
+    }
+
+    private static Long parsePositiveLong(String value) {
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed < 0 ? null : parsed;
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
 }

@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +42,8 @@ import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
+import org.apache.jmeter.engine.util.CompoundVariable;
+import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
@@ -48,6 +51,8 @@ import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.ThreadListener;
+import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -373,6 +378,96 @@ class TestJMeterThread {
         // the duration of this test plan should currently be around zero seconds,
         // but it is allowed to take up to maxDuration amount of time
         assertTrue(duration <= maxDuration, "Test plan should not run for longer than duration");
+    }
+
+    @Test
+    void testThreadGroupPacingFirstIterationDoesNotDelay() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setFixedPacing("100");
+
+        assertEquals(0, fixture.jMeterThread.computeThreadGroupPacingDelay(1000));
+    }
+
+    @Test
+    void testThreadGroupPacingComputesNextStartDelay() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setFixedPacing("100");
+
+        fixture.jMeterThread.recordThreadGroupIterationStart(1000);
+
+        assertEquals(60, fixture.jMeterThread.computeThreadGroupPacingDelay(1040));
+    }
+
+    @Test
+    void testThreadGroupPacingDoesNotDelayWhenCurrentStartExceededTarget() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setFixedPacing("100");
+
+        fixture.jMeterThread.recordThreadGroupIterationStart(1000);
+
+        assertEquals(0, fixture.jMeterThread.computeThreadGroupPacingDelay(1120));
+    }
+
+    @Test
+    void testThreadGroupRandomPacingSupportsSameMinAndMax() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_RANDOM);
+        fixture.threadGroup.setPacingMin("70");
+        fixture.threadGroup.setPacingMax("70");
+
+        fixture.jMeterThread.recordThreadGroupIterationStart(1000);
+
+        assertEquals(40, fixture.jMeterThread.computeThreadGroupPacingDelay(1030));
+    }
+
+    @Test
+    void testThreadGroupPacingValuesSupportVariables() throws Exception {
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("pacingMs", "75");
+        JMeterContextService.getContext().setVariables(variables);
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setProperty(functionProperty(
+                AbstractThreadGroupSchema.INSTANCE.getFixedPacing().getName(),
+                "${pacingMs}"));
+
+        fixture.jMeterThread.recordThreadGroupIterationStart(1000);
+
+        assertEquals(50, fixture.jMeterThread.computeThreadGroupPacingDelay(1025));
+    }
+
+    @Test
+    void testThreadGroupPacingCompensatesForDrift() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setFixedPacing("100");
+
+        fixture.jMeterThread.recordThreadGroupIterationStart(1000);
+        fixture.jMeterThread.recordThreadGroupIterationStart(1103);
+
+        assertEquals(97, fixture.jMeterThread.computeThreadGroupPacingDelay(1103));
+    }
+
+    @Test
+    void testValidationRunSkipsThreadGroupPacing() {
+        ThreadGroupPacingFixture fixture = createThreadGroupPacingFixture();
+        fixture.threadGroup.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+        fixture.threadGroup.setFixedPacing("1000");
+        fixture.jMeterThread.recordThreadGroupIterationStart(System.currentTimeMillis());
+
+        JMeterContextService.setValidationRun(true);
+        try {
+            long start = System.currentTimeMillis();
+            fixture.jMeterThread.applyThreadGroupPacing();
+
+            assertTrue(System.currentTimeMillis() - start < 500,
+                    "Thread Group pacing should not sleep during validation");
+        } finally {
+            JMeterContextService.setValidationRun(false);
+        }
     }
 
     @Test
@@ -718,6 +813,24 @@ class TestJMeterThread {
         return result;
     }
 
+    private static ThreadGroupPacingFixture createThreadGroupPacingFixture() {
+        HashTree testTree = new HashTree();
+        LoopController loop = createLoopController();
+        testTree.add(loop);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("thread-group-pacing-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        return new ThreadGroupPacingFixture(threadGroup, jMeterThread);
+    }
+
+    private record ThreadGroupPacingFixture(ThreadGroup threadGroup, JMeterThread jMeterThread) {
+    }
+
     private static DummySampler createSampler() {
         DummySampler result = new DummySampler();
         result.setName("Call me");
@@ -757,6 +870,14 @@ class TestJMeterThread {
         Method setSubSampler = TransactionSampler.class.getDeclaredMethod("setSubSampler", Sampler.class);
         setSubSampler.setAccessible(true);
         setSubSampler.invoke(transactionSampler, subSampler);
+    }
+
+    private static JMeterProperty functionProperty(String propertyName, String value) throws Exception {
+        ReplaceStringWithFunctions transformer =
+                new ReplaceStringWithFunctions(new CompoundVariable(), new HashMap<>());
+        JMeterProperty property = transformer.transformValue(new StringProperty(propertyName, value));
+        property.setRunningVersion(true);
+        return property;
     }
 
     private static Timer createConstantTimer(long delay) {

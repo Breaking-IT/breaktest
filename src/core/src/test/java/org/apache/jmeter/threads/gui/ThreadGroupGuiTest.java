@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ThreadGroupSchema;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,31 @@ class ThreadGroupGuiTest {
         ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
 
         assertTrue(threadGroup.get(ThreadGroupSchema.INSTANCE.getDelayedStart()));
+        assertEquals(AbstractThreadGroup.PACING_DISABLED, threadGroup.getPacingMode());
+        assertEquals("0", threadGroup.getFixedPacing());
+        assertEquals("0", threadGroup.getPacingMin());
+        assertEquals("0", threadGroup.getPacingMax());
+    }
+
+    @Test
+    void fixedPacingShowsIterationsPerMinute() {
+        assertEquals(
+                "60 iterations/min",
+                ThreadGroupGui.formatPacingRate(AbstractThreadGroup.PACING_FIXED, "1000", "0", "0"));
+    }
+
+    @Test
+    void randomPacingShowsIterationsPerMinuteFromAverage() {
+        assertEquals(
+                "0.5 iterations/min",
+                ThreadGroupGui.formatPacingRate(AbstractThreadGroup.PACING_RANDOM, "0", "60000", "180000"));
+    }
+
+    @Test
+    void disabledPacingDoesNotShowIterationsPerMinute() {
+        assertEquals(
+                "",
+                ThreadGroupGui.formatPacingRate(AbstractThreadGroup.PACING_DISABLED, "1000", "60000", "180000"));
     }
 
     @Test

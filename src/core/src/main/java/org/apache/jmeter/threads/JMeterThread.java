@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -153,6 +154,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
     // Gives access to parent thread threadGroup
     private AbstractThreadGroup threadGroup;
+
+    /**
+     * Next scheduled Thread Group iteration start time, used to calculate start-to-start pacing without drift.
+     */
+    private long nextThreadGroupPacingStartTime = -1;
 
     private StandardJMeterEngine engine = null; // For access to stop methods.
 
@@ -1038,6 +1044,7 @@ public class JMeterThread implements Runnable, Interruptible {
         threadContext.setSamplingStarted(true);
 
         threadGroupLoopController.initialize();
+        nextThreadGroupPacingStartTime = -1;
         IterationListener iterationListener = new IterationListener();
         threadGroupLoopController.addIterationListener(iterationListener);
 
@@ -1369,6 +1376,92 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
+    void applyThreadGroupPacing() {
+        if (JMeterContextService.isValidationRun() || threadGroup == null) {
+            return;
+        }
+        long pacingDelay = computeThreadGroupPacingDelay(System.currentTimeMillis());
+        if (pacingDelay > 0) {
+            delayBy(pacingDelay, "ThreadGroup pacing");
+        }
+        if (scheduler) {
+            stopSchedulerIfNeeded();
+        }
+        if (running) {
+            recordThreadGroupIterationStart(System.currentTimeMillis());
+        }
+    }
+
+    long computeThreadGroupPacingDelay(long now) {
+        if (nextThreadGroupPacingStartTime < 0) {
+            return 0;
+        }
+        return Math.max(0, nextThreadGroupPacingStartTime - now);
+    }
+
+    void recordThreadGroupIterationStart(long actualStartTime) {
+        long targetPacing = computeThreadGroupPacingTarget();
+        if (targetPacing <= 0) {
+            nextThreadGroupPacingStartTime = actualStartTime;
+        } else if (nextThreadGroupPacingStartTime < 0) {
+            nextThreadGroupPacingStartTime = actualStartTime + targetPacing;
+        } else {
+            nextThreadGroupPacingStartTime += targetPacing;
+        }
+    }
+
+    private long computeThreadGroupPacingTarget() {
+        String mode = threadGroup.getPacingMode();
+        return switch (mode) {
+            case AbstractThreadGroup.PACING_FIXED -> readPacingValue(threadGroup.getFixedPacing(), "fixed pacing");
+            case AbstractThreadGroup.PACING_RANDOM -> randomThreadGroupPacing();
+            case AbstractThreadGroup.PACING_GAUSSIAN_RANDOM -> gaussianRandomThreadGroupPacing();
+            default -> 0;
+        };
+    }
+
+    private long randomThreadGroupPacing() {
+        long min = readPacingValue(threadGroup.getPacingMin(), "minimum pacing");
+        long max = readPacingValue(threadGroup.getPacingMax(), "maximum pacing");
+        validatePacingRange(min, max);
+        return min == max ? min : ThreadLocalRandom.current().nextLong(min, max + 1);
+    }
+
+    private long gaussianRandomThreadGroupPacing() {
+        long min = readPacingValue(threadGroup.getPacingMin(), "minimum pacing");
+        long max = readPacingValue(threadGroup.getPacingMax(), "maximum pacing");
+        validatePacingRange(min, max);
+        if (min == max) {
+            return min;
+        }
+        double midpoint = min + (max - min) / 2.0d;
+        double standardDeviation = (max - min) / 6.0d;
+        long pacing = Math.round(midpoint + ThreadLocalRandom.current().nextGaussian() * standardDeviation);
+        return Math.clamp(pacing, min, max);
+    }
+
+    private static long readPacingValue(String rawValue, String fieldName) {
+        try {
+            long value = Long.parseLong(rawValue.trim());
+            if (value < 0) {
+                throw new IllegalArgumentException("Thread Group " + fieldName + " must be >= 0");
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Thread Group " + fieldName
+                    + " must resolve to a whole number of milliseconds: " + rawValue, e);
+        }
+    }
+
+    private static void validatePacingRange(long min, long max) {
+        if (max < min) {
+            throw new IllegalArgumentException("Thread Group maximum pacing must be >= minimum pacing");
+        }
+        if (max == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Thread Group maximum pacing must be less than Long.MAX_VALUE");
+        }
+    }
+
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
         setJMeterVariables(result, snapshotVariables(threadVars));
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
@@ -1474,7 +1567,10 @@ public class JMeterThread implements Runnable, Interruptible {
          */
         @Override
         public void iterationStart(LoopIterationEvent iterEvent) {
-            notifyTestListeners();
+            applyThreadGroupPacing();
+            if (running) {
+                notifyTestListeners();
+            }
         }
     }
 
