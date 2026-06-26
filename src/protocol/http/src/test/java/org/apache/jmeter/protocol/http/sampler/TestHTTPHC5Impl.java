@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.InterruptedIOException;
+import java.net.NoRouteToHostException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -29,6 +31,7 @@ import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 
+import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.hc.client5.http.auth.Credentials;
 import org.apache.hc.client5.http.auth.NTCredentials;
 import org.apache.hc.client5.http.auth.StandardAuthScheme;
@@ -37,6 +40,8 @@ import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http.message.BasicHttpResponse;
+import org.apache.hc.core5.http.nio.support.classic.TransportException;
+import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
@@ -158,6 +163,124 @@ public class TestHTTPHC5Impl {
         response.addHeader("Content-Type", "text/plain");
 
         assertEquals("HTTP/2 200\nContent-Type: text/plain\n", HTTPHC5H2Impl.getResponseHeaders(response));
+    }
+
+    @Test
+    public void connectTimeoutErrorResultUsesSingleLineWhenEndpointsAreKnown() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("http://example.test:999/path").toURL());
+        result.setLocalEndpoint("10.0.0.5:54000");
+        result.setDestinationEndpoint("192.168.4.203:999");
+
+        sampler.errorResult(new TransportException(connectTimeout("example.test", 999)), result);
+
+        String expected = "Connection timeout after 10000 ms for 192.168.4.203:999";
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
+                + ConnectTimeoutException.class.getName(), result.getResponseCode());
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
+                result.getResponseMessage());
+        assertEquals(expected, result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+        assertFalse(result.isSuccessful());
+    }
+
+    @Test
+    public void connectTimeoutErrorResultFallsBackWhenLocalEndpointIsUnavailable() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("http://192.168.4.203:999/path").toURL());
+
+        sampler.errorResult(connectTimeout("192.168.4.203", 999), result);
+
+        assertEquals("Connection timeout after 10000 ms for 192.168.4.203:999",
+                result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains(ConnectTimeoutException.class.getName()));
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+    }
+
+    @Test
+    public void responseTimeoutErrorResultUsesSingleLineWhenEndpointsAreKnown() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("http://example.test:999/path").toURL());
+        result.setLocalEndpoint("10.0.0.5:54000");
+        result.setDestinationEndpoint("192.168.4.203:999");
+
+        sampler.errorResult(new TransportException(responseTimeout()), result);
+
+        String expected = "Response timeout after 15 ms waiting for response: "
+                + "10.0.0.5 -> http://192.168.4.203:999 (example.test)";
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
+                + InterruptedIOException.class.getName(), result.getResponseCode());
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
+                result.getResponseMessage());
+        assertEquals(expected, result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+        assertFalse(result.isSuccessful());
+    }
+
+    @Test
+    public void responseTimeoutErrorResultFallsBackWhenLocalEndpointIsUnavailable() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("http://192.168.4.203:999/path").toURL());
+
+        sampler.errorResult(responseTimeout(), result);
+
+        assertEquals("Response timeout after 15 ms waiting for response: "
+                + "local IP unavailable -> http://192.168.4.203:999",
+                result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains(InterruptedIOException.class.getName()));
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+    }
+
+    @Test
+    public void connectionFailureErrorResultUsesSingleLineWhenTransportWrapsCause() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("http://whitehouse.gov/").toURL());
+
+        sampler.errorResult(new TransportException(new NoRouteToHostException("No route to host")), result);
+
+        String expected = "Connection error: No route to host: "
+                + "local IP unavailable -> http://whitehouse.gov:80";
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
+                + NoRouteToHostException.class.getName(), result.getResponseCode());
+        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
+                result.getResponseMessage());
+        assertEquals(expected, result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains("ClassicToAsyncResponseConsumer"));
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+    }
+
+    @Test
+    public void http2ResponseTimeoutSampleUsesSingleLineResponseData() {
+        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        server.start();
+        try {
+            server.stubFor(WireMock.get("/slow")
+                    .willReturn(WireMock.aResponse()
+                            .withFixedDelay(250)
+                            .withBody("late")));
+
+            HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+            sampler.setProtocol(HTTPConstants.PROTOCOL_HTTP);
+            sampler.setDomain("localhost");
+            sampler.setPort(server.port());
+            sampler.setPath("/slow");
+            sampler.setMethod(HTTPConstants.GET);
+            sampler.setResponseTimeout("30");
+
+            SampleResult result = sampler.sample();
+
+            assertFalse(result.isSuccessful());
+            assertTrue(result.getResponseDataAsString().startsWith("Response timeout after 30 ms waiting for response: "),
+                    () -> "Expected compact response timeout, got: " + result.getResponseDataAsString());
+            assertFalse(result.getResponseDataAsString().contains("\tat "));
+        } finally {
+            server.stop();
+        }
     }
 
     @Test
@@ -417,6 +540,26 @@ public class TestHTTPHC5Impl {
         AuthManager authManager = new AuthManager();
         authManager.set(-1, "http://example.test/secure/", "user", "pass", domain, "", Mechanism.BASIC);
         return authManager.get(0);
+    }
+
+    private static ConnectTimeoutException connectTimeout(String host, int port) {
+        return new ConnectTimeoutException(
+                "Connect to http://" + host + ":" + port + " [/192.168.4.203] failed: 10000 MILLISECONDS",
+                new NamedEndpoint() {
+                    @Override
+                    public String getHostName() {
+                        return host;
+                    }
+
+                    @Override
+                    public int getPort() {
+                        return port;
+                    }
+                });
+    }
+
+    private static InterruptedIOException responseTimeout() {
+        return new InterruptedIOException("Timeout blocked waiting for input (15 MILLISECONDS)");
     }
 
     private static void restoreProperty(Object previous) {

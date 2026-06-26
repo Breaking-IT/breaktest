@@ -246,7 +246,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 }
                 return resultProcessing(areFollowingRedirect, frameDepth, res);
             } catch (IOException | RuntimeException e) {
-                log.debug("HTTP/2 sample failed", e);
+                if (HTTPSamplerBase.isExpectedTimeout(e)) {
+                    log.debug("HTTP/2 sample timed out: {}", e.toString());
+                } else {
+                    log.debug("HTTP/2 sample failed", e);
+                }
                 if (res.getEndTime() == 0) {
                     res.sampleEnd();
                 }

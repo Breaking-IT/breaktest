@@ -27,6 +27,7 @@ import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,6 +37,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Queue;
@@ -699,6 +701,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public static String getResponseAsString(SampleResult res) {
         String response = null;
         if (isTextDataType(res)) {
+            String responseData = compactKnownTimeoutStackTrace(res, res.getResponseDataAsString());
             // Showing large strings can be VERY costly, so we will avoid
             // doing so if the response
             // data is larger than 200K. TODO: instead, we could delay doing
@@ -707,7 +710,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             // could warn the user
             // if this happens and revert the choice if they doesn't confirm
             // they are ready to wait.
-            int len = res.getResponseDataAsString().length();
+            int len = responseData.length();
             if (MAX_DISPLAY_SIZE > 0 && len > MAX_DISPLAY_SIZE) {
                 response = """
                         %s%d > Max: %d, %s
@@ -716,12 +719,115 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                             JMeterUtils.getResString("view_results_response_too_large_message"), //$NON-NLS-1$
                             len, MAX_DISPLAY_SIZE,
                             JMeterUtils.getResString("view_results_response_partial_message"), // $NON-NLS-1$
-                            res.getResponseDataAsString().substring(0, MAX_DISPLAY_SIZE));
+                            responseData.substring(0, MAX_DISPLAY_SIZE));
             } else {
-                response = res.getResponseDataAsString();
+                response = responseData;
             }
         }
         return response;
+    }
+
+    private static String compactKnownTimeoutStackTrace(SampleResult result, String responseData) {
+        if (!looksLikeInterruptedIoTimeoutStackTrace(responseData)) {
+            return responseData;
+        }
+        return "Response timeout after " + formatTimeout(firstLine(responseData))
+                + " waiting for response: " + formatLocalIp(result)
+                + " -> " + formatDestination(result);
+    }
+
+    private static boolean looksLikeInterruptedIoTimeoutStackTrace(String responseData) {
+        if (StringUtilities.isEmpty(responseData)
+                || !responseData.startsWith("java.io.InterruptedIOException: ")
+                || !responseData.contains("\tat ")) {
+            return false;
+        }
+        String normalized = firstLine(responseData).toLowerCase(Locale.ROOT);
+        return normalized.contains("timeout") || normalized.contains("timed out");
+    }
+
+    private static String firstLine(String text) {
+        int lineEnd = text.indexOf('\n');
+        if (lineEnd < 0) {
+            return text;
+        }
+        return text.substring(0, lineEnd).trim();
+    }
+
+    private static String formatLocalIp(SampleResult result) {
+        return StringUtilities.isEmpty(result.getLocalEndpoint())
+                ? "local IP unavailable"
+                : stripPort(result.getLocalEndpoint());
+    }
+
+    private static String formatDestination(SampleResult result) {
+        URL url = result.getURL();
+        String host = url == null ? "" : url.getHost();
+        String protocol = url == null || StringUtilities.isEmpty(url.getProtocol())
+                ? "unknown"
+                : url.getProtocol().toLowerCase(Locale.ROOT);
+        String destinationEndpoint = StringUtilities.isEmpty(result.getDestinationEndpoint())
+                ? formatEndpoint(host, portFrom(url))
+                : result.getDestinationEndpoint();
+        return formatTarget(protocol, destinationEndpoint, host);
+    }
+
+    private static int portFrom(URL url) {
+        if (url == null) {
+            return -1;
+        }
+        int port = url.getPort();
+        return port > 0 ? port : url.getDefaultPort();
+    }
+
+    private static String formatEndpoint(String address, int port) {
+        if (StringUtilities.isEmpty(address)) {
+            return port > 0 ? "unknown:" + port : "unknown";
+        }
+        String hostAddress = address;
+        if (hostAddress.indexOf(':') >= 0 && !hostAddress.startsWith("[")) {
+            hostAddress = "[" + hostAddress + "]";
+        }
+        return port > 0 ? hostAddress + ":" + port : hostAddress;
+    }
+
+    private static String formatTarget(String protocol, String destinationEndpoint, String host) {
+        String target = protocol + "://" + destinationEndpoint;
+        if (StringUtilities.isEmpty(host) || host.equals(stripPort(destinationEndpoint))) {
+            return target;
+        }
+        return target + " (" + host + ")";
+    }
+
+    private static String stripPort(String endpoint) {
+        if (StringUtilities.isEmpty(endpoint)) {
+            return endpoint;
+        }
+        if (endpoint.startsWith("[")) {
+            int closingBracket = endpoint.indexOf(']');
+            if (closingBracket > 0) {
+                return endpoint.substring(0, closingBracket + 1);
+            }
+        }
+        int colon = endpoint.lastIndexOf(':');
+        if (colon > 0 && endpoint.indexOf(':') == colon) {
+            return endpoint.substring(0, colon);
+        }
+        return endpoint;
+    }
+
+    private static String formatTimeout(String message) {
+        int start = message.lastIndexOf('(');
+        int end = message.lastIndexOf(')');
+        if (start < 0 || end <= start) {
+            return "unknown";
+        }
+        return message.substring(start + 1, end).trim()
+                .replace(" MILLISECONDS", " ms")
+                .replace(" SECONDS", " s")
+                .replace(" MINUTES", " min")
+                .replace(" HOURS", " h")
+                .toLowerCase(Locale.ROOT);
     }
 
     @API(status = API.Status.INTERNAL, since = "5.5")
