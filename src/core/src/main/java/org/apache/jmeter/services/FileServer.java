@@ -32,7 +32,10 @@ import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -252,6 +255,23 @@ public class FileServer {
      * @throws IllegalArgumentException if header could not be read or filename is null or empty
      */
     public synchronized String reserveFile(String filename, String charsetName, String alias, boolean hasHeader) {
+        return reserveFile(filename, charsetName, alias, hasHeader, false);
+    }
+
+    /**
+     * Creates an association between a filename and a File inputOutputObject,
+     * and stores it for later use - unless it is already stored.
+     *
+     * @param filename - relative (to base) or absolute file name (must not be null or empty)
+     * @param charsetName - the character set encoding to use for the file (may be null)
+     * @param alias - the name to be used to access the object (must not be null)
+     * @param hasHeader true if the file has a header line describing the contents
+     * @param randomOrder true if rows should be read in random order
+     * @return the header line; may be null
+     * @throws IllegalArgumentException if header could not be read or filename is null or empty
+     */
+    public synchronized String reserveFile(String filename, String charsetName, String alias, boolean hasHeader,
+            boolean randomOrder) {
         if (StringUtilities.isEmpty(filename)){
             throw new IllegalArgumentException("Filename must not be null or empty");
         }
@@ -260,7 +280,7 @@ public class FileServer {
         }
         FileEntry fileEntry = files.get(alias);
         if (fileEntry == null) {
-            fileEntry = new FileEntry(resolveFileFromPath(filename), null, charsetName);
+            fileEntry = new FileEntry(resolveFileFromPath(filename), null, charsetName, randomOrder);
             if (filename.equals(alias)){
                 log.info("Stored: {}", filename);
             } else {
@@ -269,7 +289,11 @@ public class FileServer {
             files.put(alias, fileEntry);
             if (hasHeader) {
                 try {
-                    fileEntry.headerLine = readLine(alias, false);
+                    if (randomOrder) {
+                        fileEntry.headerLine = readHeaderLine(fileEntry);
+                    } else {
+                        fileEntry.headerLine = readLine(alias, false);
+                    }
                     if (fileEntry.headerLine == null) {
                         fileEntry.exception = new EOFException("File is empty: " + fileEntry.file);
                     }
@@ -336,6 +360,11 @@ public class FileServer {
             boolean ignoreFirstLine) throws IOException {
         FileEntry fileEntry = files.get(filename);
         if (fileEntry != null) {
+            if (fileEntry.randomOrder) {
+                String line = readRandomLine(fileEntry, recycle, ignoreFirstLine);
+                log.debug("Read:{}", line);
+                return line;
+            }
             if (fileEntry.inputOutputObject == null) {
                 fileEntry.inputOutputObject = createBufferedReader(fileEntry);
             } else if (!(fileEntry.inputOutputObject instanceof Reader)) {
@@ -369,8 +398,94 @@ public class FileServer {
      * @throws IOException when reading of the aliased file fails, or the file was not reserved properly
      */
     public synchronized String[] getParsedLine(String alias, boolean recycle, boolean ignoreFirstLine, char delim) throws IOException {
+        FileEntry fileEntry = files.get(alias);
+        if (fileEntry != null && fileEntry.randomOrder) {
+            return readRandomParsedLine(fileEntry, recycle, ignoreFirstLine, delim);
+        }
         BufferedReader reader = getReader(alias, recycle, ignoreFirstLine);
         return CSVSaveService.csvReadFile(reader, delim);
+    }
+
+    private static String readHeaderLine(FileEntry fileEntry) throws IOException {
+        try (BufferedReader reader = createBufferedReader(fileEntry)) {
+            return reader.readLine();
+        }
+    }
+
+    private static String readRandomLine(FileEntry fileEntry, boolean recycle, boolean ignoreFirstLine)
+            throws IOException {
+        if (fileEntry.randomLines == null) {
+            fileEntry.randomLines = loadRandomLines(fileEntry, ignoreFirstLine);
+            shuffle(fileEntry.randomLines);
+            fileEntry.randomLineIndex = 0;
+        }
+        if (fileEntry.randomLines.isEmpty()) {
+            return null;
+        }
+        if (fileEntry.randomLineIndex >= fileEntry.randomLines.size()) {
+            if (!recycle) {
+                return null;
+            }
+            shuffle(fileEntry.randomLines);
+            fileEntry.randomLineIndex = 0;
+        }
+        return fileEntry.randomLines.get(fileEntry.randomLineIndex++);
+    }
+
+    private static List<String> loadRandomLines(FileEntry fileEntry, boolean ignoreFirstLine) throws IOException {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = createBufferedReader(fileEntry)) {
+            if (ignoreFirstLine) {
+                reader.readLine(); // NOSONAR skip header
+            }
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
+            }
+        }
+        return lines;
+    }
+
+    private static String[] readRandomParsedLine(FileEntry fileEntry, boolean recycle, boolean ignoreFirstLine,
+            char delim) throws IOException {
+        if (fileEntry.randomParsedLines == null) {
+            fileEntry.randomParsedLines = loadRandomParsedLines(fileEntry, ignoreFirstLine, delim);
+            shuffle(fileEntry.randomParsedLines);
+            fileEntry.randomParsedLineIndex = 0;
+        }
+        if (fileEntry.randomParsedLines.isEmpty()) {
+            return new String[0];
+        }
+        if (fileEntry.randomParsedLineIndex >= fileEntry.randomParsedLines.size()) {
+            if (!recycle) {
+                return new String[0];
+            }
+            shuffle(fileEntry.randomParsedLines);
+            fileEntry.randomParsedLineIndex = 0;
+        }
+        return fileEntry.randomParsedLines.get(fileEntry.randomParsedLineIndex++);
+    }
+
+    private static List<String[]> loadRandomParsedLines(FileEntry fileEntry, boolean ignoreFirstLine, char delim)
+            throws IOException {
+        List<String[]> lines = new ArrayList<>();
+        try (BufferedReader reader = createBufferedReader(fileEntry)) {
+            if (ignoreFirstLine) {
+                CSVSaveService.csvReadFile(reader, delim);
+            }
+            while (true) {
+                String[] parsedLine = CSVSaveService.csvReadFile(reader, delim);
+                if (parsedLine.length == 0) {
+                    break;
+                }
+                lines.add(parsedLine);
+            }
+        }
+        return lines;
+    }
+
+    private static void shuffle(List<?> lines) {
+        Collections.shuffle(lines, ThreadLocalRandom.current());
     }
 
     /**
@@ -535,17 +650,33 @@ public class FileServer {
         return files.get(path).file;
     }
 
+    /**
+     * Resolves a file path without reserving or opening the file.
+     *
+     * @param path original path to file, maybe relative
+     * @return {@link File} instance
+     */
+    public synchronized File resolveFile(String path) {
+        return resolveFileFromPath(path);
+    }
+
     private static class FileEntry{
         private String headerLine;
         private Throwable exception;
         private final File file;
         private Closeable inputOutputObject;
         private final String charSetEncoding;
+        private final boolean randomOrder;
+        private List<String> randomLines;
+        private int randomLineIndex;
+        private List<String[]> randomParsedLines;
+        private int randomParsedLineIndex;
 
-        FileEntry(File f, Closeable o, String e) {
+        FileEntry(File f, Closeable o, String e, boolean randomOrder) {
             file = f;
             inputOutputObject = o;
             charSetEncoding = e;
+            this.randomOrder = randomOrder;
         }
     }
 

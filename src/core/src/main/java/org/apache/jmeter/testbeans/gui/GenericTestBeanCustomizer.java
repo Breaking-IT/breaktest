@@ -217,7 +217,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
      * @param beanInfo {@link BeanInfo}
      * @see org.apache.jmeter.testbeans.TestBean
      */
-    GenericTestBeanCustomizer(BeanInfo beanInfo) {
+    public GenericTestBeanCustomizer(BeanInfo beanInfo) {
         super();
 
         this.beanInfo = beanInfo;
@@ -880,7 +880,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
     /**
      * Save values from the GUI fields into the property map
      */
-    void saveGuiFields() {
+    protected void saveGuiFields() {
         for (int i = 0; i < editors.length; i++) {
             PropertyEditor propertyEditor=editors[i]; // might be null (e.g. in testing)
             if (propertyEditor != null) {

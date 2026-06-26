@@ -117,6 +117,64 @@ class FileServerTest : JMeterTestCase() {
     }
 
     @Test
+    fun `random line reading returns each data row once before EOF`() {
+        val alias = "random"
+        sut.reserveFile(testFile, "UTF-8", alias, false, true)
+
+        val lines = List(4) { sut.readLine(alias, false, false) }
+
+        assertEquals(
+            setOf("a1,b1,c1,d1", "a2,b2,c2,d2", "a3,b3,c3,d3", "a4,b4,c4,d4"),
+            lines.toSet()
+        )
+        assertEquals(null, sut.readLine(alias, false, false))
+    }
+
+    @Test
+    fun `random line reading keeps header out of shuffled data rows`() {
+        val alias = "random-with-header"
+        val header = sut.reserveFile(testFile, "UTF-8", alias, true, true)
+
+        val lines = List(3) { sut.readLine(alias, false, true) }
+
+        assertEquals("a1,b1,c1,d1", header)
+        assertEquals(
+            setOf("a2,b2,c2,d2", "a3,b3,c3,d3", "a4,b4,c4,d4"),
+            lines.toSet()
+        )
+        assertEquals(null, sut.readLine(alias, false, true))
+    }
+
+    @Test
+    fun `random line reading reshuffles on recycle`() {
+        val alias = "random-recycle"
+        sut.reserveFile(testFile, "UTF-8", alias, false, true)
+
+        val firstPass = List(4) { sut.readLine(alias, true, false) }
+        val secondPass = List(4) { sut.readLine(alias, true, false) }
+
+        val expected = setOf("a1,b1,c1,d1", "a2,b2,c2,d2", "a3,b3,c3,d3", "a4,b4,c4,d4")
+        assertEquals(expected, firstPass.toSet())
+        assertEquals(expected, secondPass.toSet())
+    }
+
+    @Test
+    fun `random parsed line reading returns parsed records`() {
+        val alias = "random-parsed"
+        sut.reserveFile(testFile, "UTF-8", alias, false, true)
+
+        val lines = List(4) {
+            sut.getParsedLine(alias, false, false, ',').joinToString(",")
+        }
+
+        assertEquals(
+            setOf("a1,b1,c1,d1", "a2,b2,c2,d2", "a3,b3,c3,d3", "a4,b4,c4,d4"),
+            lines.toSet()
+        )
+        assertArrayEquals(emptyArray<String>(), sut.getParsedLine(alias, false, false, ','))
+    }
+
+    @Test
     fun `cannot write to reserved file after reading`() {
         sut.reserveFile(testFile)
         sut.readLine(testFile)
