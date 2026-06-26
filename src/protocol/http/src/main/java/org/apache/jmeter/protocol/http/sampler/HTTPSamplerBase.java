@@ -19,11 +19,15 @@ package org.apache.jmeter.protocol.http.sampler;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
+import java.net.ConnectException;
 import java.net.MalformedURLException;
+import java.net.NoRouteToHostException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -33,6 +37,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -42,6 +47,7 @@ import java.util.concurrent.Future;
 import java.util.function.Predicate;
 import java.util.regex.PatternSyntaxException;
 
+import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
@@ -1239,6 +1245,42 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @return the modified sampling result containing details of the Exception.
      */
     protected HTTPSampleResult errorResult(Throwable e, HTTPSampleResult res) {
+        ConnectTimeoutException connectTimeout = findConnectTimeout(e);
+        if (connectTimeout != null) {
+            String message = formatConnectTimeout(connectTimeout, res);
+            res.setSampleLabel(res.getSampleLabel());
+            res.setDataType(SampleResult.TEXT);
+            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
+            res.setDataEncoding(StandardCharsets.UTF_8.name());
+            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + connectTimeout.getClass().getName());
+            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
+            res.setSuccessful(false);
+            return res;
+        }
+        InterruptedIOException responseTimeout = findResponseTimeout(e);
+        if (responseTimeout != null) {
+            String message = formatResponseTimeout(responseTimeout, res);
+            res.setSampleLabel(res.getSampleLabel());
+            res.setDataType(SampleResult.TEXT);
+            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
+            res.setDataEncoding(StandardCharsets.UTF_8.name());
+            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + responseTimeout.getClass().getName());
+            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
+            res.setSuccessful(false);
+            return res;
+        }
+        IOException connectionFailure = findConnectionFailure(e);
+        if (connectionFailure != null) {
+            String message = formatConnectionFailure(connectionFailure, res);
+            res.setSampleLabel(res.getSampleLabel());
+            res.setDataType(SampleResult.TEXT);
+            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
+            res.setDataEncoding(StandardCharsets.UTF_8.name());
+            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + connectionFailure.getClass().getName());
+            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
+            res.setSuccessful(false);
+            return res;
+        }
         res.setSampleLabel(res.getSampleLabel());
         res.setDataType(SampleResult.TEXT);
         res.setResponseData(ExceptionUtils.getStackTraceAsBytes(e, StandardCharsets.UTF_8));
@@ -1247,6 +1289,208 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE+": " + e.getMessage());
         res.setSuccessful(false);
         return res;
+    }
+
+    private static @Nullable ConnectTimeoutException findConnectTimeout(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof ConnectTimeoutException connectTimeout) {
+                return connectTimeout;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    static boolean isExpectedTimeout(Throwable throwable) {
+        return findConnectTimeout(throwable) != null || findResponseTimeout(throwable) != null;
+    }
+
+    private static @Nullable IOException findConnectionFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof NoRouteToHostException
+                    || current instanceof ConnectException
+                    || current instanceof UnknownHostException) {
+                return (IOException) current;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private static @Nullable InterruptedIOException findResponseTimeout(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof InterruptedIOException interruptedIOException
+                    && !(current instanceof ConnectTimeoutException)
+                    && isTimeoutMessage(current.getMessage())) {
+                return interruptedIOException;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private static boolean isTimeoutMessage(@Nullable String message) {
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("timeout") || normalized.contains("timed out");
+    }
+
+    private static String formatConnectTimeout(ConnectTimeoutException e, HTTPSampleResult res) {
+        return "Connection timeout after " + formatTimeout(e.getMessage())
+                + " for " + formatTimeoutEndpoint(e, res);
+    }
+
+    private static String formatResponseTimeout(InterruptedIOException e, HTTPSampleResult res) {
+        return "Response timeout after " + formatTimeout(e.getMessage())
+                + " waiting for response: " + formatLocalIp(res)
+                + " -> " + formatResultDestination(res);
+    }
+
+    private static String formatConnectionFailure(IOException e, HTTPSampleResult res) {
+        String detail = StringUtilities.isEmpty(e.getMessage()) ? e.getClass().getSimpleName() : e.getMessage();
+        return "Connection error: " + detail
+                + ": " + formatLocalIp(res)
+                + " -> " + formatResultDestination(res);
+    }
+
+    private static String formatLocalIp(HTTPSampleResult res) {
+        return StringUtilities.isEmpty(res.getLocalEndpoint())
+                ? "local IP unavailable"
+                : stripPort(res.getLocalEndpoint());
+    }
+
+    private static String formatTimeoutEndpoint(ConnectTimeoutException e, HTTPSampleResult res) {
+        URL url = res.getURL();
+        String host = hostFrom(e, url);
+        int port = portFrom(e, url);
+        return StringUtilities.isEmpty(res.getDestinationEndpoint())
+                ? formatEndpoint(addressFrom(e.getMessage(), host), port)
+                : res.getDestinationEndpoint();
+    }
+
+    private static String formatResultDestination(HTTPSampleResult res) {
+        URL url = res.getURL();
+        String host = url == null ? "" : url.getHost();
+        String protocol = url == null || StringUtilities.isEmpty(url.getProtocol())
+                ? "unknown"
+                : url.getProtocol().toLowerCase(Locale.ROOT);
+        int port = portFrom(url);
+        String destinationEndpoint = StringUtilities.isEmpty(res.getDestinationEndpoint())
+                ? formatEndpoint(host, port)
+                : res.getDestinationEndpoint();
+        return formatTarget(protocol, destinationEndpoint, host);
+    }
+
+    private static String hostFrom(ConnectTimeoutException e, @Nullable URL url) {
+        if (e.getHost() != null && StringUtilities.isNotEmpty(e.getHost().getHostName())) {
+            return e.getHost().getHostName();
+        }
+        return url == null ? "" : url.getHost();
+    }
+
+    private static int portFrom(ConnectTimeoutException e, @Nullable URL url) {
+        if (e.getHost() != null && e.getHost().getPort() > 0) {
+            return e.getHost().getPort();
+        }
+        if (url == null) {
+            return -1;
+        }
+        int port = url.getPort();
+        return port > 0 ? port : url.getDefaultPort();
+    }
+
+    private static int portFrom(@Nullable URL url) {
+        if (url == null) {
+            return -1;
+        }
+        int port = url.getPort();
+        return port > 0 ? port : url.getDefaultPort();
+    }
+
+    private static String addressFrom(@Nullable String message, String host) {
+        if (message != null) {
+            int start = message.indexOf('[');
+            int end = message.indexOf(']', start + 1);
+            if (start >= 0 && end > start) {
+                String address = message.substring(start + 1, end);
+                if (address.startsWith("/")) {
+                    address = address.substring(1);
+                }
+                if (StringUtilities.isNotEmpty(address)) {
+                    return address;
+                }
+            }
+        }
+        return host;
+    }
+
+    private static String formatEndpoint(String address, int port) {
+        if (StringUtilities.isEmpty(address)) {
+            return port > 0 ? "unknown:" + port : "unknown";
+        }
+        String hostAddress = address;
+        if (hostAddress.indexOf(':') >= 0 && !hostAddress.startsWith("[")) {
+            hostAddress = "[" + hostAddress + "]";
+        }
+        return port > 0 ? hostAddress + ":" + port : hostAddress;
+    }
+
+    private static String formatTarget(String protocol, String destinationEndpoint, String host) {
+        String target = protocol + "://" + destinationEndpoint;
+        if (StringUtilities.isEmpty(host) || host.equals(stripPort(destinationEndpoint))) {
+            return target;
+        }
+        return target + " (" + host + ")";
+    }
+
+    private static String stripPort(String endpoint) {
+        if (StringUtilities.isEmpty(endpoint)) {
+            return endpoint;
+        }
+        if (endpoint.startsWith("[")) {
+            int closingBracket = endpoint.indexOf(']');
+            if (closingBracket > 0) {
+                return endpoint.substring(0, closingBracket + 1);
+            }
+        }
+        int colon = endpoint.lastIndexOf(':');
+        if (colon > 0 && endpoint.indexOf(':') == colon) {
+            return endpoint.substring(0, colon);
+        }
+        return endpoint;
+    }
+
+    private static String formatTimeout(@Nullable String message) {
+        if (message == null) {
+            return "unknown";
+        }
+        int timeoutStart = message.lastIndexOf(" failed: ");
+        String timeout = timeoutStart >= 0
+                ? message.substring(timeoutStart + " failed: ".length()).trim()
+                : timeoutBetweenLastParentheses(message);
+        if (timeout.isEmpty()) {
+            return "unknown";
+        }
+        return timeout
+                .replace(" MILLISECONDS", " ms")
+                .replace(" SECONDS", " s")
+                .replace(" MINUTES", " min")
+                .replace(" HOURS", " h")
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private static String timeoutBetweenLastParentheses(String message) {
+        int start = message.lastIndexOf('(');
+        int end = message.lastIndexOf(')');
+        if (start >= 0 && end > start) {
+            return message.substring(start + 1, end).trim();
+        }
+        return "";
     }
 
 
