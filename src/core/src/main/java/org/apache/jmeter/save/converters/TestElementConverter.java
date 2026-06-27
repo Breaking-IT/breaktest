@@ -18,6 +18,7 @@
 package org.apache.jmeter.save.converters;
 
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -31,6 +32,7 @@ import com.thoughtworks.xstream.converters.UnmarshallingContext;
 import com.thoughtworks.xstream.converters.collections.AbstractCollectionConverter;
 import com.thoughtworks.xstream.io.HierarchicalStreamReader;
 import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
+import com.thoughtworks.xstream.mapper.CannotResolveClassException;
 import com.thoughtworks.xstream.mapper.Mapper;
 
 public class TestElementConverter extends AbstractCollectionConverter {
@@ -80,22 +82,34 @@ public class TestElementConverter extends AbstractCollectionConverter {
     @Override
     public Object unmarshal(HierarchicalStreamReader reader, UnmarshallingContext context) {
         String classAttribute = reader.getAttribute(ConversionHelp.ATT_CLASS);
+        String elementName = reader.getNodeName();
+        String serializedClassName = classAttribute == null ? elementName : classAttribute;
+        String guiClass = reader.getAttribute(ConversionHelp.ATT_TE_GUICLASS);
+        String guiClassName = guiClass == null ? null : SaveService.aliasToClass(guiClass);
         Class<?> type;
-        if (classAttribute == null) {
-            type = mapper().realClass(reader.getNodeName());
-        } else {
-            type = mapper().realClass(classAttribute);
+        try {
+            type = mapper().realClass(serializedClassName);
+        } catch (CannotResolveClassException | NoClassDefFoundError e) {
+            return readMissingTestElement(reader, context, elementName, SaveService.aliasToClass(serializedClassName),
+                    guiClassName, e);
         }
         // Update the test class name if necessary (Bug 52466)
         String inputName = type.getName();
-        String guiClass = reader.getAttribute(ConversionHelp.ATT_TE_GUICLASS);
         if (guiClass == null) {
             throw new IllegalArgumentException(ConversionHelp.ATT_TE_GUICLASS + " attribute is not found");
         }
-        String guiClassName = SaveService.aliasToClass(guiClass);
+        try {
+            mapper().realClass(guiClassName);
+        } catch (CannotResolveClassException | NoClassDefFoundError e) {
+            return readMissingTestElement(reader, context, elementName, inputName, guiClassName, e);
+        }
         String targetName = NameUpdater.getCurrentTestName(inputName, guiClassName);
         if (!targetName.equals(inputName)) { // remap the class name
-            type = mapper().realClass(targetName);
+            try {
+                type = mapper().realClass(targetName);
+            } catch (CannotResolveClassException | NoClassDefFoundError e) {
+                return readMissingTestElement(reader, context, elementName, targetName, guiClassName, e);
+            }
         }
         context.put(SaveService.TEST_CLASS_NAME, targetName); // needed by property converters  (Bug 52466)
         try {
@@ -117,6 +131,25 @@ public class TestElementConverter extends AbstractCollectionConverter {
             log.error("TestElement not instantiable: {}", type, e);
             return null;
         }
+    }
+
+    private Object readMissingTestElement(HierarchicalStreamReader reader, UnmarshallingContext context,
+            String elementName, String testClassName, String guiClassName, Throwable cause) {
+        log.warn("Replacing unavailable JMX element '{}' with missing-element placeholder: testClass='{}', guiClass='{}'",
+                elementName, testClassName, guiClassName, cause);
+        context.put(SaveService.TEST_CLASS_NAME, testClassName);
+        MissingTestElement el = new MissingTestElement();
+        ConversionHelp.restoreSpecialProperties(el, reader);
+        while (reader.hasMoreChildren()) {
+            reader.moveDown();
+            JMeterProperty prop = (JMeterProperty) readBareItem(reader, context, el);
+            if (prop != null) {
+                el.setProperty(prop);
+            }
+            reader.moveUp();
+        }
+        el.configureMissingElement(elementName, testClassName, guiClassName, cause);
+        return el;
     }
 
     /**

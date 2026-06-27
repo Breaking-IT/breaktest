@@ -24,9 +24,16 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.report.config.ConfigurationException;
+import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.MissingTestElement;
+import org.apache.jmeter.testelement.TestElement;
+import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.HashTreeTraverser;
 import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -78,7 +85,7 @@ class JMeterTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
-    void testFailureWithMissingPlugin() throws IOException {
+    void testLoadJmxWithMissingPluginCreatesPlaceholder() throws IOException {
         File temp = File.createTempFile("testPlan", ".jmx");
         String testPlan = """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -96,34 +103,59 @@ class JMeterTest extends JMeterTestCase implements JMeterSerialTest {
                       <stringProp name="TestPlan.user_define_classpath"></stringProp>
                     </TestPlan>
                     <hashTree>
-                      <hashTree>
-                        <kg.apc.jmeter.samplers.DummySampler guiclass="kg.apc.jmeter.samplers.DummySamplerGui" \
+                      <kg.apc.jmeter.samplers.DummySampler guiclass="kg.apc.jmeter.samplers.DummySamplerGui" \
                 testclass="kg.apc.jmeter.samplers.DummySampler" testname="jp@gc - Dummy Sampler" enabled="true">
-                          <boolProp name="WAITING">true</boolProp>
-                          <boolProp name="SUCCESFULL">true</boolProp>
-                          <stringProp name="RESPONSE_CODE">200</stringProp>
-                          <stringProp name="RESPONSE_MESSAGE">OK</stringProp>
-                          <stringProp name="REQUEST_DATA">{&quot;email&quot;:&quot;user1&quot;, &quot;password&quot;:&quot;password1&quot;}；\
+                        <boolProp name="WAITING">true</boolProp>
+                        <boolProp name="SUCCESFULL">true</boolProp>
+                        <stringProp name="RESPONSE_CODE">200</stringProp>
+                        <stringProp name="RESPONSE_MESSAGE">OK</stringProp>
+                        <stringProp name="REQUEST_DATA">{&quot;email&quot;:&quot;user1&quot;, &quot;password&quot;:&quot;password1&quot;}；\
                 </stringProp>
-                          <stringProp name="RESPONSE_DATA">{&quot;successful&quot;: true, &quot;account_id&quot;:&quot;0123456789&quot;}</stringProp>
-                          <stringProp name="RESPONSE_TIME">${__Random(50,500)}</stringProp>
-                          <stringProp name="LATENCY">${__Random(1,50)}</stringProp>
-                          <stringProp name="CONNECT">${__Random(1,5)}</stringProp>
-                        </kg.apc.jmeter.samplers.DummySampler></hashTree></hashTree>
-                  </hashTree></jmeterTestPlan><hashTree/></hashTree>
+                        <stringProp name="RESPONSE_DATA">{&quot;successful&quot;: true, &quot;account_id&quot;:&quot;0123456789&quot;}</stringProp>
+                        <stringProp name="RESPONSE_TIME">${__Random(50,500)}</stringProp>
+                        <stringProp name="LATENCY">${__Random(1,50)}</stringProp>
+                        <stringProp name="CONNECT">${__Random(1,5)}</stringProp>
+                      </kg.apc.jmeter.samplers.DummySampler>
+                      <hashTree/>
+                    </hashTree>
+                  </hashTree>
                 </jmeterTestPlan>""";
         try (FileOutputStream os = new FileOutputStream(temp);
                 Writer fw = new OutputStreamWriter(os, StandardCharsets.UTF_8);
                 BufferedWriter out = new BufferedWriter(fw)) {
             out.write(testPlan);
         }
-        JMeter jmeter = new JMeter();
         try {
-            jmeter.runNonGui(temp.getAbsolutePath(), null, false);
-            Assertions.fail("Expected ConfigurationException to be thrown");
-        } catch (ConfigurationException e) {
-            Assertions.assertTrue(e.getMessage().contains("Error in NonGUIDriver Problem loading XML from"),
-                    "When the plugin doesn't exist, the method 'runNonGui' should have a detailed message");
+            HashTree tree = SaveService.loadTree(temp);
+            List<TestElement> missingElements = new ArrayList<>();
+            tree.traverse(new HashTreeTraverser() {
+                @Override
+                public void addNode(Object node, HashTree subTree) {
+                    if (MissingTestElement.class.getName().equals(node.getClass().getName())) {
+                        missingElements.add((TestElement) node);
+                    }
+                }
+
+                @Override
+                public void subtractNode() {
+                }
+
+                @Override
+                public void processPath() {
+                }
+            });
+
+            Assertions.assertEquals(1, missingElements.size(), () -> tree.toString());
+            TestElement missingElement = missingElements.get(0);
+            Assertions.assertEquals("jp@gc - Dummy Sampler", missingElement.getName());
+            Assertions.assertEquals("kg.apc.jmeter.samplers.DummySampler",
+                    missingElement.getPropertyAsString(MissingTestElement.MISSING_TEST_CLASS));
+            Assertions.assertEquals("kg.apc.jmeter.samplers.DummySamplerGui",
+                    missingElement.getPropertyAsString(MissingTestElement.MISSING_GUI_CLASS));
+            Assertions.assertFalse(missingElement.isEnabled());
+
+            JMeter jmeter = new JMeter();
+            Assertions.assertDoesNotThrow(() -> jmeter.runNonGui(temp.getAbsolutePath(), null, false));
         } finally {
             Assertions.assertTrue(temp.delete(), () -> "File " + temp.getAbsolutePath() + " should have been deleted");
         }
