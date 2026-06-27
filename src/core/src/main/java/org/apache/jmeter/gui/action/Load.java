@@ -38,11 +38,13 @@ import org.apache.jmeter.gui.util.FocusRequester;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.HashTreeTraverser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -134,6 +136,7 @@ public class Load extends AbstractActionWithNoRunningTest {
                 }
                 final HashTree tree = SaveService.loadTree(f);
                 final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
+                reportMissingPluginElements(tree);
 
                 // don't change name if merging
                 if (!merging && isTestPlan && setDetails) {
@@ -164,6 +167,57 @@ public class Load extends AbstractActionWithNoRunningTest {
             guiPackage.updateCurrentGui();
             guiPackage.getMainFrame().repaint();
         }
+    }
+
+    private static void reportMissingPluginElements(HashTree tree) {
+        List<String> missingElements = new ArrayList<>();
+        int[] count = {0};
+        tree.traverse(new HashTreeTraverser() {
+            @Override
+            public void addNode(Object node, HashTree subTree) {
+                if (node instanceof MissingTestElement missingElement) {
+                    count[0]++;
+                    if (missingElements.size() < 10) {
+                        missingElements.add(formatMissingPluginElement(missingElement));
+                    }
+                }
+            }
+
+            @Override
+            public void subtractNode() {
+            }
+
+            @Override
+            public void processPath() {
+            }
+        });
+        if (missingElements.isEmpty()) {
+            return;
+        }
+
+        StringBuilder message = new StringBuilder("""
+                Loaded the JMX, but some elements could not be loaded because plugin classes are missing.
+                Those elements are disabled and will be ignored when running or validating the test plan.
+
+                """);
+        missingElements.forEach(element -> message.append("- ").append(element).append('\n'));
+        if (count[0] > missingElements.size()) {
+            message.append("... and ").append(count[0] - missingElements.size()).append(" more\n");
+        }
+        JMeterUtils.reportInfoToUser(message.toString(), "Missing plugin elements");
+    }
+
+    private static String formatMissingPluginElement(MissingTestElement missingElement) {
+        String testClass = missingElement.getMissingTestClass();
+        String guiClass = missingElement.getMissingGuiClass();
+        StringBuilder message = new StringBuilder(missingElement.getName());
+        if (!testClass.isEmpty()) {
+            message.append(": ").append(testClass);
+        }
+        if (!guiClass.isEmpty() && !guiClass.equals(testClass)) {
+            message.append(" (GUI: ").append(guiClass).append(')');
+        }
+        return message.toString();
     }
 
     public static void scheduleBreakTestHarPreflight(File jmxFile) {
