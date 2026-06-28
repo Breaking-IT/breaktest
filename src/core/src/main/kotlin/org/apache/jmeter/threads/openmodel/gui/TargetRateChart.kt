@@ -19,23 +19,25 @@ package org.apache.jmeter.threads.openmodel.gui
 
 import org.apache.jmeter.threads.openmodel.ThreadSchedule
 import org.apache.jmeter.threads.openmodel.ThreadScheduleStep
-import org.apache.jmeter.threads.openmodel.asSeconds
-import org.apache.jmeter.threads.openmodel.rateUnitFor
 import org.apiguardian.api.API
 import org.jetbrains.letsPlot.batik.plot.component.DefaultPlotPanelBatik
 import org.jetbrains.letsPlot.commons.registration.Disposable
 import org.jetbrains.letsPlot.core.util.MonolithicCommon
 import org.jetbrains.letsPlot.geom.geomLine
+import org.jetbrains.letsPlot.geom.geomSegment
+import org.jetbrains.letsPlot.geom.extras.arrow
 import org.jetbrains.letsPlot.intern.toSpec
 import org.jetbrains.letsPlot.label.ggtitle
+import org.jetbrains.letsPlot.label.ylab
 import org.jetbrains.letsPlot.letsPlot
 import org.jetbrains.letsPlot.scale.scaleXTime
-import org.jetbrains.letsPlot.themes.theme
 import org.slf4j.LoggerFactory
 import java.awt.BorderLayout
 import java.util.concurrent.TimeUnit
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.SwingConstants
 
 /**
  * Draws a line chart with the expected load rate over time for given [ThreadSchedule].
@@ -44,6 +46,7 @@ import javax.swing.JPanel
 public class TargetRateChart : JPanel() {
     private companion object {
         private val log = LoggerFactory.getLogger(TargetRateChart::class.java)
+        private const val LINE_COLOR = "#2962AA"
         private const val MIN_TICKS_FOR_TIME_AXIS = 2.5
     }
 
@@ -54,6 +57,10 @@ public class TargetRateChart : JPanel() {
     private var prevSteps: List<ThreadScheduleStep>? = null
     private var prevTimes: DoubleArray? = null
     private var prevRate: DoubleArray? = null
+    private var prevTitle: String? = null
+    private var prevYAxisLabel: String? = null
+    private var prevValuesPerMinute: Boolean? = null
+    private var prevContinuation: Boolean? = null
 
     public fun updateSchedule(threadSchedule: ThreadSchedule) {
         if (threadSchedule.steps == prevSteps) {
@@ -88,46 +95,130 @@ public class TargetRateChart : JPanel() {
             timeValues += time
             rateValues += rate
         }
-        setData(timeValues.toDoubleArray(), rateValues.toDoubleArray())
+        setData(
+            timeValues.toDoubleArray(),
+            rateValues.toDoubleArray(),
+            "Target load rate",
+            "Threads per minute",
+            valuesPerMinute = true,
+            continuation = false
+        )
     }
 
-    private fun setData(time: DoubleArray, rate: DoubleArray) {
-        if (time.contentEquals(prevTimes) && rate.contentEquals(prevRate)) {
+    public fun updateData(
+        timeSeconds: DoubleArray,
+        values: DoubleArray,
+        title: String,
+        yAxisLabel: String,
+        continuation: Boolean
+    ) {
+        prevSteps = null
+        setData(timeSeconds, values, title, yAxisLabel, valuesPerMinute = false, continuation = continuation)
+    }
+
+    public fun showMessage(message: String) {
+        prevSteps = null
+        prevTimes = null
+        prevRate = null
+        prevTitle = null
+        prevYAxisLabel = null
+        prevValuesPerMinute = null
+        prevContinuation = null
+        clearChart()
+        add(JLabel(message, SwingConstants.CENTER), BorderLayout.CENTER)
+        revalidate()
+        repaint()
+    }
+
+    private fun setData(
+        time: DoubleArray,
+        rate: DoubleArray,
+        title: String,
+        yAxisLabel: String,
+        valuesPerMinute: Boolean,
+        continuation: Boolean
+    ) {
+        if (time.contentEquals(prevTimes) && rate.contentEquals(prevRate)
+            && title == prevTitle && yAxisLabel == prevYAxisLabel
+            && valuesPerMinute == prevValuesPerMinute && continuation == prevContinuation) {
             return
         }
         prevTimes = time.copyOf()
         prevRate = rate.copyOf()
+        prevTitle = title
+        prevYAxisLabel = yAxisLabel
+        prevValuesPerMinute = valuesPerMinute
+        prevContinuation = continuation
         val timeScale = TimeUnit.SECONDS.toMillis(1).toDouble()
         for (i in time.indices) {
             time[i] *= timeScale
         }
-        val maxRate = rate.maxOrNull() ?: 0.0
-        val rateUnit = rateUnitFor(maxRate)
-        if (rateUnit != TimeUnit.SECONDS) {
-            val scale = rateUnit.asSeconds
+        if (valuesPerMinute) {
             for (i in rate.indices) {
-                rate[i] *= scale
+                rate[i] *= TimeUnit.MINUTES.toSeconds(1).toDouble()
             }
         }
 
+        clearChart()
+        add(
+            createChart(
+                time = time,
+                rate = rate,
+                title = title,
+                yAxisLabel = yAxisLabel,
+                continuation = continuation
+            ),
+            BorderLayout.CENTER
+        )
+        revalidate()
+        repaint()
+    }
+
+    private fun clearChart() {
         components.forEach {
             if (it is Disposable) {
                 it.dispose()
             }
         }
         removeAll()
-        add(createChart(time = time, rate = rate, rateUnit = rateUnit), BorderLayout.CENTER)
     }
 
-    private fun createChart(time: DoubleArray, rate: DoubleArray, rateUnit: TimeUnit): JComponent {
+    private fun createChart(
+        time: DoubleArray,
+        rate: DoubleArray,
+        title: String,
+        yAxisLabel: String,
+        continuation: Boolean
+    ): JComponent {
+        val mainSize = if (continuation && time.size > 1) time.size - 1 else time.size
         val data = mapOf(
-            "time" to time,
-            "rate" to rate
+            "time" to time.copyOf(mainSize),
+            "rate" to rate.copyOf(mainSize)
         )
-        val plot = letsPlot(data) + geomLine { x = "time"; y = "rate" } +
+        var plot = letsPlot(data) + geomLine(color = LINE_COLOR, size = 1.2) { x = "time"; y = "rate" } +
             scaleXTime("Time since test start", expand = listOf(0, 0)) +
-            ggtitle("Target load rate per " + rateUnit.name.lowercase().removeSuffix("s")) +
-            theme(axisTitleY = "blank")
+            ggtitle(title) +
+            ylab(yAxisLabel)
+        if (continuation && time.size > 1) {
+            val last = time.lastIndex
+            plot += geomSegment(
+                data = mapOf(
+                    "x" to listOf(time[last - 1]),
+                    "y" to listOf(rate[last - 1]),
+                    "xend" to listOf(time[last]),
+                    "yend" to listOf(rate[last])
+                ),
+                color = LINE_COLOR,
+                linetype = "dashed",
+                size = 1.2,
+                arrow = arrow(length = 9, ends = "last", type = "open")
+            ) {
+                x = "x"
+                y = "y"
+                xend = "xend"
+                yend = "yend"
+            }
+        }
 
         val rawSpec = plot.toSpec()
         val processedSpec = MonolithicCommon.processRawSpecs(rawSpec, frontendOnly = false)

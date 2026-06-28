@@ -27,17 +27,18 @@ import org.apache.jmeter.threads.JMeterThread
 import org.apache.jmeter.threads.JMeterThreadMonitor
 import org.apache.jmeter.threads.ListenerNotifier
 import org.apache.jmeter.threads.TestCompilerHelper
+import org.apache.jmeter.threads.ThreadGroup
 import org.apache.jmeter.util.JMeterUtils
 import org.apache.jorphan.collections.ListedHashTree
 import org.apiguardian.api.API
 import org.slf4j.LoggerFactory
 import java.io.Serializable
-import java.lang.Thread.sleep
 import java.util.Random
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.FutureTask
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -121,6 +122,8 @@ public class OpenModelThreadGroup :
 
     private val threadStarterFuture = AtomicReference<Future<*>?>()
     private val activeThreads = ConcurrentHashMap<JMeterThread, Future<*>>()
+    @Volatile
+    private var running = false
 
     override val schema: OpenModelThreadGroupSchema
         get() = OpenModelThreadGroupSchema
@@ -140,6 +143,37 @@ public class OpenModelThreadGroup :
      */
     public var randomSeedString: String by OpenModelThreadGroupSchema.randomSeed.asString
 
+    public val maxThreads: Long
+        get() = getPropertyAsString(ThreadGroup.OPEN_MODEL_MAX_THREADS)
+            .trim()
+            .toLongOrNull()
+            ?: 0
+
+    public var maxThreadsString: String
+        get() = getPropertyAsString(ThreadGroup.OPEN_MODEL_MAX_THREADS)
+        set(value) {
+            setProperty(ThreadGroup.OPEN_MODEL_MAX_THREADS, value)
+        }
+
+    public var maxThreadsScope: String
+        get() = if (ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL ==
+            getPropertyAsString(ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE)
+        ) {
+            ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL
+        } else {
+            ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP
+        }
+        set(value) {
+            setProperty(
+                ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE,
+                if (ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL == value) {
+                    ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL
+                } else {
+                    ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP
+                }
+            )
+        }
+
     init {
         this[OpenModelThreadGroupSchema.mainController] = OpenModelThreadGroupController()
     }
@@ -149,6 +183,9 @@ public class OpenModelThreadGroup :
         private val executorService: ExecutorService,
         private val activeThreads: MutableMap<JMeterThread, Future<*>>,
         private val gen: ThreadScheduleProcessGenerator,
+        private val maxThreads: Long,
+        private val maxThreadsScope: String,
+        private val isRunning: () -> Boolean,
         private val jmeterThreadFactory: (threadNumber: Int) -> JMeterThread,
     ) : Runnable {
         override fun run() {
@@ -156,22 +193,47 @@ public class OpenModelThreadGroup :
             val endTime = (testStartTime + gen.totalDuration * 1000).roundToLong()
             var threadNumber = 0
             var prevTime = 0L
-            while (gen.hasNext()) {
+            while (isRunning() && !Thread.currentThread().isInterrupted && gen.hasNext()) {
                 val scheduledTime = testStartTime + (gen.nextDouble() * 1000).roundToLong()
                 // If multiple events are scheduled for the same millisecond, we don't want to call currentTimeMillis
                 if (scheduledTime >= prevTime) {
                     prevTime = System.currentTimeMillis()
                     val nextDelay = scheduledTime - prevTime
-                    if (nextDelay > 0) {
-                        sleep(nextDelay)
+                    if (nextDelay > 0 && !sleep(nextDelay)) {
+                        shutdownAfterStop()
+                        return
                     }
                 }
-                val jmeterThread = jmeterThreadFactory(threadNumber++)
+                if (!isRunning() || Thread.currentThread().isInterrupted) {
+                    shutdownAfterStop()
+                    return
+                }
+                if (!reserveThreadSlot()) {
+                    log.debug("Skipping Open Model arrival because the active thread limit is reached")
+                    continue
+                }
+                val jmeterThread = try {
+                    jmeterThreadFactory(threadNumber++)
+                } catch (t: Throwable) {
+                    ThreadGroup.releaseOpenModelThreadSlot()
+                    throw t
+                }
                 jmeterThread.endTime = endTime
-                activeThreads[jmeterThread] = executorService.submit {
+                val task = FutureTask<Unit> {
                     Thread.currentThread().name = jmeterThread.threadName
                     jmeterThread.run()
                 }
+                activeThreads[jmeterThread] = task
+                try {
+                    executorService.execute(task)
+                } catch (e: RuntimeException) {
+                    removeThread(jmeterThread)
+                    throw e
+                }
+            }
+            if (!isRunning() || Thread.currentThread().isInterrupted) {
+                shutdownAfterStop()
+                return
             }
             // If test schedule ends with a pause, then we need to wait for it
             val timeLeft = endTime - System.currentTimeMillis()
@@ -180,7 +242,10 @@ public class OpenModelThreadGroup :
                     "There will be no more events, so will wait for {} sec till the end of the schedule",
                     TimeUnit.MILLISECONDS.toSeconds(timeLeft)
                 )
-                sleep(timeLeft)
+                if (!sleep(timeLeft)) {
+                    shutdownAfterStop()
+                    return
+                }
             } else {
                 log.info("Thread schedule finished {} ms ago", -timeLeft)
             }
@@ -204,11 +269,38 @@ public class OpenModelThreadGroup :
                     thread.interrupt()
                     // Interrupt it
                     future.cancel(true)
+                    removeThread(thread)
                 }
             }
             executorService.shutdownNow()
             log.info("Thread starting done")
         }
+
+        private fun reserveThreadSlot(): Boolean = ThreadGroup.reserveOpenModelThreadSlot(
+            maxThreadsScope,
+            maxThreads,
+            activeThreads.size
+        )
+
+        private fun removeThread(thread: JMeterThread?) {
+            if (thread != null && activeThreads.remove(thread) != null) {
+                ThreadGroup.releaseOpenModelThreadSlot()
+            }
+        }
+
+        private fun shutdownAfterStop() {
+            log.info("Open Model thread scheduling stopped")
+            executorService.shutdown()
+        }
+
+        private fun sleep(delay: Long): Boolean =
+            try {
+                Thread.sleep(delay)
+                true
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
     }
 
     override fun recoverRunningVersion() {
@@ -233,7 +325,16 @@ public class OpenModelThreadGroup :
             val testStartTime = this.startTime
             val executorService = createExecutorService()
             this.executorService = executorService
-            val starter = ThreadsStarter(testStartTime, executorService, activeThreads, gen) { threadNumber ->
+            running = true
+            val starter = ThreadsStarter(
+                testStartTime,
+                executorService,
+                activeThreads,
+                gen,
+                maxThreads,
+                maxThreadsScope,
+                { running },
+            ) { threadNumber ->
                 val clonedTree = cloneTree(threadGroupTree)
                 makeThread(engine, this, notifier, threadGroupIndex, threadNumber, clonedTree, variables)
             }
@@ -251,7 +352,9 @@ public class OpenModelThreadGroup :
     }
 
     override fun threadFinished(thread: JMeterThread?) {
-        activeThreads.remove(thread)
+        if (thread != null && activeThreads.remove(thread) != null) {
+            ThreadGroup.releaseOpenModelThreadSlot()
+        }
     }
 
     override fun addNewThread(delay: Int, engine: StandardJMeterEngine?): JMeterThread {
@@ -272,6 +375,7 @@ public class OpenModelThreadGroup :
     }
 
     override fun stop() {
+        running = false
         log.info("Gracefully stopping the threads")
         threadStarterFuture.getAndSet(null)?.cancel(true)
         // We use Java's forEach since ConcurrentHashMap has a slightly better implementation
@@ -282,9 +386,11 @@ public class OpenModelThreadGroup :
             // Safe stop the thread
             thread.stop()
         }
+        executorService?.shutdown()
     }
 
     override fun tellThreadsToStop() {
+        running = false
         // Graceful stop
         stop()
         log.info("Interrupting the threads")
@@ -293,6 +399,9 @@ public class OpenModelThreadGroup :
             // Interrupting the thread
             thread.interrupt()
             future.cancel(true)
+            if (activeThreads.remove(thread) != null) {
+                ThreadGroup.releaseOpenModelThreadSlot()
+            }
         }
         // Interrupting all the threads
         // shutdownNow will interrupt the threads

@@ -20,15 +20,29 @@ package org.apache.jmeter.threads;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.IntegerProperty;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.LongProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
+import org.apache.jmeter.threads.openmodel.OpenModelThreadGroupController;
+import org.apache.jmeter.threads.openmodel.ThreadSchedule;
+import org.apache.jmeter.threads.openmodel.ThreadScheduleProcessGenerator;
+import org.apache.jmeter.threads.openmodel.ThreadScheduleUtils;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.util.JMeterStopTestException;
@@ -74,12 +88,58 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     /** Scheduler start delay, overrides start time */
     public static final String DELAY = "ThreadGroup.delay";
+
+    /** Thread group execution model */
+    public static final String MODEL = "ThreadGroup.model";
+
+    /** Closed workload model */
+    public static final String MODEL_CLOSED = "Closed";
+
+    /** Open workload model */
+    public static final String MODEL_OPEN = "Open";
+
+    /** Open model schedule expression */
+    public static final String OPEN_MODEL_SCHEDULE = "OpenModelThreadGroup.schedule";
+
+    /** Open model random seed */
+    public static final String OPEN_MODEL_RANDOM_SEED = "OpenModelThreadGroup.random_seed";
+
+    /** Open model maximum active threads; blank or 0 means unlimited */
+    public static final String OPEN_MODEL_MAX_THREADS = "OpenModelThreadGroup.max_threads";
+
+    /** Open model maximum active threads scope */
+    public static final String OPEN_MODEL_MAX_THREADS_SCOPE = "OpenModelThreadGroup.max_threads_scope";
+
+    /** Apply open model maximum active threads to this thread group */
+    public static final String OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP = "ThreadGroup";
+
+    /** Apply open model maximum active threads across all open model thread groups */
+    public static final String OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL = "AllOpenModelThreadGroups";
     //- JMX entries
+
+    /**
+     * A thread pool for Open Model thread starter threads.
+     * It is not re-created across JMeter test restart.
+     */
+    private static final ExecutorService OPEN_MODEL_HOUSEKEEPING_THREAD_POOL = Executors.newCachedThreadPool();
+
+    /** Counter for naming Open Model virtual threads */
+    private static final AtomicLong OPEN_MODEL_VIRTUAL_THREAD_COUNTER = new AtomicLong();
+
+    /** Total active threads started by unified Open Model ThreadGroups */
+    private static final AtomicInteger OPEN_MODEL_ACTIVE_THREAD_COUNT = new AtomicInteger();
 
     private transient Thread threadStarter;
 
     // List of active threads
     private final ConcurrentHashMap<JMeterThread, Thread> allThreads = new ConcurrentHashMap<>();
+
+    private transient ExecutorService openModelExecutorService;
+
+    @SuppressWarnings("FieldCanBeFinal")
+    private transient AtomicReference<Future<?>> openModelThreadStarterFuture = new AtomicReference<>();
+
+    private final ConcurrentHashMap<JMeterThread, Future<?>> openModelActiveThreads = new ConcurrentHashMap<>();
 
     private transient Object addThreadLock = new Object();
 
@@ -122,6 +182,77 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     public void setScheduler(boolean scheduler) {
         setProperty(new BooleanProperty(SCHEDULER, scheduler));
+    }
+
+    public void setThreadGroupModel(String model) {
+        setProperty(MODEL, MODEL_OPEN.equals(model) ? MODEL_OPEN : MODEL_CLOSED);
+    }
+
+    public String getThreadGroupModel() {
+        String model = getPropertyAsString(MODEL);
+        return MODEL_OPEN.equals(model) ? MODEL_OPEN : MODEL_CLOSED;
+    }
+
+    public boolean isOpenModel() {
+        return MODEL_OPEN.equals(getThreadGroupModel());
+    }
+
+    @Override
+    public int getNumThreads() {
+        return isOpenModel() ? 0 : super.getNumThreads();
+    }
+
+    public String getOpenModelSchedule() {
+        return getPropertyAsString(OPEN_MODEL_SCHEDULE);
+    }
+
+    public void setOpenModelSchedule(String schedule) {
+        setProperty(OPEN_MODEL_SCHEDULE, schedule == null ? "" : schedule);
+    }
+
+    public long getOpenModelRandomSeed() {
+        return getPropertyAsLong(OPEN_MODEL_RANDOM_SEED);
+    }
+
+    public String getOpenModelRandomSeedString() {
+        return getPropertyAsString(OPEN_MODEL_RANDOM_SEED);
+    }
+
+    public void setOpenModelRandomSeedString(String randomSeed) {
+        setProperty(OPEN_MODEL_RANDOM_SEED, randomSeed == null ? "0" : randomSeed);
+    }
+
+    public long getOpenModelMaxThreads() {
+        String maxThreads = getOpenModelMaxThreadsString().trim();
+        if (maxThreads.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(maxThreads);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public String getOpenModelMaxThreadsString() {
+        return getPropertyAsString(OPEN_MODEL_MAX_THREADS);
+    }
+
+    public void setOpenModelMaxThreadsString(String maxThreads) {
+        setProperty(OPEN_MODEL_MAX_THREADS, maxThreads == null ? "" : maxThreads);
+    }
+
+    public String getOpenModelMaxThreadsScope() {
+        return OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL.equals(getPropertyAsString(OPEN_MODEL_MAX_THREADS_SCOPE))
+                ? OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL
+                : OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP;
+    }
+
+    public void setOpenModelMaxThreadsScope(String maxThreadsScope) {
+        setProperty(OPEN_MODEL_MAX_THREADS_SCOPE,
+                OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL.equals(maxThreadsScope)
+                        ? OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL
+                        : OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP);
     }
 
     /**
@@ -194,6 +325,14 @@ public class ThreadGroup extends AbstractThreadGroup {
         return get(getSchema().getDelayedStart());
     }
 
+    private long getStartupDelayInMillis() {
+        long delay = getDelay();
+        if (delay < 0) {
+            throw new JMeterStopTestException("Invalid delay " + delay + " set in Thread Group:" + getName());
+        }
+        return TimeUnit.SECONDS.toMillis(delay);
+    }
+
     /**
      * This will schedule the time for the JMeterThread.
      *
@@ -224,6 +363,10 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     @Override
     public void start(int groupNum, ListenerNotifier notifier, ListedHashTree threadGroupTree, StandardJMeterEngine engine) {
+        if (isOpenModel()) {
+            startOpenModel(groupNum, notifier, threadGroupTree, engine);
+            return;
+        }
         this.running = true;
         this.groupNumber = groupNum;
         this.notifier = notifier;
@@ -243,6 +386,7 @@ public class ThreadGroup extends AbstractThreadGroup {
             long lastThreadStartInMillis = 0;
             int delayForNextThreadInMillis = 0;
             final int perThreadDelayInMillis = Math.round((float) rampUpPeriodInSeconds * 1000 / numThreads);
+            final long startupDelayInMillis = getScheduler() ? 0 : getStartupDelayInMillis();
             for (int threadNum = 0; running && threadNum < numThreads; threadNum++) {
                 long nowInMillis = System.currentTimeMillis();
                 if(threadNum > 0) {
@@ -255,10 +399,181 @@ public class ThreadGroup extends AbstractThreadGroup {
                     log.debug("Computed delayForNextThreadInMillis:{} for thread:{}", delayForNextThreadInMillis, Thread.currentThread().threadId());
                 }
                 lastThreadStartInMillis = nowInMillis;
-                startNewThread(notifier, threadGroupTree, engine, threadNum, variables, nowInMillis, Math.max(0, delayForNextThreadInMillis));
+                startNewThread(notifier, threadGroupTree, engine, threadNum, variables, nowInMillis,
+                        toInitialDelay(startupDelayInMillis + Math.max(0, delayForNextThreadInMillis)));
             }
         }
         log.info("Started thread group number {}", groupNumber);
+    }
+
+    private static int toInitialDelay(long delayInMillis) {
+        return delayInMillis > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) delayInMillis;
+    }
+
+    private void startOpenModel(int threadGroupIndex, ListenerNotifier notifier,
+            ListedHashTree threadGroupTree, StandardJMeterEngine engine) {
+        try {
+            this.running = true;
+            this.groupNumber = threadGroupIndex;
+            this.notifier = notifier;
+            this.threadGroupTree = threadGroupTree;
+            setOpenModelController();
+            JMeterVariables variables = JMeterContextService.getContext().getVariables();
+            String schedule = getOpenModelSchedule();
+            log.info("Starting Open Model ThreadGroup#{} with schedule {}", threadGroupIndex, schedule);
+            ThreadSchedule parsedSchedule = ThreadScheduleUtils.ThreadSchedule(schedule);
+            Random random = getOpenModelRandomSeed() == 0 ? new Random() : new Random(getOpenModelRandomSeed());
+            ThreadScheduleProcessGenerator generator = new ThreadScheduleProcessGenerator(random, parsedSchedule);
+            ExecutorService executorService = createOpenModelExecutorService();
+            openModelExecutorService = executorService;
+            OpenModelThreadsStarter starter = new OpenModelThreadsStarter(
+                    getStartTime(), executorService, generator, threadNumber -> {
+                        ListedHashTree clonedTree = cloneTree(threadGroupTree);
+                        return makeThread(engine, this, notifier, threadGroupIndex, threadNumber, clonedTree, variables);
+                    });
+            openModelThreadStarterFuture.set(OPEN_MODEL_HOUSEKEEPING_THREAD_POOL.submit(() -> {
+                Thread.currentThread().setName("open-model-thread-starter-" + getName() + "-" + threadGroupIndex);
+                starter.run();
+            }));
+        } catch (Throwable t) {
+            t.addSuppressed(new IllegalArgumentException("Failed to start Open Model ThreadGroup "
+                    + getName() + "-" + threadGroupIndex));
+            if (t instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (t instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalArgumentException("Failed to start Open Model ThreadGroup "
+                    + getName() + "-" + threadGroupIndex, t);
+        }
+    }
+
+    private void setOpenModelController() {
+        JMeterProperty mainController = getProperty(AbstractThreadGroup.MAIN_CONTROLLER);
+        if (!(mainController.getObjectValue() instanceof OpenModelThreadGroupController)) {
+            set(getSchema().getMainController(), new OpenModelThreadGroupController());
+        }
+    }
+
+    private static ExecutorService createOpenModelExecutorService() {
+        if (VIRTUAL_THREADS_ENABLED) {
+            ThreadFactory factory = runnable -> Thread.ofVirtual()
+                    .name("OpenModel-vt-" + OPEN_MODEL_VIRTUAL_THREAD_COUNTER.incrementAndGet())
+                    .unstarted(runnable);
+            log.debug("Created virtual thread executor for Open Model ThreadGroup");
+            return Executors.newThreadPerTaskExecutor(factory);
+        }
+        return Executors.newCachedThreadPool();
+    }
+
+    @FunctionalInterface
+    private interface OpenModelJMeterThreadFactory {
+        JMeterThread create(int threadNumber);
+    }
+
+    private class OpenModelThreadsStarter implements Runnable {
+        private final long testStartTime;
+        private final ExecutorService executorService;
+        private final ThreadScheduleProcessGenerator generator;
+        private final OpenModelJMeterThreadFactory jmeterThreadFactory;
+
+        private OpenModelThreadsStarter(long testStartTime, ExecutorService executorService,
+                ThreadScheduleProcessGenerator generator, OpenModelJMeterThreadFactory jmeterThreadFactory) {
+            this.testStartTime = testStartTime;
+            this.executorService = executorService;
+            this.generator = generator;
+            this.jmeterThreadFactory = jmeterThreadFactory;
+        }
+
+        @Override
+        public void run() {
+            log.info("Open Model thread starting init");
+            long endTime = testStartTime + Math.round(generator.getTotalDuration() * 1000);
+            int threadNumber = 0;
+            long previousTime = 0;
+            while (running && !Thread.currentThread().isInterrupted() && generator.hasNext()) {
+                long scheduledTime = testStartTime + Math.round(generator.nextDouble() * 1000);
+                if (scheduledTime >= previousTime) {
+                    previousTime = System.currentTimeMillis();
+                    long nextDelay = scheduledTime - previousTime;
+                    if (nextDelay > 0 && !sleep(nextDelay)) {
+                        shutdownAfterStop();
+                        return;
+                    }
+                }
+                if (!running || Thread.currentThread().isInterrupted()) {
+                    shutdownAfterStop();
+                    return;
+                }
+                if (!reserveOpenModelThreadSlot()) {
+                    log.debug("Skipping Open Model arrival because the active thread limit is reached");
+                    continue;
+                }
+                JMeterThread jmeterThread = jmeterThreadFactory.create(threadNumber++);
+                jmeterThread.setEndTime(endTime);
+                FutureTask<Void> task = new FutureTask<>(() -> {
+                    Thread.currentThread().setName(jmeterThread.getThreadName());
+                    jmeterThread.run();
+                    return null;
+                });
+                openModelActiveThreads.put(jmeterThread, task);
+                try {
+                    executorService.execute(task);
+                } catch (RuntimeException e) {
+                    removeOpenModelThread(jmeterThread);
+                    throw e;
+                }
+            }
+            if (!running || Thread.currentThread().isInterrupted()) {
+                shutdownAfterStop();
+                return;
+            }
+            long timeLeft = endTime - System.currentTimeMillis();
+            if (timeLeft > 0) {
+                log.info("There will be no more events, so will wait for {} sec till the end of the schedule",
+                        TimeUnit.MILLISECONDS.toSeconds(timeLeft));
+                if (!sleep(timeLeft)) {
+                    shutdownAfterStop();
+                    return;
+                }
+            } else {
+                log.info("Thread schedule finished {} ms ago", -timeLeft);
+            }
+            int threadsStillRunning = openModelActiveThreads.size();
+            if (threadsStillRunning == 0) {
+                log.info("There will be no more events, will shutdown the thread pool");
+            } else {
+                log.info("Test schedule finished, however, there are {} thread(s) still running."
+                        + " Will interrupt the threads."
+                        + " If you want to keep some time for the threads to complete, consider"
+                        + " adding pause(10 min) at the end of the schedule.", threadsStillRunning);
+                openModelActiveThreads.forEach((thread, future) -> {
+                    log.info("Terminating thread {}", thread);
+                    thread.stop();
+                    thread.interrupt();
+                    future.cancel(true);
+                    removeOpenModelThread(thread);
+                });
+            }
+            executorService.shutdownNow();
+            log.info("Open Model thread starting done");
+        }
+
+        private void shutdownAfterStop() {
+            log.info("Open Model thread scheduling stopped");
+            executorService.shutdown();
+        }
+
+        private static boolean sleep(long delay) {
+            try {
+                TimeUnit.MILLISECONDS.sleep(delay);
+                return true;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 
     /**
@@ -305,6 +620,7 @@ public class ThreadGroup extends AbstractThreadGroup {
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
         addThreadLock = new Object();
+        openModelThreadStarterFuture = new AtomicReference<>();
     }
 
     /**
@@ -319,6 +635,9 @@ public class ThreadGroup extends AbstractThreadGroup {
     @Override
     @SuppressWarnings("SynchronizeOnNonFinalField")
     public JMeterThread addNewThread(int delay, StandardJMeterEngine engine) {
+        if (isOpenModel()) {
+            throw new UnsupportedOperationException("Adding threads dynamically is not supported for Open Model Thread Group");
+        }
         long now = System.currentTimeMillis();
         JMeterContext context = JMeterContextService.getContext();
         JMeterThread newJmThread;
@@ -346,6 +665,20 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public boolean stopThread(String threadName, boolean now) {
+        if (isOpenModel()) {
+            for (Map.Entry<JMeterThread, Future<?>> threadEntry : openModelActiveThreads.entrySet()) {
+                JMeterThread jMeterThread = threadEntry.getKey();
+                if (jMeterThread.getThreadName().equals(threadName)) {
+                    jMeterThread.stop();
+                    jMeterThread.interrupt();
+                    if (now) {
+                        threadEntry.getValue().cancel(true);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
         for (Map.Entry<JMeterThread, Thread> threadEntry : allThreads.entrySet()) {
             JMeterThread jMeterThread = threadEntry.getKey();
             if (jMeterThread.getThreadName().equals(threadName)) {
@@ -375,10 +708,58 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public void threadFinished(JMeterThread thread) {
+        if (isOpenModel()) {
+            removeOpenModelThread(thread);
+            return;
+        }
         if (log.isDebugEnabled()) {
             log.debug("Ending thread {}", thread.getThreadName());
         }
         allThreads.remove(thread);
+    }
+
+    private boolean reserveOpenModelThreadSlot() {
+        return reserveOpenModelThreadSlot(
+                getOpenModelMaxThreadsScope(),
+                getOpenModelMaxThreads(),
+                openModelActiveThreads.size());
+    }
+
+    public static boolean reserveOpenModelThreadSlot(String scope, long maxThreads, int activeThreadsInGroup) {
+        if (maxThreads <= 0) {
+            OPEN_MODEL_ACTIVE_THREAD_COUNT.incrementAndGet();
+            return true;
+        }
+        if (OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL.equals(scope)) {
+            return reserveOpenModelThreadSlotForTotal(maxThreads);
+        }
+        if (activeThreadsInGroup >= maxThreads) {
+            return false;
+        }
+        OPEN_MODEL_ACTIVE_THREAD_COUNT.incrementAndGet();
+        return true;
+    }
+
+    private static boolean reserveOpenModelThreadSlotForTotal(long maxThreads) {
+        while (true) {
+            int activeThreads = OPEN_MODEL_ACTIVE_THREAD_COUNT.get();
+            if (activeThreads >= maxThreads) {
+                return false;
+            }
+            if (OPEN_MODEL_ACTIVE_THREAD_COUNT.compareAndSet(activeThreads, activeThreads + 1)) {
+                return true;
+            }
+        }
+    }
+
+    private void removeOpenModelThread(JMeterThread thread) {
+        if (thread != null && openModelActiveThreads.remove(thread) != null) {
+            releaseOpenModelThreadSlot();
+        }
+    }
+
+    public static void releaseOpenModelThreadSlot() {
+        OPEN_MODEL_ACTIVE_THREAD_COUNT.decrementAndGet();
     }
 
     public void tellThreadsToStop(boolean now) {
@@ -409,6 +790,20 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public void tellThreadsToStop() {
+        if (isOpenModel()) {
+            stop();
+            log.info("Interrupting the Open Model threads");
+            openModelActiveThreads.forEach((thread, future) -> {
+                log.info("Interrupting thread {}", thread);
+                thread.interrupt();
+                future.cancel(true);
+                removeOpenModelThread(thread);
+            });
+            if (openModelExecutorService != null) {
+                openModelExecutorService.shutdownNow();
+            }
+            return;
+        }
         tellThreadsToStop(true);
     }
 
@@ -421,6 +816,22 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public void stop() {
+        if (isOpenModel()) {
+            running = false;
+            log.info("Gracefully stopping the Open Model threads");
+            Future<?> starter = openModelThreadStarterFuture.getAndSet(null);
+            if (starter != null) {
+                starter.cancel(true);
+            }
+            openModelActiveThreads.forEach((thread, future) -> {
+                log.info("Gracefully stopping thread {}", thread);
+                thread.stop();
+            });
+            if (openModelExecutorService != null) {
+                openModelExecutorService.shutdown();
+            }
+            return;
+        }
         running = false;
         if (delayedStartup) {
             try {
@@ -437,6 +848,9 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public int numberOfActiveThreads() {
+        if (isOpenModel()) {
+            return openModelActiveThreads.size();
+        }
         return allThreads.size();
     }
 
@@ -445,6 +859,9 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public boolean verifyThreadsStopped() {
+        if (isOpenModel()) {
+            return openModelExecutorService == null || openModelExecutorService.isTerminated();
+        }
         boolean stoppedAll = true;
         if (delayedStartup) {
             stoppedAll = verifyThreadStopped(threadStarter);
@@ -489,6 +906,16 @@ public class ThreadGroup extends AbstractThreadGroup {
      */
     @Override
     public void waitThreadsStopped() {
+        if (isOpenModel()) {
+            if (openModelExecutorService != null) {
+                try {
+                    openModelExecutorService.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return;
+        }
         if (delayedStartup) {
             waitThreadStopped(threadStarter);
         }
@@ -577,11 +1004,11 @@ public class ThreadGroup extends AbstractThreadGroup {
                 JMeterContextService.getContext().setVariables(variables);
                 long endtime = 0;
                 final boolean usingScheduler = getScheduler();
+                long startupDelay = getStartupDelayInMillis();
+                if (startupDelay > 0) {
+                    delayBy(startupDelay);
+                }
                 if (usingScheduler) {
-                    // set the start time for the Thread
-                    if (getDelay() > 0) {// Duration is in seconds
-                        delayBy(getDelay() * 1000);
-                    }
                     // set the endtime for the Thread
                     endtime = getDuration();
                     if (endtime > 0) {// Duration is in seconds, starting from when the threads start
