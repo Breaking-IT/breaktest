@@ -358,6 +358,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 Map.Entry<Integer, JMeterTreeNode> pair = doReplacementInCurrentNode(currentNode, regex, wordToReplace, caseSensitiveReplacement);
                 if(pair != null) {
                     nbReplacements = pair.getKey();
+                    GuiPackage.getInstance().addUndoHistory("Replace in " + currentNode.getName());
                     GuiPackage.getInstance().updateCurrentGui();
                     GuiPackage.getInstance().getMainFrame().repaint();
                 }
@@ -421,18 +422,12 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
         // do search
         GuiPackage guiPackage = GuiPackage.getInstance();
-        guiPackage.beginUndoTransaction();
-        int numberOfMatches = 0;
-        try {
-            Map.Entry<Integer, Set<JMeterTreeNode>> result = nodeTypes.isEmpty()
-                    ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch,
-                            includeRecordedExchangesCB.isSelected())
-                    : flagNodeTypesInTree(guiPackage, nodeTypes);
-            numberOfMatches = result.getKey();
-            markConcernedNodes(expand, result.getValue());
-        } finally {
-            guiPackage.endUndoTransaction();
-        }
+        Map.Entry<Integer, Set<JMeterTreeNode>> result = nodeTypes.isEmpty()
+                ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch,
+                        includeRecordedExchangesCB.isSelected())
+                : flagNodeTypesInTree(guiPackage, nodeTypes);
+        int numberOfMatches = result.getKey();
+        guiPackage.withoutUndoHistory(() -> markConcernedNodes(expand, result.getValue()));
         GuiPackage.getInstance().getMainFrame().repaint();
         searchTF.requestFocusInWindow();
         statusLabel.setText(
@@ -750,9 +745,10 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             }
         }
         statusLabel.setText(MessageFormat.format("Replaced {0} occurrences", totalReplaced));
-        markConcernedNodes(expand, replacedNodes);
         // Update GUI as current node may be concerned by changes
         if (totalReplaced > 0) {
+            GuiPackage.getInstance().addUndoHistory("Replace all");
+            GuiPackage.getInstance().withoutUndoHistory(() -> markConcernedNodes(expand, replacedNodes));
             GuiPackage.getInstance().refreshCurrentGui();
         }
         GuiPackage.getInstance().getMainFrame().repaint();

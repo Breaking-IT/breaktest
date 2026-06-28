@@ -249,11 +249,9 @@ Defaults to: <code>true</code>
 </property>
 <property name="undo.history.size">
     Number of items in undo history.<br/>
-    Feature is disabled by default (<code>0</code>) due to known and not fixed bugs
-    <bugzilla>57043</bugzilla>, <bugzilla>57039</bugzilla> and <bugzilla>57040</bugzilla>.
-    Set it to a number greater than zero (<code>25</code> can be a good default).<br/>
+    Set it to <code>0</code> to disable undo/redo support for test plan tree changes.<br/>
     The bigger it is, the more memory will be consumed.
-    Defaults to: <code>0</code>
+    Defaults to: <code>25</code>
 </property>
 <property name="gui.quick_X">
     Hotkeys to add JMeter components where <code><em>X</em></code> is the shortcut key, for example:
