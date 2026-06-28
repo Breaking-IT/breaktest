@@ -73,15 +73,20 @@ public class Remove extends AbstractAction {
                 JOptionPane.QUESTION_MESSAGE);
         if (isConfirm == JOptionPane.YES_OPTION) {
             // TODO - removes the nodes from the CheckDirty map - should it be done later, in case some can't be removed?
-            ActionRouter.getInstance().actionPerformed(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_REMOVE));
+            ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_REMOVE));
             GuiPackage guiPackage = GuiPackage.getInstance();
             JMeterTreeNode[] nodes = guiPackage.getTreeListener().getSelectedNodes();
             TreePath newTreePath = // Save parent node for later
             guiPackage.getTreeListener().removedSelectedNode();
-            for (int i = nodes.length - 1; i >= 0; i--) {
-                removeNode(nodes[i]);
+            guiPackage.getTreeListener().beginSuppressEditAction();
+            try {
+                for (int i = nodes.length - 1; i >= 0; i--) {
+                    removeNode(nodes[i]);
+                }
+                guiPackage.getTreeListener().setSelectionPathWithoutEdit(newTreePath);
+            } finally {
+                guiPackage.getTreeListener().endSuppressEditAction();
             }
-            guiPackage.getTreeListener().getJTree().setSelectionPath(newTreePath);
             guiPackage.updateCurrentGui();
         }
     }

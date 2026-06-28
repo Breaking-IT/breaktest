@@ -20,12 +20,16 @@ package org.apache.jmeter.gui.util;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.HeadlessException;
+import java.awt.Toolkit;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Properties;
 
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
@@ -37,6 +41,7 @@ import org.apache.jorphan.gui.ui.TextComponentUI;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
+import org.fife.ui.rtextarea.RTextAreaEditorKit;
 import org.fife.ui.rtextarea.RUndoManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +69,8 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
     private static final int MAX_UNDOS = JMeterUtils.getPropDefault("jsyntaxtextarea.maxundos", 50);
     private static final String USER_FONT_FAMILY = JMeterUtils.getPropDefault("jsyntaxtextarea.font.family", null);
     private static final int USER_FONT_SIZE = JMeterUtils.getPropDefault("jsyntaxtextarea.font.size", -1);
+
+    private static final int MENU_SHORTCUT_MASK = getMenuShortcutKeyMask();
 
     private static final HierarchyListener GUTTER_THEME_PATCHER = e -> {
         if ((e.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0
@@ -242,6 +249,7 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
         super.setLineWrap(LINE_WRAP);
         super.setWrapStyleWord(WRAP_STYLE_WORD);
         this.disableUndo = disableUndo;
+        bindRedoShortcut();
         if (USER_FONT_FAMILY != null) {
             int fontSize = USER_FONT_SIZE > 0 ? USER_FONT_SIZE : getFont().getSize();
             setFont(JMeterUIDefaults.createFont(USER_FONT_FAMILY, Font.PLAIN, fontSize));
@@ -307,6 +315,27 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
             log.error("Dubious problem while setting text to {}", string, e);
         }
         discardAllEdits();
+    }
+
+    private void bindRedoShortcut() {
+        getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, MENU_SHORTCUT_MASK | InputEvent.SHIFT_DOWN_MASK),
+                RTextAreaEditorKit.rtaRedoAction);
+        getInputMap().put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK),
+                RTextAreaEditorKit.rtaRedoAction);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static int getMenuShortcutKeyMask() {
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMask();
+        } catch (HeadlessException e) {
+            if (!"true".equals(System.getProperty("java.awt.headless"))) { // $NON-NLS-1$ $NON-NLS-2$
+                throw e;
+            }
+            return InputEvent.CTRL_DOWN_MASK;
+        }
     }
 
     private static Theme loadTheme(Class<?> klass, String name) {

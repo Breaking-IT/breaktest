@@ -157,8 +157,34 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
                 editMenu.add(comp);
             }
             editMenu.setEnabled(true);
+            GuiPackage guiPackage = GuiPackage.getInstance();
+            if (guiPackage != null) {
+                updateUndoRedoItems(guiPackage.canUndo(), guiPackage.canRedo());
+            }
         } else {
             editMenu.setEnabled(false);
+        }
+    }
+
+    /**
+     * Change state of Undo/Redo menu items after history changes.
+     *
+     * @param canUndo {@code true} if undo is available
+     * @param canRedo {@code true} if redo is available
+     */
+    public void updateUndoRedoItems(boolean canUndo, boolean canRedo) {
+        if (editMenu == null) {
+            return;
+        }
+        for (Component comp : editMenu.getMenuComponents()) {
+            if (comp instanceof JMenuItem menuItem) {
+                String actionCommand = menuItem.getActionCommand();
+                if (ActionNames.UNDO.equals(actionCommand)) {
+                    menuItem.setEnabled(canUndo);
+                } else if (ActionNames.REDO.equals(actionCommand)) {
+                    menuItem.setEnabled(canRedo);
+                }
+            }
         }
     }
 
