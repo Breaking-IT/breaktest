@@ -19,8 +19,12 @@ package org.apache.jmeter.threads;
 
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,6 +35,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
@@ -98,6 +104,9 @@ public class ThreadGroup extends AbstractThreadGroup {
     /** Open workload model */
     public static final String MODEL_OPEN = "Open";
 
+    /** Closed model phase schedule expression */
+    public static final String CLOSED_MODEL_SCHEDULE = "ThreadGroup.closed_schedule";
+
     /** Open model schedule expression */
     public static final String OPEN_MODEL_SCHEDULE = "OpenModelThreadGroup.schedule";
 
@@ -129,6 +138,10 @@ public class ThreadGroup extends AbstractThreadGroup {
     /** Total active threads started by unified Open Model ThreadGroups */
     private static final AtomicInteger OPEN_MODEL_ACTIVE_THREAD_COUNT = new AtomicInteger();
 
+    private static final Pattern CLOSED_MODEL_PHASE_PATTERN = Pattern.compile(
+            "threadsPhase\\s*\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*\\)",
+            Pattern.CASE_INSENSITIVE);
+
     private transient Thread threadStarter;
 
     // List of active threads
@@ -140,6 +153,8 @@ public class ThreadGroup extends AbstractThreadGroup {
     private transient AtomicReference<Future<?>> openModelThreadStarterFuture = new AtomicReference<>();
 
     private final ConcurrentHashMap<JMeterThread, Future<?>> openModelActiveThreads = new ConcurrentHashMap<>();
+
+    private transient volatile ClosedModelScheduleCache closedModelScheduleCache;
 
     private transient Object addThreadLock = new Object();
 
@@ -199,7 +214,24 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     @Override
     public int getNumThreads() {
-        return isOpenModel() ? 0 : super.getNumThreads();
+        if (isOpenModel()) {
+            return 0;
+        }
+        ClosedModelScheduleCache schedule = getClosedModelScheduleCache();
+        List<ClosedModelPhase> phases = schedule.phases();
+        if (phases.isEmpty()) {
+            return super.getNumThreads();
+        }
+        return schedule.maxThreads();
+    }
+
+    public String getClosedModelSchedule() {
+        return getPropertyAsString(CLOSED_MODEL_SCHEDULE);
+    }
+
+    public void setClosedModelSchedule(String schedule) {
+        closedModelScheduleCache = null;
+        setProperty(CLOSED_MODEL_SCHEDULE, schedule == null ? "" : schedule);
     }
 
     public String getOpenModelSchedule() {
@@ -253,6 +285,64 @@ public class ThreadGroup extends AbstractThreadGroup {
                 OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL.equals(maxThreadsScope)
                         ? OPEN_MODEL_MAX_THREADS_SCOPE_ALL_OPEN_MODEL
                         : OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP);
+    }
+
+    public static List<ClosedModelPhase> parseClosedModelSchedule(String schedule) {
+        List<ClosedModelPhase> phases = new ArrayList<>();
+        if (schedule == null || schedule.trim().isEmpty()) {
+            return phases;
+        }
+        Matcher matcher = CLOSED_MODEL_PHASE_PATTERN.matcher(schedule);
+        int position = 0;
+        long previousTimeSeconds = 0;
+        while (matcher.find()) {
+            String betweenPhases = schedule.substring(position, matcher.start()).trim();
+            if (!betweenPhases.isEmpty()) {
+                throw new IllegalArgumentException("Invalid closed model schedule near: " + betweenPhases);
+            }
+            long targetThreads = Long.parseLong(matcher.group(1));
+            long timeSeconds = Long.parseLong(matcher.group(2));
+            if (!phases.isEmpty() && timeSeconds < previousTimeSeconds) {
+                throw new IllegalArgumentException("Closed model phase times must not decrease");
+            }
+            phases.add(new ClosedModelPhase(targetThreads, timeSeconds));
+            previousTimeSeconds = timeSeconds;
+            position = matcher.end();
+        }
+        String trailingText = schedule.substring(position).trim();
+        if (!trailingText.isEmpty()) {
+            throw new IllegalArgumentException("Invalid closed model schedule near: " + trailingText);
+        }
+        return phases;
+    }
+
+    private ClosedModelScheduleCache getClosedModelScheduleCache() {
+        String schedule = getClosedModelSchedule();
+        ClosedModelScheduleCache cache = closedModelScheduleCache;
+        if (cache != null && Objects.equals(schedule, cache.schedule())) {
+            return cache;
+        }
+        ClosedModelScheduleCache parsed = parseClosedModelScheduleForRuntime(schedule);
+        closedModelScheduleCache = parsed;
+        return parsed;
+    }
+
+    private ClosedModelScheduleCache parseClosedModelScheduleForRuntime(String schedule) {
+        try {
+            List<ClosedModelPhase> phases = List.copyOf(parseClosedModelSchedule(schedule));
+            return new ClosedModelScheduleCache(schedule, phases, maxClosedModelThreads(phases));
+        } catch (IllegalArgumentException e) {
+            log.warn("Ignoring invalid closed model schedule for Thread Group '{}': {}", getName(), e.getMessage());
+            return new ClosedModelScheduleCache(schedule, List.of(), 0);
+        }
+    }
+
+    private static int maxClosedModelThreads(List<ClosedModelPhase> phases) {
+        long maxThreads = 0;
+        for (ClosedModelPhase phase : phases) {
+            maxThreads = Math.max(maxThreads, phase.targetThreads());
+        }
+        return maxThreads > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) maxThreads;
     }
 
     /**
@@ -367,6 +457,11 @@ public class ThreadGroup extends AbstractThreadGroup {
             startOpenModel(groupNum, notifier, threadGroupTree, engine);
             return;
         }
+        List<ClosedModelPhase> phases = getClosedModelScheduleCache().phases();
+        if (!phases.isEmpty()) {
+            startClosedModel(groupNum, notifier, threadGroupTree, engine, phases);
+            return;
+        }
         this.running = true;
         this.groupNumber = groupNum;
         this.notifier = notifier;
@@ -410,6 +505,22 @@ public class ThreadGroup extends AbstractThreadGroup {
         return delayInMillis > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) delayInMillis;
     }
 
+    private void startClosedModel(int threadGroupIndex, ListenerNotifier notifier,
+            ListedHashTree threadGroupTree, StandardJMeterEngine engine, List<ClosedModelPhase> phases) {
+        this.running = true;
+        this.groupNumber = threadGroupIndex;
+        this.notifier = notifier;
+        this.threadGroupTree = threadGroupTree;
+        delayedStartup = true;
+        log.info("Starting Closed Model ThreadGroup#{} with phases {}", threadGroupIndex, getClosedModelSchedule());
+        threadStarter = new Thread(
+                new ClosedModelThreadsStarter(notifier, threadGroupTree, engine, phases),
+                getName() + "-ClosedModelStarter");
+        threadStarter.setDaemon(true);
+        threadStarter.start();
+        log.info("Started Closed Model thread group number {}", threadGroupIndex);
+    }
+
     private void startOpenModel(int threadGroupIndex, ListenerNotifier notifier,
             ListedHashTree threadGroupTree, StandardJMeterEngine engine) {
         try {
@@ -427,7 +538,7 @@ public class ThreadGroup extends AbstractThreadGroup {
             ExecutorService executorService = createOpenModelExecutorService();
             openModelExecutorService = executorService;
             OpenModelThreadsStarter starter = new OpenModelThreadsStarter(
-                    getStartTime(), executorService, generator, threadNumber -> {
+                    getStartTime(), engine, executorService, generator, threadNumber -> {
                         ListedHashTree clonedTree = cloneTree(threadGroupTree);
                         return makeThread(engine, this, notifier, threadGroupIndex, threadNumber, clonedTree, variables);
                     });
@@ -472,15 +583,223 @@ public class ThreadGroup extends AbstractThreadGroup {
         JMeterThread create(int threadNumber);
     }
 
+    public static final class ClosedModelPhase {
+        private final long targetThreads;
+        private final long timeSeconds;
+
+        public ClosedModelPhase(long targetThreads, long timeSeconds) {
+            this.targetThreads = targetThreads;
+            this.timeSeconds = timeSeconds;
+        }
+
+        public long targetThreads() {
+            return targetThreads;
+        }
+
+        public long timeSeconds() {
+            return timeSeconds;
+        }
+
+        @Override
+        public String toString() {
+            return "threadsPhase(" + targetThreads + ", " + timeSeconds + ")";
+        }
+    }
+
+    private record ClosedModelScheduleCache(String schedule, List<ClosedModelPhase> phases, int maxThreads) {
+    }
+
+    private class ClosedModelThreadsStarter implements Runnable {
+        private final ListenerNotifier notifier;
+        private final ListedHashTree threadGroupTree;
+        private final StandardJMeterEngine engine;
+        private final List<ClosedModelPhase> phases;
+        private final JMeterVariables variables;
+        private final Set<JMeterThread> stoppingThreads = ConcurrentHashMap.newKeySet();
+        private int threadNumber;
+
+        ClosedModelThreadsStarter(ListenerNotifier notifier, ListedHashTree threadGroupTree,
+                StandardJMeterEngine engine, List<ClosedModelPhase> phases) {
+            this.notifier = notifier;
+            this.threadGroupTree = threadGroupTree;
+            this.engine = engine;
+            this.phases = phases;
+            this.variables = JMeterContextService.getContext().getVariables();
+        }
+
+        @Override
+        public void run() {
+            try {
+                JMeterContextService.getContext().setVariables(variables);
+                long startupDelay = getStartupDelayInMillis();
+                if (startupDelay > 0 && sleepUntil(System.currentTimeMillis() + startupDelay, engine) < 0) {
+                    return;
+                }
+
+                long previousTargetThreads = 0;
+                long previousTimeSeconds = 0;
+                for (ClosedModelPhase phase : phases) {
+                    if (!running || Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
+                    runPhase(previousTargetThreads, previousTimeSeconds, phase);
+                    previousTargetThreads = phase.targetThreads();
+                    previousTimeSeconds = phase.timeSeconds();
+                }
+                finishClosedModelScheduling();
+            } catch (Exception ex) {
+                log.error("An error occurred scheduling Closed Model phases for Thread Group: {}", getName(), ex);
+                finishClosedModelScheduling();
+            }
+        }
+
+        private void finishClosedModelScheduling() {
+            running = false;
+            stopActiveThreads(allThreads.size(), false);
+        }
+
+        private void runPhase(long previousTargetThreads, long previousTimeSeconds, ClosedModelPhase phase) {
+            long targetThreads = phase.targetThreads();
+            long phaseMillis = secondsToMillis(Math.max(0, phase.timeSeconds() - previousTimeSeconds));
+            long phaseStart = System.currentTimeMillis();
+            long phaseEnd = phaseStart + phaseMillis;
+
+            while (running && !Thread.currentThread().isInterrupted() && System.currentTimeMillis() < phaseEnd) {
+                long pauseTime = waitIfSchedulingPaused(engine);
+                if (pauseTime < 0) {
+                    return;
+                }
+                phaseStart += pauseTime;
+                phaseEnd += pauseTime;
+                long elapsed = System.currentTimeMillis() - phaseStart;
+                long currentTargetThreads = currentClosedModelTarget(
+                        previousTargetThreads, targetThreads, phaseMillis, elapsed);
+                adjustActiveThreads(currentTargetThreads);
+                pauseTime = sleepUntil(Math.min(phaseEnd, System.currentTimeMillis() + RAMPUP_GRANULARITY), engine);
+                if (pauseTime < 0) {
+                    return;
+                }
+                phaseStart += pauseTime;
+                phaseEnd += pauseTime;
+            }
+            if (running && !Thread.currentThread().isInterrupted()) {
+                adjustActiveThreads(targetThreads);
+            }
+        }
+
+        private void adjustActiveThreads(long targetThreads) {
+            stoppingThreads.removeIf(thread -> !allThreads.containsKey(thread));
+            int activeThreads = allThreads.size() - stoppingThreads.size();
+            if (activeThreads < targetThreads) {
+                startThreads(Math.min(targetThreads - activeThreads, Integer.MAX_VALUE));
+            } else if (activeThreads > targetThreads) {
+                stopRunningThreads(activeThreads - targetThreads);
+            }
+        }
+
+        private void stopRunningThreads(long threadsToStop) {
+            long stopped = 0;
+            for (Map.Entry<JMeterThread, Thread> threadEntry : allThreads.entrySet()) {
+                if (stopped >= threadsToStop) {
+                    return;
+                }
+                JMeterThread jmeterThread = threadEntry.getKey();
+                if (stoppingThreads.add(jmeterThread)) {
+                    stopThread(jmeterThread, threadEntry.getValue(), false);
+                    stopped++;
+                }
+            }
+        }
+
+        private void startThreads(long threadsToStart) {
+            for (long i = 0; running && i < threadsToStart; i++) {
+                JMeterThread jmThread = makeThread(
+                        engine, ThreadGroup.this, notifier, groupNumber, threadNumber++, cloneTree(threadGroupTree), variables);
+                jmThread.setInitialDelay(0);
+                Thread newThread = createThread(jmThread, jmThread.getThreadName());
+                if (!VIRTUAL_THREADS_ENABLED) {
+                    newThread.setDaemon(false);
+                }
+                registerStartedThread(jmThread, newThread);
+                newThread.start();
+            }
+        }
+    }
+
+    private static long currentClosedModelTarget(
+            long previousTargetThreads, long targetThreads, long rampMillis, long elapsedMillis) {
+        if (rampMillis <= 0 || elapsedMillis >= rampMillis) {
+            return targetThreads;
+        }
+        double progress = elapsedMillis / (double) rampMillis;
+        return Math.round(previousTargetThreads + (targetThreads - previousTargetThreads) * progress);
+    }
+
+    private static long secondsToMillis(long seconds) {
+        return seconds > Long.MAX_VALUE / 1000 ? Long.MAX_VALUE : seconds * 1000;
+    }
+
+    private static long sleepUntil(long endTime, StandardJMeterEngine engine) {
+        long pauseTime = 0;
+        long adjustedEndTime = endTime;
+        while (true) {
+            long paused = waitIfSchedulingPaused(engine);
+            if (paused < 0) {
+                return -1;
+            }
+            pauseTime += paused;
+            adjustedEndTime += paused;
+            long delay = adjustedEndTime - System.currentTimeMillis();
+            if (delay <= 0) {
+                long finalPaused = waitIfSchedulingPaused(engine);
+                if (finalPaused < 0) {
+                    return -1;
+                }
+                if (finalPaused == 0) {
+                    return pauseTime;
+                }
+                pauseTime += finalPaused;
+                adjustedEndTime += finalPaused;
+                continue;
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(Math.min(delay, RAMPUP_GRANULARITY));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return -1;
+            }
+        }
+    }
+
+    private static long waitIfSchedulingPaused(StandardJMeterEngine engine) {
+        if (Thread.currentThread().isInterrupted()) {
+            return -1;
+        }
+        return engine == null ? 0 : engine.waitIfPaused();
+    }
+
+    private void stopActiveThreads(long threadsToStop, boolean interrupt) {
+        long stopped = 0;
+        for (Map.Entry<JMeterThread, Thread> threadEntry : allThreads.entrySet()) {
+            if (stopped >= threadsToStop) {
+                return;
+            }
+            stopThread(threadEntry.getKey(), threadEntry.getValue(), interrupt);
+            stopped++;
+        }
+    }
+
     private class OpenModelThreadsStarter implements Runnable {
         private final long testStartTime;
+        private final StandardJMeterEngine engine;
         private final ExecutorService executorService;
         private final ThreadScheduleProcessGenerator generator;
         private final OpenModelJMeterThreadFactory jmeterThreadFactory;
 
-        private OpenModelThreadsStarter(long testStartTime, ExecutorService executorService,
+        private OpenModelThreadsStarter(long testStartTime, StandardJMeterEngine engine, ExecutorService executorService,
                 ThreadScheduleProcessGenerator generator, OpenModelJMeterThreadFactory jmeterThreadFactory) {
             this.testStartTime = testStartTime;
+            this.engine = engine;
             this.executorService = executorService;
             this.generator = generator;
             this.jmeterThreadFactory = jmeterThreadFactory;
@@ -489,23 +808,43 @@ public class ThreadGroup extends AbstractThreadGroup {
         @Override
         public void run() {
             log.info("Open Model thread starting init");
+            long scheduleOffsetInMillis = 0;
             long endTime = testStartTime + Math.round(generator.getTotalDuration() * 1000);
             int threadNumber = 0;
             long previousTime = 0;
             while (running && !Thread.currentThread().isInterrupted() && generator.hasNext()) {
-                long scheduledTime = testStartTime + Math.round(generator.nextDouble() * 1000);
+                long pauseTime = waitIfSchedulingPaused(engine);
+                if (pauseTime < 0) {
+                    shutdownAfterStop();
+                    return;
+                }
+                scheduleOffsetInMillis += pauseTime;
+                endTime += pauseTime;
+                long scheduledTime = testStartTime + scheduleOffsetInMillis + Math.round(generator.nextDouble() * 1000);
                 if (scheduledTime >= previousTime) {
                     previousTime = System.currentTimeMillis();
                     long nextDelay = scheduledTime - previousTime;
-                    if (nextDelay > 0 && !sleep(nextDelay)) {
-                        shutdownAfterStop();
-                        return;
+                    if (nextDelay > 0) {
+                        pauseTime = sleepUntil(scheduledTime, engine);
+                        if (pauseTime < 0) {
+                            shutdownAfterStop();
+                            return;
+                        }
+                        scheduleOffsetInMillis += pauseTime;
+                        endTime += pauseTime;
                     }
                 }
                 if (!running || Thread.currentThread().isInterrupted()) {
                     shutdownAfterStop();
                     return;
                 }
+                pauseTime = waitIfSchedulingPaused(engine);
+                if (pauseTime < 0) {
+                    shutdownAfterStop();
+                    return;
+                }
+                scheduleOffsetInMillis += pauseTime;
+                endTime += pauseTime;
                 if (!reserveOpenModelThreadSlot()) {
                     log.debug("Skipping Open Model arrival because the active thread limit is reached");
                     continue;
@@ -533,7 +872,7 @@ public class ThreadGroup extends AbstractThreadGroup {
             if (timeLeft > 0) {
                 log.info("There will be no more events, so will wait for {} sec till the end of the schedule",
                         TimeUnit.MILLISECONDS.toSeconds(timeLeft));
-                if (!sleep(timeLeft)) {
+                if (sleepUntil(endTime, engine) < 0) {
                     shutdownAfterStop();
                     return;
                 }
@@ -565,15 +904,6 @@ public class ThreadGroup extends AbstractThreadGroup {
             executorService.shutdown();
         }
 
-        private static boolean sleep(long delay) {
-            try {
-                TimeUnit.MILLISECONDS.sleep(delay);
-                return true;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
     }
 
     /**
@@ -969,32 +1299,17 @@ public class ThreadGroup extends AbstractThreadGroup {
          * Pause ms milliseconds
          * @param ms long milliseconds
          */
-        private static void pause(long ms){
-            try {
-                TimeUnit.MILLISECONDS.sleep(ms);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         /**
          * Wait for delay with RAMPUP_GRANULARITY
          * @param delay delay in ms
+         * @return time spent paused while waiting
          */
-        private void delayBy(long delay) {
+        private long delayBy(long delay) {
             if (delay > 0) {
-                long start = System.currentTimeMillis();
-                long end = start + delay;
-                long now;
-                long pause = RAMPUP_GRANULARITY; // maximum pause to use
-                while(running && (now = System.currentTimeMillis()) < end) {
-                    long togo = end - now;
-                    if (togo < pause) {
-                        pause = togo;
-                    }
-                    pause(pause); // delay between checks
-                }
+                long pauseTime = sleepUntil(System.currentTimeMillis() + delay, engine);
+                return pauseTime;
             }
+            return 0;
         }
 
         @Override
@@ -1006,7 +1321,9 @@ public class ThreadGroup extends AbstractThreadGroup {
                 final boolean usingScheduler = getScheduler();
                 long startupDelay = getStartupDelayInMillis();
                 if (startupDelay > 0) {
-                    delayBy(startupDelay);
+                    if (delayBy(startupDelay) < 0) {
+                        return;
+                    }
                 }
                 if (usingScheduler) {
                     // set the endtime for the Thread
@@ -1018,12 +1335,17 @@ public class ThreadGroup extends AbstractThreadGroup {
                 final int numThreads = getNumThreads();
                 final float rampUpOriginInMillis = (float) getRampUp() * 1000;
                 final long startTimeInMillis = System.currentTimeMillis();
+                long pausedDuringRampInMillis = 0;
                 for (int threadNumber = 0; running && threadNumber < numThreads; threadNumber++) {
                     if (threadNumber > 0) {
-                        long elapsedInMillis = System.currentTimeMillis() - startTimeInMillis;
+                        long elapsedInMillis = System.currentTimeMillis() - startTimeInMillis - pausedDuringRampInMillis;
                         final int perThreadDelayInMillis =
                                 Math.round((rampUpOriginInMillis - elapsedInMillis) / (float) (numThreads - threadNumber));
-                        delayBy(Math.max(0, perThreadDelayInMillis)); // ramp-up delay (except first)
+                        long pauseTime = delayBy(Math.max(0, perThreadDelayInMillis)); // ramp-up delay (except first)
+                        if (pauseTime < 0) {
+                            break;
+                        }
+                        pausedDuringRampInMillis += pauseTime;
                         if (!running) {
                             break;
                         }

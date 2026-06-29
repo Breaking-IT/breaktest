@@ -43,6 +43,7 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.min
 import kotlin.math.roundToLong
 
 /**
@@ -67,6 +68,9 @@ public class OpenModelThreadGroup :
 
         /** Counter for naming virtual threads */
         private val virtualThreadCounter = AtomicLong(0)
+
+        private val rampupGranularity =
+            JMeterUtils.getPropDefault("jmeterthread.rampup.granularity", 1000).toLong()
 
         /** Thread group schedule. See [ThreadSchedule]. */
         @Deprecated(
@@ -183,6 +187,7 @@ public class OpenModelThreadGroup :
         private val executorService: ExecutorService,
         private val activeThreads: MutableMap<JMeterThread, Future<*>>,
         private val gen: ThreadScheduleProcessGenerator,
+        private val engine: StandardJMeterEngine,
         private val maxThreads: Long,
         private val maxThreadsScope: String,
         private val isRunning: () -> Boolean,
@@ -190,24 +195,44 @@ public class OpenModelThreadGroup :
     ) : Runnable {
         override fun run() {
             log.info("Thread starting init")
-            val endTime = (testStartTime + gen.totalDuration * 1000).roundToLong()
+            var scheduleOffsetInMillis = 0L
+            var endTime = (testStartTime + gen.totalDuration * 1000).roundToLong()
             var threadNumber = 0
             var prevTime = 0L
             while (isRunning() && !Thread.currentThread().isInterrupted && gen.hasNext()) {
-                val scheduledTime = testStartTime + (gen.nextDouble() * 1000).roundToLong()
+                var pauseTime = waitIfSchedulingPaused()
+                if (pauseTime < 0) {
+                    shutdownAfterStop()
+                    return
+                }
+                scheduleOffsetInMillis += pauseTime
+                endTime += pauseTime
+                val scheduledTime = testStartTime + scheduleOffsetInMillis + (gen.nextDouble() * 1000).roundToLong()
                 // If multiple events are scheduled for the same millisecond, we don't want to call currentTimeMillis
                 if (scheduledTime >= prevTime) {
                     prevTime = System.currentTimeMillis()
                     val nextDelay = scheduledTime - prevTime
-                    if (nextDelay > 0 && !sleep(nextDelay)) {
-                        shutdownAfterStop()
-                        return
+                    if (nextDelay > 0) {
+                        pauseTime = sleepUntil(scheduledTime)
+                        if (pauseTime < 0) {
+                            shutdownAfterStop()
+                            return
+                        }
+                        scheduleOffsetInMillis += pauseTime
+                        endTime += pauseTime
                     }
                 }
                 if (!isRunning() || Thread.currentThread().isInterrupted) {
                     shutdownAfterStop()
                     return
                 }
+                pauseTime = waitIfSchedulingPaused()
+                if (pauseTime < 0) {
+                    shutdownAfterStop()
+                    return
+                }
+                scheduleOffsetInMillis += pauseTime
+                endTime += pauseTime
                 if (!reserveThreadSlot()) {
                     log.debug("Skipping Open Model arrival because the active thread limit is reached")
                     continue
@@ -242,7 +267,7 @@ public class OpenModelThreadGroup :
                     "There will be no more events, so will wait for {} sec till the end of the schedule",
                     TimeUnit.MILLISECONDS.toSeconds(timeLeft)
                 )
-                if (!sleep(timeLeft)) {
+                if (sleepUntil(endTime) < 0) {
                     shutdownAfterStop()
                     return
                 }
@@ -293,14 +318,44 @@ public class OpenModelThreadGroup :
             executorService.shutdown()
         }
 
-        private fun sleep(delay: Long): Boolean =
-            try {
-                Thread.sleep(delay)
-                true
-            } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                false
+        private fun sleepUntil(endTime: Long): Long {
+            var pauseTime = 0L
+            var adjustedEndTime = endTime
+            while (true) {
+                val paused = waitIfSchedulingPaused()
+                if (paused < 0) {
+                    return -1
+                }
+                pauseTime += paused
+                adjustedEndTime += paused
+                val delay = adjustedEndTime - System.currentTimeMillis()
+                if (delay <= 0) {
+                    val finalPaused = waitIfSchedulingPaused()
+                    if (finalPaused < 0) {
+                        return -1
+                    }
+                    if (finalPaused == 0L) {
+                        return pauseTime
+                    }
+                    pauseTime += finalPaused
+                    adjustedEndTime += finalPaused
+                    continue
+                }
+                try {
+                    Thread.sleep(min(delay, rampupGranularity))
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return -1
+                }
             }
+        }
+
+        private fun waitIfSchedulingPaused(): Long {
+            if (Thread.currentThread().isInterrupted) {
+                return -1
+            }
+            return engine.waitIfPaused()
+        }
     }
 
     override fun recoverRunningVersion() {
@@ -331,6 +386,7 @@ public class OpenModelThreadGroup :
                 executorService,
                 activeThreads,
                 gen,
+                engine,
                 maxThreads,
                 maxThreadsScope,
                 { running },

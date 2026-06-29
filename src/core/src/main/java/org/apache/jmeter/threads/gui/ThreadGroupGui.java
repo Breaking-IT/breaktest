@@ -26,7 +26,9 @@ import java.awt.event.ItemListener;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
@@ -106,7 +108,11 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private final JTextField threadInput = new JTextField();
 
+    private final JLabel threadInputLabel = labelFor(threadInput, "number_of_threads"); // $NON-NLS-1$
+
     private final JTextField rampInput = new JTextField();
+
+    private final JLabel rampInputLabel = labelFor(rampInput, "ramp_up"); // $NON-NLS-1$
 
     private final boolean showDelayedStart;
 
@@ -120,6 +126,12 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private final TargetRateChart closedModelPreview = new TargetRateChart();
 
     private final TargetRateChart openModelPreview = new TargetRateChart();
+
+    private final JTextArea closedModelSchedule = JFactory.tabMovesFocus(new JTextArea(4, 42));
+
+    private final JTextField closedModelPhaseThreads = new JTextField("10", 6); // $NON-NLS-1$
+
+    private final JTextField closedModelPhaseTime = new JTextField("10", 6); // $NON-NLS-1$
 
     private final JTextArea openModelSchedule = JFactory.tabMovesFocus(new JTextArea(8, 42));
 
@@ -176,6 +188,9 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             durationPolicyLoopCountLabel(),
             durationPolicyDurationLabel()
     });
+
+    private final JLabel durationPolicyLabel =
+            new JLabel(JMeterUtils.getResString("thread_group_duration_policy"));
 
     private final JTextField fixedPacing = new JTextField(12);
 
@@ -272,6 +287,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         }
         if (element instanceof ThreadGroup threadGroup) {
             threadGroup.setThreadGroupModel(ThreadGroup.MODEL_CLOSED);
+            threadGroup.setClosedModelSchedule(""); // $NON-NLS-1$
         }
         element.set(ThreadGroupSchema.INSTANCE.getNumThreads(), 1);
         element.set(ThreadGroupSchema.INSTANCE.getRampTime(), 1);
@@ -311,7 +327,8 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         }
         super.modifyTestElement(tg);
         if (tg instanceof ThreadGroup threadGroup) {
-                threadGroup.setThreadGroupModel(openModel ? ThreadGroup.MODEL_OPEN : ThreadGroup.MODEL_CLOSED);
+            threadGroup.setThreadGroupModel(openModel ? ThreadGroup.MODEL_OPEN : ThreadGroup.MODEL_CLOSED);
+            threadGroup.setClosedModelSchedule(closedModelSchedule.getText());
             if (openModel) {
                 threadGroup.setOpenModelSchedule(openModelSchedule.getText());
                 threadGroup.setOpenModelRandomSeedString(openModelRandomSeed.getText());
@@ -340,6 +357,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             loopPanel.configure((TestElement) tg.getProperty(AbstractThreadGroup.MAIN_CONTROLLER).getObjectValue());
             configureDurationPolicyFromCurrentValues();
         }
+        configureClosedModelFields(tg);
         configureOpenModelFields(tg);
         if (tg instanceof AbstractThreadGroup abstractThreadGroup) {
             pacingMode.setSelectedItem(abstractThreadGroup.getPacingMode());
@@ -442,6 +460,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         delay.setEnabled(true);
         delayLabel.setVisible(true);
         delayLabel.setEnabled(true);
+        updateClosedModelLegacyFieldState();
     }
 
     private void applyDurationPolicyToFields() {
@@ -484,6 +503,14 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             openModelMaxThreads.setText(openModelThreadGroup.getPropertyAsString(ThreadGroup.OPEN_MODEL_MAX_THREADS));
             setSelectedOpenModelMaxThreadsScope(
                     openModelThreadGroup.getPropertyAsString(ThreadGroup.OPEN_MODEL_MAX_THREADS_SCOPE));
+        }
+    }
+
+    private void configureClosedModelFields(TestElement tg) {
+        if (tg instanceof ThreadGroup threadGroup) {
+            closedModelSchedule.setText(threadGroup.getClosedModelSchedule());
+        } else {
+            closedModelSchedule.setText(""); // $NON-NLS-1$
         }
     }
 
@@ -530,6 +557,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private void initGui(){
         loopPanel.clearGui();
         setSelectedThreadGroupModel(ThreadGroup.MODEL_CLOSED);
+        closedModelSchedule.setText(""); // $NON-NLS-1$
         openModelSchedule.setText(""); // $NON-NLS-1$
         openModelRandomSeed.setText("0"); // $NON-NLS-1$
         openModelMaxThreads.setText(""); // $NON-NLS-1$
@@ -560,6 +588,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         addPreviewDocumentListener(rampInput);
         addPreviewDocumentListener(duration);
         addPreviewDocumentListener(delay);
+        closedModelSchedule.getDocument().addDocumentListener(new PreviewDocumentListener());
         openModelSchedule.getDocument().addDocumentListener(new PreviewDocumentListener());
         add(contentPanel, BorderLayout.CENTER);
     }
@@ -571,16 +600,16 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
                 JMeterUtils.getResString("thread_properties"))); // $NON-NLS-1$
 
         // NUMBER OF THREADS
-        threadPropsPanel.add(labelFor(threadInput, "number_of_threads")); // $NON-NLS-1$
+        threadPropsPanel.add(threadInputLabel);
         threadInput.setName(THREAD_NAME);
         threadPropsPanel.add(threadInput);
 
         // RAMP-UP
-        threadPropsPanel.add(labelFor(rampInput, "ramp_up"));
+        threadPropsPanel.add(rampInputLabel);
         rampInput.setName(RAMP_NAME);
         threadPropsPanel.add(rampInput);
 
-        threadPropsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_duration_policy")));
+        threadPropsPanel.add(durationPolicyLabel);
         threadPropsPanel.add(durationPolicy, "w pref!, growx 0");
         durationPolicy.addActionListener(e -> {
             updateDurationPolicyFields();
@@ -606,7 +635,28 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             threadPropsPanel.add(delayedStart, "span 2");
         }
         addPacingControls(threadPropsPanel);
+        threadPropsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_phases")));
+        threadPropsPanel.add(createClosedModelPhasePanel(), "growx");
         return threadPropsPanel;
+    }
+
+    private JPanel createClosedModelPhasePanel() {
+        JPanel phasePanel = new JPanel(new MigLayout("insets 0, fillx, wrap 1", "[fill,grow]"));
+        JPanel actionsPanel = new JPanel(new MigLayout("insets 0", "[][pref!][3][][6][][pref!][3][][6][]"));
+        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_add_phase")));
+        actionsPanel.add(closedModelPhaseThreads, "w 48!, growx 0");
+        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_threads")));
+        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_at")));
+        actionsPanel.add(closedModelPhaseTime, "w 48!, growx 0");
+        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_seconds_lower")));
+        JButton addPhaseButton = new JButton("+"); // $NON-NLS-1$
+        addPhaseButton.setRequestFocusEnabled(false);
+        addPhaseButton.setToolTipText(JMeterUtils.getResString("thread_group_closed_model_add_phase"));
+        addPhaseButton.addActionListener(event -> insertClosedModelPhaseExpression(buildClosedModelPhaseExpression()));
+        actionsPanel.add(addPhaseButton, "w pref!, growx 0");
+        phasePanel.add(actionsPanel, "growx");
+        phasePanel.add(new JScrollPane(closedModelSchedule), "w 720!, h 96!, growx 0");
+        return phasePanel;
     }
 
     private JPanel createOpenModelPanel() {
@@ -786,6 +836,29 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private void updateClosedModelPreview() {
+        updateClosedModelLegacyFieldState();
+        String schedule = closedModelSchedule.getText();
+        if (!schedule.trim().isEmpty()) {
+            Long delaySeconds = delay.getText().trim().isEmpty() ? 0L : parsePositiveLong(delay.getText());
+            if (delaySeconds == null || delaySeconds < 0) {
+                closedModelPreview.showMessage(JMeterUtils.getResString("thread_group_preview_unavailable"));
+                return;
+            }
+            try {
+                ClosedModelPreviewData previewData = createClosedModelPreviewData(
+                        ThreadGroup.parseClosedModelSchedule(schedule), delaySeconds);
+                closedModelPreview.updateData(
+                        previewData.timeSeconds,
+                        previewData.threads,
+                        previewData.title,
+                        JMeterUtils.getResString("thread_group_preview_threads_axis"),
+                        previewData.continuation);
+            } catch (RuntimeException e) {
+                closedModelPreview.showMessage(JMeterUtils.getResString("thread_group_preview_unavailable"));
+            }
+            return;
+        }
+
         Long threads = parsePositiveLong(threadInput.getText());
         Long rampSeconds = parsePositiveLong(rampInput.getText());
         boolean finiteDuration = isDurationPolicySelected() && !duration.getText().trim().isEmpty();
@@ -841,6 +914,75 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
                 new double[] {0d, rampEndSeconds, endSeconds},
                 new double[] {0d, threads, threads},
                 title);
+    }
+
+    private void updateClosedModelLegacyFieldState() {
+        boolean enabled = closedModelSchedule.getText().trim().isEmpty();
+        threadInputLabel.setEnabled(enabled);
+        threadInput.setEnabled(enabled);
+        rampInputLabel.setEnabled(enabled);
+        rampInput.setEnabled(enabled);
+        durationPolicyLabel.setEnabled(enabled);
+        durationPolicy.setEnabled(enabled);
+
+        boolean loopCountEnabled = enabled && isLoopCountPolicySelected();
+        loopPanel.getLoopsLabel().setEnabled(loopCountEnabled);
+        loopPanel.getLoops().setEnabled(loopCountEnabled);
+
+        boolean durationEnabled = enabled && isDurationPolicySelected();
+        durationLabel.setEnabled(durationEnabled);
+        duration.setEnabled(durationEnabled);
+    }
+
+    private static ClosedModelPreviewData createClosedModelPreviewData(
+            List<ThreadGroup.ClosedModelPhase> phases, long delaySeconds) {
+        if (phases.isEmpty()) {
+            throw new IllegalArgumentException("At least one closed model phase is required");
+        }
+        List<Double> timeSeconds = new ArrayList<>();
+        List<Double> threads = new ArrayList<>();
+        timeSeconds.add(0d);
+        threads.add(0d);
+        if (delaySeconds > 0) {
+            timeSeconds.add((double) delaySeconds);
+            threads.add(0d);
+        }
+
+        for (ThreadGroup.ClosedModelPhase phase : phases) {
+            double time = delaySeconds + phase.timeSeconds();
+            timeSeconds.add(time);
+            threads.add((double) phase.targetThreads());
+        }
+
+        return new ClosedModelPreviewData(
+                toDoubleArray(timeSeconds),
+                toDoubleArray(threads),
+                JMeterUtils.getResString("thread_group_preview_closed_title_phases"),
+                false);
+    }
+
+    private String buildClosedModelPhaseExpression() {
+        return "threadsPhase(" + helperValue(closedModelPhaseThreads, "1") + ", " // $NON-NLS-1$ // $NON-NLS-2$
+                + helperValue(closedModelPhaseTime, "10") + ")"; // $NON-NLS-1$ // $NON-NLS-2$
+    }
+
+    private void insertClosedModelPhaseExpression(String expression) {
+        String originalText = closedModelSchedule.getText();
+        String replacement = expression + "\n"; // $NON-NLS-1$
+        if (originalText.isEmpty() || originalText.endsWith("\n")) { // $NON-NLS-1$
+            closedModelSchedule.append(replacement);
+        } else {
+            closedModelSchedule.append("\n" + replacement); // $NON-NLS-1$
+        }
+        closedModelSchedule.setCaretPosition(closedModelSchedule.getDocument().getLength());
+    }
+
+    private static double[] toDoubleArray(List<Double> values) {
+        double[] array = new double[values.size()];
+        for (int i = 0; i < values.size(); i++) {
+            array[i] = values.get(i);
+        }
+        return array;
     }
 
     private static String closedModelPreviewTitleKey(boolean finite, boolean noLimitPolicy) {
@@ -977,11 +1119,17 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         private final double[] timeSeconds;
         private final double[] threads;
         private final String title;
+        private final boolean continuation;
 
         private ClosedModelPreviewData(double[] timeSeconds, double[] threads, String title) {
+            this(timeSeconds, threads, title, false);
+        }
+
+        private ClosedModelPreviewData(double[] timeSeconds, double[] threads, String title, boolean continuation) {
             this.timeSeconds = timeSeconds;
             this.threads = threads;
             this.title = title;
+            this.continuation = continuation;
         }
     }
 

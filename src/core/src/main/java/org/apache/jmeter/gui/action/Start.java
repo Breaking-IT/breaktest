@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Set;
 
 import javax.swing.JOptionPane;
+import javax.swing.JToolBar;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.engine.JMeterEngineException;
@@ -35,6 +36,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.validation.TreeClonerForValidation;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -84,6 +86,7 @@ public class Start extends AbstractAction {
     static {
         commands.add(ActionNames.ACTION_START);
         commands.add(ActionNames.ACTION_START_NO_TIMERS);
+        commands.add(ActionNames.ACTION_PAUSE);
         commands.add(ActionNames.ACTION_STOP);
         commands.add(ActionNames.ACTION_SHUTDOWN);
         commands.add(ActionNames.RUN_TG);
@@ -117,6 +120,14 @@ public class Start extends AbstractAction {
         } else if (e.getActionCommand().equals(ActionNames.ACTION_START_NO_TIMERS)) {
             popupShouldSave(e);
             startEngine(null, RunMode.IGNORING_TIMERS);
+        } else if (e.getActionCommand().equals(ActionNames.ACTION_PAUSE)) {
+            if (engine != null) {
+                boolean paused = StandardJMeterEngine.togglePauseEngine();
+                JToolBar mainToolbar = GuiPackage.getInstance().getMainToolbar();
+                if (mainToolbar instanceof JMeterToolBar toolbar) {
+                    toolbar.setLocalTestPaused(paused);
+                }
+            }
         } else if (e.getActionCommand().equals(ActionNames.ACTION_STOP)) {
             if (engine != null) {
                 log.info("Stopping test");

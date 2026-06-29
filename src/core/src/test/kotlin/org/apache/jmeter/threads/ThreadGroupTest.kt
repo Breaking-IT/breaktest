@@ -150,7 +150,34 @@ class ThreadGroupTest : JMeterTestCase() {
         }
         assertEquals(1, events.size) {
             "Legacy Open Model ThreadGroup should skip arrivals while the group active-thread limit is reached. " +
-                "Actual events are $events"
+            "Actual events are $events"
+        }
+    }
+
+    @Test
+    fun `thread group ignores malformed closed model schedule and uses legacy settings`() {
+        val events = executePlanAndCollectEvents(10.seconds) {
+            ThreadGroup::class {
+                setClosedModelSchedule("threadsPhase(10, 20) bad")
+                numThreads = 1
+                rampUp = 0
+                scheduler = true
+                delay = 0
+                duration = 1
+                setSamplerController(
+                    LoopController().apply {
+                        loops = 1
+                        setContinueForever(false)
+                    }
+                )
+
+                ThreadSleep::class {
+                    duration = 0.seconds
+                }
+            }
+        }
+        assertEquals(1, events.size) {
+            "Malformed closed-model phases should not abort a normal closed-model run. Actual events are $events"
         }
     }
 
@@ -218,6 +245,49 @@ class ThreadGroupTest : JMeterTestCase() {
         assertEquals(1, listener.events.size) {
             "Stopping the legacy Open Model ThreadGroup should terminate without submitting arrivals after the pause. " +
                 "Actual events were ${listener.events}"
+        }
+    }
+
+    @Test
+    @Timeout(10, unit = TimeUnit.SECONDS)
+    fun `pausing legacy open model thread group stops arrivals until resume`() {
+        val listener = CollectSamplesListener()
+        val tree = testTree {
+            TestPlan::class {
+                +listener
+                OpenModelThreadGroup::class {
+                    scheduleString = "rate(20/sec) even_arrivals(3 sec)"
+                    randomSeedString = "0"
+
+                    ThreadSleep::class {
+                        duration = 0.seconds
+                    }
+                }
+            }
+        }
+        val engine = StandardJMeterEngine()
+        engine.configure(tree)
+        engine.runTest()
+        try {
+            val arrivalsObserved = waitUntil(2.seconds) { listener.events.size >= 3 }
+            assertTrue(arrivalsObserved, "Expected the legacy open-model schedule to start arrivals before pausing")
+
+            val pauseStarted = System.currentTimeMillis()
+            engine.pauseTest()
+            Thread.sleep(600)
+            val pauseEnded = System.currentTimeMillis()
+
+            val arrivalsDuringPause = listener.events.filter {
+                it.result.startTime >= pauseStarted + 100 && it.result.startTime <= pauseEnded
+            }
+            assertTrue(arrivalsDuringPause.isEmpty()) {
+                "Pause should stop new legacy open-model arrivals until resume. " +
+                    "Arrivals during pause were $arrivalsDuringPause"
+            }
+        } finally {
+            engine.resumeTest()
+            engine.stopTest(false)
+            engine.awaitTermination(5.seconds.toJavaDuration())
         }
     }
 

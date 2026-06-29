@@ -26,6 +26,7 @@ public final class ActionNames {
 
     public static final String ABOUT            = "about"; // $NON-NLS-1$
     public static final String ACTION_SHUTDOWN  = "shutdown"; // $NON-NLS-1$
+    public static final String ACTION_PAUSE     = "pause"; // $NON-NLS-1$
     public static final String ACTION_START     = "start"; // $NON-NLS-1$
     public static final String ACTION_START_NO_TIMERS = "start_no_timers"; // $NON-NLS-1$
     public static final String ACTION_STOP      = "stop"; // $NON-NLS-1$
