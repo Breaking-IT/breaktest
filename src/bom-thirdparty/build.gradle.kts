@@ -104,6 +104,21 @@ dependencies {
         api("org.apache.commons:commons-text:1.14.0") {
             because("User might still rely on commons-text")
         }
+        api("org.apache.httpcomponents:httpasyncclient:4.1.5") {
+            because("Legacy plugins might still rely on Apache HttpClient 4 APIs")
+        }
+        api("org.apache.httpcomponents:httpclient:4.5.14") {
+            because("Legacy plugins might still rely on Apache HttpClient 4 APIs")
+        }
+        api("org.apache.httpcomponents:httpcore:4.4.16") {
+            because("Legacy plugins might still rely on Apache HttpClient 4 APIs")
+        }
+        api("org.apache.httpcomponents:httpcore-nio:4.4.16") {
+            because("Legacy plugins might still rely on Apache HttpClient 4 APIs")
+        }
+        api("org.apache.httpcomponents:httpmime:4.5.14") {
+            because("Legacy plugins might still rely on Apache HttpClient 4 APIs")
+        }
         api("org.apache.httpcomponents.client5:httpclient5:5.6.1")
         api("org.apache.logging.log4j:log4j-api:2.26.0")
         api("org.apache.logging.log4j:log4j-core:2.26.0")

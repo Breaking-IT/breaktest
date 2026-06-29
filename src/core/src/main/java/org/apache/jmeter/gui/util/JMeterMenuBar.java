@@ -82,6 +82,8 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     private JMenu helpMenu;
     private JMenu toolsMenu;
     private JMenu searchMenu;
+    private static final JMenu[] EMPTY_PLUGIN_MENUS = new JMenu[0];
+    private static final JMenuItem[] EMPTY_PLUGIN_MENU_ITEMS = new JMenuItem[0];
     private final Collection<MenuCreator> menuCreators =
             JMeterUtils.loadServicesAndScanJars(
                     MenuCreator.class,
@@ -219,7 +221,7 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         this.add(toolsMenu);
 
         menuCreators.stream()
-                .map(MenuCreator::getTopLevelMenus)
+                .map(JMeterMenuBar::getTopLevelPluginMenus)
                 .flatMap(Arrays::stream)
                 .forEachOrdered(this::add);
 
@@ -569,11 +571,33 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
      */
     private static void addPluginsMenuItems(JMenu menu, Collection<? extends MenuCreator> menuCreators, MENU_LOCATION location) {
         for (MenuCreator menuCreator : menuCreators) {
-            JMenuItem[] menuItems = menuCreator.getMenuItemsAtLocation(location);
+            JMenuItem[] menuItems = getPluginMenuItems(menuCreator, location);
             if (menuItems.length != 0) {
                 menu.addSeparator();
             }
             Arrays.stream(menuItems).forEachOrdered(menu::add);
+        }
+    }
+
+    private static JMenu[] getTopLevelPluginMenus(MenuCreator menuCreator) {
+        try {
+            JMenu[] menus = menuCreator.getTopLevelMenus();
+            return menus == null ? EMPTY_PLUGIN_MENUS : menus;
+        } catch (LinkageError | RuntimeException e) {
+            log.warn("Could not create top-level plugin menus from {}. The menu contribution will be skipped.",
+                    menuCreator.getClass().getName(), e);
+            return EMPTY_PLUGIN_MENUS;
+        }
+    }
+
+    private static JMenuItem[] getPluginMenuItems(MenuCreator menuCreator, MENU_LOCATION location) {
+        try {
+            JMenuItem[] menuItems = menuCreator.getMenuItemsAtLocation(location);
+            return menuItems == null ? EMPTY_PLUGIN_MENU_ITEMS : menuItems;
+        } catch (LinkageError | RuntimeException e) {
+            log.warn("Could not create plugin menu items at {} from {}. The menu contribution will be skipped.",
+                    location, menuCreator.getClass().getName(), e);
+            return EMPTY_PLUGIN_MENU_ITEMS;
         }
     }
 
@@ -597,7 +621,12 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         updateMenuElement(toolsMenu);
         updateMenuElement(helpMenu);
         for (MenuCreator creator : menuCreators) {
-            creator.localeChanged();
+            try {
+                creator.localeChanged();
+            } catch (LinkageError | RuntimeException e) {
+                log.warn("Could not update plugin menu locale for {}. The locale update will be skipped.",
+                        creator.getClass().getName(), e);
+            }
         }
     }
 
