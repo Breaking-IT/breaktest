@@ -310,26 +310,27 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     private URL location;
 
-    private String localEndpoint = "";
-
-    private String destinationEndpoint = "";
-
-    private String protocolVersion = "";
-
-    private String tlsVersion = "";
-
-    private transient Map<String, String> jMeterVariables = Collections.emptyMap();
-
-    private transient boolean jMeterVariablesSet;
-
     private transient boolean ignore;
 
     private transient int subResultIndex;
 
-    private transient List<TestElementPathEntry> sourceTestElementPath = Collections.emptyList();
+    private SampleResultMetadata metadata;
 
     public record TestElementPathEntry(String className, String name, int occurrence) implements Serializable {
         private static final long serialVersionUID = 1L;
+    }
+
+    private static final class SampleResultMetadata implements Serializable {
+        private static final long serialVersionUID = 1L;
+
+        private String localEndpoint = "";
+        private String destinationEndpoint = "";
+        private String protocolVersion = "";
+        private String tlsVersion = "";
+        private transient Map<String, String> jMeterVariables = Collections.emptyMap();
+        private transient boolean jMeterVariablesSet;
+        private transient List<TestElementPathEntry> sourceTestElementPath = Collections.emptyList();
+        private transient long decompressedResponseDataSize = -1;
     }
 
     /**
@@ -337,10 +338,29 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     private transient volatile String responseDataAsString;
 
-    private transient long decompressedResponseDataSize = -1;
-
     public SampleResult() {
         this(USE_NANO_TIME, NANOTHREAD_SLEEP);
+    }
+
+    private SampleResultMetadata metadata() {
+        if (metadata == null) {
+            metadata = new SampleResultMetadata();
+        }
+        return metadata;
+    }
+
+    private long decompressedResponseDataSize() {
+        return metadata == null ? -1 : metadata.decompressedResponseDataSize;
+    }
+
+    private void setDecompressedResponseDataSize(long decompressedResponseDataSize) {
+        metadata().decompressedResponseDataSize = decompressedResponseDataSize;
+    }
+
+    private void resetDecompressedResponseDataSize() {
+        if (metadata != null) {
+            metadata.decompressedResponseDataSize = -1;
+        }
     }
 
     // Allow test code to change the default useNanoTime setting
@@ -379,11 +399,12 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         latency = res.latency;
         connectTime = res.connectTime;
         location = res.location;//OK
-        localEndpoint = res.localEndpoint;//OK
-        protocolVersion = res.protocolVersion;//OK
-        tlsVersion = res.tlsVersion;//OK
-        setJMeterVariables(res.getJMeterVariables());
-        jMeterVariablesSet = res.jMeterVariablesSet;
+        setLocalEndpoint(res.getLocalEndpoint());
+        setProtocolVersion(res.getProtocolVersion());
+        setTlsVersion(res.getTlsVersion());
+        if (res.hasJMeterVariables()) {
+            setJMeterVariables(res.getJMeterVariables());
+        }
         setSourceTestElementPath(res.getSourceTestElementPath());
         parent = res.parent;
         pauseTime = res.pauseTime;
@@ -401,7 +422,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         saveConfig = res.saveConfig;
         sentBytes = res.sentBytes;
         startTime = res.startTime;//OK
-        destinationEndpoint = res.destinationEndpoint;//OK
+        setDestinationEndpoint(res.getDestinationEndpoint());
         stopTest = res.stopTest;
         stopTestNow = res.stopTestNow;
         stopThread = res.stopThread;
@@ -806,7 +827,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public void setResponseData(byte[] response) {
         responseDataAsString = null;
-        decompressedResponseDataSize = -1;
+        resetDecompressedResponseDataSize();
         responseData = response == null ? EMPTY_BA : response;
     }
 
@@ -822,7 +843,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     @Deprecated
     public void setResponseData(String response) {
         responseDataAsString = null;
-        decompressedResponseDataSize = -1;
+        resetDecompressedResponseDataSize();
         try {
             responseData = response.getBytes(getDataEncodingWithDefault());
         } catch (UnsupportedEncodingException e) {
@@ -840,7 +861,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public void setResponseData(final String response, final String encoding) {
         responseDataAsString = null;
-        decompressedResponseDataSize = -1;
+        resetDecompressedResponseDataSize();
         String encodeUsing = encoding != null? encoding : DEFAULT_CHARSET;
         try {
             responseData = response.getBytes(encodeUsing);
@@ -870,7 +891,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         if (contentEncoding != null && responseData.length > 0) {
             try {
                 byte[] decoded = ResponseDecoderRegistry.decode(contentEncoding, responseData);
-                decompressedResponseDataSize = decoded.length;
+                setDecompressedResponseDataSize(decoded.length);
                 return decoded;
             } catch (IOException e) {
                 log.warn("Failed to decompress response data", e);
@@ -1068,10 +1089,10 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         sb.append(", nanoThreadSleep=").append(nanoThreadSleep);
         sb.append(", sentBytes=").append(sentBytes);
         sb.append(", location=").append(location);
-        sb.append(", localEndpoint='").append(localEndpoint).append('\'');
-        sb.append(", destinationEndpoint='").append(destinationEndpoint).append('\'');
-        sb.append(", protocolVersion='").append(protocolVersion).append('\'');
-        sb.append(", tlsVersion='").append(tlsVersion).append('\'');
+        sb.append(", localEndpoint='").append(getLocalEndpoint()).append('\'');
+        sb.append(", destinationEndpoint='").append(getDestinationEndpoint()).append('\'');
+        sb.append(", protocolVersion='").append(getProtocolVersion()).append('\'');
+        sb.append(", tlsVersion='").append(getTlsVersion()).append('\'');
         sb.append(", ignore=").append(ignore);
         sb.append(", subResultIndex=").append(subResultIndex);
         sb.append(", responseDataAsString='").append(getResponseDataAsString()).append('\'');
@@ -1531,22 +1552,36 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     }
 
     public void setLocalEndpoint(String localEndpoint) {
-        this.localEndpoint = localEndpoint == null ? "" : localEndpoint;
+        if (localEndpoint == null || localEndpoint.isEmpty()) {
+            if (metadata != null) {
+                metadata.localEndpoint = "";
+            }
+            return;
+        }
+        metadata().localEndpoint = localEndpoint;
     }
 
     public String getLocalEndpoint() {
-        return localEndpoint;
+        return metadata == null ? "" : metadata.localEndpoint;
     }
 
     public void setDestinationEndpoint(String destinationEndpoint) {
-        this.destinationEndpoint = destinationEndpoint == null ? "" : destinationEndpoint;
+        if (destinationEndpoint == null || destinationEndpoint.isEmpty()) {
+            if (metadata != null) {
+                metadata.destinationEndpoint = "";
+            }
+            return;
+        }
+        metadata().destinationEndpoint = destinationEndpoint;
     }
 
     public String getDestinationEndpoint() {
-        return destinationEndpoint;
+        return metadata == null ? "" : metadata.destinationEndpoint;
     }
 
     public String getNetworkEndpoint() {
+        String localEndpoint = getLocalEndpoint();
+        String destinationEndpoint = getDestinationEndpoint();
         if (localEndpoint.isEmpty() || destinationEndpoint.isEmpty()) {
             return "";
         }
@@ -1554,46 +1589,67 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     }
 
     public void setProtocolVersion(String protocolVersion) {
-        this.protocolVersion = protocolVersion == null ? "" : protocolVersion;
+        if (protocolVersion == null || protocolVersion.isEmpty()) {
+            if (metadata != null) {
+                metadata.protocolVersion = "";
+            }
+            return;
+        }
+        metadata().protocolVersion = protocolVersion;
     }
 
     public String getProtocolVersion() {
-        return protocolVersion;
+        return metadata == null ? "" : metadata.protocolVersion;
     }
 
     public void setTlsVersion(String tlsVersion) {
-        this.tlsVersion = tlsVersion == null ? "" : tlsVersion;
+        if (tlsVersion == null || tlsVersion.isEmpty()) {
+            if (metadata != null) {
+                metadata.tlsVersion = "";
+            }
+            return;
+        }
+        metadata().tlsVersion = tlsVersion;
     }
 
     public String getTlsVersion() {
-        return tlsVersion;
+        return metadata == null ? "" : metadata.tlsVersion;
     }
 
     public void setJMeterVariables(Map<String, String> variables) {
+        SampleResultMetadata metadata = metadata();
         if (variables == null || variables.isEmpty()) {
-            jMeterVariables = Collections.emptyMap();
+            metadata.jMeterVariables = Collections.emptyMap();
         } else {
-            jMeterVariables = Collections.unmodifiableMap(new LinkedHashMap<>(variables));
+            metadata.jMeterVariables = Collections.unmodifiableMap(new LinkedHashMap<>(variables));
         }
-        jMeterVariablesSet = true;
+        metadata.jMeterVariablesSet = true;
     }
 
     public Map<String, String> getJMeterVariables() {
-        return jMeterVariables == null ? Collections.emptyMap() : jMeterVariables;
+        return metadata == null || metadata.jMeterVariables == null
+                ? Collections.emptyMap()
+                : metadata.jMeterVariables;
     }
 
     public boolean hasJMeterVariables() {
-        return jMeterVariablesSet;
+        return metadata != null && metadata.jMeterVariablesSet;
     }
 
     public void setSourceTestElementPath(List<TestElementPathEntry> sourceTestElementPath) {
-        this.sourceTestElementPath = sourceTestElementPath == null || sourceTestElementPath.isEmpty()
-                ? Collections.emptyList()
-                : List.copyOf(sourceTestElementPath);
+        if (sourceTestElementPath == null || sourceTestElementPath.isEmpty()) {
+            if (metadata != null) {
+                metadata.sourceTestElementPath = Collections.emptyList();
+            }
+            return;
+        }
+        metadata().sourceTestElementPath = List.copyOf(sourceTestElementPath);
     }
 
     public List<TestElementPathEntry> getSourceTestElementPath() {
-        return sourceTestElementPath == null ? Collections.emptyList() : sourceTestElementPath;
+        return metadata == null || metadata.sourceTestElementPath == null
+                ? Collections.emptyList()
+                : metadata.sourceTestElementPath;
     }
 
     /**
@@ -1834,7 +1890,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     public void setResponseData(byte[] data, String contentEncoding) {
         responseData = data == null ? EMPTY_BA : data;
         this.contentEncoding = contentEncoding;
-        decompressedResponseDataSize = -1;
+        resetDecompressedResponseDataSize();
         responseDataAsString = null;
     }
 
@@ -1843,7 +1899,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     }
 
     public long getDecompressedResponseDataSize() {
-        return decompressedResponseDataSize;
+        return decompressedResponseDataSize();
     }
 
     public long computeDecompressedResponseDataSize() {
@@ -1853,13 +1909,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         if (!isResponseDataCompressed()) {
             return responseData.length;
         }
+        long decompressedResponseDataSize = decompressedResponseDataSize();
         if (decompressedResponseDataSize >= 0) {
             return decompressedResponseDataSize;
         }
         try {
             byte[] decoded = ResponseDecoderRegistry.decode(contentEncoding, responseData);
-            decompressedResponseDataSize = decoded.length;
-            return decompressedResponseDataSize;
+            setDecompressedResponseDataSize(decoded.length);
+            return decoded.length;
         } catch (IOException e) {
             log.warn("Failed to decompress response data", e);
             return -1;
