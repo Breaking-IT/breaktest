@@ -28,14 +28,20 @@ import java.util.concurrent.TimeUnit
 import kotlin.jvm.Throws
 
 /**
- * rate(2/sec) arrivals(1 min) rate(3/sec) ...
+ * rate(2/sec) even_arrival(1 min) rate(3/sec) ...
  *    means 2/sec..3/sec during 1min
  *
- * rate(2/sec) arrivals(1 min) arrivals(2 min) rate(3/sec) ...
+ * rate(2/sec) even_arrival(1 min) even_arrival(2 min) rate(3/sec) ...
  *   means 2/sec..2/sec during 1min, then 2/sec..3/sec during 2min
  *
- * rate(1/sec) rate(2/sec) arrivals(1 min) rate(3/sec) rate(4/sec) arrivals(2 min) rate(5/sec)...
+ * rate(1/sec) rate(2/sec) even_arrival(1 min) rate(3/sec) rate(4/sec) even_arrival(2 min) rate(5/sec)...
  *   means 2/sec..3/sec during 1min, then 4/sec..5/sec during 2min
+ *
+ * constantThreadsPerMinDuring(120, 30)
+ *   means a constant 120 threads/minute during 30 seconds
+ *
+ * rampThreadsPerMinDuring(60, 120, 30)
+ *   means a ramp from 60 threads/minute to 120 threads/minute during 30 seconds
  */
 @API(status = API.Status.EXPERIMENTAL, since = "5.5")
 public interface ThreadSchedule {
@@ -110,7 +116,7 @@ public class ParserException(public val input: String, public val position: Int,
 
 /**
  * Parses schedule string into [ThreadSchedule] object.
- * @param schedule schedule string (e.g. `"rate(2/sec) arrivals(1 min) rate(3/sec)"`)
+ * @param schedule schedule string (e.g. `"rate(2/sec) even_arrival(1 min) rate(3/sec)"`)
  */
 internal class ScheduleParser(private val schedule: String) {
     val tokens = Tokenizer.tokenize(schedule)
@@ -129,12 +135,19 @@ internal class ScheduleParser(private val schedule: String) {
                 steps += pauseSteps
                 continue
             }
+            val rateWindowSteps = parseRateWindow()
+            if (rateWindowSteps != null) {
+                steps += rateWindowSteps
+                lastRate = rateWindowSteps.last() as ThreadScheduleStep.RateStep
+                continue
+            }
             // Variable is needed for formatting: https://youtrack.jetbrains.com/issue/KTIJ-19984
             val step = parseRate()
-                ?: parseArrivals("random_arrivals", ArrivalType.RANDOM)
-                ?: parseArrivals("even_arrivals", ArrivalType.EVEN)
+                ?: parseArrivals(ArrivalType.RANDOM, "random_arrival", "random_arrivals")
+                ?: parseArrivals(ArrivalType.EVEN, "even_arrival", "even_arrivals")
                 ?: throwParseException(
-                    "Unexpected input (expecting rate, random_arrivals, even_arrivals, or pause)"
+                    "Unexpected input (expecting rate, random_arrival, even_arrival, "
+                        + "constantThreadsPerMinDuring, rampThreadsPerMinDuring, or pause)"
                 )
             steps += step
             if (step is ThreadScheduleStep.RateStep) {
@@ -174,8 +187,54 @@ internal class ScheduleParser(private val schedule: String) {
         return ThreadScheduleStep.RateStep(rateValue / timeUnit.asSeconds)
     }
 
-    private fun parseArrivals(functionName: String, type: ArrivalType): ThreadScheduleStep? {
-        if (!token?.image.equals(functionName, ignoreCase = true)) {
+    private fun parseRateWindow(): List<ThreadScheduleStep>? =
+        parseConstantThreadsPerMinDuring() ?: parseRampThreadsPerMinDuring()
+
+    private fun parseConstantThreadsPerMinDuring(): List<ThreadScheduleStep>? {
+        if (!token?.image.equals("constantThreadsPerMinDuring", ignoreCase = true)) {
+            return null
+        }
+        pos += 1
+        consume(Tokenizer.OpenParenthesisToken)
+        val rate = parseThreadsPerMinuteArgument()
+        consume(Tokenizer.CommaToken)
+        val duration = parseSecondsArgument()
+        consume(Tokenizer.CloseParenthesisToken)
+        val rateStep = ThreadScheduleStep.RateStep(rate)
+        return listOf(
+            rateStep,
+            ThreadScheduleStep.ArrivalsStep(ArrivalType.EVEN, duration),
+            rateStep
+        )
+    }
+
+    private fun parseRampThreadsPerMinDuring(): List<ThreadScheduleStep>? {
+        if (!token?.image.equals("rampThreadsPerMinDuring", ignoreCase = true)) {
+            return null
+        }
+        pos += 1
+        consume(Tokenizer.OpenParenthesisToken)
+        val beginRate = parseThreadsPerMinuteArgument()
+        consume(Tokenizer.CommaToken)
+        val endRate = parseThreadsPerMinuteArgument()
+        consume(Tokenizer.CommaToken)
+        val duration = parseSecondsArgument()
+        consume(Tokenizer.CloseParenthesisToken)
+        return listOf(
+            ThreadScheduleStep.RateStep(beginRate),
+            ThreadScheduleStep.ArrivalsStep(ArrivalType.EVEN, duration),
+            ThreadScheduleStep.RateStep(endRate)
+        )
+    }
+
+    private fun parseThreadsPerMinuteArgument(): Double =
+        consume<Tokenizer.NumberToken>("float number for threads per minute").image.toDouble() / TimeUnit.MINUTES.asSeconds
+
+    private fun parseSecondsArgument(): Double =
+        consume<Tokenizer.NumberToken>("float number for duration in seconds").image.toDouble()
+
+    private fun parseArrivals(type: ArrivalType, vararg functionNames: String): ThreadScheduleStep? {
+        if (functionNames.none { token?.image.equals(it, ignoreCase = true) }) {
             return null
         }
         pos += 1

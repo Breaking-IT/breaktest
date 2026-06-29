@@ -36,6 +36,10 @@ class TokenizerTest {
             Case(
                 "rate(50/min) /* comment */ even_arrivals(50 min/**/) rate(60/min)",
                 "[Identifier(rate):0, (:4, Number(50):5, /:7, Identifier(min):8, ):11, Identifier(even_arrivals):27, (:40, Number(50):41, Identifier(min):44, ):51, Identifier(rate):53, (:57, Number(60):58, /:60, Identifier(min):61, ):64]"
+            ),
+            Case(
+                "rampThreadsPerMinDuring(10, 20, 30)",
+                "[Identifier(rampThreadsPerMinDuring):0, (:23, Number(10):24, ,:26, Number(20):28, ,:30, Number(30):32, ):34]"
             )
         )
     }

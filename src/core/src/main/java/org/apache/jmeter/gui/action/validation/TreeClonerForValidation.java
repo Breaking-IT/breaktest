@@ -80,11 +80,17 @@ public class TreeClonerForValidation extends TreeCloner {
         } else {
             Object clonedNode = super.addNodeToTree(node);
             if(clonedNode instanceof ThreadGroup tg) {
-                tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
-                tg.setScheduler(false);
-                tg.setProperty(ThreadGroup.DELAY, 0);
-                if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
-                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
+                if (tg.isOpenModel()) {
+                    tg.setOpenModelRandomSeedString("0");
+                    // Launch all the iterations during the first second, and leave one hour for the threads to complete
+                    tg.setOpenModelSchedule("rate(" + VALIDATION_ITERATIONS + " / sec) even_arrivals(1 sec) pause(1 hour)");
+                } else {
+                    tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
+                    tg.setScheduler(false);
+                    tg.setProperty(ThreadGroup.DELAY, 0);
+                    if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
+                        ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
+                    }
                 }
             } else if (clonedNode instanceof OpenModelThreadGroup tg) {
                 tg.setRandomSeedString("0");

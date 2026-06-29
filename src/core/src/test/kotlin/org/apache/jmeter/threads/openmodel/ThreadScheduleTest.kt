@@ -37,10 +37,25 @@ class ThreadScheduleTest {
                 "[Rate(1), Arrivals(type=RANDOM, duration=120), Rate(1), Rate(0), Arrivals(type=EVEN, duration=180), Rate(0), Rate(1), Arrivals(type=RANDOM, duration=4)]"
             ),
             Case("rate(50.1/sec)", "[Rate(50.1)]"),
+            Case("random_arrival(10 sec)", "[Arrivals(type=RANDOM, duration=10)]"),
+            Case("random_arrivals(10 sec)", "[Arrivals(type=RANDOM, duration=10)]"),
+            Case("even_arrival(10 sec)", "[Arrivals(type=EVEN, duration=10)]"),
             Case("even_arrivals(50 min)", "[Arrivals(type=EVEN, duration=3000)]"),
             Case("even_arrivals(2d 1m 30s)", "[Arrivals(type=EVEN, duration=${2 * 86400 + 60 + 30})]"),
             Case(
-                "rate(50/min) even_arrivals(2 hour) rate(60/min)",
+                "constantThreadsPerMinDuring(120, 30)",
+                "[Rate(2), Arrivals(type=EVEN, duration=30), Rate(2)]"
+            ),
+            Case(
+                "rampThreadsPerMinDuring(60, 120, 30)",
+                "[Rate(1), Arrivals(type=EVEN, duration=30), Rate(2)]"
+            ),
+            Case(
+                "rampThreadsPerMinDuring(120, 60, 30)",
+                "[Rate(2), Arrivals(type=EVEN, duration=30), Rate(1)]"
+            ),
+            Case(
+                "rate(50/min) even_arrival(2 hour) rate(60/min)",
                 "[Rate(0.8), Arrivals(type=EVEN, duration=7200), Rate(1)]"
             ),
             Case(

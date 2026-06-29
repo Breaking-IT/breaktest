@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ThreadGroupSchema;
@@ -80,5 +81,57 @@ class ThreadGroupGuiTest {
 
         assertEquals("recording.har", threadGroup.getPropertyAsString("BreakTest.har.filename"));
         assertEquals("3d8eeea2288e42557c6c4ced7920243b", threadGroup.getPropertyAsString("BreakTest.har.md5"));
+    }
+
+    @Test
+    void legacySchedulerThreadGroupUsesDurationPolicy() {
+        ThreadGroup threadGroup = threadGroupWithLoops(3);
+        threadGroup.setScheduler(true);
+        threadGroup.setDuration(30);
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertTrue(threadGroup.getScheduler());
+        assertEquals(LoopController.INFINITE_LOOP_COUNT, mainController(threadGroup).getLoops());
+    }
+
+    @Test
+    void legacyInfiniteLoopThreadGroupUsesNoLimitPolicy() {
+        ThreadGroup threadGroup = threadGroupWithLoops(LoopController.INFINITE_LOOP_COUNT);
+        threadGroup.setScheduler(false);
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertFalse(threadGroup.getScheduler());
+        assertEquals(LoopController.INFINITE_LOOP_COUNT, mainController(threadGroup).getLoops());
+    }
+
+    @Test
+    void legacyFiniteLoopThreadGroupKeepsLoopCountPolicy() {
+        ThreadGroup threadGroup = threadGroupWithLoops(3);
+        threadGroup.setScheduler(false);
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertFalse(threadGroup.getScheduler());
+        assertEquals(3, mainController(threadGroup).getLoops());
+    }
+
+    private static ThreadGroup threadGroupWithLoops(int loops) {
+        ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+        LoopController loopController = new LoopController();
+        loopController.setLoops(loops);
+        threadGroup.setSamplerController(loopController);
+        return threadGroup;
+    }
+
+    private static LoopController mainController(ThreadGroup threadGroup) {
+        return (LoopController) threadGroup.getSamplerController();
     }
 }

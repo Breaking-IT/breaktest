@@ -99,6 +99,10 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     /** Flag to show whether engine is active. Set to false at end of test. */
     private volatile boolean active = false;
 
+    private final Object pauseLock = new Object();
+
+    private volatile boolean paused = false;
+
     /** Thread Groups run sequentially */
     private volatile boolean serialized = false;
 
@@ -132,6 +136,22 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         if (engine != null) { // May be null if called from Unit test
             engine.stopTest(false);
         }
+    }
+
+    public static boolean togglePauseEngine() {
+        if (engine != null) {
+            return engine.togglePause();
+        }
+        return false;
+    }
+
+    public boolean togglePause() {
+        if (isPaused()) {
+            resumeTest();
+        } else {
+            pauseTest();
+        }
+        return isPaused();
     }
 
     public static synchronized void register(TestStateListener tl) {
@@ -235,6 +255,49 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
+    public void pauseTest() {
+        synchronized (pauseLock) {
+            if (!running || paused) {
+                return;
+            }
+            paused = true;
+            log.info("Test scheduling paused");
+        }
+    }
+
+    public void resumeTest() {
+        synchronized (pauseLock) {
+            if (!paused) {
+                return;
+            }
+            paused = false;
+            pauseLock.notifyAll();
+            log.info("Test scheduling resumed");
+        }
+    }
+
+    public boolean isPaused() {
+        return paused;
+    }
+
+    public long waitIfPaused() {
+        long pausedAt = 0;
+        synchronized (pauseLock) {
+            while (paused && running) {
+                if (pausedAt == 0) {
+                    pausedAt = System.currentTimeMillis();
+                }
+                try {
+                    pauseLock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return pausedAt == 0 ? 0 : System.currentTimeMillis() - pausedAt;
+                }
+            }
+        }
+        return pausedAt == 0 ? 0 : System.currentTimeMillis() - pausedAt;
+    }
+
     /**
      * Stop Test Now
      */
@@ -313,6 +376,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         @Override
         public void run() {
             running = false;
+            resumeTest();
             resetSingletonEngine();
             if (now) {
                 tellThreadGroupsToStop();
