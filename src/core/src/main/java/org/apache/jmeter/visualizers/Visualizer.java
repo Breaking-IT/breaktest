@@ -52,6 +52,14 @@ public interface Visualizer {
     }
 
     /**
+     * @return true when this visualizer needs rich metadata attached to
+     * {@link SampleResult} instances, such as variable snapshots or source tree paths
+     */
+    default boolean needsSampleResultMetadata() {
+        return false;
+    }
+
+    /**
      * This method is used to indicate a visualizer generates statistics.
      *
      * @return true if visualiser generates statistics

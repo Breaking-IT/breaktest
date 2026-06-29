@@ -190,6 +190,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
     }
 
+    @Override
+    public boolean needsSampleResultMetadata() {
+        return true;
+    }
+
     /**
      * Update the visualizer with new data.
      */

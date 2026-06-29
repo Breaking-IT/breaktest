@@ -51,6 +51,7 @@ import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -824,9 +825,6 @@ public class JMeterThread implements Runnable, Interruptible {
             if (running) {
                 Sampler sampler = pack.getSampler();
                 result = doSampling(threadContext, sampler);
-                if (result != null) {
-                    setSourceTestElementPath(result, pack.getSourceTestElementPath());
-                }
             }
             // If we got any results, then perform processing on the result
             if (result != null) {
@@ -847,6 +845,9 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
+                        if (needsSampleResultMetadata(sampleListeners)) {
+                            setSourceTestElementPath(result, pack.getSourceTestElementPath());
+                        }
                         notifyListeners(sampleListeners, result);
                     }
                     packageDone = true;
@@ -969,14 +970,17 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, JMeterContext threadContext) {
         // Get the transaction sample result
         SampleResult transactionResult = transactionSampler.getTransactionResult();
-        setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
         fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
 
         // Check assertions for the transaction sample
         checkAssertions(transactionPack.getAssertions(), transactionResult, threadContext);
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
-            notifyListeners(transactionPack.getSampleListeners(), transactionResult);
+            List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
+            if (needsSampleResultMetadata(sampleListeners)) {
+                setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
+            }
+            notifyListeners(sampleListeners, transactionResult);
         }
         compiler.done(transactionPack);
         return transactionResult;
@@ -1483,9 +1487,20 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        setJMeterVariables(result, snapshotVariables(threadVars));
+        if (needsSampleResultMetadata(listeners)) {
+            setJMeterVariables(result, snapshotVariables(threadVars));
+        }
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
         notifier.notifyListeners(event, listeners);
+    }
+
+    private static boolean needsSampleResultMetadata(List<SampleListener> listeners) {
+        for (SampleListener listener : listeners) {
+            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultMetadata()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<String, String> snapshotVariables(JMeterVariables variables) {
