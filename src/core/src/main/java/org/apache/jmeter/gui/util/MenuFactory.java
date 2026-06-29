@@ -336,11 +336,11 @@ public final class MenuFactory {
     private static void addUndoItems(JPopupMenu menu) {
         addSeparator(menu);
 
-        JMenuItem undo = makeMenuItemRes("undo", ActionNames.UNDO); //$NON-NLS-1$
+        JMenuItem undo = makeMenuItemRes("undo", ActionNames.UNDO, KeyStrokes.UNDO); //$NON-NLS-1$
         undo.setEnabled(GuiPackage.getInstance().canUndo());
         menu.add(undo);
 
-        JMenuItem redo = makeMenuItemRes("redo", ActionNames.REDO); //$NON-NLS-1$
+        JMenuItem redo = makeMenuItemRes("redo", ActionNames.REDO, KeyStrokes.REDO); //$NON-NLS-1$
         // TODO: we could even show some hints on action being undone here
         // if required (by passing those hints into history records)
         redo.setEnabled(GuiPackage.getInstance().canRedo());

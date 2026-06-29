@@ -46,20 +46,15 @@ public class ResetSearchCommand extends AbstractAction {
     @Override
     public void doAction(ActionEvent e) {
         GuiPackage guiPackage = GuiPackage.getInstance();
-        try {
-            guiPackage.beginUndoTransaction();
-            guiPackage.getTreeModel()
-                    .getNodesOfType(Searchable.class).stream()
-                    .filter(node -> node.getUserObject() instanceof Searchable)
-                    .map(JMeterTreeNode::getPathToThreadGroup)
-                    .flatMap(Collection::stream)
-                    .forEach(matchingNode ->  {
-                        matchingNode.setMarkedBySearch(false);
-                        matchingNode.setChildrenNodesHaveMatched(false);
-                    });
-        } finally {
-            guiPackage.endUndoTransaction();
-        }
+        guiPackage.withoutUndoHistory(() -> guiPackage.getTreeModel()
+                .getNodesOfType(Searchable.class).stream()
+                .filter(node -> node.getUserObject() instanceof Searchable)
+                .map(JMeterTreeNode::getPathToThreadGroup)
+                .flatMap(Collection::stream)
+                .forEach(matchingNode ->  {
+                    matchingNode.setMarkedBySearch(false);
+                    matchingNode.setChildrenNodesHaveMatched(false);
+                }));
         GuiPackage.getInstance().getMainFrame().repaint();
     }
 

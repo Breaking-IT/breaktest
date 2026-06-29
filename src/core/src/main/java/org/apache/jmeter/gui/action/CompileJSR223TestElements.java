@@ -117,7 +117,7 @@ public class CompileJSR223TestElements extends AbstractAction implements MenuCre
     public void doAction(ActionEvent e) {
         HashTree wholeTree = GuiPackage.getInstance().getTreeModel().getTestPlan();
         JSR223TestElementCompilerVisitor visitor = new JSR223TestElementCompilerVisitor();
-        wholeTree.traverse(visitor);
+        GuiPackage.getInstance().withoutUndoHistory(() -> wholeTree.traverse(visitor));
         GuiPackage.getInstance().getMainFrame().repaint();
         if (visitor.getElementsWithCompilationErrors()>0) {
             JMeterUtils.reportErrorToUser(MESSAGE_FORMAT.format(new Object[]{visitor.getElementsWithCompilationErrors()}));

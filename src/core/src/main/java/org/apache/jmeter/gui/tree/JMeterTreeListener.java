@@ -52,6 +52,10 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
 
     private JTree tree;
 
+    private int suppressEditAction;
+
+    private long editActionGeneration;
+
     /**
      * Constructor for the JMeterTreeListener object.
      *
@@ -138,6 +142,43 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
         return currentPath;
     }
 
+    /**
+     * Select a tree path after a programmatic tree mutation without scheduling
+     * the usual edit action. The caller is responsible for refreshing the GUI.
+     *
+     * @param path path to select
+     */
+    public void setSelectionPathWithoutEdit(TreePath path) {
+        beginSuppressEditAction();
+        try {
+            tree.setSelectionPath(path);
+            currentPath = path;
+        } finally {
+            endSuppressEditAction();
+        }
+    }
+
+    /**
+     * Suppress edit actions caused by tree selection changes during
+     * programmatic tree mutations.
+     */
+    public void beginSuppressEditAction() {
+        suppressEditAction++;
+        editActionGeneration++;
+    }
+
+    /**
+     * End suppression started with {@link #beginSuppressEditAction()}.
+     */
+    public void endSuppressEditAction() {
+        if (suppressEditAction == 0) {
+            log.warn("Edit action suppression ended without beginning");
+            return;
+        }
+        suppressEditAction--;
+        editActionGeneration++;
+    }
+
     @Override
     public void valueChanged(TreeSelectionEvent e) {
         log.debug("value changed, updating currentPath");
@@ -147,7 +188,25 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
         // see https://bz.apache.org/bugzilla/show_bug.cgi?id=55103
         // see https://bz.apache.org/bugzilla/show_bug.cgi?id=55459
         tree.requestFocusInWindow();
-        actionHandler.actionPerformed(new ActionEvent(this, 3333, ActionNames.EDIT)); // $NON-NLS-1$
+        scheduleEditAction();
+    }
+
+    private void scheduleEditAction() {
+        if (suppressEditAction != 0) {
+            return;
+        }
+        long generation = editActionGeneration;
+        SwingUtilities.invokeLater(() -> {
+            if (suppressEditAction != 0 || generation != editActionGeneration) {
+                return;
+            }
+            ActionEvent event = new ActionEvent(this, 3333, ActionNames.EDIT); // $NON-NLS-1$
+            if (actionHandler instanceof ActionRouter actionRouter) {
+                actionRouter.doActionNow(event);
+            } else {
+                actionHandler.actionPerformed(event);
+            }
+        });
     }
 
     @Override
@@ -199,6 +258,10 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
 
         if (KeyStrokes.matches(e, KeyStrokes.COPY)) {
             actionName = ActionNames.COPY;
+        } else if (KeyStrokes.matches(e, KeyStrokes.REDO) || KeyStrokes.matches(e, KeyStrokes.REDO_CONTROL)) {
+            actionName = ActionNames.REDO;
+        } else if (KeyStrokes.matches(e, KeyStrokes.UNDO) || KeyStrokes.matches(e, KeyStrokes.UNDO_CONTROL)) {
+            actionName = ActionNames.UNDO;
         } else if (KeyStrokes.matches(e, KeyStrokes.PASTE)) {
             actionName = ActionNames.PASTE;
         } else if (KeyStrokes.matches(e, KeyStrokes.CUT)) {
