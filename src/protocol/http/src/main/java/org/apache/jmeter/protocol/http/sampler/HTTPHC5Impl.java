@@ -891,7 +891,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
 
         } catch (IOException e) {
-            log.debug("IOException", e);
+            if (HTTPSamplerBase.isExpectedTimeout(e)) {
+                log.debug("HTTP sample timed out: {}", e.toString());
+            } else {
+                log.debug("IOException", e);
+            }
             if (res.getEndTime() == 0) {
                 res.sampleEnd();
             }
@@ -904,7 +908,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             errorResult(e, res);
             return res;
         } catch (RuntimeException e) {
-            log.debug("RuntimeException", e);
+            if (HTTPSamplerBase.isExpectedTimeout(e)) {
+                log.debug("HTTP sample timed out: {}", e.toString());
+            } else {
+                log.debug("RuntimeException", e);
+            }
             if (res.getEndTime() == 0) {
                 res.sampleEnd();
             }

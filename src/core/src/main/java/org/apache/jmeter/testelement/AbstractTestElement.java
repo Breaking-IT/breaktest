@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1087,11 +1088,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     protected void clearTemporary(JMeterProperty property) {
         try (ResourceLock ignored = writeLock()) {
-            if (temporaryProperties != null) {
+            if (requiresIdentityTemporarySet(property)) {
+                if (identityTemporaryProperties != null) {
+                    identityTemporaryProperties.remove(property);
+                }
+            } else if (temporaryProperties != null) {
                 temporaryProperties.remove(property);
-            }
-            if (identityTemporaryProperties != null) {
-                identityTemporaryProperties.remove(property);
             }
         }
     }
@@ -1384,12 +1386,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         try (ResourceLock ignored = writeLock()) {
             if (requiresIdentityTemporarySet(property)) {
                 if (identityTemporaryProperties == null) {
-                    identityTemporaryProperties = createTemporaryPropertiesSet();
+                    identityTemporaryProperties = createTemporaryPropertiesSet(true);
                 }
                 identityTemporaryProperties.add(property);
             } else {
                 if (temporaryProperties == null) {
-                    temporaryProperties = createTemporaryPropertiesSet();
+                    temporaryProperties = createTemporaryPropertiesSet(false);
                 }
                 temporaryProperties.add(property);
             }
@@ -1401,13 +1403,15 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         }
     }
 
-    private Set<JMeterProperty> createTemporaryPropertiesSet() {
-        Set<JMeterProperty> set = Collections.newSetFromMap(new IdentityHashMap<>());
+    private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
+        Set<JMeterProperty> set = identity
+                ? Collections.newSetFromMap(new IdentityHashMap<>())
+                : new LinkedHashSet<>();
         return lock != null ? set : Collections.synchronizedSet(set);
     }
 
     private static boolean requiresIdentityTemporarySet(JMeterProperty property) {
-        return property instanceof TestElementProperty;
+        return property instanceof MultiProperty;
     }
 
     // While TestElementProperty is implementing MultiProperty, it works differently.

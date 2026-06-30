@@ -71,7 +71,8 @@ public class AddToTree extends AbstractAction {
             JMeterTreeNode parentNode = guiPackage.getCurrentNode();
             JMeterTreeNode node = guiPackage.getTreeModel().addComponent(testElement, parentNode);
             guiPackage.getNamingPolicy().nameOnCreation(node);
-            guiPackage.getMainFrame().getTree().setSelectionPath(new TreePath(node.getPath()));
+            guiPackage.getTreeListener().setSelectionPathWithoutEdit(new TreePath(node.getPath()));
+            ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.EDIT));
         } catch (Exception err) {
             log.error("Exception while adding a component to tree.", err); // $NON-NLS-1$
             String msg = err.getMessage();

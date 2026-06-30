@@ -37,6 +37,7 @@ import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HorizontalPanel;
+import org.apache.jmeter.gui.util.InfoButton;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
@@ -77,6 +78,9 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                     JMeterUtils::getResString,
                     "response_processing_not_set"
             );
+    private final InfoButton responseProcessingInfo = new InfoButton(
+            JMeterUtils.getResString("response_processing_info_title"),
+            JMeterUtils.getResString("response_processing_info"));
     private JTextField embeddedAllowRE; // regular expression used to match against embedded resource URLs to allow
     private JTextField embeddedExcludeRE; // regular expression used to match against embedded resource URLs to discard
     private JTextField sourceIpAddr;
@@ -317,7 +321,8 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         JPanel panel = new JPanel(new MigLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("response_processing_title"))); // $NON-NLS-1$
-        panel.add(responseProcessingMode);
+        panel.add(responseProcessingMode, "split 2");
+        panel.add(responseProcessingInfo);
         return panel;
     }
 

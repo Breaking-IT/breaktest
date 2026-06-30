@@ -83,6 +83,14 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
     /** The same user or different users */
     public static final String IS_SAME_USER_ON_NEXT_ITERATION = "ThreadGroup.same_user_on_next_iteration";
 
+    public static final String PACING_DISABLED = "Disabled"; // $NON-NLS-1$
+
+    public static final String PACING_FIXED = "Fixed"; // $NON-NLS-1$
+
+    public static final String PACING_RANDOM = "Random"; // $NON-NLS-1$
+
+    public static final String PACING_GAUSSIAN_RANDOM = "Gaussian Random"; // $NON-NLS-1$
+
 
     private final AtomicInteger numberOfThreads = new AtomicInteger(0); // Number of active threads in this group
 
@@ -370,6 +378,38 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
      */
     public boolean isSameUserOnNextIteration() {
         return get(getSchema().getSameUserOnNextIteration());
+    }
+
+    public void setPacingMode(String pacingMode) {
+        set(getSchema().getPacingMode(), pacingMode);
+    }
+
+    public String getPacingMode() {
+        return get(getSchema().getPacingMode());
+    }
+
+    public void setFixedPacing(String fixedPacing) {
+        set(getSchema().getFixedPacing(), fixedPacing);
+    }
+
+    public String getFixedPacing() {
+        return getString(getSchema().getFixedPacing());
+    }
+
+    public void setPacingMin(String pacingMin) {
+        set(getSchema().getPacingMin(), pacingMin);
+    }
+
+    public String getPacingMin() {
+        return getString(getSchema().getPacingMin());
+    }
+
+    public void setPacingMax(String pacingMax) {
+        set(getSchema().getPacingMax(), pacingMax);
+    }
+
+    public String getPacingMax() {
+        return getString(getSchema().getPacingMax());
     }
 
     /**

@@ -17,8 +17,6 @@
 
 import com.github.vlsi.gradle.properties.dsl.props
 import org.apache.jmeter.buildtools.batchtest.BatchTest
-import org.apache.jmeter.buildtools.batchtest.BatchTestServer
-import java.time.Duration
 
 plugins {
     id("java-test-fixtures")
@@ -126,8 +124,7 @@ inline fun <reified T : BatchTest> createBatchTask(
     noinline action: (T.() -> Unit)? = null
 ) =
     tasks.register(
-        "batch" + (if (T::class == BatchTestServer::class) "Server" else "") +
-            name.replaceFirstChar { it.titlecaseChar() } + suffix.replaceFirstChar { it.titlecaseChar() },
+        "batch" + name.replaceFirstChar { it.titlecaseChar() } + suffix.replaceFirstChar { it.titlecaseChar() },
         T::class
     ) {
         group = when {
@@ -153,9 +150,6 @@ inline fun <reified T : BatchTest> createBatchTask(
     }
 
 fun createBatchTestTask(name: String, suffix: String = "", action: (BatchTest.() -> Unit)? = null) =
-    createBatchTask(name, suffix, action)
-
-fun createBatchServerTestTask(name: String, suffix: String = "", action: (BatchTestServer.() -> Unit)? = null) =
     createBatchTask(name, suffix, action)
 
 arrayOf(
@@ -195,6 +189,8 @@ createBatchTestTask("Bug54685") {
 
 createBatchTestTask("LegacyJavaPreemptiveBasicAuth", "Java") {
     jmeterArgument("jmeter.httpsampler", "Java")
+    csvFile.set(outputDirectory.file("${testName.get()}_Java.csv"))
+    xmlFile.set(outputDirectory.file("${testName.get()}_Java.xml"))
 }
 
 for (impl in arrayOf("Java")) {
@@ -214,26 +210,6 @@ for (impl in arrayOf("Java", "HttpClient5")) {
             ignoreErrorLogs.set(true)
         }
     }
-}
-
-// Note: original build.xml seem to use Bug54685 test, however in fact batchtestserver target
-// just ignored the given filename
-val batchTestServerStartupTimeout: String? by project
-val batchTestServerStartupTimeoutDuration =
-    batchTestServerStartupTimeout?.let {
-        try {
-            Duration.parse(it)
-        } catch (e: Exception) {
-            throw IllegalArgumentException(
-                "Unable to parse the value of batchTestServerStartupTimeout property as duration $it." +
-                    " Please ensure it follows java.time.Duration format (e.g. PT5S)",
-                e
-            )
-        }
-    }
-
-createBatchServerTestTask("BatchTestLocal") {
-    batchTestServerStartupTimeoutDuration?.let { startupTimeout.set(it) }
 }
 
 tasks.test {

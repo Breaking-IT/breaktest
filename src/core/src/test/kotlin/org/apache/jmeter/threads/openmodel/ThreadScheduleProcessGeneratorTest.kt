@@ -35,6 +35,59 @@ class ThreadScheduleProcessGeneratorTest {
         fun data() = listOf(
             Case(
                 """
+                // total duration is 2 sec
+                // 120/min is 2/sec, so this should create 4 events at exact 500 ms intervals
+                constantThreadsPerMinDuring(120, 2)
+                """.trimIndent(),
+                """
+                totalDuration: 2
+                events:
+                  0
+                  0.5
+                  1
+                  1.5
+                """.trimIndent()
+            ),
+            Case(
+                """
+                // total duration is 2 sec
+                // Ramp from 60/min to 180/min, or 1/sec to 3/sec
+                rampThreadsPerMinDuring(60, 180, 2)
+                """.trimIndent(),
+                """
+                totalDuration: 2
+                events:
+                  0
+                  0.7321
+                  1.2361
+                  1.6458
+                """.trimIndent()
+            ),
+            Case(
+                """
+                // total duration is 3 sec
+                // 4/sec * 3sec => 12 events at exact 250 ms intervals
+                rate(4/sec) even_arrival(3 sec)
+                """.trimIndent(),
+                """
+                totalDuration: 3
+                events:
+                  0
+                  0.25
+                  0.5
+                  0.75
+                  1
+                  1.25
+                  1.5
+                  1.75
+                  2
+                  2.25
+                  2.5
+                  2.75
+                """.trimIndent()
+            ),
+            Case(
+                """
                 // total duration is 2+3+1+2 => 8 sec
                 // 1/sec * 2 sec => 2 events at 1 and 2
                 rate(1/sec) even_arrivals(2 sec) rate(1/sec)

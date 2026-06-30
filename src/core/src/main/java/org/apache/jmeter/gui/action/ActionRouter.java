@@ -53,9 +53,25 @@ public final class ActionRouter implements ActionListener {
     private final Map<String, Set<ActionListener>> postActionListeners =
             new HashMap<>();
 
-    // New action will clear undo, no point in having a transaction. Same with open
+    // New action will clear undo, no point in having a transaction. Same with open.
+    // Undo/redo run outside transactions. Undo still flushes in-progress field
+    // edits so the first undo can revert the edit the user is looking at. Redo
+    // must not pre-flush the restored GUI state: after an undo, that writeback
+    // can look like a fresh edit and clear the redo stack before redo runs.
+    // EditCommand owns its current-node update; pre-updating it would write
+    // back the newly selected node immediately after configuration and create
+    // selection-only history.
     // EMI: XXX: Commands could also have an annotation to sigal the Undo preference
-    private final List<String> NO_TRANSACTION_ACTIONS = Arrays.asList(ActionNames.CLOSE, ActionNames.OPEN, ActionNames.OPEN_RECENT);
+    private final List<String> NO_TRANSACTION_ACTIONS = Arrays.asList(
+            ActionNames.CLOSE,
+            ActionNames.OPEN,
+            ActionNames.OPEN_RECENT,
+            ActionNames.UNDO,
+            ActionNames.REDO);
+
+    private final List<String> NO_PRE_ACTION_UPDATE_ACTIONS = Arrays.asList(
+            ActionNames.REDO,
+            ActionNames.EDIT);
 
     private ActionRouter() {
     }
@@ -71,11 +87,13 @@ public final class ActionRouter implements ActionListener {
             GuiPackage.getInstance().beginUndoTransaction();
         }
         try {
-            try {
-                GuiPackage.getInstance().updateCurrentGui();
-            } catch (Exception err){
-                log.error("performAction({}) updateCurrentGui() on{} caused", actionCommand, e, err);
-                JMeterUtils.reportErrorToUser("Problem updating GUI - see log file for details");
+            if (!NO_PRE_ACTION_UPDATE_ACTIONS.contains(actionCommand)) {
+                try {
+                    GuiPackage.getInstance().updateCurrentGui();
+                } catch (Exception err){
+                    log.error("performAction({}) updateCurrentGui() on{} caused", actionCommand, e, err);
+                    JMeterUtils.reportErrorToUser("Problem updating GUI - see log file for details");
+                }
             }
             for (Command c : commands.get(actionCommand)) {
                 try {

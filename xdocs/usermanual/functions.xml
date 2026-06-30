@@ -132,7 +132,6 @@ Alternatively, just use <code>/</code> instead for the path separator - e.g. <co
         <tr><td>Calculation</td><td> <a href="#__RandomString">RandomString</a></td><td>generate a random string</td><td>2.6</td></tr>
         <tr><td>Calculation</td><td> <a href="#__UUID">UUID</a></td><td>generate a random type 4 UUID</td><td>2.9</td></tr>
         <tr><td>Scripting</td><td> <a href="#__groovy">groovy</a></td><td>run an Apache Groovy script</td><td>3.1</td></tr>
-        <tr><td>Scripting</td><td> <a href="#__javaScript">javaScript</a></td><td>process JavaScript (Nashorn)</td><td>1.9</td></tr>
         <tr><td>Scripting</td><td> <a href="#__jexl3">jexl3</a></td><td>evaluate a Commons Jexl3 expression</td><td>jexl3 (3.0)</td></tr>
         <tr><td>Properties</td><td> <a href="#__isPropDefined">isPropDefined</a> </td><td>Test if a property exists</td><td>4.0</td></tr>
         <tr><td>Properties</td><td> <a href="#__property">property</a> </td><td>read a property</td><td>2.0</td></tr>
@@ -573,76 +572,6 @@ Here are a few format strings and the corresponding sequences they will generate
 <source>${__machineIP()}</source> will return the IP address of the machine<br/>
 <source>${__machineIP}</source> will return the IP address of the machine<br/>
 </p>
-</component>
-
-<component index="&sect-num;.5.7" name="__javaScript">
-<description>
-<p>
-The javaScript function executes a piece of JavaScript (not Java!) code and returns its value
-</p>
-<p>
-The JMeter Javascript function calls a standalone JavaScript interpreter.
-Javascript is used as a scripting language, so you can do calculations etc.</p>
-<p>
-<note>javaScript is not the best scripting language for performances in JMeter. If your plan requires a high number of threads
-it is advised to use <code>__jexl3</code> or <code>__groovy</code> functions.
-</note>
-
-For Nashorn Engine, please see <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/scripting/nashorn/">Java Platform, Standard Edition Nashorn User's Guide</a>.<br/>
-For Rhino engine, please see <a href="http://www.mozilla.org/rhino/overview.html">Mozilla Rhino Overview</a>
-</p>
-<p>
-The following variables are made available to the script:
-</p>
-<ul>
-<li><code>log</code> - the <a href="https://www.slf4j.org/api/org/slf4j/Logger.html">Logger</a> for the function</li>
-<li><code>ctx</code> - <apilink href="org/apache/jmeter/threads/JMeterContext.html">JMeterContext</apilink> object</li>
-<li><code>vars</code> - <apilink href="org/apache/jmeter/threads/JMeterVariables.html">JMeterVariables</apilink> object</li>
-<li><code>threadName</code> - String containing the current thread name</li>
-<li><code>sampler</code> - current <apilink href="org/apache/jmeter/samplers/Sampler.html">Sampler</apilink> object (if any)</li>
-<li><code>sampleResult</code> - previous <apilink href="org/apache/jmeter/samplers/SampleResult.html">SampleResult</apilink> object (if any)</li>
-<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
-</ul>
-<p>
-Rhinoscript allows access to static methods via its Packages object.
-See the <a href="https://wiki.openjdk.java.net/display/Nashorn/Rhino+Migration+Guide">Scripting Java</a> documentation.
-For example one can access the JMeterContextService static methods thus:
-<code>Java.type("org.apache.jmeter.threads.JMeterContextService").getTotalThreads()</code>
-</p>
-<note>
-JMeter is not a browser, and does not interpret the JavaScript in downloaded pages.
-</note>
-</description>
-
-<properties>
-        <property name="Expression" required="Yes">The JavaScript expression to be executed. For example:
-            <ul>
-                <li><code>new Date()</code> - return the current date and time</li>
-                <li><code>Math.floor(Math.random()*(${maxRandom}+1))</code>
-                    - a random number between <code>0</code> and the variable <code>maxRandom</code></li>
-                <li><code>${minRandom}+Math.floor(Math.random()*(${maxRandom}-${minRandom}+1))</code>
-                    - a random number between the variables <code>minRandom</code> and <code>maxRandom</code></li>
-                <li><code>"${VAR}"=="abcd"</code></li>
-            </ul>
-            </property>
-        <property name="Variable Name" required="No">A reference name for reusing the value
-                computed by this function.</property>
-</properties>
-<note>Remember to include any necessary quotes for text strings and JMeter variables. Also, if
-the expression has commas, please make sure to escape them. For example in:
-<source>
-${__javaScript('${sp}'.slice(7\,99999))}
-</source>
-the comma after <code>7</code> is escaped.</note>
-
-<p>Examples:
-<source>${__javaScript(new Date())}</source> will return <code>Sat Jan 09 2016 16:22:15 GMT+0100 (CET)</code><br/>
-<source>${__javaScript(new Date(),MYDATE)}</source> will return <code>Sat Jan 09 2016 16:22:15 GMT+0100 (CET)</code> and store it under variable <code>MYDATE</code><br/>
-<source>${__javaScript(Math.floor(Math.random()*(${maxRandom}+1)),MYRESULT)}</source> will use maxRandom variable, return a random value between 0 and maxRandom and store it in MYRESULT
-<source>${__javaScript(${minRandom}+Math.floor(Math.random()*(${maxRandom}-${minRandom}+1)),MYRESULT)}</source> will use <code>maxRandom</code> and <code>minRandom</code> variables, return a random value between <code>maxRandom</code> and <code>minRandom</code> and store it under variable <code>MYRESULT</code>
-<source>${__javaScript("${VAR}"=="abcd",MYRESULT)}</source> will compare the value of <code>VAR</code> variable with <code>abcd</code>, return <code>true</code> or <code>false</code> and store the result in MYRESULT
-</p>
-
 </component>
 
 <component index="&sect-num;.5.8" name="__Random">

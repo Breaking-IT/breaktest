@@ -743,25 +743,25 @@
   <requestHeader class="java.lang.String"/>
   <responseFile class="java.lang.String"/>
 </sample>
-<sample s="true" lb="BSH Counter: 1" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
+<sample s="true" lb="JSR223 Counter: 1" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
   <responseHeader class="java.lang.String"/>
   <requestHeader class="java.lang.String"/>
   <responseFile class="java.lang.String"/>
-  <samplerData class="java.lang.String">SampleResult.setSampleLabel("BSH Counter: 1");</samplerData>
+  <samplerData class="java.lang.String">def count = (vars.getObject("jsr223Counter") ?: 0) + 1; vars.putObject("jsr223Counter", count); SampleResult.setSampleLabel("JSR223 Counter: " + count);</samplerData>
 </sample>
-<sample s="true" lb="BSH Counter: 2" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
+<sample s="true" lb="JSR223 Counter: 2" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
   <responseHeader class="java.lang.String"/>
   <requestHeader class="java.lang.String"/>
   <responseFile class="java.lang.String"/>
-  <samplerData class="java.lang.String">SampleResult.setSampleLabel("BSH Counter: 2");</samplerData>
+  <samplerData class="java.lang.String">def count = (vars.getObject("jsr223Counter") ?: 0) + 1; vars.putObject("jsr223Counter", count); SampleResult.setSampleLabel("JSR223 Counter: " + count);</samplerData>
 </sample>
-<sample s="true" lb="BSH Counter: 3" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
+<sample s="true" lb="JSR223 Counter: 3" rc="200" rm="OK" dt="text" by="0" sc="1" ec="0" ng="1" na="1">
   <responseHeader class="java.lang.String"/>
   <requestHeader class="java.lang.String"/>
   <responseFile class="java.lang.String"/>
-  <samplerData class="java.lang.String">SampleResult.setSampleLabel("BSH Counter: 3");</samplerData>
+  <samplerData class="java.lang.String">def count = (vars.getObject("jsr223Counter") ?: 0) + 1; vars.putObject("jsr223Counter", count); SampleResult.setSampleLabel("JSR223 Counter: " + count);</samplerData>
 </sample>
-<sample s="true" lb="BSF Sampler" rc="200" rm="OK" dt="text" by="3" sc="1" ec="0" ng="1" na="1">
+<sample s="true" lb="JSR223 Jexl Sampler" rc="200" rm="OK" dt="text" by="3" sc="1" ec="0" ng="1" na="1">
   <responseHeader class="java.lang.String"/>
   <requestHeader class="java.lang.String"/>
   <responseFile class="java.lang.String"/>

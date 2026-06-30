@@ -22,6 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.services.FileServer;
@@ -171,6 +174,82 @@ public class TestCVSDataSet extends JMeterTestCase implements JMeterSerialTest {
         assertEquals("b1", threadVars.get("B"));
         assertEquals("c1", threadVars.get("C"));
         assertEquals("d1", threadVars.get("D|1"));
+    }
+
+    @Test
+    public void testRandomOrderWithoutHeader() {
+        CSVDataSet csv = initCSV();
+        csv.setRandomOrder(true);
+        csv.setRecycle(false);
+
+        Set<String> values = new HashSet<>();
+        for (int i = 0; i < 4; i++) {
+            csv.iterationStart(null);
+            values.add(threadVars.get("a"));
+        }
+
+        assertEquals(Set.of("a1", "a2", "a3", "a4"), values);
+    }
+
+    @Test
+    public void testRandomOrderWithHeaderKeepsHeaderAsVariableNames() {
+        CSVDataSet csv = new CSVDataSet();
+        csv.setFilename(findTestPath("testfiles/testheader.csv"));
+        csv.setDelimiter("|");
+        csv.setRandomOrder(true);
+        csv.setRecycle(false);
+
+        Set<String> values = new HashSet<>();
+        for (int i = 0; i < 4; i++) {
+            csv.iterationStart(null);
+            assertNull(threadVars.get("a"));
+            values.add(threadVars.get("A"));
+        }
+
+        assertEquals(Set.of("a1", "a2", "a3", "a4"), values);
+    }
+
+    @Test
+    public void testReadFirstSampleUsesHeaderAndRandomOrder() throws Exception {
+        CSVDataSet csv = new CSVDataSet();
+        csv.setFilename(findTestPath("testfiles/testheader.csv"));
+        csv.setDelimiter("|");
+        csv.setRandomOrder(true);
+
+        List<String> sample = csv.readFirstSample(3);
+
+        assertEquals(16, sample.size());
+        assertEquals("A,B,C,D|1", sample.get(0));
+        Set<String> values = new HashSet<>();
+        for (String line : sample) {
+            if (line.startsWith("${A} = ")) {
+                values.add(line.substring("${A} = ".length()));
+            }
+        }
+        assertEquals(3, values.size());
+        assertEquals(3, sample.stream().filter("------------"::equals).count());
+        if (!Set.of("a1", "a2", "a3", "a4").containsAll(values)) {
+            fail("Unexpected values in sample: " + values);
+        }
+    }
+
+    @Test
+    public void testReadFirstSampleDisplaysVariableAssignments() throws Exception {
+        CSVDataSet csv = initCSV();
+
+        List<String> sample = csv.readFirstSample(2);
+
+        assertEquals(List.of(
+                "a,b,c",
+                "${a} = a1",
+                "${b} = b1",
+                "${c} = c1",
+                "------------",
+                "${a} = a2",
+                "${b} = b2",
+                "${c} = c2",
+                "------------"),
+                sample);
     }
 
     // Test CSV file with a header line

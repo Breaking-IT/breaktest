@@ -23,8 +23,8 @@ import com.github.tomakehurst.wiremock.client.WireMock.get
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory
 import org.apache.jmeter.protocol.http.sampler.ResultAsString
-import org.apache.jmeter.protocol.http.util.MockDnsServer
 import org.apache.jmeter.protocol.http.util.HTTPConstants
+import org.apache.jmeter.protocol.http.util.MockDnsServer
 import org.apache.jmeter.wiremock.WireMockExtension
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull

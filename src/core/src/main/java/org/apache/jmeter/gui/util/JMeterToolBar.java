@@ -74,6 +74,10 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     protected static final String TOOLBAR_LIST = "jmeter.toolbar";
 
+    private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-custom/pause.svg";
+
+    private static final String RESUME_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-custom/resume.svg";
+
     /**
      * Create the default JMeter toolbar
      *
@@ -163,6 +167,18 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             return new ThemedSVGIcon(imageURL.toURI(), iconBean.getWidth(), iconBean.getHeight());
         }
         return new ImageIcon(imageURL);
+    }
+
+    private static Icon loadIcon(String i18nKey, String actionName, String iconPath) {
+        String iconSize = JMeterUtils.getPropDefault(TOOLBAR_ICON_SIZE, DEFAULT_TOOLBAR_ICON_SIZE);
+        try {
+            IconToolbarBean iconBean = new IconToolbarBean(i18nKey + TOOLBAR_ENTRY_SEP
+                    + actionName + TOOLBAR_ENTRY_SEP + iconPath, iconSize);
+            return loadIcon(iconBean, iconPath);
+        } catch (Exception e) {
+            log.warn("Unable to load toolbar icon {}", iconPath, e);
+            return null;
+        }
     }
 
     /**
@@ -258,6 +274,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         Map<String, Boolean> buttonStates = new HashMap<>();
         buttonStates.put(ActionNames.ACTION_START, true);
         buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, true);
+        buttonStates.put(ActionNames.ACTION_PAUSE, false);
         buttonStates.put(ActionNames.ACTION_STOP, false);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, false);
         buttonStates.put(ActionNames.UNDO, false);
@@ -272,12 +289,38 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      *            Flag whether local test is started
      */
     public void setLocalTestStarted(boolean started) {
-        Map<String, Boolean> buttonStates = new HashMap<>(3);
+        Map<String, Boolean> buttonStates = new HashMap<>(5);
         buttonStates.put(ActionNames.ACTION_START, !started);
         buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, !started);
+        buttonStates.put(ActionNames.ACTION_PAUSE, started);
         buttonStates.put(ActionNames.ACTION_STOP, started);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, started);
         updateButtons(buttonStates);
+        if (!started) {
+            setLocalTestPaused(false);
+        }
+    }
+
+    /**
+     * Change the pause action presentation to match the current pause state.
+     *
+     * @param paused true when scheduling is paused and the next action is resume
+     */
+    public void setLocalTestPaused(boolean paused) {
+        boolean synchronous = false;
+        JMeterUtils.runSafe(synchronous, () -> {
+            Icon icon = loadIcon(paused ? "resume" : "pause", "ACTION_PAUSE", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+                    paused ? RESUME_ICON_PATH : PAUSE_ICON_PATH);
+            for (Component component : getComponents()) {
+                if (component instanceof JButton button
+                        && ActionNames.ACTION_PAUSE.equals(button.getActionCommand())) {
+                    button.setToolTipText(JMeterUtils.getResString(paused ? "resume" : "pause")); //$NON-NLS-1$ //$NON-NLS-2$
+                    if (icon != null) {
+                        button.setIcon(icon);
+                    }
+                }
+            }
+        });
     }
 
     /**

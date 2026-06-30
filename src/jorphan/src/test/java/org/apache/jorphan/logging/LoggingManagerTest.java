@@ -15,27 +15,24 @@
  * limitations under the License.
  */
 
-package org.apache.jmeter.gui;
+package org.apache.jorphan.logging;
 
-import javax.swing.undo.CompoundEdit;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-public class SimpleCompoundEdit extends CompoundEdit {
+import org.apache.log.Logger;
+import org.junit.jupiter.api.Test;
 
-    private static final long serialVersionUID = 7125085226441904495L;
+public class LoggingManagerTest {
+    @Test
+    public void getLoggerForClassReturnsLegacyLoggerFacade() {
+        Logger logger = LoggingManager.getLoggerForClass();
 
-    /**
-     * @return boolean true if edits is empty
-     */
-    @SuppressWarnings("JdkObsolete")
-    public boolean isEmpty() {
-        return edits.isEmpty();
+        assertNotNull(logger);
+        logger.warn("Legacy logger compatibility smoke test");
     }
 
-    /**
-     * @return size of edits
-     */
-    @SuppressWarnings("JdkObsolete")
-    public int size() {
-        return edits.size();
+    @Test
+    public void getLoggerForReturnsLegacyLoggerFacade() {
+        assertNotNull(LoggingManager.getLoggerFor("legacy.plugin"));
     }
 }

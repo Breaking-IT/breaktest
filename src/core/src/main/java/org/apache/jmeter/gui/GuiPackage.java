@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui;
 
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseEvent;
 import java.beans.Introspector;
@@ -30,12 +31,23 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.prefs.Preferences;
 
+import javax.swing.AbstractButton;
 import javax.swing.JCheckBoxMenuItem;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
+import javax.swing.JSlider;
+import javax.swing.JSpinner;
+import javax.swing.JTable;
 import javax.swing.JToolBar;
 import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
+import javax.swing.table.TableModel;
+import javax.swing.text.JTextComponent;
 
 import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
@@ -48,7 +60,6 @@ import org.apache.jmeter.gui.logging.GuiLogEventBus;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.TestBeanGUI;
@@ -80,6 +91,10 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     private static final Logger log = LoggerFactory.getLogger(GuiPackage.class);
 
     private static final String LAF_EPOCH = "JMeter.laf_epoch"; // $NON-NLS-1$
+
+    private static final String DIRTY_TRACKER_INSTALLED = "JMeter.dirty_tracker_installed"; // $NON-NLS-1$
+
+    private static final String TABLE_DIRTY_TRACKER = "JMeter.table_dirty_tracker"; // $NON-NLS-1$
 
     private static final String SBR_PREFS_KEY = "save_before_run"; // $NON-NLS-1$
 
@@ -127,6 +142,8 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     private JMeterTreeNode currentNode = null;
 
     private boolean currentNodeUpdated = false;
+
+    private boolean configuringCurrentGui = false;
 
     /** The model for JMeter's test tree. */
     private final JMeterTreeModel treeModel;
@@ -305,8 +322,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
             }
             comp.clearGui();
             log.debug("Updating gui to new node");
-            comp.configure(curNode);
-            currentNodeUpdated = false;
+            configureCurrentGui(comp, curNode);
             return comp;
         } catch (Exception e) {
             log.error("Problem retrieving current gui", e);
@@ -465,8 +481,100 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
             log.debug("No component found for {}", currentNode.getName());
             return;
         }
-        comp.configure(element);
-        currentNodeUpdated = false;
+        configureCurrentGui(comp, element);
+    }
+
+    private void configureCurrentGui(JMeterGUIComponent comp, TestElement element) {
+        // Track whether the user actually edits the GUI rather than writing the
+        // node back on every navigation. A blind write-back is not safe: some
+        // GUIs (e.g. TestBeanGUI for JSR223) are not idempotent on a
+        // configure -> modifyTestElement round-trip, so navigating away and back
+        // would record a spurious history entry and discard the redo stack.
+        // Interaction tracking avoids that because it never writes back unless a
+        // tracked widget reported a change.
+        configuringCurrentGui = true;
+        try {
+            comp.configure(element);
+        } finally {
+            configuringCurrentGui = false;
+        }
+        if (comp instanceof JComponent component) {
+            installDirtyTrackers(component);
+        }
+        currentNodeUpdated = true;
+    }
+
+    private void markCurrentNodeDirty() {
+        if (!configuringCurrentGui) {
+            currentNodeUpdated = false;
+        }
+    }
+
+    private void installDirtyTrackers(Component component) {
+        if (component instanceof JComponent jComponent
+                && jComponent.getClientProperty(DIRTY_TRACKER_INSTALLED) == null) {
+            jComponent.putClientProperty(DIRTY_TRACKER_INSTALLED, true);
+            installComponentDirtyTracker(jComponent);
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                installDirtyTrackers(child);
+            }
+        }
+    }
+
+    private void installComponentDirtyTracker(JComponent component) {
+        if (component instanceof JTextComponent textComponent) {
+            textComponent.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    markCurrentNodeDirty();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    markCurrentNodeDirty();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    markCurrentNodeDirty();
+                }
+            });
+        }
+        if (component instanceof AbstractButton button) {
+            button.addItemListener(e -> markCurrentNodeDirty());
+        }
+        if (component instanceof JComboBox<?> comboBox) {
+            comboBox.addItemListener(e -> markCurrentNodeDirty());
+        }
+        if (component instanceof JSpinner spinner) {
+            spinner.addChangeListener(e -> markCurrentNodeDirty());
+        }
+        if (component instanceof JSlider slider) {
+            slider.addChangeListener(e -> markCurrentNodeDirty());
+        }
+        if (component instanceof JTable table) {
+            installTableDirtyTracker(table, table.getModel());
+            table.addPropertyChangeListener("model", event -> {
+                if (event.getNewValue() instanceof TableModel tableModel) {
+                    installTableDirtyTracker(table, tableModel);
+                }
+            });
+        }
+    }
+
+    private void installTableDirtyTracker(JTable table, TableModel tableModel) {
+        if (tableModel == null || table.getClientProperty(TABLE_DIRTY_TRACKER) == tableModel) {
+            return;
+        }
+        TableModelListener listener = event -> {
+            if (event.getType() != TableModelEvent.UPDATE || event.getFirstRow() != TableModelEvent.HEADER_ROW) {
+                markCurrentNodeDirty();
+            }
+        };
+        tableModel.addTableModelListener(listener);
+        table.putClientProperty(TABLE_DIRTY_TRACKER, tableModel);
     }
 
     /**
@@ -894,6 +1002,25 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     }
 
     /**
+     * Adds the current test tree state to undo history after changes that do not
+     * trigger tree model events.
+     *
+     * @param comment description of the change
+     */
+    public void addUndoHistory(String comment) {
+        undoHistory.addCurrentState(comment);
+    }
+
+    /**
+     * Runs display-only tree mutations without recording an undo history entry.
+     *
+     * @param action action to run
+     */
+    public void withoutUndoHistory(Runnable action) {
+        undoHistory.withoutUndo(action);
+    }
+
+    /**
      * Compute checksum of TestElement to detect changes
      * the method calculates properties checksum to detect testelement
      * modifications
@@ -927,11 +1054,11 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     }
 
     /**
-     * Called when history changes, it updates toolbar
+     * Called when history changes, it updates undo/redo controls.
      */
     @Override
     public void notifyChangeInHistory(UndoHistory history) {
-        ((JMeterToolBar)toolbar).updateUndoRedoIcons(history.canUndo(), history.canRedo());
+        mainFrame.updateUndoRedoIcons(history.canUndo(), history.canRedo());
     }
 
     /**

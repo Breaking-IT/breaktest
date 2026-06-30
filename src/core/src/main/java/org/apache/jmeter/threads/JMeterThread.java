@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -48,8 +49,10 @@ import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -121,6 +124,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final JMeterVariables threadVars;
 
+    private final Map<String, Object> initialVariables;
+
     // Note: this is only used to implement TestIterationListener#testIterationStart
     // Since this is a frequent event, it makes sense to create the list once rather than scanning each time
     // The memory used will be released when the thread finishes
@@ -153,6 +158,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
     // Gives access to parent thread threadGroup
     private AbstractThreadGroup threadGroup;
+
+    /**
+     * Next scheduled Thread Group iteration start time, used to calculate start-to-start pacing without drift.
+     */
+    private long nextThreadGroupPacingStartTime = -1;
 
     private StandardJMeterEngine engine = null; // For access to stop methods.
 
@@ -192,6 +202,7 @@ public class JMeterThread implements Runnable, Interruptible {
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note,Boolean isSameUserOnNextIteration) {
         this.monitor = monitor;
         threadVars = new JMeterVariables();
+        initialVariables = snapshotVariableObjects(threadVars);
         testTree = test;
         compiler = new TestCompiler(testTree);
         threadGroupLoopController = (Controller) testTree.getArray()[0];
@@ -219,6 +230,10 @@ public class JMeterThread implements Runnable, Interruptible {
     @API(status = API.Status.STABLE, since = "5.5")
     public void putVariables(JMeterVariables variables) {
         threadVars.putAll(variables);
+        synchronized (initialVariables) {
+            initialVariables.clear();
+            initialVariables.putAll(snapshotVariableObjects(threadVars));
+        }
     }
 
     /**
@@ -811,9 +826,6 @@ public class JMeterThread implements Runnable, Interruptible {
             if (running) {
                 Sampler sampler = pack.getSampler();
                 result = doSampling(threadContext, sampler);
-                if (result != null) {
-                    setSourceTestElementPath(result, pack.getSourceTestElementPath());
-                }
             }
             // If we got any results, then perform processing on the result
             if (result != null) {
@@ -834,6 +846,9 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
+                        if (needsSampleResultMetadata(sampleListeners)) {
+                            setSourceTestElementPath(result, pack.getSourceTestElementPath());
+                        }
                         notifyListeners(sampleListeners, result);
                     }
                     packageDone = true;
@@ -956,14 +971,17 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, JMeterContext threadContext) {
         // Get the transaction sample result
         SampleResult transactionResult = transactionSampler.getTransactionResult();
-        setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
         fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
 
         // Check assertions for the transaction sample
         checkAssertions(transactionPack.getAssertions(), transactionResult, threadContext);
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
-            notifyListeners(transactionPack.getSampleListeners(), transactionResult);
+            List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
+            if (needsSampleResultMetadata(sampleListeners)) {
+                setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
+            }
+            notifyListeners(sampleListeners, transactionResult);
         }
         compiler.done(transactionPack);
         return transactionResult;
@@ -1038,6 +1056,7 @@ public class JMeterThread implements Runnable, Interruptible {
         threadContext.setSamplingStarted(true);
 
         threadGroupLoopController.initialize();
+        nextThreadGroupPacingStartTime = -1;
         IterationListener iterationListener = new IterationListener();
         threadGroupLoopController.addIterationListener(iterationListener);
 
@@ -1048,10 +1067,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private void threadStarted() {
         JMeterContextService.incrNumberOfThreads();
         threadGroup.incrNumberOfThreads();
-        GuiPackage gp =GuiPackage.getInstance();
-        if (gp != null) {// check there is a GUI
-            gp.getMainFrame().updateCounts();
-        }
+        updateGuiCounts();
         ThreadListenerTraverser startup = new ThreadListenerTraverser(true);
         testTree.traverse(startup); // call ThreadListener.threadStarted()
     }
@@ -1061,12 +1077,19 @@ public class JMeterThread implements Runnable, Interruptible {
         testTree.traverse(shut); // call ThreadListener.threadFinished()
         JMeterContextService.decrNumberOfThreads();
         threadGroup.decrNumberOfThreads();
-        GuiPackage gp = GuiPackage.getInstance();
-        if (gp != null){// check there is a GUI
-            gp.getMainFrame().updateCounts();
-        }
+        updateGuiCounts();
         if (iterationListener != null) { // probably not possible, but check anyway
             threadGroupLoopController.removeIterationListener(iterationListener);
+        }
+    }
+
+    private static void updateGuiCounts() {
+        GuiPackage gp = GuiPackage.getInstance();
+        if (gp != null) { // check there is a GUI
+            MainFrame mainFrame = gp.getMainFrame();
+            if (mainFrame != null) {
+                mainFrame.updateCounts();
+            }
         }
     }
 
@@ -1360,6 +1383,7 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     void notifyTestListeners() {
+        resetUserVariablesForNewIteration();
         threadVars.incIteration();
         for (TestIterationListener listener : testIterationStartListeners) {
             listener.testIterationStart(new LoopIterationEvent(threadGroupLoopController, threadVars.getIteration()));
@@ -1369,10 +1393,119 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
+    private void resetUserVariablesForNewIteration() {
+        if (isSameUserOnNextIteration || threadVars.getIteration() == 0) {
+            return;
+        }
+        synchronized (initialVariables) {
+            threadVars.clear();
+            threadVars.putAll(initialVariables);
+        }
+        threadVars.putObject(JMeterVariables.VAR_IS_SAME_USER_KEY, false);
+        setLastSampleOk(threadVars, true);
+    }
+
+    void applyThreadGroupPacing() {
+        if (JMeterContextService.isValidationRun() || threadGroup == null) {
+            return;
+        }
+        long pacingDelay = computeThreadGroupPacingDelay(System.currentTimeMillis());
+        if (pacingDelay > 0) {
+            delayBy(pacingDelay, "ThreadGroup pacing");
+        }
+        if (scheduler) {
+            stopSchedulerIfNeeded();
+        }
+        if (running) {
+            recordThreadGroupIterationStart(System.currentTimeMillis());
+        }
+    }
+
+    long computeThreadGroupPacingDelay(long now) {
+        if (nextThreadGroupPacingStartTime < 0) {
+            return 0;
+        }
+        return Math.max(0, nextThreadGroupPacingStartTime - now);
+    }
+
+    void recordThreadGroupIterationStart(long actualStartTime) {
+        long targetPacing = computeThreadGroupPacingTarget();
+        if (targetPacing <= 0) {
+            nextThreadGroupPacingStartTime = actualStartTime;
+        } else if (nextThreadGroupPacingStartTime < 0) {
+            nextThreadGroupPacingStartTime = actualStartTime + targetPacing;
+        } else {
+            nextThreadGroupPacingStartTime += targetPacing;
+        }
+    }
+
+    private long computeThreadGroupPacingTarget() {
+        String mode = threadGroup.getPacingMode();
+        return switch (mode) {
+            case AbstractThreadGroup.PACING_FIXED -> readPacingValue(threadGroup.getFixedPacing(), "fixed pacing");
+            case AbstractThreadGroup.PACING_RANDOM -> randomThreadGroupPacing();
+            case AbstractThreadGroup.PACING_GAUSSIAN_RANDOM -> gaussianRandomThreadGroupPacing();
+            default -> 0;
+        };
+    }
+
+    private long randomThreadGroupPacing() {
+        long min = readPacingValue(threadGroup.getPacingMin(), "minimum pacing");
+        long max = readPacingValue(threadGroup.getPacingMax(), "maximum pacing");
+        validatePacingRange(min, max);
+        return min == max ? min : ThreadLocalRandom.current().nextLong(min, max + 1);
+    }
+
+    private long gaussianRandomThreadGroupPacing() {
+        long min = readPacingValue(threadGroup.getPacingMin(), "minimum pacing");
+        long max = readPacingValue(threadGroup.getPacingMax(), "maximum pacing");
+        validatePacingRange(min, max);
+        if (min == max) {
+            return min;
+        }
+        double midpoint = min + (max - min) / 2.0d;
+        double standardDeviation = (max - min) / 6.0d;
+        long pacing = Math.round(midpoint + ThreadLocalRandom.current().nextGaussian() * standardDeviation);
+        return Math.clamp(pacing, min, max);
+    }
+
+    private static long readPacingValue(String rawValue, String fieldName) {
+        try {
+            long value = Long.parseLong(rawValue.trim());
+            if (value < 0) {
+                throw new IllegalArgumentException("Thread Group " + fieldName + " must be >= 0");
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Thread Group " + fieldName
+                    + " must resolve to a whole number of milliseconds: " + rawValue, e);
+        }
+    }
+
+    private static void validatePacingRange(long min, long max) {
+        if (max < min) {
+            throw new IllegalArgumentException("Thread Group maximum pacing must be >= minimum pacing");
+        }
+        if (max == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("Thread Group maximum pacing must be less than Long.MAX_VALUE");
+        }
+    }
+
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        setJMeterVariables(result, snapshotVariables(threadVars));
+        if (needsSampleResultMetadata(listeners)) {
+            setJMeterVariables(result, snapshotVariables(threadVars));
+        }
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
         notifier.notifyListeners(event, listeners);
+    }
+
+    private static boolean needsSampleResultMetadata(List<SampleListener> listeners) {
+        for (SampleListener listener : listeners) {
+            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultMetadata()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<String, String> snapshotVariables(JMeterVariables variables) {
@@ -1380,6 +1513,14 @@ public class JMeterThread implements Runnable, Interruptible {
         for (Map.Entry<String, Object> entry : variables.entrySet()) {
             Object value = entry.getValue();
             snapshot.put(entry.getKey(), value == null ? "" : value.toString()); // $NON-NLS-1$
+        }
+        return snapshot;
+    }
+
+    private static Map<String, Object> snapshotVariableObjects(JMeterVariables variables) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : variables.entrySet()) {
+            snapshot.put(entry.getKey(), entry.getValue());
         }
         return snapshot;
     }
@@ -1474,7 +1615,10 @@ public class JMeterThread implements Runnable, Interruptible {
          */
         @Override
         public void iterationStart(LoopIterationEvent iterEvent) {
-            notifyTestListeners();
+            applyThreadGroupPacing();
+            if (running) {
+                notifyTestListeners();
+            }
         }
     }
 

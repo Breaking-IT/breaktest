@@ -67,6 +67,11 @@ public class TestUnmodifiableJMeterVariables {
     }
 
     @Test
+    public void testClear() {
+        assertThrowsUnsupportedOperation(unmodifiables::clear);
+    }
+
+    @Test
     public void testPut() {
         assertThrowsUnsupportedOperation(
                 () -> unmodifiables.put("some.key", "anything"));

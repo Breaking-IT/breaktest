@@ -17,7 +17,9 @@
 
 package org.apache.jmeter.config;
 
+import java.beans.BeanDescriptor;
 import java.beans.PropertyDescriptor;
+import java.util.Enumeration;
 
 import org.apache.jmeter.testbeans.BeanInfoSupport;
 import org.apache.jmeter.testbeans.gui.FileEditor;
@@ -34,6 +36,7 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
     private static final String VARIABLE_NAMES = "variableNames";    //$NON-NLS-1$
     private static final String IGNORE_FIRST_LINE = "ignoreFirstLine";    //$NON-NLS-1$
     private static final String DELIMITER = "delimiter";             //$NON-NLS-1$
+    private static final String RANDOM_ORDER = "randomOrder";        //$NON-NLS-1$
     private static final String RECYCLE = "recycle";                 //$NON-NLS-1$
     private static final String STOPTHREAD = "stopThread";           //$NON-NLS-1$
     private static final String QUOTED_DATA = "quotedData";          //$NON-NLS-1$
@@ -41,6 +44,8 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
 
     private static final String[] SHARE_TAGS = new String[3];
     static final int SHARE_ALL    = 0;
+
+    private final BeanDescriptor beanDescriptor;
 
     // Store the resource keys
     static {
@@ -53,11 +58,12 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
 
     public CSVDataSetBeanInfo() {
         super(CSVDataSet.class);
+        beanDescriptor = createBeanDescriptorWithCustomizer(super.getBeanDescriptor());
 
         createPropertyGroup("csv_data",             //$NON-NLS-1$
                 new String[] { FILENAME, FILE_ENCODING, VARIABLE_NAMES,
                         IGNORE_FIRST_LINE, DELIMITER, QUOTED_DATA,
-                        RECYCLE, STOPTHREAD, SHAREMODE });
+                        RANDOM_ORDER, RECYCLE, STOPTHREAD, SHAREMODE });
 
         PropertyDescriptor p = property(FILENAME);
         p.setValue(NOT_UNDEFINED, true);
@@ -88,6 +94,10 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
         p.setValue(NOT_UNDEFINED, true);
         p.setValue(DEFAULT, false);
 
+        p = property(RANDOM_ORDER);
+        p.setValue(NOT_UNDEFINED, true);
+        p.setValue(DEFAULT, false);
+
         p = property(RECYCLE);
         p.setValue(NOT_UNDEFINED, true);
         p.setValue(DEFAULT, true);
@@ -103,6 +113,23 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
         p.setValue(NOT_OTHER, false);
         p.setValue(NOT_EXPRESSION, false);
         p.setValue(TAGS, SHARE_TAGS);
+    }
+
+    @Override
+    public BeanDescriptor getBeanDescriptor() {
+        return beanDescriptor == null ? super.getBeanDescriptor() : beanDescriptor;
+    }
+
+    private static BeanDescriptor createBeanDescriptorWithCustomizer(BeanDescriptor source) {
+        BeanDescriptor descriptor = new BeanDescriptor(CSVDataSet.class, CSVDataSetCustomizer.class);
+        descriptor.setDisplayName(source.getDisplayName());
+        descriptor.setShortDescription(source.getShortDescription());
+        Enumeration<String> attributeNames = source.attributeNames();
+        while (attributeNames.hasMoreElements()) {
+            String attributeName = attributeNames.nextElement();
+            descriptor.setValue(attributeName, source.getValue(attributeName));
+        }
+        return descriptor;
     }
 
     public static int getShareModeAsInt(String mode) {

@@ -21,6 +21,7 @@ import java.io.Serializable;
 
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.HashTreeTraverser;
 
 /**
  * Undo history item
@@ -34,6 +35,7 @@ public class UndoHistoryItem implements Serializable {
     private final String comment;
     private final TreeState treeState;
     private final boolean dirty;
+    private final String treeFingerprint;
 
     /**
      * This constructor is for Unit test purposes only
@@ -55,6 +57,7 @@ public class UndoHistoryItem implements Serializable {
         comment = acomment;
         this.treeState = treeState;
         this.dirty = dirty;
+        treeFingerprint = fingerprint(copy);
     }
 
     public boolean isDirty() {
@@ -83,5 +86,51 @@ public class UndoHistoryItem implements Serializable {
      */
     public String getComment() {
         return comment;
+    }
+
+    boolean hasSameTree(UndoHistoryItem other) {
+        return other != null && treeFingerprint.equals(other.treeFingerprint);
+    }
+
+    private static String fingerprint(HashTree tree) {
+        if (tree == null) {
+            return "";
+        }
+        TreeFingerprintTraverser traverser = new TreeFingerprintTraverser();
+        tree.traverse(traverser);
+        return traverser.fingerprint();
+    }
+
+    private static final class TreeFingerprintTraverser implements HashTreeTraverser {
+        private final StringBuilder builder = new StringBuilder();
+        private int depth;
+
+        @Override
+        public void addNode(Object node, HashTree subTree) {
+            builder.append(depth)
+                    .append(':')
+                    .append(node.getClass().getName())
+                    .append(':')
+                    .append(node.hashCode())
+                    .append(':')
+                    .append(subTree.size())
+                    .append(';');
+            depth++;
+        }
+
+        @Override
+        public void subtractNode() {
+            builder.append('/').append(depth).append(';');
+            depth--;
+        }
+
+        @Override
+        public void processPath() {
+            builder.append('|');
+        }
+
+        private String fingerprint() {
+            return builder.toString();
+        }
     }
 }

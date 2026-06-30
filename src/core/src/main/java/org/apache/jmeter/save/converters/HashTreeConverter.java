@@ -17,16 +17,23 @@
 
 package org.apache.jmeter.save.converters;
 
+import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.MissingTestElement;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jorphan.collections.HashTree;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.thoughtworks.xstream.converters.MarshallingContext;
 import com.thoughtworks.xstream.converters.UnmarshallingContext;
 import com.thoughtworks.xstream.converters.collections.AbstractCollectionConverter;
 import com.thoughtworks.xstream.io.HierarchicalStreamReader;
 import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
+import com.thoughtworks.xstream.mapper.CannotResolveClassException;
 import com.thoughtworks.xstream.mapper.Mapper;
 
 public class HashTreeConverter extends AbstractCollectionConverter {
+    private static final Logger log = LoggerFactory.getLogger(HashTreeConverter.class);
 
     /**
      * Returns the converter version; used to check for possible
@@ -63,7 +70,7 @@ public class HashTreeConverter extends AbstractCollectionConverter {
         HashTree tree = (HashTree) createCollection(context.getRequiredType());
         while (reader.hasMoreChildren()) {
             reader.moveDown();
-            Object item = readBareItem(reader, context, tree);
+            Object item = isKey ? readHashTreeKey(reader, context, tree) : readBareItem(reader, context, tree);
             if (isKey) {
                 tree.add(item);
                 current = item;
@@ -75,6 +82,67 @@ public class HashTreeConverter extends AbstractCollectionConverter {
             reader.moveUp();
         }
         return tree;
+    }
+
+    private Object readHashTreeKey(HierarchicalStreamReader reader, UnmarshallingContext context, Object current) {
+        String guiClass = reader.getAttribute(ConversionHelp.ATT_TE_GUICLASS);
+        if (guiClass == null) {
+            return readBareItem(reader, context, current);
+        }
+
+        String elementName = reader.getNodeName();
+        String testClassName = aliasToClass(reader.getAttribute("testclass")); // $NON-NLS-1$
+        if (testClassName == null) {
+            testClassName = aliasToClass(reader.getAttribute(ConversionHelp.ATT_CLASS));
+        }
+        if (testClassName == null) {
+            testClassName = aliasToClass(elementName);
+        }
+        String guiClassName = aliasToClass(guiClass);
+
+        Throwable missingClass = missingClass(testClassName);
+        if (missingClass == null) {
+            missingClass = missingClass(guiClassName);
+        }
+        if (missingClass == null) {
+            return readBareItem(reader, context, current);
+        }
+        return readMissingTestElement(reader, context, elementName, testClassName, guiClassName, missingClass);
+    }
+
+    private static String aliasToClass(String alias) {
+        return alias == null ? null : SaveService.aliasToClass(alias);
+    }
+
+    private Throwable missingClass(String className) {
+        if (className == null || className.isEmpty()) {
+            return null;
+        }
+        try {
+            mapper().realClass(className);
+            return null;
+        } catch (CannotResolveClassException | NoClassDefFoundError e) {
+            return e;
+        }
+    }
+
+    private Object readMissingTestElement(HierarchicalStreamReader reader, UnmarshallingContext context,
+            String elementName, String testClassName, String guiClassName, Throwable cause) {
+        log.warn("Replacing unavailable JMX element '{}' with missing-element placeholder: testClass='{}', guiClass='{}'",
+                elementName, testClassName, guiClassName, cause);
+        context.put(SaveService.TEST_CLASS_NAME, testClassName);
+        MissingTestElement el = new MissingTestElement();
+        ConversionHelp.restoreSpecialProperties(el, reader);
+        while (reader.hasMoreChildren()) {
+            reader.moveDown();
+            JMeterProperty prop = (JMeterProperty) readBareItem(reader, context, el);
+            if (prop != null) {
+                el.setProperty(prop);
+            }
+            reader.moveUp();
+        }
+        el.configureMissingElement(elementName, testClassName, guiClassName, cause);
+        return el;
     }
 
     public HashTreeConverter(Mapper arg0) {

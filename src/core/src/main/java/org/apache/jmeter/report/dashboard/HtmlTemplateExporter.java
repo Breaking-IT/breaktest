@@ -62,6 +62,11 @@ public class HtmlTemplateExporter extends AbstractDataExporter {
 
     private static final Logger log = LoggerFactory.getLogger(HtmlTemplateExporter.class);
 
+    static {
+        System.setProperty("org.freemarker.loggerLibrary", // $NON-NLS-1$
+                System.getProperty("org.freemarker.loggerLibrary", "SLF4J")); // $NON-NLS-1$ $NON-NLS-2$
+    }
+
     public static final String DATA_CTX_REPORT_TITLE = "reportTitle";
     public static final String DATA_CTX_TESTFILE = "testFile";
     public static final String DATA_CTX_BEGINDATE = "beginDate";

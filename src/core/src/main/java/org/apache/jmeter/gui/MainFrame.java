@@ -24,6 +24,7 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Insets;
+import java.awt.KeyboardFocusManager;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
@@ -77,6 +78,7 @@ import javax.swing.Scrollable;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.text.JTextComponent;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreeModel;
@@ -813,8 +815,19 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         treevar.setTransferHandler(new JMeterTreeTransferHandler());
 
         addQuickComponentHotkeys(treevar);
+        addUndoRedoHotkeys(treevar);
 
         return treevar;
+    }
+
+    private static void addUndoRedoHotkeys(JTree treevar) {
+        InputMap inputMap = treevar.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        treevar.getActionMap().put(ActionNames.UNDO, new RoutedAction(ActionNames.UNDO));
+        treevar.getActionMap().put(ActionNames.REDO, new RoutedAction(ActionNames.REDO));
+        inputMap.put(KeyStrokes.UNDO, ActionNames.UNDO);
+        inputMap.put(KeyStrokes.REDO, ActionNames.REDO);
+        inputMap.put(KeyStrokes.UNDO_CONTROL, ActionNames.UNDO);
+        inputMap.put(KeyStrokes.REDO_CONTROL, ActionNames.REDO);
     }
 
     private static void addQuickComponentHotkeys(JTree treevar) {
@@ -828,6 +841,32 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         for (int n = 0; n < keyStrokes.length; n++) {
             treevar.getActionMap().put(ActionNames.QUICK_COMPONENT + String.valueOf(n), quickComponent);
             inputMap.put(keyStrokes[n], ActionNames.QUICK_COMPONENT + String.valueOf(n));
+        }
+    }
+
+    private static final class RoutedAction extends AbstractAction {
+        private static final long serialVersionUID = 1L;
+
+        private final String actionName;
+
+        private RoutedAction(String actionName) {
+            super(actionName);
+            this.actionName = actionName;
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent actionEvent) {
+            // This is a WHEN_IN_FOCUSED_WINDOW binding, so it also fires while a
+            // plain text field has focus. Those fields have no local undo, so a
+            // global tree undo/redo here would silently wipe the test plan while
+            // the user is just typing. Skip it and let editors with their own
+            // undo (e.g. JSyntaxTextArea) handle the key via their WHEN_FOCUSED map.
+            Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            if (focusOwner instanceof JTextComponent textComponent && textComponent.isEditable()) {
+                return;
+            }
+            ActionRouter.getInstance().doActionNow(
+                    new ActionEvent(actionEvent.getSource(), actionEvent.getID(), actionName));
         }
     }
 
@@ -870,7 +909,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
                     log.debug("Cannot add element on very top level");
                 } else {
                     JMeterTreeNode node = guiPackage.getTreeModel().addComponent(testElement, parentNode);
-                    guiPackage.getMainFrame().getTree().setSelectionPath(new TreePath(node.getPath()));
+                    guiPackage.getTreeListener().setSelectionPathWithoutEdit(new TreePath(node.getPath()));
+                    ActionRouter.getInstance().doActionNow(
+                            new ActionEvent(actionEvent.getSource(), actionEvent.getID(), ActionNames.EDIT));
                 }
             } catch (Exception err) {
                 log.warn("Failed to perform quick component add: {}", comp, err); // $NON-NLS-1$
@@ -1048,5 +1089,6 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      */
     public void updateUndoRedoIcons(boolean canUndo, boolean canRedo) {
         toolbar.updateUndoRedoIcons(canUndo, canRedo);
+        menuBar.updateUndoRedoItems(canUndo, canRedo);
     }
 }

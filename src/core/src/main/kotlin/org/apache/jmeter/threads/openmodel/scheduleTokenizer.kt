@@ -71,6 +71,11 @@ internal object Tokenizer {
         override fun toString() = "/"
     }
 
+    object CommaToken : Token {
+        override val image: String get() = ","
+        override fun toString() = ","
+    }
+
     private fun Regex.prepareMatcher(value: String) =
         toPattern().matcher(value).useAnchoringBounds(false).useTransparentBounds(true).region(0, value.length)
 
@@ -92,6 +97,7 @@ internal object Tokenizer {
                 value[pos] == '(' -> OpenParenthesisToken
                 value[pos] == ')' -> CloseParenthesisToken
                 value[pos] == '/' -> DivideToken
+                value[pos] == ',' -> CommaToken
                 mNumber.lookingAt(pos) -> NumberToken(mNumber.group())
                 mIdentifier.lookingAt(pos) -> IdentifierToken(mIdentifier.group())
                 else -> throw TokenizerException(value, pos, "Unexpected input")

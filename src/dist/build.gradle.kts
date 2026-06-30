@@ -100,6 +100,21 @@ dependencies {
     runtimeOnly("org.apache.commons:commons-collections4") {
         because("commons-collections4 was a dependency in previous JMeter versions, so we keep it for compatibility")
     }
+    runtimeOnly("org.apache.httpcomponents:httpasyncclient") {
+        because("Apache HttpClient 4 was bundled in previous JMeter versions, so we keep it for legacy plugin compatibility")
+    }
+    runtimeOnly("org.apache.httpcomponents:httpclient") {
+        because("Apache HttpClient 4 was bundled in previous JMeter versions, so we keep it for legacy plugin compatibility")
+    }
+    runtimeOnly("org.apache.httpcomponents:httpcore") {
+        because("Apache HttpClient 4 was bundled in previous JMeter versions, so we keep it for legacy plugin compatibility")
+    }
+    runtimeOnly("org.apache.httpcomponents:httpcore-nio") {
+        because("Apache HttpClient 4 was bundled in previous JMeter versions, so we keep it for legacy plugin compatibility")
+    }
+    runtimeOnly("org.apache.httpcomponents:httpmime") {
+        because("Apache HttpClient 4 was bundled in previous JMeter versions, so we keep it for legacy plugin compatibility")
+    }
 
     binLicense(project(":src:licenses", "binLicense"))
     srcLicense(project(":src:licenses", "srcLicense"))
