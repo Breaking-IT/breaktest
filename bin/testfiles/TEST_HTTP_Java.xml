@@ -122,7 +122,7 @@
   <httpSample s="true" lb="HR-FollowRedirect-20" rc="302" dt="text"/>
   <httpSample s="false" lb="HR-FollowRedirect-21" rc="Non HTTP response code: java.io.IOException" dt="text"/>
 </httpSample>
-<httpSample s="true" lb="HR-FollowRedirect" rc="Non HTTP response code: java.net.ProtocolException" dt="text">
+<httpSample s="true" lb="HR-FollowRedirect" rc="Non HTTP response code: org.apache.hc.core5.http.nio.support.classic.ProtocolException" dt="text">
   <assertionResult>
     <name>Response Assertion</name>
     <failure>false</failure>

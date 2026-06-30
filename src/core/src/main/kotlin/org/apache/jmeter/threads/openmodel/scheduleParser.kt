@@ -146,8 +146,8 @@ internal class ScheduleParser(private val schedule: String) {
                 ?: parseArrivals(ArrivalType.RANDOM, "random_arrival", "random_arrivals")
                 ?: parseArrivals(ArrivalType.EVEN, "even_arrival", "even_arrivals")
                 ?: throwParseException(
-                    "Unexpected input (expecting rate, random_arrival, even_arrival, "
-                        + "constantThreadsPerMinDuring, rampThreadsPerMinDuring, or pause)"
+                    "Unexpected input (expecting rate, random_arrival, even_arrival, " +
+                        "constantThreadsPerMinDuring, rampThreadsPerMinDuring, or pause)"
                 )
             steps += step
             if (step is ThreadScheduleStep.RateStep) {

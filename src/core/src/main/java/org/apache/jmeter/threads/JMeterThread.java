@@ -49,6 +49,7 @@ import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.reporters.ResultCollector;
@@ -1066,10 +1067,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private void threadStarted() {
         JMeterContextService.incrNumberOfThreads();
         threadGroup.incrNumberOfThreads();
-        GuiPackage gp =GuiPackage.getInstance();
-        if (gp != null) {// check there is a GUI
-            gp.getMainFrame().updateCounts();
-        }
+        updateGuiCounts();
         ThreadListenerTraverser startup = new ThreadListenerTraverser(true);
         testTree.traverse(startup); // call ThreadListener.threadStarted()
     }
@@ -1079,12 +1077,19 @@ public class JMeterThread implements Runnable, Interruptible {
         testTree.traverse(shut); // call ThreadListener.threadFinished()
         JMeterContextService.decrNumberOfThreads();
         threadGroup.decrNumberOfThreads();
-        GuiPackage gp = GuiPackage.getInstance();
-        if (gp != null){// check there is a GUI
-            gp.getMainFrame().updateCounts();
-        }
+        updateGuiCounts();
         if (iterationListener != null) { // probably not possible, but check anyway
             threadGroupLoopController.removeIterationListener(iterationListener);
+        }
+    }
+
+    private static void updateGuiCounts() {
+        GuiPackage gp = GuiPackage.getInstance();
+        if (gp != null) { // check there is a GUI
+            MainFrame mainFrame = gp.getMainFrame();
+            if (mainFrame != null) {
+                mainFrame.updateCounts();
+            }
         }
     }
 

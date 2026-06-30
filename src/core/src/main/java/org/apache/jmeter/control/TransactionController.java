@@ -491,7 +491,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setDelayMode(String delayMode) {
-        set(getSchema().getDelayMode(), delayMode);
+        setProperty(getSchema().getDelayMode().getName(), delayMode, DELAY_DISABLED);
     }
 
     public String getDelayMode() {
@@ -499,7 +499,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setFixedDelay(String fixedDelay) {
-        set(getSchema().getFixedDelay(), fixedDelay);
+        setProperty(getSchema().getFixedDelay().getName(), fixedDelay, "0"); // $NON-NLS-1$
     }
 
     public String getFixedDelay() {
@@ -507,7 +507,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setDelayMin(String delayMin) {
-        set(getSchema().getDelayMin(), delayMin);
+        setProperty(getSchema().getDelayMin().getName(), delayMin, "0"); // $NON-NLS-1$
     }
 
     public String getDelayMin() {
@@ -515,7 +515,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setDelayMax(String delayMax) {
-        set(getSchema().getDelayMax(), delayMax);
+        setProperty(getSchema().getDelayMax().getName(), delayMax, "0"); // $NON-NLS-1$
     }
 
     public String getDelayMax() {
@@ -523,7 +523,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setPacingMode(String pacingMode) {
-        set(getSchema().getPacingMode(), pacingMode);
+        setProperty(getSchema().getPacingMode().getName(), pacingMode, DELAY_DISABLED);
     }
 
     public String getPacingMode() {
@@ -531,7 +531,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setFixedPacing(String fixedPacing) {
-        set(getSchema().getFixedPacing(), fixedPacing);
+        setProperty(getSchema().getFixedPacing().getName(), fixedPacing, "0"); // $NON-NLS-1$
     }
 
     public String getFixedPacing() {
@@ -539,7 +539,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setPacingMin(String pacingMin) {
-        set(getSchema().getPacingMin(), pacingMin);
+        setProperty(getSchema().getPacingMin().getName(), pacingMin, "0"); // $NON-NLS-1$
     }
 
     public String getPacingMin() {
@@ -547,7 +547,7 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     public void setPacingMax(String pacingMax) {
-        set(getSchema().getPacingMax(), pacingMax);
+        setProperty(getSchema().getPacingMax().getName(), pacingMax, "0"); // $NON-NLS-1$
     }
 
     public String getPacingMax() {

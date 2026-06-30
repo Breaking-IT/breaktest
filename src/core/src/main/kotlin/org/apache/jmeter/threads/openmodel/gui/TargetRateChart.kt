@@ -23,9 +23,9 @@ import org.apiguardian.api.API
 import org.jetbrains.letsPlot.batik.plot.component.DefaultPlotPanelBatik
 import org.jetbrains.letsPlot.commons.registration.Disposable
 import org.jetbrains.letsPlot.core.util.MonolithicCommon
+import org.jetbrains.letsPlot.geom.extras.arrow
 import org.jetbrains.letsPlot.geom.geomLine
 import org.jetbrains.letsPlot.geom.geomSegment
-import org.jetbrains.letsPlot.geom.extras.arrow
 import org.jetbrains.letsPlot.intern.toSpec
 import org.jetbrains.letsPlot.label.ggtitle
 import org.jetbrains.letsPlot.label.ylab
@@ -138,9 +138,10 @@ public class TargetRateChart : JPanel() {
         valuesPerMinute: Boolean,
         continuation: Boolean
     ) {
-        if (time.contentEquals(prevTimes) && rate.contentEquals(prevRate)
-            && title == prevTitle && yAxisLabel == prevYAxisLabel
-            && valuesPerMinute == prevValuesPerMinute && continuation == prevContinuation) {
+        if (time.contentEquals(prevTimes) && rate.contentEquals(prevRate) &&
+            title == prevTitle && yAxisLabel == prevYAxisLabel &&
+            valuesPerMinute == prevValuesPerMinute && continuation == prevContinuation
+        ) {
             return
         }
         prevTimes = time.copyOf()

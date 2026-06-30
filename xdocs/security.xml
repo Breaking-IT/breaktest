@@ -34,7 +34,6 @@
     evaluate untrusted jmx files, it is up to you to provide the
     required isolation.
   </p>
-  <p>
 </section>
 <section name="Reporting security issues">
   <p>
