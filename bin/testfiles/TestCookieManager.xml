@@ -32,7 +32,7 @@
     <error>false</error>
   </assertionResult>
 </httpSample>
-<httpSample s="true" lb="HTTPS-Request-Java" rc="Non HTTP response code: java.net.ConnectException" tn="TG-ManagedCookieJava 2-1" dt="text" sc="1" ec="0" ng="1" na="1">
+<httpSample s="true" lb="HTTPS-Request-Java" rc="Non HTTP response code: org.apache.hc.client5.http.HttpHostConnectException" tn="TG-ManagedCookieJava 2-1" dt="text" sc="1" ec="0" ng="1" na="1">
   <assertionResult>
     <name>Request Assertion</name>
     <failure>false</failure>
@@ -70,7 +70,7 @@
     <error>false</error>
   </assertionResult>
 </httpSample>
-<httpSample s="true" lb="HTTPS-NonManagedCookie-Java" rc="Non HTTP response code: java.net.ConnectException" tn="TG-NonManagedCookieJava 4-1" dt="text" sc="1" ec="0" ng="1" na="1">
+<httpSample s="true" lb="HTTPS-NonManagedCookie-Java" rc="Non HTTP response code: org.apache.hc.client5.http.HttpHostConnectException" tn="TG-NonManagedCookieJava 4-1" dt="text" sc="1" ec="0" ng="1" na="1">
   <assertionResult>
     <name>Request Assertion</name>
     <failure>false</failure>

@@ -59,8 +59,8 @@ import org.apache.jmeter.threads.openmodel.OpenModelThreadGroupSchema;
 import org.apache.jmeter.threads.openmodel.ThreadScheduleUtils;
 import org.apache.jmeter.threads.openmodel.gui.TargetRateChart;
 import org.apache.jmeter.util.JMeterUtils;
-import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.gui.JEditableCheckBox;
+import org.apache.jorphan.gui.JFactory;
 
 import net.miginfocom.swing.MigLayout;
 
@@ -839,7 +839,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         updateClosedModelLegacyFieldState();
         String schedule = closedModelSchedule.getText();
         if (!schedule.trim().isEmpty()) {
-            Long delaySeconds = delay.getText().trim().isEmpty() ? 0L : parsePositiveLong(delay.getText());
+            Long delaySeconds = delay.getText().trim().isEmpty() ? Long.valueOf(0) : parsePositiveLong(delay.getText());
             if (delaySeconds == null || delaySeconds < 0) {
                 closedModelPreview.showMessage(JMeterUtils.getResString("thread_group_preview_unavailable"));
                 return;
@@ -864,7 +864,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         boolean finiteDuration = isDurationPolicySelected() && !duration.getText().trim().isEmpty();
         boolean delayedStart = !delay.getText().trim().isEmpty();
         Long durationSeconds = finiteDuration ? parsePositiveLong(duration.getText()) : null;
-        Long delaySeconds = delayedStart ? parsePositiveLong(delay.getText()) : 0L;
+        Long delaySeconds = delayedStart ? parsePositiveLong(delay.getText()) : Long.valueOf(0);
         if (threads == null || rampSeconds == null || delaySeconds == null || threads <= 0 || rampSeconds < 0
                 || delaySeconds < 0 || finiteDuration && durationSeconds == null) {
             closedModelPreview.showMessage(JMeterUtils.getResString("thread_group_preview_unavailable"));

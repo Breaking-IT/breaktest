@@ -67,14 +67,17 @@ import org.apache.jmeter.control.gui.TransactionControllerGui;
 import org.apache.jmeter.control.gui.WhileControllerGui;
 import org.apache.jmeter.dsl.DslPrinterTraverser;
 import org.apache.jmeter.extractor.RegexExtractorSchema;
+import org.apache.jmeter.extractor.gui.RegexExtractorGui;
 import org.apache.jmeter.gui.GuiComponentHolder;
 import org.apache.jmeter.gui.JMeterGUIComponent;
+import org.apache.jmeter.gui.MissingTestElementGui;
 import org.apache.jmeter.gui.NamePanel;
 import org.apache.jmeter.gui.UnsharedComponent;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.loadsave.IsEnabledNormalizer;
 import org.apache.jmeter.protocol.http.control.gui.AjpSamplerGui;
 import org.apache.jmeter.protocol.http.control.gui.GraphQLHTTPSamplerGui;
+import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.java.config.gui.JavaConfigGui;
 import org.apache.jmeter.protocol.java.control.gui.JUnitTestSamplerGui;
@@ -94,6 +97,7 @@ import org.apache.jmeter.testelement.schema.TestElementPropertyDescriptor;
 import org.apache.jmeter.threads.ThreadGroupSchema;
 import org.apache.jmeter.threads.gui.PostThreadGroupGui;
 import org.apache.jmeter.threads.gui.SetupThreadGroupGui;
+import org.apache.jmeter.threads.gui.ThreadGroupGui;
 import org.apache.jmeter.threads.openmodel.gui.OpenModelThreadGroupGui;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.backend.BackendListenerGui;
@@ -249,6 +253,9 @@ public class JMeterTest extends JMeterTestCase {
                 continue;
             }
             if (item instanceof ObsoleteGui) {
+                continue;
+            }
+            if (item.getClass() == MissingTestElementGui.class) {
                 continue;
             }
             components.add(new GuiComponentHolder(item));
@@ -438,6 +445,11 @@ public class JMeterTest extends JMeterTestCase {
                 // Setup and Post thread groups do not show "delay thread creation" checkbox
                 continue;
             }
+            if (isClassicThreadGroupGui(guiItem) &&
+                    property.equals(ThreadGroupSchema.INSTANCE.getUseScheduler())) {
+                // Scheduler state is represented by the duration policy selector, so expression values can't round-trip
+                continue;
+            }
             if (guiItem.getClass() == OpenModelThreadGroupGui.class && (
                     property.equals(ThreadGroupSchema.INSTANCE.getNumThreads()) ||
                             property.equals(ThreadGroupSchema.INSTANCE.getSameUserOnNextIteration()))) {
@@ -455,7 +467,21 @@ public class JMeterTest extends JMeterTestCase {
                     property.equals(TransactionControllerSchema.INSTANCE.getIncludeTimers()) ||
                             property.equals(TransactionControllerSchema.INSTANCE.getTimingMode()) ||
                             property.equals(TransactionControllerSchema.INSTANCE.getDelayMode()) ||
-                            property.equals(TransactionControllerSchema.INSTANCE.getPacingMode()))) {
+                            property.equals(TransactionControllerSchema.INSTANCE.getFixedDelay()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getDelayMin()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getDelayMax()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getPacingMode()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getFixedPacing()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getPacingMin()) ||
+                            property.equals(TransactionControllerSchema.INSTANCE.getPacingMax()))) {
+                continue;
+            }
+            if (guiItem.getClass() == RegexExtractorGui.class &&
+                    property.equals(RegexExtractorSchema.INSTANCE.getFailOnNoMatch())) {
+                continue;
+            }
+            if ((guiItem.getClass() == HttpTestSampleGui.class || guiItem.getClass() == GraphQLHTTPSamplerGui.class) &&
+                    property.equals(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol())) {
                 continue;
             }
             el.set(property, "${test_" + property.getName() + "}");
@@ -485,6 +511,12 @@ public class JMeterTest extends JMeterTestCase {
 
         compareAllProperties(el, el2,
                 () -> "GUI element " + componentHolder + " be able to pass all the properties to a different TestElement");
+    }
+
+    private static boolean isClassicThreadGroupGui(JMeterGUIComponent guiItem) {
+        return guiItem.getClass() == ThreadGroupGui.class ||
+                guiItem.getClass() == SetupThreadGroupGui.class ||
+                guiItem.getClass() == PostThreadGroupGui.class;
     }
 
     @ParameterizedTest

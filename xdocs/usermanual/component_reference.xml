@@ -2472,6 +2472,17 @@ The controller waits until all child samplers and nested controller samplers hav
 </properties>
 </component>
 
+<component name="Fork Controller" index="&sect-num;.2.19" width="330" height="100">
+<description>
+<p>
+The Fork Controller executes each child sampler independently within the current virtual user flow.
+</p>
+</description>
+<properties>
+        <property name="Name" required="No">Descriptive name for this controller that is shown in the tree.</property>
+</properties>
+</component>
+
 <a href="#">^</a>
 
 </section>

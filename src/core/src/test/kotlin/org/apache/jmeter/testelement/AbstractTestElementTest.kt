@@ -108,14 +108,14 @@ class AbstractTestElementTest {
     }
 
     @Test
-    fun `shallow multi temporary properties keep value semantics`() {
+    fun `shallow multi temporary properties use identity semantics`() {
         val sut = spyk<AbstractTestElement>()
         val prop = CollectionProperty("prop", listOf(StringProperty("child", "value")))
         val equalProp = CollectionProperty("prop", listOf(StringProperty("child", "value")))
 
         sut.setTemporary(prop)
 
-        assertTrue(sut.isTemporary(equalProp)) {
+        assertFalse(sut.isTemporary(equalProp)) {
             "isTemporary($equalProp)"
         }
     }

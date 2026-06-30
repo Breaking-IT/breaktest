@@ -71,8 +71,8 @@ import javax.swing.tree.TreeSelectionModel;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.assertions.AssertionResult;
-import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.VerticalPanel;

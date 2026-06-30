@@ -1088,11 +1088,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
      */
     protected void clearTemporary(JMeterProperty property) {
         try (ResourceLock ignored = writeLock()) {
-            if (temporaryProperties != null) {
+            if (requiresIdentityTemporarySet(property)) {
+                if (identityTemporaryProperties != null) {
+                    identityTemporaryProperties.remove(property);
+                }
+            } else if (temporaryProperties != null) {
                 temporaryProperties.remove(property);
-            }
-            if (identityTemporaryProperties != null) {
-                identityTemporaryProperties.remove(property);
             }
         }
     }
@@ -1410,7 +1411,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     }
 
     private static boolean requiresIdentityTemporarySet(JMeterProperty property) {
-        return property instanceof TestElementProperty;
+        return property instanceof MultiProperty;
     }
 
     // While TestElementProperty is implementing MultiProperty, it works differently.

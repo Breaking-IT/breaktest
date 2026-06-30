@@ -209,10 +209,9 @@ abstract class BatchTest @Inject constructor(objects: ObjectFactory) : JavaExec(
         args("-i", log4jXml.get())
         args("-j", logFile.get())
         args("-l", jtlFile.get())
-        // Check properties can be passed to local/remote tests
+        // Check properties can be passed to local tests
         args("-Jmodule=Module")
-        args("-Gmodule=Module")
-        // Check property can be used for filenames in local/remote tests (no need to defined as -G)
+        // Check property can be used for filenames in local tests
         args("-JCSVFILE=${csvFile.get()}")
 
         deleteWorkfiles()

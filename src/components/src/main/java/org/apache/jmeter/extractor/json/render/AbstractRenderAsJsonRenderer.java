@@ -37,6 +37,7 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.visualizers.RenderAsJSON;
 import org.apache.jmeter.visualizers.ResultRenderer;
 import org.apache.jmeter.visualizers.ViewResultsFullVisualizer;
 import org.apache.jorphan.gui.GuiUtils;
@@ -118,7 +119,7 @@ abstract class AbstractRenderAsJsonRenderer implements ResultRenderer, ActionLis
     @Override
     public void renderResult(SampleResult sampleResult) {
         String response = ViewResultsFullVisualizer.getResponseAsString(sampleResult);
-        jsonDataField.setText(response == null ? "" : response);  //$NON-NLS-1$
+        jsonDataField.setText(response == null ? "" : RenderAsJSON.prettyJSON(response));  //$NON-NLS-1$
         jsonDataField.setCaretPosition(0);
     }
 

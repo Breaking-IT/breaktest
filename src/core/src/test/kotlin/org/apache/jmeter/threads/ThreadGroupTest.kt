@@ -150,7 +150,7 @@ class ThreadGroupTest : JMeterTestCase() {
         }
         assertEquals(1, events.size) {
             "Legacy Open Model ThreadGroup should skip arrivals while the group active-thread limit is reached. " +
-            "Actual events are $events"
+                "Actual events are $events"
         }
     }
 

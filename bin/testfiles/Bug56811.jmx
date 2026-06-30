@@ -151,12 +151,13 @@
                   <stringProp name="classname">org.apache.jmeter.protocol.java.test.JavaTest</stringProp>
                 </JavaSampler>
                 <hashTree/>
-                <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="BeanShell Sampler" enabled="true">
-                  <stringProp name="BeanShellSampler.query">IsSuccess  = false;</stringProp>
-                  <stringProp name="BeanShellSampler.filename"></stringProp>
-                  <stringProp name="BeanShellSampler.parameters"></stringProp>
-                  <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
-                </BeanShellSampler>
+                <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="JSR223 Failure Sampler" enabled="true">
+                  <stringProp name="cacheKey">true</stringProp>
+                  <stringProp name="filename"></stringProp>
+                  <stringProp name="parameters"></stringProp>
+                  <stringProp name="script">SampleResult.setSuccessful(false); SampleResult.setResponseData(&quot;false&quot;, &quot;UTF-8&quot;);</stringProp>
+                  <stringProp name="scriptLanguage">groovy</stringProp>
+                </JSR223Sampler>
                 <hashTree/>
                 <JavaSampler guiclass="JavaTestSamplerGui" testclass="JavaSampler" testname="Samp 4" enabled="true">
                   <elementProp name="arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" enabled="true">
@@ -555,12 +556,13 @@
                   <stringProp name="classname">org.apache.jmeter.protocol.java.test.JavaTest</stringProp>
                 </JavaSampler>
                 <hashTree/>
-                <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="BeanShell Sampler" enabled="true">
-                  <stringProp name="BeanShellSampler.query">IsSuccess  = false;</stringProp>
-                  <stringProp name="BeanShellSampler.filename"></stringProp>
-                  <stringProp name="BeanShellSampler.parameters"></stringProp>
-                  <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
-                </BeanShellSampler>
+                <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="JSR223 Failure Sampler" enabled="true">
+                  <stringProp name="cacheKey">true</stringProp>
+                  <stringProp name="filename"></stringProp>
+                  <stringProp name="parameters"></stringProp>
+                  <stringProp name="script">SampleResult.setSuccessful(false); SampleResult.setResponseData(&quot;false&quot;, &quot;UTF-8&quot;);</stringProp>
+                  <stringProp name="scriptLanguage">groovy</stringProp>
+                </JSR223Sampler>
                 <hashTree>
                   <ResultAction guiclass="ResultActionGui" testclass="ResultAction" testname="Result Status Action Handler" enabled="true">
                     <intProp name="OnError.action">4</intProp>
@@ -964,12 +966,13 @@
                   <stringProp name="classname">org.apache.jmeter.protocol.java.test.JavaTest</stringProp>
                 </JavaSampler>
                 <hashTree/>
-                <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="BeanShell Sampler" enabled="true">
-                  <stringProp name="BeanShellSampler.query">IsSuccess  = false;</stringProp>
-                  <stringProp name="BeanShellSampler.filename"></stringProp>
-                  <stringProp name="BeanShellSampler.parameters"></stringProp>
-                  <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
-                </BeanShellSampler>
+                <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="JSR223 Failure Sampler" enabled="true">
+                  <stringProp name="cacheKey">true</stringProp>
+                  <stringProp name="filename"></stringProp>
+                  <stringProp name="parameters"></stringProp>
+                  <stringProp name="script">SampleResult.setSuccessful(false); SampleResult.setResponseData(&quot;false&quot;, &quot;UTF-8&quot;);</stringProp>
+                  <stringProp name="scriptLanguage">groovy</stringProp>
+                </JSR223Sampler>
                 <hashTree/>
                 <JavaSampler guiclass="JavaTestSamplerGui" testclass="JavaSampler" testname="Samp 4" enabled="true">
                   <elementProp name="arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" enabled="true">
@@ -1368,12 +1371,13 @@
                   <stringProp name="classname">org.apache.jmeter.protocol.java.test.JavaTest</stringProp>
                 </JavaSampler>
                 <hashTree/>
-                <BeanShellSampler guiclass="BeanShellSamplerGui" testclass="BeanShellSampler" testname="BeanShell Sampler" enabled="true">
-                  <stringProp name="BeanShellSampler.query">IsSuccess  = false;</stringProp>
-                  <stringProp name="BeanShellSampler.filename"></stringProp>
-                  <stringProp name="BeanShellSampler.parameters"></stringProp>
-                  <boolProp name="BeanShellSampler.resetInterpreter">false</boolProp>
-                </BeanShellSampler>
+                <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="JSR223 Failure Sampler" enabled="true">
+                  <stringProp name="cacheKey">true</stringProp>
+                  <stringProp name="filename"></stringProp>
+                  <stringProp name="parameters"></stringProp>
+                  <stringProp name="script">SampleResult.setSuccessful(false); SampleResult.setResponseData(&quot;false&quot;, &quot;UTF-8&quot;);</stringProp>
+                  <stringProp name="scriptLanguage">groovy</stringProp>
+                </JSR223Sampler>
                 <hashTree/>
                 <JavaSampler guiclass="JavaTestSamplerGui" testclass="JavaSampler" testname="Samp 4" enabled="true">
                   <elementProp name="arguments" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" enabled="true">
