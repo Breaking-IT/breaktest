@@ -22,6 +22,7 @@ import java.util.AbstractCollection;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -30,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -157,11 +159,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     /**
      * Holds properties added when isRunningVersion is true.
-     * <p>Uses identity semantics: membership is about the specific property instance, not its
-     * value. This is essential for performance - {@link JMeterProperty#hashCode()}/equals on a
-     * {@link MultiProperty}/{@link TestElementProperty} deep-walks the whole nested element tree,
-     * so a value-hashed set would make {@link #isTemporary}/{@link #setTemporary} O(subtree) and
-     * dominate the per-sample recover cost.
+     * <p>{@link #identityTemporaryProperties} uses identity semantics: membership is about the
+     * specific property instance, not its value. This is essential for performance -
+     * {@link JMeterProperty#hashCode()}/equals on a {@link MultiProperty}/{@link TestElementProperty}
+     * deep-walks the whole nested element tree, so a value-hashed set would make
+     * {@link #isTemporary}/{@link #setTemporary} O(subtree) and dominate the per-sample recover cost.
      */
     // @GuardedBy("lock")
     private transient Set<JMeterProperty> temporaryProperties;
@@ -1405,7 +1407,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
 
     private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
         Set<JMeterProperty> set = identity
-                ? Collections.newSetFromMap(new IdentityHashMap<>())
+                ? new HybridIdentitySet()
                 : new LinkedHashSet<>();
         return lock != null ? set : Collections.synchronizedSet(set);
     }
@@ -1420,6 +1422,122 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     // temporary (Bug 65336)
     private static boolean isMergingEnclosedProperties(JMeterProperty property) {
         return property instanceof MultiProperty && !(property instanceof TestElementProperty);
+    }
+
+    /**
+     * Identity-semantics {@link Set} used for {@link #identityTemporaryProperties}. It keeps the
+     * usual tiny set as an array to avoid the eager table allocation of {@link IdentityHashMap},
+     * then promotes if a plan ever creates many temporary properties for one element.
+     */
+    static final class HybridIdentitySet extends AbstractSet<JMeterProperty> {
+        private static final int PROMOTE_THRESHOLD = 32;
+
+        private JMeterProperty[] array = new JMeterProperty[8];
+        private int size;
+        private Set<JMeterProperty> promoted;
+
+        @Override
+        public boolean add(JMeterProperty property) {
+            if (promoted != null) {
+                return promoted.add(property);
+            }
+            for (int i = 0; i < size; i++) {
+                if (array[i] == property) {
+                    return false;
+                }
+            }
+            if (size == PROMOTE_THRESHOLD) {
+                promote();
+                return promoted.add(property);
+            }
+            if (size == array.length) {
+                array = Arrays.copyOf(array, size << 1);
+            }
+            array[size++] = property;
+            return true;
+        }
+
+        private void promote() {
+            promoted = Collections.newSetFromMap(new IdentityHashMap<>(PROMOTE_THRESHOLD * 2));
+            for (int i = 0; i < size; i++) {
+                promoted.add(array[i]);
+            }
+            array = null;
+            size = 0;
+        }
+
+        @Override
+        public boolean contains(Object value) {
+            if (promoted != null) {
+                return promoted.contains(value);
+            }
+            for (int i = 0; i < size; i++) {
+                if (array[i] == value) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public boolean remove(Object value) {
+            if (promoted != null) {
+                return promoted.remove(value);
+            }
+            for (int i = 0; i < size; i++) {
+                if (array[i] == value) {
+                    array[i] = array[--size];
+                    array[size] = null;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public void clear() {
+            if (promoted != null) {
+                promoted.clear();
+            } else {
+                for (int i = 0; i < size; i++) {
+                    array[i] = null;
+                }
+                size = 0;
+            }
+        }
+
+        @Override
+        public int size() {
+            return promoted != null ? promoted.size() : size;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return promoted != null ? promoted.isEmpty() : size == 0;
+        }
+
+        @Override
+        public Iterator<JMeterProperty> iterator() {
+            if (promoted != null) {
+                return promoted.iterator();
+            }
+            return new Iterator<>() {
+                private int index;
+
+                @Override
+                public boolean hasNext() {
+                    return index < size;
+                }
+
+                @Override
+                public JMeterProperty next() {
+                    if (index >= size) {
+                        throw new NoSuchElementException();
+                    }
+                    return array[index++];
+                }
+            };
+        }
     }
 
     /**
