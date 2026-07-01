@@ -575,6 +575,16 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
         return visualizer != null && visualizer.needsSampleResultMetadata();
     }
 
+    public boolean needsSampleResultVariables() {
+        Visualizer visualizer = getVisualizer();
+        return visualizer != null && visualizer.needsSampleResultVariables();
+    }
+
+    public boolean needsSampleResultSourcePath() {
+        Visualizer visualizer = getVisualizer();
+        return visualizer != null && visualizer.needsSampleResultSourcePath();
+    }
+
     /**
      * Checks if the sample result is marked or not, and marks it
      * @param res - the sample result to check

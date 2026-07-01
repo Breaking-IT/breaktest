@@ -223,7 +223,7 @@ class TestJMeterThread {
         }
     }
 
-    private static final class MetadataNeedingVisualizer implements Visualizer {
+    private static final class SourcePathNeedingVisualizer implements Visualizer {
         private final AtomicReference<SampleResult> result = new AtomicReference<>();
 
         @Override
@@ -232,7 +232,7 @@ class TestJMeterThread {
         }
 
         @Override
-        public boolean needsSampleResultMetadata() {
+        public boolean needsSampleResultSourcePath() {
             return true;
         }
 
@@ -876,7 +876,7 @@ class TestJMeterThread {
     }
 
     @Test
-    void testTransactionChildKeepsSamplerSourcePathWhenOnlyParentListenerNeedsMetadata() {
+    void testTransactionChildKeepsSamplerSourcePathWhenOnlyParentListenerNeedsSourcePath() {
         HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
@@ -888,7 +888,7 @@ class TestJMeterThread {
         AtomicInteger childCalls = new AtomicInteger();
         ResultStatusSampler childSampler = new ResultStatusSampler("har-linked-child", true, childCalls);
         ResultCollector resultCollector = new ResultCollector();
-        MetadataNeedingVisualizer visualizer = new MetadataNeedingVisualizer();
+        SourcePathNeedingVisualizer visualizer = new SourcePathNeedingVisualizer();
         resultCollector.setListener(visualizer);
 
         testTree.add(loop);
@@ -909,10 +909,14 @@ class TestJMeterThread {
         assertEquals(1, childCalls.get(), "Child sampler should run once");
         assertEquals("transaction", transactionResult.getSampleLabel());
         assertEquals(1, transactionResult.getSubResults().length);
+        assertFalse(transactionResult.hasJMeterVariables(),
+                "Visual tree source lookup must not force variable snapshots");
         SampleResult childResult = transactionResult.getSubResults()[0];
         List<SampleResult.TestElementPathEntry> childPath = childResult.getSourceTestElementPath();
 
         assertFalse(childPath.isEmpty(), "Transaction child should keep source metadata for visual tree lookup");
+        assertFalse(childResult.hasJMeterVariables(),
+                "Transaction child source lookup must not force variable snapshots");
         SampleResult.TestElementPathEntry source = childPath.get(childPath.size() - 1);
         assertEquals(childSampler.getClass().getName(), source.className());
         assertEquals(childSampler.getName(), source.name());

@@ -35,7 +35,6 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,8 +78,6 @@ import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
-import org.apache.jmeter.threads.JMeterContextService;
-import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
 import org.apache.jorphan.gui.JMeterUIDefaults;
@@ -183,15 +180,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void add(final SampleEvent event) {
         SampleResult sample = event.getResult();
         if (sample != null) {
-            if (!sample.hasJMeterVariables()) {
-                sample.setJMeterVariables(snapshotVariables(event));
-            }
             add(sample);
         }
     }
 
     @Override
-    public boolean needsSampleResultMetadata() {
+    public boolean needsSampleResultSourcePath() {
         return true;
     }
 
@@ -890,29 +884,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     @Override
     public void itemStateChanged(ItemEvent e) {
         // NOOP state is held by component
-    }
-
-    private static Map<String, String> snapshotVariables(SampleEvent event) {
-        JMeterVariables variables = JMeterContextService.getContext().getVariables();
-        if (variables != null) {
-            Map<String, String> snapshot = new LinkedHashMap<>();
-            for (Map.Entry<String, Object> entry : variables.entrySet()) {
-                Object value = entry.getValue();
-                snapshot.put(entry.getKey(), value == null ? "" : value.toString()); // $NON-NLS-1$
-            }
-            return snapshot;
-        }
-
-        if (SampleEvent.getVarCount() == 0) {
-            return new LinkedHashMap<>();
-        }
-
-        Map<String, String> snapshot = new LinkedHashMap<>();
-        for (int i = 0; i < SampleEvent.getVarCount(); i++) {
-            String value = event.getVarValue(i);
-            snapshot.put(SampleEvent.getVarName(i), value == null ? "" : value); // $NON-NLS-1$
-        }
-        return snapshot;
     }
 
 }

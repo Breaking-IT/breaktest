@@ -846,8 +846,8 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
-                        boolean variableSnapshotNeeded = needsSampleResultMetadata(sampleListeners);
-                        if (variableSnapshotNeeded
+                        boolean variableSnapshotNeeded = needsSampleResultVariables(sampleListeners);
+                        if (needsSampleResultSourcePath(sampleListeners)
                                 || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
                             setSourceTestElementPath(result, pack.getSourceTestElementPath());
                         }
@@ -980,7 +980,7 @@ public class JMeterThread implements Runnable, Interruptible {
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
             List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
-            if (needsSampleResultMetadata(sampleListeners)) {
+            if (needsSampleResultSourcePath(sampleListeners)) {
                 setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
             }
             notifyListeners(sampleListeners, transactionResult);
@@ -1494,7 +1494,7 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        notifyListeners(listeners, result, needsSampleResultMetadata(listeners));
+        notifyListeners(listeners, result, needsSampleResultVariables(listeners));
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result, boolean metadataNeeded) {
@@ -1509,12 +1509,21 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, TransactionSampler transactionSampler) {
         return transactionSampler != null
                 && transactionPack != null
-                && needsSampleResultMetadata(transactionPack.getSampleListeners());
+                && needsSampleResultSourcePath(transactionPack.getSampleListeners());
     }
 
-    private static boolean needsSampleResultMetadata(List<SampleListener> listeners) {
+    private static boolean needsSampleResultVariables(List<SampleListener> listeners) {
         for (SampleListener listener : listeners) {
-            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultMetadata()) {
+            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultVariables()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean needsSampleResultSourcePath(List<SampleListener> listeners) {
+        for (SampleListener listener : listeners) {
+            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultSourcePath()) {
                 return true;
             }
         }

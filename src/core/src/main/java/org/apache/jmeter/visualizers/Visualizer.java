@@ -60,6 +60,22 @@ public interface Visualizer {
     }
 
     /**
+     * @return true when this visualizer needs variable snapshots attached to
+     * {@link SampleResult} instances
+     */
+    default boolean needsSampleResultVariables() {
+        return needsSampleResultMetadata();
+    }
+
+    /**
+     * @return true when this visualizer needs source tree paths attached to
+     * {@link SampleResult} instances
+     */
+    default boolean needsSampleResultSourcePath() {
+        return needsSampleResultMetadata();
+    }
+
+    /**
      * This method is used to indicate a visualizer generates statistics.
      *
      * @return true if visualiser generates statistics
