@@ -28,10 +28,10 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -1408,12 +1408,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     private Set<JMeterProperty> createTemporaryPropertiesSet(boolean identity) {
         Set<JMeterProperty> set = identity
                 ? new HybridIdentitySet()
-                : new LinkedHashSet<>();
+                : new LinearValueSet();
         return lock != null ? set : Collections.synchronizedSet(set);
     }
 
     private static boolean requiresIdentityTemporarySet(JMeterProperty property) {
-        return property instanceof MultiProperty;
+        return property instanceof TestElementProperty;
     }
 
     // While TestElementProperty is implementing MultiProperty, it works differently.
@@ -1537,6 +1537,88 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                     return array[index++];
                 }
             };
+        }
+    }
+
+    /**
+     * Small value-semantics set used for non-identity temporary properties. It intentionally avoids
+     * hashing so temporary tracking does not invoke deep or user-overridden property hash codes.
+     */
+    static final class LinearValueSet extends AbstractSet<JMeterProperty> {
+        private static final JMeterProperty[] EMPTY = new JMeterProperty[0];
+
+        private JMeterProperty[] array = EMPTY;
+        private int size;
+
+        @Override
+        public boolean add(JMeterProperty property) {
+            for (int i = 0; i < size; i++) {
+                if (Objects.equals(array[i], property)) {
+                    return false;
+                }
+            }
+            if (size == array.length) {
+                int newSize = array.length == 0 ? 4 : array.length << 1;
+                array = Arrays.copyOf(array, newSize);
+            }
+            array[size++] = property;
+            return true;
+        }
+
+        @Override
+        public boolean contains(Object item) {
+            for (int i = 0; i < size; i++) {
+                if (Objects.equals(array[i], item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public boolean remove(Object item) {
+            for (int i = 0; i < size; i++) {
+                if (Objects.equals(array[i], item)) {
+                    int moved = size - i - 1;
+                    if (moved > 0) {
+                        System.arraycopy(array, i + 1, array, i, moved);
+                    }
+                    array[--size] = null;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public void clear() {
+            Arrays.fill(array, 0, size, null);
+            size = 0;
+        }
+
+        @Override
+        public Iterator<JMeterProperty> iterator() {
+            return new Iterator<>() {
+                private int index;
+
+                @Override
+                public boolean hasNext() {
+                    return index < size;
+                }
+
+                @Override
+                public JMeterProperty next() {
+                    if (!hasNext()) {
+                        throw new NoSuchElementException();
+                    }
+                    return array[index++];
+                }
+            };
+        }
+
+        @Override
+        public int size() {
+            return size;
         }
     }
 

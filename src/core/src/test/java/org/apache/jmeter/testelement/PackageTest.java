@@ -74,7 +74,7 @@ public class PackageTest {
     }
 
     @Test
-    public void testTemporaryPropertyTrackingUsesIdentity() throws Exception {
+    public void testTemporaryPropertyTrackingDoesNotCallHashCode() throws Exception {
         ConfigTestElement config = new ConfigTestElement();
         config.setRunningVersion(true);
 
