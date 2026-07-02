@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.tree;
 
 import java.awt.Image;
+import java.beans.BeanDescriptor;
 import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
@@ -32,10 +33,26 @@ import javax.swing.ImageIcon;
 import javax.swing.JPopupMenu;
 import javax.swing.tree.DefaultMutableTreeNode;
 
+import org.apache.jmeter.assertions.Assertion;
+import org.apache.jmeter.assertions.gui.AbstractAssertionGui;
+import org.apache.jmeter.config.ConfigElement;
+import org.apache.jmeter.config.gui.AbstractConfigGui;
+import org.apache.jmeter.control.Controller;
+import org.apache.jmeter.control.gui.AbstractControllerGui;
 import org.apache.jmeter.gui.GUIFactory;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
+import org.apache.jmeter.processor.gui.AbstractPreProcessorGui;
+import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.timers.Timer;
+import org.apache.jmeter.timers.gui.AbstractTimerGui;
+import org.apache.jmeter.visualizers.Visualizer;
+import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -150,13 +167,13 @@ public class JMeterTreeNode extends DefaultMutableTreeNode implements NamedTreeN
                     Image img = Introspector.getBeanInfo(testClass).getIcon(BeanInfo.ICON_COLOR_16x16);
                     // If icon has not been defined, then use GUI_CLASS property
                     if (img == null) {
-                        Object clazz = Introspector.getBeanInfo(testClass).getBeanDescriptor()
-                                .getValue(TestElement.GUI_CLASS);
-                        if (clazz == null) {
+                        String guiClassName = getTestBeanGuiClassName(
+                                Introspector.getBeanInfo(testClass).getBeanDescriptor(), testClass);
+                        if (guiClassName == null) {
                             log.warn("getIcon(): Can't obtain GUI class from {}", testClass);
                             return null;
                         }
-                        return GUIFactory.getIcon(Class.forName((String) clazz), enabled);
+                        return GUIFactory.getIcon(Class.forName(guiClassName), enabled);
                     }
                     return new ImageIcon(img);
                 } catch (IntrospectionException e1) {
@@ -170,6 +187,46 @@ public class JMeterTreeNode extends DefaultMutableTreeNode implements NamedTreeN
             log.warn("Can't get icon for class {}", testElement, e);
             return null;
         }
+    }
+
+    static String getTestBeanGuiClassName(BeanDescriptor beanDescriptor, Class<?> testClass) {
+        Object guiClassName = beanDescriptor.getValue(TestElement.GUI_CLASS);
+        if (guiClassName instanceof String guiClassNameString && !guiClassNameString.isEmpty()) {
+            return guiClassNameString;
+        }
+
+        Class<?> guiClass = null;
+        if (Assertion.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractAssertionGui.class;
+        }
+        if (ConfigElement.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractConfigGui.class;
+        }
+        if (Controller.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractControllerGui.class;
+        }
+        if (Visualizer.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractVisualizer.class;
+        }
+        if (PostProcessor.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractPostProcessorGui.class;
+        }
+        if (PreProcessor.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractPreProcessorGui.class;
+        }
+        if (Sampler.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractSamplerGui.class;
+        }
+        if (Timer.class.isAssignableFrom(testClass)) {
+            guiClass = AbstractTimerGui.class;
+        }
+        if (guiClass == null) {
+            return null;
+        }
+
+        String inferredGuiClassName = guiClass.getName();
+        beanDescriptor.setValue(TestElement.GUI_CLASS, inferredGuiClassName);
+        return inferredGuiClassName;
     }
 
     public Collection<String> getMenuCategories() {

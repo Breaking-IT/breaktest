@@ -17,16 +17,98 @@
 
 package org.apache.jmeter.visualizers;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 
 import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 
 public class SamplerResultTabTest {
+
+    @Test
+    public void clearDataBeforeInitDoesNotThrow() {
+        RenderAsText renderer = new RenderAsText();
+
+        assertDoesNotThrow(renderer::clearData);
+    }
+
+    @Test
+    public void setupTabPaneInitializesRendererWhenInitWasNotCalled() {
+        RenderAsText renderer = new RenderAsText();
+        renderer.setRightSide(new JTabbedPane());
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n", "hello");
+
+        renderer.setSamplerResult(result);
+
+        assertDoesNotThrow(renderer::setupTabPane);
+        assertEquals("HTTP/1.1 200 OK\n\nhello", renderer.replayedResponseText());
+    }
+
+    @Test
+    public void htmlRendererCanRenderBeforeExplicitInit() {
+        RenderAsHTML renderer = new RenderAsHTML();
+        renderer.setRightSide(new JTabbedPane());
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n",
+                "<html><body>hello</body></html>");
+
+        assertDoesNotThrow(() -> renderer.renderResult(result));
+    }
+
+    @Test
+    public void htmlRendererStripsHttpHeadersStoredInResponseBody() {
+        SampleResult result = sampleResult(SampleResult.TEXT, "",
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body>hello</body></html>");
+
+        assertEquals("<html><body>hello</body></html>", RenderAsHTML.htmlBodyFrom(result));
+    }
+
+    @Test
+    public void htmlRendererUsesRenderedResponseView() {
+        RenderAsHTML renderer = initializedHtmlRenderer();
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n",
+                "<html><body>hello</body></html>");
+
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        selectResponseTab(renderer);
+        renderer.renderResult(result);
+        renderer.showPreferredResponseView();
+
+        assertTrue(renderer.isRenderedResponseViewVisible());
+    }
+
+    @Test
+    public void textRendererUsesRawResponseView() {
+        RenderAsText renderer = initializedRenderer();
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n", "hello");
+
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        selectResponseTab(renderer);
+        renderer.renderResult(result);
+        renderer.showPreferredResponseView();
+
+        assertFalse(renderer.isRenderedResponseViewVisible());
+    }
+
+    @Test
+    public void initCanBeCalledTwiceWithoutDuplicatingTabs() {
+        RenderAsText renderer = new RenderAsText();
+        JTabbedPane rightSide = new JTabbedPane();
+        renderer.setRightSide(rightSide);
+
+        renderer.init();
+        renderer.init();
+
+        assertEquals(1, rightSide.getTabCount());
+    }
 
     @Test
     public void replayedResponseDiffTextIncludesBodyBeforeResponseTabRenders() {
@@ -55,6 +137,18 @@ public class SamplerResultTabTest {
         renderer.setRightSide(new JTabbedPane());
         renderer.init();
         return renderer;
+    }
+
+    private static RenderAsHTML initializedHtmlRenderer() {
+        RenderAsHTML renderer = new RenderAsHTML();
+        renderer.setRightSide(new JTabbedPane());
+        renderer.init();
+        return renderer;
+    }
+
+    private static void selectResponseTab(SamplerResultTab renderer) {
+        int responseTab = renderer.rightSide.indexOfTab(JMeterUtils.getResString("view_results_tab_response"));
+        renderer.rightSide.setSelectedIndex(responseTab);
     }
 
     private static SampleResult sampleResult(String dataType, String headers, String body) {

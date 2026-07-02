@@ -659,7 +659,33 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      *             if a subtree cannot be added to the currently selected node
      */
     public HashTree addSubTree(HashTree subTree) throws IllegalUserActionException {
-        HashTree hashTree = treeModel.addSubTree(subTree, treeListener.getCurrentNode());
+        return addSubTree(subTree, true);
+    }
+
+    /**
+     * Add a loaded subtree to the currently selected node.
+     * <p>
+     * JMX loading already restored complete {@link TestElement} instances, so it
+     * does not need to pass each element through its Swing GUI editor before
+     * attaching it to the tree.
+     *
+     * @param subTree the subtree to add
+     * @return the resulting subtree starting with the currently selected node
+     * @throws IllegalUserActionException if a subtree cannot be added to the current node
+     */
+    public HashTree addLoadedSubTree(HashTree subTree) throws IllegalUserActionException {
+        updateCurrentNode();
+        return addSubTree(subTree, false);
+    }
+
+    private HashTree addSubTree(HashTree subTree, boolean configureGui) throws IllegalUserActionException {
+        HashTree hashTree;
+        undoHistory.beginWithoutUndo();
+        try {
+            hashTree = treeModel.addSubTree(subTree, treeListener.getCurrentNode(), configureGui);
+        } finally {
+            undoHistory.endWithoutUndo();
+        }
         undoHistory.clear();
         undoHistory.add(this.treeModel, "Loaded tree");
         return hashTree;

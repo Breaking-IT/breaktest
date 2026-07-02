@@ -18,14 +18,21 @@
 package org.apache.jmeter.gui;
 
 import java.awt.AWTEvent;
+import java.awt.AlphaComposite;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
@@ -179,6 +186,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     /** A message dialog shown while JMeter threads are stopping. */
     private JDialog stoppingMessage;
+
+    private LoadingGlassPane loadingGlassPane;
 
     private JLabel activeAndTotalThreads;
 
@@ -441,6 +450,23 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         mainPanelView.setMainPanel(comp);
     }
 
+    public void showLoadingOverlay(String message) {
+        if (loadingGlassPane == null) {
+            loadingGlassPane = new LoadingGlassPane();
+            setGlassPane(loadingGlassPane);
+        }
+        loadingGlassPane.setMessage(message);
+        loadingGlassPane.start();
+        setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+    }
+
+    public void hideLoadingOverlay() {
+        if (loadingGlassPane != null) {
+            loadingGlassPane.stop();
+        }
+        setCursor(Cursor.getDefaultCursor());
+    }
+
     public JTree getTree() {
         return tree;
     }
@@ -669,6 +695,125 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         @Override
         public boolean getScrollableTracksViewportHeight() {
             return getParent() != null && getPreferredSize().height <= getParent().getHeight();
+        }
+    }
+
+    private static class LoadingGlassPane extends JComponent implements ActionListener {
+        private static final long serialVersionUID = 241L;
+        private static final int TICK_COUNT = 12;
+        private static final int TIMER_DELAY_MILLIS = 80;
+        private static final int SPINNER_RADIUS = 22;
+        private static final int TICK_LENGTH = 9;
+
+        private final javax.swing.Timer timer = new javax.swing.Timer(TIMER_DELAY_MILLIS, this);
+        private int tick;
+        private String message = ""; // $NON-NLS-1$
+
+        LoadingGlassPane() {
+            setOpaque(false);
+            setFocusTraversalKeysEnabled(false);
+            enableEvents(AWTEvent.MOUSE_EVENT_MASK
+                    | AWTEvent.MOUSE_MOTION_EVENT_MASK
+                    | AWTEvent.MOUSE_WHEEL_EVENT_MASK
+                    | AWTEvent.KEY_EVENT_MASK);
+        }
+
+        void setMessage(String message) {
+            this.message = message == null ? "" : message; // $NON-NLS-1$
+        }
+
+        void start() {
+            tick = 0;
+            setVisible(true);
+            requestFocusInWindow();
+            timer.start();
+            repaint();
+        }
+
+        void stop() {
+            timer.stop();
+            setVisible(false);
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            tick = (tick + 1) % TICK_COUNT;
+            repaint();
+        }
+
+        @Override
+        protected void processMouseEvent(MouseEvent e) {
+            e.consume();
+        }
+
+        @Override
+        protected void processMouseMotionEvent(MouseEvent e) {
+            e.consume();
+        }
+
+        @Override
+        protected void processMouseWheelEvent(java.awt.event.MouseWheelEvent e) {
+            e.consume();
+        }
+
+        @Override
+        protected void processKeyEvent(KeyEvent e) {
+            e.consume();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(new Color(0, 0, 0, 85));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+
+                int centerX = getWidth() / 2;
+                int centerY = getHeight() / 2;
+                paintSpinner(g2, centerX, centerY - 14);
+                paintMessage(g2, centerX, centerY + 34);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private void paintSpinner(Graphics2D g2, int centerX, int centerY) {
+            g2.setStroke(new BasicStroke(4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            Color base = UIManager.getColor("Label.foreground"); // $NON-NLS-1$
+            if (base == null) {
+                base = Color.WHITE;
+            }
+            for (int i = 0; i < TICK_COUNT; i++) {
+                int alpha = Math.max(45, 255 - Math.floorMod(tick - i, TICK_COUNT) * 17);
+                double angle = Math.PI * 2 * i / TICK_COUNT;
+                int x1 = centerX + (int) Math.round(Math.cos(angle) * SPINNER_RADIUS);
+                int y1 = centerY + (int) Math.round(Math.sin(angle) * SPINNER_RADIUS);
+                int x2 = centerX + (int) Math.round(Math.cos(angle) * (SPINNER_RADIUS + TICK_LENGTH));
+                int y2 = centerY + (int) Math.round(Math.sin(angle) * (SPINNER_RADIUS + TICK_LENGTH));
+                g2.setComposite(AlphaComposite.SrcOver.derive(alpha / 255f));
+                g2.setColor(base);
+                g2.drawLine(x1, y1, x2, y2);
+            }
+            g2.setComposite(AlphaComposite.SrcOver);
+        }
+
+        private void paintMessage(Graphics2D g2, int centerX, int baselineY) {
+            if (message.isEmpty()) {
+                return;
+            }
+            FontMetrics metrics = g2.getFontMetrics();
+            int textWidth = metrics.stringWidth(message);
+            int paddingX = 14;
+            int paddingY = 8;
+            int boxX = centerX - textWidth / 2 - paddingX;
+            int boxY = baselineY - metrics.getAscent() - paddingY;
+            int boxWidth = textWidth + paddingX * 2;
+            int boxHeight = metrics.getHeight() + paddingY * 2;
+            g2.setColor(new Color(0, 0, 0, 150));
+            g2.fillRoundRect(boxX, boxY, boxWidth, boxHeight, 10, 10);
+            g2.setColor(Color.WHITE);
+            g2.drawString(message, centerX - textWidth / 2, baselineY);
         }
     }
 
