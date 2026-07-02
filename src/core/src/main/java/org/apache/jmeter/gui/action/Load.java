@@ -25,9 +25,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.JFileChooser;
 import javax.swing.JTree;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.exceptions.IllegalUserActionException;
@@ -61,6 +64,7 @@ public class Load extends AbstractActionWithNoRunningTest {
     private static final Logger log = LoggerFactory.getLogger(Load.class);
 
     private static final boolean EXPAND_TREE = JMeterUtils.getPropDefault("onload.expandtree", false); //$NON-NLS-1$
+    static final String FAST_JMX_LOAD_PROPERTY = "jmeter.gui.load.fast"; // $NON-NLS-1$
 
     private static final Set<String> commands = new HashSet<>();
 
@@ -123,49 +127,136 @@ public class Load extends AbstractActionWithNoRunningTest {
 
         final GuiPackage guiPackage = GuiPackage.getInstance();
         if (f != null) {
-            try {
-                if (merging) {
-                    log.info("Merging file: {}", f);
-                } else {
-                    log.info("Loading file: {}", f);
-                    // TODO should this be done even if not a full test plan?
-                    // and what if load fails?
-                    if (setDetails) {
-                        FileServer.getFileServer().setBaseForScript(f);
-                    }
-                }
-                final HashTree tree = SaveService.loadTree(f);
-                final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
-                reportMissingPluginElements(tree);
-
-                // don't change name if merging
-                if (!merging && isTestPlan && setDetails) {
-                    // TODO should setBaseForScript be called here rather than
-                    // above?
-                    guiPackage.setTestPlanFile(f.getAbsolutePath());
-                    scheduleBreakTestHarPreflight(f);
-                }
-            } catch (NoClassDefFoundError ex) {// Allow for missing optional jars
-                reportError("Missing jar file. {}", ex, true);
-            } catch (ConversionException ex) {
-                if (log.isWarnEnabled()) {
-                    log.warn("Could not convert file. {}", ex.toString());
-                }
-                JMeterUtils.reportErrorToUser(SaveService.CEtoString(ex));
-            } catch (IOException ex) {
-                reportError("Error reading file. {}", ex, false);
-            } catch (StreamException ex) {
-                Throwable exceptionToDisplay = ex;
-                if ("".equals(ex.getMessage()) && ex.getCause() != null) {
-                    exceptionToDisplay = ex.getCause();
-                }
-                reportError("Error in XML format. {}", exceptionToDisplay, false);
-            } catch (Exception ex) {
-                reportError("Unexpected error. {}", ex, true);
+            if (canLoadInBackground(guiPackage)) {
+                loadProjectFileInBackground(e, f, merging, setDetails, guiPackage);
+            } else {
+                loadProjectFileSynchronously(e, f, merging, setDetails, guiPackage);
             }
-            FileDialoger.setLastJFCDirectory(f.getParentFile().getAbsolutePath());
+        }
+    }
+
+    private static boolean canLoadInBackground(GuiPackage guiPackage) {
+        return guiPackage != null
+                && guiPackage.getMainFrame() != null
+                && SwingUtilities.isEventDispatchThread();
+    }
+
+    private static void loadProjectFileInBackground(
+            final ActionEvent e,
+            final File f,
+            final boolean merging,
+            final boolean setDetails,
+            final GuiPackage guiPackage) {
+        guiPackage.getMainFrame().showLoadingOverlay("Loading JMX..."); // $NON-NLS-1$
+        SwingWorker<HashTree, Void> worker = new SwingWorker<>() {
+            @Override
+            protected HashTree doInBackground() throws Exception {
+                prepareProjectLoad(f, merging, setDetails);
+                return SaveService.loadTree(f);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    finishProjectLoad(e, f, merging, setDetails, guiPackage, get());
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    reportError("Loading interrupted. {}", ex, false);
+                } catch (ExecutionException ex) {
+                    reportLoadFailure(ex.getCause());
+                } catch (NoClassDefFoundError ex) {
+                    reportLoadFailure(ex);
+                } catch (Exception ex) {
+                    reportLoadFailure(ex);
+                } finally {
+                    finishProjectLoadUi(f, guiPackage);
+                    guiPackage.getMainFrame().hideLoadingOverlay();
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private static void loadProjectFileSynchronously(
+            final ActionEvent e,
+            final File f,
+            final boolean merging,
+            final boolean setDetails,
+            final GuiPackage guiPackage) {
+        try {
+            prepareProjectLoad(f, merging, setDetails);
+            finishProjectLoad(e, f, merging, setDetails, guiPackage, SaveService.loadTree(f));
+        } catch (NoClassDefFoundError ex) {
+            reportLoadFailure(ex);
+        } catch (Exception ex) {
+            reportLoadFailure(ex);
+        } finally {
+            finishProjectLoadUi(f, guiPackage);
+        }
+    }
+
+    private static void prepareProjectLoad(final File f, final boolean merging, final boolean setDetails) {
+        if (merging) {
+            log.info("Merging file: {}", f);
+        } else {
+            log.info("Loading file: {}", f);
+            // TODO should this be done even if not a full test plan?
+            // and what if load fails?
+            if (setDetails) {
+                FileServer.getFileServer().setBaseForScript(f);
+            }
+        }
+    }
+
+    private static void finishProjectLoad(
+            final ActionEvent e,
+            final File f,
+            final boolean merging,
+            final boolean setDetails,
+            final GuiPackage guiPackage,
+            final HashTree tree) throws Exception {
+        final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
+        reportMissingPluginElements(tree);
+
+        // don't change name if merging
+        if (!merging && isTestPlan && setDetails) {
+            // TODO should setBaseForScript be called here rather than
+            // above?
+            guiPackage.setTestPlanFile(f.getAbsolutePath());
+            scheduleBreakTestHarPreflight(f);
+        }
+    }
+
+    private static void finishProjectLoadUi(final File f, final GuiPackage guiPackage) {
+        FileDialoger.setLastJFCDirectory(f.getParentFile().getAbsolutePath());
+        if (guiPackage != null) {
             guiPackage.updateCurrentGui();
-            guiPackage.getMainFrame().repaint();
+            if (guiPackage.getMainFrame() != null) {
+                guiPackage.getMainFrame().repaint();
+            }
+        }
+    }
+
+    private static void reportLoadFailure(Throwable ex) {
+        if (ex instanceof NoClassDefFoundError noClassDefFoundError) {
+            reportError("Missing jar file. {}", noClassDefFoundError, true);
+        } else if (ex instanceof ConversionException conversionException) {
+            if (log.isWarnEnabled()) {
+                log.warn("Could not convert file. {}", conversionException.toString());
+            }
+            JMeterUtils.reportErrorToUser(SaveService.CEtoString(conversionException));
+        } else if (ex instanceof IOException ioException) {
+            reportError("Error reading file. {}", ioException, false);
+        } else if (ex instanceof StreamException streamException) {
+            Throwable exceptionToDisplay = streamException;
+            if ("".equals(streamException.getMessage()) && streamException.getCause() != null) {
+                exceptionToDisplay = streamException.getCause();
+            }
+            reportError("Error in XML format. {}", exceptionToDisplay, false);
+        } else if (ex instanceof Exception exception) {
+            reportError("Unexpected error. {}", exception, true);
+        } else {
+            reportError("Unexpected error. {}", new RuntimeException(ex), true);
         }
     }
 
@@ -331,15 +422,15 @@ public class Load extends AbstractActionWithNoRunningTest {
                 }
             }
         }
-        final HashTree newTree = guiInstance.addSubTree(tree);
-        guiInstance.updateCurrentGui();
+        final HashTree newTree = useFastJmxLoad()
+                ? guiInstance.addLoadedSubTree(tree)
+                : guiInstance.addSubTree(tree);
         guiInstance.getMainFrame().getTree().setSelectionPath(
                 new TreePath(((JMeterTreeNode) newTree.getArray()[0]).getPath()));
-        final HashTree subTree = guiInstance.getCurrentSubTree();
         // Send different event whether we are merging a test plan into another test plan,
         // or loading a testplan from scratch
         ActionEvent actionEvent =
-            new ActionEvent(subTree.get(subTree.getArray()[subTree.size() - 1]), id,
+            new ActionEvent(newTree.get(newTree.getArray()[newTree.size() - 1]), id,
                     merging ? ActionNames.SUB_TREE_MERGED : ActionNames.SUB_TREE_LOADED);
 
         ActionRouter.getInstance().actionPerformed(actionEvent);
@@ -354,6 +445,10 @@ public class Load extends AbstractActionWithNoRunningTest {
         jTree.setSelectionPath(jTree.getPathForRow(1));
         FocusRequester.requestFocus(jTree);
         return isTestPlan;
+    }
+
+    static boolean useFastJmxLoad() {
+        return JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY, false);
     }
 
     /**

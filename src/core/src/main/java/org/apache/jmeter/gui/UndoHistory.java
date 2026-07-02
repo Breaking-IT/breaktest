@@ -476,12 +476,24 @@ public class UndoHistory implements TreeModelListener, Serializable {
     }
 
     void withoutUndo(Runnable action) {
-        suspended++;
+        beginWithoutUndo();
         try {
             action.run();
         } finally {
-            suspended--;
+            endWithoutUndo();
         }
+    }
+
+    void beginWithoutUndo() {
+        suspended++;
+    }
+
+    void endWithoutUndo() {
+        if (suspended == 0) {
+            log.warn("Undo suspension ended without beginning");
+            return;
+        }
+        suspended--;
     }
 
     boolean isTransaction() {
