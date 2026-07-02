@@ -73,6 +73,29 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
     }
 
     @Test
+    fun `summarize can omit static asset samplers from model-facing inventory`() {
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler("GET /assets/app.js", success = true)
+                    +ScriptRepairSampler("POST /api/order", success = true)
+                }
+            }
+        }
+
+        val compact = AgentPlanSummarizer().summarize(tree, includeStaticAssets = false)
+        val full = AgentPlanSummarizer().summarize(tree, includeStaticAssets = true)
+
+        assertEquals(2, compact.samplerCount)
+        assertEquals(1, compact.functionalSamplerCount)
+        assertEquals(1, compact.omittedStaticSamplerCount)
+        assertEquals(listOf("POST /api/order"), compact.samplers.map { it.name })
+        assertEquals(listOf("GET /assets/app.js", "POST /api/order"), full.samplers.map { it.name })
+        assertEquals(0, full.omittedStaticSamplerCount)
+        assertTrue(full.samplers.first().staticAsset)
+    }
+
+    @Test
     fun `summarize reports dynamic request value candidates`() {
         val uuid = "5d3bd642-5ced-49b6-9af7-5f945057a8ef"
         val epochMs = "1761040801000"

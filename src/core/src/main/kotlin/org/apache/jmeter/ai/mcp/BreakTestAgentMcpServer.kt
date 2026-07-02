@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.databind.node.ObjectNode
+import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
@@ -128,25 +129,42 @@ public object BreakTestAgentMcpServer {
                 emptyList(),
             ))
             add(tool(
+                "refresh_open_plan_from_file",
+                "Reload the currently open BreakTest GUI plan from its saved JMX file. Use this only after a file-backed active-JMX repair batch has saved valid XML and inspect_jmx confirms the same path parses cleanly. The GUI bridge allows one normal refresh per AI run to avoid very slow repeated reloads of large JMX files; pass force=true only when the user explicitly requests another live reload.",
+                mapOf(
+                    "path" to "string",
+                    "force" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
                 "inspect_open_plan",
-                "Inspect the test plan currently open in the running BreakTest GUI.",
+                "Inspect the test plan currently open in the running BreakTest GUI. Static browser asset samplers are omitted by default to keep AI analysis focused on functional requests; pass includeStaticAssets=true only when CSS/JS/font/image responses are directly relevant to correlation or a failure.",
                 mapOf(
                     "includeDsl" to "boolean",
                     "dslCharacterLimit" to "number",
+                    "includeStaticAssets" to "boolean",
                 ),
                 emptyList(),
             ))
             add(tool(
                 "validate_open_plan",
-                "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI.",
+                "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true for the first repair run so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise.",
                 mapOf(
+                    "threadGroupName" to "string",
+                    "scopeNodePath" to "string",
                     "timeoutSeconds" to "number",
                     "responseBodyLimit" to "number",
                     "requestBodyLimit" to "number",
                     "maxSamples" to "number",
                     "stopOnFirstFailure" to "boolean",
+                    "ignoreStaticAssetFailures" to "boolean",
                     "includeDsl" to "boolean",
                     "dslCharacterLimit" to "number",
+                    "includeStaticAssets" to "boolean",
+                    "compact" to "boolean",
+                    "compactSampleLimit" to "number",
+                    "compactBodyLimit" to "number",
                 ),
                 emptyList(),
             ))
@@ -158,13 +176,15 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "get_ai_knowledge_open_plan",
-                "Read or create the BreakTest AI Knowledge element in the currently open GUI plan. Returns the selected node path, whether the selected knowledge is default/empty, and all available knowledge nodes so agents can confirm they loaded the intended project learnings.",
-                emptyMap(),
+                "Read the BreakTest AI Knowledge element in the currently open GUI plan. By default this does not create a missing knowledge node; pass createIfMissing=true only at the final update stage or when the user explicitly asks to create it. Returns whether knowledge is missing/default and all available knowledge nodes.",
+                mapOf(
+                    "createIfMissing" to "boolean",
+                ),
                 emptyList(),
             ))
             add(tool(
                 "update_ai_knowledge_open_plan",
-                "Replace the BreakTest AI Knowledge JSON in the currently open GUI plan. Full AI repair runs must call this before finishing. Preserve existing arrays and append reusable run learnings to projectHints, correlationPatterns, assertionPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, and learnedFromThreadGroups. Include selected Thread Group and transaction/request evidence. Default/empty knowledge is rejected unless allowDefault=true.",
+                "Replace the BreakTest AI Knowledge JSON in the currently open GUI plan. Full AI repair runs must call this before finishing. Preserve existing arrays and append reusable run learnings to projectHints, correlationPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, and learnedFromThreadGroups. Include selected Thread Group and transaction/request evidence. Default/empty knowledge is rejected unless allowDefault=true.",
                 mapOf(
                     "knowledgeJson" to "string",
                     "knowledge" to "object",
@@ -180,6 +200,21 @@ public object BreakTestAgentMcpServer {
                 emptyList(),
             ))
             add(tool(
+                "find_open_plan_nodes",
+                "Find compact node metadata in the running BreakTest GUI plan without returning a full inspect_open_plan payload. Use this to locate duplicate extractors/processors/assertions/samplers by name, class, type, variableName, or parent path before delete/update/move operations.",
+                mapOf(
+                    "name" to "string",
+                    "nameContains" to "string",
+                    "className" to "string",
+                    "classNameContains" to "string",
+                    "type" to "string",
+                    "variableName" to "string",
+                    "underNodePath" to "string",
+                    "maxMatches" to "number",
+                ),
+                emptyList(),
+            ))
+            add(tool(
                 "agent_activity",
                 "Post a live Codex/agent progress update into the running BreakTest AI Auto Scripting window.",
                 mapOf(
@@ -191,13 +226,95 @@ public object BreakTestAgentMcpServer {
                 listOf("message"),
             ))
             add(tool(
+                "list_recorded_har_exchanges_open_plan",
+                "List compact recorded HAR request/response evidence linked to samplers in the open BreakTest GUI plan. Use this before the first validation run when a linked HAR is available, so correlations can be inferred from recorded responses without reading the full HAR. Static browser assets are skipped by default.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "maxEntries" to "number",
+                    "bodyLimit" to "number",
+                    "includeStaticAssets" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "get_recorded_har_exchange_open_plan",
+                "Fetch the recorded HAR request/response text linked to one sampler in the open BreakTest GUI plan. Use this as recorded_response evidence before adding extractors or assertions.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "bodyLimit" to "number",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "search_recorded_har_open_plan",
+                "Search linked recorded HAR requests and responses for a literal or regex. Use this to find where recorded UUIDs, state/code/nonce, CSRF tokens, draw IDs, basket/order IDs, timestamps, or credentials were issued before running validation.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "query" to "string",
+                    "regex" to "string",
+                    "maxMatches" to "number",
+                    "contextChars" to "number",
+                    "includeStaticAssets" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "audit_recorded_har_correlations_open_plan",
+                "Scan linked HAR recorded requests for high-correlation-potential values, then search earlier recorded HAR responses for matching source evidence. Use this before the first validation run to get ranked source/target extractor candidates for IDs, UUIDs, client_id, nonce, state/code, CSRF/request-verification tokens, bearer/access tokens, draw/product/basket/ticket/order IDs, timestamps, and long opaque values without spending tokens on many one-off searches.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "maxCandidates" to "number",
+                    "contextChars" to "number",
+                    "includeStaticAssets" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "plan_repair_actions_open_plan",
+                "Create a compact local repair action plan for the selected open GUI Thread Group. This combines linked HAR source-response matching and request-value audits into ranked action IDs so agents can review/apply likely correlations and credential parameterization without reading large HAR or validation payloads. By default apply arguments are stored behind a snapshotId; fetch selected action details with get_repair_actions_open_plan, or one action with get_repair_action_open_plan.",
+                mapOf(
+                    "threadGroupName" to "string",
+                    "maxActions" to "number",
+                    "maxUnresolved" to "number",
+                    "contextChars" to "number",
+                    "includeStaticAssets" to "boolean",
+                    "includeApplyArguments" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "get_repair_action_open_plan",
+                "Fetch the full apply arguments and verification steps for one action returned by plan_repair_actions_open_plan. Use this instead of asking for large HAR snippets or broad dynamic audits when a compact action is enough.",
+                mapOf(
+                    "snapshotId" to "string",
+                    "actionId" to "string",
+                ),
+                listOf("snapshotId", "actionId"),
+            ))
+            add(tool(
+                "get_repair_actions_open_plan",
+                "Fetch the full apply arguments and verification steps for several selected actions returned by plan_repair_actions_open_plan in one response. Prefer this over many get_repair_action_open_plan calls when you already know multiple high-confidence action IDs to apply. If some IDs are stale or absent, the response includes missingActionIds and still returns the valid actions.",
+                mapOf(
+                    "snapshotId" to "string",
+                    "actionIds" to "array[string]",
+                    "maxActions" to "number",
+                ),
+                listOf("snapshotId", "actionIds"),
+            ))
+            add(tool(
                 "apply_boundary_correlation_open_plan",
-                "Add a Boundary Extractor to the running BreakTest GUI plan and replace a literal in the open plan. Provide evidenceSource and evidence details proving the extractor boundaries came from a validated response, recorded response, or AI Knowledge. Static inference requires allowStaticInference=true and is logged as unvalidated.",
+                "Add a Boundary Extractor to the running BreakTest GUI plan and replace a literal in the target sampler. Prefer sourceNodePath/targetNodePath and occurrence indexes when labels repeat. Provide evidenceSource and evidence details proving the extractor boundaries came from a validated response, recorded response, or AI Knowledge. Set failOnNoMatch=true to enable the GUI option \"Assertion error when not matched\" when the extracted value is required by later requests. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                 mapOf(
                     "sourceSamplerIndex" to "number",
                     "sourceSamplerLabel" to "string",
+                    "sourceNodePath" to "string",
+                    "sourceOccurrenceIndex" to "number",
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "targetOccurrenceIndex" to "number",
                     "variableName" to "string",
                     "leftBoundary" to "string",
                     "rightBoundary" to "string",
@@ -211,12 +328,19 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "apply_regex_correlation_open_plan",
-                "Add a Regex Extractor to the running BreakTest GUI plan and replace a literal. If no target sampler is specified, the literal is replaced across request/config data in the open plan while element names remain unchanged. useField accepts body, headers, request_headers, unescaped, as_document, url, code, or message. Provide evidenceSource and evidence details proving the regex came from a validated response, recorded response, or AI Knowledge. Static inference requires allowStaticInference=true and is logged as unvalidated.",
+                "Add or update a Regex Extractor in the running BreakTest GUI plan and optionally replace a literal. If a Regex Extractor with the same variableName already exists under the source sampler, it is updated instead of duplicated unless allowDuplicateExtractor=true. If literal is omitted, this adds/updates the extractor only. If no target sampler is specified and literal is present, the literal is replaced under threadGroupName/scopeNodePath; whole-plan replacement is refused when multiple enabled Thread Groups exist unless allowWholePlan=true. Prefer sourceNodePath/targetNodePath and occurrence indexes when labels repeat. useField accepts body, headers, request_headers, unescaped, as_document, url, code, or message. Use useField=headers immediately when evidence is in response headers, Location, or Set-Cookie. Provide evidenceSource and evidence details proving the regex came from a validated response, recorded response, or AI Knowledge. Set failOnNoMatch=true to enable the GUI option \"Assertion error when not matched\" when the extracted value is required by later requests. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                 mapOf(
                     "sourceSamplerIndex" to "number",
                     "sourceSamplerLabel" to "string",
+                    "sourceNodePath" to "string",
+                    "sourceOccurrenceIndex" to "number",
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "targetOccurrenceIndex" to "number",
+                    "threadGroupName" to "string",
+                    "scopeNodePath" to "string",
+                    "allowWholePlan" to "boolean",
                     "variableName" to "string",
                     "regex" to "string",
                     "template" to "string",
@@ -225,19 +349,23 @@ public object BreakTestAgentMcpServer {
                     "useField" to "string",
                     "literal" to "string",
                     "failOnNoMatch" to "boolean",
+                    "allowDuplicateExtractor" to "boolean",
                     "evidenceSource" to "string",
                     "evidence" to "string",
                     "allowStaticInference" to "boolean",
                 ),
-                listOf("variableName", "regex", "literal", "evidenceSource", "evidence"),
+                listOf("variableName", "regex", "evidenceSource", "evidence"),
             ))
             add(tool(
                 "update_regex_extractor_open_plan",
-                "Update an existing Regex Extractor under a source sampler by variableName. Use this instead of replace_literal_open_plan for changing regex, useField, template, matchNumber, defaultValue, or failOnNoMatch.",
+                "Update existing Regex Extractor node(s) under a source sampler by variableName. Use this instead of replace_literal_open_plan for changing regex, useField, template, matchNumber, defaultValue, or failOnNoMatch. Set failOnNoMatch=true to enable the GUI option \"Assertion error when not matched\" when the extracted value is required by later requests. If duplicates exist, pass extractorMatchIndex for one node or updateAllMatches=true for intentional duplicate cleanup.",
                 mapOf(
                     "sourceSamplerIndex" to "number",
                     "sourceSamplerLabel" to "string",
+                    "sourceNodePath" to "string",
                     "variableName" to "string",
+                    "extractorMatchIndex" to "number",
+                    "updateAllMatches" to "boolean",
                     "regex" to "string",
                     "template" to "string",
                     "matchNumber" to "string",
@@ -249,10 +377,15 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "replace_literal_open_plan",
-                "Replace a literal in one target sampler subtree, or in the whole running BreakTest GUI plan when no target sampler is specified. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
+                "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true or there is a single enabled Thread Group. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "targetOccurrenceIndex" to "number",
+                    "threadGroupName" to "string",
+                    "scopeNodePath" to "string",
+                    "allowWholePlan" to "boolean",
                     "literal" to "string",
                     "replacement" to "string",
                     "includeNames" to "boolean",
@@ -262,10 +395,15 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "replace_literal_in_names_open_plan",
-                "Replace a literal only in element names in the running BreakTest GUI plan, or under one target sampler when specified. Use this after parameterizing request data to turn stale UUIDs/IDs in sampler labels into static display placeholders such as {basket_page_id}. This rejects ${'$'}{variable} replacements because element names must stay static.",
+                "Replace a literal only in element names in the running BreakTest GUI plan, under threadGroupName/scopeNodePath, or under one target sampler when specified. Whole-plan name replacement is refused when multiple enabled Thread Groups exist unless allowWholePlan=true. Use this after parameterizing request data to turn stale UUIDs/IDs in sampler labels into static display placeholders such as {basket_page_id}. This rejects ${'$'}{variable} replacements because element names must stay static.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "targetOccurrenceIndex" to "number",
+                    "threadGroupName" to "string",
+                    "scopeNodePath" to "string",
+                    "allowWholePlan" to "boolean",
                     "literal" to "string",
                     "replacement" to "string",
                 ),
@@ -282,10 +420,11 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "list_http_arguments_open_plan",
-                "List HTTP arguments exposed by a target sampler, including actual argument names, values, and alwaysEncode flags. Use this before credential or POST form edits when names are uncertain.",
+                "List HTTP arguments exposed by a target sampler, including actual argument names, values, and alwaysEncode flags. Prefer targetNodePath after structural edits because sampler indexes can drift. Use this before credential or POST form edits when names are uncertain.",
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
                 ),
                 emptyList(),
             ))
@@ -295,6 +434,8 @@ public object BreakTestAgentMcpServer {
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "argumentIndex" to "number",
                     "argumentName" to "string",
                     "argumentValue" to "string",
                     "alwaysEncode" to "boolean",
@@ -307,6 +448,8 @@ public object BreakTestAgentMcpServer {
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "argumentIndex" to "number",
                     "argumentName" to "string",
                     "argumentValue" to "string",
                     "newValue" to "string",
@@ -316,10 +459,12 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "search_open_plan_values",
-                "Search string-valued open-plan properties for a literal or regex. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the Test Plan variables table is not counted as a stale request value.",
+                "Search string-valued open-plan properties for a literal or regex. Pass threadGroupName or scopeNodePath when multiple Thread Groups have similar transaction names. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the Test Plan variables table is not counted as a stale request value.",
                 mapOf(
                     "literal" to "string",
                     "regex" to "string",
+                    "threadGroupName" to "string",
+                    "scopeNodePath" to "string",
                     "includeNames" to "boolean",
                     "excludeUserDefinedVariables" to "boolean",
                     "maxMatches" to "number",
@@ -344,6 +489,7 @@ public object BreakTestAgentMcpServer {
                     "threadGroupName" to "string",
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
                     "elementType" to "string",
                     "name" to "string",
                     "language" to "string",
@@ -359,6 +505,7 @@ public object BreakTestAgentMcpServer {
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
                     "assertionName" to "string",
                     "pattern" to "string",
                     "field" to "string",
@@ -376,6 +523,7 @@ public object BreakTestAgentMcpServer {
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
                     "assertionName" to "string",
                     "currentPattern" to "string",
                     "pattern" to "string",
@@ -391,8 +539,35 @@ public object BreakTestAgentMcpServer {
                 mapOf(
                     "targetSamplerIndex" to "number",
                     "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
                     "followRedirects" to "boolean",
                     "autoRedirects" to "boolean",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "move_node_open_plan",
+                "Move or reorder a node in the running BreakTest GUI plan while preserving its children. Use this when a sampler/config/postprocessor/extractor must execute before or after another node, for example moving an /api/token sampler before the Parallel Controller containing API requests that need its extracted token. Prefer sourceNodePath/targetNodePath after structural edits because sampler indexes can drift. position is before, after, first_child, or last_child.",
+                mapOf(
+                    "sourceSamplerIndex" to "number",
+                    "sourceSamplerLabel" to "string",
+                    "sourceNodePath" to "string",
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "position" to "string",
+                ),
+                emptyList(),
+            ))
+            add(tool(
+                "delete_node_open_plan",
+                "Delete node(s) and their children from the running BreakTest GUI plan. Use this to remove misplaced duplicate processors, extractors, assertions, samplers, controllers, or config elements after a GUI edit targets the wrong node. Prefer targetNodePath after structural edits because sampler indexes can drift. If duplicate identical node paths exist, pass targetOccurrenceIndex for one or deleteAllMatches=true for intentional duplicate cleanup.",
+                mapOf(
+                    "targetSamplerIndex" to "number",
+                    "targetSamplerLabel" to "string",
+                    "targetNodePath" to "string",
+                    "targetOccurrenceIndex" to "number",
+                    "deleteAllMatches" to "boolean",
                 ),
                 emptyList(),
             ))
@@ -407,17 +582,18 @@ public object BreakTestAgentMcpServer {
             ))
             add(tool(
                 "inspect_jmx",
-                "Load a BreakTest/JMeter .jmx file and return a compact plan summary/DSL.",
+                "Load a BreakTest/JMeter .jmx file and return a compact plan summary/DSL. Static browser asset samplers are omitted by default to keep AI analysis focused on functional requests; pass includeStaticAssets=true only when CSS/JS/font/image responses are directly relevant to correlation or a failure.",
                 mapOf(
                     "path" to "string",
                     "includeDsl" to "boolean",
                     "dslCharacterLimit" to "number",
+                    "includeStaticAssets" to "boolean",
                 ),
                 listOf("path"),
             ))
             add(tool(
                 "validate_jmx",
-                "Run a bounded BreakTest/JMeter validation pass and return sampler evidence plus failure analysis.",
+                "Run a bounded BreakTest/JMeter validation pass and return sampler evidence plus failure analysis. Use compact=true for the first repair run so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise.",
                 mapOf(
                     "path" to "string",
                     "timeoutSeconds" to "number",
@@ -425,8 +601,13 @@ public object BreakTestAgentMcpServer {
                     "requestBodyLimit" to "number",
                     "maxSamples" to "number",
                     "stopOnFirstFailure" to "boolean",
+                    "ignoreStaticAssetFailures" to "boolean",
                     "includeDsl" to "boolean",
                     "dslCharacterLimit" to "number",
+                    "includeStaticAssets" to "boolean",
+                    "compact" to "boolean",
+                    "compactSampleLimit" to "number",
+                    "compactBodyLimit" to "number",
                 ),
                 listOf("path"),
             ))
@@ -494,11 +675,15 @@ public object BreakTestAgentMcpServer {
         val name = params.path("name").asText()
         val arguments = params.path("arguments")
         val payload = executeTool(name, arguments)
+        val payloadText = mapper.writeValueAsString(payload)
+        McpTrace.log(
+            "tool_content name=$name responseBytes=${payloadText.toByteArray(Charsets.UTF_8).size}",
+        )
         return mapper.createObjectNode().apply {
             putArray("content").add(
                 mapper.createObjectNode().apply {
                     put("type", "text")
-                    put("text", mapper.writeValueAsString(payload))
+                    put("text", payloadText)
                 }
             )
         }
@@ -506,19 +691,29 @@ public object BreakTestAgentMcpServer {
 
     private fun executeTool(name: String, arguments: JsonNode): Any {
         val startedAt = System.nanoTime()
+        val argumentBytes = jsonByteSize(arguments)
         if (name.shouldMirrorActivity()) {
             postGuiActivityIfAvailable("started", "MCP tool `$name` started")
         }
         return try {
             when (name) {
                 "gui_status" -> callGuiTool("status", arguments)
+                "refresh_open_plan_from_file" -> callGuiTool("refresh_open_plan_from_file", arguments)
                 "inspect_open_plan" -> callGuiTool("inspect_open_plan", arguments)
                 "validate_open_plan" -> callGuiTool("validate_open_plan", arguments)
                 "backup_open_plan" -> callGuiTool("backup_open_plan", arguments)
                 "get_ai_knowledge_open_plan" -> callGuiTool("get_ai_knowledge_open_plan", arguments)
                 "update_ai_knowledge_open_plan" -> callGuiTool("update_ai_knowledge_open_plan", arguments)
                 "list_agent_changes_open_plan" -> callGuiTool("list_agent_changes_open_plan", arguments)
+                "find_open_plan_nodes" -> callGuiTool("find_open_plan_nodes", arguments)
                 "agent_activity" -> callGuiTool("agent_activity", arguments)
+                "list_recorded_har_exchanges_open_plan" -> callGuiTool("list_recorded_har_exchanges_open_plan", arguments)
+                "get_recorded_har_exchange_open_plan" -> callGuiTool("get_recorded_har_exchange_open_plan", arguments)
+                "search_recorded_har_open_plan" -> callGuiTool("search_recorded_har_open_plan", arguments)
+                "audit_recorded_har_correlations_open_plan" -> callGuiTool("audit_recorded_har_correlations_open_plan", arguments)
+                "plan_repair_actions_open_plan" -> callGuiTool("plan_repair_actions_open_plan", arguments)
+                "get_repair_action_open_plan" -> callGuiTool("get_repair_action_open_plan", arguments)
+                "get_repair_actions_open_plan" -> callGuiTool("get_repair_actions_open_plan", arguments)
                 "apply_boundary_correlation_open_plan" -> callGuiTool("apply_boundary_correlation_open_plan", arguments)
                 "apply_regex_correlation_open_plan" -> callGuiTool("apply_regex_correlation_open_plan", arguments)
                 "update_regex_extractor_open_plan" -> callGuiTool("update_regex_extractor_open_plan", arguments)
@@ -534,6 +729,8 @@ public object BreakTestAgentMcpServer {
                 "add_response_assertion_open_plan" -> callGuiTool("add_response_assertion_open_plan", arguments)
                 "update_response_assertion_open_plan" -> callGuiTool("update_response_assertion_open_plan", arguments)
                 "set_redirect_mode_open_plan" -> callGuiTool("set_redirect_mode_open_plan", arguments)
+                "move_node_open_plan" -> callGuiTool("move_node_open_plan", arguments)
+                "delete_node_open_plan" -> callGuiTool("delete_node_open_plan", arguments)
                 "move_think_times_to_transactions_open_plan" -> callGuiTool("move_think_times_to_transactions_open_plan", arguments)
                 "inspect_jmx" -> inspectJmx(arguments)
                 "validate_jmx" -> validateJmx(arguments)
@@ -541,8 +738,12 @@ public object BreakTestAgentMcpServer {
                 "repair_boundary_correlation_once" -> repairBoundaryCorrelationOnce(arguments)
                 else -> throw IllegalArgumentException("Unknown tool: $name")
             }.also {
+                val resultBytes = jsonByteSize(it)
+                val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+                McpTrace.log(
+                    "tool_telemetry name=$name elapsedMs=$elapsedMs argsBytes=$argumentBytes resultBytes=$resultBytes",
+                )
                 if (name.shouldMirrorActivity()) {
-                    val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
                     postGuiActivityIfAvailable("completed", "MCP tool `$name` completed", "${elapsedMs}ms")
                 }
             }
@@ -556,21 +757,32 @@ public object BreakTestAgentMcpServer {
 
     private fun inspectJmx(arguments: JsonNode): Any {
         val tree = SaveService.loadTree(File(arguments.requiredText("path")))
-        return BreakTestAgent().inspect(tree, dslCharacterLimit(arguments))
+        return BreakTestAgent().inspect(tree, dslCharacterLimit(arguments), includeStaticAssets(arguments))
     }
 
     private fun validateJmx(arguments: JsonNode): Any {
         val tree = SaveService.loadTree(File(arguments.requiredText("path")))
-        return BreakTestAgent().inspectAndValidate(
+        val report = BreakTestAgent().inspectAndValidate(
             tree,
             optionsFrom(arguments),
             dslCharacterLimit(arguments),
+            includeStaticAssets(arguments),
         )
+        return if (arguments.path("compact").asBoolean(false)) {
+            AgentReportCompactor.compactForRepair(
+                report,
+                sampleLimit = arguments.path("compactSampleLimit").asInt(20),
+                bodyLimit = arguments.path("compactBodyLimit").asInt(1_500),
+            )
+        } else {
+            report
+        }
     }
 
     private fun String.shouldMirrorActivity(): Boolean =
         this !in setOf(
             "gui_status",
+            "refresh_open_plan_from_file",
             "inspect_open_plan",
             "validate_open_plan",
             "backup_open_plan",
@@ -578,6 +790,13 @@ public object BreakTestAgentMcpServer {
             "update_ai_knowledge_open_plan",
             "list_agent_changes_open_plan",
             "agent_activity",
+            "list_recorded_har_exchanges_open_plan",
+            "get_recorded_har_exchange_open_plan",
+            "search_recorded_har_open_plan",
+            "audit_recorded_har_correlations_open_plan",
+            "plan_repair_actions_open_plan",
+            "get_repair_action_open_plan",
+            "get_repair_actions_open_plan",
             "apply_boundary_correlation_open_plan",
             "apply_regex_correlation_open_plan",
             "update_regex_extractor_open_plan",
@@ -593,6 +812,8 @@ public object BreakTestAgentMcpServer {
             "add_response_assertion_open_plan",
             "update_response_assertion_open_plan",
             "set_redirect_mode_open_plan",
+            "move_node_open_plan",
+            "delete_node_open_plan",
             "move_think_times_to_transactions_open_plan",
         )
 
@@ -680,7 +901,12 @@ public object BreakTestAgentMcpServer {
             requestBodyLimit = arguments.path("requestBodyLimit").asInt(16 * 1024),
             maxSamples = arguments.path("maxSamples").takeIfPresent()?.asInt(),
             stopOnFirstFailure = arguments.path("stopOnFirstFailure").asBoolean(false),
+            ignoreStaticAssetFailures = arguments.path("ignoreStaticAssetFailures").asBoolean(false),
         )
+
+    private fun jsonByteSize(value: Any?): Int =
+        runCatching { mapper.writeValueAsBytes(value).size }
+            .getOrDefault(0)
 
     internal fun dslCharacterLimit(arguments: JsonNode): Int? {
         if (arguments.path("includeDsl").takeIfPresent()?.asBoolean() != true) {
@@ -688,6 +914,9 @@ public object BreakTestAgentMcpServer {
         }
         return arguments.path("dslCharacterLimit").takeIfPresent()?.asInt() ?: DEFAULT_DSL_CHARACTER_LIMIT
     }
+
+    private fun includeStaticAssets(arguments: JsonNode): Boolean =
+        arguments.path("includeStaticAssets").asBoolean(false)
 
     private fun inferBoundaries(responseBody: String, literal: String): Pair<String, String> {
         val index = responseBody.indexOf(literal)

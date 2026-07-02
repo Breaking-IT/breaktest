@@ -57,8 +57,8 @@ public class AgentFailureAnalyzer {
             return AgentFailureAnalysis(AgentFailureKind.TIMEOUT, null, emptyList())
         }
         val samples = result.samples.flatMap { it.flatten() }
-        val failure = samples.firstOrNull { it.isLeafFailure() }
-            ?: samples.firstOrNull { !it.success || it.hasAssertionFailure }
+        val failure = samples.firstOrNull { it.isLeafFailure(result.ignoreStaticAssetFailures) }
+            ?: samples.firstOrNull { it.isFailureForAnalysis(result.ignoreStaticAssetFailures) }
             ?: return AgentFailureAnalysis(AgentFailureKind.NO_FAILURE, null, emptyList())
         return AgentFailureAnalysis(
             kind = classify(failure),
@@ -76,8 +76,8 @@ public class AgentFailureAnalyzer {
             else -> AgentFailureKind.SAMPLE_ERROR
         }
 
-    private fun AgentSampleSummary.isLeafFailure(): Boolean =
-        subResults.isEmpty() && (!success || hasAssertionFailure)
+    private fun AgentSampleSummary.isLeafFailure(ignoreStaticAssetFailures: Boolean): Boolean =
+        subResults.isEmpty() && isFailureForAnalysis(ignoreStaticAssetFailures)
 
     private fun findCorrelationCandidates(
         samples: List<AgentSampleSummary>,

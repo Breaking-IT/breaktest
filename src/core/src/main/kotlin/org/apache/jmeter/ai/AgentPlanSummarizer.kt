@@ -30,6 +30,7 @@ public data class AgentSamplerContext(
     val name: String,
     val className: String,
     val transactionName: String? = null,
+    val staticAsset: Boolean = false,
 )
 
 public data class AgentExtractorContext(
@@ -52,6 +53,8 @@ public data class AgentPlanContext(
     val dsl: String,
     val elementCount: Int,
     val samplerCount: Int,
+    val functionalSamplerCount: Int = samplerCount,
+    val omittedStaticSamplerCount: Int = 0,
     val samplerTruncated: Boolean = false,
     val samplers: List<AgentSamplerContext> = emptyList(),
     val extractors: List<AgentExtractorContext> = emptyList(),
@@ -68,9 +71,10 @@ public class AgentPlanSummarizer(
         testTree: HashTree,
         dslCharacterLimit: Int? = null,
         samplerLimit: Int = 500,
+        includeStaticAssets: Boolean = true,
     ): AgentPlanContext {
         val dslPrinter = DslPrinterTraverser()
-        val counter = Counter(samplerLimit)
+        val counter = Counter(samplerLimit, includeStaticAssets)
         testTree.traverse(dslPrinter)
         testTree.traverse(counter)
         val fullDsl = dslPrinter.toString()
@@ -79,6 +83,8 @@ public class AgentPlanSummarizer(
             dsl = dsl,
             elementCount = counter.elementCount,
             samplerCount = counter.samplerCount,
+            functionalSamplerCount = counter.functionalSamplerCount,
+            omittedStaticSamplerCount = counter.omittedStaticSamplerCount,
             samplerTruncated = counter.samplerTruncated,
             samplers = counter.samplers,
             extractors = counter.extractors,
@@ -91,10 +97,15 @@ public class AgentPlanSummarizer(
 
     private class Counter(
         private val samplerLimit: Int,
+        private val includeStaticAssets: Boolean,
     ) : HashTreeTraverser {
         var elementCount = 0
             private set
         var samplerCount = 0
+            private set
+        var functionalSamplerCount = 0
+            private set
+        var omittedStaticSamplerCount = 0
             private set
         var samplerTruncated = false
             private set
@@ -123,16 +134,27 @@ public class AgentPlanSummarizer(
             }
             transactionNodeStack += transactionNode
             if (node is Sampler) {
+                val testElement = node as? TestElement
+                val staticAsset = testElement?.let(AgentStaticAssetClassifier::isStaticAsset) == true
                 val samplerContext = AgentSamplerContext(
                     index = samplerCount,
-                    name = (node as? TestElement)?.name.orEmpty(),
+                    name = testElement?.name.orEmpty(),
                     className = node::class.java.name,
                     transactionName = transactionStack.lastOrNull(),
+                    staticAsset = staticAsset,
                 )
-                if (samplers.size < samplerLimit) {
-                    samplers += samplerContext
-                } else {
-                    samplerTruncated = true
+                if (staticAsset && !includeStaticAssets) {
+                    omittedStaticSamplerCount++
+                }
+                if (!staticAsset) {
+                    functionalSamplerCount++
+                }
+                if (includeStaticAssets || !staticAsset) {
+                    if (samplers.size < samplerLimit) {
+                        samplers += samplerContext
+                    } else {
+                        samplerTruncated = true
+                    }
                 }
                 samplerStack += samplerContext
                 samplerCount++

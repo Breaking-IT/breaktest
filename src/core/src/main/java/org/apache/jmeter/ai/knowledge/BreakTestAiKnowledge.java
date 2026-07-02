@@ -38,7 +38,6 @@ public class BreakTestAiKnowledge extends AbstractTestElement implements NonTest
               "schemaVersion": 1,
               "projectHints": [],
               "correlationPatterns": [],
-              "assertionPatterns": [],
               "variableMappings": [],
               "knownDynamicFields": [],
               "timestampRules": [],

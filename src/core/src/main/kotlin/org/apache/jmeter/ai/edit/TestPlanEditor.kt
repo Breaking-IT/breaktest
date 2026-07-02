@@ -51,13 +51,18 @@ public data class RegexCorrelationRequest(
     val matchNumber: String = "1",
     val defaultValue: String = "NOT_FOUND",
     val useField: String = "body",
-    val literal: String,
+    val literal: String? = null,
     val failOnNoMatch: Boolean = true,
 )
 
 public data class LiteralReplacementRequest(
     val targetSamplerIndex: Int? = null,
     val targetSamplerLabel: String? = null,
+    val targetNodePath: String? = null,
+    val targetOccurrenceIndex: Int? = null,
+    val scopeNodePath: String? = null,
+    val threadGroupName: String? = null,
+    val allowWholePlan: Boolean = false,
     val literal: String,
     val replacement: String,
     val includeNames: Boolean = false,

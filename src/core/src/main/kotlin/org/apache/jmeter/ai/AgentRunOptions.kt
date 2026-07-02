@@ -30,4 +30,5 @@ public data class AgentRunOptions(
     val requestBodyLimit: Int = 16 * 1024,
     val maxSamples: Int? = null,
     val stopOnFirstFailure: Boolean = false,
+    val ignoreStaticAssetFailures: Boolean = false,
 )

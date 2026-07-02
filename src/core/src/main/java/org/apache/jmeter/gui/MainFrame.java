@@ -646,7 +646,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         toolPanel.add(runningIndicator);
         toolPanel.add(Box.createRigidArea(new Dimension(8, 15)));
         JButton aiLogButton = new JButton("AI Log");
-        aiLogButton.setToolTipText("Show or hide the AI Auto Scripting log");
+        aiLogButton.setToolTipText("Show or hide the AI Auto Scripting (Beta) log");
         aiLogButton.addActionListener(event -> AiAutoScriptingLogWindow.toggleVisibility());
         toolPanel.add(aiLogButton);
         return toolPanel;
@@ -869,7 +869,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     public void showAiLogPanel() {
         JPanel aiPanel = AiAutoScriptingLogWindow.dockedComponent();
-        addBottomLogTab("AI Auto Scripting", aiPanel);
+        addBottomLogTab("AI Auto Scripting (Beta)", aiPanel);
         bottomLogTabs.setSelectedComponent(aiPanel);
         updateBottomLogVisibility();
     }

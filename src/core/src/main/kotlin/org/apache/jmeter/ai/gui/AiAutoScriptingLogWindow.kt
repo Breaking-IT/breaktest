@@ -18,8 +18,10 @@
 package org.apache.jmeter.ai.gui
 
 import org.apache.jmeter.gui.GuiPackage
+import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.EscapeDialog
 import java.awt.BorderLayout
+import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Insets
 import java.time.Duration
@@ -229,7 +231,7 @@ public object AiAutoScriptingLogWindow {
     private fun ensureDialog(): EscapeDialog {
         dialog?.let { return it }
         val mainFrame = GuiPackage.getInstance()?.mainFrame
-        val newDialog = EscapeDialog(mainFrame, "AI Auto Scripting", false).apply {
+        val newDialog = EscapeDialog(mainFrame, "AI Auto Scripting (Beta)", false).apply {
             contentPane.layout = BorderLayout()
             contentPane.add(ensureContentPanel(), BorderLayout.CENTER)
             minimumSize = Dimension(460, 280)
@@ -289,7 +291,7 @@ public object AiAutoScriptingLogWindow {
         stopButton?.let { return it }
         val button = JButton("Stop").apply {
             isEnabled = false
-            toolTipText = "Stop the running AI Auto Scripting process"
+            toolTipText = "Stop the running AI Auto Scripting (Beta) process"
             addActionListener {
                 isEnabled = false
                 stopHandler?.run()
@@ -367,6 +369,8 @@ public object AiAutoScriptingLogWindow {
             fillsViewportHeight = true
             autoCreateRowSorter = true
             rowHeight = 22
+            toolTipText = "Double-click a change to jump to the matching test plan node"
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(event: java.awt.event.MouseEvent) {
                     if (event.clickCount < 2) {
@@ -374,7 +378,13 @@ public object AiAutoScriptingLogWindow {
                     }
                     val viewRow = selectedRow.takeIf { it >= 0 } ?: return
                     val modelRow = convertRowIndexToModel(viewRow)
-                    changeModel.pathAt(modelRow)?.let(::selectNode)
+                    val entry = changeModel.entryAt(modelRow) ?: return
+                    val path = entry.path ?: resolveChangePath(entry)
+                    if (path != null) {
+                        selectNode(path)
+                    } else {
+                        append("Could not find changed node in the current test plan: ${entry.nodeName}")
+                    }
                 }
             })
         }
@@ -388,10 +398,125 @@ public object AiAutoScriptingLogWindow {
 
     private fun selectNode(path: TreePath) {
         val tree = GuiPackage.getInstance()?.mainFrame?.tree ?: return
+        path.parentPath?.let { tree.expandPath(it) }
         tree.selectionPath = path
         tree.scrollPathToVisible(path)
         tree.requestFocusInWindow()
     }
+
+    private fun resolveChangePath(entry: ChangeEntry): TreePath? {
+        val gui = GuiPackage.getInstance() ?: return null
+        val root = gui.treeModel.root as? JMeterTreeNode ?: return null
+        val nodes = flattenNodes(root)
+        if (nodes.isEmpty()) {
+            return null
+        }
+        val references = nodeReferences(entry).filter { it.length >= 2 }
+        for (reference in references) {
+            val normalizedReference = normalizeNodeReference(reference)
+            val exactPath = nodes.firstOrNull {
+                normalizeNodeReference(treePathText(it)) == normalizedReference
+            }
+            if (exactPath != null) {
+                return TreePath(exactPath.path)
+            }
+            val suffixPath = nodes.firstOrNull {
+                normalizeNodeReference(treePathText(it)).endsWith(" / $normalizedReference")
+            }
+            if (suffixPath != null) {
+                return TreePath(suffixPath.path)
+            }
+        }
+        val best = nodes
+            .mapNotNull { node ->
+                val score = references.maxOfOrNull { scoreNodeMatch(node, it) } ?: 0
+                if (score > 0) node to score else null
+            }
+            .maxWithOrNull(compareBy<Pair<JMeterTreeNode, Int>> { it.second }.thenByDescending { treePathText(it.first).length })
+            ?.takeIf { it.second >= 45 }
+            ?.first
+        return best?.let { TreePath(it.path) }
+    }
+
+    private fun flattenNodes(root: JMeterTreeNode): List<JMeterTreeNode> {
+        val nodes = mutableListOf<JMeterTreeNode>()
+        fun visit(node: JMeterTreeNode) {
+            nodes += node
+            for (index in 0 until node.childCount) {
+                val child = node.getChildAt(index)
+                if (child is JMeterTreeNode) {
+                    visit(child)
+                }
+            }
+        }
+        visit(root)
+        return nodes
+    }
+
+    private fun nodeReferences(entry: ChangeEntry): List<String> {
+        val raw = linkedSetOf<String>()
+        listOf(entry.nodeName, entry.summary, entry.details).forEach { value ->
+            extractNodeReferences(value).forEach(raw::add)
+        }
+        return raw.toList()
+    }
+
+    private fun extractNodeReferences(value: String): List<String> {
+        val cleaned = value
+            .replace('`', ' ')
+            .replace('"', ' ')
+            .replace('\'', ' ')
+            .replace("TestPlan.user_defined_variables", "Test Plan")
+            .trim()
+        if (cleaned.isBlank()) {
+            return emptyList()
+        }
+        val references = mutableListOf(cleaned)
+        val slashReferences = Regex("""(?:^|[\s,(])(/[^\s,;)]{2,})""")
+            .findAll(cleaned)
+            .map { it.groupValues[1].trimEnd('.', ',', ';', ')') }
+            .toList()
+        references += slashReferences
+        if (!cleaned.contains(" / ")) {
+            cleaned.split(Regex("""\s+(?:and|or)\s+|,\s*|;\s*"""))
+                .map { it.trim() }
+                .filter { it.length >= 3 }
+                .forEach(references::add)
+        }
+        return references.distinct()
+    }
+
+    private fun scoreNodeMatch(node: JMeterTreeNode, reference: String): Int {
+        val normalizedReference = normalizeNodeReference(reference)
+        if (normalizedReference.length < 2) {
+            return 0
+        }
+        val name = normalizeNodeReference(node.testElement.name.orEmpty())
+        val path = normalizeNodeReference(treePathText(node))
+        return when {
+            path == normalizedReference -> 100
+            path.endsWith(" / $normalizedReference") -> 95
+            name == normalizedReference -> 90
+            normalizedReference.startsWith("/") && name == normalizedReference.substringAfterLast(" / ") -> 88
+            normalizedReference.startsWith("/") && name.contains(normalizedReference) -> 82
+            normalizedReference.length >= 4 && path.contains(normalizedReference) -> 70
+            normalizedReference.length >= 6 && normalizedReference.contains(name) -> 55
+            normalizedReference.length >= 6 && name.contains(normalizedReference) -> 50
+            else -> 0
+        }
+    }
+
+    private fun treePathText(node: JMeterTreeNode): String =
+        node.path
+            .filterIsInstance<JMeterTreeNode>()
+            .joinToString(" / ") { it.testElement.name.orEmpty() }
+
+    private fun normalizeNodeReference(value: String): String =
+        value
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+            .trim('.', ',', ';')
+            .lowercase()
 
     private fun updateStatus() {
         val start = startedAt ?: return
@@ -482,7 +607,7 @@ public object AiAutoScriptingLogWindow {
             }
         }
 
-        fun pathAt(row: Int): TreePath? = rows.getOrNull(row)?.path
+        fun entryAt(row: Int): ChangeEntry? = rows.getOrNull(row)
 
         fun snapshot(): List<ChangeEntry> = rows.toList()
     }

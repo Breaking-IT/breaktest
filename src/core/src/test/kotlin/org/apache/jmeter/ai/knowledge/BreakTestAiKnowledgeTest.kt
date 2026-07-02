@@ -42,7 +42,7 @@ class BreakTestAiKnowledgeTest : JMeterTestCase() {
         assertEquals(BreakTestAiKnowledge.DEFAULT_NAME, knowledge.name)
         assertEquals(1, parsed.path("schemaVersion").asInt())
         assertEquals(true, parsed.path("correlationPatterns").isArray)
-        assertEquals(true, parsed.path("assertionPatterns").isArray)
+        assertEquals(true, parsed.path("assertionPatterns").isMissingNode)
     }
 
     @Test
