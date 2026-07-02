@@ -1033,8 +1033,22 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             view = null;
         }
         boolean runningVersion = isRunningVersion();
-        boolean identityTemporaryProperty = runningVersion && requiresIdentityTemporarySet(propertyToPut);
-        if (runningVersion && !identityTemporaryProperty) {
+        // TestElementProperty merges replace/extend the enclosed element wholesale (it does not
+        // merge item by item, see Bug 65336), so the merged-into property itself is marked
+        // temporary and dropped on recover. It is marked *after* the put/merge below because
+        // membership is tracked by identity, and the instance that ends up in the property map
+        // is only known then.
+        // All other properties (including CollectionProperty/MapProperty) are marked *before*
+        // the merge: MultiProperty.mergeIn adds the incoming enclosed properties by reference
+        // into the existing container, and setTemporary marks those enclosed properties
+        // (recursively, by identity), so recoverRunningVersion removes exactly the merged items
+        // while keeping the element's own items. Marking the merged-into container itself would
+        // remove the element's own property on recover: for owned property maps that loses the
+        // element's own items, and for lightweight clones it evicts the per-thread overlay entry,
+        // forcing a deep re-clone of the shared base property on every sample (a severe
+        // throughput regression on the sample hot path).
+        boolean temporaryMergedProperty = runningVersion && propertyToPut instanceof TestElementProperty;
+        if (runningVersion && !temporaryMergedProperty) {
             setTemporary(propertyToPut);
         } else if (!runningVersion) {
             clearTemporary(property);
@@ -1042,19 +1056,38 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         JMeterProperty prop = getProperty(property.getName());
 
         if (prop instanceof NullProperty || (prop instanceof StringProperty && prop.getStringValue().isEmpty())) {
+            JMeterProperty toStore = propertyToPut;
+            MultiProperty freshMergeContainer = null;
+            if (runningVersion && isMergingEnclosedProperties(propertyToPut)) {
+                // Never store the incoming (typically a config element's own) container by
+                // reference: a later merge into this slot appends items into the stored
+                // container in place, which would mutate the source element's property.
+                // Identity-based recovery evicts the stored container without recovering its
+                // content, so that mutation would accumulate on every sample (unbounded growth
+                // of the source element's collection and a per-sample slowdown). Store a fresh
+                // container instead, mark that exact instance temporary (identity semantics,
+                // so recovery evicts it O(1)), and merge the incoming items into it by reference.
+                freshMergeContainer = newEmptyMergeContainer((MultiProperty) propertyToPut);
+                if (freshMergeContainer != null) {
+                    toStore = freshMergeContainer;
+                }
+            }
             try (ResourceLock ignored = writeLock()) {
                 if (view != null) {
-                    view.putOverlay(property.getName(), propertyToPut);
+                    view.putOverlay(property.getName(), toStore);
                 } else {
-                    propMap.put(property.getName(), propertyToPut);
+                    propMap.put(property.getName(), toStore);
                     invalidateSharedSnapshot();
                 }
                 Map<String, JMeterProperty> propMapConcurrent = this.propMapConcurrent;
                 if (propMapConcurrent != null) {
-                    propMapConcurrent.put(property.getName(), propertyToPut);
+                    propMapConcurrent.put(property.getName(), toStore);
                 }
             }
-            if (identityTemporaryProperty) {
+            if (freshMergeContainer != null) {
+                setTemporary(freshMergeContainer);
+                freshMergeContainer.mergeIn(propertyToPut);
+            } else if (temporaryMergedProperty) {
                 setTemporary(propertyToPut);
             }
         } else {
@@ -1068,7 +1101,7 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
                 }
             }
             prop.mergeIn(propertyToPut);
-            if (identityTemporaryProperty) {
+            if (temporaryMergedProperty) {
                 setTemporary(prop);
             }
         }
@@ -1420,6 +1453,30 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
     // temporary (Bug 65336)
     private static boolean isMergingEnclosedProperties(JMeterProperty property) {
         return property instanceof MultiProperty && !(property instanceof TestElementProperty);
+    }
+
+    /**
+     * Empty same-type, same-name container to receive merged items in place of the
+     * incoming container instance (see {@link #addProperty(JMeterProperty, boolean)}).
+     * Returns {@code null} for container types that cannot be instantiated empty,
+     * in which case the caller falls back to storing the incoming instance.
+     */
+    private static MultiProperty newEmptyMergeContainer(MultiProperty source) {
+        MultiProperty fresh;
+        if (source instanceof MapProperty) {
+            fresh = new MapProperty();
+        } else if (source instanceof CollectionProperty) {
+            fresh = new CollectionProperty();
+        } else {
+            try {
+                fresh = source.getClass().getDeclaredConstructor().newInstance();
+            } catch (ReflectiveOperationException | RuntimeException e) {
+                return null;
+            }
+        }
+        fresh.setName(source.getName());
+        fresh.setRunningVersion(true);
+        return fresh;
     }
 
     /**
