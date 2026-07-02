@@ -846,10 +846,11 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
-                        if (needsSampleResultMetadata(sampleListeners)) {
+                        boolean metadataNeeded = needsSampleResultMetadata(sampleListeners);
+                        if (metadataNeeded || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
                             setSourceTestElementPath(result, pack.getSourceTestElementPath());
                         }
-                        notifyListeners(sampleListeners, result);
+                        notifyListeners(sampleListeners, result, metadataNeeded);
                     }
                     packageDone = true;
                     doneLocked(pack);
@@ -1492,11 +1493,22 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        if (needsSampleResultMetadata(listeners)) {
+        notifyListeners(listeners, result, needsSampleResultMetadata(listeners));
+    }
+
+    private void notifyListeners(List<SampleListener> listeners, SampleResult result, boolean metadataNeeded) {
+        if (metadataNeeded) {
             setJMeterVariables(result, snapshotVariables(threadVars));
         }
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
         notifier.notifyListeners(event, listeners);
+    }
+
+    private static boolean transactionChildSourcePathNeeded(
+            SamplePackage transactionPack, TransactionSampler transactionSampler) {
+        return transactionSampler != null
+                && transactionPack != null
+                && needsSampleResultMetadata(transactionPack.getSampleListeners());
     }
 
     private static boolean needsSampleResultMetadata(List<SampleListener> listeners) {
