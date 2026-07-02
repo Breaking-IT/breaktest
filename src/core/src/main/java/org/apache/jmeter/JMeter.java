@@ -1157,7 +1157,7 @@ public class JMeter implements JMeterPlugin {
 
     private static void waitForSignals(final List<? extends JMeterEngine> engines, DatagramSocket socket) {
         byte[] buf = new byte[80];
-        System.out.println("Waiting for possible Shutdown/StopTestNow/HeapDump/ThreadDump message on port "+socket.getLocalPort());//NOSONAR
+        System.out.println("Waiting for possible Shutdown/StopTestNow/Pause/Resume/HeapDump/ThreadDump message on port "+socket.getLocalPort());//NOSONAR
         DatagramPacket request = new DatagramPacket(buf, buf.length);
         try {
             while(true) {
@@ -1177,6 +1177,16 @@ public class JMeter implements JMeterPlugin {
                         case "Shutdown" -> {
                             for (JMeterEngine engine : engines) {
                                 engine.stopTest(false);
+                            }
+                        }
+                        case "Pause" -> {
+                            for (JMeterEngine engine : engines) {
+                                engine.pauseTest();
+                            }
+                        }
+                        case "Resume" -> {
+                            for (JMeterEngine engine : engines) {
+                                engine.resumeTest();
                             }
                         }
                         case "HeapDump" -> HeapDumper.dumpHeap();
