@@ -92,6 +92,7 @@ import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
+import org.apache.hc.core5.http.ClassicHttpRequest;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.ConnectionClosedException;
 import org.apache.hc.core5.http.Header;
@@ -105,6 +106,7 @@ import org.apache.hc.core5.http.RequestNotExecutedException;
 import org.apache.hc.core5.http.URIScheme;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.io.entity.FileEntity;
 import org.apache.hc.core5.http.message.BufferedHeader;
 import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
@@ -232,6 +234,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             try {
                 currentRequest = httpRequest;
                 handleMethod(method, res, httpRequest, clientContext);
+                setContentLengthForKnownEntity(httpRequest,
+                        HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol()));
                 removeHeadersUnsupportedByHttp2(httpRequest);
                 clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
                 clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
@@ -1218,6 +1222,23 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             throw new IllegalArgumentException("Unexpected method: '" + method + "'");
         }
         return result;
+    }
+
+    static void setContentLengthForKnownEntity(ClassicHttpRequest request, boolean secureRequest) {
+        HttpEntity entity = request.getEntity();
+        if (entity == null || request.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH)) {
+            return;
+        }
+        if (!secureRequest) {
+            return;
+        }
+        if (!(entity instanceof FileEntity)) {
+            return;
+        }
+        long contentLength = entity.getContentLength();
+        if (contentLength > 0) {
+            request.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, Long.toString(contentLength));
+        }
     }
 
     static void removeHeadersUnsupportedByHttp2(HttpRequest request) {

@@ -17,10 +17,20 @@
 
 package org.apache.jmeter.gui.tree;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.beans.BeanDescriptor;
+import java.beans.Introspector;
+
+import org.apache.jmeter.config.ConfigElement;
+import org.apache.jmeter.config.gui.AbstractConfigGui;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
+import org.apache.jmeter.testbeans.TestBean;
+import org.apache.jmeter.testelement.AbstractTestElement;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.junit.jupiter.api.Test;
 
@@ -43,5 +53,30 @@ class JMeterTreeNodeTest {
 
         assertFalse(child.isMarkedBySearch());
         assertFalse(parent.isChildrenMarkedBySearch());
+    }
+
+    @Test
+    void testBeanIconGuiClassIsInferredForConfigElement() throws Exception {
+        BeanDescriptor beanDescriptor = Introspector.getBeanInfo(FastLoadedConfigBean.class).getBeanDescriptor();
+
+        assertNull(beanDescriptor.getValue(TestElement.GUI_CLASS));
+
+        String guiClassName = JMeterTreeNode.getTestBeanGuiClassName(beanDescriptor, FastLoadedConfigBean.class);
+
+        assertEquals(AbstractConfigGui.class.getName(), guiClassName);
+        assertEquals(AbstractConfigGui.class.getName(), beanDescriptor.getValue(TestElement.GUI_CLASS));
+    }
+
+    public static class FastLoadedConfigBean extends AbstractTestElement implements ConfigElement, TestBean {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void addConfigElement(ConfigElement config) {
+        }
+
+        @Override
+        public boolean expectsModification() {
+            return false;
+        }
     }
 }

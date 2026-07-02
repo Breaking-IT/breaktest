@@ -49,10 +49,15 @@ public class RenderAsHTML extends SamplerResultTab implements ResultRenderer {
     /** {@inheritDoc} */
     @Override
     public void renderResult(SampleResult sampleResult) {
+        ensureInitialized();
         // get the text response and image icon
         // to determine which is NOT null
-        String response = ViewResultsFullVisualizer.getResponseAsString(sampleResult);
+        String response = htmlBodyFrom(sampleResult);
         showRenderedResponse(response, sampleResult);
+    }
+
+    static String htmlBodyFrom(SampleResult sampleResult) {
+        return stripHttpResponseHeaders(ViewResultsFullVisualizer.getResponseAsString(sampleResult));
     }
 
     protected void showRenderedResponse(String response, SampleResult res) {
@@ -65,12 +70,7 @@ public class RenderAsHTML extends SamplerResultTab implements ResultRenderer {
             return;
         }
 
-        int htmlIndex = response.indexOf("<HTML"); // could be <HTML lang=""> // $NON-NLS-1$
-
-        // Look for a case variation
-        if (htmlIndex < 0) {
-            htmlIndex = response.indexOf("<html"); // ditto // $NON-NLS-1$
-        }
+        int htmlIndex = firstHtmlContentIndex(response);
 
         // If we still can't find it, just try using all of the text
         if (htmlIndex < 0) {
@@ -112,6 +112,32 @@ public class RenderAsHTML extends SamplerResultTab implements ResultRenderer {
             log.warn("An error occurred rendering html code", e);
             results.setText("Failed to render HTML: " + e.getMessage() +", use Text renderer");
         }
+    }
+
+    private static String stripHttpResponseHeaders(String response) {
+        if (response == null || !response.startsWith("HTTP/")) { // $NON-NLS-1$
+            return response;
+        }
+        int headerEnd = response.indexOf("\r\n\r\n"); // $NON-NLS-1$
+        int separatorLength = 4;
+        if (headerEnd < 0) {
+            headerEnd = response.indexOf("\n\n"); // $NON-NLS-1$
+            separatorLength = 2;
+        }
+        return headerEnd < 0 ? response : response.substring(headerEnd + separatorLength);
+    }
+
+    private static int firstHtmlContentIndex(String response) {
+        String lowerCaseResponse = response.toLowerCase(java.util.Locale.ROOT);
+        int doctypeIndex = lowerCaseResponse.indexOf("<!doctype"); // $NON-NLS-1$
+        int htmlIndex = lowerCaseResponse.indexOf("<html"); // $NON-NLS-1$
+        if (doctypeIndex < 0) {
+            return htmlIndex;
+        }
+        if (htmlIndex < 0) {
+            return doctypeIndex;
+        }
+        return Math.min(doctypeIndex, htmlIndex);
     }
 
     private static class LocalHTMLEditorKit extends HTMLEditorKit {

@@ -45,6 +45,7 @@ import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
@@ -55,6 +56,7 @@ import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.timers.Timer;
+import org.apache.jmeter.visualizers.Visualizer;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
@@ -218,6 +220,25 @@ class TestJMeterThread {
             result.setSuccessful(successful);
             result.sampleEnd();
             return result;
+        }
+    }
+
+    private static final class MetadataNeedingVisualizer implements Visualizer {
+        private final AtomicReference<SampleResult> result = new AtomicReference<>();
+
+        @Override
+        public void add(SampleResult sample) {
+            result.set(sample);
+        }
+
+        @Override
+        public boolean needsSampleResultMetadata() {
+            return true;
+        }
+
+        @Override
+        public boolean isStats() {
+            return false;
         }
     }
 
@@ -852,6 +873,49 @@ class TestJMeterThread {
                 transactionSampler,
                 context,
                 (Consumer<FindTestElementsUpToRootTraverser>) traverser -> { }));
+    }
+
+    @Test
+    void testTransactionChildKeepsSamplerSourcePathWhenOnlyParentListenerNeedsMetadata() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("transaction");
+        transactionController.setGenerateParentSample(true);
+        AtomicInteger childCalls = new AtomicInteger();
+        ResultStatusSampler childSampler = new ResultStatusSampler("har-linked-child", true, childCalls);
+        ResultCollector resultCollector = new ResultCollector();
+        MetadataNeedingVisualizer visualizer = new MetadataNeedingVisualizer();
+        resultCollector.setListener(visualizer);
+
+        testTree.add(loop);
+        testTree.add(loop, transactionController);
+        testTree.add(transactionController, childSampler);
+        testTree.add(transactionController, resultCollector);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.run();
+
+        SampleResult transactionResult = visualizer.result.get();
+        assertEquals(1, childCalls.get(), "Child sampler should run once");
+        assertEquals("transaction", transactionResult.getSampleLabel());
+        assertEquals(1, transactionResult.getSubResults().length);
+        SampleResult childResult = transactionResult.getSubResults()[0];
+        List<SampleResult.TestElementPathEntry> childPath = childResult.getSourceTestElementPath();
+
+        assertFalse(childPath.isEmpty(), "Transaction child should keep source metadata for visual tree lookup");
+        SampleResult.TestElementPathEntry source = childPath.get(childPath.size() - 1);
+        assertEquals(childSampler.getClass().getName(), source.className());
+        assertEquals(childSampler.getName(), source.name());
     }
 
     private static LoopController createLoopController() {

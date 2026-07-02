@@ -18,6 +18,7 @@
 package org.apache.jmeter.visualizers;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Insets;
@@ -116,6 +117,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     private static final String RECORDED_RESPONSE_TAB = "Recorded Response"; // $NON-NLS-1$
 
+    private static final String RAW_RESPONSE_CARD = "rawResponse"; // $NON-NLS-1$
+
+    private static final String RENDERED_RESPONSE_CARD = "renderedResponse"; // $NON-NLS-1$
+
     private static final String STYLE_SERVER_ERROR = "ServerError"; // $NON-NLS-1$
 
     private static final String STYLE_CLIENT_ERROR = "ClientError"; // $NON-NLS-1$
@@ -160,11 +165,17 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     private JLabel imageLabel;
 
+    private JPanel responseCardPanel;
+
+    private String currentResponseCard = RAW_RESPONSE_CARD;
+
     /** request pane content */
     private RequestPanel requestPanel;
 
     /** holds the tabbed panes */
     protected JTabbedPane rightSide;
+
+    private boolean initialized;
 
     private int lastSelectedTab;
 
@@ -280,7 +291,9 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     @Override
     public void clearData() {
-        responseData.setInitialText(""); // $NON-NLS-1$
+        if (responseData != null) {
+            responseData.setInitialText(""); // $NON-NLS-1$
+        }
         rawResponseBody = ""; // $NON-NLS-1$
         recordedHarResolution = RecordedHarExchangeResolver.Resolution.notLinked();
         updateDiffButtons();
@@ -293,9 +306,15 @@ public abstract class SamplerResultTab implements ResultRenderer {
         if (loadBodyButton != null) {
             loadBodyButton.setEnabled(false);
         }
-        results.setText("");// Response Data // $NON-NLS-1$
-        requestPanel.clearData();// Request Data // $NON-NLS-1$
-        stats.setText(""); // Sampler result // $NON-NLS-1$
+        if (results != null) {
+            results.setText("");// Response Data // $NON-NLS-1$
+        }
+        if (requestPanel != null) {
+            requestPanel.clearData();// Request Data // $NON-NLS-1$
+        }
+        if (stats != null) {
+            stats.setText(""); // Sampler result // $NON-NLS-1$
+        }
         resultModel.clearData();
         resHeadersModel.clearData();
         resFieldsModel.clearData();
@@ -305,8 +324,20 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     @Override
     public void init() {
-        rightSide.addTab(
-                JMeterUtils.getResString("view_results_tab_sampler"), createResponseMetadataPanel()); // $NON-NLS-1$
+        if (initialized && results != null && stats != null && resultsScrollPane != null) {
+            return;
+        }
+        if (rightSide == null) {
+            rightSide = new JTabbedPane();
+        }
+        String samplerTab = JMeterUtils.getResString("view_results_tab_sampler"); // $NON-NLS-1$
+        Component samplerPanel = createResponseMetadataPanel();
+        int samplerTabIndex = rightSide.indexOfTab(samplerTab);
+        if (samplerTabIndex >= 0) {
+            rightSide.setComponentAt(samplerTabIndex, samplerPanel);
+        } else {
+            rightSide.addTab(samplerTab, samplerPanel);
+        }
         // Create the panels for the other tabs
         requestPanel = new RequestPanel(this::recordedRequestDiffContent);
         resultsPane = createResponseDataPanel();
@@ -314,10 +345,48 @@ public abstract class SamplerResultTab implements ResultRenderer {
         variablesPane = createTablePanel(variablesModel);
         recordedRequestPane = createRecordedDataPanel(true);
         recordedResponsePane = createRecordedDataPanel(false);
+        initialized = true;
+    }
+
+    void ensureInitialized() {
+        init();
+    }
+
+    void showPreferredResponseView() {
+        if (usesRawResponseView()) {
+            showRawResponseView();
+        } else {
+            showRenderedResponseView();
+        }
+    }
+
+    protected boolean usesRawResponseView() {
+        return false;
+    }
+
+    protected void showRawResponseView() {
+        showResponseCard(RAW_RESPONSE_CARD);
+    }
+
+    protected void showRenderedResponseView() {
+        showResponseCard(RENDERED_RESPONSE_CARD);
+    }
+
+    boolean isRenderedResponseViewVisible() {
+        return RENDERED_RESPONSE_CARD.equals(currentResponseCard);
+    }
+
+    private void showResponseCard(String card) {
+        if (responseCardPanel == null) {
+            return;
+        }
+        ((CardLayout) responseCardPanel.getLayout()).show(responseCardPanel, card);
+        currentResponseCard = card;
     }
 
     @Override
     public void setupTabPane() {
+        init();
         // Clear all data before display a new sample. The active tab is filled lazily below.
         this.clearData();
         sampleResult = null;
@@ -819,8 +888,13 @@ public abstract class SamplerResultTab implements ResultRenderer {
             resultAndSearchPanel.add(searchTextExtension.getSearchToolBar(), BorderLayout.NORTH);
         }
 
+        responseCardPanel = new JPanel(new CardLayout());
+        responseCardPanel.add(GuiUtils.makeScrollPane(responseAndSearchPanel), RAW_RESPONSE_CARD);
+        responseCardPanel.add(resultAndSearchPanel, RENDERED_RESPONSE_CARD);
+        showRawResponseView();
+
         JPanel panel = new JPanel(new BorderLayout());
-        panel.add(GuiUtils.makeScrollPane(responseAndSearchPanel));
+        panel.add(responseCardPanel);
         return panel;
     }
 
@@ -836,7 +910,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     @Override
     public synchronized void setRightSide(JTabbedPane side) {
-        rightSide = side;
+        if (rightSide != side) {
+            rightSide = side;
+            initialized = false;
+        }
     }
 
     @Override

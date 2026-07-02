@@ -25,6 +25,11 @@ import com.google.auto.service.AutoService;
 @AutoService(ResultRenderer.class)
 public class RenderAsText extends SamplerResultTab implements ResultRenderer {
 
+    @Override
+    protected boolean usesRawResponseView() {
+        return true;
+    }
+
     /** {@inheritDoc} */
     @Override
     public void renderResult(SampleResult sampleResult) {
