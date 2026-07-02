@@ -28,7 +28,7 @@ public class RenderAsHTMLFormatted extends SamplerResultTab implements ResultRen
     /** {@inheritDoc} */
     @Override
     public void renderResult(SampleResult sampleResult) {
-        String response = ViewResultsFullVisualizer.getResponseAsString(sampleResult);
+        String response = RenderAsHTML.htmlBodyFrom(sampleResult);
         showHTMLFormattedResponse(response);
     }
 

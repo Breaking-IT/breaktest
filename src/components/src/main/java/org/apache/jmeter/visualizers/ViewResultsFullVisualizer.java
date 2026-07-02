@@ -431,23 +431,43 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private void renderSelectedTabIfNeeded() {
         if (resultsRender != null && resultsObject != null) {
+            ensureResultsRendererInitialized();
             resultsRender.renderSelectedTab();
         }
         renderSelectedResponseIfNeeded();
+        showPreferredResponseViewIfNeeded();
     }
 
     private void renderSelectedResponseIfNeeded() {
         if (resultsRender == null || resultsObject == null || resultsObject == renderedResponseObject
-                || !isResponseTabSelected()) {
+                || !shouldRenderResponse()) {
             return;
         }
         if (resultsObject instanceof SampleResult sampleResult) {
+            ensureResultsRendererInitialized();
             if (isTextDataType(sampleResult)) {
                 resultsRender.renderResult(sampleResult);
             } else {
                 resultsRender.renderImage(sampleResult);
             }
             renderedResponseObject = resultsObject;
+        }
+    }
+
+    private boolean shouldRenderResponse() {
+        return isResponseTabSelected()
+                || rightSide.indexOfTab(JMeterUtils.getResString("view_results_tab_response")) < 0; // $NON-NLS-1$
+    }
+
+    private void ensureResultsRendererInitialized() {
+        if (resultsRender instanceof SamplerResultTab samplerResultTab) {
+            samplerResultTab.ensureInitialized();
+        }
+    }
+
+    private void showPreferredResponseViewIfNeeded() {
+        if (isResponseTabSelected() && resultsRender instanceof SamplerResultTab samplerResultTab) {
+            samplerResultTab.showPreferredResponseView();
         }
     }
 
