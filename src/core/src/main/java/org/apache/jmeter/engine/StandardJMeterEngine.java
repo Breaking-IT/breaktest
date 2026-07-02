@@ -255,6 +255,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
+    @Override
     public void pauseTest() {
         synchronized (pauseLock) {
             if (!running || paused) {
@@ -265,6 +266,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
+    @Override
     public void resumeTest() {
         synchronized (pauseLock) {
             if (!paused) {
@@ -276,6 +278,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
+    @Override
     public boolean isPaused() {
         return paused;
     }
