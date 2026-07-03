@@ -15,10 +15,11 @@
 *.bat    text eol=crlf
 *.cmd    text eol=crlf
 
-# Blow files don't have extension, so we mention them explicitly
-/gradlew           text eol=lf executable
-/bin/jmeter        text eol=lf executable
-/bin/jmeter-server text eol=lf executable
-/bin/mirror-server text eol=lf executable
+# Files below don't have extensions, so we mention them explicitly
+/gradlew                  text eol=lf executable
+/bin/breaktest            text eol=lf executable
+/bin/breaktest-agent-mcp  text eol=lf executable
+/bin/breaktest-agent-tool text eol=lf executable
+/bin/mirror-server        text eol=lf executable
 /xdocs/changes.xml merge=union
 /xdocs/changes_history.xml merge=union
