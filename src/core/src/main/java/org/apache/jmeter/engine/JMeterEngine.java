@@ -53,6 +53,28 @@ public interface JMeterEngine {
     void reset();
 
     /**
+     * Pause test scheduling if running and not already paused. Does not
+     * interrupt currently running samplers.
+     */
+    default void pauseTest() {
+        // no-op by default
+    }
+
+    /**
+     * Resume test scheduling if paused.
+     */
+    default void resumeTest() {
+        // no-op by default
+    }
+
+    /**
+     * @return boolean Flag to show whether the engine's test scheduling is currently paused
+     */
+    default boolean isPaused() {
+        return false;
+    }
+
+    /**
      * @return boolean Flag to show whether engine is active (true when test is running). Set to false at end of test
      */
     boolean isActive();
