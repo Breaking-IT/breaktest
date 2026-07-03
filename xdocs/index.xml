@@ -54,7 +54,7 @@
         <li>License: <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>.</li>
         <li>Runtime: Java 21 or later.</li>
         <li>Source: <a href="https://github.com/Breaking-IT/breaktest">github.com/Breaking-IT/breaktest</a>.</li>
-        <li>Downloads: <a href="download_breaktest.cgi">BreakTest releases</a>.</li>
+        <li>Downloads: <a href="download_breaktest.html">BreakTest releases</a>.</li>
       </ul>
 
       <h2>Relationship To Apache JMeter</h2>

@@ -30,7 +30,7 @@
        <item name="JMeter Compatibility" href="/usermanual/index.html"/>
      </menu>
      <menu name="Project">
-       <item name="Download"             href="/download_breaktest.cgi"/>
+       <item name="Download"             href="/download_breaktest.html"/>
        <item name="GitHub"               href="https://github.com/Breaking-IT/breaktest"/>
        <item name="Issues"               href="/issues.html"/>
        <item name="Security"             href="/security.html"/>

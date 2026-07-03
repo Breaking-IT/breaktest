@@ -35,7 +35,7 @@ Before you can compile BreakTest, you will need:
 </ul>
 
 <h3>Acquiring the source</h3>
-<p>The official source releases of BreakTest can be downloaded from the <a href="download_breaktest.cgi">download page</a>.</p>
+<p>The official source releases of BreakTest can be downloaded from the <a href="download_breaktest.html">download page</a>.</p>
 
 <h3>Compiling and packaging BreakTest using Gradle</h3>
 <p>

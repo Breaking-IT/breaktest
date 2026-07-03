@@ -32,7 +32,7 @@ and pull requests from forks.
   <li><a href="https://github.com/Breaking-IT/breaktest">BreakTest source repository</a></li>
   <li><a href="https://github.com/Breaking-IT/breaktest/issues">Issues</a></li>
   <li><a href="https://github.com/Breaking-IT/breaktest/pulls">Pull requests</a></li>
-  <li><a href="download_breaktest.cgi">Release downloads</a></li>
+  <li><a href="download_breaktest.html">Release downloads</a></li>
 </ul>
 <p>
 The <code>main</code> branch is protected. Changes should be proposed through
