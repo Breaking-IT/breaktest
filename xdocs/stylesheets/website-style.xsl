@@ -66,18 +66,6 @@
         </xsl:for-each>
         <!-- VIEWPORT -->
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link
-          href="{concat($cssdir, '/merriweather.css')}"
-          rel='stylesheet' type='text/css'
-        ></link>
-        <link
-          href="{concat($cssdir, '/fontawesome.min.css')}"
-          rel="stylesheet" type='text/css'
-        ></link>
-        <link
-          href="{concat($cssdir, '/brands.min.css')}"
-          rel="stylesheet" type='text/css'
-        ></link>
         <link rel="stylesheet" type="text/css"
           href="{concat($cssdir, '/new-style.css')}"
         ></link>
@@ -89,14 +77,13 @@
       </head>
       <body role="document">
         <a href="#content" class="hidden" >Main content</a>
-        <div class="header">
+        <header class="site-header">
+        <div class="header-inner">
           <xsl:if test="$project/logo">
             <xsl:variable name="alt">
               <xsl:value-of select="$project/logo" />
             </xsl:variable>
-            <xsl:variable name="home">
-              <xsl:value-of select="$project/@href" />
-            </xsl:variable>
+            <xsl:variable name="home" select="concat($relative-path, '/index.html')" />
             <xsl:variable name="src">
               <xsl:value-of
                 select="concat($relative-path, $project/logo/@href)" />
@@ -104,85 +91,36 @@
             <xsl:comment>
               PROJECT LOGO
             </xsl:comment>
-            <div>
-              <a href="{$home}">
+            <div class="brand-wrap">
+              <a class="brand" href="{$home}">
                 <img class="logo" src="{$src}" alt="{$alt}"/>
+                <span>BreakTest Docs</span>
               </a>
             </div>
           </xsl:if>
         </div>
-        <div class="nav">
+        <nav class="nav" aria-label="Documentation navigation">
             <xsl:apply-templates select="$project/body/menu" />
-        </div>
+        </nav>
+        </header>
         <div class="main" id="content">
-          <xsl:call-template name="social-media-links" />
-          <xsl:call-template name="pagelinks" />
           <xsl:if test="@index">
             <xsl:call-template name="section-index" />
           </xsl:if>
           <xsl:apply-templates select="body/section"></xsl:apply-templates>
-          <xsl:call-template name="pagelinks" />
-          <xsl:call-template name="share-links" />
-          <a href="#top" id="topButton">Go to top</a>
         </div>
         <div class="footer">
           <div class="copyright">
-            Copyright &copy;
-            2026 &ndash;
-            <xsl:value-of select="$year" />
-            BreakTest contributors. Portions are based on Apache JMeter,
-            copyright &copy; 1998 &ndash; 2024 The Apache Software Foundation.
+            Copyright &copy; 2026 BreakTest contributors.
           </div>
           <div class="trademarks">
-            Apache, Apache JMeter, JMeter, the Apache feather, and the Apache
-            JMeter logo are trademarks of The Apache Software Foundation.
-            BreakTest is independent and is not affiliated with, endorsed by,
-            or sponsored by The Apache Software Foundation.
+            BreakTest is an independent project based on Apache JMeter.
+            Apache, Apache JMeter, and JMeter are trademarks of The Apache Software Foundation.
+            BreakTest is not affiliated with, endorsed by, or sponsored by The Apache Software Foundation.
           </div>
         </div>
-        <script><![CDATA[(function(){
-            "use strict";
-            // enable 'go to top' button functionality
-            document.addEventListener('scroll', function() {
-                if (document.body.scrollTop > 500 || document.documentElement.scrollTop > 500) {
-                    document.getElementById("topButton").style.display = "block";
-                } else {
-                    document.getElementById("topButton").style.display = "none";
-                }
-            });
-            // fill in the current location into social links on this page.
-            var as = document.getElementsByTagName('a');
-            var loc = document.location.href;
-            if (!loc.toLowerCase().startsWith('http')) {
-                return;
-            }
-            for (var i=0; i<as.length; i++) {
-                var href = as[i].getAttribute('data-social-url');
-                if (href !== null) {
-                    as[i].href = href + encodeURIComponent(loc);
-                }
-            }
-        })();]]></script>
       </body>
     </html>
-  </xsl:template>
-
-  <xsl:template name="social-media-links">
-    <div class="social-media">
-      <ul class="social-media-links">
-        <li class="github"><a href="https://github.com/Breaking-IT/breaktest" title="BreakTest on GitHub"><i class="fa-brands fa-github" aria-hidden="true"></i>GitHub</a></li>
-      </ul>
-    </div>
-  </xsl:template>
-
-  <xsl:template name="share-links">
-    <div class="share-links">
-      Share this page:
-      <ul>
-        <li class="fb"><a data-social-url="https://facebook.com/sharer/sharer.php?u=" title="Share on facebook"><i class="fa-brands fa-facebook" aria-hidden="true"></i>share</a></li>
-        <li class="twitter"><a data-social-url="https://twitter.com/intent/tweet?url=" title="Tweet on twitter"><i class="fa-brands fa-twitter" aria-hidden="true"></i>tweet</a></li>
-      </ul>
-    </div>
   </xsl:template>
 
   <xsl:template name="pagelinks">

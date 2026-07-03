@@ -33,7 +33,7 @@
     <h2>Where are the builds?</h2>
     <p>
     Use <a href="https://github.com/Breaking-IT/breaktest/actions">GitHub Actions</a>
-    for current CI runs and <a href="download_breaktest.cgi">Download BreakTest</a>
+    for current CI runs and <a href="download_breaktest.html">Download BreakTest</a>
     for official releases.
     </p>
 

@@ -35,7 +35,7 @@ Before you can compile BreakTest, you will need:
 </ul>
 
 <h3>Acquiring the source</h3>
-<p>The official source releases of BreakTest can be downloaded from the <a href="download_breaktest.cgi">download page</a>.</p>
+<p>The official source releases of BreakTest can be downloaded from the <a href="download_breaktest.html">download page</a>.</p>
 
 <h3>Compiling and packaging BreakTest using Gradle</h3>
 <p>
@@ -151,14 +151,14 @@ created.
 </section>
 
 <section name="Automated builds">
-<h2>Automated (nightly) builds</h2>
+<h2>Automated builds</h2>
 <p>
 As part of the development process, the BreakTest project uses Continuous Integration (CI) builds.
 The build output can be useful for testing recent changes to the code-base.
 </p>
 <p>
 Please note that the builds have not undergone any QA and should only be used for development testing.
-For further information, see the <a href="nightly.html">Nightly builds for developers</a> page.
+For further information, see the <a href="nightly.html">Development builds</a> page.
 </p>
 </section>
 

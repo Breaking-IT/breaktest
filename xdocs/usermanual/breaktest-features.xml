@@ -16,125 +16,126 @@
   ~ limitations under the License.
   -->
 
-<!DOCTYPE document[
-<!ENTITY sect-num '2'>
-]>
-
-<document prev="get-started.html" next="build-test-plan.html" id="$Id$">
+<document>
 <properties>
-  <title>User's Manual: BreakTest Features</title>
+  <title>BreakTest Features And Differences</title>
 </properties>
 <body>
 
-<section name="&sect-num;. BreakTest Features" anchor="breaktest_features">
+<section name="BreakTest Features And Differences">
 <p>
-BreakTest keeps the JMX test-plan model and many JMeter-compatible names for
-compatibility, but it is not a frozen copy of Apache JMeter. This page
-summarizes the main BreakTest-specific capabilities and where they affect test
-design.
+This is the BreakTest manual. It documents the features and behavioral changes
+that are specific to BreakTest 2026.07.03. For the inherited JMeter-compatible
+test-plan model, use the official Apache JMeter documentation.
 </p>
 
-<subsection name="&sect-num;.1 Java 21+ runtime" anchor="java21">
-<p>
-BreakTest requires Java 21 or later. The newer baseline allows the runtime to
-use modern JVM behavior, including virtual-thread support where it helps
-concurrency and resource usage.
-</p>
-</subsection>
+<h2>Runtime Baseline</h2>
+<ul>
+  <li>Java 21 or later is required.</li>
+  <li>Virtual threads are used where they reduce thread overhead.</li>
+  <li>Legacy BeanShell, BSF/JEXL2, Rhino JavaScript, and LogKit paths were removed from the modern scripting/runtime surface.</li>
+  <li>JMeter-compatible names are retained where they are part of file formats, APIs, plugins, scripts, or automation.</li>
+</ul>
 
-<subsection name="&sect-num;.2 Modern HTTP and HTTP/2" anchor="http2">
-<p>
-The built-in HTTP sampler path uses Apache HttpClient 5 and includes HTTP/2
-support. Legacy HttpClient 4 jars remain bundled for plugin compatibility, but
-new built-in HTTP behavior should be tested against the HttpClient 5 path.
-</p>
-<p>
-BreakTest also improves response handling with Brotli and Zstandard decoding,
-lazy decompression, and response retention modes that can reduce memory
-pressure during larger runs.
-</p>
-</subsection>
+<h2>Modern HTTP And HTTP/2</h2>
+<ul>
+  <li>The built-in HTTP sampler path uses Apache HttpClient 5.</li>
+  <li>HTTP/2 and HTTP/2-preferred protocol selection are available through the async HttpClient 5 path.</li>
+  <li>BreakTest handles negotiated fallback, HTTP/2 upload content length, connect-time reporting, and safer replay behavior.</li>
+  <li>HTTP/2 resource usage was reduced by limiting reactor threads and avoiding unnecessary client/reactor rebuilds between same-user iterations.</li>
+  <li>NTLM authentication was fixed on the HttpClient 5 path, including variable resolution before async authentication callbacks.</li>
+  <li>Brotli and Zstandard response decoding were added alongside gzip and deflate.</li>
+</ul>
 
-<subsection name="&sect-num;.3 Scheduling, pause/resume, and load models" anchor="scheduling">
-<p>
-The unified Thread Group supports closed and open workload models. Closed-model
-phases can combine different ramp-up speeds, hold periods, and target thread
-counts. Open-model helpers can model arrivals and cap active threads.
-</p>
-<p>
-Pause and Resume are available from the GUI and command wrappers. In a closed
-model, pausing holds active threads instead of continuing the ramp. In an open
-model, new arrivals are paused and active threads finish naturally, so load
-drops while paused.
-</p>
-<p>
-Shutdown is quicker than historical JMeter behavior: shutdown no longer waits
-for timers to complete and only waits for in-flight server responses to finish
-cleanly.
-</p>
-</subsection>
+<h2>Lower Runtime Resource Usage</h2>
+<ul>
+  <li>Lazy response decompression stores compressed bytes and decompresses only when response data is accessed.</li>
+  <li>Response retention modes can keep compressed data, discard successful bodies, keep only failing bodies, or retain MD5 checksums.</li>
+  <li>Lightweight test-plan cloning reduces per-thread object churn.</li>
+  <li>Header merging, temporary property handling, response read buffers, and diagnostic metadata paths were optimized.</li>
+  <li>Rich sample diagnostics are lazy and listener-driven, so normal load runs avoid unnecessary per-sample storage.</li>
+</ul>
 
-<subsection name="&sect-num;.4 Parallel and forked work" anchor="parallel">
+<h2>Unified Scheduling</h2>
 <p>
-The Parallel Controller can run child samplers concurrently with bounded
-parallelism. The Fork Controller can start asynchronous child branches that
-share virtual-user context and complete before thread teardown.
+BreakTest moves load modeling into a unified Thread Group rather than splitting
+common scenarios across several specialized thread groups.
 </p>
-</subsection>
+<ul>
+  <li>Closed-model schedules can combine different ramp-up speeds, hold periods, and target thread counts.</li>
+  <li>Open-model schedules can model arrivals, use even-arrival helpers, and cap active threads.</li>
+  <li>Thread Group pacing controls are available for transaction pacing.</li>
+  <li>Schedule parsing is safer and includes graph preview support.</li>
+  <li>Runtime user variables are cleared on new iterations when same-user mode is disabled, while initial variables are preserved.</li>
+</ul>
 
-<subsection name="&sect-num;.5 AI-assisted scripting" anchor="ai_scripting">
-<p>
-BreakTest includes local-agent support for AI-assisted scripting. Tools such as
-Codex, Claude Code, and opencode can use the BreakTest MCP server and local
-agent tooling to inspect a JMX file, validate it, repair selectors and
-correlation, parameterize dynamic values, add assertions, and rerun checks.
-</p>
-<p>
-When used from the GUI, BreakTest can highlight changes made by the repair
-workflow so you can review the generated edits before continuing.
-</p>
-</subsection>
+<h2>Pause, Resume, And Faster Shutdown</h2>
+<ul>
+  <li>Pause and Resume are available in the GUI and through <code>bin/pause.*</code> and <code>bin/resume.*</code>.</li>
+  <li>In closed model, pause holds active threads and stops further ramp-up.</li>
+  <li>In open model, pause stops new arrivals and lets active threads finish naturally, so load drops while paused.</li>
+  <li>Shutdown no longer waits for timers to complete; it waits for in-flight server responses to finish cleanly.</li>
+</ul>
 
-<subsection name="&sect-num;.6 GUI editing and large JMX files" anchor="gui">
-<p>
-BreakTest adds undo/redo for common semantic tree edits, background JMX loading,
-safe missing-plugin placeholders, and lighter loading paths for large plans.
-Search Tree can flag elements with pre-processors, post-processors, assertions,
-timers, and config elements, and can remove matching elements with confirmation.
-</p>
-</subsection>
+<h2>Parallel And Fork Controllers</h2>
+<ul>
+  <li>Parallel Controller runs child samplers concurrently with bounded scheduling.</li>
+  <li>Fork Controller starts asynchronous child branches that share virtual-user context and complete before thread teardown.</li>
+  <li>HTTP state handling was tightened to reduce unsafe sharing in concurrent paths.</li>
+</ul>
 
-<subsection name="&sect-num;.7 Visual debugging and HAR migration" anchor="visual_debugging">
+<h2>AI-Assisted Scripting</h2>
 <p>
-View Results Tree includes richer HTTP/TLS/cookie/request/response diagnostics
-and source navigation. When BreakTest HAR metadata is present, recorded
-request/response tabs and recorded-vs-replayed diffs help debug migration and
-HTTP/2 replay behavior.
+BreakTest includes local agent and MCP support for AI-assisted script repair.
+Tools such as Codex, Claude Code, and opencode can inspect a JMX script,
+validate it, repair it, and show changes in the GUI.
 </p>
-</subsection>
+<ul>
+  <li>Create or repair extractors and correlations.</li>
+  <li>Parameterize dynamic values.</li>
+  <li>Add assertions.</li>
+  <li>Fix selectors and unstable recorded data.</li>
+  <li>Review generated changes from the GUI before continuing.</li>
+</ul>
 
-<subsection name="&sect-num;.8 Scripting, data, and assertions" anchor="scripting_data">
-<p>
-BreakTest improves If and While Controller conditions with structured rows,
-adds transaction delay and pacing controls, supports random CSV ordering and CSV
-preview, and adds fail-on-no-match options across common extractors.
-</p>
-</subsection>
+<h2>GUI And Large JMX Improvements</h2>
+<ul>
+  <li>Cleaner light/dark GUI styling.</li>
+  <li>Undo and redo for semantic tree edits including add, delete, update, move, and search/replace operations.</li>
+  <li>Background JMX loading with a loading overlay.</li>
+  <li>Optional fast GUI loading through <code>jmeter.gui.load.fast=true</code>.</li>
+  <li>Missing plugin elements load as disabled placeholders instead of failing the whole file.</li>
+  <li>Search Tree can flag pre-processors, post-processors, assertions, timers, and config elements.</li>
+  <li>Search results can be removed selectively with confirmation.</li>
+</ul>
 
-<subsection name="&sect-num;.9 Compatibility notes" anchor="compatibility">
-<p>
-Existing JMeter JMX files remain supported where practical. Many package names,
-properties, log file names, and internal identifiers intentionally still contain
-<code>jmeter</code> or <code>org.apache.jmeter</code> because changing them would
-break existing test plans and plugins.
-</p>
-<p>
-BreakTest-specific JMX metadata and features may not round-trip into older
-Apache JMeter versions. RMI Remote Server style distributed execution has been
-removed; use BreakTest Enterprise or another controlled orchestration layer for
-distributed runs.
-</p>
-</subsection>
+<h2>Visual Debugging And HAR Migration</h2>
+<ul>
+  <li>View Results Tree shows richer request, response, endpoint, HTTP/TLS, cookie, variable, and binary/text diagnostics.</li>
+  <li>Jump-to-source support connects samples back to test elements.</li>
+  <li>BreakTest JMX metadata preserves origin and source-path details.</li>
+  <li>When BreakTest HAR metadata is present, recorded request/response tabs are shown in View Results Tree and HTTP sampler editors.</li>
+  <li>Recorded-vs-replayed diffs help debug HAR migration and HTTP/2 replay.</li>
+  <li>Transaction child samples preserve source paths so folded transaction results can still navigate to the correct source element.</li>
+</ul>
+
+<h2>Scripting, Data, And Assertions</h2>
+<ul>
+  <li>If and While Controllers support structured condition rows with all/any matching while preserving legacy expressions.</li>
+  <li>Loop and while index behavior options are visible and configurable.</li>
+  <li>Transaction Controller includes measurement modes plus delay and pacing controls.</li>
+  <li>Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors support fail-on-no-match behavior.</li>
+  <li>CSV Data Set can read records in random order.</li>
+  <li>CSV preview shows first sample variable assignments.</li>
+</ul>
+
+<h2>Removed Or Changed Compatibility Areas</h2>
+<ul>
+  <li>RMI Remote Server style distributed execution is removed. Use BreakTest Enterprise or another controlled orchestration layer for distributed runs.</li>
+  <li>BreakTest-specific JMX metadata may not round-trip into older Apache JMeter versions.</li>
+  <li>Plugins that depend on removed internals may require migration.</li>
+  <li>HttpClient 4 runtime jars remain available for legacy plugin compatibility, but the built-in HTTP Request sampler uses HttpClient 5.</li>
+</ul>
 
 </section>
 </body>

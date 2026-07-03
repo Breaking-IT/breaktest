@@ -19,46 +19,28 @@
 <project name="BreakTest"
           href="/">
 
-     <title>BreakTest</title>
-     <!---->
+     <title>BreakTest Docs</title>
      <logo width="260" height="88" href="/images/logo.svg">BreakTest</logo>
-     <!---->
      <body>
-     <menu name="About">
-       <item name="Overview"            href="/index.html"/>
-       <item name="Download"            href="/download_breaktest.cgi"/>
-       <item name="Release Notes"       href="/changes.html"/>
-       <item name="License"             href="https://www.apache.org/licenses/LICENSE-2.0"/>
+     <menu name="Docs">
+       <item name="Overview"             href="/index.html"/>
+       <item name="Release Notes"        href="/changes.html"/>
+       <item name="BreakTest Features"   href="/usermanual/breaktest-features.html"/>
+       <item name="Getting Started"      href="/usermanual/get-started.html"/>
+       <item name="JMeter Compatibility" href="/usermanual/index.html"/>
      </menu>
-     <menu name="Documentation">
-        <item name="Get Started"         href="/usermanual/get-started.html"/>
-        <item name="BreakTest Features"  href="/usermanual/breaktest-features.html"/>
-        <item name="User Manual"         href="/usermanual/index.html"/>
-        <item name="Best Practices"         href="/usermanual/best-practices.html"/>
-        <item name="Component Reference"         href="/usermanual/component_reference.html"/>
-        <item name="Functions Reference"         href="/usermanual/functions.html"/>
-        <item name="Properties Reference"         href="/usermanual/properties_reference.html"/>
-        <item name="Change History"              href="/changes_history.html"/>
-        <item name="Javadocs"             href="/api/index.html"/>
+     <menu name="Project">
+       <item name="Download"             href="/download_breaktest.html"/>
+       <item name="GitHub"               href="https://github.com/Breaking-IT/breaktest"/>
+       <item name="Issues"               href="/issues.html"/>
+       <item name="Security"             href="/security.html"/>
+       <item name="Contributing"         href="/building.html"/>
      </menu>
-     <menu name="Tutorials">
-        <item name="Recording Tests"     href="/usermanual/breaktest_proxy_step_by_step.html"/>
-        <item name="JUnit Sampler"         href="/usermanual/junitsampler_tutorial.html"/>
-        <item name="Access Log Sampler"     href="/usermanual/breaktest_accesslog_sampler_step_by_step.html"/>
-        <item name="Extending BreakTest"     href="/usermanual/breaktest_tutorial.html"/>
-     </menu>
-     <menu name="Community">
-        <item name="Issue Tracking"      href="/issues.html"/>
-        <item name="Security"            href="/security.html"/>
-        <item name="Community"           href="/mail.html"/>
-        <item name="Source Repositories"    href="/svnindex.html"/>
-        <item name="Building and Contributing"    href="/building.html"/>
-     </menu>
-     <menu name="BreakTest">
-        <item name="Website"             href="https://breaktest.io/"/>
-        <item name="GitHub"              href="https://github.com/Breaking-IT/breaktest"/>
-        <item name="BreakTest Platform"  href="https://breaktest.app/"/>
-        <item name="Apache JMeter"       href="https://jmeter.apache.org/"/>
+     <menu name="External">
+       <item name="BreakTest.io"         href="https://breaktest.io/"/>
+       <item name="BreakTest Enterprise" href="https://breaktest.app/"/>
+       <item name="Apache JMeter Docs"   href="https://jmeter.apache.org/usermanual/index.html"/>
+       <item name="Apache License 2.0"   href="https://www.apache.org/licenses/LICENSE-2.0"/>
      </menu>
      </body>
 </project>
