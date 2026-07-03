@@ -649,13 +649,9 @@ val runGui by tasks.registering(JavaExec::class) {
     val props = System.getProperties()
     @Suppress("UNCHECKED_CAST")
     for (e in props.propertyNames() as `java.util`.Enumeration<String>) {
-        // Pass -Djmeter.* and -Ddarklaf.* properties to the JMeter process
-        if (e.startsWith("jmeter.") || e.startsWith("darklaf.")) {
+        // Pass -Djmeter.* properties to the JMeter process
+        if (e.startsWith("jmeter.")) {
             passProperty(e)
-        }
-        if (e == "darklaf.native") {
-            systemProperty("darklaf.decorations", "true")
-            systemProperty("darklaf.allowNativeCode", "true")
         }
     }
 }

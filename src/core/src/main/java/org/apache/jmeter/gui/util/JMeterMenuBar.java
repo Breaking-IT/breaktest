@@ -94,9 +94,17 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
 
     public static final String SYSTEM_LAF = "System"; // $NON-NLS-1$
     public static final String CROSS_PLATFORM_LAF = "CrossPlatform"; // $NON-NLS-1$
+    /** @deprecated Darcula is no longer shipped with BreakTest */
+    @Deprecated
     public static final String DARCULA_LAF = "Darcula"; // $NON-NLS-1$
+    /** @deprecated Darklaf is no longer shipped with BreakTest */
+    @Deprecated
     public static final String DARKLAF_LAF = "Darklaf"; // $NON-NLS-1$
+    /** @deprecated Darcula is no longer shipped with BreakTest */
+    @Deprecated
     public static final String DARCULA_LAF_CLASS = "com.bulenkov.darcula.DarculaLaf"; // $NON-NLS-1$
+    /** @deprecated Darklaf is no longer shipped with BreakTest */
+    @Deprecated
     public static final String DARKLAF_LAF_CLASS = "com.github.weisj.darklaf.DarkLaf"; // $NON-NLS-1$
 
     public JMeterMenuBar() {
