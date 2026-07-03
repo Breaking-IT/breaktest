@@ -16,51 +16,32 @@
   ~ limitations under the License.
   -->
 
-<!DOCTYPE document
-[
-<!ENTITY sect-num '25'>
-]>
-<document id="$Id$" prev="curl.html" >
-
+<document>
 <properties>
-  <title>User's Manual: History and Future</title>
+  <title>History And Future</title>
 </properties>
-
 <body>
-
-<section name="&sect-num;. History and Future" anchor="history_future">
-<subsection name="&sect-num;.1 History" anchor="history">
+<section name="History And Future">
 <p>
-BreakTest started as an independent fork of Apache JMeter 5.6.3. The goal was
-to keep the familiar JMX test-plan model while modernizing the runtime, user
-interface, HTTP stack, scheduling model, diagnostics, and script-repair workflow
-for current performance-testing teams.
+This inherited page is intentionally not maintained as a forked copy in BreakTest.
+BreakTest documents only the features and behavior that differ from Apache JMeter.
 </p>
+<h2>Use The Apache JMeter Documentation</h2>
 <p>
-BreakTest is a derivative work of Apache JMeter and retains the required
-copyright, license, notice, package, and compatibility references. BreakTest is
-independent from The Apache Software Foundation and is not affiliated with,
-endorsed by, or sponsored by The Apache Software Foundation.
+For the generic JMeter-compatible behavior behind this topic, use the official
+<a href="https://jmeter.apache.org/usermanual/history_future.html">Apache JMeter documentation</a>.
 </p>
-</subsection>
-
-<subsection name="&sect-num;.2 The Future" anchor="future">
-<p>
-BreakTest development is focused on making local script creation, debugging,
-and validation faster while keeping a clear path to scaled execution and deeper
-analysis through BreakTest Enterprise.
-</p>
+<h2>BreakTest-Specific Differences</h2>
 <ul>
-<li>Continue improving HTTP/2 and modern HTTP behavior.</li>
-<li>Reduce memory and CPU overhead in large tests and large JMX files.</li>
-<li>Improve open and closed workload modeling, pacing, pause/resume, and schedule visualization.</li>
-<li>Expand visual diagnostics for recorded-vs-replayed traffic, correlation, assertions, and source navigation.</li>
-<li>Make AI-assisted script repair more reliable and easier to review from the GUI.</li>
-<li>Keep compatibility with existing JMeter JMX files where practical, while documenting intentional differences clearly.</li>
+  <li><a href="../usermanual/breaktest-features.html">BreakTest Features And Differences</a></li>
+  <li><a href="../changes.html">BreakTest 2026.07.03 Release Notes</a></li>
+  <li><a href="../usermanual/index.html">JMeter Compatibility Notes</a></li>
 </ul>
-<note>You can help by opening issues and pull requests in the BreakTest GitHub repository. See <a href="../building.html">Building and Contributing to BreakTest</a>.</note>
-</subsection>
+<p>
+Compatibility names such as <code>jmeter.properties</code>, <code>JMeterThread</code>,
+<code>ApacheJMeter.jar</code>, and <code>org.apache.jmeter</code> may still appear in
+BreakTest where they are part of the file format, runtime API, or plugin contract.
+</p>
 </section>
-
 </body>
 </document>

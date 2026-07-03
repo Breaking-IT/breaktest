@@ -17,47 +17,27 @@
   -->
 
 <document>
-
   <properties>
-    <author email="dev.AT.jmeter.DOT.apache.DOT.org">BreakTest Project</author>
-    <title>Source Repositories</title>
+    <author email="info@breaking-it.nl">BreakTest Project</author>
+    <title>Source Repository</title>
   </properties>
 
 <body>
-
-<section name="Download the Source">
-
-<p>Most users of the source code probably don't need to have day to
-day access to the source code as it changes. For these users we
-provide easy to unpack source code downloads via our <a
-href="download_breaktest.cgi">download page</a>.  </p>
-
+<section name="Source Repository">
+<p>
+BreakTest is developed on GitHub. The repository is public and accepts issues
+and pull requests from forks.
+</p>
+<ul>
+  <li><a href="https://github.com/Breaking-IT/breaktest">BreakTest source repository</a></li>
+  <li><a href="https://github.com/Breaking-IT/breaktest/issues">Issues</a></li>
+  <li><a href="https://github.com/Breaking-IT/breaktest/pulls">Pull requests</a></li>
+  <li><a href="download_breaktest.cgi">Release downloads</a></li>
+</ul>
+<p>
+The <code>main</code> branch is protected. Changes should be proposed through
+pull requests.
+</p>
 </section>
-
-<section name="Access the GIT Version Controlled Source Code">
-
-<note>BreakTest is developed in Git as a forked continuation of Apache JMeter.</note>
-
-<subsection name="Git" anchor="git">
-
-<p>The sources for BreakTest are accessible at the urls below.</p>
-
-<table>
- <tr>
-  <th>Project</th>
-  <th>GIT (read-only)</th>
-  <th>GITHUB (read-only)</th>
- </tr>
- <tr>
-  <td>BreakTest</td>
-  <td><a href="https://github.com/Breaking-IT/breaktest">https://github.com/Breaking-IT/breaktest</a></td>
-  <td><a href="https://github.com/Breaking-IT/breaktest">https://github.com/Breaking-IT/breaktest</a></td>
- </tr>
-</table>
-
-</subsection>
-
-</section>
-
 </body>
 </document>
