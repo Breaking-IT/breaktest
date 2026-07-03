@@ -90,7 +90,7 @@ fi
 JAVA9_OPTS=
 
 # Minimal version to run BreakTest
-MINIMAL_VERSION=17
+MINIMAL_VERSION=21
 
 # Check if version is from OpenJDK or Oracle Hotspot JVM prior to 9 containing 1.${version}.x
 CURRENT_VERSION=`"${JAVA_HOME}/bin/java" -version 2>&1 | awk -F'"' '/version/ {gsub("^1[.]", "", $2); gsub("[^0-9].*$", "", $2); print $2}'`
@@ -103,7 +103,7 @@ else
     exit 1
 fi
 
-# Don't add additional arguments to the JVM start, except those needed for Java 9
+# Don't add additional arguments to the JVM start, except those needed for module access
 JMETER_COMPLETE_ARGS=true
 
 # add the Java9 args before the user given ones

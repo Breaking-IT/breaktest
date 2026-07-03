@@ -78,10 +78,10 @@ if not defined JMETER_LANGUAGE (
 )
 
 rem Minimal version to run BreakTest
-set MINIMAL_VERSION=17.0.0
+set MINIMAL_VERSION=21.0.0
 
 
-rem Optimized GC logging for Java 17 with structured output and performance analysis
+rem Optimized GC logging for Java 21 with structured output and performance analysis
 rem Uncomment to enable comprehensive GC logging with rotation and detailed metrics
 rem set VERBOSE_GC=-Xlog:gc,gc+heap,gc+regions,gc+refine,gc+phases:gc_jmeter_%%p_%%t.log:time,level,tags:filecount=5,filesize=50M
 
@@ -146,7 +146,7 @@ if not defined HEAP (
     set HEAP=-Xms256m -Xmx2g -XX:MaxMetaspaceSize=256m
 )
 
-rem Legacy GC verbose options removed (Java 8/9 support discontinued)
+rem Legacy GC verbose options removed
 if not defined GC_ALGO (
     set GC_ALGO=-XX:+UseG1GC -XX:MaxGCPauseMillis=100 -XX:G1ReservePercent=20
 )
@@ -156,8 +156,8 @@ set SYSTEM_PROPS=-Djava.security.egd=file:/dev/urandom
 rem Always dump on OOM (does not cost anything unless triggered)
 set DUMP=-XX:+HeapDumpOnOutOfMemoryError
 
-rem Docker support for Java 17+
-rem Modern container memory detection is automatic in Java 17+
+rem Docker support for Java 21+
+rem Modern container memory detection is automatic in Java 21+
 rem set RUN_IN_DOCKER=-XX:+UseContainerSupport
 
 rem Additional settings that might help improve GUI performance on some platforms

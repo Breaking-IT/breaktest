@@ -50,7 +50,7 @@ body:
     attributes:
       label: Java Version
       description: What JDK version and distribution did you use (use `java -version`)
-      placeholder: ex. openjdk version "17" 2021-09-14
+      placeholder: ex. openjdk version "21" 2023-09-19
   - type: input
     id: os-version
     attributes:

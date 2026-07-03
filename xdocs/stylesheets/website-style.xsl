@@ -90,15 +90,6 @@
       <body role="document">
         <a href="#content" class="hidden" >Main content</a>
         <div class="header">
-          <xsl:comment>
-            APACHE LOGO
-          </xsl:comment>
-          <div>
-            <a href="https://www.apache.org">
-              <img title="Apache Software Foundation" class="asf-logo logo"
-                  src="{$imgdir}/asf-logo.svg" alt="Logo ASF" />
-            </a>
-          </div>
           <xsl:if test="$project/logo">
             <xsl:variable name="alt">
               <xsl:value-of select="$project/logo" />
@@ -143,14 +134,16 @@
         <div class="footer">
           <div class="copyright">
             Copyright &copy;
-            1999 &ndash;
+            2024 &ndash;
             <xsl:value-of select="$year" />
-            , Apache Software Foundation
+            , BreakTest contributors. Portions copyright &copy; 1998 &ndash;
+            2024, The Apache Software Foundation.
           </div>
           <div class="trademarks">Apache, Apache JMeter, JMeter, the Apache
             feather, and the Apache JMeter logo are
             trademarks of the
-            Apache Software Foundation.
+            Apache Software Foundation. BreakTest is not affiliated with,
+            endorsed by, or sponsored by The Apache Software Foundation.
           </div>
         </div>
         <script><![CDATA[(function(){

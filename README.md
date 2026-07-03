@@ -1,286 +1,344 @@
 # BreakTest
 
-BreakTest is an open source Java application for performance and load testing.
+BreakTest is a modern, JMeter-compatible performance testing tool.
 
-BreakTest is a forked continuation of Apache JMeter. Its goal is to continue the performance testing tool with a leaner runtime profile, lower resource usage, and a smaller operational footprint while preserving the familiar test-plan model and broad protocol support. This continuation has already reduced memory usage by about 50%, with CPU usage reductions of roughly 20-50% depending on workload and runtime conditions.
+It started as an independent fork of Apache JMeter and continues the familiar
+JMX workflow with a leaner runtime, current protocols, better debugging, and a
+faster development loop. Existing JMeter test plans remain important, but
+BreakTest is not intended to be a frozen copy of JMeter.
 
 [![License](https://img.shields.io/:license-apache-brightgreen.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
-[![Stack Overflow](https://img.shields.io/:stack%20overflow-jmeter-brightgreen.svg)](https://stackoverflow.com/questions/tagged/jmeter)
-[![Maven Central](https://img.shields.io/maven-central/v/org.apache.jmeter/ApacheJMeter.svg?label=Maven%20Central)](https://search.maven.org/artifact/org.apache.jmeter/ApacheJMeter)
-[![Javadocs](https://www.javadoc.io/badge/org.apache.jmeter/ApacheJMeter_core.svg)](https://www.javadoc.io/doc/org.apache.jmeter/ApacheJMeter_core)
 
-## What Is It?
+## Why BreakTest Exists
 
-BreakTest can measure performance and load test static and dynamic web applications.
+Apache JMeter gave the performance testing community a durable model: test
+plans, samplers, controllers, assertions, extractors, listeners, and a file
+format people can keep in version control.
 
-It can be used to simulate a heavy load on a server, group of servers,
-network or object to test its strength or to analyze overall performance under different load types.
+BreakTest keeps that useful model and moves the runtime forward:
 
-![JMeter screen](https://raw.githubusercontent.com/apache/jmeter/master/xdocs/images/screenshots/jmeter_screen.png)
+- lower memory and CPU pressure for large HTTP tests
+- HTTP/2 and a modern HTTP client stack
+- Java 21+ and virtual-thread support
+- a more modern GUI with simple light/dark themes
+- better GUI feedback while building, debugging, and repairing scripts
+- safer loading of old plans and plugin-heavy JMX files
+- AI-assisted scripting with Codex, Claude Code, opencode, and MCP workflows
+- an open source core that can be scaled by BreakTest Enterprise when one
+  machine is no longer enough
 
-## Features
+Compared with the upstream baseline this work has already shown about 50%
+lower memory usage, with CPU reductions around 20-50% depending on workload,
+test shape, and runtime conditions.
 
-Complete portability and 100% Java.
+## BreakTest And BreakTest Enterprise
 
-Multi-threading allows concurrent sampling by many threads and
-simultaneous sampling of different functions by separate thread groups.
+BreakTest Community is the open source desktop and runtime distribution. Use it
+locally to build, debug, validate, and run performance scripts.
 
-### Protocols
+BreakTest Enterprise is the paid shell around scaled execution and analysis. It
+runs BreakTest, JMeter, and k6 tests across your own infrastructure with
+distributed load generators, realtime results, raw data retention, reports, SLO
+validation, team workflows, and AI-assisted analysis.
 
-Ability to load and performance test many applications/server/protocol types:
+The engine stays open. Enterprise is for running it seriously at scale.
 
-- Web - HTTP, HTTPS (Java, NodeJS, PHP, ASP.NET,...)
-- SOAP / REST Webservices
-- FTP
-- Database via JDBC
-- LDAP
-- Message-oriented Middleware (MOM) via JMS
-- Mail - SMTP(S), POP3(S) and IMAP(S)
-- Native commands or shell scripts
-- TCP
-- Java Objects
+## What Is New Compared With JMeter 5.6.3
 
-### IDE
+BreakTest is based on the JMeter workflow, but it makes deliberate changes where
+that helps day-to-day performance engineering. The first public release is not
+just a rename: it includes protocol, runtime, GUI, AI scripting, debugging, and
+migration work that has landed across the BreakTest PR series.
 
-Fully featured Test IDE that allows fast Test Plan **recording**
- (from Browsers or native applications), **building** and **debugging**.
+### Modern HTTP Runtime
 
-### Command Line
+- Apache HttpClient 5 is the active HTTP sampler path.
+- HTTP/2 is first-class, including negotiated fallback, HTTP/2 preferred
+  selection, async execution, connect-time reporting, and file upload fixes.
+- HTTP/2 resource usage is lower: reactor threads are limited by default, client
+  rebuilds are avoided when the same user continues, and parallel samplers reuse
+  HTTP state deterministically.
+- HTTP/2 closed-session retry handling covers common HC5 connection-closure
+  failures without reusing dead multiplexed sessions.
+- NTLM authentication works on the HttpClient 5 path, including variable
+  resolution before async challenge callbacks.
+- Modern response decoding includes gzip, deflate, Brotli, and Zstandard.
+- Timeout errors are reported more clearly, with expected connect/response
+  timeouts shown as concise messages instead of noisy stack traces.
+- HttpClient 4 runtime jars are still bundled for legacy plugin compatibility,
+  while the built-in HTTP Request sampler stays on the modern client path.
 
-[Command-line mode (Non GUI / headless mode)](https://jmeter.apache.org/usermanual/get-started.html#non_gui)
-to load test from any Java compatible OS (Linux, Windows, Mac OSX, ...)
+### Lower Resource Usage
 
-### Reporting
+- Lazy response decompression avoids paying decompression cost unless response
+  data is actually inspected.
+- Response retention modes can store compressed data, discard successful bodies,
+  keep only failing bodies, or retain checksums instead of full payloads.
+- Lightweight test-plan cloning reduces per-thread object churn for large plans.
+- Per-sample metadata is lazy, so rich diagnostics are only stored when
+  listeners such as View Results Tree need them.
+- Header merging, temporary property handling, and per-thread scratch buffers
+  reduce hot-path allocations.
+- Java 21+ and virtual threads are used where they reduce runtime overhead.
 
-A complete and ready to present [dynamic HTML report](https://jmeter.apache.org/usermanual/generating-dashboard.html)
+### Controllers, Scheduling, And User Flow
 
-![Dashboard screenshot](https://raw.githubusercontent.com/apache/jmeter/master/xdocs/images/screenshots/dashboard/response_time_percentiles_over_time.png)
+- Parallel Controller models browser-like concurrent requests with bounded
+  parallel sampler execution and HTTP state safeguards.
+- Fork Controller runs a child branch asynchronously while the main virtual-user
+  flow continues, sharing the same context and variables.
+- Standard Thread Group can switch between closed and open workload models.
+- Open model scheduling includes helper syntax, even-arrival scheduling, maximum
+  active thread limits, and graph preview support.
+- Closed model phases let you combine different ramp-up speeds, hold periods,
+  and thread targets, making it possible to shape almost any closed workload
+  model from one schedule.
+- Thread Group pacing controls apply pacing between iterations.
+- Runtime user variables are cleared on new iterations when same-user mode is
+  disabled, while initial variables remain available.
+- Pause and Resume are available in the GUI and in headless runs through the
+  same UDP command port used for shutdown, stop, heap dump, and thread dump
+  commands. This makes it possible to pause a schedule during ramp-up and hold
+  the current load instead of ramping further. In closed model, active threads
+  are kept as-is. In open model, new arrivals are paused and active threads
+  finish naturally, so load drops while the schedule is paused.
+- Shutdown is quicker because it no longer waits for timers to complete. It
+  still waits for in-flight server responses, so active requests can finish
+  cleanly.
 
-[Live reporting](https://jmeter.apache.org/usermanual/realtime-results.html)
-into 3rd party databases like InfluxDB or Graphite
+### GUI Workflow Improvements
 
-![Live report](https://raw.githubusercontent.com/apache/jmeter/master/xdocs/images/screenshots/grafana_dashboard.png)
+- The GUI uses a cleaner FlatLaf-based look with simple light and dark themes,
+  giving the desktop a more harmonized modern feel without changing the core
+  workflow.
+- Undo and redo are enabled for semantic test-plan changes such as add, delete,
+  update, move, and search/replace operations.
+- Large JMX files load in the background with a loading overlay.
+- Optional fast GUI loading can skip expensive normalization with
+  `jmeter.gui.load.fast=true`.
+- JMX files with missing plugin elements can open with disabled placeholders
+  instead of failing the whole load.
+- Missing plugin placeholders are visible in the GUI and inert in non-GUI runs.
+- Search can flag pre-processors, post-processors, assertions, timers, and
+  config elements.
+- Search results can be selectively removed with confirmation, so bulk cleanup
+  is possible without deleting parent elements accidentally.
+- GUI validation skips artificial transaction delay and pacing sleeps.
 
-### Correlation
+### AI Scripting And Repair
 
-Easy correlation through ability to extract data from most popular response formats,
-[HTML](https://jmeter.apache.org/usermanual/component_reference.html#CSS/JQuery_Extractor),
-[JSON](https://jmeter.apache.org/usermanual/component_reference.html#JSON_Extractor),
-[XML](https://jmeter.apache.org/usermanual/component_reference.html#XPath_Extractor) or
-[any textual format](https://jmeter.apache.org/usermanual/component_reference.html#Regular_Expression_Extractor)
+- BreakTest can run AI-assisted script repair from the GUI or through local
+  agent tooling.
+- The agent workflow works with tools such as Codex, Claude Code, and opencode
+  through BreakTest's MCP server and command-line helpers.
+- AI repair can inspect a failing or incomplete test plan, run bounded
+  validation, and apply concrete JMX edits instead of only suggesting changes.
+- The repair flow can add extractors, parameterize dynamic values, improve
+  correlations, add assertions, and professionalize recorded scripts so they are
+  easier to maintain.
+- GUI support highlights the changes made during repair, making it easier to
+  review what was added, changed, or removed.
+- Project-local AI knowledge can be stored with the test plan so recurring
+  conventions, application details, and scripting assumptions travel with the
+  work.
 
-### Highly Extensible Core
+### Scripting, Data, And Correlation
 
-- Pluggable Samplers allow unlimited testing capabilities.
-- **Scriptable Samplers** (JSR223-compatible languages like Groovy).
-- Several load statistics can be chosen with **pluggable tiers**.
-- Data analysis and **visualization plugins** allow great extensibility and personalization.
-- Functions can be used to provide dynamic input to a test or provide data manipulation.
-- Easy Continuous Integration via 3rd party Open Source libraries for Maven, Gradle and Jenkins.
+- If and While Controllers support structured condition rows with all/any
+  matching, while legacy expression mode remains available for old plans.
+- Loop and While Controllers expose clearer index behavior and exported index
+  variable display.
+- Transaction Controller has clearer measurement modes plus built-in delay and
+  pacing options with fixed, random, and Gaussian modes.
+- Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors
+  can fail the sampler when no value is found.
+- CSV Data Set can read records in random order while preserving header behavior.
+- CSV preview shows the first variable assignments before running the test.
+- JSR223/Groovy is the intended scripting direction; legacy BeanShell, BSF,
+  JEXL2, Rhino JavaScript, and LogKit paths are removed.
 
-## Project Status
+### Visual Debugging And Migration
 
-BreakTest is a continuation fork of Apache JMeter. Some package names, command names, file formats, property names, Maven coordinates, and documentation links still intentionally use `jmeter` or `org.apache.jmeter` for compatibility with existing test plans, plugins, scripts, and integrations.
+- View Results Tree shows richer request/response diagnostics, endpoint data,
+  HTTP/TLS metadata, cookies, variables, binary/text detection, and
+  jump-to-source.
+- Rendered response views and raw text response views have separate lifecycle
+  handling, so switching renderers shows the expected data.
+- BreakTest JMX saves origin metadata used by newer debugging tools.
+- HAR-backed recorded exchange views can show recorded request and response data
+  next to replayed samples.
+- Recorded-vs-replayed diffs help debug HAR migration and HTTP/2 replay issues.
+- Transaction child samples preserve source paths so recorded exchange diffs can
+  still navigate to the right test element.
+- HTTP/2 HAR replay strips unsupported hop-by-hop headers and normalizes
+  request/status lines for clearer comparisons.
+- Host-only cookie matching is stricter so cookies do not leak to unrelated
+  hosts or subdomains.
+
+### Modernization Choices
+
+BreakTest removes or de-emphasizes old paths that make the runtime harder to
+maintain. That includes legacy HTTP implementations, old scripting engines,
+LogKit, and RMI Remote Server style distributed execution.
+
+For local use, run BreakTest directly. For distributed execution, use BreakTest
+Enterprise or another controlled orchestration layer rather than reviving the
+old Remote Server model.
+
+## Compatibility
+
+BreakTest intentionally keeps many JMeter names in package names, properties,
+file formats, command internals, and Maven coordinates. This preserves
+compatibility with existing test plans, plugins, scripts, and integrations.
+
+Some compatibility limits are intentional:
+
+- plugins that depend on removed internals may need migration
+- legacy scripting engines are not a long-term direction
+- new BreakTest JMX features may not round-trip into old JMeter versions
+- Java 21 or later is required
+
+The goal is a better tool for current performance engineering, not perfect
+preservation of every old edge case.
 
 ## Requirements
 
-The following requirements exist for running BreakTest:
+- Java 21 or later
+- A JDK is recommended when recording HTTPS traffic because `keytool` is useful
+  for certificate handling
+- Optional protocol libraries, such as JDBC or JMS drivers, should be placed in
+  `lib` or `lib/opt` as needed
 
-- Java Interpreter:
+## Install And Run
 
-  A fully compliant Java 21 Runtime Environment is required
-  for BreakTest to execute. A JDK with `keytool` utility is better suited
-  for Recording HTTPS websites.
+Unpack the binary distribution, then start BreakTest from `bin`:
 
-- Optional jars:
-
-  Some jars are not included with BreakTest.
-  If required, these should be downloaded and placed in the lib directory
-  - JDBC - available from the database supplier
-  - JMS - available from the JMS provider
-  - [Bouncy Castle](https://www.bouncycastle.org/) -
-  only needed for SMIME Assertion
-
-- Java Compiler (*OPTIONAL*):
-
-  A Java compiler is not needed since the distribution includes a
-  precompiled Java binary archive.
-  > **Note** that a compiler is required to build plugins for BreakTest.
-
-## Installation Instructions
-
-> **Note** that spaces in directory names can cause problems.
-
-- Release builds
-
-  Unpack the binary archive into a suitable directory structure.
-
-## Running BreakTest
-
-1. Change to the `bin` directory
-2. Run the `breaktest` (Un\*x) or `breaktest.bat` (Windows) file.
-
-Some internal property names, package names, and artifact names still use `jmeter` for compatibility.
-
-### Windows
-
-For Windows, there are also some other scripts which you can drag-and-drop
-a JMX file onto:
-
-- `breaktest-n.cmd` - runs the file as a non-GUI test
-- `breaktest-t.cmd` - loads the file ready to run it as a GUI test
-
-## Documentation
-
-The documentation available as of the date of this release is
-also included, in HTML format, in the [docs](docs) directory,
-and it may be browsed starting from the file called [index.html](docs/index.html).
-
-## Reporting a bug/enhancement
-
-Use this repository's issue tracker for BreakTest-specific bugs and enhancements. If you are comparing behavior with upstream Apache JMeter, include the upstream version and the BreakTest revision in the report.
-
-## Build instructions
-
-### Release builds
-
-Unpack the source archive into a suitable directory structure.
-Most of the 3rd party library files can be extracted from the binary archive
-by unpacking it into the same directory structure.
-
-Any optional jars (see above) should be placed in `lib/opt` and/or `lib`.
-
-Jars in `lib/opt` will be used for building BreakTest and running the unit tests,
-but won't be used at run-time.
-
-_This is useful for testing what happens if the optional jars are not
-downloaded by other BreakTest users._
-
-If you are behind a proxy, you can set a few build properties in
-`~/.gradle/gradle.properties` for Gradle to use the proxy:
-
-```properties
-systemProp.http.proxyHost=proxy.example.invalid
-systemProp.http.proxyPort=8080
-systemProp.http.proxyUser=your_user_name
-systemProp.http.proxyPassword=your_password
-systemProp.https.proxyHost=proxy.example.invalid
-systemProp.https.proxyPort=8080
-systemProp.https.proxyUser=your_user_name
-systemProp.https.proxyPassword=your_password
+```sh
+cd breaktest-2026.07.03/bin
+./breaktest
 ```
 
-### Test builds
+On Windows:
 
-BreakTest is built using Gradle, and it uses [Gradle's Toolchains for JVM projects](https://docs.gradle.org/current/userguide/toolchains.html)
-for provisioning JDKs. It means the code would search for the needed JDKs locally, or download them
-if they are not found.
+```bat
+breaktest.bat
+```
 
-By default, the code uses JDK 21 for build purposes and targets Java 21 bytecode,
-so the resulting artifacts require Java 21 or later.
+For non-GUI execution:
 
-The following command builds and tests BreakTest:
+```sh
+./breaktest -n -t test-plan.jmx -l results.jtl
+```
+
+Some internal property names, package names, and artifact names still use
+`jmeter` for compatibility.
+
+## Build From Source
+
+BreakTest uses Gradle and JVM toolchains.
+
+Build and test:
 
 ```sh
 ./gradlew build
 ```
 
-If you want to use a custom JDK for building you can set `-PjdkBuildVersion=21`,
-and you can select `-PjdkTestVersion=21` if you want to use a different JDK for testing.
-
-You can list the available build parameters by executing
-
-```sh
-./gradlew parameters
-```
-
-If the system does not have a GUI display then:
-
-```sh
-./gradlew build -Djava.awt.headless=true
-```
-
-The output artifacts (jars, reports) are placed in the `build` folder.
-For instance, binary artifacts can be found under `src/dist/build/distributions`.
-
-The following command would compile the application and enable you to run `breaktest`
-from the `bin` directory.
-
-> **Note** that it completely refreshes `lib/` contents,
-so it would remove custom plugins should you have them installed to `lib/`. However, it would keep `lib/ext/` plugins intact.
+Create local `bin` and `lib` contents for development:
 
 ```sh
 ./gradlew createDist
 ```
 
-Alternatively, you could get Gradle to start the GUI:
+Run the GUI through Gradle:
 
 ```sh
 ./gradlew runGui
 ```
 
-## Developer Information
+Create release archives:
 
-Building and contributing is explained in [CONTRIBUTING.md](CONTRIBUTING.md).
-More information on the tasks available for building BreakTest with Gradle is
-available in [gradle.md](gradle.md).
+```sh
+./gradlew clean :src:dist:distTar :src:dist:distZip -Prelease
+```
+
+Release versions are configured in `gradle.properties`:
+
+```properties
+breaktest.version=2026.07.03
+```
+
+Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix
+automatically unless the build is run with `-Prelease` or `-Prc=<number>`.
+
+## Documentation
+
+Generated distribution documentation is included under `docs/` in release
+archives and starts at `docs/index.html`.
+
+Developer notes:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [gradle.md](gradle.md)
+- [SECURITY.md](SECURITY.md)
+- [THREAT_MODEL.md](THREAT_MODEL.md)
+
+## Security Model
+
+BreakTest inherits JMeter's trusted-test-plan model. Treat JMX files as
+executable input: they can define scripts, load classes, call functions, read
+files, make network requests, and interact with systems reachable from the test
+runner.
+
+Only open or run test plans you trust, or isolate them first. Report suspected
+BreakTest vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+If an issue also affects upstream Apache JMeter, follow the Apache Software
+Foundation security process as well.
+
+## Relationship To Apache JMeter
 
 BreakTest was forked from Apache JMeter:
 
 - https://github.com/apache/jmeter
 - https://gitbox.apache.org/repos/asf/jmeter.git
 
-## Licensing and Legal Information
+BreakTest is independent from The Apache Software Foundation. It is not
+affiliated with, endorsed by, or sponsored by The Apache Software Foundation.
 
-For legal and licensing information, please see the following files:
+Apache, Apache JMeter, JMeter, the Apache feather, and the Apache JMeter logo
+are trademarks or registered trademarks of The Apache Software Foundation.
+BreakTest uses those marks only to describe the origin of the fork and
+compatibility with Apache JMeter.
+
+## License
+
+BreakTest is licensed under the Apache License, Version 2.0.
+
+BreakTest is a derivative work of Apache JMeter. Copyright and attribution
+notices for Apache JMeter and other third-party components are retained in the
+source tree and distribution notices.
+
+For legal and licensing information, see:
 
 - [LICENSE](LICENSE)
 - [NOTICE](NOTICE)
 
 ## Cryptographic Software Notice
 
-This distribution may include software that has been designed for use
-with cryptographic software. The country in which you currently reside
-may have restrictions on the import, possession, use, and/or re-export
-to another country, of encryption software. BEFORE using any encryption
-software, please check your country's laws, regulations and policies
-concerning the import, possession, or use, and re-export of encryption
-software, to see if this is permitted. See <https://www.wassenaar.org/>
-for more information.
+This distribution may include software that has been designed for use with
+cryptographic software. The country in which you reside may have restrictions
+on the import, possession, use, or re-export of encryption software. Before
+using encryption software, check your country's laws, regulations, and policies.
 
-The U.S. Government Department of Commerce, Bureau of Industry and
-Security (BIS), has classified this software as Export Commodity
-Control Number (ECCN) 5D002.C.1, which includes information security
-software using or performing cryptographic functions with asymmetric
-algorithms. The form and manner of this Apache Software Foundation
-distribution makes it eligible for export under the License Exception
-ENC Technology Software Unrestricted (TSU) exception (see the BIS
-Export Administration Regulations, Section 740.13) for both object
-code and source code.
+BreakTest interfaces with the Java Secure Socket Extension (JSSE) API to
+provide HTTPS support.
 
-The following provides more details on the included software that
-may be subject to export controls on cryptographic software:
+BreakTest interfaces, via Apache HttpClient, with the Java Cryptography
+Extension (JCE) API to provide authentication features such as NTLM.
 
-BreakTest interfaces with the
-Java Secure Socket Extension (JSSE) API to provide
-
-- HTTPS support
-
-BreakTest interfaces (via Apache HttpClient4) with the
-Java Cryptography Extension (JCE) API to provide
-
-- NTLM authentication
-
-BreakTest does not include any implementation of JSSE or JCE.
+BreakTest does not include an implementation of JSSE or JCE.
 
 ## Thanks
 
-**Thank you for using BreakTest.**
-
-### Third party notices
-
-* Notice for mxparser:
-
-  >  This product includes software developed by the Indiana
-  >  University Extreme! Lab.  For further information please visit
-  >  http://www.extreme.indiana.edu/
+BreakTest exists because Apache JMeter established a useful, open model for
+performance testing. Thank you to the Apache JMeter community and to everyone
+testing, reporting, fixing, and modernizing BreakTest from here.
