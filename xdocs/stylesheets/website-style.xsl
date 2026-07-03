@@ -66,14 +66,6 @@
         </xsl:for-each>
         <!-- VIEWPORT -->
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link
-          href="{concat($cssdir, '/fontawesome.min.css')}"
-          rel="stylesheet" type='text/css'
-        ></link>
-        <link
-          href="{concat($cssdir, '/brands.min.css')}"
-          rel="stylesheet" type='text/css'
-        ></link>
         <link rel="stylesheet" type="text/css"
           href="{concat($cssdir, '/new-style.css')}"
         ></link>
@@ -91,9 +83,7 @@
             <xsl:variable name="alt">
               <xsl:value-of select="$project/logo" />
             </xsl:variable>
-            <xsl:variable name="home">
-              <xsl:value-of select="$project/@href" />
-            </xsl:variable>
+            <xsl:variable name="home" select="concat($relative-path, '/index.html')" />
             <xsl:variable name="src">
               <xsl:value-of
                 select="concat($relative-path, $project/logo/@href)" />

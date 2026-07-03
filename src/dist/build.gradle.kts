@@ -453,6 +453,10 @@ val processSiteXslt by tasks.registering {
         for (i in arrayOf("", "usermanual", "localising")) {
             xslt(i, outputDir.absolutePath)
         }
+        copy {
+            into(outputDir)
+            docCssAndImages()
+        }
     }
 }
 
