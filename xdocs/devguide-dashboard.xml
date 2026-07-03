@@ -73,7 +73,7 @@
                         context that will be used to store the consumers results.
                     </p>
                     <p>
-                        Then a chain of consumers is built using JMeter properties
+                        Then a chain of consumers is built using BreakTest properties
                         (prefixed by
                         <code>jmeter.reportgenerator</code>
                         ) in order to enable the user to customize it.
@@ -111,7 +111,7 @@
                 <figure image="chain.png">Figure 2 - Consumers chain</figure>
                 <p>
                     The chain begins with a normalizer consumer in charge of
-                    standardizing the timestamp of each sample because JMeter allows
+                    standardizing the timestamp of each sample because BreakTest allows
                     different timestamp formats (See
                     <code>jmeter.save.saveservice.timestamp_format</code>
                     ).
@@ -153,7 +153,7 @@
                         <br />
                         Template files are located in the template
                         directory defined by
-                        the JMeter property
+                        the BreakTest property
                         "<code>jmeter.reportgenerator.template_dir</code>"
                         and have
                         the extension "<code>.fmkr</code>".
@@ -164,7 +164,7 @@
                         <code>${&lt;graph_id&gt;.&lt;value&gt;}</code> where :
                         <dl>
                             <dt><code>graph_id</code></dt>
-                            <dd>is the identifier of the graph matching the JMeter
+                            <dd>is the identifier of the graph matching the BreakTest
                                 properties definition</dd>
                             <dt><code>value</code></dt>
                             <dd>is the name of the value where data are stored.</dd>
@@ -203,14 +203,14 @@
                     <p>
                         If you want to add a graph to the dashboard,
                         you have to
-                        <a href="#configure_graph">declare it among the JMeter properties</a>
+                        <a href="#configure_graph">declare it among the BreakTest properties</a>
                         and use its references in the template files.
                     </p>
                     <p>If you want to remove
                         a graph from the dashboard, you must remove
                         all its references in
                         the template
-                        files and clear JMeter
+                        files and clear BreakTest
                         properties.</p>
                 </subsection>
             </subsection>
@@ -279,7 +279,7 @@
                     <li>
                         <p>
                             The graphs (DOM elements) in the generated HTML page should be
-                            dynamically build in order to match the graphs defined in JMeter
+                            dynamically build in order to match the graphs defined in BreakTest
                             properties.
                         </p>
                     </li>
@@ -291,7 +291,7 @@
                                     navigation menu selection.</li>
                                 <li>Adding a loading animation when graphs are build or
                                     refreshed.</li>
-                                <li>Let the user determine if a graph is zoomable using a JMeter
+                                <li>Let the user determine if a graph is zoomable using a BreakTest
                                     property.</li>
                                 <li>
                                     Using the

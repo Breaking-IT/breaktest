@@ -73,8 +73,8 @@ Examples:
 
     <subsection name="&sect-num;.1 Adding Users" anchor="ext_adding_users">
 <p>
-The first step you want to do with every JMeter Test Plan is to add a Thread Group element.
-The Thread Group tells JMeter the number of users you want to simulate, how often the users should send
+The first step you want to do with every BreakTest Test Plan is to add a Thread Group element.
+The Thread Group tells BreakTest the number of users you want to simulate, how often the users should send
 requests, and the how many requests  they should send.
 </p>
 <p>
@@ -96,7 +96,7 @@ to get the <code>Add</code> menu, and then select <code>Add</code>&rarr;<code>Co
 select this new element to view its Control Panel.
 </p>
 <p>
-Like most JMeter elements, the <code>LDAP Extended Request Defaults</code> Control Panel has a name
+Like most BreakTest elements, the <code>LDAP Extended Request Defaults</code> Control Panel has a name
 field that you can modify. In this example, leave this field with the default value.
 </p>
 <p><figure image="ldaptest/extrequestdefaults.png"><br/>
@@ -144,7 +144,7 @@ Thread unbind
 </li>
 </ol>
    <p>
-JMeter sends requests in the order that you add them to the tree.
+BreakTest sends requests in the order that you add them to the tree.
 </p>
 <p>
 Adding a requests always start by:<br/>

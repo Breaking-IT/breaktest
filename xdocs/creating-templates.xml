@@ -62,7 +62,7 @@
                     <p>
                         Let's say we want the exact same Recording template as in the 2.1 section, but we want to choose the name
                         of the xml file where the recording of view result tree will be saved.<br/><br/>
-                        To do so we will use the parameters tag to tell JMeter to ask the user about a name for the concerned file :
+                        To do so we will use the parameters tag to tell BreakTest to ask the user about a name for the concerned file :
                         <figure image="templates/templates_xml_parameters.png">Figure 3 - recording template with parameters</figure>
                         <note>You can put as many parameter tags as you want in the parameters tag.</note>
                         Let's see what changed here.<br/>
@@ -80,15 +80,15 @@
                 <subsection name="3.1 Basic template file" anchor="basic_template_file">
                     <p>
                         The template file is the one you used in the fileName tag when you declared your template.
-                        A template file is just the saving of a JMeter test plan.
+                        A template file is just the saving of a BreakTest test plan.
                     </p>
                 </subsection>
 
                 <subsection name="3.2 Customizable template file" anchor="customizable_template_file">
                     <p>
                         In the 2.2 section we saw that a custom template file is a .jmx.fmkr file.<br/>
-                        The single difference between them is the .jmx.fmkr will be analyzed by JMeter to<br/>
-                        detect customs tag. If a custom tag is found, JMeter will try to replace it by the corresponding
+                        The single difference between them is the .jmx.fmkr will be analyzed by BreakTest to<br/>
+                        detect customs tag. If a custom tag is found, BreakTest will try to replace it by the corresponding
                         given value from the user.<br/><br/>
                         A custom tag is defined as follow :
                         <source><![CDATA[[=<key>]]]></source>
@@ -103,9 +103,9 @@
                         When it's done, Change the above selected line by this one :
                         <source><![CDATA[<stringProp name="filename">[=xmlFileName]</stringProp>]]></source>
                         <br/>
-                        It's over ! With this configuration, if you chose to use the recording template, JMeter will ask you
+                        It's over ! With this configuration, if you chose to use the recording template, BreakTest will ask you
                         a xmlFileName (correspond to the key value in the declaration).
-                        <figure image="templates/template_parameters_window.png">Figure 5 - JMeter asks you the value you want to put for the key</figure>
+                        <figure image="templates/template_parameters_window.png">Figure 5 - BreakTest asks you the value you want to put for the key</figure>
                         Then, you will find the expected value in the created template where you placed the [=xmlFileName] tag :
                         <figure image="templates/template_recording_retrieved_value.png">Figure 6 - the value changed</figure>
                     </p>

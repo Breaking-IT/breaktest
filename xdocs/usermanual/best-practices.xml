@@ -33,8 +33,8 @@
 <section name="&sect-num;. Best Practices" anchor="best_practices">
 </section>
 
-<section name="&sect-num;.1 Always use latest version of JMeter" anchor="use_latest_version">
-<p>The performance of JMeter is being constantly improved, so users are highly encouraged to use the most up to date version. <br/>
+<section name="&sect-num;.1 Always use latest version of BreakTest" anchor="use_latest_version">
+<p>The performance of BreakTest is being constantly improved, so users are highly encouraged to use the most up to date version. <br/>
 Ensure you always read <a href="../changes.html">changes list</a> to be aware of new improvements and components.
 You should absolutely avoid using versions that are older than 3 versions before the last one.
 </p>
@@ -42,15 +42,15 @@ You should absolutely avoid using versions that are older than 3 versions before
 
 <section name="&sect-num;.2 Use the correct Number of Threads" anchor="sizing_threads">
 <p>Your hardware capabilities as well as the Test Plan design will both impact the number of threads you can effectively
-run with JMeter.  The number will also depend on how fast your server is (a faster server
- makes JMeter work harder since it returns a response quicker).  As with any Load Testing tool, if you don't correctly size
+run with BreakTest.  The number will also depend on how fast your server is (a faster server
+ makes BreakTest work harder since it returns a response quicker).  As with any Load Testing tool, if you don't correctly size
  the number of threads, you will face the "Coordinated Omission" problem which can give you wrong or inaccurate results.
- If you need large-scale load testing, consider running multiple CLI JMeter instances on multiple machines. The sample result files can be combined for subsequent analysis.
-For testing how JMeter performs on a given platform, the JavaTest sampler can be used.
+ If you need large-scale load testing, consider running multiple CLI BreakTest instances on multiple machines. The sample result files can be combined for subsequent analysis.
+For testing how BreakTest performs on a given platform, the JavaTest sampler can be used.
 It does not require any network access so can give some idea as to the maximum throughput achievable.
 </p>
 <p>
-JMeter has an option to delay thread creation until the thread starts sampling, i.e. after any thread group delay and the ramp-up time for the thread itself.
+BreakTest has an option to delay thread creation until the thread starts sampling, i.e. after any thread group delay and the ramp-up time for the thread itself.
 This allows for a very large total number of threads, provided that not too many are active concurrently.
 </p>
 </section>
@@ -68,7 +68,7 @@ Web Test</a> for information.</p>
 <section name="&sect-num;.5 Using the HTTP(S) Test Script Recorder" anchor="proxy_server">
 <p>Refer to <complink name="HTTP(S) Test Script Recorder"/> for details on setting up the
 recorder. The most important thing to do is filter out all requests you aren't
-interested in.  For instance, there's no point in recording image requests (JMeter can
+interested in.  For instance, there's no point in recording image requests (BreakTest can
 be instructed to download all images on a page - see <complink name="HTTP Request"/>).
 These will just clutter your test plan.  Most likely, there is an extension all your files
 share, such as <code>.jsp</code>, <code>.asp</code>, <code>.php</code>, <code>.html</code> or the like.
@@ -86,7 +86,7 @@ plan with crap. Think about other uses. -->
 under it where it will record HTTP Requests to.  This conveniently packages all your samples under one
 controller, which can be given a name that describes the test case.</p><!--TODO: is this best practice? I don't think so!-->
 <p>Now, go through the steps of a Test Case.  If you have no pre-defined test cases, use
-JMeter to record your actions to define your test cases.  Once you have finished a
+BreakTest to record your actions to define your test cases.  Once you have finished a
 definite series of steps, save the entire test case in an appropriately named file.  Then, wipe
 clean and start a new test case.  By doing this, you can quickly record a large number of
 test case "rough drafts".</p><!--TODO: no need to wipe out now - you can create a new controller and
@@ -94,7 +94,7 @@ resume recording into it-->
 <p>One of the most useful features of the HTTP(S) Test Script Recorder is that you can abstract out
 certain common elements from the recorded samples.  By defining some
 <a href="functions.html">user-defined variables</a> at the Test Plan level or in
-<complink name="User Defined Variables"/> elements, you can have JMeter automatically
+<complink name="User Defined Variables"/> elements, you can have BreakTest automatically
 replace values in you recorded samples.  For instance, if you are testing an app on
 server "<code>xxx.example.com</code>", then you can define a variable called "<code>server</code>" with the value of
 "<code>xxx.example.com</code>", and anyplace that value is found in your recorded samples will be replaced
@@ -104,13 +104,13 @@ with "<code>${server}</code>".
 
 </p>
 <p>
-If JMeter does not record any samples, check that the browser really is using the proxy.
-If the browser works OK even if JMeter is not running, then the browser cannot be using the proxy.
+If BreakTest does not record any samples, check that the browser really is using the proxy.
+If the browser works OK even if BreakTest is not running, then the browser cannot be using the proxy.
 Some browsers ignore proxy settings for <code>localhost</code> or <code>127.0.0.1</code>; try using the local hostname or IP instead.
 </p>
 <p>
 The error "<code>unknown_ca</code>" probably means that you are trying to record HTTPS, and the browser has not accepted the
-JMeter Proxy server certificate.
+BreakTest Proxy server certificate.
 </p>
 <!--TODO: Describe how to use this to record against one server[name]
 and run against another. Actually, this particular example may be better for the HTTP Request Defaults&hellip;
@@ -123,7 +123,7 @@ with this new features.-->
 <p>
 Some test plans need to use different values for different users/threads.
 For example, you might want to test a sequence that requires a unique login for each user.
-This is easy to achieve with the facilities provided by JMeter.
+This is easy to achieve with the facilities provided by BreakTest.
 </p>
 <p>For example:</p>
 <ul>
@@ -148,7 +148,7 @@ samplers
 Some suggestions on reducing resource usage.
 </p>
 <ul>
-<li>Use CLI mode: <code>jmeter -n -t test.jmx -l test.jtl</code></li>
+<li>Use CLI mode: <code>breaktest -n -t test.jmx -l test.jtl</code></li>
 <li>Use as few Listeners as possible; if using the <code>-l</code> flag as above they can all be deleted or disabled.</li>
 <li>Don't use "View Results Tree" or "View Results in Table" listeners during the load test, use them only during scripting phase to debug your scripts.</li>
 <li>Rather than using lots of similar samplers,
@@ -170,8 +170,8 @@ that can be read with CSV Dataset. This avoids wasting resources at run-time.
 <section name="&sect-num;.8 Developing script functions in Groovy or Jexl3 etc." anchor="developing_scripts">
 <p>
 It's quite hard to write and test scripts as functions.
-However, JMeter has the JSR223 samplers which can be used instead with any language supporting it.
-We advise using <a href="http://www.groovy-lang.org/">Apache Groovy</a> or any language that supports the <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface of JSR223.
+However, BreakTest has the JSR223 samplers which can be used instead with any language supporting it.
+We advise using <a href="http://www.groovy-lang.org/">Apache Groovy</a> or any language that supports the <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface of JSR223.
 </p>
 <p>
 Create a simple Test Plan containing the JSR223 Sampler and Tree View Listener.
@@ -204,21 +204,20 @@ This quickly becomes tedious if you want to run lots of tests in CLI mode.
 One solution to this is to define the Test Plan variable in terms of a property,
 for example <code>LOOPS=${__P(loops,10)}</code>.
 This uses the value of the property "<code>loops</code>", defaulting to <code>10</code> if the property is not found.
-The "<code>loops</code>" property can then be defined on the JMeter command-line:
-<source>jmeter &hellip; -Jloops=12 &hellip;</source>
+The "<code>loops</code>" property can then be defined on the BreakTest command line:
+<source>breaktest &hellip; -Jloops=12 &hellip;</source>
 If there are a lot of properties that need to be changed together,
 then one way to achieve this is to use a set of property files.
-The appropriate property file can be passed in to JMeter using the <code>-q</code> command-line option.
+The appropriate property file can be passed in to BreakTest using the <code>-q</code> command-line option.
 </p>
 </section>
 
 <section name="&sect-num;.10 JSR223 Elements" anchor="jsr223">
 <p>
-For intensive load testing, the recommended scripting language is one whose ScriptingEngine implements the <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface.
-Groovy scripting engine implements <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code>. However neither Beanshell nor Javascript do so as of release date of JMeter 3.1, so it is
-recommended to avoid them for intensive load testing.
-<note>Note: Beanshell implements the <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface but it has not been coded - the method just throws an Exception.
-JMeter has an explicit work-round for this bug.</note>
+For intensive load testing, the recommended scripting language is one whose ScriptingEngine implements the <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface.
+Groovy scripting engine implements <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code>, so it is
+recommended for intensive load testing. Legacy BeanShell and older JavaScript paths
+are not part of the modern BreakTest scripting model.
 
 When using JSR 223 elements, it is advised to check <code>Cache compiled script if available</code> property to ensure the script compilation is cached if underlying language supports it.
 In this case, ensure the script does not use any variable using <code>${varName}</code> as caching would take only first value of <code>${varName}</code>. Instead use :
@@ -238,7 +237,7 @@ This is by design. For variables that can be determined before a test starts, se
 <a href="#parameterising_tests">Parameterising Tests</a> (above).
 If the value is not known until the test starts, there are various options:
 <ul>
-<li>Store the variable as a property - properties are global to the JMeter instance</li>
+<li>Store the variable as a property - properties are global to the BreakTest instance</li>
 <li>Write variables to a file and re-read them.</li>
 <li>Write your own Java classes</li>
 </ul>
@@ -248,7 +247,7 @@ If the value is not known until the test starts, there are various options:
 <section name="&sect-num;.12 Managing properties" anchor="properties">
 <p>When you need to modify jmeter properties, ensure you don't modify <code>jmeter.properties</code> file,
 <b>instead copy the property from <code>jmeter.properties</code> and modify its value in <code>user.properties</code> file</b>.<br/>
-Doing so will ease you migration to the next version of JMeter. <br/>
+Doing so will ease you migration to the next version of BreakTest. <br/>
 Note that in the documentation <code>jmeter.properties</code> is frequently mentioned but this should be understood as
 "Copy from <code>jmeter.properties</code> to <code>user.properties</code> the property you want to modify and do so in the latter file".</p>
 <note><code>user.properties</code> file supersedes the properties defined in <code>jmeter.properties</code></note>

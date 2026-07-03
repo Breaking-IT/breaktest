@@ -27,20 +27,17 @@
   <body>
     <section name="BreakTest">
     <p>
-      <b>BreakTest</b> is a forked continuation of Apache JMeter,
-      a 100% pure Java application designed
-      to load test functional behavior and measure performance. BreakTest continues
-      the familiar performance test tool with a focus on making it leaner and less
-      resource intensive while preserving compatibility with existing JMeter test plans
-      and integrations where practical.
+      <b>BreakTest</b> is a modern, JMeter-compatible performance testing tool.
+      It started as an independent fork of Apache JMeter and continues the
+      familiar JMX workflow with Java 21+, HTTP/2, lower resource usage, better
+      scheduling, visual debugging, and AI-assisted scripting.
     </p>
     <h2>What can I do with it?</h2>
     <p>
-      BreakTest may be used to test performance both on static and dynamic
-      resources, Web dynamic applications. <br/>
-      It can be used to simulate a heavy load on a server, group of servers,
-      network or object to test its strength or to analyze overall performance
-      under different load types.<br/>
+      BreakTest can test static and dynamic resources, web applications, APIs,
+      databases, queues, files, mail systems, native commands, and custom Java
+      components. It can simulate load against systems you are authorized to
+      test and collect results for debugging, analysis, and reporting.<br/>
     </p>
 <p>BreakTest features include:</p>
 <ul>
@@ -59,13 +56,17 @@
         </ul>
     </li>
     <li>Full featured Test IDE that allows fast Test Plan <b>recording (from Browsers or native applications), building and debugging</b>.</li>
-    <li><b><a href="usermanual/get-started.html#non_gui">CLI mode (Command-line mode (previously called Non GUI) / headless mode)</a></b> to load test from any Java compatible OS (Linux, Windows, Mac OSX, &hellip;)</li>
+    <li><b><a href="usermanual/get-started.html#non_gui">CLI mode</a></b> to load test from Java 21 compatible operating systems.</li>
     <li>A complete and <b><a href="usermanual/generating-dashboard.html" >ready to present dynamic HTML report</a></b></li>
     <li>Easy correlation through ability to extract data from most popular response formats, <b><a href="usermanual/component_reference.html#CSS/JQuery_Extractor" >HTML</a>, <a href="usermanual/component_reference.html#JSON_Extractor" >JSON</a>,
         <a href="usermanual/component_reference.html#XPath_Extractor" >XML</a> or <a href="usermanual/component_reference.html#Regular_Expression_Extractor" >any textual format</a></b></li>
     <li>Complete portability and <b>100% Java purity</b>.</li>
-    <li>Full <b>multi-threading</b> framework allows concurrent sampling by many threads and
-        simultaneous sampling of different functions by separate thread groups.</li>
+    <li>Modern HTTP runtime with Apache HttpClient 5 and HTTP/2 support.</li>
+    <li>Lower CPU and memory pressure through lazy response handling, lighter cloning, and listener-driven diagnostics.</li>
+    <li>Unified Thread Group scheduling with closed and open workload models, phases, pacing, and pause/resume.</li>
+    <li>Parallel Controller and Fork Controller for realistic concurrent branches of work.</li>
+    <li>AI-assisted scripting through local agents such as Codex, Claude Code, opencode, and MCP tooling.</li>
+    <li>Visual debugging with richer View Results Tree details and HAR-backed recorded-vs-replayed request/response diffs.</li>
     <li>Caching and offline analysis/replaying of test results.</li>
     <li><b>Highly Extensible core:</b>
       <ul>
@@ -86,8 +87,6 @@
 <li><a href="usermanual/functions.html">Functions reference</a> to have detailed information and examples for every function</li>
 <li><a href="usermanual/properties_reference.html">Properties reference</a> for all properties that allow you to customize BreakTest</li>
 <li><a href="api/index.html">Javadoc API documentation</a></li>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/JMeterFAQ">JMeter FAQ (Wiki)</a></li>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/Home">JMeter Wiki</a></li>
 <li><a href="building.html">Building BreakTest and Add-Ons</a> for advanced usage</li>
 </ul>
 
@@ -113,10 +112,17 @@ Nor does it render the HTML pages as a browser does
 <li><a href="changes.html">Changes List</a></li>
 <li><a href="issues.html">Read about existing Issues (Bugs or Enhancements) or reporting new ones (please do it !)</a></li>
 <li><a href="https://www.apache.org/licenses/">License</a></li>
-<li><a href="mail.html">Mailing Lists</a></li>
+<li><a href="mail.html">Community Guidelines</a></li>
 <li><a href="svnindex.html">Source Repositories</a></li>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/JMeterCommitters">Contributors</a></li>
+<li><a href="https://github.com/Breaking-IT/breaktest">BreakTest on GitHub</a></li>
 </ul>
+<h2>Relationship to Apache JMeter</h2>
+<p>
+BreakTest is a derivative work of Apache JMeter and keeps attribution in the
+source tree, NOTICE file, release notes, and documentation. BreakTest is
+independent from The Apache Software Foundation and is not affiliated with,
+endorsed by, or sponsored by The Apache Software Foundation.
+</p>
 </section>
 </body>
 </document>

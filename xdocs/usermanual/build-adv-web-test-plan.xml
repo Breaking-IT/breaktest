@@ -38,7 +38,7 @@
 <section name="&sect-num;.1 Handling User Sessions With URL Rewriting" anchor="session_url_rewriting">
 <p>If your web application uses URL rewriting rather than cookies to save session information,
 then you'll need to do a bit of extra work to test your site.</p>
-<p>To respond correctly to URL rewriting, JMeter needs to parse the HTML
+<p>To respond correctly to URL rewriting, BreakTest needs to parse the HTML
 received from the server and retrieve the unique session ID.  Use the appropriate <complink name="HTTP URL Re-writing Modifier"/>
 to accomplish this.  Simply enter the name of your session ID parameter into the modifier, and it
 will find it and add it to each request.  If the request already has a value, it will be replaced.
@@ -60,7 +60,7 @@ be part of the path (separated by a ";"), rather than a request parameter</p>
 
 <section name="&sect-num;.2 Using a Header Manager" anchor="header_manager">
 <p>The <complink name="HTTP Header Manager"/> lets you customize what information
-JMeter sends in the HTTP request header.  This header includes properties like "User-Agent",
+BreakTest sends in the HTTP request header.  This header includes properties like "User-Agent",
 "Pragma", "Referer", etc.</p>
 <p>The <complink name="HTTP Header Manager"/>, like the <complink name="HTTP Cookie Manager"/>,
 should probably be added at the Thread Group level, unless for some reason you wish to

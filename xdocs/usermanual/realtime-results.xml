@@ -24,17 +24,17 @@
 <document prev="generating-dashboard.html" next="best-practices.html" id="$Id: realtime-results.xml 1457581 2013-03-17 22:58:08Z sebb $">
 
 <properties>
-  <author email="dev@jmeter.apache.org">Apache JMeter developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>User's Manual: Live Statistics</title>
 </properties>
 
 <body>
 
 <section name="&sect-num;. Real-time results" anchor="realtime-results">
-<p>Since JMeter 2.13 you can get real-time results sent to a backend through the
+<p>BreakTest can send real-time results to a backend through the
 <a href="component_reference.html#Backend_Listener">Backend Listener</a> using potentially any backend (JDBC, JMS, Webservice, &hellip;)
 by providing a class which implements <apilink href="org/apache/jmeter/visualizers/backend/AbstractBackendListenerClient.html">AbstractBackendListenerClient</apilink>.<br/>
-JMeter ships with:
+BreakTest includes:
 <ul>
 <li>a GraphiteBackendListenerClient which allows you to send metrics to a Graphite Backend.<br/>
 This feature provides:
@@ -42,18 +42,18 @@ This feature provides:
 <li>Live results</li>
 <li>Nice graphs for metrics</li>
 <li>Ability to compare 2 or more load tests</li>
-<li>Storing monitoring data as long as JMeter results in the same backend</li>
+<li>Storing monitoring data as long as BreakTest results in the same backend</li>
 <li>&hellip;</li>
 </ul>
 </li>
-<li>an InfluxDBBackendListenerClient introduced in JMeter 3.2 which allows you to send metrics to an InfluxDB Backend using UDP or HTTP protocols
+<li>an InfluxDBBackendListenerClient which allows you to send metrics to an InfluxDB Backend using UDP or HTTP protocols
 This feature provides:
 <ul>
 <li>Live results</li>
 <li>Nice graphs for metrics</li>
 <li>Ability to compare 2 or more load tests</li>
 <li>Ability to add annotations to graphs</li>
-<li>Storing monitoring data as long as JMeter results in the same backend</li>
+<li>Storing monitoring data as long as BreakTest results in the same backend</li>
 <li>&hellip;</li>
 </ul>
 </li>
@@ -126,19 +126,19 @@ In this document we will present the configuration setup to graph and historize 
     <p>
     The <a href="https://graphite.readthedocs.io/en/latest/feeding-carbon.html#step-1-plan-a-naming-hierarchy">Graphite naming hierarchy</a>
     uses dot (".") to separate elements. This could be confused with decimal percentile values.
-    JMeter converts any such values, replacing dot (".") with underscore ("-").
+    BreakTest converts any such values, replacing dot (".") with underscore ("-").
     For example, "<code>99.9</code>" becomes "<code>99_9</code>"
     </p>
     <p>
-    By default JMeter sends metrics for all samplers accumulated under the samplerName "<code>all</code>".
-    If the Backend Listener <code>samplersList</code> is configured, then JMeter also sends the metrics
+    By default BreakTest sends metrics for all samplers accumulated under the samplerName "<code>all</code>".
+    If the Backend Listener <code>samplersList</code> is configured, then BreakTest also sends the metrics
     for the matching sample names unless <code>summaryOnly=true</code>
     </p>
     </subsection>
 </subsection>
-<subsection name="&sect-num;.2 JMeter configuration" anchor="jmeter-configuration">
+<subsection name="&sect-num;.2 BreakTest configuration" anchor="jmeter-configuration">
     <p>
-    To make JMeter send metrics to backend add a <a href="./component_reference.html#Backend_Listener" >BackendListener</a> using the InfluxDBBackendListenerClient.
+    To make BreakTest send metrics to backend add a <a href="./component_reference.html#Backend_Listener" >BackendListener</a> using the InfluxDBBackendListenerClient.
     </p>
     <figure width="902" height="341" image="backend_listener.png">InfluxDB configuration</figure>
 </subsection>
@@ -187,7 +187,7 @@ InfluxDB data can be easily viewed in a browser through <a href="http://grafana.
 </subsection>
 
 <subsection name="&sect-num;.5 Graphite Configuration" anchor="graphite_configuration">
-    <p>To make JMeter send metrics to backend, add a BackendListener using the GraphiteBackendListenerClient.</p>
+    <p>To make BreakTest send metrics to backend, add a BackendListener using the GraphiteBackendListenerClient.</p>
     <p><a href="./component_reference.html#Backend_Listener">GraphiteBackendListenerClient</a> section will help you do the configuration.</p>
     <figure width="902" height="341" image="backend_listener_graphite.png">Graphite configuration</figure>
 </subsection>

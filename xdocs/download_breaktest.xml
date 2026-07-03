@@ -18,7 +18,7 @@
 
 <!DOCTYPE document
 [
-<!ENTITY release '1.0.0'>
+<!ENTITY release '2026.07.03'>
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
@@ -29,101 +29,75 @@
 <body>
     <section name="Download BreakTest">
       <p>
-        We recommend you use a mirror to download our release
-        builds, but you <strong>must</strong> <a href="http://www.apache.org/info/verification.html">verify the integrity</a> of
-        the downloaded files using signatures downloaded from our main
-        distribution directories. Recent releases (48 hours) may not yet
-        be available from all the mirrors.
-      </p>
-
-      <p>
-        You are currently using <b>[preferred]</b>.  If you
-        encounter a problem with this mirror, please select another
-        mirror.  If all mirrors are failing, there are <i>backup</i>
-        mirrors (at the end of the mirrors list) that should be
-        available.
-        <br></br>
-        [if-any logo]<a href="[link]"><img align="right" src="[logo]" border="0"></img></a>[end]
-      </p>
-
-      <form action="[location]" method="get" id="SelectMirror">
-        <p>
-          Other mirrors:
-          <select name="Preferred">
-          [if-any http]
-            [for http]<option value="[http]">[http]</option>[end]
-          [end]
-          [if-any ftp]
-            [for ftp]<option value="[ftp]">[ftp]</option>[end]
-          [end]
-          [if-any backup]
-            [for backup]<option value="[backup]">[backup] (backup)</option>[end]
-          [end]
-          </select>
-          <input type="submit" value="Change"></input>
-        </p>
-      </form>
-
-      <p>
-        The <code>KEYS</code> link links to the code signing keys used to sign the product.
-        The <code>PGP</code> link downloads the OpenPGP compatible signature from our main site.
-        The <code>SHA-512</code> link downloads the sha512 checksum from the main site.
-        Please <a href="http://www.apache.org/info/verification.html">verify the integrity</a>
-        of the downloaded file.
+        BreakTest releases are published on GitHub. Download the binary archive
+        for your platform preference and verify it with the matching SHA-512
+        checksum.
       </p>
       <p>
-      BreakTest is a forked continuation of Apache JMeter. For upstream JMeter information, see the
-      <a href="http://jmeter.apache.org/">Apache JMeter</a> site.
+        BreakTest requires Java 21 or later. It is a forked continuation of
+        Apache JMeter and remains compatible with existing JMeter JMX test plans
+        where practical.
       </p>
       <p>
-      <a href="https://www.apache.org/dist/jmeter/KEYS">KEYS</a>
+        <a href="https://github.com/Breaking-IT/breaktest/releases/latest">Open the latest GitHub release</a>
       </p>
     </section>
     <section name="BreakTest &release; (Requires Java 21+)">
       <subsection name="Binaries" anchor="binaries">
         <table>
           <tr>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.tgz">breaktest-&release;.tgz</a></td>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.tgz.sha512">sha512</a></td>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.tgz.asc">pgp</a></td>
+              <th>Archive</th>
+              <th>Checksum</th>
           </tr>
           <tr>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.zip">breaktest-&release;.zip</a></td>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.zip.sha512">sha512</a></td>
-              <td><a href="[preferred]/breaktest/binaries/breaktest-&release;.zip.asc">pgp</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.tgz">breaktest-&release;.tgz</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.tgz.sha512">sha512</a></td>
+          </tr>
+          <tr>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.zip">breaktest-&release;.zip</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.zip.sha512">sha512</a></td>
           </tr>
         </table>
       </subsection>
       <subsection name="Source" anchor="source">
         <table>
           <tr>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.tgz">breaktest-&release;_src.tgz</a></td>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.tgz.sha512">sha512</a></td>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.tgz.asc">pgp</a></td>
+              <th>Archive</th>
+              <th>Checksum</th>
           </tr>
           <tr>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.zip">breaktest-&release;_src.zip</a></td>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.zip.sha512">sha512</a></td>
-              <td><a href="[preferred]/breaktest/source/breaktest-&release;_src.zip.asc">pgp</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.tgz">breaktest-&release;_src.tgz</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.tgz.sha512">sha512</a></td>
+          </tr>
+          <tr>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.zip">breaktest-&release;_src.zip</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.zip.sha512">sha512</a></td>
           </tr>
         </table>
       </subsection>
     </section>
-    <section name="Archives">
-        <p>
-          Older releases can be obtained from the archives.
-        </p>
-        <ul>
-          <li class="download"><a href="[preferred]/breaktest/">browse download area</a></li>
-          <li><a href="https://archive.apache.org/dist/jmeter/">Upstream Apache JMeter archives&hellip;</a></li>
-          <li><a href="https://archive.apache.org/dist/jakarta/jmeter/">Apache Jakarta JMeter archives&hellip;</a></li>
-        </ul>
-    </section>
     <section name="Verification of downloads">
     <p>
-    It is essential that you verify the integrity of the downloaded files using the PGP signature.
-    Please read <a href="http://www.apache.org/info/verification.html">Verifying Apache Software Foundation Releases</a> for more information on why you should verify our releases.
+    Download the matching <code>.sha512</code> file and compare it with your local
+    archive before running BreakTest.
     </p>
+    <source>
+shasum -a 512 breaktest-&release;.tgz
+cat breaktest-&release;.tgz.sha512
+    </source>
+    </section>
+    <section name="Relationship to Apache JMeter">
+      <p>
+      BreakTest is independent from The Apache Software Foundation. It is not
+      affiliated with, endorsed by, or sponsored by The Apache Software
+      Foundation. Apache JMeter attribution is retained in the source tree,
+      release notices, and documentation where it describes origin or
+      compatibility.
+      </p>
+      <p>
+      For upstream Apache JMeter releases, see the
+      <a href="https://jmeter.apache.org/">Apache JMeter</a> site.
+      </p>
     </section>
 </body>
 </document>

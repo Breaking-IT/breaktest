@@ -31,27 +31,27 @@
 <section name="&sect-num;. Glossary" anchor="glossary">
 
 <p>
-<a name="Elapsed"><b>Elapsed time</b></a>. JMeter measures the elapsed time from just before sending the request to
+<a name="Elapsed"><b>Elapsed time</b></a>. BreakTest measures the elapsed time from just before sending the request to
 just after the last response has been received.
-JMeter does not include the time needed to render the response, nor does JMeter process any client code, for example
+BreakTest does not include the time needed to render the response, nor does BreakTest process any client code, for example
 Javascript.
 </p>
 
 <p>
-<a name="Latency"><b>Latency</b></a>. JMeter measures the latency from just before sending the request to
+<a name="Latency"><b>Latency</b></a>. BreakTest measures the latency from just before sending the request to
 just after the first response has been received. Thus the time
 includes all the processing needed to assemble the request as well as
 assembling the first part of the response, which in general will be longer than one
 byte.
 Protocol analysers (such as Wireshark) measure the time when bytes are actually sent/received over the interface.
-The JMeter time should be closer to that which is experienced by a
+The BreakTest time should be closer to that which is experienced by a
 browser or other application client.
 </p>
 
 <p>
-<a name="Connect"><b>Connect Time</b></a>. JMeter measures the time it took to establish the connection, including SSL handshake. Note that connect time is not automatically subtracted from <a href="#Latency">latency</a>.
+<a name="Connect"><b>Connect Time</b></a>. BreakTest measures the time it took to establish the connection, including SSL handshake. Note that connect time is not automatically subtracted from <a href="#Latency">latency</a>.
 In case of connection error, the metric will be equal to the time it took to face the error, for example in case of Timeout, it should be equal to connection timeout.
-<note>As of JMeter 3.1, this metric is only computed for TCP Sampler, HTTP Request and JDBC Request.</note>
+<note>This metric is computed for TCP Sampler, HTTP Request, and JDBC Request.</note>
 </p>
 
 <p>
@@ -74,7 +74,7 @@ See, for example: <a href="http://en.wikipedia.org/wiki/Percentile">Percentile</
 <a name="StandardDeviation"><b>Standard Deviation</b></a> is a measure of the variability
 of a data set. This is a standard statistical measure.
 See, for example: <a href="http://en.wikipedia.org/wiki/Standard_deviation">Standard Deviation</a> entry at Wikipedia.
-JMeter calculates the population standard deviation (e.g. STDEVP function in spreadsheets), not the sample standard deviation (e.g. STDEV).
+BreakTest calculates the population standard deviation (e.g. STDEVP function in spreadsheets), not the sample standard deviation (e.g. STDEV).
 </p>
 
 <p>

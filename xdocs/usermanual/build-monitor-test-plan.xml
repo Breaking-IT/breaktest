@@ -23,13 +23,13 @@
 <document prev="build-jms-topic-test-plan.html" next="listeners.html" id="$Id$">
 
 <properties>
-  <title>User's Manual: Building a Monitor Test Plan (REMOVED since JMeter 3.2)</title>
+  <title>User's Manual: Building a Monitor Test Plan (Removed)</title>
 </properties>
 
 <body>
 
-<section name="&sect-num;. Building a Monitor Test Plan (REMOVED since JMeter 3.2)" anchor="building">
-<note>Note this feature is deprecated since JMeter 3.1</note>
+<section name="&sect-num;. Building a Monitor Test Plan (Removed)" anchor="building">
+<note>This historical monitor test-plan feature is no longer available in BreakTest.</note>
 <p>In this section, you will learn how to create a
 <a href="build-test-plan.html">Test Plan</a> to monitor webservers. Monitors
 are useful for a stress testing and system management. Used with stress
@@ -49,8 +49,8 @@ need to change the MBeanServer lookup to retrieve the correct MBeans.</p>
 
 <section name="&sect-num;.1 Adding A Server" anchor="adding_server">
 <p>The first step is to add a <a href="test_plan.html#thread_group">Thread Group</a>
-element.  The Thread Group tells JMeter the number of threads you want. Always use
-<code>1</code>, since we are using JMeter as a monitor. This is very important for those not
+element.  The Thread Group tells BreakTest the number of threads you want. Always use
+<code>1</code>, since we are using BreakTest as a monitor. This is very important for those not
 familiar with server monitors. As a general rule, using multiple threads for a
 single server is bad and can create significant stress.
 </p>

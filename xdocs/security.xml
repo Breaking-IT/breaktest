@@ -38,10 +38,12 @@
 <section name="Reporting security issues">
   <p>
     BreakTest inherits its baseline threat model from Apache JMeter. See
-    <a href="https://github.com/Breaking-IT/breaktest/blob/master/THREAT_MODEL.md">THREAT_MODEL.md</a> for the current expanded model.
+    <a href="https://github.com/Breaking-IT/breaktest/blob/main/THREAT_MODEL.md">THREAT_MODEL.md</a> for the current expanded model.
   </p>
   <p>
-    We strongly encourage you to report potential BreakTest security vulnerabilities privately to the project maintainers before disclosing them in a public forum.
+    Report potential BreakTest security vulnerabilities privately through the
+    <a href="https://github.com/Breaking-IT/breaktest/security/policy">BreakTest GitHub security policy</a>
+    before disclosing them in a public forum.
   </p>
   <p>
     If the issue also affects upstream Apache JMeter, follow the Apache Software Foundation security process and report it privately to <a href="mailto:security@apache.org">security@apache.org</a>. Do not use public issues or pull requests for undisclosed security vulnerabilities.
@@ -54,7 +56,9 @@
     <li>The project creates a new release of the package the vulnerability affects to deliver its fix.</li>
     <li>The project publicly announces the vulnerability and describes how to apply the fix.</li>
     </ul>
-    Committers should read a <a href="https://www.apache.org/security/committers.html">more detailed description of the process</a>. Reporters of security vulnerabilities may also find it useful.
+    Reporters of security vulnerabilities may also find GitHub's
+    <a href="https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability">private vulnerability reporting documentation</a>
+    useful.
   </p>
 </section>
 </body>

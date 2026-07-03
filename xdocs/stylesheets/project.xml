@@ -26,14 +26,13 @@
      <body>
      <menu name="About">
        <item name="Overview"            href="/index.html"/>
-       <item name="License"             href="https://www.apache.org/licenses/"/>
-     </menu>
-     <menu name="Download">
-        <item name="Download Releases"    href="/download_breaktest.cgi"/>
-        <item name="Release Notes"        href="/changes.html"/>
+       <item name="Download"            href="/download_breaktest.cgi"/>
+       <item name="Release Notes"       href="/changes.html"/>
+       <item name="License"             href="https://www.apache.org/licenses/LICENSE-2.0"/>
      </menu>
      <menu name="Documentation">
         <item name="Get Started"         href="/usermanual/get-started.html"/>
+        <item name="BreakTest Features"  href="/usermanual/breaktest-features.html"/>
         <item name="User Manual"         href="/usermanual/index.html"/>
         <item name="Best Practices"         href="/usermanual/best-practices.html"/>
         <item name="Component Reference"         href="/usermanual/component_reference.html"/>
@@ -41,8 +40,6 @@
         <item name="Properties Reference"         href="/usermanual/properties_reference.html"/>
         <item name="Change History"              href="/changes_history.html"/>
         <item name="Javadocs"             href="/api/index.html"/>
-        <item name="Upstream JMeter Wiki"         href="https://cwiki.apache.org/confluence/display/JMETER/Home"/>
-         <item name="Upstream FAQ (Wiki)"             href="https://cwiki.apache.org/confluence/display/JMETER/JMeterFAQ"/>
      </menu>
      <menu name="Tutorials">
         <item name="Recording Tests"     href="/usermanual/breaktest_proxy_step_by_step.html"/>
@@ -53,18 +50,15 @@
      <menu name="Community">
         <item name="Issue Tracking"      href="/issues.html"/>
         <item name="Security"            href="/security.html"/>
-        <item name="Mailing Lists"       href="/mail.html"/>
+        <item name="Community"           href="/mail.html"/>
         <item name="Source Repositories"    href="/svnindex.html"/>
         <item name="Building and Contributing"    href="/building.html"/>
-        <item name="Upstream Project info at Apache" href="https://projects.apache.org/project.html?jmeter"/>
-        <item name="Upstream Contributors"        href="https://cwiki.apache.org/confluence/display/JMETER/JMeterCommitters"/>
      </menu>
-     <menu name="Foundation">
-        <item name="The Apache Software Foundation (ASF)" href="https://www.apache.org/"/>
-        <item name="Get Involved in the ASF" href="https://www.apache.org/foundation/getinvolved.html"/>
-        <item name="Privacy Policy"      href="https://privacy.apache.org/policies/privacy-policy-public.html"/>
-        <item name="Sponsorship"         href="https://www.apache.org/foundation/sponsorship.html"/>
-        <item name="Thanks"              href="https://www.apache.org/foundation/thanks.html"/>
+     <menu name="BreakTest">
+        <item name="Website"             href="https://breaktest.io/"/>
+        <item name="GitHub"              href="https://github.com/Breaking-IT/breaktest"/>
+        <item name="BreakTest Platform"  href="https://breaktest.app/"/>
+        <item name="Apache JMeter"       href="https://jmeter.apache.org/"/>
      </menu>
      </body>
 </project>

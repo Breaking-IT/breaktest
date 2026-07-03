@@ -16,7 +16,7 @@
   ~ limitations under the License.
   -->
 
-<!-- Content Stylesheet for "jmeter-site" -->
+<!-- Content Stylesheet for BreakTest documentation -->
 
 <!DOCTYPE xsl:stylesheet [
   <!ENTITY copy  "&#x000A9;">
@@ -110,12 +110,6 @@
               </a>
             </div>
           </xsl:if>
-          <div class="banner">
-            <a href="https://www.apache.org/events/current-event.html">
-              <img src="https://www.apache.org/events/current-event-234x60.png" alt="Current Apache event teaser" />
-            </a>
-            <div class="clear"></div>
-          </div>
         </div>
         <div class="nav">
             <xsl:apply-templates select="$project/body/menu" />
@@ -134,16 +128,16 @@
         <div class="footer">
           <div class="copyright">
             Copyright &copy;
-            2024 &ndash;
+            2026 &ndash;
             <xsl:value-of select="$year" />
-            , BreakTest contributors. Portions copyright &copy; 1998 &ndash;
-            2024, The Apache Software Foundation.
+            BreakTest contributors. Portions are based on Apache JMeter,
+            copyright &copy; 1998 &ndash; 2024 The Apache Software Foundation.
           </div>
-          <div class="trademarks">Apache, Apache JMeter, JMeter, the Apache
-            feather, and the Apache JMeter logo are
-            trademarks of the
-            Apache Software Foundation. BreakTest is not affiliated with,
-            endorsed by, or sponsored by The Apache Software Foundation.
+          <div class="trademarks">
+            Apache, Apache JMeter, JMeter, the Apache feather, and the Apache
+            JMeter logo are trademarks of The Apache Software Foundation.
+            BreakTest is independent and is not affiliated with, endorsed by,
+            or sponsored by The Apache Software Foundation.
           </div>
         </div>
         <script><![CDATA[(function(){
@@ -176,8 +170,7 @@
   <xsl:template name="social-media-links">
     <div class="social-media">
       <ul class="social-media-links">
-        <li class="twitter"><a href="https://twitter.com/ApacheJMeter" title="Follow us on Twitter"><i class="fa-brands fa-twitter" aria-hidden="true"></i>Twitter</a></li>
-        <li class="github"><a href="https://github.com/apache/jmeter" title="Fork us on github"><i class="fa-brands fa-github" aria-hidden="true"></i>github</a></li>
+        <li class="github"><a href="https://github.com/Breaking-IT/breaktest" title="BreakTest on GitHub"><i class="fa-brands fa-github" aria-hidden="true"></i>GitHub</a></li>
       </ul>
     </div>
   </xsl:template>
@@ -564,14 +557,14 @@
   </xsl:template>
 
   <xsl:template match="pr">
-    <a href="https://github.com/apache/jmeter/pull/{./text()}">
+    <a href="https://github.com/Breaking-IT/breaktest/pull/{./text()}">
       PR#<xsl:value-of select="./text()" />
     </a>
     <xsl:call-template name="issue_separator"/>
   </xsl:template>
 
   <xsl:template match="issue">
-    <a href="https://github.com/apache/jmeter/issues/{./text()}">
+    <a href="https://github.com/Breaking-IT/breaktest/issues/{./text()}">
       Issue#<xsl:value-of select="./text()" />
     </a>
     <xsl:call-template name="issue_separator"/>

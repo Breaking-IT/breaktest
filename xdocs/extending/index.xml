@@ -53,9 +53,9 @@ to make this task easier.
 
     <li><a href="#sampler">Creating your own Sampler</a></li>
 
-    <li><a href="#uicomponent">Making your custom elements play nice as a JMeter UI component</a></li>
+    <li><a href="#uicomponent">Making your custom elements play nice as a BreakTest UI component</a></li>
 
-    <li><a href="#saveable">Making your custom elements saveable and loadable from within JMeter</a></li>
+    <li><a href="#saveable">Making your custom elements saveable and loadable from within BreakTest</a></li>
 
 </ul>
 
@@ -185,7 +185,7 @@ At the end of the line, there will be a Sampler that will need the information h
 
 in your config element.  The sampler that uses your config element needs to know more
 
-about the class than the rest of JMeter - that information is not part of this interface.
+about the class than the rest of BreakTest - that information is not part of this interface.
 
 </p>
 
@@ -373,9 +373,9 @@ is essentially a Map with public static Strings as keys. </p>
 
 <a name="uicomponent"/>
 
-<h3>Making your custom elements play nice as a JMeter UI component</h3>
+<h3>Making your custom elements play nice as a BreakTest UI component</h3>
 
-<p>In order to take part in the JMeter UI, your component needs to implement the
+<p>In order to take part in the BreakTest UI, your component needs to implement the
 
 JMeterComponentModel interface:</p>
 
@@ -419,7 +419,7 @@ all available ConfigElements, etc).</p>
 
 <p><b>uncompile()</b> is a cleanup method used between sampling runs.  When the user
 
-hits "Start", JMeter "compiles" the objects in the tree.  Child nodes are added
+hits "Start", BreakTest "compiles" the objects in the tree.  Child nodes are added
 
 to their parent objects recursively until there is one TestPlan object, which is
 
@@ -463,9 +463,9 @@ For reference, refer to UrlConfigGui (in org.apache.jmeter.protocol.http.config.
 
 <p>If you have done all this correctly, there's just one more step.  If you compile
 
-your classes into the ApacheJMeter.jar file, then you're done.  Your classes will
+your classes into the main runtime jar, then you're done.  Your classes will
 
-be automatically found and used.  Otherwise, you will need to modify jmeter.properties.
+be automatically found and used.  Otherwise, you will need to modify <code>jmeter.properties</code>.
 
 The <i>search_paths</i> property should be modified to include the path where your
 
@@ -479,7 +479,7 @@ detected, and the Gui will not make them available to the user.</p>
 
 <a name="saveable"/>
 
-<h3>Making your custom elements saveable and loadable from within JMeter</h3>
+<h3>Making your custom elements saveable and loadable from within BreakTest</h3>
 
 <p>The Saveable interface has just one method:</p>
 
@@ -517,7 +517,7 @@ the Map from AbstractConfigElement.</p>
 
 class handles.  When you save your object, it should all be contained within an
 
-XML tag of the same name.  This will ensure that when JMeter's parser hits that tag,
+XML tag of the same name.  This will ensure that when BreakTest's parser hits that tag,
 
 your class will be called upon to handle the data.</p>
 
@@ -529,7 +529,7 @@ the information.</p>
 
 <p><b>save(Saveable objectToSave,Writer out)</b> - when the user selects "Save",
 
-JMeter will call this method and hand the Saveable object to be saved (it will be
+BreakTest will call this method and hand the Saveable object to be saved (it will be
 
 the object that specified your TagHandler as the class responsible for saving it).
 
@@ -537,31 +537,31 @@ This method should use the given Writer object to print all the XML necessary to
 
 save the current state of the objectToSave.</p>
 
-<p>There's more you have to do to handle creating a new Object when JMeter parses
+<p>There's more you have to do to handle creating a new Object when BreakTest parses
 
 an XML file.  However, there's no standard interface you need to implement, but rather,
 
-JMeter uses reflection to generate method calls into your class.  When JMeter hits
+BreakTest uses reflection to generate method calls into your class.  When BreakTest hits
 
 a tag that corresponds to your PrimaryTagName, an instance of your TagHandler will
 
 be created, and its <b>setAtts()</b> method will get called.  Thereafter, methods are called
 
-depending on subsequent tags and character data.  For every tag, JMeter calls
+depending on subsequent tags and character data.  For every tag, BreakTest calls
 
-<b>&lt;tag-name&gt;TagStart(Attributes atts)</b>, and for every end tag, JMeter calls
+<b>&lt;tag-name&gt;TagStart(Attributes atts)</b>, and for every end tag, BreakTest calls
 
 <b>&lt;tag-name&gt;TagEnd()</b>.</p>
 
-<p>Additionally, JMeter will call a method that corresponds to all tags that are
+<p>Additionally, BreakTest will call a method that corresponds to all tags that are
 
-current.  So, for instance, if JMeter runs into a tag name "foo", then
+current.  So, for instance, if BreakTest runs into a tag name "foo", then
 
-<b>foo(Attributes atts)</b> will be called.  If JMeter then parses character data,
+<b>foo(Attributes atts)</b> will be called.  If BreakTest then parses character data,
 
-then <b>foo(String data)</b> will be called.  If JMeter parses a tag within foo, called
+then <b>foo(String data)</b> will be called.  If BreakTest parses a tag within foo, called
 
-"nestedFoo", then JMeter will call <b>foo_nestedFoo(Attributes atts)</b> and
+"nestedFoo", then BreakTest will call <b>foo_nestedFoo(Attributes atts)</b> and
 
 <b>foo_nestedFoo(String data)</b>.  And so on.
 

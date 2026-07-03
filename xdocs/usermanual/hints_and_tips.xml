@@ -30,18 +30,19 @@
 
 <section name="&sect-num;. Hints and Tips" anchor="hints">
 <p>
-This section is a collection of various hints and tips that have been suggested by various questions on the JMeter User list.
-If you don't find what you are looking for here, please check the <a href="https://cwiki.apache.org/confluence/display/JMETER/Home">JMeter Wiki</a>.
-Also, try search the JMeter User list; someone may well have already provided a solution.
+This section is a collection of various hints and tips that have been suggested by various questions on the BreakTest issue tracker.
+If you don't find what you are looking for here, please check the BreakTest documentation and
+the <a href="https://github.com/Breaking-IT/breaktest/issues">BreakTest issue tracker</a>.
+Also, try search the BreakTest issue tracker; someone may well have already provided a solution.
 </p>
 <subsection name="&sect-num;.1 Passing variables between threads" anchor="variable_and_threads">
 <p>
-JMeter variables have thread scope. This is deliberate, so that threads can act independently.
+BreakTest variables have thread scope. This is deliberate, so that threads can act independently.
 However sometimes there is a need to pass variables between different threads, in the same or different Thread Groups.
 </p>
 <p>
 One way to do this is to use a property instead.
-Properties are shared between all JMeter threads, so if one thread <a href="functions.html#__setProperty">sets a property</a>,
+Properties are shared between all BreakTest threads, so if one thread <a href="functions.html#__setProperty">sets a property</a>,
 another thread can <a href="functions.html#__P">read</a> the updated value.
 </p>
 <p>
@@ -66,7 +67,7 @@ You can use these to determine the correct property setting to change the loggin
 
 <p>
 It is sometimes very useful to see Log messages to debug dynamic scripting languages like
-Apache Groovy used in JMeter.
+Apache Groovy used in BreakTest.
 You can view log messages directly in BreakTest GUI, to do so:</p>
 <ul>
 <li>use menu <menuchoice><guimenuitem>Options</guimenuitem><guimenuitem>Log Viewer</guimenuitem></menuchoice>,
@@ -100,13 +101,13 @@ will match any component that contains test in searchable elements of the compon
 
 </subsection>
 
-<subsection name="&sect-num;.4 JMeter and a HiDPI screen" anchor="hidpi">
+<subsection name="&sect-num;.4 BreakTest and a HiDPI screen" anchor="hidpi">
 <description>
     <p>
     With <b>Java version 9 and up</b>, the HiDPI (High Dot Per Inch) screens are supported.
     </p>
     <p>
-    You can define the Java property <b>sun.java2d.uiScale</b> to change the scale of JMeter.
+    You can define the Java property <b>sun.java2d.uiScale</b> to change the scale of BreakTest.
     The value can be an integer or percentage value.
     </p>
     <p>For example, on Linux, with x2 factor (200%):</p>
@@ -115,7 +116,7 @@ will match any component that contains test in searchable elements of the compon
     $ ./bin/breaktest</source>
     <p>
     With <b>Java version 8</b>, the HiDPI (High Dot Per Inch) screens aren't supported in the Swing API.
-    You can improve the JMeter's display on HiDPI screen by changing some properties:</p>
+    You can improve the BreakTest's display on HiDPI screen by changing some properties:</p>
     <dl>
       <dt><code>jmeter.hidpi.mode</code></dt>
       <dd>set to <code>true</code> to activate a '<em>pseudo</em>'-hidpi mode allowing to increase size of some UI elements</dd>
@@ -135,7 +136,7 @@ will match any component that contains test in searchable elements of the compon
     </dl>
     <note>This is not a full HiDPI support and only affects
       <ul>
-        <li>JMeter tree nodes</li>
+        <li>BreakTest tree nodes</li>
         <li>Icons in the toolbar</li>
         <li>Tables content</li>
         <li>Font size into text areas</li>
@@ -146,7 +147,7 @@ will match any component that contains test in searchable elements of the compon
 
 <subsection name="&sect-num;.5 Autosave process configuration" anchor="autosave">
 <description>
-    <p>Since JMeter 3.0, JMeter automatically saves up to ten backups of every saved jmx files. When enabled, just before the jmx file is saved,
+    <p>BreakTest automatically saves up to ten backups of every saved JMX file. When enabled, just before the JMX file is saved,
     it will be backed up to the <code>${JMETER_HOME}/backups</code> subfolder. Backup files are named after the saved jmx file and assigned a
     version number that is automatically incremented, ex: <code>test-plan-000001.jmx</code>, <code>test-plan-000002.jmx</code>, <code>test-plan-000003.jmx</code>, etc.
     To control auto-backup, add the following properties to <code>user.properties</code>.</p>
@@ -167,7 +168,7 @@ will match any component that contains test in searchable elements of the compon
       <dt><code>keep_backup_max_hours</code></dt>
       <dd>
     You can also configure the maximum time (in hours) that backup files should be preserved since the most recent save time.
-    By default a zero expiration time is set which instructs JMeter to preserve backup files for ever.
+    By default a zero expiration time is set which instructs BreakTest to preserve backup files for ever.
     Use the following property to control max preservation time:
     <source>jmeter.gui.action.save.keep_backup_max_hours=0</source>
       </dd>
@@ -185,7 +186,7 @@ will match any component that contains test in searchable elements of the compon
 
     <subsection name="&sect-num;.5 Adding Elements with Hotkeys" anchor="component_hotkeys">
         <p>
-            When you do intense scripting with JMeter, there is a way to add elements to test plan quickly
+            When you do intense scripting with BreakTest, there is a way to add elements to test plan quickly
             with keyboard shortcuts. Default bindings are:
         </p>
         <dl>

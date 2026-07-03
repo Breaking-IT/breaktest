@@ -1,7 +1,7 @@
 {
-  "name": "jmeter-docs",
+  "name": "breaktest-docs",
   "version": "1.0.0",
-  "description": "Web fonts for Apache JMeter documentation",
+  "description": "Web fonts for BreakTest documentation",
   "private": true,
   "scripts": {
     "convert:properties": "node tools/convert-properties.js"

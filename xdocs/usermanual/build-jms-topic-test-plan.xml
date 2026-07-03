@@ -57,7 +57,7 @@ See <a href="get-started.html#libraries_activemq">here</a> for the list of jars 
 
 <section name="&sect-num;.1 Adding Users" anchor="adding_users">
 <p>The first step is add a <a href="test_plan.html#thread_group">Thread Group</a>
- element.  The Thread Group tells JMeter the number of users you want to simulate,
+ element.  The Thread Group tells BreakTest the number of users you want to simulate,
  how often the users should send requests, and how many requests they should
 send.</p>
 
@@ -71,7 +71,7 @@ Test Plan element.</p>
 
 <p>Next, you need to modify the default properties.  Select the Thread Group element
 in the tree, if you have not already selected it. You should now see the Thread
-Group Control Panel in the right section of the JMeter window (see Figure &sect-num;.1
+Group Control Panel in the right section of the BreakTest window (see Figure &sect-num;.1
 below)</p>
 
 <figure image="webtest/threadgroup.png">
@@ -83,17 +83,17 @@ field, enter <code>Subscribers</code>.</p>
 <p>Next, increase the number of users (called threads) to <code>5</code>.</p>
 
 <p>In the next field, the Ramp-Up Period, set the value to <code>0</code>
-seconds.  This property tells JMeter how long to delay between starting each
-user. For example, if you enter a Ramp-Up Period of 5 seconds, JMeter will
+seconds.  This property tells BreakTest how long to delay between starting each
+user. For example, if you enter a Ramp-Up Period of 5 seconds, BreakTest will
 finish starting all of your users by the end of the 5 seconds.  So, if we have
 5 users and a 5 second Ramp-Up Period, then the delay between starting users
 would be 1 second (5 users / 5 seconds = 1 user per second).  If you set the
-value to 0, JMeter will immediately start all users.</p>
+value to 0, BreakTest will immediately start all users.</p>
 
 <p>Clear the checkbox labeled "<code>Forever</code>", and enter a value of <code>10</code> in the Loop
-Count field.  This property tells JMeter how many times to repeat your test.
-If you enter a loop count value of <code>0</code>, then JMeter will run your test only
-once. To have JMeter repeatedly run your Test Plan, select the <code>Forever</code>
+Count field.  This property tells BreakTest how many times to repeat your test.
+If you enter a loop count value of <code>0</code>, then BreakTest will run your test only
+once. To have BreakTest repeatedly run your Test Plan, select the <code>Forever</code>
 checkbox.</p>
 
 <p>Repeat the process and add another thread group. For the second thread
@@ -102,7 +102,7 @@ and set the iteration to <code>10</code>.
 </p>
 
 <note>In most applications, you have to manually accept
-changes you make in a Control Panel.  However, in JMeter, the Control Panel
+changes you make in a Control Panel.  However, in BreakTest, the Control Panel
 automatically accepts your changes as you make them.  If you change the
 name of an element, the tree will be updated with the new text after you
 leave the Control Panel (for example, when selecting another tree element).</note>
@@ -112,8 +112,8 @@ leave the Control Panel (for example, when selecting another tree element).</not
 
 <section name="&sect-num;.2 Adding JMS Subscriber and Publisher" anchor="adding_subscriber_publisher">
 
-<p>Make sure the required jar files are in JMeter's <code>lib</code> directory. If they are
-not, shutdown JMeter, copy the jar files over and restart JMeter.</p>
+<p>Make sure the required jar files are in BreakTest's <code>lib</code> directory. If they are
+not, shutdown BreakTest, copy the jar files over and restart BreakTest.</p>
 
 <p>Start by adding the sampler <complink name="JMS Subscriber"/>
 to the Subscribers element
@@ -132,16 +132,16 @@ Then, select the JMS Subscriber element in the tree and edit the following prope
 <li>Enter the name of the connection factory. Please refer to the documentation
 of the JMS provider for the information. For ActiveMQ, the default is "<code>ConnectionFactory</code>"</li>
 <li>Enter the name of the message topic. For ActiveMQ Dynamic Topics (create topics dynamically), example value is "<code>dynamicTopics/MyStaticTopic1</code>"
-<note>Note: Setup at startup mean that JMeter starting to listen on the Destination at beginning of test without name change possibility.
-Setup on Each sample mean that JMeter (re)starting to listen before run each JMS Subscriber sample,
-this last option permit to have Destination name with some JMeter variables
+<note>Note: Setup at startup mean that BreakTest starting to listen on the Destination at beginning of test without name change possibility.
+Setup on Each sample mean that BreakTest (re)starting to listen before run each JMS Subscriber sample,
+this last option permit to have Destination name with some BreakTest variables
 </note></li>
 <li>If the JMS provider requires authentication, check "<code>required</code>" and enter the
 username and password. For example, Orion JMS requires authentication, while ActiveMQ
 and MQSeries does not</li>
 <li>Enter <code>10</code> in "<code>Number of samples to aggregate</code>". For performance reasons, the sampler
 will aggregate messages, since small messages will arrive very quickly. If the sampler
-didn't aggregate the messages, JMeter wouldn't be able to keep up.</li>
+didn't aggregate the messages, BreakTest wouldn't be able to keep up.</li>
 <li>If you want to read the response, check the box</li>
 <li>There are two client implementations for subscribers. If the JMS provider
 exhibits zombie threads with one client, try the other.</li>
@@ -169,16 +169,16 @@ Then, select the JMS Publisher element in the tree and edit the following proper
 <li>Enter the name of the connection factory. Please refer to the documentation
 of the JMS provider for the information. For ActiveMQ, the default is "<code>ConnectionFactory</code>"</li>
 <li>Enter the name of the message topic. For ActiveMQ Dynamic Topics (create topics dynamically), example value is "<code>dynamicTopics/MyStaticTopic1</code>".
-<note>Note: Setup at startup mean that JMeter starting connection with the Destination at beginning of test without name change possibility.
-Setup on Each sample mean that JMeter (re)starting the connection before run each JMS Publisher sample,
-this last option permit to have Destination name with some JMeter variables
+<note>Note: Setup at startup mean that BreakTest starting connection with the Destination at beginning of test without name change possibility.
+Setup on Each sample mean that BreakTest (re)starting the connection before run each JMS Publisher sample,
+this last option permit to have Destination name with some BreakTest variables
 </note></li>
 <li>If the JMS provider requires authentication, check "<code>required</code>" and enter the
 username and password. For example, Orion JMS requires authentication, while ActiveMQ
 and MQSeries does not</li>
 <li>Enter <code>10</code> in "<code>Number of samples to aggregate</code>". For performance reasons, the sampler
 will aggregate messages, since small messages will arrive very quickly. If the sampler
-didn't aggregate the messages, JMeter wouldn't be able to keep up.</li>
+didn't aggregate the messages, BreakTest wouldn't be able to keep up.</li>
 <li>Select the appropriate configuration for getting the message to publish. If you
 want the sampler to randomly select the message, place the messages in a directory
 and select the directory using browse.</li>

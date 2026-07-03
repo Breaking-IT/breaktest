@@ -24,54 +24,29 @@
 <document prev="breaktest_accesslog_sampler_step_by_step.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>How to write a plugin for BreakTest</title>
 </properties>
 
 <body>
 
-<section name="&sect-num;. How to write a plugin for JMeter" anchor="howto">
+<section name="&sect-num;. How to write a plugin for BreakTest" anchor="howto">
 
-<h3>Introduction from Peter Lin</h3>
+<h3>Introduction</h3>
 <p>
-On more than one occasion, users have complained JMeter's developer documentation is out of
-date and not very useful. In an effort to make it easier for developers, I decided to write a simple
-step-by-step tutorial. When I mentioned this to mike, he had some ideas about what the tutorial
-should cover.
+BreakTest keeps the extension model inherited from Apache JMeter where it remains
+useful and compatible. That means many plugin APIs, package names, resource keys,
+and test-element contracts still use <code>org.apache.jmeter</code> naming even when
+the product and documentation refer to BreakTest.
 </p>
 <p>
-Before we dive into the tutorial, I'd like to say writing a plugin isn't necessarily easy, even for
-someone with several years of java experience. The first extension I wrote for JMeter was a
-simple utility to parse HTTP access logs and produce requests in XML format. It wasn't really a
-plugin, since it was a stand alone command line utility. My first real plugin for JMeter was the
-webservice sampler. I was working on a .NET project and needed to stress test a webservice.
-Most of the commercial tools out there for testing .NET webservices suck and cost too much.
-Rather than fork over several hundred dollars for a lame testing tool, or a couple thousand dollars
-for a good one, I decided it was easier and cheaper to write a plugin for JMeter.
-</p>
-<p>
-After a two weeks of coding on my free time, I had a working prototype using Apache Soap driver.
-I submitted it back to JMeter and mike asked me if I want to be a committer. I had contributed
-patches to Jakarta JSTL and tomcat in the past, so I considered it an honor. Since then, I've
-written the access log sampler, Tomcat 5 monitor and distribution graph. Mike has since then
-improved the access log sampler tremendously and made it much more useful.
+This tutorial explains the basic structure of a BreakTest plugin: how GUI classes,
+test elements, resource bundles, service discovery, and build steps fit together.
+It is intended as a practical starting point for compatible samplers, listeners,
+functions, and other extensions.
 </p>
 
-<h3>Introduction from Mike Stover</h3>
-<p>
-One of my primary goals in designing JMeter was to make it easy to write plugins to enhance as
-many of JMeter's features as possible. Part of the benefit of being open-source is that a lot of
-people could potentially lend their efforts to improve the application. I made a conscious decision
-to sacrifice some simplicity in the code to make plugin writing a way of life for a JMeter developer.
-</p>
-<p>
-While some folks have successfully dug straight into the code and made improvements to JMeter,
-a real tutorial on how to do this has been lacking. I tried a long time ago to write some
-documentation about it, but most people did not find it useful. Hopefully, with Peter's help, this
-attempt will be more successful.
-</p>
-
-<subsection name="&sect-num;.1 Basic structure of JMeter" anchor="basic-structure">
+<subsection name="&sect-num;.1 Basic structure of BreakTest" anchor="basic-structure">
 
 <p>
 BreakTest is organized by protocols and functionality. This is done so that developers can build new
@@ -89,16 +64,16 @@ The folders inside of <code>apache-jmeter</code>
 </p>
 
 <dl>
-  <dt><code>bin</code></dt><dd>contains the <code>.bat</code> and <code>.sh</code> files for starting JMeter.
-      It also contains <code>ApacheJMeter.jar</code> and properties file</dd>
-  <dt><code>build/docs</code></dt><dd>directory contains the JMeter documentation files</dd>
+  <dt><code>bin</code></dt><dd>contains the <code>.bat</code> and <code>.sh</code> files for starting BreakTest.
+      It also contains the main BreakTest runtime jar and properties files</dd>
+  <dt><code>build/docs</code></dt><dd>directory contains the BreakTest documentation files</dd>
   <dt><code>extras</code></dt><dd>ant related extra files</dd>
-  <dt><code>lib</code></dt><dd>contains the required jar files for JMeter</dd>
-  <dt><code>lib/ext</code></dt><dd>contains the core jar files for JMeter and the protocols</dd>
+  <dt><code>lib</code></dt><dd>contains the required jar files for BreakTest</dd>
+  <dt><code>lib/ext</code></dt><dd>contains the core jar files for BreakTest and the protocols</dd>
   <dt><code>src</code></dt><dd>contains subdirectory for each protocol and component</dd>
   <dt><code>src/*/test</code></dt><dd>unit test related directory</dd>
   <dt><code>src/testFixtures</code></dt><dd>Directory that contains test-related code that might be reused in other modules</dd>
-  <dt><code>xdocs</code></dt><dd>XML files for documentation. JMeter generates its documentation from XML.</dd>
+  <dt><code>xdocs</code></dt><dd>XML files for documentation. BreakTest generates its documentation from XML.</dd>
 </dl>
 
 <p>
@@ -119,7 +94,7 @@ The folders inside of <code>src</code>
 <!--
   <dt><code>config</code></dt><dd>XXX</dd>
 -->
-  <dt><code>core</code></dt><dd>the core code of JMeter including all core interfaces and abstract classes.</dd>
+  <dt><code>core</code></dt><dd>the core code of BreakTest including all core interfaces and abstract classes.</dd>
   <dt><code>dist</code></dt><dd>builds script that creates a distribution</dd>
   <dt><code>dist-check</code></dt><dd>code related to testing the distribution. It is the place to look for
     when you want to update the contents of the resulting source/binary archive</dd>
@@ -127,10 +102,10 @@ The folders inside of <code>src</code>
   <dt><code>functions</code></dt><dd>standard functions used by all components</dd>
   <dt><code>generator</code></dt><dd>code to generate a test plan with all elements. Used for testing the distribution</dd>
   <dt><code>jorphan</code></dt><dd>utility classes providing common utility functions</dd>
-  <dt><code>launcher</code></dt><dd>code to help start and stop JMeter through API</dd>
-  <dt><code>licenses</code></dt><dd>contains information about the licenses used in JMeters dependencies</dd>
-  <dt><code>protocol</code></dt><dd>contains the different protocols JMeter supports</dd>
-  <dt><code>release</code></dt><dd>code related to releasing JMeter distribution</dd>
+  <dt><code>launcher</code></dt><dd>code to help start and stop BreakTest through API</dd>
+  <dt><code>licenses</code></dt><dd>contains information about the licenses used in BreakTest dependencies</dd>
+  <dt><code>protocol</code></dt><dd>contains the different protocols BreakTest supports</dd>
+  <dt><code>release</code></dt><dd>code related to releasing BreakTest distribution</dd>
   <dt><code>testkit</code></dt><dd>utility code for testing</dd>
   <dt><code>testkit-wiremock</code></dt><dd>utility code for testing with WireMock</dd>
 </dl>
@@ -168,12 +143,12 @@ write.
 
 </subsection>
 
-  <subsection name="&sect-num;.2 JMeter Gui – Service lookup" anchor="service-lookup">
+  <subsection name="&sect-num;.2 BreakTest Gui – Service lookup" anchor="service-lookup">
     <p>
-      JMeter uses classpath scanning to detect plugins (e.g. functions, components, views). However, classpath scanning
+      BreakTest uses classpath scanning to detect plugins (e.g. functions, components, views). However, classpath scanning
       is expensive,
-      so JMeter also provides a service lookup mechanism to allow plugins to be found without scanning the classpath.
-      That is if a plugin registers a Java service with <code>META-INF/services</code>, then JMeter won't need to scan
+      so BreakTest also provides a service lookup mechanism to allow plugins to be found without scanning the classpath.
+      That is if a plugin registers a Java service with <code>META-INF/services</code>, then BreakTest won't need to scan
       the classpath to find it.
     </p>
 
@@ -189,7 +164,7 @@ write.
       Implementing a service the same as regular interface implementation, except you need to register the service
       in a <code>META-INF/services/fully.qualified.interface.name</code>.
       For instance you could use <code>@AutoService</code> to generate the file automatically at the build time.
-      Here's how <code>__counter</code> function is declared in JMeter itself:
+      Here's how <code>__counter</code> function is declared in BreakTest itself:
 <source>
 import com.google.auto.service.AutoService;
 
@@ -199,22 +174,22 @@ public class IterationCounter extends AbstractFunction implements ThreadListener
     </p>
 
     <p>
-      For backward compatibility reasons, JMeter would still try searching the implementations with classpath scanning,
+      For backward compatibility reasons, BreakTest would still try searching the implementations with classpath scanning,
       so you don't have to use <code>META-INF/services</code> for registering services. However, service lookup is much
       faster, so exposing services would improve startup time, especially when there are many plugins.
     </p>
 
     <p>
-      As you add <code>META-INF/services</code> to your plugins, you can add <code>JMeter-Skip-Class-Scanning: true</code>
-      manifest attribute so JMeter knows there's no need to scan the jar as it provides all the plugins via services.
+      As you add <code>META-INF/services</code> to your plugins, you can add <code>BreakTest-Skip-Class-Scanning: true</code>
+      manifest attribute so BreakTest knows there's no need to scan the jar as it provides all the plugins via services.
     </p>
   </subsection>
 
-<subsection name="&sect-num;.3 JMeter Gui – TestElement Contract" anchor="testelement-contract">
+<subsection name="&sect-num;.3 BreakTest Gui – TestElement Contract" anchor="testelement-contract">
 
 <p>
-When writing any JMeter component, there are certain contracts you must be aware of – ways a
-JMeter component is expected to behave if it will run properly in the JMeter environment. This
+When writing any BreakTest component, there are certain contracts you must be aware of – ways a
+BreakTest component is expected to behave if it will run properly in the BreakTest environment. This
 section describes the contract that the GUI part of your component must fulfill.
 </p>
 
@@ -254,12 +229,12 @@ So, you've extended the appropriate GUI class, what's left to do? Follow these s
   <li>Implement <code>getLabelResource()</code>
     <ol>
       <li>This method should return the name of the resource that represents the title/name of the
-component. The resource will have to be entered into JMeters <code>messages.properties</code> file
+component. The resource will have to be entered into BreakTest's <code>messages.properties</code> file
 (and possibly translations as well).</li>
     </ol>
   </li>
   <li>Override <code>org.apache.jmeter.gui.JMeterGUIComponent.makeTestElement</code> method so it returns
-  the appropriate <code>TestElement</code>. JMeter will use <code>makeTestElement</code> when user creates the element
+  the appropriate <code>TestElement</code>. BreakTest will use <code>makeTestElement</code> when user creates the element
   from the UI. In most cases it should be just creating the test element like
   <code>return new SetupThreadGroup()</code>.</li>
   <li>Create your GUI. Whatever style you like, layout your GUI. Your class ultimately extends
@@ -267,12 +242,12 @@ component. The resource will have to be entered into JMeters <code>messages.prop
     Do not hook up GUI elements to your <code>TestElement</code> class via actions and events.
     Let swing's internal model hang onto all the data as much as you possibly can.
     <ol>
-      <li>Some standard GUI stuff should be added to all JMeter GUI components:
+      <li>Some standard GUI stuff should be added to all BreakTest GUI components:
         <ol>
-          <li>Call <code>setBorder(makeBorder())</code> for your class. This will give it the standard JMeter
+          <li>Call <code>setBorder(makeBorder())</code> for your class. This will give it the standard BreakTest
 border</li>
           <li>Add the title pane via <code>makeTitlePanel()</code>. Usually this is the first thing added to your
-            GUI, and should be done in a Box vertical layout scheme, or with JMeter's <code>VerticalLayout</code>
+            GUI, and should be done in a Box vertical layout scheme, or with BreakTest's <code>VerticalLayout</code>
             class. Here is an example <code>init()</code> method:
 <source>
 private void init() {
@@ -297,7 +272,7 @@ private void init() {
     you might customize <code>TestElement</code> properties to UI control mapping by overriding <code>public void configure(TestElement el)</code>
     <ol>
       <li>Be sure to call <code>super.configure(e)</code>. This will populate some of the data for you, like
-      the name of the element. Note: JMeter reuses UI elements when user changes the active element in test tree,
+      the name of the element. Note: BreakTest reuses UI elements when user changes the active element in test tree,
       so you need to set all the text fields in <code>configure</code> method to avoid displaying stale contents.</li>
       <li>Use this method to set data into your GUI elements. Example:
 <source>
@@ -358,11 +333,11 @@ public void modifyTestElement(TestElement e) {
 </ol>
 
 <p>
-The reason you cannot hold onto a reference for your Test Element is because JMeter reuses
+The reason you cannot hold onto a reference for your Test Element is because BreakTest reuses
 instance of GUI class objects for multiple Test Elements. This saves a lot of memory. It also
 makes it incredibly easy to write the GUI part of your new component. You still have to struggle
 with the layout in Swing, but you don't have to worry about creating the right events and actions for
-getting the data from the GUI elements into the <code>TestElement</code> where it can do some good. JMeter
+getting the data from the GUI elements into the <code>TestElement</code> where it can do some good. BreakTest
 knows when to call your configure, and <code>modifyTestElement</code> methods where you can do it in a very
 straightforward way.
 </p>
@@ -389,7 +364,7 @@ classes.
 </p>
 
 <dl>
-  <dt><code>DistributionGraphVisualizer</code></dt><dd>visualizer which JMeter instantiates</dd>
+  <dt><code>DistributionGraphVisualizer</code></dt><dd>visualizer which BreakTest instantiates</dd>
   <dt><code>DistributionGraph</code></dt><dd>JComponent which draws the actual graph</dd>
 </dl>
 
@@ -564,7 +539,7 @@ public synchronized void clear() {
 </source>
 
 <p>
-Every component in JMeter should implement logic for <code>clear()</code> method. If this isn't done, the
+Every component in BreakTest should implement logic for <code>clear()</code> method. If this isn't done, the
 component will not clear the UI or model when the user tries to clear the last results and run a
 new test. If clear is not implemented, it can result in a memory leak.
 </p>
@@ -669,10 +644,10 @@ public void paintComponent(Graphics g) {
 
 <p>
 The other important aspect of updating the widget is placing the call to <code>drawSample</code> within a
-synchronized block. If <code>drawSample</code> wasn't synchronized, JMeter would throw a
+synchronized block. If <code>drawSample</code> wasn't synchronized, BreakTest would throw a
 <code>ConcurrentModificationException</code> at runtime. Depending on the test plan, there may be a dozen or
 more threads adding results to the model. The synchronized block does not affect the accuracy of
-each individual request and time measurement, but it does affect JMeter's ability to generate large
+each individual request and time measurement, but it does affect BreakTest's ability to generate large
 loads. As the number of threads in a test plan increases, the likelihood a thread will have to wait
 until the graph is done redrawing before starting a new request increases. Here is the
 implementation of <code>drawSample</code>.
@@ -761,17 +736,17 @@ and predictable.
 
 </subsection>
 
-<subsection name="&sect-num;.7 Making a TestBean Plugin For JMeter" anchor="testbean">
+<subsection name="&sect-num;.7 Making a TestBean Plugin For BreakTest" anchor="testbean">
 
 <p>
-In this part, we will go through the process of creating a simple component for JMeter that uses
+In this part, we will go through the process of creating a simple component for BreakTest that uses
 the new <code>TestBean</code> framework.
 </p>
 
 <p>
 This component will be a CSV file reading element that will let users easily vary their input data
 using CSV files. To most effectively use this tutorial, open the three files specified below (found in
-JMeter's <code>src/components</code> directory).
+BreakTest's <code>src/components</code> directory).
 </p>
 
 <ol>
@@ -804,7 +779,7 @@ JMeter's <code>src/components</code> directory).
   <li>Implement your special logic for you plugin class.
     <ol>
       <li>The <code>CSVDataSet</code> will read a single CSV file and will store the values it finds into
-        JMeter's running context. The user will define the file, define the variable names for
+        BreakTest's running context. The user will define the file, define the variable names for
         each "<code>column</code>". The <code>CSVDataSet</code> will open the file when the test starts, and close it
         when the test ends (thus we implement <code>TestListener</code>). The <code>CSVDataSet</code> will update
         the contents of the variables for every test thread, and for each iteration through its
@@ -814,7 +789,7 @@ JMeter's <code>src/components</code> directory).
         attention to your properties. These properties will become the basis of a GUI form by
         which users will configure the <code>CSVDataSet</code> element.
       </li>
-      <li>Your element will be cloned by JMeter when the test starts. Each thread will get its
+      <li>Your element will be cloned by BreakTest when the test starts. Each thread will get its
         own instance. However, you will have a chance to control how the cloning is done, if
         you need it.
       </li>
@@ -872,7 +847,7 @@ p.setValue(NOT_EXPRESSION, true);
           <dt><code>NOT_EXPRESSION</code></dt><dd>The value will not be parsed for functions if this is <code>true</code>.</dd>
           <dt><code>NOT_OTHER</code></dt><dd>This is not a free form entry field – a list of values has to be provided.</dd>
           <dt><code>TAGS</code></dt><dd>With a <code>String[]</code> as the value, this sets up a predefined
-            list of acceptable values, and JMeter will create a dropdown select.</dd>
+            list of acceptable values, and BreakTest will create a dropdown select.</dd>
         </dl>
 
         Additionally, a custom property editor can be specified for a property:
@@ -906,14 +881,14 @@ p.setPropertyEditorClass(FileEditor.class);
 
 </subsection>
 
-<subsection name="&sect-num;.8 Building JMeter" anchor="building">
+<subsection name="&sect-num;.8 Building BreakTest" anchor="building">
 
 <p>
-JMeter uses Gradle to compile and build the distribution. JMeter has
+BreakTest uses Gradle to compile and build the distribution. BreakTest has
 several tasks defined, which make it easier for developers to build the complete project.
 For those unfamiliar with Gradle, it's a build tool similar to make on Unix.
 A list of the Gradle tasks with a short description is provided
-in <a href="https://github.com/apache/jmeter/blob/master/gradle.md">gradle.md</a>, which can be found
+in <a href="https://github.com/Breaking-IT/breaktest/blob/main/gradle.md">gradle.md</a>, which can be found
  in the root source directory.
 </p>
 
@@ -922,7 +897,7 @@ Here are some example commands.
 </p>
 
 <dl>
-  <dt><code>./gradlew runGui</code></dt><dd>Build and start JMeter GUI</dd>
+  <dt><code>./gradlew runGui</code></dt><dd>Build and start BreakTest GUI</dd>
   <dt><code>./gradlew createDist</code></dt><dd>Build project and copy relevant jar files to <code>./lib</code> folder</dd>
   <dt><code>./gradlew :src:dist:previewSite</code></dt><dd>Creates preview of a site to <code>./build/docs/site</code></dd>
 </dl>

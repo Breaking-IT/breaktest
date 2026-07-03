@@ -17,135 +17,40 @@
   -->
 
 <document>
-
   <properties>
-    <author email="dev.AT.jmeter.DOT.apache.DOT.org">Apache JMeter Project</author>
-    <title>Mailing Lists</title>
+    <author email="info@breaking-it.nl">BreakTest Project</author>
+    <title>Community</title>
   </properties>
 
 <body>
-
-<section name="Mailing Lists - Guidelines">
+<section name="BreakTest community">
 <p>
-<strong>Before subscribing to any of the mailing lists, please make sure that you have
-read and understand the <a href="mail.html">guidelines</a></strong>.
+BreakTest currently coordinates public development through GitHub. There are no
+BreakTest mailing lists at this time.
 </p>
-
-<p>
-Please note that usage of these mailing lists is subject to the
-<a href="http://www.apache.org/foundation/public-archives.html">Public Forum Archive Policy</a>.
-</p>
-
-<p>
-For details of how to subscribe/unsubscribe please read
-<a href="http://www.apache.org/foundation/mailinglists.html#subscribing">Subscribing and Unsubscribing</a>
-</p>
-
+<ul>
+  <li><a href="https://github.com/Breaking-IT/breaktest/issues">Issues</a> for bugs, regressions, feature requests, and documentation feedback</li>
+  <li><a href="https://github.com/Breaking-IT/breaktest/pulls">Pull requests</a> for proposed changes</li>
+  <li><a href="https://github.com/Breaking-IT/breaktest/security/policy">Security policy</a> for private vulnerability reporting</li>
+  <li><a href="https://breaktest.io/">BreakTest website</a> for product information</li>
+  <li><a href="https://breaktest.app/">BreakTest Platform</a> for cloud and enterprise workflows</li>
+</ul>
+<note>
+Apache JMeter community channels remain available for upstream Apache JMeter,
+but they are not BreakTest support or governance channels.
+</note>
 </section>
 
-<section name="JMeter lists and archives at the ASF">
+<section name="Contributing">
 <p>
-The following mailing lists are available:
-</p>
-<subsection name="Apache JMeter User" anchor="JMeterUser">
-<p>
-This is the list where users of Apache JMeter meet and discuss issues.
+For public contributions, fork the repository, create a topic branch, and open a
+pull request back to BreakTest. Direct pushes to <code>main</code> are not part
+of the project workflow.
 </p>
 <p>
-Developers are also expected to be lurking on this list to offer support to users of JMeter.
-</p>
-<p>
-This list starts part-way through Nov 2011, when JMeter became an independent Apache project.
-For old postings, please see the Jakarta JMeter User list, below.
-</p>
-<ul>
-<li>Subscribe at <a href="mailto:user-subscribe@jmeter.apache.org">user-subscribe@jmeter.apache.org</a></li>
-<li>Send your message to: <a href="mailto:user@jmeter.apache.org">user@jmeter.apache.org</a> (after the subscription process)</li>
-<li>Unsubscribe at <a href="mailto:user-unsubscribe@jmeter.apache.org">user-unsubscribe@jmeter.apache.org</a></li>
-<li>Archives at <a href="https://lists.apache.org/list.html?user@jmeter.apache.org">jmeter-user Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Apache JMeter Developer" anchor="JMeterDev">
-<p>
-This is the list where participating developers meet and discuss issues, code changes/additions etc.
-</p>
-<note>Please do not send usage questions to this list, see user list above.</note>
-<p>
-This list also collects Wiki update messages.
-</p>
-<p>
-This list starts part-way through Nov 2011, when JMeter became an independent Apache project.
-For earlier postings, please see below.
-</p>
-<ul>
-<li>Subscribe at <a href="mailto:dev-subscribe@jmeter.apache.org">dev-subscribe@jmeter.apache.org</a></li>
-<li>Send your message to: <a href="mailto:dev@jmeter.apache.org">dev@jmeter.apache.org</a> (after the subscription process)</li>
-<li>Unsubscribe at <a href="mailto:dev-unsubscribe@jmeter.apache.org">dev-unsubscribe@jmeter.apache.org</a></li>
-<li>Archives at <a href="https://lists.apache.org/list.html?dev@jmeter.apache.org">jmeter-dev Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Apache JMeter Commits" anchor="JMeterCommits">
-<p>
-SVN commit messages are sent here.
-</p>
-Prior to Nov 2011, they were sent to the Jakarta Notifications list, see below.
-<ul>
-<li>Subscribe at <a href="mailto:commits-subscribe@jmeter.apache.org">commits-subscribe@jmeter.apache.org</a></li>
-<li>Unsubscribe at <a href="mailto:commits-unsubscribe@jmeter.apache.org">commits-unsubscribe@jmeter.apache.org</a></li>
-<li>Archives at <a href="https://lists.apache.org/list.html?commits@jmeter.apache.org">jmeter-commits Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Apache JMeter Issues" anchor="JMeterIssues">
-<p>
-<a href="https://github.com/apache/jmeter">GitHub</a> notifications are sent here.
-</p>
-<p>
-Prior to Nov 2011, they were sent to the Jakarta Notifications list, see below.
-</p>
-
-<ul>
-<li>Subscribe at <a href="mailto:issues-subscribe@jmeter.apache.org">issues-subscribe@jmeter.apache.org</a></li>
-<li>Unsubscribe at <a href="mailto:issues-unsubscribe@jmeter.apache.org">issues-unsubscribe@jmeter.apache.org</a></li>
-<li>Archives at <a href="https://lists.apache.org/list.html?issues@jmeter.apache.org">jmeter-issues Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Jakarta Developer" anchor="JakartaDev">
-<p>Combined Jakarta developer list, April 2010 to November 2011</p>
-<ul>
-<li>Archives at <a href="https://lists.apache.org/list.html?dev@jakarta.apache.org">jakarta-dev Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Jakarta JMeter User" anchor="JakartaJMeterUser">
-This is the old JMeter user list from when JMeter was a sub-project of Apache Jakarta.
-<ul>
-<li>Archives at <a href="https://lists.apache.org/list.html?jmeter-user@jakarta.apache.org">jakarta-jmeter-user Archive</a></li></ul>
-</subsection>
-<subsection name="Jakarta JMeter Developer" anchor="JakartaJMeterDev">
-Historical list, up to April 2010.
-<ul>
-<li>Archives at <a href="https://lists.apache.org/list.html?jmeter-dev@jakarta.apache.org">jakarta-jmeter-dev Archive</a></li>
-</ul>
-</subsection>
-<subsection name="Jakarta Notifications" anchor="JakartaNotif">
-Combined Jakarta notifications to November 2011.
-Includes Bugzilla, SVN and Wiki commit mails for JMeter.
-<ul>
-<li>Archives at <a href="https://lists.apache.org/list.html?notifications@jakarta.apache.org">jakarta-notifications Archive</a></li>
-</ul>
-</subsection>
-</section>
-
-<section name="Other Archives and Searching">
-<p>
-There are several 3<sup>rd</sup> party sites that archive and provide searching for our mailing lists:
-</p>
-<p>
-<ul>
-<li><a href="http://jmeter.markmail.org/">Mark Mail</a> </li>
-<li><a href="http://www.mail-archive.com/">mail-archive.com</a> </li>
-</ul>
+Before proposing a larger change, open an issue that describes the use case and
+how the change affects compatibility, resource usage, or user-facing behavior.
 </p>
 </section>
-
 </body>
 </document>

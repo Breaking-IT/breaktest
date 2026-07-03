@@ -24,7 +24,7 @@
 <document prev="best-practices.html" next="component_reference.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>User's Manual: My boss wants me to &hellip;</title>
 </properties>
 
@@ -104,7 +104,7 @@ for the testing account).
 <p>
 Also note that some Linux/Unix editions are intended for server use.
 These generally have minimal or no GUI support.
-Such OSes should be OK for running JMeter in CLI mode, but JMeter GUI mode probably won't work
+Such OSes should be OK for running BreakTest in CLI mode, but BreakTest GUI mode probably won't work
 unless you install a minimal GUI environment.
 </p>
 <p>As you progress to larger-scale benchmarks/load-tests, this platform
@@ -113,16 +113,16 @@ software that you have available. Remember to include the hardware/software
 configuration in your published benchmarks.
 </p>
 <p><b>When you need a lot of machines or want to test the network latency, Cloud can help you.</b>
-JMeter can easily be installed on Cloud instances as it runs on nearly any architecture available in the Cloud.
-JMeter is also supported within Commercial Cloud PAAS if you don't want to manage it yourself.
+BreakTest can easily be installed on Cloud instances as it runs on nearly any architecture available in the Cloud.
+BreakTest is also supported within Commercial Cloud PAAS if you don't want to manage it yourself.
 </p>
-<p>Don't forget JMeter batch (CLI) mode. This mode should be used during load testing for many reasons:
+<p>Don't forget BreakTest batch (CLI) mode. This mode should be used during load testing for many reasons:
 <ul>
 <li>If you have a powerful server that supports Java but perhaps does not have a fast graphics implementation, or where you need to login remotely.</li>
 <li>Batch (CLI) mode can reduce the network traffic compared with using a remote display.</li>
 <li>Java AWT Thread used for GUI mode can alter injection behaviour by blocking sometimes</li>
 </ul>
-The batch log file can then be loaded into JMeter on a workstation for analysis, or you can
+The batch log file can then be loaded into BreakTest on a workstation for analysis, or you can
 use CSV output and import the data into a spreadsheet.</p>
 <note>Remember GUI mode is for Script creation and debugging, not for load testing</note>
 </subsection>
@@ -158,17 +158,17 @@ and any supplied documentation).
     </p>
     </subsection>
 </subsection>
-<subsection name="&sect-num;.5 How can I enhance JMeter?" anchor="plugins">
-<p>There a lot of open-source and commercial providers who provide JMeter plugins or other resources for use with JMeter.
-Some of these are listed on the JMeter Wiki.
-They are listed under several categories:
-<ul>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/JMeterPlugins">JMeterPlugins</a> - plugins for extending JMeter</li>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/JMeterAddons">JMeterAddons</a> - addons for use with JMeter, e.g. plugins for browsers, Maven and Jenkins.</li>
-<li><a href="https://cwiki.apache.org/confluence/display/JMETER/JMeterServices">JMeterServices</a> - 3<sup>rd</sup> party services, e.g. cloud-based JMeter</li>
-</ul>
-Note that appearance of these on the Wiki does not imply any endorsement by the Apache JMeter project.
-Any requests for support should be directed to the relevant supplier.
+<subsection name="&sect-num;.5 How can I enhance BreakTest?" anchor="plugins">
+<p>
+BreakTest can be extended with compatible plugins, custom samplers, custom functions,
+JSR223/Groovy scripts, and CI or platform integrations. Existing JMeter-compatible
+plugins may work when they do not depend on removed internals, but they should be
+validated with the BreakTest version you plan to run.
+</p>
+<p>
+For BreakTest-specific extensions, open issues and pull requests in the BreakTest
+GitHub repository. For third-party plugins, direct support requests to the plugin
+supplier.
 </p>
 </subsection>
 <subsection name="&sect-num;.6 Why Java?" anchor="java">

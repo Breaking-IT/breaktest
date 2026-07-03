@@ -24,7 +24,7 @@
 <document prev="best-practices.html" next="component_reference.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">JMeter developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>Include Controller Tutorial</title>
 </properties>
 
@@ -74,7 +74,7 @@ is the descriptive name for the controller in the test plan. The <code>filename<
 <subsection name="&sect-num;.1 Step-by-step" anchor="step-by-step">
 
 <ol>
-  <li>Start JMeter</li>
+  <li>Start BreakTest</li>
   <li>Select the workbench</li>
   <li><menuchoice>
         <guimenuitem>Add</guimenuitem>

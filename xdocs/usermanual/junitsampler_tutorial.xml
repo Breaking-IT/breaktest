@@ -24,7 +24,7 @@
 <document prev="breaktest_proxy_step_by_step.html" next="breaktest_accesslog_sampler_step_by_step.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>JUnit Sampler Tutorial</title>
 </properties>
 
@@ -33,8 +33,8 @@
 <section name="&sect-num;. JUnit Sampler Tutorial" anchor="junit">
 
 <p>
-This tutorial attempts to explain the basic design, functionality and usage of the new JUnit Sampler for JMeter.
-The sampler was introduced in version 2.1.2 release of JMeter. Earlier releases do not have the sampler.
+This tutorial attempts to explain the basic design, functionality and usage of the new JUnit Sampler for BreakTest.
+The sampler was introduced in version 2.1.2 release of BreakTest. Earlier releases do not have the sampler.
 </p>
 
 <subsection name="&sect-num;.1 Design" anchor="design">
@@ -46,21 +46,21 @@ with some differences.
 </p>
 
 <ul>
-  <li>Rather than use JMeter's test interface, it scans the jar files for classes extending JUnit's
+  <li>Rather than use BreakTest's test interface, it scans the jar files for classes extending JUnit's
       <code>TestCase</code> class. This means any class or subclass.</li>
   <li>JUnit test jar files are copied to <code>jmeter/lib/junit</code> instead of
       <code>jmeter/lib</code></li>
   <li>JUnit sampler does not use name/value pairs for configuration. The sampler assumes
       <code>setUp</code> and <code>tearDown</code> will configure the test correctly.
       <note>Note: <code>setUp</code> and <code>tearDown</code> methods must be declared <code>public</code>,
-       so that JMeter can use it.</note>
+       so that BreakTest can use it.</note>
   </li>
   <li>The sampler measures the elapsed time only for the test method and does not include
       <code>setUp</code> and <code>tearDown</code>.
   </li>
-  <li>Each time the test method is called, JMeter will pass the result to the listeners.</li>
+  <li>Each time the test method is called, BreakTest will pass the result to the listeners.</li>
   <li>Support for <code>oneTimeSetUp</code> and <code>oneTimeTearDown</code> is done as a method.
-      Since JMeter is multi-threaded, we cannot call <code>oneTimeSetUp</code>/<code>oneTimeTearDown</code>
+      Since BreakTest is multi-threaded, we cannot call <code>oneTimeSetUp</code>/<code>oneTimeTearDown</code>
       the same way maven does it.</li>
   <li>The sampler reports unexpected exceptions as errors.</li>
 </ul>
@@ -74,7 +74,7 @@ Here is a description of the functionality.
 </p>
 
 <dl>
-  <dt>Name</dt><dd>name for the sample. This is the same as all JMeter samplers.</dd>
+  <dt>Name</dt><dd>name for the sample. This is the same as all BreakTest samplers.</dd>
   <dt>Package Filter</dt><dd>provides a way to filter the classes by package name.</dd>
   <dt>Classname</dt><dd>the name of the class to test. The sampler will scan the jar files in
       <code>jmeter/lib/ext</code> and <code>jmeter/lib/junit</code> for classes extending
@@ -126,7 +126,7 @@ public class myTestCase {
 </example>
 
 <p>
-By default, JMeter will provide some default values for the success/failure code and message.
+By default, BreakTest will provide some default values for the success/failure code and message.
 Users should define a set of unique success and failure codes and use them uniformly across all tests.
 </p>
 
@@ -141,7 +141,7 @@ Here is a short step-by-step.
 <ol>
   <li>Write your JUnit test and jar the classes</li>
   <li>Copy and paste the jar files into <code>jmeter/lib/junit</code> directory</li>
-  <li>Start JMeter</li>
+  <li>Start BreakTest</li>
   <li>Select <code>Test Plan</code></li>
   <li>Right click
      <menuchoice>
@@ -176,7 +176,7 @@ Here is a short step-by-step.
 One benefit of the JUnit sampler is it allows the user to select any method from a variety
 of unit tests to create a test plan. This should reduce the amount of code an user needs to
 write to create a variety of test scenarios. From a basic set of test methods, different
-sequences and tests can be created using JMeter's GUI.
+sequences and tests can be created using BreakTest's GUI.
 </p>
 
 <p>
@@ -209,7 +209,7 @@ TestCase2.testAdd100Customers
 <subsection name="&sect-num;.4 General Guidelines" anchor="guidelines">
 
 <p>
-Here are some general guidelines for writing JUnit tests so they work well with JMeter. Since JMeter
+Here are some general guidelines for writing JUnit tests so they work well with BreakTest. Since BreakTest
 runs multi-threaded, it is important to keep certain things in mind.
 </p>
 
@@ -219,7 +219,7 @@ runs multi-threaded, it is important to keep certain things in mind.
   <li>Make the test methods discrete units of work and not long sequences of actions. By keeping
       the test method to a discrete operation, it makes it easier to combine test methods to create
       new test plans.</li>
-  <li>Avoid making test methods depend on each other. Since JMeter allows arbitrary sequencing of
+  <li>Avoid making test methods depend on each other. Since BreakTest allows arbitrary sequencing of
       test methods, the runtime behavior is different than the default JUnit behavior.</li>
   <li>If a test method is configurable, be careful about where the properties are stored. Reading
       the properties from the Jar file is recommended.</li>

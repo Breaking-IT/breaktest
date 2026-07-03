@@ -19,40 +19,46 @@
 <!DOCTYPE document
 [
 <!ENTITY sect-num '25'>
-<!ENTITY hellip   "&#x02026;" >
 ]>
 <document id="$Id$" prev="curl.html" >
 
 <properties>
-  <title>User's Manual: History/Future</title>
+  <title>User's Manual: History and Future</title>
 </properties>
 
 <body>
 
 <section name="&sect-num;. History and Future" anchor="history_future">
 <subsection name="&sect-num;.1 History" anchor="history">
-<p>Stefano Mazzocchi of the Apache Software Foundation was the original developer of JMeter.
-He wrote it primarily to test the performance of Apache JServ (a project that has
-since been replaced by the Apache Tomcat project).  We redesigned JMeter to enhance the GUI
-and to add functional-testing capabilities.
+<p>
+BreakTest started as an independent fork of Apache JMeter 5.6.3. The goal was
+to keep the familiar JMX test-plan model while modernizing the runtime, user
+interface, HTTP stack, scheduling model, diagnostics, and script-repair workflow
+for current performance-testing teams.
 </p>
-
-<p>JMeter became a Top Level Apache project in November 2011, which means it has a Project Management Committee and a dedicated website.</p>
+<p>
+BreakTest is a derivative work of Apache JMeter and retains the required
+copyright, license, notice, package, and compatibility references. BreakTest is
+independent from The Apache Software Foundation and is not affiliated with,
+endorsed by, or sponsored by The Apache Software Foundation.
+</p>
 </subsection>
 
 <subsection name="&sect-num;.2 The Future" anchor="future">
-<p>We hope to see JMeter's capabilities rapidly expand as developers take advantage of its
-pluggable architecture. <br/>
-The primary goal of further developments will be:
-<ul>
-<li>Support of HTTP/2 protocol</li>
-<li>Possible rework of core architecture to introduce a pool of threads or switch to async model allowing us to take advantage of async io</li>
-<li>Enhancements to Webservices protocols (REST / SOAP)</li>
-<li>Enhancements to JMS protocol implementation</li>
-<li>&hellip;</li>
-</ul>
-<note>You can help us by contributing to JMeter through any piece of work, read <a href="../building.html" >this document</a></note>
+<p>
+BreakTest development is focused on making local script creation, debugging,
+and validation faster while keeping a clear path to scaled execution and deeper
+analysis through BreakTest Enterprise.
 </p>
+<ul>
+<li>Continue improving HTTP/2 and modern HTTP behavior.</li>
+<li>Reduce memory and CPU overhead in large tests and large JMX files.</li>
+<li>Improve open and closed workload modeling, pacing, pause/resume, and schedule visualization.</li>
+<li>Expand visual diagnostics for recorded-vs-replayed traffic, correlation, assertions, and source navigation.</li>
+<li>Make AI-assisted script repair more reliable and easier to review from the GUI.</li>
+<li>Keep compatibility with existing JMeter JMX files where practical, while documenting intentional differences clearly.</li>
+</ul>
+<note>You can help by opening issues and pull requests in the BreakTest GitHub repository. See <a href="../building.html">Building and Contributing to BreakTest</a>.</note>
 </subsection>
 </section>
 

@@ -26,11 +26,11 @@
 
     <section name="Building a Test Plan Programmatically" anchor="building">
       <note>
-        JMeter 5.6 brings experimental classes and methods to build test plans programmatically, so please feel free to provide your feedback.
+        BreakTest retains the programmatic test-plan APIs inherited from Apache JMeter and continues to evolve them.
       </note>
-      <p>In this section, you will learn how to create a <a href="build-test-plan.html">Test Plan</a> with JMeter APIs.</p>
+      <p>In this section, you will learn how to create a <a href="build-test-plan.html">Test Plan</a> with BreakTest APIs.</p>
 
-      <p>The Test Plan is a collection of elements arranged in a tree-like manner. However, in JMeter APIs, the elements do not form a tree.
+      <p>The Test Plan is a collection of elements arranged in a tree-like manner. However, in BreakTest APIs, the elements do not form a tree.
         Parent-child relationships are stored in a separate structure: <code>ListedHashTree</code>.
       </p>
     </section>
@@ -60,7 +60,7 @@ threadGroupSubtree.add(debugSampler);</source>
     </section>
 
     <section name="Generating code from UI" anchor="generating_code">
-      <p>To aid with creating code, JMeter implements <code>Copy Code</code> context action, so you could
+      <p>To aid with creating code, BreakTest implements <code>Copy Code</code> context action, so you could
       generate code for any element in the plan. It would generate code for the element and its children.</p>
 
       <figure width="380" height="258" image="copy_code/http_sampler_copy_code.png">Copy Code context action</figure>
@@ -131,12 +131,12 @@ org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy::class {
                 org.apache.jmeter.protocol.http.control.Header().apply {
                     props {
                         it[headerName] = "User-Agent"
-                        it[value] = "JMeter"
+                        it[value] = "BreakTest"
                     }
                 },
                 org.apache.jmeter.protocol.http.control.Header().apply {
                     props {
-                        it[headerName] = "X-JMeter-Thread"
+                        it[headerName] = "X-BreakTest-Thread"
                         it[value] = "Thread \${__threadNum}"
                     }
                 },
@@ -151,7 +151,7 @@ org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy::class {
     </section>
 
     <section name="Creating a plan with Kotlin DSL" anchor="treebuilder_kotlin_dsl">
-      <p>JMeter 5.6 introduces Kotlin DSL which might make it easier to create and maintain test plans as the structure of the code
+      <p>The Kotlin DSL can make it easier to create and maintain test plans as the structure of the code
         would resemble the structure of the generated test plan tree</p>
 
       <p>
@@ -175,7 +175,7 @@ val root = testTree { // (1)
           <li>Then we add elements to the tree in <code>(2)</code>, and populate its children</li>
           <li>Note how adding element returns the subtree, so we add <code>threadGroup</code> under <code>testPlan</code> in <code>(2)</code></li>
           <li>If no children needed, the element can be appended to the tree with a unary plus operator as in <code>(3)</code></li>
-          <li>By default, JMeter uses no-argument constructors to create elements, however, you can add <code>TestElement</code> instances to the tree as well, see <code>(4)</code></li>
+          <li>By default, BreakTest uses no-argument constructors to create elements, however, you can add <code>TestElement</code> instances to the tree as well, see <code>(4)</code></li>
         </ul>
       </p>
     </section>
@@ -225,7 +225,7 @@ fun buildTree() {
     </section>
 
     <section name="Creating a plan with Java DSL" anchor="treebuilder_java_dsl">
-      <p>JMeter 5.6 introduces Java DSL which might make it easier to create and maintain test plans as the structure of the code
+      <p>The Java DSL can make it easier to create and maintain test plans as the structure of the code
         would resemble the structure of the generated test plan tree</p>
 
       <p>
@@ -251,7 +251,7 @@ ListedHashTree root = testTree(b -> { // (1)
             The lambda parameters correspond to the added elements, so you can configure their properties</li>
           <li>Note how adding element returns the subtree, so we add <code>threadGroup</code> under <code>testPlan</code> in <code>(2)</code></li>
           <li>If no children needed, you could omit the lambda parameter as in <code>(3)</code></li>
-          <li>By default, JMeter uses no-argument constructors to create elements, however, you can add <code>TestElement</code> instances to the tree as well, see <code>(4)</code></li>
+          <li>By default, BreakTest uses no-argument constructors to create elements, however, you can add <code>TestElement</code> instances to the tree as well, see <code>(4)</code></li>
         </ul>
       </p>
     </section>
