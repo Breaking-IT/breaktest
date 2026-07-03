@@ -26,7 +26,6 @@ matrix.addAxis({
   name: 'java_version',
   // Strings allow versions like 18-ea
   values: [
-    '17',
     '21',
     '25',
     eaJava,
@@ -94,8 +93,8 @@ matrix.generateRow({hash: {value: 'same'}});
 matrix.generateRow({os: 'windows-latest'});
 // TODO: un-comment when xvfb will be possible
 // matrix.generateRow({os: 'ubuntu-latest'});
-// Ensure there will be at least one job with Java 17
-matrix.generateRow({java_version: "17"});
+// Ensure there will be at least one job with Java 21
+matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
 matrix.generateRow({java_version: "25"});
 // Ensure there will be at least one job with Java EA
@@ -136,24 +135,14 @@ include.forEach(v => {
     v.name += ', stress JIT';
     v.testDisableCaching = 'JIT randomization should not be cached';
     jvmArgs.push('-XX:+UnlockDiagnosticVMOptions');
-    if (v.java_version >= 8) {
-      // Randomize instruction scheduling in GCM
-      // share/opto/c2_globals.hpp
-      jvmArgs.push('-XX:+StressGCM');
-      // Randomize instruction scheduling in LCM
-      // share/opto/c2_globals.hpp
-      jvmArgs.push('-XX:+StressLCM');
-    }
-    if (v.java_version >= 16) {
-      // Randomize worklist traversal in IGVN
-      // share/opto/c2_globals.hpp
-      jvmArgs.push('-XX:+StressIGVN');
-    }
-    if (v.java_version >= 17) {
-      // Randomize worklist traversal in CCP
-      // share/opto/c2_globals.hpp
-      jvmArgs.push('-XX:+StressCCP');
-    }
+    // Randomize instruction scheduling in GCM and LCM.
+    // share/opto/c2_globals.hpp
+    jvmArgs.push('-XX:+StressGCM');
+    jvmArgs.push('-XX:+StressLCM');
+    // Randomize worklist traversal in IGVN and CCP.
+    // share/opto/c2_globals.hpp
+    jvmArgs.push('-XX:+StressIGVN');
+    jvmArgs.push('-XX:+StressCCP');
   }
   v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');

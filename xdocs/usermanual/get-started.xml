@@ -138,7 +138,7 @@ on the JMeter wiki.</p>
 
 
 <subsection name="&sect-num;.2.1 Java Compiler" anchor="opt_compiler">
-<p>If you want to build the BreakTest source or develop BreakTest plugins, then you will need a fully compliant JDK 8 or higher.</p>
+<p>If you want to build the BreakTest source or develop BreakTest plugins, then you will need a fully compliant JDK 21 or higher.</p>
 </subsection>
 
 <subsection name="&sect-num;.2.2 SAX XML Parser" anchor="opt_sax">
@@ -157,7 +157,7 @@ It also has an SMTP(S) sampler.
 
 <subsection name="&sect-num;.2.4 SSL Encryption" anchor="opt_ssl">
 <p>To test a web server using SSL encryption (HTTPS), BreakTest requires that an
-implementation of SSL be provided, as is the case with Sun Java 1.4 and above.
+implementation of SSL be provided, as is the case with Java 21 and above.
 If your version of Java does not include SSL support, then it is possible to add an external implementation.
 Include the necessary encryption packages in BreakTest's <a href="#classpath">classpath</a>.
 Also, update <a href="#configuring_jmeter"><code>system.properties</code></a> to register the SSL Provider.</p>

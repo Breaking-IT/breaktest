@@ -4,4 +4,5 @@
 | |_) | | |  __/ (_| |   <  | |  __/\__ \ |_
 |____/|_|  \___|\__,_|_|\_\ |_|\___||___/\__| @VERSION@
 
-Copyright (c) 1999-@YEAR@ The Apache Software Foundation
+Copyright (c) 2024-@YEAR@ BreakTest contributors
+Portions Copyright (c) 1998-2024 The Apache Software Foundation

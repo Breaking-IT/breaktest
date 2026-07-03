@@ -12,7 +12,7 @@ body:
     id: url
     attributes:
       label: The documentation URL
-      placeholder: ex. https://jmeter.apache.org/usermanual/best-practices.html
+      placeholder: ex. https://github.com/Breaking-IT/breaktest/blob/main/README.md
     validations:
       required: true
   - type: textarea

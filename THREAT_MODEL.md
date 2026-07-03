@@ -59,17 +59,19 @@ BreakTest is a forked continuation of Apache JMeter. This threat model is inheri
 
 ## §5 Assumptions about the environment
 
-- **Runtime:** JVM (JMeter 6.0 sets JDK 17 as the minimum; users may run on JDK 24+); runs as a desktop GUI app, a CLI process. *(documented — README; maintainer for the JDK-floor detail)*
+- **Runtime:** JVM 21 or later; runs as a desktop GUI app or CLI process. *(documented — README)*
 - **The user controls the host, the `.jmx`, `user.properties`, installed plugins.** *(inferred)*
 - **Java Security Manager — removed on modern JDKs; NOT the forward defense.** `security.html` historically recommends the Security Manager, but it is gone on the JDKs JMeter now targets and **cannot** be relied on going forward *(maintainer, milamberspace 2026-06-04 — the recommendation in `security.html` should be updated)*:
 
   | JDK | Security Manager status |
   | --- | --- |
-  | 17 | Deprecated for removal (JEP 411) |
-  | 18–23 | Deprecated, still functional (startup warning) |
+  | 21–23 | Deprecated, still functional (startup warning) |
   | **24+** | **Fully removed (JEP 486) — not available at all** |
 
-  Since JMeter 6.0's minimum is JDK 17 and operators may run on JDK 24+, the documented Security-Manager isolation recommendation is **not actionable on JDK 24+**. The equivalent isolation must now come from **outside** the JVM (see §9 / §10 for the recommended OS-level replacements).
+  Since BreakTest requires Java 21 or later and operators may run on JDK 24+,
+  Security-Manager isolation is **not actionable on JDK 24+**. The equivalent
+  isolation must now come from **outside** the JVM (see §9 / §10 for the
+  recommended OS-level replacements).
 - **Negative side-effects inventory:** JMeter makes outbound network requests to the SUT by design; in recording mode it listens on a local proxy port and writes a CA keystore; it reads/writes test plans, results, and properties on the local filesystem; it executes user-supplied scripting. *(maintainer / documented)*
 
 ## §5a Build-time and configuration variants
@@ -182,7 +184,7 @@ Waves 1 and 2 were answered by the PMC (vlsi, milamberspace) on 2026-06-03/04 fr
 **Wave 2 — in-model boundaries ✅ ANSWERED (2026-06-03/04)**
 4. **Opening vs running** — opening a `.jmx` is safe given trust in the distribution's **existing** classes (it deserializes + drives existing control/logic getters/setters); the in-model line is opening that instantiates/executes a class **outside** the distribution. The current `setupXStreamSecurityPolicy()` is effectively `AnyTypePermission.ANY` (a no-op), so this boundary is aspirational, not yet enforced — a scoped allowlist that still admits plugin classes is the tracked fix (Q8). → §4/§8/§9/§11a/§12. *(maintainer, vlsi + milamberspace)*
 5. **Hostile SUT** — **out of model**, fully confirmed: the tester targets only systems they own/are authorised to test, so hostile-SUT parser robustness is `VALID-HARDENING` (internal audit), not a claimed property; no in-model carve-out. → §3/§7/§8/§9/§11a. *(maintainer, vlsi + milamberspace 2026-06-04)*
-6. **Security Manager** — removed on JDK 24+ (JEP 486; deprecated JEP 411 from JDK 17), **not** the forward defense; `security.html` should be updated. The replacement on JDK 24+ is OS-level isolation (container / systemd hardening / dedicated OS user). → §5/§9/§10. *(maintainer, milamberspace 2026-06-04)*
+6. **Security Manager** — removed on JDK 24+ (JEP 486), **not** the forward defense; `security.html` should be updated. The replacement on JDK 24+ is OS-level isolation (container / systemd hardening / dedicated OS user). → §5/§9/§10. *(maintainer, milamberspace 2026-06-04)*
 7. **HTTPS recording proxy** — modeled as a local trust boundary (CA private key on disk); default `proxy.cert.validity=7` days is a sound default; risk is a stolen-and-still-trusted CA key. → §2/§4/§5a/§8/§10/§11/§11a. *(maintainer, milamberspace 2026-06-04)*
 
 **Wave 3 — tracked follow-ups (open; do not block the doc)**

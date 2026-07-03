@@ -8,13 +8,13 @@ body:
     attributes:
       value: |
         Please fill in all required fields with as many details as possible.
-        Read the [User manual](https://jmeter.apache.org/usermanual/index.html) and/or [Reference documentation](https://jmeter.apache.org/usermanual/component_reference.html)
+        If the behavior differs from Apache JMeter, please include the JMeter version you compared against.
   - type: textarea
     id: expected
     attributes:
       label: Expected behavior
       description: |
-        Describe what you were expecting JMeter to do
+        Describe what you expected BreakTest to do
       placeholder: |
         Here you can also attach log files, screenshots or a video
   - type: textarea
@@ -22,7 +22,7 @@ body:
     attributes:
       label: Actual behavior
       description: |
-        Describe what you observed JMeter did instead
+        Describe what you observed BreakTest did instead
       placeholder: |
         Here you can also attach log files (e.g. jmeter.log), screenshots or a video
   - type: textarea
@@ -36,13 +36,13 @@ body:
     validations:
       required: true
   - type: input
-    id: jmeter-version
+    id: breaktest-version
     attributes:
-      label: JMeter Version
+      label: BreakTest Version
       description: |
-        What JMeter version and edition did you use?
-        Note: While you can obviously continue using older versions of JMeter, it may well be that your bug is already fixed. If you're using an older version, please also try to reproduce the bug in the latest version of JMeter before reporting it.
-      placeholder: ex. 5.6
+        What BreakTest version did you use?
+        If you also reproduced or compared the behavior with Apache JMeter, include that version as well.
+      placeholder: ex. 2026.07.03
     validations:
       required: true
   - type: input
@@ -50,7 +50,7 @@ body:
     attributes:
       label: Java Version
       description: What JDK version and distribution did you use (use `java -version`)
-      placeholder: ex. openjdk version "17" 2021-09-14
+      placeholder: ex. openjdk version "21" 2023-09-19
   - type: input
     id: os-version
     attributes:
