@@ -22,7 +22,6 @@
 ## Checklist:
 <!--- Go over all the following points, and put an `x` in all the boxes that apply. -->
 <!--- If you're unsure about any of these, don't hesitate to ask. We're here to help! -->
-- [ ] My code follows the [code style][style-guide] of this project.
+- [ ] My code follows the existing style of this project.
 - [ ] I have updated the documentation accordingly.
-
-[style-guide]: https://wiki.apache.org/jmeter/CodeStyleGuidelines
+- [ ] I have run the relevant tests, or explained why they were not run.

@@ -18,7 +18,7 @@ A test plan that caused the issue as well as any error messages are also very he
 
 Contact:
 
-* Use this repository's discussions or issue tracker when available.
+* Use this repository's issue tracker.
 * For general JMeter-compatible test-plan questions, the broader JMeter community resources may still be useful.
 
 ## :bar_chart: What needs to be developed
@@ -65,17 +65,17 @@ The steps to import the sources (based on Eclipse 2019-06) into Eclipse are as f
 ## :star2: Have a patch
 
 The best way to make sure your issue or feature is addressed is to submit a patch.
-We accept patches through:
+We accept patches through pull requests.
 
-* pull requests
+For public contributions, please fork the repository, create a topic branch in your fork, and open a pull request back to BreakTest. Direct pushes to `main` are not part of the project workflow; changes should be reviewed through pull requests before they are merged.
 
 However, before sending a patch, please make sure that the following applies:
 
 * Your commit message is descriptive.
 * Your patch doesn't have useless merge commits.
 * Your coding style is similar to ours.
-* Your patch is 100% tested. JUnit are welcome.
-* All tests checks pass (run `./gradlew check`)
+* Your patch is tested. JUnit tests are welcome.
+* All relevant checks pass. For broad changes, run `./gradlew check`.
 * You understand that we're very grateful for your patch!
 
 ## :heart: Adding something new
