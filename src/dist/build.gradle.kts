@@ -467,7 +467,6 @@ fun CopySpec.siteLayout() {
         javadocs()
     }
     from(processSiteXslt)
-    docCssAndImages()
     manuals()
     docFontsAndCss()
 }
@@ -529,7 +528,6 @@ fun CrLfSpec.binaryLayout() = copySpec {
         }
         into("docs") {
             from(processSiteXslt)
-            docCssAndImages()
             manuals()
             docFontsAndCss()
         }
