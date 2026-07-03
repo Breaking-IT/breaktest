@@ -46,8 +46,6 @@ import org.fife.ui.rtextarea.RUndoManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.weisj.darklaf.extensions.rsyntaxarea.DarklafRSyntaxTheme;
-
 /**
  * Utility class to handle RSyntaxTextArea code
  * It's not currently possible to instantiate the RSyntaxTextArea class when running headless.
@@ -59,6 +57,7 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
     private static final Logger log = LoggerFactory.getLogger(JSyntaxTextArea.class);
 
     private static final Theme DEFAULT_THEME = loadTheme(Theme.class, "themes/default.xml");
+    private static final Theme DARK_THEME = loadTheme(Theme.class, "themes/dark.xml");
 
     private final Properties languageProperties = loadLanguageProperties();
 
@@ -149,8 +148,7 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
      * @param jSyntaxTextArea
      */
     private static void applyTheme(JSyntaxTextArea jSyntaxTextArea) {
-        final boolean isDarklafTheme = LookAndFeelCommand.isDarklafTheme();
-        final Theme theme = isDarklafTheme ? new DarklafRSyntaxTheme(jSyntaxTextArea) : DEFAULT_THEME;
+        final Theme theme = LookAndFeelCommand.isDark() ? DARK_THEME : DEFAULT_THEME;
         if (theme != null) {
             theme.apply(jSyntaxTextArea);
             Font font = jSyntaxTextArea.getFont();
@@ -160,13 +158,10 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
                 jSyntaxTextArea.setFont(font);
             }
         }
-        if (!isDarklafTheme) {
-            // Darklaf themes provide a custom background color for editors, so we don't overwrite it.
-            Color color = UIManager.getColor("TextArea.background");
-            if (color != null) {
-                // Pretend syntax textarea theme was designed for the current LaF
-                jSyntaxTextArea.setBackground(color);
-            }
+        Color color = UIManager.getColor("TextArea.background");
+        if (color != null) {
+            // Pretend syntax textarea theme was designed for the current LaF
+            jSyntaxTextArea.setBackground(color);
         }
     }
 

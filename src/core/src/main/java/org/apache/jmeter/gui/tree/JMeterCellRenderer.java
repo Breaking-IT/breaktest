@@ -41,6 +41,8 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     private static final Border RED_BORDER = BorderFactory.createLineBorder(Color.red);
     private static final Border BLUE_BORDER = BorderFactory.createLineBorder(Color.blue);
     public JMeterCellRenderer() {
+        // A little more air between the node icon and its label
+        setIconTextGap(6);
     }
 
     @Override

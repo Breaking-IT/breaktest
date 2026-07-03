@@ -113,8 +113,8 @@ public class JMeterUIDefaults {
                 // We don't want to make controls extra big, so we damp the scaling factors
                 scaleControlsProperties(defaults, (float) Math.sqrt(scale));
             }
-            configureRowHeight(defaults, scale, TABLE_ROW_HEIGHT, "Table.font"); // $NON-NLS-1$
-            configureRowHeight(defaults, scale, TREE_ROW_HEIGHT, "Tree.font"); // $NON-NLS-1$
+            configureRowHeight(defaults, scale, TABLE_ROW_HEIGHT, "Table.font", 1.3f); // $NON-NLS-1$
+            configureRowHeight(defaults, scale, TREE_ROW_HEIGHT, "Tree.font", 1.7f); // $NON-NLS-1$
 
             defaults.put("Button.defaultButtonFollowsFocus", false); // $NON-NLS-1$
             defaults.put(TEXTAREA_BORDER, (UIDefaults.LazyValue) d -> new JTextField().getBorder());
@@ -173,7 +173,7 @@ public class JMeterUIDefaults {
         scaleIntProperty(defaults, "Spinner:\"Spinner.nextButton\".size", scale); // $NON-NLS-1$
     }
 
-    private static void configureRowHeight(UIDefaults defaults, float scale, String rowHeight, String font) {
+    private static void configureRowHeight(UIDefaults defaults, float scale, String rowHeight, String font, float rowScale) {
         if (defaults.getInt(rowHeight) == 0) {
             return;
         }
@@ -186,9 +186,10 @@ public class JMeterUIDefaults {
                 Canvas c = new Canvas();
                 height = c.getFontMetrics(f).getHeight();
             }
-            // Set line height to be 1.3 of the font size. The number of completely made up,
-            // 1.2 seems to be the minimal usable scale. 1.3 looks good.
-            int round = (int) Math.floor(height * 1.3f);
+            // Line height relative to the font size. The number is completely made up,
+            // 1.2 seems to be the minimal usable scale. 1.3 looks good for tables,
+            // trees get a bit more air.
+            int round = (int) Math.floor(height * rowScale);
             // Round to the next even, so the text does not move when editing the cell contents
             round += round & 1;
             return round;

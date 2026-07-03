@@ -152,33 +152,32 @@ Defaults to: <code>true</code>
 </section>
 <section name="&sect-num;.4 Look and Feel configuration" anchor="laf_config">
 <properties>
-<property name="jmeter.laf.windows_10">
-    Classname of the Swing default UI<br/>
-    The LAF classnames that are available are now displayed as ToolTip text when hovering over
-    the Options/Look and Feel selection list.<br/>
-    You can either use a full class name, as shown below, or one of the strings "<code>System</code>"
-    or "<code>CrossPlatform</code>" which means JMeter will use the
-    corresponding string returned by <code>UIManager.get&lt;name&gt;LookAndFeelClassName()</code>.<br/>
-    LAF can be overridden by <code>os.name</code> (lowercased, spaces replaced by '_').<br/>
+<property name="jmeter.laf">
+    Theme used on first start, either <code>light</code> or <code>dark</code>.<br/>
+    BreakTest uses the FlatLaf look and feel with two themes. The theme selected through
+    menu Options &gt; Look and Feel is remembered between runs and takes precedence
+    over this property.<br/>
+    The theme can be overridden by <code>os.name</code> (lowercased, spaces replaced by '_').<br/>
     <example title="Order of LAF property lookup" anchor="order-laf-lookup">
         Take for example an <code>os.name</code> of <code>Windows 10</code>.<br/>
-        JMeter would look first for a property
-        <source>jmeter.laf.windows_10=javax.swing.plaf.metal.MetalLookAndFeel</source>
+        BreakTest would look first for a property
+        <source>jmeter.laf.windows_10=dark</source>
         Failing that, the OS family <code>os.name</code> would be used shortened to the first space. In our example
-        JMeter would therefore look for a property
-        <source>jmeter.laf.windows=com.sun.java.swing.plaf.windows.WindowsLookAndFeel</source>
+        BreakTest would therefore look for a property
+        <source>jmeter.laf.windows=dark</source>
+        Failing that, the default theme can be defined through:
+        <source>jmeter.laf=dark</source>
     </example>
-    <note>
-        Mac apparently looks better with the System LAF set through
-        <source>jmeter.laf.mac=System</source>
-        Failing that, the JMeter default LAF can be defined through:
-        <source>jmeter.laf=System</source>
-        If none of the above <code>jmeter.laf</code> properties are defined, JMeter uses the <code>CrossPlatform</code> LAF.
-        This is because the <code>CrossPlatform</code> LAF generally looks better than the <code>System</code> LAF.
-        See <bugzilla>52026</bugzilla> for details.
-    </note>
-    <note>When you change Look and Feel (LAF) from BreakTest GUI through menu Options &gt; Look and Feel,
-    you should restart BreakTest to ensure change is fully effective.</note>
+    Defaults to: <code>light</code>
+ </property>
+<property name="jmeter.laf.legacy">
+    Show the legacy Swing look and feels (Metal, Nimbus, System, CrossPlatform)
+    in the Look and Feel menu.<br/>
+    When enabled, <code>jmeter.laf</code> also accepts a LAF class name or one of the
+    strings "<code>System</code>" or "<code>CrossPlatform</code>".<br/>
+    <note>Unlike the Light and Dark themes, switching to or from a legacy look and feel requires
+    a restart of BreakTest to be fully effective.</note>
+    Defaults to: <code>false</code>
  </property>
 <property name="jmeter.loggerpanel.display">
     Display LoggerPanel.<br/>
@@ -194,17 +193,6 @@ Defaults to: <code>true</code>
 <property name="jmeter.gui.refresh_period">
     Interval period in <code>ms</code> to process the events of the listeners.<br/>
     Defaults to: <code>500</code></property>
-</properties>
-</section>
-<section name="&sect-num;.4.1 Darklaf configuration" anchor="darklaf_config">
-<properties>
-    <property name="darklaf.decorations">
-        Enables custom window chrome when using a Darklaf Look And Feel.
-        Defaults to: <code>false</code></property>
-    <property name="darklaf.unifiedMenuBar">
-        Enables the unified menubar on Windows when using a Darklaf Look and Feel.<br/>
-        This property only has an effect if <code>darklaf.native</code> is <code>true</code>.
-        Defaults to: <code>true</code></property>
 </properties>
 </section>
 <section name="&sect-num;.5 Toolbar display" anchor="toolbar_display">

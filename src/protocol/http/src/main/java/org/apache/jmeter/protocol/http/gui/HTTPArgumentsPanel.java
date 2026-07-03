@@ -201,15 +201,16 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
      * the variable name is derived from the parameter name
      */
     private void transformNameIntoVariable() {
+        // Columns: 0 = enable checkbox, 1 = name, 2 = value
         int[] rowsSelected = getTable().getSelectedRows();
         for (int selectedRow : rowsSelected) {
-            String name = (String) tableModel.getValueAt(selectedRow, 0);
+            String name = (String) tableModel.getValueAt(selectedRow, 1);
             if (StringUtilities.isNotBlank(name)) {
                 name = name.trim();
                 name = name.replaceAll("\\$", "_");
                 name = name.replaceAll("\\{", "_");
                 name = name.replaceAll("\\}", "_");
-                tableModel.setValueAt("${" + name + "}", selectedRow, 1);
+                tableModel.setValueAt("${" + name + "}", selectedRow, 2);
             }
         }
     }

@@ -18,8 +18,6 @@
 package org.apache.jmeter;
 
 import java.awt.BorderLayout;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.URL;
 
 import javax.swing.Icon;
@@ -34,7 +32,7 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.weisj.darklaf.properties.icons.ThemedSVGIcon;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 
 /**
  * Splash Screen
@@ -63,21 +61,14 @@ public class SplashScreen extends JDialog {
     public static JComponent loadLogo() {
         JLabel logo = new JLabel();
         logo.setBorder(new EmptyBorder(10, 10, 10, 10));
-        URI svgUri = null;
         String svgResourcePath = "/org/apache/jmeter/images/logo.svg";
-        try {
-            URL svgUrl = JMeterUtils.class.getResource(svgResourcePath);
-            if (svgUrl != null) {
-                svgUri = svgUrl.toURI();
-            }
-        } catch (URISyntaxException e) {
-            log.warn("Unable to find logo {}", svgResourcePath, e);
-        }
+        URL svgUrl = JMeterUtils.class.getResource(svgResourcePath);
 
-        if (svgUri != null) {
-            Icon icon = new ThemedSVGIcon(svgUri, 521, 177);
+        if (svgUrl != null) {
+            Icon icon = new FlatSVGIcon(svgUrl).derive(521, 177);
             logo.setIcon(icon);
         } else {
+            log.warn("Unable to find logo {}", svgResourcePath);
             // Fallback logo
             logo.setText("<html>" +
                     "<span style=\"font-size:36px;font-family:'Lucida Grande',Corbel,Arial;color:#2d7dd2\">&nbsp;&nbsp;BREAK<br></span>" +

@@ -105,6 +105,11 @@ Summary
   <ul>
     <li><pr>6333</pr>Apply HiDPI mode automatically when setting up the GUI so JMeter looks sharp on high-resolution displays. Contributed by Gabriele Coletta (github.com/gdmg92)</li>
     <li><pr>6656</pr>Replace the previous feather icon with the new oak leaf in the JMeter logo.</li>
+    <li>Modernize the GUI with the FlatLaf look and feel. The Look and Feel menu now offers two themes,
+        Light (default) and Dark, that switch instantly without a restart. Previous Darklaf/Darcula theme
+        preferences are migrated automatically, and the legacy Swing look and feels can be re-enabled with
+        <code>jmeter.laf.legacy=true</code>. The test plan tree uses a tighter indentation and the whole UI
+        received rounded corners, slimmer scrollbars and a unified accent color.</li>
   </ul>
 
   <ch_section>Bug fixes</ch_section>

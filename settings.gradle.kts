@@ -153,11 +153,6 @@ property("localAutostyle")?.ifBlank { "../autostyle" }?.let {
     includeBuild(it)
 }
 
-property("localDarklaf")?.ifBlank { "../darklaf" }?.let {
-    println("Importing project '$it'")
-    includeBuild(it)
-}
-
 buildCache {
     local {
         isEnabled = !isCiServer

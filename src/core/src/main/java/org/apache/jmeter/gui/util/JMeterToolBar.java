@@ -18,7 +18,6 @@
 package org.apache.jmeter.gui.util;
 
 import java.awt.Component;
-import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -41,8 +40,8 @@ import org.apache.jmeter.util.LocaleChangeListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.github.weisj.darklaf.properties.icons.ThemedSVGIcon;
-import com.github.weisj.darklaf.ui.button.DarkButtonUI;
+import com.formdev.flatlaf.FlatClientProperties;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 
 import kotlin.text.StringsKt;
 
@@ -104,9 +103,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             b.setFocusable(false);
             if (b.isBorderPainted() && (b.getText() == null || b.getText().isEmpty())) {
                 b.setRolloverEnabled(true);
-                b.putClientProperty(DarkButtonUI.KEY_VARIANT, DarkButtonUI.VARIANT_BORDERLESS);
-                b.putClientProperty(DarkButtonUI.KEY_THIN, true);
-                b.putClientProperty(DarkButtonUI.KEY_SQUARE, true);
+                b.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
             }
         }
     }
@@ -158,13 +155,13 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         return button;
     }
 
-    private static Icon loadIcon(IconToolbarBean iconBean, String iconPath) throws URISyntaxException {
+    private static Icon loadIcon(IconToolbarBean iconBean, String iconPath) {
         final URL imageURL = JMeterUtils.class.getClassLoader().getResource(iconPath);
         if (imageURL == null) {
             throw new IllegalArgumentException("No icon for: " + iconBean.getActionName());
         }
         if (StringsKt.endsWith(iconBean.getIconPath(), ".svg", true)) {
-            return new ThemedSVGIcon(imageURL.toURI(), iconBean.getWidth(), iconBean.getHeight());
+            return new FlatSVGIcon(imageURL).derive(iconBean.getWidth(), iconBean.getHeight());
         }
         return new ImageIcon(imageURL);
     }
