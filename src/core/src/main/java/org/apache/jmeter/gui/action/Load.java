@@ -109,7 +109,7 @@ public class Load extends AbstractActionWithNoRunningTest {
      * @param f the file to load
      * @param merging if true, then try to merge the file into the current GUI.
      */
-    static void loadProjectFile(final ActionEvent e, final File f, final boolean merging) {
+    public static void loadProjectFile(final ActionEvent e, final File f, final boolean merging) {
         loadProjectFile(e, f, merging, true);
     }
 
@@ -122,7 +122,7 @@ public class Load extends AbstractActionWithNoRunningTest {
      * @param merging if true, then try to merge the file into the current GUI.
      * @param setDetails if true, then set the file details (if not merging)
      */
-    static void loadProjectFile(final ActionEvent e, final File f, final boolean merging, final boolean setDetails) {
+    public static void loadProjectFile(final ActionEvent e, final File f, final boolean merging, final boolean setDetails) {
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.STOP_THREAD));
 
         final GuiPackage guiPackage = GuiPackage.getInstance();

@@ -24,6 +24,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.swing.Swing
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import org.apache.jmeter.ai.gui.BreakTestAgentGuiService
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.MainFrame
 import org.apache.jmeter.gui.action.ActionNames
@@ -126,6 +127,7 @@ public object JMeterGuiLauncher {
         }
         setProgress(93)
         splash.close()
+        BreakTestAgentGuiService.startIfEnabled()
     }
 
     private suspend fun loadFile(testFile: String) {

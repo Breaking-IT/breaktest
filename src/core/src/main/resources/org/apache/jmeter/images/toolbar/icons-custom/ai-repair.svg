@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="aiText" x1="24" y1="26" x2="92" y2="102" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#16d9ff"/>
+      <stop offset="0.55" stop-color="#4d7cff"/>
+      <stop offset="1" stop-color="#9b5cff"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="86" y1="12" x2="122" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#6df5ff"/>
+    </linearGradient>
+  </defs>
+
+  <text x="18" y="91"
+        fill="url(#aiText)"
+        stroke="#07111f"
+        stroke-width="4"
+        paint-order="stroke fill"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="78"
+        font-weight="900"
+        letter-spacing="-2">AI</text>
+
+  <path d="M96 14V38M84 26H108"
+        fill="none"
+        stroke="url(#spark)"
+        stroke-width="9"
+        stroke-linecap="round"/>
+  <path d="M115 43V57M108 50H122"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="6"
+        stroke-linecap="round"/>
+</svg>

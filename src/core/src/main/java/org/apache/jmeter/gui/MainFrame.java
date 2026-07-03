@@ -77,6 +77,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.MenuElement;
@@ -90,6 +91,7 @@ import javax.swing.tree.TreeCellRenderer;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.KeyStrokes;
@@ -162,6 +164,12 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     /** The LOG panel. */
     private LoggerPanel logPanel;
+
+    /** Bottom tabs for log-like panels. */
+    private JTabbedPane bottomLogTabs;
+
+    /** Split between the main editor and bottom log tabs. */
+    private JSplitPane topAndDown;
 
     /** The test tree. */
     private JTree tree;
@@ -547,15 +555,12 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         treePanel = createTreePanel();
         treeAndMain.setLeftComponent(treePanel);
 
-        JSplitPane topAndDown = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        topAndDown = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         topAndDown.setOneTouchExpandable(true);
         topAndDown.setDividerLocation(0.8);
         topAndDown.setResizeWeight(.8);
         topAndDown.setContinuousLayout(true);
         topAndDown.setBorder(null); // see bug jdk 4131528
-        if (!DISPLAY_LOGGER_PANEL) {
-            topAndDown.setDividerSize(0);
-        }
         mainPanel = createMainPanel();
         mainPanel.setBorder(BorderFactory.createEmptyBorder());
 
@@ -566,7 +571,13 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         GuiPackage.getInstance().getLogEventBus().registerEventListener(errorsAndFatalsCounterLogTarget);
 
         topAndDown.setTopComponent(mainPanel);
-        topAndDown.setBottomComponent(logPanel);
+        bottomLogTabs = new JTabbedPane();
+        topAndDown.setBottomComponent(bottomLogTabs);
+        if (DISPLAY_LOGGER_PANEL) {
+            showLoggerPanel();
+        } else {
+            updateBottomLogVisibility();
+        }
 
         treeAndMain.setRightComponent(topAndDown);
 
@@ -632,6 +643,11 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         toolPanel.add(activeAndTotalThreads);
         toolPanel.add(Box.createRigidArea(new Dimension(5, 15)));
         toolPanel.add(runningIndicator);
+        toolPanel.add(Box.createRigidArea(new Dimension(8, 15)));
+        JButton aiLogButton = new JButton("AI Log");
+        aiLogButton.setToolTipText("Show or hide the AI Auto Scripting (Beta) log");
+        aiLogButton.addActionListener(event -> AiAutoScriptingLogWindow.toggleVisibility());
+        toolPanel.add(aiLogButton);
         return toolPanel;
     }
 
@@ -829,6 +845,64 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         guiInstance.getMenuItemLoggerPanel().getModel().setSelected(DISPLAY_LOGGER_PANEL);
         loggerPanel.setVisible(DISPLAY_LOGGER_PANEL);
         return loggerPanel;
+    }
+
+    public void showLoggerPanel() {
+        addBottomLogTab("jmeter.log", logPanel);
+        logPanel.setVisible(true);
+        bottomLogTabs.setSelectedComponent(logPanel);
+        GuiPackage.getInstance().getMenuItemLoggerPanel().getModel().setSelected(true);
+        updateBottomLogVisibility();
+    }
+
+    public void hideLoggerPanel() {
+        removeBottomLogTab(logPanel);
+        logPanel.setVisible(false);
+        GuiPackage.getInstance().getMenuItemLoggerPanel().getModel().setSelected(false);
+        updateBottomLogVisibility();
+    }
+
+    public boolean isLoggerPanelVisible() {
+        return bottomLogTabs != null && bottomLogTabs.indexOfComponent(logPanel) >= 0;
+    }
+
+    public void showAiLogPanel() {
+        JPanel aiPanel = AiAutoScriptingLogWindow.dockedComponent();
+        addBottomLogTab("AI Auto Scripting (Beta)", aiPanel);
+        bottomLogTabs.setSelectedComponent(aiPanel);
+        updateBottomLogVisibility();
+    }
+
+    public void hideAiLogPanel() {
+        removeBottomLogTab(AiAutoScriptingLogWindow.dockedComponent());
+        updateBottomLogVisibility();
+    }
+
+    public boolean isAiLogPanelVisible() {
+        return bottomLogTabs != null && bottomLogTabs.indexOfComponent(AiAutoScriptingLogWindow.dockedComponent()) >= 0;
+    }
+
+    private void addBottomLogTab(String title, Component component) {
+        if (bottomLogTabs.indexOfComponent(component) < 0) {
+            bottomLogTabs.addTab(title, component);
+        }
+    }
+
+    private void removeBottomLogTab(Component component) {
+        int index = bottomLogTabs.indexOfComponent(component);
+        if (index >= 0) {
+            bottomLogTabs.removeTabAt(index);
+        }
+    }
+
+    private void updateBottomLogVisibility() {
+        boolean wasVisible = bottomLogTabs.isVisible();
+        boolean visible = bottomLogTabs.getTabCount() > 0;
+        bottomLogTabs.setVisible(visible);
+        topAndDown.setDividerSize(visible ? UIManager.getInt("SplitPane.dividerSize") : 0);
+        if (visible && !wasVisible) {
+            topAndDown.setDividerLocation(0.8);
+        }
     }
 
     /**

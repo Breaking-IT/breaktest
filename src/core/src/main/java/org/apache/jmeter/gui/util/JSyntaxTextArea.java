@@ -59,7 +59,7 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
     private static final Theme DEFAULT_THEME = loadTheme(Theme.class, "themes/default.xml");
     private static final Theme DARK_THEME = loadTheme(Theme.class, "themes/dark.xml");
 
-    private final Properties languageProperties = JMeterUtils.loadProperties("org/apache/jmeter/gui/util/textarea.properties"); //$NON-NLS-1$
+    private final Properties languageProperties = loadLanguageProperties();
 
     private final boolean disableUndo;
     private static final boolean WRAP_STYLE_WORD = JMeterUtils.getPropDefault("jsyntaxtextarea.wrapstyleword", true);
@@ -268,7 +268,7 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
      *            The language to be set
      */
     public void setLanguage(String language) {
-        if(language == null) {
+        if(language == null || languageProperties.isEmpty()) {
           // TODO: Log a message?
           // But how to find the name of the offending GUI element in the case of a TestBean?
           super.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -340,5 +340,14 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
             log.error("Error reading {} for JSyntaxTextArea", name, e);
             return null;
         }
+    }
+
+    private static Properties loadLanguageProperties() {
+        Properties properties = JMeterUtils.loadProperties("org/apache/jmeter/gui/util/textarea.properties"); //$NON-NLS-1$
+        if (properties == null) {
+            log.warn("Could not load JSyntaxTextArea language mappings; syntax highlighting is disabled");
+            return new Properties();
+        }
+        return properties;
     }
 }
