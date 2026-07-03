@@ -24,7 +24,7 @@
 <document prev="index.html" next="junitsampler_tutorial.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>BreakTest HTTP(S) Test Script Recorder</title>
 </properties>
 
@@ -33,14 +33,14 @@
 <section name="&sect-num;. BreakTest HTTP(S) Test Script Recorder" anchor="script-recorder">
 
 <p>
-This tutorial attempts to explain the exact steps for recording HTTP/HTTPS. For those new to JMeter, one easy way to create a test plan is to use the Recorder.
+This tutorial attempts to explain the exact steps for recording HTTP/HTTPS. For those new to BreakTest, one easy way to create a test plan is to use the Recorder.
 </p>
 
-<subsection name="&sect-num;.1 JMeter configuration" anchor="configuration">
+<subsection name="&sect-num;.1 BreakTest configuration" anchor="configuration">
 
 <p>
-Since JMeter 2.10, recording has been improved to better handle embedded resources and creation of certificates on the fly.
-To enable these features, JMeter uses <code>keytool</code> utility (available in JRE/JDK) so you need to ensure your
+BreakTest can record embedded resources and create recording certificates on the fly.
+To enable these features, BreakTest uses <code>keytool</code> utility (available in JRE/JDK) so you need to ensure your
 configuration is correct, read <a href="https://cwiki.apache.org/confluence/display/JMETER/TestRecording210">this wiki page before starting.</a>
 </p>
 
@@ -70,23 +70,23 @@ configuration is correct, read <a href="https://cwiki.apache.org/confluence/disp
 </ol>
 
 <p>
-This will start the JMeter proxy server which is used to intercept the browser requests.
-A file called <code>ApacheJMeterTemporaryRootCA.crt</code> will be generated in <code>JMETER_HOME/bin</code>
-folder. Install this certificate in your browser, if you don't know how to do it,
-read <a href="component_reference.html#HTTP%28S%29_Test_Script_Recorder">Installing the JMeter CA certificate for HTTPS recording</a>
+This will start the BreakTest proxy server which is used to intercept the browser requests.
+A compatibility-named certificate file called <code>ApacheJMeterTemporaryRootCA.crt</code> will be generated in <code>JMETER_HOME/bin</code>.
+Install this certificate in your browser; if you don't know how to do it,
+read <a href="component_reference.html#HTTP%28S%29_Test_Script_Recorder">Installing the BreakTest CA certificate for HTTPS recording</a>
 </p>
 
 </subsection>
 
-<subsection name="&sect-num;.3 Configure your browser to use the JMeter Proxy" anchor="configure-browser">
+<subsection name="&sect-num;.3 Configure your browser to use the BreakTest Proxy" anchor="configure-browser">
 
 <p>
-At this point, JMeter's proxy is running. For this exercise, we will use Iceweasel/Firefox
-to view some pages on the JMeter website.
+At this point, BreakTest's proxy is running. For this exercise, we will use Iceweasel/Firefox
+to view pages on the example site.
 </p>
 
 <ol>
-  <li>Start Iceweasel/Firefox, but do not close JMeter.</li>
+  <li>Start Iceweasel/Firefox, but do not close BreakTest.</li>
   <li>From the tool bar, click
       <menuchoice>
         <guimenuitem>Edit</guimenuitem>
@@ -121,7 +121,7 @@ to view some pages on the JMeter website.
   <li>With your browser, in the <code>Address</code> bar at the top, enter <code>http://example.com/index.html</code> (replace <code>example.com</code> with your websites address).
   and hit the <code>enter</code> key.</li>
   <li>Click on a few links on your sites pages.</li>
-  <li>Close your browser and bring up the JMeter window.</li>
+  <li>Close your browser and bring up the BreakTest window.</li>
 </ol>
 
 <p>
@@ -179,7 +179,7 @@ In some scripts, we will need to:
 To variabilize, we can use:
 <ul>
   <li><code>CSV Data Set Config</code> to get input data from csv file</li>
-  <li>JMeter functions like <code>__counter</code>, <code>__time</code>, &hellip;</li>
+  <li>BreakTest functions like <code>__counter</code>, <code>__time</code>, &hellip;</li>
   <li>etc.</li>
 </ul>
 </p>

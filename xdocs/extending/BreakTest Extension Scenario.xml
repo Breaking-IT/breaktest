@@ -28,10 +28,10 @@
 
 <section name="BreakTest Extension Scenario">
 <p>The purpose of this tutorial is to
-describe the general steps involved in a JMeter extension scenario. The
-<a href="index.html">JMeter documentation</a> describes what must be done on a microscopic level but does
+describe the general steps involved in a BreakTest extension scenario. The
+<a href="index.html">BreakTest documentation</a> describes what must be done on a microscopic level but does
 not provide an overall idea of the process. That is the intent of this brief
-article. The JMeter extension documentation should be consulted for details.</p>
+article. The BreakTest extension documentation should be consulted for details.</p>
 <P>The high level procedure followed these steps.
 </P>
 <OL>
@@ -49,7 +49,7 @@ article. The JMeter extension documentation should be consulted for details.</p>
   <LI><A href="#installation">Install your
   extension</A> </LI>
   <LI><A href="#tips">Tips</A> </LI></OL>
-<H2><A name="planning">Planning</A></H2>I've found planning a JMeter extension to
+<H2><A name="planning">Planning</A></H2>I've found planning a BreakTest extension to
 involve three aspects:
 
 <OL>
@@ -68,7 +68,7 @@ such as the host name, port, GET or PUT and various parameters.
 <P>The configuration object usually inherits from
 <TT>org.apache.jmeter.config.AbstractConfigElement</TT>. It implements many of
 the methods of <TT>org.apache.jmeter.gui.JMeterComponentModel</TT> that are
-needed to effectively interact with JMeter.
+needed to effectively interact with BreakTest.
 </P>
 <OL>
   <LI><B>Constructor</B> - In the constructor you should at least define the
@@ -103,7 +103,7 @@ needed to effectively interact with JMeter.
 <P>
 <H2><A name="config-gui">Configuration GUI</A></H2>Each configuration element you
 define can have a companion GUI class. It helps to have a little knowledge of
-Swing for this. Extend Swing's <TT>JPanel</TT> class and implement JMeter's
+Swing for this. Extend Swing's <TT>JPanel</TT> class and implement BreakTest's
 <TT>org.apache.jmeter.gui.ModelSupported</TT> interface. Remember that you can
 review the <TT>UrlConfigGui</TT> example for hints if you get stuck.
 </P>
@@ -113,7 +113,7 @@ review the <TT>UrlConfigGui</TT> example for hints if you get stuck.
   <TT>org.apache.jmeter.gui.NamePanel</TT>. You will likely have several others
   depending on how sophisticated your GUI is.</LI>
   <LI><B>Add Panels</B> - The layout manager used for many of the panels used in
-  JMeter is <TT>org.apache.jmeter.gui.VerticalLayout</TT>. As the name implies,
+  BreakTest is <TT>org.apache.jmeter.gui.VerticalLayout</TT>. As the name implies,
   it supports arranging other panels in a vertical fashion. You can define each
   of your panels in a <TT>get</TT> method and add them to the configuration GUI
   in a method called <B><TT>init</TT></B>. Once again, refer to
@@ -159,35 +159,36 @@ extension.
 
 <OL>
   <LI>Package the class files into a JAR file. </LI>
-  <LI>Place the JAR file into the <TT>ext</TT> subdirectory of the JMeter root
+  <LI>Place the JAR file into the <TT>ext</TT> subdirectory of the BreakTest root
   install directory. </LI>
-  <LI>Edit the <TT>bin/jmeter.properties</TT> file of the JMeter installation.
+  <LI>Edit the <TT>bin/jmeter.properties</TT> file of the BreakTest installation.
   Find the <TT>search_paths</TT> entry and add your JAR to the list. It should
-  look like <PRE>search_paths=ApacheJMeter.jar;classes;../ext/YourJar.jar</PRE></LI>
-  <LI>Run JMeter and watch the magic. </LI></OL>
+  look like <PRE>search_paths=ApacheJMeter.jar;classes;../ext/YourJar.jar</PRE>
+  The <TT>ApacheJMeter.jar</TT> file name is retained for runtime compatibility.</LI>
+  <LI>Run BreakTest and watch the magic. </LI></OL>
 
 <H2><A name="tips">Tips</A></H2>
 <OL>
   <LI>You might consider using slf4j as your logging utility since that's what
-  JMeter uses. It's helpful for figuring out what's going on.
+  BreakTest uses. It's helpful for figuring out what's going on.
   <P>If you do decide to use slf4j and you set the priority (or level, as it
   will soon be called) to debug, you will probably see way more than you need to
-  know. You can filter the JMeter stuff by adding  to
-  <TT>log4j2.xml</TT> in the JMeter's <TT>bin</TT> directory.
+  know. You can filter the BreakTest stuff by adding  to
+  <TT>log4j2.xml</TT> in the BreakTest's <TT>bin</TT> directory.
   <source>
     <Logger name="com.myfirm.jmeter" level="debug" />
   </source>
   Note that the root (default) debugging has been set to <B>info</B>.
-  This eliminates most slf4j output from JMeter. The new line specifies the name
-  of the package containing JMeter extensions. (<TT>com.yourfirm.jmeter</TT>) in
+  This eliminates most slf4j output from BreakTest. The new line specifies the name
+  of the package containing BreakTest extensions. (<TT>com.yourfirm.jmeter</TT>) in
   this example. Note that it is not necessary to specify a particular class
   name. Also, note that <B>no</B> appenders are specified - just the trailing
   comma. If you specify Root_Appender here you'll see your message appear twice
   (because you specified the same appender twice). All you really want to do is
   override the priority.</P></LI>
   <LI>Implement <TT>clone</TT> carefully. This is an often overlooked method for
-  a lot of folks. JMeter makes heavy use of cloning. Check out some of the
-  JMeter configuration elements and controllers to see how they do it. Notice
+  a lot of folks. BreakTest makes heavy use of cloning. Check out some of the
+  BreakTest configuration elements and controllers to see how they do it. Notice
   that in most cases, a special method is usually invoked to perform base class
   cloning activities. For configuration elements, this is
   <TT>configureClone</TT>. For controllers, it is <TT>standardCloneProc</TT>.

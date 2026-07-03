@@ -46,7 +46,7 @@
 
 <section name="&sect-num;. Functions and Variables" anchor="functions">
 <p>
-JMeter functions are special values that can populate fields of any Sampler or other
+BreakTest functions are special values that can populate fields of any Sampler or other
 element in a test tree.  A function call looks like this:</p>
 
 <p><code>${__functionName(var1,var2,var3)}</code></p>
@@ -60,7 +60,7 @@ Functions that require no parameters can leave off the parentheses, for example 
 </p>
 
 <p>
-If a function parameter contains a comma, then be sure to escape this with "<code>\</code>", otherwise JMeter will treat it as a parameter delimiter.
+If a function parameter contains a comma, then be sure to escape this with "<code>\</code>", otherwise BreakTest will treat it as a parameter delimiter.
 For example:
 <source>
 ${__time(EEE\, d MMM yyyy)}
@@ -81,12 +81,12 @@ ${VARIABLE}
 </p>
 <p>
 <b>
-If an undefined function or variable is referenced, JMeter does not report/log an error - the reference is returned unchanged.
+If an undefined function or variable is referenced, BreakTest does not report/log an error - the reference is returned unchanged.
 For example if <code>UNDEF</code> is not defined as a variable, then the value of <code>${UNDEF}</code> is <code>${UNDEF}</code>.
 </b>
 Variables, functions (and properties) are all case-sensitive.
 <b>
-JMeter trims spaces from variable names before use, so for example
+BreakTest trims spaces from variable names before use, so for example
 <code>${__Random(1,63,&nbsp;LOTTERY&nbsp;)}</code> will use the variable '<code>LOTTERY</code>' rather than '<code>&nbsp;LOTTERY&nbsp;</code>'.
 </b>
 </p>
@@ -97,7 +97,7 @@ and need to be referenced using the <code>__P</code> or <code>__property</code> 
 </note>
 <note>
 When using <code>\</code> before a variable for a windows path for example <code>C:\test\${test}</code>, ensure you escape the <code>\</code>
-otherwise JMeter will not interpret the variable, example:
+otherwise BreakTest will not interpret the variable, example:
 <code>C:\\test\\${test}</code>.
 <br></br>
 Alternatively, just use <code>/</code> instead for the path separator - e.g. <code>C:/test/${test}</code> - Windows JVMs will convert the separators as necessary.
@@ -136,7 +136,7 @@ Alternatively, just use <code>/</code> instead for the path separator - e.g. <co
         <tr><td>Properties</td><td> <a href="#__isPropDefined">isPropDefined</a> </td><td>Test if a property exists</td><td>4.0</td></tr>
         <tr><td>Properties</td><td> <a href="#__property">property</a> </td><td>read a property</td><td>2.0</td></tr>
         <tr><td>Properties</td><td> <a href="#__P">P</a></td><td>read a property (shorthand method)</td><td>2.0</td></tr>
-        <tr><td>Properties</td><td> <a href="#__setProperty">setProperty</a></td><td>set a JMeter property</td><td>2.1</td></tr>
+        <tr><td>Properties</td><td> <a href="#__setProperty">setProperty</a></td><td>set a BreakTest property</td><td>2.1</td></tr>
         <tr><td>Variables</td><td> <a href="#__split">split</a></td><td>Split a string into variables</td><td>2.0.2</td></tr>
         <tr><td>Variables</td><td> <a href="#__eval">eval</a></td><td>evaluate a variable expression</td><td>2.3.1</td></tr>
         <tr><td>Variables</td><td> <a href="#__evalVar">evalVar</a></td><td>evaluate an expression stored in a variable</td><td>2.3.1</td></tr>
@@ -186,7 +186,7 @@ functions.
 </p>
 <p>
 Functions which are used on the Test Plan have some restrictions.
-JMeter thread variables will have not been fully set up when the functions are processed,
+BreakTest thread variables will have not been fully set up when the functions are processed,
 so variable names passed as parameters will not be set up, and variable references will not work,
 so <code>split()</code> and <code>regex()</code> and the variable evaluation functions won't work.
 The <code>threadNum()</code> function won't work (and does not make sense at test plan level).
@@ -253,7 +253,7 @@ will use the property "<code>xpath.file</code>" as the file name
 and the contents of the variable <code>XPATH</code> as the expression to search for.
 </p>
 <p>
-JMeter provides a tool to help you construct
+BreakTest provides a tool to help you construct
 function calls for various built-in functions, which you can then copy-paste.
 It will not automatically escape values for you, since functions can be parameters to other functions, and you should only escape values you intend as literal.
 </p>
@@ -276,7 +276,7 @@ variable will override the built-in function.</note>
 </subsection>
 
 <subsection name="&sect-num;.4 The Function Helper Dialog" anchor="function_helper">
-<p>The Function Helper dialog is available from JMeter's Tools menu.</p>
+<p>The Function Helper dialog is available from BreakTest's Tools menu.</p>
 <figure width="831" height="305" image="function_helper_dialog.png">Function Helper Dialog</figure>
 <p>Using the Function Helper, you can select a function from the pull down, and assign
 values for its arguments.  The left column in the table provides a brief description of the
@@ -318,14 +318,14 @@ replacement string") parsed by this function</li>
         <property name="Second argument" required="Yes">This is the template string that will replace
         the function at run-time.  To refer to a group captured in the regular expression, use the syntax:
         <code>$[group_number]$</code>.  I.e.: <code>$1$</code>, or <code>$2$</code>.  Your template can be any string.</property>
-        <property name="Third argument" required="No, default=1">The third argument tells JMeter which match
+        <property name="Third argument" required="No, default=1">The third argument tells BreakTest which match
         to use.  Your regular expression might find numerous matches.  You have four choices:
-                <ul><li>An integer - Tells JMeter to use that match.  '<code>1</code>' for the first found match, '<code>2</code>' for the
+                <ul><li>An integer - Tells BreakTest to use that match.  '<code>1</code>' for the first found match, '<code>2</code>' for the
                 second, and so on</li>
-                <li><code>RAND</code> - Tells JMeter to choose a match at random.</li>
-                <li><code>ALL</code> - Tells JMeter to use all matches, and create a template string for each one and then
+                <li><code>RAND</code> - Tells BreakTest to choose a match at random.</li>
+                <li><code>ALL</code> - Tells BreakTest to use all matches, and create a template string for each one and then
                 append them all together.  This option is little used.</li>
-                <li>A float number between 0 and 1 - tells JMeter to find the X<sup>th</sup> match using the formula:
+                <li>A float number between 0 and 1 - tells BreakTest to find the X<sup>th</sup> match using the formula:
                 (number_of_matches_found * float_number) rounded to nearest integer.</li>
                 </ul></property>
         <property name="Fourth argument" required="No">If '<code>ALL</code>' was selected for the above argument
@@ -487,7 +487,7 @@ be in the interval -2147483648 to 2147483647.
 
 <properties>
         <property name="File Name" required="Yes">Path to the file name.
-            (The path can be relative to the JMeter launch directory)
+            (The path can be relative to the BreakTest launch directory)
             If using optional sequence numbers, the path name should be suitable for passing to DecimalFormat.
             See below for examples.
         </property>
@@ -600,7 +600,7 @@ Here are a few format strings and the corresponding sequences they will generate
         <property name="Locale to use for format" required="No">
         The string format of a locale. The language code must be lowercase. The country code must be uppercase. The separator must be an underscore, e.g. <code>en_EN</code>.
         See <a href="http://www.oracle.com/technetwork/java/javase/javase7locales-334809.html">http://www.oracle.com/technetwork/java/javase/javase7locales-334809.html</a>.
-        If omitted, by default the function uses the Apache JMeter locale one.
+        If omitted, by default the function uses the BreakTest locale.
         </property>
         <property name="Name of variable" required="No">The name of the variable to set.</property>
 </properties>
@@ -671,7 +671,7 @@ This leads to creation of match number variable called <code>varName_matchNr</co
 
 <component index="&sect-num;.5.8" name="__CSVRead">
 <description><p>The CSVRead function returns a string from a CSV file (c.f. <a href="#__StringFromFile">StringFromFile</a>)</p>
-    <p>NOTE: JMeter supports multiple file names.
+    <p>NOTE: BreakTest supports multiple file names.
     </p>
     <p><b>In most cases, the newer
     <a href="component_reference.html#CSV_Data_Set_Config">CSV Data Set Config element</a>
@@ -730,7 +730,7 @@ or <a href="#__StringFromFile">StringFromFile</a>.
 </component>
 
 <component index="&sect-num;.5.9" name="__property">
-<description><p>The property function returns the value of a JMeter property.
+<description><p>The property function returns the value of a BreakTest property.
     If the property value cannot be found, and no default has been supplied, it returns the property name.
     When supplying a default value, there is no need to provide a function name - the parameter can be set to null, and it will be ignored.
     </p>For example:<p>
@@ -851,7 +851,7 @@ The following variables are set before the script is executed:
 <li><code>log</code> - the <a href="https://www.slf4j.org/api/org/slf4j/Logger.html">Logger</a> for the groovy function (*)</li>
 <li><code>ctx</code> - <apilink href="org/apache/jmeter/threads/JMeterContext.html">JMeterContext</apilink> object</li>
 <li><code>vars</code> - <apilink href="org/apache/jmeter/threads/JMeterVariables.html">JMeterVariables</apilink> object</li>
-<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
+<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
 <li><code>threadName</code> - the threadName (String)</li>
 <li><code>sampler</code> - the current <apilink href="org/apache/jmeter/samplers/Sampler.html">Sampler</apilink>, if any</li>
 <li><code>prev</code> - the previous <apilink href="org/apache/jmeter/samplers/SampleResult.html">SampleResult</apilink>, if any</li>
@@ -888,12 +888,12 @@ Instead do the following, which can be cached: <source>${__groovy(vars.get("myVa
 Example:
 <dl>
 <dt><source>${__groovy(123*456)}</source></dt><dd>returns <code>56088</code></dd>
-<dt><source>${__groovy(vars.get("myVar").substring(0\,2))}</source></dt><dd>If var's value is <code>JMeter</code>, it will return <code>JM</code> as it runs <code>String.substring(0,2)</code>. Note
+<dt><source>${__groovy(vars.get("myVar").substring(0\,2))}</source></dt><dd>If var's value is <code>BreakTest</code>, it will return <code>JM</code> as it runs <code>String.substring(0,2)</code>. Note
 that <code>,</code> has been escaped to <code>\,</code> </dd>
 </dl>
 </p>
 <note>
-Remember to include any necessary quotes for text strings and JMeter variables that represent text strings.
+Remember to include any necessary quotes for text strings and BreakTest variables that represent text strings.
 </note>
 </component>
 
@@ -948,7 +948,7 @@ If omitted, <code>,</code> is used. Note that <code>,</code> would need to be sp
     Each time the function is called, the next match will be returned.
     At end of file, it will wrap around to the start.
     If no nodes matched, then the function will return the empty string,
-    and a warning message will be written to the JMeter log file.
+    and a warning message will be written to the BreakTest log file.
     <note>Note that the entire NodeList is held in memory.</note>
     </p>
     <p/>
@@ -965,11 +965,11 @@ If omitted, <code>,</code> is used. Note that <code>,</code> would need to be sp
 
 <component index="&sect-num;.5.16" name="__setProperty">
 <description>
-    <p>The setProperty function sets the value of a JMeter property.
+    <p>The setProperty function sets the value of a BreakTest property.
         The default return value from the function is the empty string,
         so the function call can be used anywhere functions are valid.</p>
         <p>The original value can be returned by setting the optional 3<sup>rd</sup> parameter to "<code>true</code>".</p>
-    <p>Properties are global to JMeter,
+    <p>Properties are global to BreakTest,
         so can be used to communicate between threads and thread groups</p>
     </description>
 
@@ -988,7 +988,7 @@ If omitted, <code>,</code> is used. Note that <code>,</code> would need to be sp
 
 <properties>
         <property name="Format" required="No">
-        The format to be passed to <a href="https://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>.
+        The format to be passed to <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>.
         The function supports various shorthand aliases, see below.
         If omitted, the function returns the current time in milliseconds since the epoch.
         </property>
@@ -1005,18 +1005,18 @@ The following shorthand aliases are provided:
 <li><code>YMD</code> = <code>yyyyMMdd</code></li>
 <li><code>HMS</code> = <code>HHmmss</code></li>
 <li><code>YMDHMS</code> = <code>yyyyMMdd-HHmmss</code></li>
-<li><code>USER1</code> = whatever is in the JMeter property <code>time.USER1</code></li>
-<li><code>USER2</code> = whatever is in the JMeter property <code>time.USER2</code></li>
+<li><code>USER1</code> = whatever is in the BreakTest property <code>time.USER1</code></li>
+<li><code>USER2</code> = whatever is in the BreakTest property <code>time.USER2</code></li>
 </ul>
-<p>The defaults can be changed by setting the appropriate JMeter property, e.g.
+<p>The defaults can be changed by setting the appropriate BreakTest property, e.g.
 <code>time.YMD=yyMMdd</code>
 </p>
 <p><source>${__time(dd/MM/yyyy,)}</source>  will return <code>21/01/2018</code> if ran on 21 january 2018</p>
 <p><source>${__time(YMD,)}</source>  will return <code>20180121</code> if ran on 21 january 2018</p>
 <p><source>${__time()}</source>  will return time in millis <code>1516540541624</code></p>
 <note>
- The format to be passed to used to be <a href="https://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html">SimpleDateFormat</a>,
- but that changed with JMeter 5.5 to <a href="https://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>.
+ The format to be passed to used to be <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/text/SimpleDateFormat.html">SimpleDateFormat</a>,
+ and now uses <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>.
  While they use mostly the same codes, they differ slightly. Most notable is probably the code <code>u</code>, that meant
  <em>day number of week</em> and is now interpreted as <em>year</em>.
 </note>
@@ -1048,7 +1048,7 @@ The following variables are made available to the script:
 <li><code>log</code> - the <a href="https://www.slf4j.org/api/org/slf4j/Logger.html">Logger</a> for the function</li>
 <li><code>ctx</code> - <apilink href="org/apache/jmeter/threads/JMeterContext.html">JMeterContext</apilink> object</li>
 <li><code>vars</code> - <apilink href="org/apache/jmeter/threads/JMeterVariables.html">JMeterVariables</apilink> object</li>
-<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
+<li><code>props</code> - JMeterProperties (class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) object</li>
 <li><code>threadName</code> - String containing the current thread name</li>
 <li><code>sampler</code> - current <apilink href="org/apache/jmeter/samplers/Sampler.html">Sampler</apilink> object (if any)</li>
 <li><code>sampleResult</code> - previous <apilink href="org/apache/jmeter/samplers/SampleResult.html">SampleResult</apilink> object (if any)</li>
@@ -1070,7 +1070,7 @@ i= 5 / 2;
 i.intValue(); // or use i.longValue()
 </source>
     </p>
-    <note>JMeter allows the expression to contain multiple statements.</note>
+    <note>BreakTest allows the expression to contain multiple statements.</note>
 </component>
 
 <component index="&sect-num;.5.20" name="__V">
@@ -1251,7 +1251,7 @@ For example, the string <source>${__urldecode(Word+%22school%22+is+%22%C3%A9cole
  <code>Word &quot;school&quot; is &quot;&eacute;cole&quot; in french</code>.
 </p>
     <p>
-    Uses Java class <a href="http://docs.oracle.com/javase/7/docs/api/java/net/URLDecoder.html">URLDecoder</a>.
+    Uses Java class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/net/URLDecoder.html">URLDecoder</a>.
     </p>
     </description>
 
@@ -1272,7 +1272,7 @@ For example, the string <source>${__urlencode(Word "school" is "école" in frenc
  <code>Word+%22school%22+is+%22%C3%A9cole%22+in+french</code>.
 </p>
     <p>
-    Uses Java class <a href="http://docs.oracle.com/javase/7/docs/api/java/net/URLEncoder.html">URLEncoder</a>.
+    Uses Java class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/net/URLEncoder.html">URLEncoder</a>.
     </p>
     </description>
 
@@ -1295,7 +1295,7 @@ For example, the string <source>${__urlencode(Word "school" is "école" in frenc
 
 <properties>
         <property name="File Name" required="Yes">Path to the file name.
-            (The path can be relative to the JMeter launch directory)
+            (The path can be relative to the BreakTest launch directory)
         </property>
         <property name="File encoding if not the platform default" required="No">
         The encoding to be used to read the file. If not specified, the platform default is used.
@@ -1398,7 +1398,7 @@ returns:
 <properties>
         <property name="Format" required="No">
         The format to be passed to DateTimeFormatter (for input data parsing and output formating).
-        See <a href="https://docs.oracle.com/javase/8/docs/api/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>
+        See <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/time/format/DateTimeFormatter.html">DateTimeFormatter</a>
         If omitted, the function uses milliseconds since epoch format.
         </property>
         <property name="Date to shift" required="No">
@@ -1409,7 +1409,7 @@ returns:
         <property name="value to shift" required="No">
         Indicate the specified amount of seconds, minutes, hours or days to shift according to a textual
         representation of a duration such as <code>PnDTnHnMn.nS</code>. See
-        <a href="https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-">Duration#parse(CharSequence)</a>.
+        <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/time/Duration.html#parse-java.lang.CharSequence-">Duration#parse(CharSequence)</a>.
         If ommitted, no shifting will be done.
         <ul>
         <li><code>PT20.345S</code> parses as 20.345 seconds</li>
@@ -1422,7 +1422,7 @@ returns:
         <property name="Locale to use for format" required="No">
         The string format of a locale. The language code must be lowercase. The country code must be uppercase.
         The separator must be an underscore (<code>_</code>). For example <code>en_EN</code>
-        See <a href="http://www.oracle.com/technetwork/java/javase/javase7locales-334809.html">supported locales on Java 7</a>.
+        See the Java documentation for supported locale formats.
         If omitted, by default the function uses the current locale from the JVM.
         </property>
         <property name="Name of variable" required="No">The name of the variable to set.</property>
@@ -1444,7 +1444,7 @@ returns:
         <property name="Algorithm" required="Yes">
             The algorithm to be used to encrypt
             For possible algorithms See MessageDigest in
-            <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/StandardNames.html">StandardNames</a>
+            <a href="https://docs.oracle.com/en/java/javase/21/docs/specs/security/standard-names.html">StandardNames</a>
             <ul>
                 <li>MD2</li>
                 <li>MD5</li>
@@ -1518,7 +1518,7 @@ returns:
     <description>
         <p>The change case function returns a string value which
         case has been changed following a specific mode.
-        Result can optionally be saved in a JMeter variable.</p>
+        Result can optionally be saved in a BreakTest variable.</p>
     </description>
     <properties>
     <property name="String to change case" required="Yes">The String
@@ -1574,7 +1574,7 @@ returns:
 <p>
 Most variables are set by calling functions or by test elements such as User Defined Variables;
 in which case the user has full control over the variable name that is used.
-However some variables are defined internally by JMeter. These are listed below.
+However some variables are defined internally by BreakTest. These are listed below.
 </p>
 <ul>
 <li><code>COOKIE_cookiename</code> - contains the cookie value (see <complink name="HTTP Cookie Manager" />)</li>
@@ -1586,21 +1586,21 @@ Note: this is updated after PostProcessors and Assertions have been run.
 </subsection>
 <subsection name="&sect-num;.6 Pre-defined Properties" anchor="predefinedprops">
 <p>
-The set of JMeter properties is initialised from the system properties defined when JMeter starts;
-additional JMeter properties are defined in <code>jmeter.properties</code>, <code>user.properties</code> or on the command line.
+The set of BreakTest properties is initialised from the system properties defined when BreakTest starts;
+additional BreakTest properties are defined in <code>jmeter.properties</code>, <code>user.properties</code> or on the command line.
 </p>
 <p>
-Some built-in properties are defined by JMeter. These are listed below.
+Some built-in properties are defined by BreakTest. These are listed below.
 For convenience, the <code>START</code> properties are also copied to variables with the same names.
 </p>
 <ul>
-<li><code>START.MS</code> - JMeter start time in milliseconds</li>
-<li><code>START.YMD</code> - JMeter start time as <code>yyyyMMdd</code></li>
-<li><code>START.HMS</code> - JMeter start time as <code>HHmmss</code></li>
+<li><code>START.MS</code> - BreakTest start time in milliseconds</li>
+<li><code>START.YMD</code> - BreakTest start time as <code>yyyyMMdd</code></li>
+<li><code>START.HMS</code> - BreakTest start time as <code>HHmmss</code></li>
 <li><code>TESTSTART.MS</code> - test start time in milliseconds</li>
 </ul>
 <p>
-Please note that the <code>START</code> variables / properties represent JMeter startup time, not the test start time.
+Please note that the <code>START</code> variables / properties represent BreakTest startup time, not the test start time.
 They are mainly intended for use in file names etc.
 </p>
 </subsection>

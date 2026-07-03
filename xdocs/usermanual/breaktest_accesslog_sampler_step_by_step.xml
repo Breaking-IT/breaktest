@@ -24,7 +24,7 @@
 <document prev="junitsampler_tutorial.html" next="breaktest_tutorial.html" id="$Id$">
 
 <properties>
-  <author email="dev@jmeter.apache.org">BreakTest developers</author>
+  <author email="info@breaking-it.nl">BreakTest developers</author>
   <title>Access log sampler Step-by-step</title>
 </properties>
 
@@ -33,7 +33,7 @@
 <section name="&sect-num;. Access log sampler Step-by-step" anchor="access-log-sampler">
 
 <p>
-This is a short tutorial on JMeter's access log sampler. The purpose of the Access Log Sampler
+This is a short tutorial on BreakTest's access log sampler. The purpose of the Access Log Sampler
 is to provide an easy way to simulate production traffic. There are several benefits to using access logs.
 </p>
 
@@ -80,7 +80,7 @@ to the access logs. This article does not cover the techniques for writing custo
 <subsection name="&sect-num;.1 Step-by-Step" anchor="step-by-step">
 
 <ol>
-  <li>Start JMeter</li>
+  <li>Start BreakTest</li>
   <li>Select <code>Test Plan</code></li>
   <li>Right click
       <menuchoice>

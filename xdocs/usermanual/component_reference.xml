@@ -49,7 +49,7 @@
 
 </p>
  <note>
- Several test elements use JMeter properties to control their behaviour.
+ Several test elements use BreakTest properties to control their behaviour.
  These properties are normally resolved when the class is loaded.
  This generally occurs before the test plan starts, so it's not possible to change the settings by using the <code><funclink name="__setProperty()"/></code> function.
 </note>
@@ -61,7 +61,7 @@
 <section name="&sect-num;.1 Samplers" anchor="samplers">
 <description>
     <p>
-    Samplers perform the actual work of JMeter.
+    Samplers perform the actual work of BreakTest.
     Each sampler (except <complink name="Flow Control Action" />) generates one or more sample results.
     The sample results have various attributes (success/fail, elapsed time, data size etc.) and can be viewed in the various listeners.
     </p>
@@ -81,7 +81,7 @@ Latency is set to the time it takes to login.
         <property name="Name" required="No">Descriptive name for this sampler that is shown in the tree.</property>
         <property name="Server Name or IP" required="Yes">Domain name or IP address of the FTP server.</property>
         <property name="Port" required="No">Port to use. If this is <code>&gt;0</code>, then this specific port is used,
-           otherwise JMeter uses the default FTP port.</property>
+           otherwise BreakTest uses the default FTP port.</property>
         <property name="Remote File:" required="Yes">File to retrieve or name of destination file to upload.</property>
         <property name="Local File:" required="Yes, if uploading (*)">File to upload, or destination for downloads (defaults to remote file name).</property>
         <property name="Local File Contents:" required="Yes, if uploading (*)">Provides the contents for the upload, overrides the Local File property.</property>
@@ -106,7 +106,7 @@ Latency is set to the time it takes to login.
 
 <description>
         <p>This sampler lets you send an HTTP/HTTPS request to a web server.  It
-        also lets you control whether or not JMeter parses HTML files for images and
+        also lets you control whether or not BreakTest parses HTML files for images and
         other embedded resources and sends HTTP requests to retrieve them.
         The following types of embedded resource are retrieved:</p>
         <ul>
@@ -128,7 +128,7 @@ Latency is set to the time it takes to login.
         HTTP Request.</p>
 
         <p>Or, instead of manually adding HTTP Requests, you may want to use
-        JMeter's <complink name="HTTP(S) Test Script Recorder"/> to create
+        BreakTest's <complink name="HTTP(S) Test Script Recorder"/> to create
         them.  This can save you time if you have a lot of HTTP requests or requests with many
         parameters.</p>
 
@@ -163,11 +163,11 @@ Latency is set to the time it takes to login.
          For normal logins (i.e. where the user enters login information in a form), you will need to work out what the form submit button does,
          and create an HTTP request with the appropriate method (usually <code>POST</code>)
          and the appropriate parameters from the form definition.
-         If the page uses HTTP, you can use the JMeter Proxy to capture the login sequence.
+         If the page uses HTTP, you can use the BreakTest Proxy to capture the login sequence.
         </p>
         <p>
         A separate SSL context is used for each thread.
-        If you want to use a single SSL context (not the standard behaviour of browsers), set the JMeter property:</p>
+        If you want to use a single SSL context (not the standard behaviour of browsers), set the BreakTest property:</p>
 <source>
 https.sessioncontext.shared=true
 </source>
@@ -176,13 +176,13 @@ https.sessioncontext.shared=true
 <source>
 httpclient.reset_state_on_thread_group_iteration=true
 </source>
-        JMeter defaults to the SSL protocol level TLS.
-        If the server needs a different level, e.g. <code>SSLv3</code>, change the JMeter property, for example:
+        BreakTest defaults to the SSL protocol level TLS.
+        If the server needs a different level, e.g. <code>SSLv3</code>, change the BreakTest property, for example:
 <source>
 https.default.protocol=SSLv3
 </source>
         <p>
-        JMeter also allows one to enable additional protocols, by changing the property <code>https.socket.protocols</code>.
+        BreakTest also allows one to enable additional protocols, by changing the property <code>https.socket.protocols</code>.
         </p>
         <p>If the request uses cookies, then you will also need an
         <complink name="HTTP Cookie Manager"/>.  You can
@@ -234,7 +234,7 @@ https.default.protocol=SSLv3
           also allowed: <code>COPY</code>, <code>LOCK</code>, <code>MKCOL</code>, <code>MOVE</code>,
           <code>PROPFIND</code>, <code>PROPPATCH</code>, <code>UNLOCK</code>, <code>REPORT</code>, <code>MKCALENDAR</code>,
           <code>SEARCH</code>.
-          <p>More methods can be pre-defined by using the JMeter property
+          <p>More methods can be pre-defined by using the BreakTest property
             <code>httpsampler.user_defined_methods</code>.</p>
         </property>
         <property name="Content Encoding" required="No">
@@ -243,14 +243,14 @@ https.default.protocol=SSLv3
         </property>
         <property name="Redirect Automatically" required="No">
         Sets the underlying http protocol handler to automatically follow redirects,
-        so they are not seen by JMeter, and thus will not appear as samples.
+        so they are not seen by BreakTest, and thus will not appear as samples.
         Should only be used for <code>GET</code> and <code>HEAD</code> requests.
         The HttpClient sampler will reject attempts to use it for <code>POST</code> or <code>PUT</code>.
         <note>Warning: see below for information on cookie and header handling.</note>
         </property>
         <property name="Follow Redirects" required="No">
         This only has any effect if "<code>Redirect Automatically</code>" is not enabled.
-        If set, the JMeter sampler will check if the response is a redirect and follow it if so.
+        If set, the BreakTest sampler will check if the response is a redirect and follow it if so.
         The initial redirect and further responses will appear as additional samples.
         The URL and data fields of the parent sample will be taken from the final (non-redirected)
         sample, but the parent byte count and elapsed time include all samples.
@@ -259,12 +259,12 @@ https.default.protocol=SSLv3
         <source>"Redirect requested but followRedirects is disabled"</source>
         This can be ignored.
         <br/>
-        JMeter will collapse paths of the form '<code>/../segment</code>' in
+        BreakTest will collapse paths of the form '<code>/../segment</code>' in
         both absolute and relative redirect URLs. For example <code>http://host/one/../two</code> will be collapsed into <code>http://host/two</code>.
-        If necessary, this behaviour can be suppressed by setting the JMeter property
+        If necessary, this behaviour can be suppressed by setting the BreakTest property
         <code>httpsampler.redirect.removeslashdotdot=false</code>
         </property>
-        <property name="Use KeepAlive" required="No">JMeter sets the Connection: <code>keep-alive</code> header. This does not work properly with the default HTTP implementation, as connection re-use is not under user-control.
+        <property name="Use KeepAlive" required="No">BreakTest sets the Connection: <code>keep-alive</code> header. This does not work properly with the default HTTP implementation, as connection re-use is not under user-control.
                   It does work with the Apache HttpComponents HttpClient implementations.</property>
         <property name="Use multipart/form-data for HTTP POST" required="No">
         Use a <code>multipart/form-data</code> or <code>application/x-www-form-urlencoded</code> post request
@@ -303,11 +303,11 @@ so unsafe characters may need to be encoded to avoid errors such as <code>URISyn
             <li>Unsafe characters: Some characters present the possibility of being misunderstood within URLs for various reasons. These characters should also always be encoded, example: '<code> </code>', '<code>&lt;</code>', '<code>&gt;</code>', '<code>#</code>', '<code>%</code>', &hellip;</li>
         </ul>
         </property>
-        <property name="File Path:" required="No">Name of the file to send.  If left blank, JMeter
-        does not send a file, if filled in, JMeter automatically sends the request as
+        <property name="File Path:" required="No">Name of the file to send.  If left blank, BreakTest
+        does not send a file, if filled in, BreakTest automatically sends the request as
         a multipart form request.
         <p>
-        When <code>MIME Type</code> is empty, JMeter will try to guess the MIME type of the given file.
+        When <code>MIME Type</code> is empty, BreakTest will try to guess the MIME type of the given file.
         </p>
         <p>
         If it is a <code>POST</code> or <code>PUT</code> or <code>PATCH</code> request and there is a single file whose '<code>Parameter name</code>'
@@ -322,7 +322,7 @@ so unsafe characters may need to be encoded to avoid errors such as <code>URISyn
         constructed from parameter values only, then the value of this field is used as the value of the
         <code>content-type</code> request header.
         </property>
-        <property name="Retrieve All Embedded Resources from HTML Files" required="No">Tell JMeter to parse the HTML file
+        <property name="Retrieve All Embedded Resources from HTML Files" required="No">Tell BreakTest to parse the HTML file
 and send HTTP/HTTPS requests for all images, Java applets, JavaScript files, CSSs, etc. referenced in the file.
         See below for more details.
         </property>
@@ -358,7 +358,7 @@ and send HTTP/HTTPS requests for all images, Java applets, JavaScript files, CSS
         <i>[Only for HTTP Request with HTTPClient implementation]</i> <br></br>
         This property is used to enable IP Spoofing.
         It overrides the default local IP address for this sample.
-        The JMeter host must have multiple IP addresses (i.e. IP aliases, network interfaces, devices).
+        The BreakTest host must have multiple IP addresses (i.e. IP aliases, network interfaces, devices).
         The value can be a host name, IP address, or a network interface device such as "<code>eth0</code>" or "<code>lo</code>" or "<code>wlan0</code>".<br></br>
         If the property <code>httpclient.localaddress</code> is defined, that is used for all HttpClient requests.
         </property>
@@ -380,7 +380,7 @@ and send HTTP/HTTPS requests for all images, Java applets, JavaScript files, CSS
 When using Automatic Redirection, cookies are only sent for the initial URL.
 This can cause unexpected behaviour for web-sites that redirect to a local server.
 E.g. if <code>www.example.com</code> redirects to <code>www.example.co.uk</code>.
-In this case the server will probably return cookies for both URLs, but JMeter will only see the cookies for the last
+In this case the server will probably return cookies for both URLs, but BreakTest will only see the cookies for the last
 host, i.e. <code>www.example.co.uk</code>. If the next request in the test plan uses <code>www.example.com</code>,
 rather than <code>www.example.co.uk</code>, it will not get the correct cookies.
 Likewise, Headers are sent for the initial request, and won't be sent for the redirect.
@@ -437,14 +437,14 @@ The <code>GET</code>, <code>DELETE</code> and <code>POST</code> methods have an 
 <code>GET</code>, <code>DELETE</code>, <code>PUT</code> and <code>PATCH</code> require a Content-Type.
 If not using a file, attach a Header Manager to the sampler and define the Content-Type there.
 </p>
-<p>JMeter scan responses from embedded resources. It uses the property <code>HTTPResponse.parsers</code>, which is a list of parser ids,
- e.g. <code>htmlParser</code>, <code>cssParser</code> and <code>wmlParser</code>. For each id found, JMeter checks two further properties:</p>
+<p>BreakTest scan responses from embedded resources. It uses the property <code>HTTPResponse.parsers</code>, which is a list of parser ids,
+ e.g. <code>htmlParser</code>, <code>cssParser</code> and <code>wmlParser</code>. For each id found, BreakTest checks two further properties:</p>
  <ul>
  <li><code>id.types</code> - a list of content types</li>
  <li><code>id.className</code> - the parser to be used to extract the embedded resources</li>
  </ul>
  <p>See <code>jmeter.properties</code> file for the details of the settings.
- If the <code>HTTPResponse.parser</code> property is not set, JMeter reverts to the previous behaviour,
+ If the <code>HTTPResponse.parser</code> property is not set, BreakTest reverts to the previous behaviour,
  i.e. only <code>text/html</code> responses will be scanned</p>
 <b>Emulating slow connections:</b><br></br>
 <p>
@@ -463,7 +463,7 @@ so the value may be greater than the number of bytes in the response content.</n
 <p>
 <b>Retry handling</b><br></br>
 By default retry has been set to 0 for HttpClient5, meaning no retry is attempted.<br/>
-The retry count can be overridden by setting the relevant JMeter property, for example:
+The retry count can be overridden by setting the relevant BreakTest property, for example:
 
 <source>
 httpclient5.retrycount=3
@@ -537,7 +537,7 @@ the additional variables for rows four, five and six will be removed.
 <properties>
         <property name="Name" required="No">Descriptive name for this sampler that is shown in the tree.</property>
         <property name="Variable Name of Pool declared in JDBC Connection Configuration" required="Yes">
-        Name of the JMeter variable that the connection pool is bound to.
+        Name of the BreakTest variable that the connection pool is bound to.
         This must agree with the '<code>Variable Name</code>' field of a <complink name="JDBC Connection Configuration"/>.
         </property>
         <property name="Query Type" required="Yes">Set this according to the statement type:
@@ -587,14 +587,14 @@ the additional variables for rows four, five and six will be removed.
         <property name="Parameter types" required="Yes, if a prepared or callable statement has parameters">
         Comma-separated list of SQL parameter types (e.g. <code>INTEGER</code>, <code>DATE</code>, <code>VARCHAR</code>, <code>DOUBLE</code>) or integer values of Constants. Those integer values can be used, when you use custom database types proposed by driver (For example <code>OracleTypes.CURSOR</code> could be represented by its integer value <code>-10</code>).<br/>
         These are defined as fields in the class <code>java.sql.Types</code>, see for example:<br/>
-        <a href="http://docs.oracle.com/javase/8/docs/api/java/sql/Types.html">Javadoc for java.sql.Types</a>.<br/>
-        <note>Note: JMeter will use whatever types are defined by the runtime JVM,
+        <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/sql/Types.html">Javadoc for java.sql.Types</a>.<br/>
+        <note>Note: BreakTest will use whatever types are defined by the runtime JVM,
         so if you are running on a different JVM, be sure to check the appropriate documentation</note>
         <b>If the callable statement has <code>INOUT</code> or <code>OUT</code> parameters, then these must be indicated by prefixing the
         appropriate parameter types, e.g. instead of "<code>INTEGER</code>", use "<code>INOUT INTEGER</code>".</b> <br/>
         If not specified, "<code>IN</code>" is assumed, i.e. "<code>DATE</code>" is the same as "<code>IN DATE</code>".
         <br></br>
-        If the type is not one of the fields found in <code>java.sql.Types</code>, JMeter also
+        If the type is not one of the fields found in <code>java.sql.Types</code>, BreakTest also
         accepts the corresponding integer number, e.g. since <code>OracleTypes.CURSOR == -10</code>, you can use "<code>INOUT -10</code>".
         <br></br>
         There must be as many types as there are placeholders in the statement.
@@ -624,7 +624,7 @@ which might be needed for use case or when certain drivers don't support timeout
         <link href="build-db-test-plan.html">Building a Database Test Plan</link>
         <complink name="JDBC Connection Configuration"/>
 </links>
-<note>Current Versions of JMeter use UTF-8 as the character encoding. Previously the platform default was used.</note>
+<note>BreakTest uses UTF-8 as the character encoding.</note>
 <note>Ensure Variable Name is unique across Test Plan.</note>
 </component>
 
@@ -633,10 +633,10 @@ which might be needed for use case or when certain drivers don't support timeout
 <description><p>This sampler lets you control a java class that implements the
 <code>org.apache.jmeter.protocol.java.sampler.JavaSamplerClient</code> interface.
 By writing your own implementation of this interface,
-you can use JMeter to harness multiple threads, input parameter control, and
+you can use BreakTest to harness multiple threads, input parameter control, and
 data collection.</p>
 <p>The pull-down menu provides the list of all such implementations found by
-JMeter in its classpath.  The parameters can then be specified in the
+BreakTest in its classpath.  The parameters can then be specified in the
 table below - as defined by your implementation.  Two simple examples (<code>JavaTest</code> and <code>SleepTest</code>) are provided.
 </p>
 <p>
@@ -647,7 +647,7 @@ The fields allow variables to be used, so the values of these can readily be see
 </description>
 
 <note>If the method <code>teardownTest</code> is not overridden by a subclass of <code><apilink href="org/apache/jmeter/protocol/java/sampler/AbstractJavaSamplerClient.html">AbstractJavaSamplerClient</apilink></code>, its <code>teardownTest</code> method will not be called.
-This reduces JMeter memory requirements.
+This reduces BreakTest memory requirements.
 This will not have any impact on existing Test plans.
 </note>
 <note>The Add/Delete buttons don't serve any purpose at present.</note>
@@ -761,7 +761,7 @@ This will not have any impact on existing Test plans.
   <properties>
     <property name="Name" required="No">Descriptive name for this sampler that is shown in the tree.</property>
     <property name="Server Name or IP" required="Yes">Domain name or IP address of the LDAP server.
-      JMeter assumes the LDAP server is listening on the default port (<code>389</code>).</property>
+      BreakTest assumes the LDAP server is listening on the default port (<code>389</code>).</property>
     <property name="Port" required="Yes">Port to connect to (default is <code>389</code>).</property>
     <property name="root DN" required="Yes">Base DN to use for LDAP operations</property>
     <property name="Username" required="Usually">LDAP server username.</property>
@@ -808,7 +808,7 @@ This will not have any impact on existing Test plans.
           <property name="Name" required="No">Descriptive name for this sampler that is shown in the tree.</property>
           <property name="Servername" required="Yes">The name (or IP-address) of the LDAP server.</property>
           <property name="Port" required="No">The port number that the LDAP server is listening to. If this is omitted
-            JMeter assumes the LDAP server is listening on the default port(389).</property>
+            BreakTest assumes the LDAP server is listening on the default port(389).</property>
           <property name="DN" required="No">The distinguished name of the base object that will be used for any subsequent operation.
             It can be used as a starting point for all operations. You cannot start any operation on a higher level than this DN!</property>
           <property name="Username" required="No">Full distinguished name of the user as which you want to bind.</property>
@@ -1015,7 +1015,7 @@ This call will have the following impact:
     <li>SampleResult will not be delivered to SampleListeners like View Results Tree, Summariser ...</li>
     <li>SampleResult will not be evaluated in Assertions nor PostProcessors</li>
     <li>SampleResult will be evaluated to computing last sample status (${JMeterThread.last_sample_ok}),
-    and ThreadGroup "Action to be taken after a Sampler error" (since JMeter 5.4)</li>
+    and ThreadGroup "Action to be taken after a Sampler error"</li>
 </ul>
 </note>
 </p>
@@ -1024,10 +1024,10 @@ The JSR223 test elements have a feature (compilation) that can significantly inc
 To benefit from this feature:
 </p>
 <ul>
-    <li>Use Script files instead of inlining them. This will make JMeter compile them if this feature is available on ScriptEngine and cache them.</li>
+    <li>Use Script files instead of inlining them. This will make BreakTest compile them if this feature is available on ScriptEngine and cache them.</li>
     <li>Or Use Script Text and check <code>Cache compiled script if available</code> property.
-    <note>When using this feature, ensure your script code does not use JMeter variables or JMeter function calls directly in script code as caching would only cache first replacement. Instead use script parameters.</note>
-    <note>To benefit from caching and compilation, the language engine used for scripting must implement JSR223 <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)</note>
+    <note>When using this feature, ensure your script code does not use BreakTest variables or BreakTest function calls directly in script code as caching would only cache first replacement. Instead use script parameters.</note>
+    <note>To benefit from caching and compilation, the language engine used for scripting must implement JSR223 <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)</note>
     <note>When using Groovy as scripting language and not checking <code>Cache compiled script if available</code> (while caching is recommended), you should set this JVM Property <code>-Dgroovy.use.classvalue=true</code>
         due to a Groovy Memory leak as of version 2.4.6, see:
         <ul>
@@ -1038,7 +1038,7 @@ To benefit from this feature:
     </note>
     </li>
 </ul>
-Cache size is controlled by the following JMeter property (<code>jmeter.properties</code>):
+Cache size is controlled by the following BreakTest property (<code>jmeter.properties</code>):
 <source>jsr223.compiled_scripts_cache_size=100</source>
 <note>The interpreter is not saved between invocations.</note>
 <note>
@@ -1046,7 +1046,7 @@ JSR223 Test Elements using Script file or Script text + checked <code>Cache comp
 </note>
 </description>
 <note>
-JMeter processes function and variable references before passing the script field to the interpreter,
+BreakTest processes function and variable references before passing the script field to the interpreter,
 so the references will only be resolved once.
 Variable and function references in script files will be passed
 verbatim to the interpreter, which is likely to cause a syntax error.
@@ -1058,14 +1058,14 @@ props.put("PROP1","1234");</source>
     <property name="Name" required="No">Descriptive name for this sampler that is shown in the tree.</property>
     <property name="Scripting Language" required="Yes">Name of the JSR223 scripting language to be used.
       <note>There are other languages supported than those that appear in the drop-down list.
-        Others may be available if the appropriate jar is installed in the JMeter lib directory.<br/>
+        Others may be available if the appropriate jar is installed in the BreakTest lib directory.<br/>
         Notice that some languages such as Velocity may use a different syntax for JSR223 variables,
         e.g. <source>$log.debug("Hello " + $vars.get("a"));</source> for Velocity.
       </note>
     </property>
     <property name="Script File" required="No">Name of a file to be used as a JSR223 script, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property</property>
     <property name="Parameters" required="No">List of parameters to be passed to the script file or the script.</property>
-    <property name="Cache compiled script if available" required="No">If checked (advised) and the language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not), JMeter will compile the Script and cache it using its MD5 hash as unique cache key</property>
+    <property name="Cache compiled script if available" required="No">If checked (advised) and the language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not), BreakTest will compile the Script and cache it using its MD5 hash as unique cache key</property>
     <property name="Script" required="Yes (unless script file is provided)">Script to be passed to JSR223 language</property>
 </properties>
 <p>
@@ -1089,7 +1089,7 @@ Note that these are JSR223 variables - i.e. they can be used directly in the scr
 vars.put("VAR2","value");
 vars.remove("VAR3");
 vars.putObject("OBJ1",new Object());</source></li>
-<li><code>props</code> - JMeterProperties  (class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g.
+<li><code>props</code> - JMeterProperties  (class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g.
   <source>props.get("START.HMS");
 props.put("PROP1","1234");</source></li>
 <li><code>OUT</code> - System.out - e.g. <code>OUT.println("message")</code></li>
@@ -1227,13 +1227,13 @@ Currently the only way to changes these is via the <apilink href="org/apache/jme
         numerous JMS servers on the market and several open source options.
         </p>
         <br></br>
-<note>JMeter does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
+<note>BreakTest does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
     </description>
 <properties>
   <property name="Name" required="">Descriptive name for this element that is shown in the tree.</property>
   <property name="use JNDI properties file" required="Yes">use <code>jndi.properties</code>.
-  Note that the file must be on the classpath - e.g. by updating the <code>user.classpath</code> JMeter property.
-  If this option is not selected, JMeter uses the "<code>JNDI Initial Context Factory</code>" and "<code>Provider URL</code>" fields
+  Note that the file must be on the classpath - e.g. by updating the <code>user.classpath</code> BreakTest property.
+  If this option is not selected, BreakTest uses the "<code>JNDI Initial Context Factory</code>" and "<code>Provider URL</code>" fields
   to create the connection.
   </property>
   <property name="JNDI Initial Context Factory" required="No">Name of the context factory</property>
@@ -1255,7 +1255,7 @@ Currently the only way to changes these is via the <apilink href="org/apache/jme
   <property name="Number of samples to aggregate" required="Yes">Number of samples to aggregate</property>
   <property name="Message source" required="Yes">Where to obtain the message:
   <dl>
-    <dt><code>From File</code></dt><dd>means the referenced file will be read and reused by all samples. If file name changes it is reloaded since JMeter 3.0</dd>
+    <dt><code>From File</code></dt><dd>means the referenced file will be read and reused by all samples. If the file name changes, it is reloaded.</dd>
     <dt><code>Random File from folder specified below</code></dt><dd>means a random file will be selected from folder specified below, this folder must contain either files with extension <code>.dat</code> for Bytes Messages, or files with extension <code>.txt</code> or <code>.obj</code> for Object or Text messages</dd>
     <dt><code>Text area</code></dt><dd>The Message to use either for Text or Object message</dd>
   </dl>
@@ -1280,7 +1280,7 @@ Currently the only way to changes these is via the <apilink href="org/apache/jme
 
 </properties>
 <p>
-For the MapMessage type, JMeter reads the source as lines of text.
+For the MapMessage type, BreakTest reads the source as lines of text.
 Each line must have 3 fields, delimited by commas.
 The fields are:</p>
 <ul>
@@ -1288,7 +1288,7 @@ The fields are:</p>
 <li>Object class name, e.g. "<code>String</code>" (assumes <code>java.lang</code> package if not specified)</li>
 <li>Object string value</li>
 </ul>
-For each entry, JMeter adds an Object with the given name.
+For each entry, BreakTest adds an Object with the given name.
 The value is derived by creating an instance of the class, and using the <code>valueOf(String)</code> method to convert the value if necessary.
 For example:
 <source>
@@ -1334,13 +1334,13 @@ The following table shows some values which may be useful when configuring JMS:
         numerous JMS servers on the market and several open source options.
         </p>
         <br></br>
-<note>JMeter does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
+<note>BreakTest does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
     </description>
 <properties>
   <property name="Name" required="">Descriptive name for this element that is shown in the tree.</property>
   <property name="use JNDI properties file" required="Yes">use <code>jndi.properties</code>.
-  Note that the file must be on the classpath - e.g. by updating the <code>user.classpath</code> JMeter property.
-  If this option is not selected, JMeter uses the "<code>JNDI Initial Context Factory</code>" and "<code>Provider URL</code>" fields
+  Note that the file must be on the classpath - e.g. by updating the <code>user.classpath</code> BreakTest property.
+  If this option is not selected, BreakTest uses the "<code>JNDI Initial Context Factory</code>" and "<code>Provider URL</code>" fields
   to create the connection.
   </property>
   <property name="JNDI Initial Context Factory" required="No">Name of the context factory</property>
@@ -1373,9 +1373,9 @@ The following table shows some values which may be useful when configuring JMS:
   </dl>
   </property>
   <property name="Stop between samples" required="Yes">
-  If selected, then JMeter calls <code>Connection.stop()</code> at the end of each sample (and calls <code>start()</code> before each sample).
+  If selected, then BreakTest calls <code>Connection.stop()</code> at the end of each sample (and calls <code>start()</code> before each sample).
   This may be useful in some cases where multiple samples/threads have connections to the same queue.
-  If not selected, JMeter calls <code>Connection.start()</code> at the start of the thread, and does not call <code>stop()</code> until the end of the thread.
+  If not selected, BreakTest calls <code>Connection.start()</code> at the start of the thread, and does not call <code>stop()</code> until the end of the thread.
   </property>
   <property name="Separator" required="No">
   Separator used to separate messages when there is more than one (related to setting Number of samples to aggregate).
@@ -1400,12 +1400,12 @@ The following table shows some values which may be useful when configuring JMS:
         <code>clear</code> clears the queue, i.e. remove all messages from the queue.<br></br>
         </p>
         <p>
-        JMeter use the properties <code>java.naming.security.[principal|credentials]</code> - if present -
-        when creating the Queue Connection. If this behaviour is not desired, set the JMeter property
+        BreakTest use the properties <code>java.naming.security.[principal|credentials]</code> - if present -
+        when creating the Queue Connection. If this behaviour is not desired, set the BreakTest property
         <code>JMSSampler.useSecurity.properties=false</code>
         </p>
         <br></br>
-<note>JMeter does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
+<note>BreakTest does not include any JMS implementation jar; this must be downloaded from the JMS provider and put in the lib directory</note>
     </description>
 <properties>
   <property name="Name" required="">Descriptive name for this element that is shown in the tree.</property>
@@ -1515,16 +1515,16 @@ The current implementation supports standard JUnit convention and extensions. It
 includes extensions like <code>oneTimeSetUp</code> and <code>oneTimeTearDown</code>. The sampler works like the
 <complink name="Java Request" /> with some differences.
 <ul>
-<li>rather than use JMeter's test interface, it scans the jar files for classes extending JUnit's <code>TestCase</code> class. That includes any class or subclass.</li>
+<li>rather than use BreakTest's test interface, it scans the jar files for classes extending JUnit's <code>TestCase</code> class. That includes any class or subclass.</li>
 <li>JUnit test jar files should be placed in <code>jmeter/lib/junit</code> instead of <code>/lib</code> directory.
 You can also use the "<code>user.classpath</code>" property to specify where to look for <code>TestCase</code> classes.</li>
 <li>JUnit sampler does not use name/value pairs for configuration like the <complink name="Java Request" />. The sampler assumes <code>setUp</code> and <code>tearDown</code> will configure the test correctly.</li>
 <li>The sampler measures the elapsed time only for the test method and does not include <code>setUp</code> and <code>tearDown</code>.</li>
-<li>Each time the test method is called, JMeter will pass the result to the listeners.</li>
-<li>Support for <code>oneTimeSetUp</code> and <code>oneTimeTearDown</code> is done as a method. Since JMeter is multi-threaded, we cannot call <code>oneTimeSetUp</code>/<code>oneTimeTearDown</code> the same way Maven does it.</li>
+<li>Each time the test method is called, BreakTest will pass the result to the listeners.</li>
+<li>Support for <code>oneTimeSetUp</code> and <code>oneTimeTearDown</code> is done as a method. Since BreakTest is multi-threaded, we cannot call <code>oneTimeSetUp</code>/<code>oneTimeTearDown</code> the same way Maven does it.</li>
 <li>The sampler reports unexpected exceptions as errors.
-There are some important differences between standard JUnit test runners and JMeter's
-implementation. Rather than make a new instance of the class for each test, JMeter
+There are some important differences between standard JUnit test runners and BreakTest's
+implementation. Rather than make a new instance of the class for each test, BreakTest
 creates 1 instance per sampler and reuses it.
 This can be changed with checkbox "<code>Create a new instance per sample</code>".</li>
 </ul>
@@ -1545,16 +1545,16 @@ public class myTestCase {
 }
 </source>
 </example>
-By default, JMeter will provide some default values for the success/failure code and message. Users should define a set of unique success and failure codes and use them uniformly across all tests.
+By default, BreakTest will provide some default values for the success/failure code and message. Users should define a set of unique success and failure codes and use them uniformly across all tests.
 <note>
 <h3>General Guidelines</h3>
 If you use <code>setUp</code> and <code>tearDown</code>, make sure the methods are declared public. If you do not, the test may not run properly.
 <br></br>
-Here are some general guidelines for writing JUnit tests so they work well with JMeter. Since JMeter runs multi-threaded, it is important to keep certain things in mind.
+Here are some general guidelines for writing JUnit tests so they work well with BreakTest. Since BreakTest runs multi-threaded, it is important to keep certain things in mind.
 <ul>
 <li>Write the <code>setUp</code> and <code>tearDown</code> methods so they are thread safe. This generally means avoid using static members.</li>
 <li>Make the test methods discrete units of work and not long sequences of actions. By keeping the test method to a discrete operation, it makes it easier to combine test methods to create new test plans.</li>
-<li>Avoid making test methods depend on each other. Since JMeter allows arbitrary sequencing of test methods, the runtime behavior is different than the default JUnit behavior.</li>
+<li>Avoid making test methods depend on each other. Since BreakTest allows arbitrary sequencing of test methods, the runtime behavior is different than the default JUnit behavior.</li>
 <li>If a test method is configurable, be careful about where the properties are stored. Reading the properties from the Jar file is recommended.</li>
 <li>Each sampler creates an instance of the test class, so write your test so the setup happens in <code>oneTimeSetUp</code> and <code>oneTimeTearDown</code>.</li>
 </ul>
@@ -1592,7 +1592,7 @@ The following JUnit4 annotations are recognised:
 <dt><code>@BeforeClass</code>, <code>@AfterClass</code></dt><dd>treated as test methods so they can be run independently as required</dd>
 </dl>
 <note>
-Note that JMeter currently runs the test methods directly, rather than leaving it to JUnit.
+Note that BreakTest currently runs the test methods directly, rather than leaving it to JUnit.
 This is to allow the <code>setUp</code>/<code>tearDown</code> methods to be excluded from the sample time.
 As a consequence, the sampler time excludes the time taken to call <code>setUp</code>/<code>tearDown</code> methods and their annotation based alternatives.
 </note>
@@ -1662,9 +1662,9 @@ For variable delays, set the pause time to zero, and add a Timer as a child.</p>
 The "<code>Stop</code>" action stops the thread or test after completing any samples that are in progress.
 The "<code>Stop Now</code>" action stops the test without waiting for samples to complete; it will interrupt any active samples.
 If some threads fail to stop within the 5 second time-limit, a message will be displayed in GUI mode.
-You can try using the <code>Stop</code> command to see if this will stop the threads, but if not, you should exit JMeter.
-In CLI mode, JMeter will exit if some threads fail to stop within the 5 second time limit.
-<note>The time to wait can be changed using the JMeter property <code>jmeterengine.threadstop.wait</code>. The time is given in milliseconds.</note>
+You can try using the <code>Stop</code> command to see if this will stop the threads, but if not, you should exit BreakTest.
+In CLI mode, BreakTest will exit if some threads fail to stop within the 5 second time limit.
+<note>The time to wait can be changed using the BreakTest property <code>jmeterengine.threadstop.wait</code>. The time is given in milliseconds.</note>
 </p>
 </description>
 <properties>
@@ -1777,9 +1777,9 @@ If omitted, output is captured and returned as the response data.</property>
 <property name="Standard error (stderr)" required="No">Name of output file for standard error (<code>STDERR</code>).
 If omitted, output is captured and returned as the response data.</property>
 <property name="Check Return Code" required="No">If checked, sampler will compare return code with <code>Expected Return Code</code>.</property>
-<property name="Expected Return Code" required="No">Expected return code for System Call, required if "<code>Check Return Code</code>" is checked. Note 500 is used as an error indicator in JMeter so you should not use it.</property>
+<property name="Expected Return Code" required="No">Expected return code for System Call, required if "<code>Check Return Code</code>" is checked. Note 500 is used as an error indicator in BreakTest so you should not use it.</property>
 <property name="Timeout" required="No">Timeout for command in milliseconds, defaults to <code>0</code>, which means <em>no</em> timeout.
-If the timeout expires before the command finishes, JMeter will attempt to kill the OS process.
+If the timeout expires before the command finishes, BreakTest will attempt to kill the OS process.
 </property>
 </properties>
 </component>
@@ -1847,8 +1847,8 @@ storage device.</p>
 <p><a href="../demos/SimpleTestPlan.jmx">Download</a> this example (see Figure 6).
 In this example, we created a Test Plan that sends two Ant HTTP requests and two
 Log4J HTTP requests.  We grouped the Ant and Log4J requests by placing them inside
-Simple Logic Controllers.  Remember, the Simple Logic Controller has no effect on how JMeter
-processes the controller(s) you add to it.  So, in this example, JMeter sends the requests in the
+Simple Logic Controllers.  Remember, the Simple Logic Controller has no effect on how BreakTest
+processes the controller(s) you add to it.  So, in this example, BreakTest sends the requests in the
 following order: Ant Home Page, Ant News Page, Log4J Home Page, Log4J History Page.</p>
 <p>
 Note, the File Reporter
@@ -1859,12 +1859,12 @@ is configured to store the results in a file named "<code>simple-test.dat</code>
 </component>
 
 <component name="Loop Controller" index="&sect-num;.2.2" anchor="loop" width="326" height="114" screenshot="logic-controller/loop-controller.png">
-<description><p>If you add Generative or Logic Controllers to a Loop Controller, JMeter will
+<description><p>If you add Generative or Logic Controllers to a Loop Controller, BreakTest will
 loop through them a certain number of times, in addition to the loop value you
 specified for the Thread Group.  For example, if you add one HTTP Request to a
 Loop Controller with a loop count of two, and configure the Thread Group loop
-count to three, JMeter will send a total of <code>2 * 3 = 6</code> HTTP Requests.
-<note>JMeter will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
+count to three, BreakTest will send a total of <code>2 * 3 = 6</code> HTTP Requests.
+<note>BreakTest will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
 example, if your Loop Controller is named LC, then you can access the looping index through <code>${__jm__LC__idx}</code>.
 Index starts at 0</note>
 </p></description>
@@ -1895,7 +1895,7 @@ one. Instead of letting the Thread Group control the looping, we used a Loop
 Controller.  You can see that we added one HTTP Request to the Thread Group and
 another HTTP Request to a Loop Controller.  We configured the Loop Controller
 with a loop count value of five.</p>
-<p>JMeter will send the requests in the following order: Home Page, News Page,
+<p>BreakTest will send the requests in the following order: Home Page, News Page,
 News Page, News Page, News Page, and News Page.</p>
 <note>Note, the File Reporter
 is configured to store the results in a file named "<code>loop-test.dat</code>" in the current directory.</note>
@@ -1906,7 +1906,7 @@ is configured to store the results in a file named "<code>loop-test.dat</code>" 
 
 <component name="Once Only Controller" index="&sect-num;.2.3" anchor="once_only_controller" width="330" height="78" screenshot="logic-controller/once-only-controller.png">
 <description>
-<p>The Once Only Logic Controller tells JMeter to process the controller(s) inside it only once per Thread, and pass over any requests under it
+<p>The Once Only Logic Controller tells BreakTest to process the controller(s) inside it only once per Thread, and pass over any requests under it
 during further iterations through the test plan.</p>
 
 <p>The Once Only Controller will now execute always during the first iteration of any looping parent controller.
@@ -1927,10 +1927,10 @@ to login once to establish a session.</p>
 <p><a href="../demos/OnceOnlyTestPlan.jmx">Download</a> this example (see Figure 5).
 In this example, we created a Test Plan that has two threads that send HTTP request.
 Each thread sends one request to the Home Page, followed by three requests to the Bug Page.
-Although we configured the Thread Group to iterate three times, each JMeter thread only
+Although we configured the Thread Group to iterate three times, each BreakTest thread only
 sends one request to the Home Page because this request lives inside a Once Only Controller.</p>
 <figure width="233" height="138" image="logic-controller/once-only-example.png">Figure 5. Once Only Controller Example</figure>
-<p>Each JMeter thread will send the requests in the following order: Home Page, Bug Page,
+<p>Each BreakTest thread will send the requests in the following order: Home Page, Bug Page,
 Bug Page, Bug Page.</p>
 <p>Note, the File Reporter is configured to store the results in a file named "<code>loop-test.dat</code>" in the current directory.</p>
 
@@ -1938,7 +1938,7 @@ Bug Page, Bug Page.</p>
 </component>
 
 <component name="Interleave Controller" index="&sect-num;.2.4"  width="626" height="127" screenshot="logic-controller/interleave-controller.png">
-<description><p>If you add Generative or Logic Controllers to an Interleave Controller, JMeter will alternate among each of the
+<description><p>If you add Generative or Logic Controllers to an Interleave Controller, BreakTest will alternate among each of the
 other controllers for each loop iteration. </p>
 </description>
 <properties>
@@ -1952,15 +1952,15 @@ other controllers for each loop iteration. </p>
 <!--
 For example, if you
 add three HTTP Requests to an Interleave Controller and configure the Thread
-Group to loop, here is the sequence in which JMeter sends the requests:
+Group to loop, here is the sequence in which BreakTest sends the requests:
 </p>
 <table border="1" cellspacing="0" cellpadding="4">
 <tr valign="top"><th>Loop Iteration</th><th>Description</th></tr>
-<tr valign="top"><td>1</td><td>JMeter sends the first HTTP Request.</td></tr>
-<tr valign="top"><td>2</td><td>JMeter sends the second HTTP Request.</td></tr>
-<tr valign="top"><td>3</td><td>JMeter sends the third HTTP Request.</td></tr>
-<tr valign="top"><td>4</td><td>Because there are no more requests in controller, JMeter start over and sends the first HTTP Request.</td></tr>
-<tr valign="top"><td>5</td><td>JMeter sends the second HTTP Request.</td></tr>
+<tr valign="top"><td>1</td><td>BreakTest sends the first HTTP Request.</td></tr>
+<tr valign="top"><td>2</td><td>BreakTest sends the second HTTP Request.</td></tr>
+<tr valign="top"><td>3</td><td>BreakTest sends the third HTTP Request.</td></tr>
+<tr valign="top"><td>4</td><td>Because there are no more requests in controller, BreakTest start over and sends the first HTTP Request.</td></tr>
+<tr valign="top"><td>5</td><td>BreakTest sends the second HTTP Request.</td></tr>
 <tr valign="top"><td>(and so on)</td><td>&hellip;</td></tr>
 </table>
 -->
@@ -1968,19 +1968,19 @@ Group to loop, here is the sequence in which JMeter sends the requests:
 
 <p><a href="../demos/InterleaveTestPlan.jmx">Download</a> this example (see Figure 1).  In this example,
 we configured the Thread Group to have two threads and a loop count of five, for a total of ten
-requests per thread. See the table below for the sequence JMeter sends the HTTP Requests.</p>
+requests per thread. See the table below for the sequence BreakTest sends the HTTP Requests.</p>
 
 <figure width="231" height="153" image="logic-controller/interleave.png">Figure 1 - Interleave Controller Example 1</figure>
 
 <table border="1" cellspacing="0" cellpadding="4">
-<tr valign="top"><th>Loop Iteration</th><th>Each JMeter Thread Sends These HTTP Requests</th></tr>
+<tr valign="top"><th>Loop Iteration</th><th>Each BreakTest Thread Sends These HTTP Requests</th></tr>
 <tr valign="top"><td>1</td><td>News Page</td></tr>
 <tr valign="top"><td>1</td><td>Log Page</td></tr>
 <tr valign="top"><td>2</td><td>FAQ Page</td></tr>
 <tr valign="top"><td>2</td><td>Log Page</td></tr>
 <tr valign="top"><td>3</td><td>Gump Page</td></tr>
 <tr valign="top"><td>3</td><td>Log Page</td></tr>
-<tr valign="top"><td>4</td><td>Because there are no more requests in the controller,<br> </br> JMeter starts over and sends the first HTTP Request, which is the News Page.</td></tr>
+<tr valign="top"><td>4</td><td>Because there are no more requests in the controller,<br> </br> BreakTest starts over and sends the first HTTP Request, which is the News Page.</td></tr>
 <tr valign="top"><td>4</td><td>Log Page</td></tr>
 <tr valign="top"><td>5</td><td>FAQ Page</td></tr>
 <tr valign="top"><td>5</td><td>Log Page</td></tr>
@@ -2001,7 +2001,7 @@ two Interleave Controllers inside of it.</p>
 </figure>
 
 <p>The outer Interleave Controller alternates between the
-two inner ones.  Then, each inner Interleave Controller alternates between each of the HTTP Requests.  Each JMeter
+two inner ones.  Then, each inner Interleave Controller alternates between each of the HTTP Requests.  Each BreakTest
 thread will send the requests in the following order: Home Page, Interleaved, Bug Page, Interleaved, CVS Page, Interleaved, and FAQ Page, Interleaved.</p>
 <p>Note, the File Reporter is configured to store the results in a file named "<code>interleave-test2.dat</code>" in the current directory.</p>
 
@@ -2160,7 +2160,7 @@ Please refer to the <complink name="Constant Throughput Timer"/> for an element 
     <description>
 <p>
 The While Controller runs its children until the condition is "<code>false</code>".
-<note>JMeter will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
+<note>BreakTest will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
 example, if your While Controller is named WC, then you can access the looping index through <code>${__jm__WC__idx}</code>.
 Index starts at 0</note>
 </p>
@@ -2240,7 +2240,7 @@ So for example when the input variable has the name <code>inputVar</code>, the f
 When the return variable is given as "<code>returnVar</code>", the collection of samplers and controllers under the ForEach controller will be executed <code>4</code> consecutive times,
 with the return variable having the respective above values, which can then be used in the samplers.
 </p>
-<p><note>JMeter will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
+<p><note>BreakTest will expose the looping index as a variable named <code>__jm__&lt;Name of your element&gt;__idx</code>. So for
 example, if your Loop Controller is named FEC, then you can access the looping index through <code>${__jm__FEC__idx}</code>.
 Index starts at 0</note></p>
 <p>
@@ -2534,7 +2534,7 @@ before loading the file.
 When reading from CSV results files, the header (if present) is used to determine which fields are present.
 <b>In order to interpret a header-less CSV file correctly, the appropriate properties must be set in <code>jmeter.properties</code>.</b>
 <note>
-XML files written by JMeter have version 1.0 declared in header while actual file is serialized with 1.1 rules.
+XML files written by BreakTest have version 1.0 declared in header while actual file is serialized with 1.1 rules.
 (This is done for historical compatibility reasons; see <bugzilla>59973</bugzilla> and <bugzilla>58679</bugzilla>)
 This causes strict XML parsers to fail. Consider using non-strict XML parsers to read JTL files.
 </note>
@@ -2562,7 +2562,7 @@ Less memory is now needed, especially if most samples only take a second or two 
 </ul>
 <p>To minimise the amount of memory needed, use the Simple Data Writer, and use the CSV format.</p>
 <note>
-JMeter variables can be saved to the output files.
+BreakTest variables can be saved to the output files.
 This can only be specified using a property.
 See the <a href="listeners.html#sample_variables">Listener Sample Variables</a> for details
 </note>
@@ -2587,8 +2587,8 @@ by using the <code>-l</code> command-line flag.
         <property name="Filename" required="No">Name of the file containing sample results.
         The file name can be specified using either a relative or an absolute path name.
         Relative paths are resolved relative to the current working directory (which defaults to the <code>bin/</code> directory).
-        JMeter also support paths relative to the directory containing the current test plan (JMX file).
-        If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> JMeter property),
+        BreakTest also support paths relative to the directory containing the current test plan (JMX file).
+        If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> BreakTest property),
         then the path is assumed to be relative to the JMX file location.
         </property>
         <property name="Browse &hellip;" required="No">File Browse Button</property>
@@ -2623,11 +2623,11 @@ during Test Plan debugging and Validation.
 the bottom of the graph, the current sample (black), the current average of all samples (blue), the
 current standard deviation (red), and the current throughput rate (green) are displayed in milliseconds.</p>
 <p>The throughput number represents the actual number of requests/minute the server handled.  This calculation
-includes any delays you added to your test and JMeter's own internal processing time.  The advantage
+includes any delays you added to your test and BreakTest's own internal processing time.  The advantage
 of doing the calculation like this is that this number represents something
 real - your server in fact handled that many requests per minute, and you can increase the number of threads
 and/or decrease the delays to discover your server's maximum throughput.  Whereas if you made calculations
-that factored out delays and JMeter's processing, it would be unclear what you could conclude from that
+that factored out delays and BreakTest's processing, it would be unclear what you could conclude from that
 number.</p></description>
 <p>The following table briefly describes the items on the graph.
 Further details on the precise meaning of the statistical terms can be found on the web
@@ -2669,7 +2669,7 @@ Use it only for either functional testing or during Test Plan debugging and Vali
 The View Results Tree shows a tree of all sample responses, allowing you to view the
 response for any sample.  In addition to showing the response, you can see the time it took to get
 this response, and some response codes.
-Note that the Request panel only shows the headers added by JMeter.
+Note that the Request panel only shows the headers added by BreakTest.
 It does not show any headers (such as <code>Host</code>) that may be added by the HTTP protocol implementation.
 <p>
 There are several ways to view the response, selectable by a drop-down box at the bottom of the left hand panel.</p>
@@ -2681,7 +2681,7 @@ There are several ways to view the response, selectable by a drop-down box at th
 The "<code>Test</code>" button allows the user to apply the CSS/JQuery to the upper panel and the results
 will be displayed in the lower panel.<br/>
 The CSS/JQuery expression engine can be JSoup or Jodd, syntax of these 2 implementation differs slightly.<br/>
-For example, the Selector <code>a[class=sectionlink]</code> with attribute <code>href</code> applied to the current JMeter functions page gives the following output:
+For example, the Selector <code>a[class=sectionlink]</code> with attribute <code>href</code> applied to the current BreakTest functions page gives the following output:
 <br/>
 <source>
 Match count: 74
@@ -2706,7 +2706,7 @@ support format is available on <a href="http://tika.apache.org/1.2/formats.html"
 Apache Tika binary package</a> (<code>tika-app-x.x.jar</code>) and put this in <code>JMETER_HOME/lib</code> directory.
 </note>
 If the document is larger than 10 MB, then it won't be displayed.
-To change this limit, set the JMeter property <code>document.max_size</code> (unit is byte) or set to <code>0</code> to remove the limit.
+To change this limit, set the BreakTest property <code>document.max_size</code> (unit is byte) or set to <code>0</code> to remove the limit.
 <br/></td></tr>
 <tr><td><code>HTML</code></td>
 <td>The <i>HTML view</i> attempts to render the response as
@@ -2736,22 +2736,22 @@ may download images, style-sheets, etc. referenced by the HTML code.
 The "<code>Test</code>" button allows the user to apply the Regular Expression to the upper panel and the results
 will be displayed in the lower panel.<br/>
 The regular expression engine is the same as that used in the Regular Expression Extractor.<br/>
-For example, the RE <code>(JMeter\w*).*</code> applied to the current JMeter home page gives the following output:
+For example, the RE <code>(BreakTest\w*).*</code> applied to the current BreakTest home page gives the following output:
 <br/>
 <source>
 Match count: 26
-Match[1][0]=JMeter - Apache JMeter&lt;/title&gt;
-Match[1][1]=JMeter
-Match[2][0]=JMeter" title="JMeter" border="0"/&gt;&lt;/a&gt;
-Match[2][1]=JMeter
-Match[3][0]=JMeterCommitters"&gt;Contributors&lt;/a&gt;
-Match[3][1]=JMeterCommitters
+Match[1][0]=BreakTest&lt;/title&gt;
+Match[1][1]=BreakTest
+Match[2][0]=BreakTest" title="BreakTest" border="0"/&gt;&lt;/a&gt;
+Match[2][1]=BreakTest
+Match[3][0]=contributors"&gt;Contributors&lt;/a&gt;
+Match[3][1]=contributors
 &hellip; and so on &hellip;
 </source>
 <br/>
 The first number in <code>[]</code> is the match number; the second number is the group.
 Group <code>[0]</code> is whatever matched the whole RE.
-Group <code>[1]</code> is whatever matched the 1<sup>st</sup> group, i.e. <code>(JMeter\w*)</code> in this case.
+Group <code>[1]</code> is whatever matched the 1<sup>st</sup> group, i.e. <code>(BreakTest\w*)</code> in this case.
 See Figure 9b (below).
 <br/></td></tr>
 <tr><td><code>Text</code></td>
@@ -2802,7 +2802,7 @@ Note that the response data will still be available in the sample result,
 so can still be accessed using Post-Processors.
 </p>
 <p>If the response data is larger than 200K, then it won't be displayed.
-To change this limit, set the JMeter property <code>view.results.tree.max_size</code>.
+To change this limit, set the BreakTest property <code>view.results.tree.max_size</code>.
 You can also use save the entire response to a file using
 <complink name="Save Responses to a file"/>.
 </p>
@@ -2810,7 +2810,7 @@ You can also use save the entire response to a file using
 Additional renderers can be created.
 The class must implement the interface <code>org.apache.jmeter.visualizers.ResultRenderer</code>
 and/or extend the abstract class <code>org.apache.jmeter.visualizers.SamplerResultTab</code>, and the
-compiled code must be available to JMeter (e.g. by adding it to the <code>lib/ext</code> directory).
+compiled code must be available to BreakTest (e.g. by adding it to the <code>lib/ext</code> directory).
 </p>
 </description>
 <p>
@@ -2834,7 +2834,7 @@ Once the test is done, the throughput is the actual through for the duration of 
 <p>
 The throughput is calculated from the point of view of the sampler target
 (e.g. the remote server in the case of HTTP samples).
-JMeter takes into account the total time over which the requests have been generated.
+BreakTest takes into account the total time over which the requests have been generated.
 If other samplers and timers are in the same thread, these will increase the total time,
 and therefore reduce the throughput value.
 So two identical samplers with different names will have half the throughput of two samplers with the same name.
@@ -2843,14 +2843,14 @@ the Aggregate Report.
 </p>
 <p>
 Calculation of the <a href="glossary.html#Median">Median</a> and 90&nnbsp;% Line (90<sup>th</sup> <a href="glossary.html#Percentile">percentile</a>) values requires additional memory.
-JMeter now combines samples with the same elapsed time, so far less memory is used.
+BreakTest now combines samples with the same elapsed time, so far less memory is used.
 However, for samples that take more than a few seconds, the probability is that fewer samples will have identical times,
 in which case more memory will be needed.
 Note you can use this listener afterwards to reload a CSV or XML results file which is the recommended way to avoid performance impacts.
 See the <complink name="Summary Report"/> for a similar Listener that does not store individual samples and so needs constant memory.
 </p>
 <note>
-Starting with JMeter 2.12, you can configure the 3 percentile values you want to compute, this can be done by setting properties:
+You can configure the three percentile values you want to compute by setting properties:
 <ul>
     <li><code>aggregate_rpt_pct1</code>: defaults to 90<sup>th</sup> <a href="glossary.html#Percentile">percentile</a></li>
     <li><code>aggregate_rpt_pct2</code>: defaults to 95<sup>th</sup> <a href="glossary.html#Percentile">percentile</a></li>
@@ -2898,7 +2898,7 @@ i.e. 30.0 requests/minute is saved as 0.5.
 Like the <complink name="View Results Tree"/>, this visualizer uses a lot of memory.
 <p>
 By default, it only displays the main (parent) samples; it does not display the sub-samples (child samples).
-JMeter has a "<code>Child Samples</code>" check-box.
+BreakTest has a "<code>Child Samples</code>" check-box.
 If this is selected, then the sub-samples are displayed instead of the main samples.
 </p>
 </description>
@@ -2909,7 +2909,7 @@ If this is selected, then the sub-samples are displayed instead of the main samp
 but not to the UI.  It is meant to provide an efficient means of
 recording data by eliminating GUI overhead.
 When running in CLI mode, the <code>-l</code> flag can be used to create a data file.
-The fields to save are defined by JMeter properties.
+The fields to save are defined by BreakTest properties.
 See the <code>jmeter.properties</code> file for details.
 </description>
 </component>
@@ -2924,7 +2924,7 @@ the graph as a PNG file.</description>
 </p>
 <figure width="1147" height="420" image="aggregate_graph_settings.png">Aggregate graph settings</figure>
 </div>
-<note>Please note: All this parameters <em>aren't</em> saved in JMeter JMX script.</note>
+<note>Please note: All this parameters <em>aren't</em> saved in BreakTest JMX script.</note>
 <properties>
         <property name="Column settings" required="Yes">
         <ul>
@@ -2941,7 +2941,7 @@ the graph as a PNG file.</description>
         </property>
         <property name="Title" required="No">Define the graph's title on the head of chart. Empty value is the default value: "<code>Aggregate Graph</code>".
         The button <code>Synchronize with name</code> define the title with the label of the listener. And define font settings for graph title</property>
-        <property name="Graph size" required="No">Compute the graph size by  the width and height depending of the current JMeter's window size.
+        <property name="Graph size" required="No">Compute the graph size by  the width and height depending of the current BreakTest's window size.
         Use <code>Width</code> and <code>Height</code> fields to define a custom size. The unit is pixel. </property>
         <property name="X Axis settings" required="No">Define the max length of X Axis label (in pixel).</property>
         <property name="Y Axis settings" required="No">Define a custom maximum value for Y Axis.</property>
@@ -2960,7 +2960,7 @@ If many samples exist for the same timestamp, the mean value is displayed.
 </p>
 <figure width="919" height="481" image="response_time_graph_settings.png">Response time graph settings</figure>
 </div>
-<note>Please note: All this parameters are saved in JMeter <code>.jmx</code> file.</note>
+<note>Please note: All this parameters are saved in BreakTest <code>.jmx</code> file.</note>
 <properties>
         <property name="Interval (ms)" required="Yes">The time in milliseconds for X axis interval. Samples are grouped according to this value.
         Before display the graph, click on <code>Apply interval</code> button to refresh internal data.</property>
@@ -2969,10 +2969,10 @@ If many samples exist for the same timestamp, the mean value is displayed.
         <property name="Title" required="No">Define the graph's title on the head of chart. Empty value is the default value: "<code>Response Time Graph</code>".
         The button <code>Synchronize with name</code> define the title with the label of the listener. And define font settings for graph title</property>
         <property name="Line settings" required="Yes">Define the width of the line. Define the type of each value point. Choose <code>none</code> to have a line without mark</property>
-        <property name="Graph size" required="No">Compute the graph size by  the width and height depending of the current JMeter's window size.
+        <property name="Graph size" required="No">Compute the graph size by  the width and height depending of the current BreakTest's window size.
         Use <code>Width</code> and <code>Height</code> fields to define a custom size. The unit is pixel. </property>
         <property name="X Axis settings" required="No">Customize the date format of  X axis label.
-        The syntax is the Java <a href="http://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html">SimpleDateFormat API</a>.</property>
+        The syntax is the Java <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/text/SimpleDateFormat.html">SimpleDateFormat API</a>.</property>
         <property name="Y Axis settings" required="No">Define a custom maximum value for Y Axis in milli-seconds. Define the increment for the scale (in ms) Show or not the number grouping in Y Axis labels.</property>
         <property name="Legend" required="Yes">Define the placement and font settings for chart legend</property>
 </properties>
@@ -3013,7 +3013,7 @@ test. This is similar to the <complink name="Aggregate Report"/> , except that i
 <p>
 The throughput is calculated from the point of view of the sampler target
 (e.g. the remote server in the case of HTTP samples).
-JMeter takes into account the total time over which the requests have been generated.
+BreakTest takes into account the total time over which the requests have been generated.
 If other samplers and timers are in the same thread, these will increase the total time,
 and therefore reduce the throughput value.
 So two identical samplers with different names will have half the throughput of two samplers with the same name.
@@ -3076,10 +3076,10 @@ i.e. 30.0 requests/minute is saved as <code>0.5</code>.
  <property name="Name" required="No">Descriptive name for this element that is shown in the tree.</property>
  <property name="Filename Prefix (can include folders)" required="Yes">Prefix for the generated file names; this can include a directory name.
         Relative paths are resolved relative to the current working directory (which defaults to the <code>bin/</code> directory).
-        JMeter also supports paths relative to the directory containing the current test plan (JMX file).
-        If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> JMeter property),
+        BreakTest also supports paths relative to the directory containing the current test plan (JMX file).
+        If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> BreakTest property),
         then the path is assumed to be relative to the JMX file location. <br/>
-        If parent folders in prefix do not exists, JMeter will create them and stop test if it fails.
+        If parent folders in prefix do not exists, BreakTest will create them and stop test if it fails.
         <note>Please note that Filename Prefix must not contain Thread related data, so don't use any Variable (<code>${varName}</code>) or functions like <code>${__threadNum}</code> in this field</note>
  </property>
  <property name="Variable Name containing saved file name" required="No">
@@ -3114,7 +3114,7 @@ The JSR223 Listener allows JSR223 script code to be applied to sample results.
         <dt><code>args</code></dt><dd>String array containing parameters, split on white-space</dd>
     </dl></property>
     <property name="Script file" required="No">A file containing the script to run, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property</property>
-    <property name="Script compilation caching" required="No">Unique String across Test Plan that JMeter will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not).
+    <property name="Script compilation caching" required="No">Unique String across Test Plan that BreakTest will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not).
     <note>See note in JSR223 Sampler Java System property if you're using Groovy without checking this option</note>
     </property>
     <property name="Script" required="Yes (unless script file is provided)">The script to run.</property>
@@ -3135,7 +3135,7 @@ Note that these are JSR223 variables - i.e. they can be used directly in the scr
 vars.put(key,val);
 vars.putObject("OBJ1",new Object());
 vars.getObject("OBJ2");</source></dd>
-<dt><code>props</code></dt><dd>(JMeterProperties - class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g. <code>props.get("START.HMS");</code> <code>props.put("PROP1","1234");</code></dd>
+<dt><code>props</code></dt><dd>(JMeterProperties - class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g. <code>props.get("START.HMS");</code> <code>props.put("PROP1","1234");</code></dd>
 <dt><code>sampleResult</code>, <code>prev</code></dt><dd>(<apilink href="org/apache/jmeter/samplers/SampleResult.html">SampleResult</apilink>) - gives access to the SampleResult</dd>
 <dt><code>sampleEvent</code></dt><dd>(<apilink href="org/apache/jmeter/samplers/SampleEvent.html">SampleEvent</apilink>) - gives access to the SampleEvent</dd>
 <dt><code>sampler</code></dt><dd>(<apilink href="org/apache/jmeter/samplers/Sampler.html">Sampler</apilink>)- gives access to the last sampler</dd>
@@ -3195,7 +3195,7 @@ label =    817 in 0:05:07 =    2.7/s Avg:  1526 Min:  1003 Max:  2020 Err:     0
 The "<code>label</code>" is the name of the element.
 The <code>"+"</code> means that the line is a delta line, i.e. shows the changes since the last output.<br/>
 The <code>"="</code> means that the line is a total line, i.e. it shows the running total.<br/>
-Entries in the JMeter log file also include time-stamps.
+Entries in the BreakTest log file also include time-stamps.
 The example "<code>817 in 0:05:07 =    2.7/s</code>" means that there were 817 samples recorded in 5 minutes and 7 seconds,
 and that works out at 2.7 samples per second.<br/>
 The <code>Avg</code> (Average), <code>Min</code> (Minimum) and <code>Max</code> (Maximum) times are in milliseconds.<br/>
@@ -3203,7 +3203,7 @@ The <code>Avg</code> (Average), <code>Min</code> (Minimum) and <code>Max</code> 
 The last two lines will appear at the end of a test.
 They will not be synchronised to the appropriate time boundary.
 Note that the initial and final deltas may be for less than the interval (in the example above this is 30 seconds).
-The first delta will generally be lower, as JMeter synchronizes to the interval boundary.
+The first delta will generally be lower, as BreakTest synchronizes to the interval boundary.
 The last delta will be lower, as the test will generally not finish on an exact interval boundary.
 <p>
 The label is used to group sample results together.
@@ -3254,7 +3254,7 @@ By default, a Graphite implementation is provided.
         <property name="graphiteHost" required="Yes">Graphite or InfluxDB (with Graphite plugin enabled) server host</property>
         <property name="graphitePort" required="Yes">Graphite or InfluxDB (with Graphite plugin enabled) server port, defaults to <code>2003</code>. Note <code>PickleGraphiteMetricsSender</code> (port <code>2004</code>) can only talk to Graphite server.</property>
         <property name="rootMetricsPrefix" required="Yes">Prefix of metrics sent to backend. Defaults to "<code>jmeter</code>."
-        Note that JMeter does not add a separator between the root prefix and the samplerName which is why the trailing dot is currently needed.</property>
+        Note that BreakTest does not add a separator between the root prefix and the samplerName which is why the trailing dot is currently needed.</property>
         <property name="summaryOnly" required="Yes">Only send a summary with no detail. Defaults to <code>true</code>.</property>
         <property name="samplersList" required="Yes">Defines the names (labels) of sample results to be sent to the back end.
         If <code>useRegexpForSamplersList=false</code> this is a list of semi-colon separated names.
@@ -3270,7 +3270,7 @@ By default, a Graphite implementation is provided.
 
 
     <p>
-        Since JMeter 3.2, an implementation that allows writing directly in InfluxDB with a custom schema.
+        Provides an implementation that allows writing directly in InfluxDB with a custom schema.
         It is called <code>InfluxdbBackendListenerClient</code>. The following parameters apply to the
         <apilink href="org/apache/jmeter/visualizers/backend/influxdb/InfluxdbBackendListenerClient.html">InfluxdbBackendListenerClient</apilink> implementation:
     </p>
@@ -3283,7 +3283,7 @@ By default, a Graphite implementation is provided.
         <property name="measurement" required="Yes">Measurement as per <a href="https://docs.influxdata.com/influxdb/v1.1/write_protocols/line_protocol_reference/">Influx Line Protocol Reference</a>. Defaults to "<code>jmeter</code>".</property>
         <property name="summaryOnly" required="Yes">Only send a summary with no detail. Defaults to <code>true</code>.</property>
         <property name="samplersRegex" required="Yes">Regular expression which will be matched against the names of samples and sent to the back end.</property>
-        <property name="testTitle" required="Yes">Test name. Defaults to <code>Test name</code>. This value is stored in the '<code>events</code>' measurement as a field named '<code>text</code>'. JMeter generate automatically at the start and the end of the test an annotation with this value ending with ' started' and ' ended'</property>
+        <property name="testTitle" required="Yes">Test name. Defaults to <code>Test name</code>. This value is stored in the '<code>events</code>' measurement as a field named '<code>text</code>'. BreakTest generate automatically at the start and the end of the test an annotation with this value ending with ' started' and ' ended'</property>
         <property name="eventTags" required="No">Grafana allow to display tag for each annotation. You can fill them here. This value is stored in the '<code>events</code>' measurement as a tag named '<code>tags</code>'.</property>
         <property name="percentiles" required="Yes">The percentiles you want to send to the backend.
         A percentile may contain a fractional part, for example <code>12.5</code>
@@ -3296,10 +3296,10 @@ By default, a Graphite implementation is provided.
     </p>
 
     <p>
-      Since JMeter 5.4, an implementation that writes all sample results to InfluxDB.
+      Provides an implementation that writes all sample results to InfluxDB.
       It is called <code>InfluxDBRawBackendListenerClient</code>.
       It is worth noting that this will use more resources than the
-      <code>InfluxdbBackendListenerClient</code>, both by JMeter and InfluxDB
+      <code>InfluxdbBackendListenerClient</code>, both by BreakTest and InfluxDB
       due to the increase in data and individual writes.
       The following parameters apply to the
       <a href="../api/org/apache/jmeter/visualizers/backend/influxdb/InfluxDBRawBackendListenerClient.html">InfluxDBRawBackendListenerClient</a>
@@ -3347,7 +3347,7 @@ By default, a Graphite implementation is provided.
     much cheaper than generating everything at run-time.
     </p>
     <p>
-    JMeter allows values to be quoted; this allows the value to contain a delimiter.
+    BreakTest allows values to be quoted; this allows the value to contain a delimiter.
     If "<code>allow quoted data</code>" is enabled, a value may be enclosed in double-quotes.
     These are removed. To include double-quotes within a quoted field, use two double-quotes.
     For example:
@@ -3359,11 +3359,11 @@ By default, a Graphite implementation is provided.
 4"5
 </source>
     <p>
-    JMeter supports CSV files which have a header line defining the column names.
+    BreakTest supports CSV files which have a header line defining the column names.
     To enable this, leave the "<code>Variable Names</code>" field empty. The correct delimiter must be provided.
     </p>
     <p>
-    JMeter supports CSV files with quoted data that includes new-lines.
+    BreakTest supports CSV files with quoted data that includes new-lines.
     </p>
     <p>
     By default, the file is only opened once, and each thread will use a different line from the file.
@@ -3392,7 +3392,7 @@ By default, a Graphite implementation is provided.
     </p>
     <p>
     If the recycle option is <code>false</code>, and stopThread is <code>false</code>, then all the variables are set to <code>&lt;EOF&gt;</code> when the end of file is reached.
-    This value can be changed by setting the JMeter property <code>csvdataset.eofstring</code>.
+    This value can be changed by setting the BreakTest property <code>csvdataset.eofstring</code>.
     </p>
     <p>
     If the Recycle option is <code>false</code>, and Stop Thread is <code>true</code>, then reaching <code><abbr title="end of file">EOF</abbr></code> will cause the thread to be stopped.
@@ -3409,7 +3409,7 @@ By default, a Graphite implementation is provided.
   </property>
   <property name="File Encoding" required="No">The encoding to be used to read the file, if not the platform default.</property>
   <property name="Variable Names" required="No">List of variable names. The names must be separated by the delimiter character. They can be quoted using double-quotes.
-  JMeter supports CSV header lines:
+  BreakTest supports CSV header lines:
   if the variable name field empty, then the first line of the file is read and interpreted as the list of column names.
   </property>
   <property name="Use first line as Variable Names" required="No">
@@ -3448,7 +3448,7 @@ By default, a Graphite implementation is provided.
     </note>
     <note>DNS Cache Manager works only with HTTP requests using HTTPClient4 implementation.</note>
     <description><p>The DNS Cache Manager element allows to test applications, which have several servers behind load balancers (CDN, etc.),
-    when user receives content from different IP's. By default JMeter uses JVM DNS cache. That's why
+    when user receives content from different IP's. By default BreakTest uses JVM DNS cache. That's why
     only one server from the cluster receives load. DNS Cache Manager resolves names for each thread separately each iteration and
     saves results of resolving to its internal DNS Cache, which is independent from both JVM and OS DNS caches.
     </p>
@@ -3500,7 +3500,7 @@ there is currently no way to specify which one is to be used.</note>
 <description>
 <p>The Authorization Manager lets you specify one or more user logins for web pages that are
 restricted using server authentication.  You see this type of authentication when you use
-your browser to access a restricted page, and your browser displays a login dialog box.  JMeter
+your browser to access a restricted page, and your browser displays a login dialog box.  BreakTest
 transmits the login information when it encounters this type of page.</p>
 <p>
 The HttpComponents implementation defaults to pre-emptive authentication since 3.2 and the Authorization header will be shown
@@ -3514,7 +3514,7 @@ In the file <code>jmeter.properties</code> set <code>httpclient5.auth.preemptive
 Note: the above settings only apply to the HttpClient sampler.
 </note>
 <note>
-When looking for a match against a URL, JMeter checks each entry in turn, and stops when it finds the first match.
+When looking for a match against a URL, BreakTest checks each entry in turn, and stops when it finds the first match.
 Thus the most specific URLs should appear first in the list, followed by less specific ones.
 Duplicate URLs will be ignored.
 If you want to use different usernames/passwords for different threads, you can use variables.
@@ -3536,7 +3536,7 @@ information for the user named, "<code>jmeter</code>".</property>
   <property name="Password" required="Yes">The password for the user. (N.B. this is stored unencrypted in the test plan)</property>
   <property name="Domain" required="No">The domain to use for NTLM.</property>
   <property name="Realm" required="No">The realm to use for NTLM.</property>
-  <property name="Mechanism" required="No">Type of authentication to perform. JMeter can perform different types of authentications based on used Http Samplers:
+  <property name="Mechanism" required="No">Type of authentication to perform. BreakTest can perform different types of authentications based on used Http Samplers:
 <dl>
 <dt>HttpClient 5</dt><dd><code>BASIC</code>, <code>DIGEST</code> and <code>Kerberos</code></dd>
 </dl>
@@ -3554,7 +3554,7 @@ The Realm only applies to the HttpClient sampler.
 </ul>
 <p>
 You can also configure those two properties in the file <code>bin/system.properties</code>.
-Look at the two sample configuration files (<code>krb5.conf</code> and <code>jaas.conf</code>) located in the JMeter <code>bin</code> folder
+Look at the two sample configuration files (<code>krb5.conf</code> and <code>jaas.conf</code>) located in the BreakTest <code>bin</code> folder
 for references to more documentation, and tweak them to match your Kerberos configuration.
 </p>
 <p>
@@ -3564,7 +3564,7 @@ Delegation of credentials is disabled by default for SPNEGO. If you want to enab
 When generating a SPN for Kerberos SPNEGO authentication IE and Firefox will omit the port number
 from the URL. Chrome has an option (<code>--enable-auth-negotiate-port</code>) to include the port
 number if it differs from the standard ones (<code>80</code> and <code>443</code>). That behavior
-can be emulated by setting the following JMeter property as below.
+can be emulated by setting the following BreakTest property as below.
 </p>
 <p>
 In <code>jmeter.properties</code> or <code>user.properties</code>, set:
@@ -3582,7 +3582,7 @@ authorization table entries.</li>
   <li><code>Save As</code> Button - Save the current authorization table to a file.</li>
 </ul>
 
-<note>When you save the Test Plan, JMeter automatically saves all of the authorization
+<note>When you save the Test Plan, BreakTest automatically saves all of the authorization
 table entries - including any passwords, which are not encrypted.</note>
 
 <example title="Authorization Example" anchor="authorization_example">
@@ -3598,8 +3598,8 @@ to "<code>/secret/index.html</code>" and "<code>/secret/index2.html</code>".  Th
 <figure width="452" height="177" image="http-config/auth-manager-example1a.png">Figure 10 - Test Plan</figure>
 <figure width="641" height="329" image="http-config/auth-manager-example1b.png">Figure 11 - Authorization Manager Control Panel</figure>
 
-<p>When we run the Test Plan, JMeter looks in the Authorization table for the URL it is requesting.  If the Base URL matches
-the URL, then JMeter passes this information along with the request.</p>
+<p>When we run the Test Plan, BreakTest looks in the Authorization table for the URL it is requesting.  If the Base URL matches
+the URL, then BreakTest passes this information along with the request.</p>
 
 <note>You can download the Test Plan, but since it is built as a test for our local server, you will not
 be able to run it.  However, you can use it as a reference in constructing your own Test Plan.</note>
@@ -3655,30 +3655,30 @@ so use multiple Cookie Managers with care.</note>
 <description><p>The Cookie Manager element has two functions:<br></br>
 First, it stores and sends cookies just like a web browser. If you have an HTTP Request and
 the response contains a cookie, the Cookie Manager automatically stores that cookie and will
-use it for all future requests to that particular web site.  Each JMeter thread has its own
+use it for all future requests to that particular web site.  Each BreakTest thread has its own
 "cookie storage area".  So, if you are testing a web site that uses a cookie for storing
-session information, each JMeter thread will have its own session.
+session information, each BreakTest thread will have its own session.
 Note that such cookies do not appear on the Cookie Manager display, but they can be seen using
 the <complink name="View Results Tree"/> Listener.
 </p>
 <p>
-JMeter checks that received cookies are valid for the URL.
+BreakTest checks that received cookies are valid for the URL.
 This means that cross-domain cookies are not stored.
-If you have bugged behaviour or want Cross-Domain cookies to be used, define the JMeter property "<code>CookieManager.check.cookies=false</code>".
+If you have bugged behaviour or want Cross-Domain cookies to be used, define the BreakTest property "<code>CookieManager.check.cookies=false</code>".
 </p>
 <p>
-Received Cookies can be stored as JMeter thread variables.
+Received Cookies can be stored as BreakTest thread variables.
 To save cookies as variables, define the property "<code>CookieManager.save.cookies=true</code>".
 Also, cookies names are prefixed with "<code>COOKIE_</code>" before they are stored (this avoids accidental corruption of local variables)
 To revert to the original behaviour, define the property "<code>CookieManager.name.prefix= </code>" (one or more spaces).
 If enabled, the value of a cookie with the name <code>TEST</code> can be referred to as <code>${COOKIE_TEST}</code>.
 </p>
 <p>Second, you can manually add a cookie to the Cookie Manager.  However, if you do this,
-the cookie will be shared by all JMeter threads.</p>
+the cookie will be shared by all BreakTest threads.</p>
 <p>Note that such Cookies are created with an Expiration time far in the future</p>
 <p>
 Cookies with <code>null</code> values are ignored by default.
-This can be changed by setting the JMeter property: <code>CookieManager.delete_null_cookies=false</code>.
+This can be changed by setting the BreakTest property: <code>CookieManager.delete_null_cookies=false</code>.
 Note that this also applies to manually defined cookies - any such cookies will be removed from the display when it is updated.
 Note also that the cookie name must be unique - if a second cookie is defined with the same name, it will replace the first.
 </p>
@@ -3752,7 +3752,7 @@ All port values are treated equally; a sampler that does not specify a port will
         <property name="Port" required="No, unless proxy hostname is specified">Port the proxy server is listening to.</property>
         <property name="Username" required="No">(Optional) username for proxy server.</property>
         <property name="Password" required="No">(Optional) password for proxy server. (N.B. this is stored unencrypted in the test plan)</property>
-        <property name="Retrieve All Embedded Resources from HTML Files" required="No">Tell JMeter to parse the HTML file
+        <property name="Retrieve All Embedded Resources from HTML Files" required="No">Tell BreakTest to parse the HTML file
 and send HTTP/HTTPS requests for all images, Java applets, JavaScript files, CSSs, etc. referenced in the file.
         </property>
         <property name="Use concurrent pool" required="No">Use a pool of concurrent connections to get embedded resources.</property>
@@ -3772,7 +3772,7 @@ and send HTTP/HTTPS requests for all images, Java applets, JavaScript files, CSS
 Note: radio buttons only have two states - on or off.
 This makes it impossible to override settings consistently
 - does off mean off, or does it mean use the current default?
-JMeter uses the latter (otherwise defaults would not work at all).
+BreakTest uses the latter (otherwise defaults would not work at all).
 So if the button is off, then a later element can set it on,
 but if the button is on, a later element cannot set it off.
 </note>
@@ -3782,7 +3782,7 @@ but if the button is on, a later element cannot set it off.
 <description>
 <p>The Header Manager lets you add or override HTTP request headers.</p>
 <p>
-<b>JMeter now supports multiple Header Managers</b>. The header entries are merged to form the list for the sampler.
+<b>BreakTest now supports multiple Header Managers</b>. The header entries are merged to form the list for the sampler.
 If an entry to be merged matches an existing header name, it replaces the previous entry.
 This allows one to set up a default set of headers, and apply adjustments to particular samplers.
 Note that an empty value for a header does not remove an existing header, it justs replace its value.
@@ -3805,7 +3805,7 @@ header table entries.</property>
 <example title="Header Manager example" anchor="header_manager_example">
 
 <p><a href="../demos/HeaderManagerTestPlan.jmx">Download</a> this example.  In this example, we created a Test Plan
-that tells JMeter to override the default "<code>User-Agent</code>" request header and use a particular Internet Explorer agent string
+that tells BreakTest to override the default "<code>User-Agent</code>" request header and use a particular Internet Explorer agent string
 instead. (see figures 12 and 13).</p>
 
 <figure width="247" height="121" image="http-config/header-manager-example1a.png">Figure 12 - Test Plan</figure>
@@ -3835,7 +3835,7 @@ instead. (see figures 12 and 13).</p>
         Multiple connections can be used, each tied to a different variable, allowing JDBC Samplers
         to select the appropriate connection.
         <note>Each name must be different. If there are two configuration elements using the same name,
-        only one will be saved. JMeter logs a message if a duplicate name is detected.</note>
+        only one will be saved. BreakTest logs a message if a duplicate name is detected.</note>
         </property>
         <property name="Max Number of Connections" required="Yes">
         Maximum number of connections allowed in the pool.
@@ -3884,7 +3884,7 @@ instead. (see figures 12 and 13).</p>
         </property>
         <property name="Database URL" required="Yes">JDBC Connection string for the database.</property>
         <property name="JDBC Driver class" required="Yes">Fully qualified name of driver class. (Must be in
-        JMeter's classpath - easiest to copy <code>.jar</code> file into JMeter's <code>/lib</code> directory).
+        BreakTest's classpath - easiest to copy <code>.jar</code> file into BreakTest's <code>/lib</code> directory).
         <p>The list of the preconfigured jdbc driver classes can be configured with <code>jdbc.config.jdbc.driver.class</code> property and are by default:</p>
             <dl>
               <dt>hsqldb</dt><dd><code>org.hsqldb.jdbc.JDBCDriver</code></dd>
@@ -3921,14 +3921,14 @@ The Database URL and JDBC Driver class are defined by the provider of the JDBC i
 <p>Some possible settings are shown below. Please check the exact details in the JDBC driver documentation.</p>
 
 <p>
-If JMeter reports <code>No suitable driver</code>, then this could mean either:
+If BreakTest reports <code>No suitable driver</code>, then this could mean either:
 </p>
 <ul>
 <li>The driver class was not found. In this case, there will be a log message such as <code>DataSourceElement: Could not load driver: {classname} java.lang.ClassNotFoundException: {classname}</code></li>
 <li>The driver class was found, but the class does not support the connection string. This could be because of a syntax error in the connection string, or because the wrong classname was used.</li>
 </ul>
 <p>
-If the database server is not running or is not accessible, then JMeter will report a <code>java.net.ConnectException</code>.
+If the database server is not running or is not accessible, then BreakTest will report a <code>java.net.ConnectException</code>.
 </p>
 <p>Some examples for databases and their parameters are given below.</p>
 <dl>
@@ -4036,7 +4036,7 @@ and <code>javax.net.ssl.keyStore</code> to <code>NONE</code>.</p>
   <property name="Alias End Index" required="Yes">The index of the last key to use in Keystore, 0-based. When using "<code>Variable name holding certificate alias</code>" ensure it is large enough so that all keys are loaded at startup. Default to -1 which means load all.</property>
 </properties>
 <note>
-To make JMeter use more than one certificate you need to ensure that:
+To make BreakTest use more than one certificate you need to ensure that:
 <ul>
 <li><code>https.use.cached.ssl.context=false</code> is set in <code>jmeter.properties</code> or <code>user.properties</code></li>
 <li>You use HTTPClient 4 implementation for HTTP Request</li>
@@ -4108,7 +4108,7 @@ However, UDVs can be used with functions such as <code><funclink name="__P()"/><
 HOST      ${__P(host,localhost)}
 </source>
 <p>
-which would define the variable "<code>HOST</code>" to have the value of the JMeter property "<code>host</code>", defaulting to "<code>localhost</code>" if not defined.
+which would define the variable "<code>HOST</code>" to have the value of the BreakTest property "<code>host</code>", defaulting to "<code>localhost</code>" if not defined.
 </p>
 <p>
 For defining variables during a test run, see <complink name="User Parameters"/>.
@@ -4171,7 +4171,7 @@ to use a variable other than a property as a value for the minimum or maximum. I
   <property name="Maximum Value" required="Yes">The maximum value (<code>long</code>) of the generated random number.</property>
   <property name="Random Seed" required="No">The seed for the random number generator.
   If you use the same seed value with Per Thread set to <code>true</code>, you will get the same value for each Thread as per
-  <a href="http://docs.oracle.com/javase/8/docs/api/java/util/Random.html" >Random</a> class.
+  <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Random.html" >Random</a> class.
   If no seed is set, Default constructor of Random will be used.
   </property>
   <property name="Per Thread(User)?" required="Yes">If <code>False</code>, the generator is shared between all threads in the thread group.
@@ -4215,12 +4215,12 @@ with the start, continuing on like that until the test is ended.  </p>
 <component name="Simple Config Element" index="&sect-num;.4.19"  width="627" height="282" screenshot="simple_config_element.png">
 <description><p>The Simple Config Element lets you add or override arbitrary values in samplers.  You can choose the name of the value
 and the value itself.  Although some adventurous users might find a use for this element, it's here primarily for developers as a basic
-GUI that they can use while developing new JMeter components.</p>
+GUI that they can use while developing new BreakTest components.</p>
 </description>
 
 <properties>
         <property name="Name" required="Yes">Descriptive name for this element that is shown in the tree. </property>
-  <property name="Parameter Name" required="Yes">The name of each parameter.  These values are internal to JMeter's workings and
+  <property name="Parameter Name" required="Yes">The name of each parameter.  These values are internal to BreakTest's workings and
   are not generally documented.  Only those familiar with the code will know these values.</property>
   <property name="Parameter Value" required="Yes">The value to apply to that parameter.</property>
 </properties>
@@ -4241,7 +4241,7 @@ GUI that they can use while developing new JMeter components.</p>
         <property name="Username" required="No">User account.</property>
         <property name="Password" required="No">User credentials.</property>
         <property name="Connection Pool Max Size" required="Yes">Max size of the Neo4j driver Bolt connection pool.
-            Raise the value if running large number of concurrent threads, so that JMeter threads are not blocked waiting
+            Raise the value if running large number of concurrent threads, so that BreakTest threads are not blocked waiting
             for a connection to be released to the pool.</property>
     </properties>
 </component>
@@ -4275,7 +4275,7 @@ GUI that they can use while developing new JMeter components.</p>
     <p>
     If a sub-sampler fails and the main sample is successful,
     then the main sample will be set to failed status and an Assertion Result will be added.
-    If the JMeter variable option is used, it is assumed to relate to the main sample, and
+    If the BreakTest variable option is used, it is assumed to relate to the main sample, and
     any failure will be applied to the main sample only.
     </p>
     <note>
@@ -4331,10 +4331,10 @@ These can be used anywhere within the expression and remain in effect until over
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
         </ul>
         </property>
-        <property name="Field to Test" required="Yes">Instructs JMeter which field of the Request or Response to test.
+        <property name="Field to Test" required="Yes">Instructs BreakTest which field of the Request or Response to test.
         <ul>
         <li><code>Text Response</code> - the response text from the server, i.e. the body, excluding any HTTP headers.</li>
         <li><code>Request data</code> - the request text sent to the server, i.e. the body, excluding any HTTP headers.</li>
@@ -4346,7 +4346,7 @@ These can be used anywhere within the expression and remain in effect until over
         <li><code>Document (text)</code> - the extract text from various type of documents via Apache Tika (see <complink name="View Results Tree"/> Document view section).</li>
         </ul>
         </property>
-        <property name="Ignore status" required="Yes">Instructs JMeter to set the status to success initially.
+        <property name="Ignore status" required="Yes">Instructs BreakTest to set the status to success initially.
                 <p>
                 The overall success of the sample is determined by combining the result of the
                 assertion with the existing Response status.
@@ -4426,10 +4426,10 @@ the size be equal to, greater than, less than, or not equal to a given number of
         <li><code>Main sample only</code> - assertion only applies to the main sample</li>
         <li><code>Sub-samples only</code> - assertion only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - assertion applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
         </ul>
         </property>
-        <property name="Size in bytes" required="Yes">The number of bytes to use in testing the size of the response (or value of the JMeter variable).</property>
+        <property name="Size in bytes" required="Yes">The number of bytes to use in testing the size of the response (or value of the BreakTest variable).</property>
         <property name="Type of Comparison" required="Yes">Whether to test that the response is equal to, greater than, less than,
         or not equal to, the number of bytes specified.</property>
 
@@ -4505,7 +4505,7 @@ The non-tolerant parser can be quite slow, as it may need to download the DTD et
 </note>
 <note>
 <b>NAMESPACES</b><br/>
-As a work-round for namespace limitations of the Xalan XPath parser (implementation on which JMeter is based) you need to:
+As a work-round for namespace limitations of the Xalan XPath parser (implementation on which BreakTest is based) you need to:
 <ul>
 <li>provide a Properties file (if for example your file is named <code>namespaces.properties</code>) which contains mappings for the namespace prefixes:
 <source>
@@ -4568,7 +4568,7 @@ The JSR223 Assertion allows JSR223 script code to be used to check the status of
         <li><code>args</code> - String array containing parameters, split on white-space</li>
     </ul></property>
     <property name="Script file" required="No">A file containing the script to run, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property</property>
-    <property name="Script compilation caching" required="No">Unique String across Test Plan that JMeter will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and JavaScript are not)
+    <property name="Script compilation caching" required="No">Unique String across Test Plan that BreakTest will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and JavaScript are not)
     <note>See note in JSR223 Sampler Java System property if you're using Groovy without checking this option</note>
     </property>
     <property name="Script" required="Yes (unless script file is provided)">The script to run.</property>
@@ -4588,7 +4588,7 @@ vars.put(key,val);
 vars.putObject("OBJ1",new Object());
 vars.getObject("OBJ2");
 </source></li>
-<li><code>props</code> - (JMeterProperties - class <a href="https://docs.oracle.com/javase/8/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g.
+<li><code>props</code> - (JMeterProperties - class <a href="https://docs.oracle.com/en/java/javase/21/docs/api/java/util/Properties.html"><code>java.util.Properties</code></a>) - e.g.
 <source>
 props.get("START.HMS");
 props.put("PROP1","1234");
@@ -4666,7 +4666,7 @@ please ensure that you select "<code>Store the message using MIME (raw)</code>" 
            <note>When using <a href="https://github.com/json-path/JsonPath#what-is-returned-when">indefinite JSON Paths</a>
              you must assert the value due to the existing JSON library implementation, otherwise the assertion could always
              return successful.<br></br>
-             Since JMeter version 5.5 the assertion will fail, if an indefinite path is given, an empty list is extracted and
+             The assertion fails if an indefinite path is given, an empty list is extracted and
              no assertion value is set.</note>
         </p>
     </description>
@@ -4708,9 +4708,9 @@ please ensure that you select "<code>Store the message using MIME (raw)</code>" 
 <section name="&sect-num;.6 Timers" anchor="timers">
 <description>
     <note>
-    Since version 3.1, a new feature (in Beta mode as of JMeter 3.1 and subject to changes) has been implemented which provides the following feature.<br/>
+    This assertion provides the following JSON comparison behavior.<br/>
     You can apply a multiplication factor on the sleep delays computed by Random timer by setting property <code>timer.factor=float number</code> where float number is a decimal positive number.<br/>
-    JMeter will multiply this factor by the computed sleep delay. This feature can be used by:
+    BreakTest will multiply this factor by the computed sleep delay. This feature can be used by:
     <ul>
         <li><complink name="Gaussian Random Timer"/></li>
         <li><complink name="Poisson Random Timer"/></li>
@@ -4987,7 +4987,7 @@ The JSR223 Timer can be used to generate a delay using a JSR223 scripting langua
     A file containing the script to run, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property
      The return value is converted to a long integer and used as the number of milliseconds to wait.
      </property>
-    <property name="Script compilation caching" required="No">Unique String across Test Plan that JMeter will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
+    <property name="Script compilation caching" required="No">Unique String across Test Plan that BreakTest will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
     <note>See note in JSR223 Sampler Java System property if you're using Groovy without checking this option</note>
     </property>
     <property name="Script" required="Yes (unless script file is provided)">
@@ -5052,7 +5052,7 @@ Matches are performed using <code>protocol</code>, <code>host</code>, <code>path
 The target sampler cannot contain parameters that are not in the response links.
 </note>
 <example title="Spidering Example" anchor="spider_example">
-<p>Consider a simple example: let's say you wanted JMeter to &quot;spider&quot; through your site,
+<p>Consider a simple example: let's say you wanted BreakTest to &quot;spider&quot; through your site,
 hitting link after link parsed from the HTML returned from your server (this is not
 actually the most useful thing to do, but it serves as a good example).  You would create
 a <complink name="Simple Controller"/>, and add the &quot;HTML Link Parser&quot; to it.  Then, create an
@@ -5066,7 +5066,7 @@ to the one you want.  Then, only links to that domain will be followed.
 <example title="Poll Example" anchor="poll_example">
 <p>A more useful example: given a web polling application, you might have a page with
 several poll options as radio buttons for the user to select.  Let's say the values
-of the poll options are very dynamic - maybe user generated.  If you wanted JMeter to
+of the poll options are very dynamic - maybe user generated.  If you wanted BreakTest to
 test the poll, you could either create test samples with hardcoded values chosen, or you
 could let the HTML Link Parser parse the form, and insert a random poll option into
 your URL test sample.  To do this, follow the above example, except, when configuring
@@ -5127,7 +5127,7 @@ Clever users will even determine that this modifier can be used to grab values t
 <p>User Variables can also be specified in the Test Plan but not specific to individual threads. This panel allows
 you to specify a series of values for any User Variable. For each thread, the variable will be assigned one of the values from the series
 in sequence. If there are more threads than values, the values get re-used. For example, this can be used to assign a distinct
-user id to be used by each thread. User variables can be referenced in any field of any JMeter Component.</p>
+user id to be used by each thread. User variables can be referenced in any field of any BreakTest Component.</p>
 
 <p>The variable is specified by clicking the <code>Add Variable</code> button in the bottom of the panel and filling in the Variable name in the '<code>Name:</code>' column.
 To add a new value to the series, click the '<code>Add User</code>' button and fill in the desired value in the newly added column.</p>
@@ -5164,7 +5164,7 @@ The JSR223 PreProcessor allows JSR223 script code to be applied before taking a 
         <li><code>args</code> - String array containing parameters, split on white-space</li>
     </ul></property>
     <property name="Script file" required="No">A file containing the script to run, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property</property>
-    <property name="Script compilation caching" required="No">Unique String across Test Plan that JMeter will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
+    <property name="Script compilation caching" required="No">Unique String across Test Plan that BreakTest will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
     <note>See note in JSR223 Sampler Java System property if you're using Groovy without checking this option</note>
     </property>
     <property name="Script" required="Yes (unless script file is provided)">The script to run.</property>
@@ -5269,7 +5269,7 @@ The timeout should be set sufficiently long so that it is not triggered in norma
 that are stuck.
 </p>
 <p>
-[By default, JMeter uses a Callable to interrupt the sampler.
+[By default, BreakTest uses a Callable to interrupt the sampler.
 This executes in the same thread as the timer, so if the interrupt takes a long while,
 it may delay the processing of subsequent timeouts.
 This is not expected to be a problem, but if necessary the property <code>InterruptTimer.useRunnable</code>
@@ -5335,7 +5335,7 @@ generate the template string, and store the result into the given variable name.
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
         </ul>
         Matching is applied to all qualifying samples in turn.
         For example if there is a main sample and 3 sub-samples, each of which contains a single match for the regex,
@@ -5365,7 +5365,7 @@ generate the template string, and store the result into the given variable name.
         </ul>
         Headers can be useful for HTTP samples; it may not be present for other sample types.
         </property>
-        <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.  Also note that each group is stored as <code>[refname]_g#</code>, where <code>[refname]</code> is the string you entered as the reference name, and <code>#</code> is the group number, where group <code>0</code> is the entire match, group <code>1</code> is the match from the first set of parentheses, etc.</property>
+        <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.  Also note that each group is stored as <code>[refname]_g#</code>, where <code>[refname]</code> is the string you entered as the reference name, and <code>#</code> is the group number, where group <code>0</code> is the entire match, group <code>1</code> is the match from the first set of parentheses, etc.</property>
         <property name="Regular Expression" required="Yes">The regular expression used to parse the response data.
         This must contain at least one set of parentheses "<code>()</code>" to capture a portion of the string, unless using the group <code>$0$</code>.
         Do not enclose the expression in <code>/ /</code> - unless of course you want to match these characters as well.
@@ -5375,7 +5375,7 @@ generate the template string, and store the result into the given variable name.
         group <code>1</code>, '<code>$2$</code>' to refer to group <code>2</code>, etc. <code>$0$</code> refers to whatever the entire expression matches.</property>
         <property name="Match No. (0 for Random)" required="Yes">Indicates which match to use.  The regular expression may match multiple times.
             <ul>
-                <li>Use a value of zero to indicate JMeter should choose a match at random.</li>
+                <li>Use a value of zero to indicate BreakTest should choose a match at random.</li>
                 <li>A positive number N means to select the n<sup>th</sup> match.</li>
                 <li> Negative numbers are used in conjunction with the <complink name="ForEach Controller"/> - see below.</li>
             </ul>
@@ -5392,7 +5392,7 @@ generate the template string, and store the result into the given variable name.
         </p>
         </property>
         <property name="Use empty default value" required="No">
-        If the checkbox is checked and <code>Default Value</code> is empty, then JMeter will set the variable to empty string instead of not setting it.
+        If the checkbox is checked and <code>Default Value</code> is empty, then BreakTest will set the variable to empty string instead of not setting it.
         Thus when you will for example use <code>${var}</code> (if <code>Reference Name</code> is var) in your Test Plan, if the extracted value is not found then
         <code>${var}</code> will be equal to empty string instead of containing <code>${var}</code> which may be useful if extracted value is optional.
         </property>
@@ -5431,7 +5431,7 @@ generate the template string, and store the result into the given variable name.
     and the associated group variables are not set.
 </p>
     <p>See also <complink name="Response Assertion"/> for some examples of how to specify modifiers,
-    and <a href="regular_expressions.html"> for further information on JMeter regular expressions.</a></p>
+    and <a href="regular_expressions.html"> for further information on BreakTest regular expressions.</a></p>
 </component>
 
 <component name="CSS Selector Extractor" was="CSS/JQuery Extractor" index="&sect-num;.8.2"  width="826" height="276" screenshot="css_extractor_attr.png">
@@ -5447,7 +5447,7 @@ extracting the node as text or attribute value and store the result into the giv
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
         </ul>
         Matching is applied to all qualifying samples in turn.
         For example if there is a main sample and 3 sub-samples, each of which contains a single match for the regex,
@@ -5465,7 +5465,7 @@ extracting the node as text or attribute value and store the result into the giv
         </ul>
         If selector is set to empty, default implementation(JSoup) will be used.
         </property>
-        <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.</property>
+        <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.</property>
         <property name="CSS/JQuery expression" required="Yes">The CSS/JQuery selector used to select nodes from the response data.
         Selector, selectors combination and pseudo-selectors are supported, examples:
         <ul>
@@ -5490,7 +5490,7 @@ extracting the node as text or attribute value and store the result into the giv
         </property>
         <property name="Match No. (0 for Random)" required="Yes">Indicates which match to use.  The CSS/JQuery selector may match multiple times.
             <ul>
-                <li>Use a value of zero to indicate JMeter should choose a match at random.</li>
+                <li>Use a value of zero to indicate BreakTest should choose a match at random.</li>
                 <li>A positive number <code>N</code> means to select the n<sup>th</sup> match.</li>
                 <li> Negative numbers are used in conjunction with the <complink name="ForEach Controller"/> - see below.</li>
             </ul>
@@ -5507,7 +5507,7 @@ extracting the node as text or attribute value and store the result into the giv
         </p>
         </property>
         <property name="Use empty default value" required="No">
-        If the checkbox is checked and <code>Default Value</code> is empty, then JMeter will set the variable to empty string instead of not setting it.
+        If the checkbox is checked and <code>Default Value</code> is empty, then BreakTest will set the variable to empty string instead of not setting it.
         Thus when you will for example use <code>${var}</code> (if <code>Reference Name</code> is var) in your Test Plan, if the extracted value is not found then
         <code>${var}</code> will be equal to empty string instead of containing <code>${var}</code> which may be useful if extracted value is optional.
         </property>
@@ -5549,16 +5549,16 @@ extracting the node as text or attribute value and store the result into the giv
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
         </ul>
         XPath matching is applied to all qualifying samples in turn, and all the matching results will be returned.
        </property>
     <property name="Return entire XPath fragment instead of text content" required="Yes">
     If selected, the fragment will be returned rather than the text content.<br></br>
-    For example <code>//title</code> would return "<code>&lt;title&gt;Apache JMeter&lt;/title&gt;</code>" rather than "<code>Apache JMeter</code>".<br></br>
-    In this case, <code>//title/text()</code> would return "<code>Apache JMeter</code>".
+    For example <code>//title</code> would return "<code>&lt;title&gt;BreakTest&lt;/title&gt;</code>" rather than "<code>BreakTest</code>".<br></br>
+    In this case, <code>//title/text()</code> would return "<code>BreakTest</code>".
     </property>
-    <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.</property>
+    <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.</property>
     <property name="XPath Query" required="Yes">Element query in XPath 2.0 language. Can return more than one match.</property>
     <property name="Match No. (0 for Random)" required="No">If the XPath Path query leads to many results, you can choose which one(s) to extract as Variables:
     <ul>
@@ -5592,7 +5592,7 @@ extracting the node as text or attribute value and store the result into the giv
     <description>This test element allows the user to extract value(s) from
         structured response - XML or (X)HTML - using XPath
         query language.
-        <note>Since JMeter 5.0, you should use <complink name="XPath2 Extractor"/> as it provides better and easier namespace management, better performances and support for XPath 2.0</note>
+        <note>Use <complink name="XPath2 Extractor"/> for easier namespace management, better performance, and XPath 2.0 support.</note>
    </description>
    <properties>
        <property name="Name" required="No">Descriptive name for this element that is shown in the tree.</property>
@@ -5603,7 +5603,7 @@ extracting the node as text or attribute value and store the result into the giv
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
         </ul>
         XPath matching is applied to all qualifying samples in turn, and all the matching results will be returned.
        </property>
@@ -5627,10 +5627,10 @@ extracting the node as text or attribute value and store the result into the giv
     <property name="Fetch External DTDs"  required="If Tidy is not selected">If selected, external DTDs are fetched.</property>
     <property name="Return entire XPath fragment instead of text content" required="Yes">
     If selected, the fragment will be returned rather than the text content.<br></br>
-    For example <code>//title</code> would return "<code>&lt;title&gt;Apache JMeter&lt;/title&gt;</code>" rather than "<code>Apache JMeter</code>".<br></br>
-    In this case, <code>//title/text()</code> would return "<code>Apache JMeter</code>".
+    For example <code>//title</code> would return "<code>&lt;title&gt;BreakTest&lt;/title&gt;</code>" rather than "<code>BreakTest</code>".<br></br>
+    In this case, <code>//title/text()</code> would return "<code>BreakTest</code>".
     </property>
-    <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.</property>
+    <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.</property>
     <property name="XPath Query" required="Yes">Element query in XPath language. Can return more than one match.</property>
     <property name="Match No. (0 for Random)" required="No">If the XPath Path query leads to many results, you can choose which one(s) to extract as Variables:
     <ul>
@@ -5678,7 +5678,7 @@ extracting the node as text or attribute value and store the result into the giv
 
  <note>
 <b>NAMESPACES</b><br/>
-As a work-round for namespace limitations of the Xalan XPath parser (implementation on which JMeter is based) you need to:
+As a work-round for namespace limitations of the Xalan XPath parser (implementation on which BreakTest is based) you need to:
 <ul>
 <li>provide a Properties file (if for example your file is named <code>namespaces.properties</code>) which contains mappings for the namespace prefixes:
 <source>
@@ -5715,10 +5715,10 @@ where "<code>uri-for-namespace</code>" is the uri for the "<code>mynamespace</co
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - extraction is to be applied to the contents of the named variable</li>
         </ul>
        </property>
-    <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.</property>
+    <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.</property>
     <property name="JMESPath expressions" required="Yes">Element query in JMESPath query language. Can return the matched result.</property>
     <property name="Match No. (0 for Random)" required="No">If the JMESPath query leads to many results, you can choose which one(s) to extract as Variables:
     <ul>
@@ -5772,7 +5772,7 @@ The JSR223 PostProcessor allows JSR223 script code to be applied after taking a 
         <li><code>args</code> - String array containing parameters, split on white-space</li>
     </ul></property>
     <property name="Script file" required="No">A file containing the script to run, if a relative file path is used, then it will be relative to directory referenced by "<code>user.dir</code>" System property</property>
-    <property name="Script compilation caching" required="No">Unique String across Test Plan that JMeter will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/javase/8/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
+    <property name="Script compilation caching" required="No">Unique String across Test Plan that BreakTest will use to cache result of Script compilation if language used supports <code><a href="https://docs.oracle.com/en/java/javase/21/docs/api/javax/script/Compilable.html">Compilable</a></code> interface (Groovy is one of these, java and javascript are not)
     <note>See note in JSR223 Sampler Java System property if you're using Groovy without checking this option</note>
     </property>
     <property name="Script" required="Yes (unless script file is provided)">The script to run.</property>
@@ -5833,7 +5833,7 @@ It will allow you to extract in a very easy way text content, see <a href="https
         <dt><code>Main sample only</code></dt><dd>only applies to the main sample</dd>
         <dt><code>Sub-samples only</code></dt><dd>only applies to the sub-samples</dd>
         <dt><code>Main sample and sub-samples</code></dt><dd>applies to both.</dd>
-        <dt><code>JMeter Variable Name to use</code></dt><dd>extraction is to be applied to the contents of the named variable</dd>
+        <dt><code>BreakTest Variable Name to use</code></dt><dd>extraction is to be applied to the contents of the named variable</dd>
         </dl>
     </property>
     <property name="Names of created variables" required="Yes">Semicolon separated names of variables that will contain the results of JSON-PATH expressions (must match number of JSON-PATH expressions)</property>
@@ -5866,7 +5866,7 @@ generate the template string, and store the result into the given variable name.
         <li><code>Main sample only</code> - only applies to the main sample</li>
         <li><code>Sub-samples only</code> - only applies to the sub-samples</li>
         <li><code>Main sample and sub-samples</code> - applies to both.</li>
-        <li><code>JMeter Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
+        <li><code>BreakTest Variable Name to use</code> - assertion is to be applied to the contents of the named variable</li>
         </ul>
         Matching is applied to all qualifying samples in turn.
         For example if there is a main sample and 3 sub-samples, each of which contains a single match test,
@@ -5896,12 +5896,12 @@ generate the template string, and store the result into the given variable name.
         </ul>
         Headers can be useful for HTTP samples; it may not be present for other sample types.
         </property>
-        <property name="Name of created variable" required="Yes">The name of the JMeter variable in which to store the result.  Also note that each group is stored as <code>[refname]_g#</code>, where <code>[refname]</code> is the string you entered as the reference name, and <code>#</code> is the group number, where group <code>0</code> is the entire match, group <code>1</code> is the match from the first set of parentheses, etc.</property>
+        <property name="Name of created variable" required="Yes">The name of the BreakTest variable in which to store the result.  Also note that each group is stored as <code>[refname]_g#</code>, where <code>[refname]</code> is the string you entered as the reference name, and <code>#</code> is the group number, where group <code>0</code> is the entire match, group <code>1</code> is the match from the first set of parentheses, etc.</property>
         <property name="Left Boundary" required="No">Left boundary of value to find</property>
         <property name="Right Boundary" required="No">Right boundary of value to find</property>
         <property name="Match No. (0 for Random)" required="Yes">Indicates which match to use.  The boundaries may match multiple times.
             <ul>
-                <li>Use a value of zero to indicate JMeter should choose a match at random.</li>
+                <li>Use a value of zero to indicate BreakTest should choose a match at random.</li>
                 <li>A positive number N means to select the n<sup>th</sup> match.</li>
                 <li> Negative numbers are used in conjunction with the <complink name="ForEach Controller"/> - see below.</li>
             </ul>
@@ -5973,13 +5973,13 @@ If you need to construct other variables from the Test Plan variables,
 use a <complink name="User Defined Variables"/> test element.
 </p>
 <p>
-Selecting Functional Testing instructs JMeter to save the  additional sample information
+Selecting Functional Testing instructs BreakTest to save the  additional sample information
 - Response Data and Sampler Data - to all result files.
-This increases the resources needed to run a test, and may adversely impact JMeter performance.
+This increases the resources needed to run a test, and may adversely impact BreakTest performance.
 If more data is required for a particular sampler only, then add a Listener to it, and configure the fields as required.
 <note>The option does not affect CSV result files, which cannot currently store such information.</note>
 </p>
-<p>Also, an option exists here to instruct JMeter to run the <complink name="Thread Group"/> serially rather than in parallel.</p>
+<p>Also, an option exists here to instruct BreakTest to run the <complink name="Thread Group"/> serially rather than in parallel.</p>
 <p>Run tearDown Thread Groups after shutdown of main threads:
 if selected, the tearDown groups (if any) will be run after graceful shutdown of the main threads.
 The tearDown threads won't be run if the test is forcibly stopped.
@@ -5987,16 +5987,16 @@ The tearDown threads won't be run if the test is forcibly stopped.
 <p>
 Test plan now provides an easy way to add classpath setting to a specific test plan.
 The feature is additive, meaning that you can add jar files or directories,
-but removing an entry requires restarting JMeter.
-<note>Note that this cannot be used to add JMeter GUI plugins, because they are processed earlier.</note>
+but removing an entry requires restarting BreakTest.
+<note>Note that this cannot be used to add BreakTest GUI plugins, because they are processed earlier.</note>
 However it can be useful for utility jars such as JDBC drivers. The jars are only added to
-the search path for the JMeter loader, not for the system class loader.
+the search path for the BreakTest loader, not for the system class loader.
 </p>
 <p>
-JMeter properties also provides an entry for loading additional classpaths.
+BreakTest properties also provides an entry for loading additional classpaths.
 In <code>jmeter.properties</code>, edit "<code>user.classpath</code>" or "<code>plugin_dependency_paths</code>" to include additional libraries.
-See <a href="get-started.html#classpath">JMeter's Classpath</a> and
-<a href="get-started.html#configuring_jmeter">Configuring JMeter</a> for details.
+See <a href="get-started.html#classpath">BreakTest's Classpath</a> and
+<a href="get-started.html#configuring_jmeter">Configuring BreakTest</a> for details.
 </p>
 </description>
 </component>
@@ -6008,13 +6008,13 @@ See <a href="get-started.html#classpath">JMeter's Classpath</a> and
 See also <complink name="tearDown Thread Group"/> and <complink name="setUp Thread Group"/>.
 </p>
 <p>
-When using the scheduler, JMeter runs the thread group until either the number of loops is reached or the duration/end-time is reached - whichever occurs first.
+When using the scheduler, BreakTest runs the thread group until either the number of loops is reached or the duration/end-time is reached - whichever occurs first.
 Note that the condition is only checked between samples; when the end condition is reached, that thread will stop.
-JMeter does not interrupt samplers which are waiting for a response, so the end time may be delayed arbitrarily.
+BreakTest does not interrupt samplers which are waiting for a response, so the end time may be delayed arbitrarily.
 </p>
 </description>
 <p>
-Since JMeter 3.0, you can run a selection of Thread Group by selecting them and right clicking. A popup menu will appear:
+You can run a selection of Thread Groups by selecting them and right clicking. A popup menu will appear:
 <figure width="461" height="818" image="threadgroup-popup-menu.png">Popup menu to start a selection of Thread Groups</figure>
 
 <br/>Notice you have three options to run the selection of Thread Groups:
@@ -6049,7 +6049,7 @@ Behaviour can be modified with some properties by setting in <code>user.properti
         </ul>
         </property>
         <property name="Number of Threads" required="Yes">Number of users to simulate.</property>
-        <property name="Ramp-up Period" required="Yes">How long JMeter should take to get all the threads started.
+        <property name="Ramp-up Period" required="Yes">How long BreakTest should take to get all the threads started.
             If there are 10 threads and a ramp-up time of 100 seconds, then each thread will begin 10 seconds after
             the previous thread started, for a total time of 100 seconds to get the test fully up to speed.
             <note>The first thread will always start directly, so if you configured <strong>one</strong> thread,
@@ -6080,11 +6080,11 @@ Behaviour can be modified with some properties by setting in <code>user.properti
         <property name="Specify Thread lifetime" required="Yes">If selected, confines Thread operation time to the given bounds</property>
         <property name="Duration (seconds)" required="No">
             If the scheduler checkbox is selected, one can choose a relative end time.
-            JMeter will use this to calculate the End Time.
+            BreakTest will use this to calculate the End Time.
         </property>
         <property name="Startup delay (seconds)" required="No">
             If the scheduler checkbox is selected, one can choose a relative startup delay.
-            JMeter will use this to calculate the Start Time.
+            BreakTest will use this to calculate the Start Time.
         </property>
 </properties>
 </component>
@@ -6142,10 +6142,10 @@ Behaviour can be modified with some properties by setting in <code>user.properti
 </component>
 
 <component name="HTTP(S) Test Script Recorder" was="HTTP Proxy Server" index="&sect-num;.9.5"  width="983" height="702" screenshot="proxy_control.png">
-<description><p>The HTTP(S) Test Script Recorder allows JMeter to intercept and record your actions while you browse your web application
-with your normal browser.  JMeter will create test sample objects and store them
+<description><p>The HTTP(S) Test Script Recorder allows BreakTest to intercept and record your actions while you browse your web application
+with your normal browser.  BreakTest will create test sample objects and store them
 directly into your test plan as you go (so you can view samples interactively while you make them).<br/>
-Ensure you read this <a href="https://cwiki.apache.org/confluence/display/JMETER/TestRecording210">wiki page</a> to setup correctly JMeter.
+Ensure you read this <a href="https://cwiki.apache.org/confluence/display/JMETER/TestRecording210">wiki page</a> to setup correctly BreakTest.
 </p>
 
 <p>To use the recorder, <i>add</i> the HTTP(S) Test Script Recorder element.
@@ -6160,7 +6160,7 @@ Right-click on the Test Plan element to get the Add menu:
 <p>
 The recorder is implemented as an HTTP(S) proxy server.
 You need to set up your browser use the proxy for all HTTP and HTTPS requests.
-<note>Do not use JMeter as the proxy for any other request types - FTP, etc. - as JMeter cannot handle them.</note>
+<note>Do not use BreakTest as the proxy for any other request types - FTP, etc. - as BreakTest cannot handle them.</note>
 </p>
 <p>
 Ideally use private browsing mode when recording the session.
@@ -6177,36 +6177,36 @@ by a Certificate Authority (CA) that is linked to one of its in-built root CAs.
 If any of the browser checks fail, it will prompt the user who can then decide whether to allow the connection to proceed.
 </p>
 <p>
-JMeter needs to use its own certificate to enable it to intercept the HTTPS connection from
-the browser. Effectively JMeter has to pretend to be the target server.
+BreakTest needs to use its own certificate to enable it to intercept the HTTPS connection from
+the browser. Effectively BreakTest has to pretend to be the target server.
 </p>
 <p>
-JMeter will generate its own certificate(s).
+BreakTest will generate its own certificate(s).
 These are generated with a validity period defined by the property <code>proxy.cert.validity</code>, default 7 days, and random passwords.
 BreakTest generates certificates for each target server as necessary (dynamic mode)
 unless the following property is defined: <code>proxy.cert.dynamic_keys=false</code>.
-When using dynamic mode, the certificate will be for the correct host name, and will be signed by a JMeter-generated CA certificate.
+When using dynamic mode, the certificate will be for the correct host name, and will be signed by a BreakTest-generated CA certificate.
 By default, this CA certificate won't be trusted by the browser, however it can be installed as a trusted certificate.
 Once this is done, the generated server certificates will be accepted by the browser.
 This has the advantage that even embedded HTTPS resources can be intercepted, and there is no need to override the browser checks for each new server.
 <note>Browsers don't prompt for embedded resources. So with earlier versions, embedded resources would only be downloaded for servers that were already 'known' to the browser</note>
 </p>
 <p>Unless a keystore is provided (and you define the property <code>proxy.cert.alias</code>),
-JMeter needs to use the keytool application to create the keystore entries.
-JMeter includes code to check that keytool is available by looking in various standard places.
-If JMeter is unable to find the keytool application, it will report an error.
-If necessary, the system property <code>keytool.directory</code> can be used to tell JMeter where to find keytool.
+BreakTest needs to use the keytool application to create the keystore entries.
+BreakTest includes code to check that keytool is available by looking in various standard places.
+If BreakTest is unable to find the keytool application, it will report an error.
+If necessary, the system property <code>keytool.directory</code> can be used to tell BreakTest where to find keytool.
 This should be defined in the file <code>system.properties</code>.
 </p>
 <p>
-The JMeter certificates are generated (if necessary) when the <code>Start</code> button is pressed.
+The BreakTest certificates are generated (if necessary) when the <code>Start</code> button is pressed.
 <note>Certificate generation can take some while, during which time the GUI will be unresponsive.</note>
 The cursor is changed to an hour-glass whilst this is happening.
 When certificate generation is complete, the GUI will display a pop-up dialogue containing the details of the certificate for the root CA.
-This certificate needs to be installed by the browser in order for it to accept the host certificates generated by JMeter; see <a href="#install_cert">below</a> for details.
+This certificate needs to be installed by the browser in order for it to accept the host certificates generated by BreakTest; see <a href="#install_cert">below</a> for details.
 </p>
 <p>
-If necessary, you can force JMeter to regenerate the keystore (and the exported certificates - <code>ApacheJMeterTemporaryRootCA[.usr|.crt]</code>) by deleting the keystore file <code>proxyserver.jks</code> from the JMeter directory.
+If necessary, you can force BreakTest to regenerate the keystore (and the exported certificates - <code>ApacheJMeterTemporaryRootCA[.usr|.crt]</code>) by deleting the keystore file <code>proxyserver.jks</code> from the BreakTest directory.
 </p>
 <p>
 This certificate is not one of the certificates that browsers normally trust, and will not be for the
@@ -6217,56 +6217,56 @@ As a consequence:
 <li>The browser should display a dialogue asking if you want to accept the certificate or not. For example:
 <source>
 1) The server's name "<code>www.example.com</code>" does not match the certificate's name
-   "<code>_ JMeter Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>". Somebody may be trying to eavesdrop on you.
-2) The certificate for "<code>_ JMeter Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>" is signed by the unknown Certificate Authority
-   "<code>_ JMeter Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>". It is not possible to verify that this is a valid certificate.
+   "<code>_ BreakTest Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>". Somebody may be trying to eavesdrop on you.
+2) The certificate for "<code>_ BreakTest Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>" is signed by the unknown Certificate Authority
+   "<code>_ BreakTest Root CA for recording (INSTALL ONLY IF IT IS YOURS)</code>". It is not possible to verify that this is a valid certificate.
 </source>
-You will need to accept the certificate in order to allow the JMeter Proxy to intercept the SSL traffic in order to
+You will need to accept the certificate in order to allow the BreakTest Proxy to intercept the SSL traffic in order to
 record it.
 However, do not accept this certificate permanently; it should only be accepted temporarily.
 Browsers only prompt this dialogue for the certificate of the main URL, not for the resources loaded in the page, such as images, CSS or JavaScript files hosted on a secured external CDN.
-If you have such resources (gmail has for example), you'll have to first browse manually to these other domains in order to accept JMeter's certificate for them.
+If you have such resources (gmail has for example), you'll have to first browse manually to these other domains in order to accept BreakTest's certificate for them.
 Check in <code>jmeter.log</code> for secure domains that you need to register certificate for.
 </li>
-<li>If the browser has already registered a validated certificate for this domain, the browser will detect JMeter as a security breach and will refuse to load the page. If so, you have to remove the trusted certificate from your browser's keystore.
+<li>If the browser has already registered a validated certificate for this domain, the browser will detect BreakTest as a security breach and will refuse to load the page. If so, you have to remove the trusted certificate from your browser's keystore.
 </li>
 </ul>
 <p>
-Versions of JMeter from 2.10 onwards still support this method, and will continue to do so if you define the following property:
+Versions of BreakTest from 2.10 onwards still support this method, and will continue to do so if you define the following property:
 <code>proxy.cert.alias</code>
 The following properties can be used to change the certificate that is used:
 </p>
 <ul>
-<li><code>proxy.cert.directory</code> - the directory in which to find the certificate (default = JMeter <code>bin/</code>)</li>
+<li><code>proxy.cert.directory</code> - the directory in which to find the certificate (default = BreakTest <code>bin/</code>)</li>
 <li><code>proxy.cert.file</code> - name of the keystore file (default "<code>proxyserver.jks</code>")</li>
-<li><code>proxy.cert.keystorepass</code> - keystore password (default "<code>password</code>") [Ignored if using JMeter certificate]</li>
-<li><code>proxy.cert.keypassword</code> - certificate key password (default "<code>password</code>") [Ignored if using JMeter certificate]</li>
-<li><code>proxy.cert.type</code> - the certificate type (default "<code>JKS</code>") [Ignored if using JMeter certificate]</li>
-<li><code>proxy.cert.factory</code> - the factory (default "<code>SunX509</code>") [Ignored if using JMeter certificate]</li>
-<li><code>proxy.cert.alias</code> - the alias for the key to be used. If this is defined, JMeter does not attempt to generate its own certificate(s).</li>
+<li><code>proxy.cert.keystorepass</code> - keystore password (default "<code>password</code>") [Ignored if using BreakTest certificate]</li>
+<li><code>proxy.cert.keypassword</code> - certificate key password (default "<code>password</code>") [Ignored if using BreakTest certificate]</li>
+<li><code>proxy.cert.type</code> - the certificate type (default "<code>JKS</code>") [Ignored if using BreakTest certificate]</li>
+<li><code>proxy.cert.factory</code> - the factory (default "<code>SunX509</code>") [Ignored if using BreakTest certificate]</li>
+<li><code>proxy.cert.alias</code> - the alias for the key to be used. If this is defined, BreakTest does not attempt to generate its own certificate(s).</li>
 <li><code>proxy.ssl.protocol</code> - the protocol to be used (default "<code>SSLv3</code>")</li>
 </ul>
 <note>
 If your browser currently uses a proxy (e.g. a company intranet may route all external requests via a proxy),
-then you need to <a href="get-started.html#proxy_server">tell JMeter to use that proxy</a> before starting JMeter,
+then you need to <a href="get-started.html#proxy_server">tell BreakTest to use that proxy</a> before starting BreakTest,
 using the <a href="get-started.html#options">command-line options</a> <code>-H</code> and <code>-P</code>.
 This setting will also be needed when running the generated test plan.
 </note>
 <a name="install_cert"/>
-<h4>Installing the JMeter CA certificate for HTTPS recording</h4>
+<h4>Installing the BreakTest CA certificate for HTTPS recording</h4>
 <p>
 As mentioned above, BreakTest can generate certificates for each server.
-For this to work smoothly, the root CA signing certificate used by JMeter needs to be trusted by the browser.
+For this to work smoothly, the root CA signing certificate used by BreakTest needs to be trusted by the browser.
 The first time that the recorder is started, it will generate the certificates if necessary.
 The root CA certificate is exported into a file with the name <code>ApacheJMeterTemporaryRootCA</code> in the current launch directory.
-When the certificates have been set up, JMeter will show a dialog with the current certificate details.
+When the certificates have been set up, BreakTest will show a dialog with the current certificate details.
 At this point, the certificate can be imported into the browser, as per the instructions below.
 </p>
 <p>
 Note that once the root CA certificate has been installed as a trusted CA, the browser will trust any certificates signed by it.
 Until such time as the certificate expires or the certificate is removed from the browser, it will not warn the user that the certificate is being relied upon.
 So anyone that can get hold of the keystore and password can use the certificate to generate certificates which will be accepted
-by any browsers that trust the JMeter root CA certificate.
+by any browsers that trust the BreakTest root CA certificate.
 For this reason, the password for the keystore and private keys are randomly generated and a short validity period used.
 The passwords are stored in the local preferences area.
 Please ensure that only trusted users have access to the host with the keystore.
@@ -6286,8 +6286,8 @@ Choose the following options:
 <li><code>View Certificates</code></li>
 <li><code>Authorities</code></li>
 <li><code>Import &hellip;</code></li>
-<li>Browse to the JMeter launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.crt</code>, press <code>Open</code></li>
-<li>Click <code>View</code> and check that the certificate details agree with the ones displayed by the JMeter Test Script Recorder</li>
+<li>Browse to the BreakTest launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.crt</code>, press <code>Open</code></li>
+<li>Click <code>View</code> and check that the certificate details agree with the ones displayed by the BreakTest Test Script Recorder</li>
 <li>If OK, select "<code>Trust this CA to identify web sites</code>", and press <code>OK</code></li>
 <li>Close dialogs by pressing <code>OK</code> as necessary</li>
 </ul>
@@ -6296,8 +6296,8 @@ Choose the following options:
 Both Chrome and Internet Explorer use the same trust store for certificates.
 </p>
 <ul>
-<li>Browse to the JMeter launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.crt</code>, and open it</li>
-<li>Click on the "<code>Details</code>" tab and check that the certificate details agree with the ones displayed by the JMeter Test Script Recorder</li>
+<li>Browse to the BreakTest launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.crt</code>, and open it</li>
+<li>Click on the "<code>Details</code>" tab and check that the certificate details agree with the ones displayed by the BreakTest Test Script Recorder</li>
 <li>If OK, go back to the "<code>General</code>" tab, and click on "<code>Install Certificate &hellip;</code>" and follow the Wizard prompts</li>
 </ul>
 <h5>Installing the certificate in Opera</h5>
@@ -6305,7 +6305,7 @@ Both Chrome and Internet Explorer use the same trust store for certificates.
 <li><code>Tools / Preferences / Advanced / Security</code></li>
 <li><code>Manage Certificates &hellip;</code></li>
 <li>Select "<code>Intermediate</code>" tab, click "<code>Import &hellip;</code>"</li>
-<li>Browse to the JMeter launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.usr</code>, and open it</li>
+<li>Browse to the BreakTest launch directory, and click on the file <code>ApacheJMeterTemporaryRootCA.usr</code>, and open it</li>
 <li></li>
 </ul>
 </description>
@@ -6329,7 +6329,7 @@ Both Chrome and Internet Explorer use the same trust store for certificates.
              <li><code>Store 1<sup>st</sup> sampler of each group only</code> - only the first request in each group will be recorded. The "<code>Follow Redirects</code>" and "<code>Retrieve All Embedded Resources &hellip;</code>" flags will be turned on in those samplers.</li>
              <li><code>Put each group in a new transaction controller</code> - create a new <complink name="Transaction Controller"/> for each group, and store all samplers for that group in it.</li>
            </ul>
-           The property <code>proxy.pause</code> determines the minimum gap that JMeter needs between requests
+           The property <code>proxy.pause</code> determines the minimum gap that BreakTest needs between requests
            to treat them as separate "clicks". The default is <code>5000</code> (milliseconds) i.e. 5 seconds.
            If you are using grouping, please ensure that you leave the required gap between clicks.
         </property>
@@ -6339,7 +6339,7 @@ Both Chrome and Internet Explorer use the same trust store for certificates.
         By default it also removes <code>If-Modified-Since</code> and <code>If-None-Match</code> headers.
         These are used to determine if the browser cache items are up to date;
         when recording one normally wants to download all the content.
-        To change which additional headers are removed, define the JMeter property <code>proxy.headers.remove</code>
+        To change which additional headers are removed, define the BreakTest property <code>proxy.headers.remove</code>
         as a comma-separated list of headers.
         </property>
         <property name="Add Assertions" required="Yes">Add a blank assertion to each sampler?</property>
@@ -6373,7 +6373,7 @@ Both Chrome and Internet Explorer use the same trust store for certificates.
         <note>Any requests that match one or more <code>Exclude</code> pattern are <em>not</em> recorded</note>.</property>
         <property name="Notify Child Listeners of filtered samplers" required="No">Notify Child Listeners of filtered samplers
         <note>Any response that match one or more <code>Exclude</code> pattern is <em>not</em> delivered to Child Listeners (View Results Tree)</note>.</property>
-        <property name="Start Button" required="N/A">Start the proxy server.  JMeter writes the following message to the console once the proxy server has started up and is ready to take requests: "<code>Proxy up and running!</code>".</property>
+        <property name="Start Button" required="N/A">Start the proxy server.  BreakTest writes the following message to the console once the proxy server has started up and is ready to take requests: "<code>Proxy up and running!</code>".</property>
         <property name="Stop Button" required="N/A">Stop the proxy server.</property>
         <property name="Restart Button" required="N/A">Stops and restarts the proxy server.  This is
   useful when you change/add/delete an include/exclude filter expression.</property>
@@ -6388,12 +6388,12 @@ The generated samples have "<code>Follow Redirects</code>" selected by default, 
 <note>Redirects may depend on the original request, so repeating the originally recorded sample may not always work.</note>
 </p>
 <p>
-Now if JMeter is set to follow the redirect during replay, it will issue the original request,
+Now if BreakTest is set to follow the redirect during replay, it will issue the original request,
 and then replay the redirect request that was recorded.
-To avoid this duplicate replay, JMeter tries to detect when a sample is the result of a previous
-redirect. If the current response is a redirect, JMeter will save the redirect URL.
+To avoid this duplicate replay, BreakTest tries to detect when a sample is the result of a previous
+redirect. If the current response is a redirect, BreakTest will save the redirect URL.
 When the next request is received, it is compared with the saved redirect URL and if there is a match,
-JMeter will disable the generated sample. It also adds comments to the redirect chain.
+BreakTest will disable the generated sample. It also adds comments to the redirect chain.
 This assumes that all the requests in a redirect chain will follow each other without any intervening requests.
 To disable the redirect detection, set the property <code>proxy.redirect.disabling=false</code>
 </p>
@@ -6424,8 +6424,8 @@ N.B. the string that is matched by the regular expression must be the same as th
 
 <h4>Capturing binary POST data</h4>
 <p>
-JMeter is able to capture binary POST data.
-To configure which <code>content-types</code> are treated as binary, update the JMeter property <code>proxy.binary.types</code>.
+BreakTest is able to capture binary POST data.
+To configure which <code>content-types</code> are treated as binary, update the BreakTest property <code>proxy.binary.types</code>.
 The default settings are as follows:
 </p>
 <source>
@@ -6448,11 +6448,11 @@ recorded (in milliseconds).</p>
 
 <p>When you are ready to begin, hit &quot;<code>start</code>&quot;.</p>
 <note>You will need to edit the proxy settings of your browser to point at the
-appropriate server and port, where the server is the machine JMeter is running on, and
+appropriate server and port, where the server is the machine BreakTest is running on, and
 the port # is from the Proxy Control Panel shown above.</note>
 
 <h4>Where Do Samples Get Recorded?</h4>
-<p>JMeter places the recorded samples in the Target Controller you choose. If you choose the default option
+<p>BreakTest places the recorded samples in the Target Controller you choose. If you choose the default option
 "<code>Use Recording Controller</code>", they will be stored in the first Recording Controller found in the test object tree (so be
 sure to add a Recording Controller before you start recording).</p>
 
@@ -6464,7 +6464,7 @@ Double-check the browser options.
 If you are trying to record from a server running on the same host,
 then check that the browser is not set to "<code>Bypass proxy server for local addresses</code>"
 (this example is from IE7, but there will be similar options for other browsers).
-If JMeter does not record browser URLs such as <code>http://localhost/</code> or <code>http://127.0.0.1/</code>,
+If BreakTest does not record browser URLs such as <code>http://localhost/</code> or <code>http://127.0.0.1/</code>,
 try using the non-loopback hostname or IP address, e.g. <code>http://myhost/</code> or <code>http://192.168.0.2/</code>.
 </p>
 
@@ -6538,7 +6538,7 @@ You can also add a <complink name="Save Responses to a file"/> Post-Processor wh
 <h4>Associating requests with responses</h4>
 <p>
 If you define the property <code>proxy.number.requests=true</code>
-JMeter will add a number to each sampler and each response.
+BreakTest will add a number to each sampler and each response.
 Note that there may be more responses than samplers if excludes or includes have been used.
 Responses that have been excluded will have labels enclosed in <code>[</code> and <code>],</code> for example <code>[23 /favicon.ico]</code>
 </p>
@@ -6546,9 +6546,9 @@ Responses that have been excluded will have labels enclosed in <code>[</code> an
 <p>
 If the server you are testing against uses cookies, remember to add an <complink name="HTTP Cookie Manager"/> to the test plan
 when you have finished recording it.
-During recording, the browser handles any cookies, but JMeter needs a Cookie Manager
+During recording, the browser handles any cookies, but BreakTest needs a Cookie Manager
 to do the cookie handling during a test run.
-The JMeter Proxy server passes on all cookies sent by the browser during recording, but does not save them to the test
+The BreakTest Proxy server passes on all cookies sent by the browser during recording, but does not save them to the test
 plan because they are likely to change between runs.
 </p>
 <h4>Authorization Manager</h4>
@@ -6562,17 +6562,17 @@ You may have to fix automatically computed values after recording.
 <h4>Uploading files</h4>
 <p>
 Some browsers (e.g. Firefox and Opera) don't include the full name of a file when uploading files.
-This can cause the JMeter proxy server to fail.
-One solution is to ensure that any files to be uploaded are in the JMeter working directory,
-either by copying the files there or by starting JMeter in the directory containing the files.
+This can cause the BreakTest proxy server to fail.
+One solution is to ensure that any files to be uploaded are in the BreakTest working directory,
+either by copying the files there or by starting BreakTest in the directory containing the files.
 </p>
-<h4>Recording HTTP Based Non Textual Protocols not natively available in JMeter</h4>
+<h4>Recording HTTP Based Non Textual Protocols not natively available in BreakTest</h4>
 <p>
-You may have to record an HTTP protocol that is not handled by default by JMeter (Custom Binary Protocol, Adobe Flex, Microsoft Silverlight, &hellip; ).
-Although JMeter does not provide a native proxy implementation to record these protocols, you have the ability to
+You may have to record an HTTP protocol that is not handled by default by BreakTest (Custom Binary Protocol, Adobe Flex, Microsoft Silverlight, &hellip; ).
+Although BreakTest does not provide a native proxy implementation to record these protocols, you have the ability to
 record these protocols by implementing a custom <code>SamplerCreator</code>. This Sampler Creator will translate the binary format into a <code>HTTPSamplerBase</code> subclass
-that can be added to the JMeter Test Case.
-For more details see "Extending JMeter".
+that can be added to the BreakTest Test Case.
+For more details see "Extending BreakTest".
 </p>
 </component>
 
@@ -6620,7 +6620,7 @@ You can also use the following query parameters:
 <component name="Property Display" index="&sect-num;.9.7"  width="804" height="508" screenshot="property_display.png">
 <description>
 <p>
-The Property Display shows the values of System or JMeter properties.
+The Property Display shows the values of System or BreakTest properties.
 Values can be changed by entering new text in the Value column.
 </p>
 </description>
@@ -6632,7 +6632,7 @@ Values can be changed by entering new text in the Value column.
 <component name="Debug Sampler" index="&sect-num;.9.8"  width="431" height="172" screenshot="debug_sampler.png">
 <description>
 <p>
-The Debug Sampler generates a sample containing the values of all JMeter variables and/or properties.
+The Debug Sampler generates a sample containing the values of all BreakTest variables and/or properties.
 </p>
 <p>
 The values can be seen in the <complink name="View Results Tree"/> Listener Response Data pane.
@@ -6640,8 +6640,8 @@ The values can be seen in the <complink name="View Results Tree"/> Listener Resp
 </description>
 <properties>
         <property name="Name" required="No">Descriptive name for this element that is shown in the tree.</property>
-        <property name="JMeter Properties" required="Yes">Include JMeter properties?</property>
-        <property name="JMeter Variables" required="Yes">Include JMeter variables?</property>
+        <property name="BreakTest Properties" required="Yes">Include BreakTest properties?</property>
+        <property name="BreakTest Variables" required="Yes">Include BreakTest variables?</property>
         <property name="System Properties" required="Yes">Include System properties?</property>
 </properties>
 </component>
@@ -6650,7 +6650,7 @@ The values can be seen in the <complink name="View Results Tree"/> Listener Resp
 <description>
 <p>
 The Debug PostProcessor creates a subSample with the details of the previous Sampler properties,
-JMeter variables, properties and/or System Properties.
+BreakTest variables, properties and/or System Properties.
 </p>
 <p>
 The values can be seen in the <complink name="View Results Tree"/> Listener Response Data pane.
@@ -6658,8 +6658,8 @@ The values can be seen in the <complink name="View Results Tree"/> Listener Resp
 </description>
 <properties>
         <property name="Name" required="No">Descriptive name for this element that is shown in the tree.</property>
-        <property name="JMeter Properties" required="Yes">Whether to show JMeter properties (default <code>false</code>).</property>
-        <property name="JMeter Variables" required="Yes">Whether to show JMeter variables (default <code>false</code>).</property>
+        <property name="BreakTest Properties" required="Yes">Whether to show BreakTest properties (default <code>false</code>).</property>
+        <property name="BreakTest Variables" required="Yes">Whether to show BreakTest variables (default <code>false</code>).</property>
         <property name="Sampler Properties" required="Yes">Whether to show Sampler properties (default <code>true</code>).</property>
         <property name="System Properties" required="Yes">Whether to show System properties (default <code>false</code>).</property>
 </properties>
@@ -6676,7 +6676,7 @@ The Test Fragment is used in conjunction with the <complink name="Include Contro
 </properties>
 <note>
 When using Test Fragment with <complink name="Module Controller"/>, ensure you disable the Test Fragment to avoid the execution of Test Fragment itself.
-This is done by default since JMeter 2.13.
+This is done by default.
 </note>
 </component>
 

@@ -16,189 +16,113 @@
   ~ limitations under the License.
   -->
 
-<!DOCTYPE document
-[
-<!ENTITY hellip   "&#x02026;">
-<!ENTITY le       "&#x02264;">
-<!ENTITY nbsp     "&#x000A0;">
-<!ENTITY ndash    "&#x02013;">
-<!ENTITY oacute   "&#x000F3;">
-<!ENTITY rarr     "&#x02192;">
-<!ENTITY rArr     "&#x021D2;">
-<!ENTITY THORN    "&#x000DE;">
-<!ENTITY vellip   "&#x022EE;">
-]>
 <document>
 <properties>
-    <author email="dev AT jmeter.apache.org">JMeter developers</author>
-    <title>Changes</title>
+    <author email="info@breaking-it.nl">BreakTest developers</author>
+    <title>Release Notes</title>
 </properties>
 <body>
-<section name="Changes">
-<style type="text/css"><!--
-h2 { color: #960000; }
-h3 { color: #960000; }
---></style>
+<section name="Release Notes">
 <note>
-<b>This page details the changes made in the current version only.</b>
-<br></br>
-Earlier changes are detailed in the <a href="changes_history.html">History of Previous Changes</a>.
+BreakTest requires Java 21 or later. BreakTest 2026.07.03 is the first public
+BreakTest release and is licensed under the Apache License, Version 2.0.
 </note>
 
-<br></br>
-<note>
-BreakTest requires Java 21 or later for execution.
-</note>
-
-<!--  =================== 1.0.0 =================== -->
-
-<h1>Version 1.0.0 </h1>
+<h1>Version 2026.07.03</h1>
 <p>
-Summary
+BreakTest 2026.07.03 is an independent, JMeter-compatible continuation focused
+on a leaner runtime, modern HTTP support, better debugging, AI-assisted script
+repair workflows, and a smoother path from local scripts to scaled execution.
 </p>
+
+<ch_section>Highlights</ch_section>
 <ul>
-<li><a href="#Changes">Changes</a></li>
-<li><a href="#Bug fixes">Bug fixes</a></li>
+  <li>Modern HTTP runtime based on Apache HttpClient 5, including first-class HTTP/2 support.</li>
+  <li>Java 21+ baseline with virtual-thread support.</li>
+  <li>Lower memory and CPU pressure through lazy decompression, response retention modes, lightweight cloning, lazy diagnostics, and allocation reductions.</li>
+  <li>Unified Thread Group scheduling with closed/open workload models, phases, open-model helpers, pacing, and pause/resume support.</li>
+  <li>Parallel Controller and Fork Controller for realistic concurrency and independent branches of work.</li>
+  <li>Undo/redo support for common GUI test-plan edits.</li>
+  <li>Background JMX loading, fast GUI loading options, and safer placeholders for missing plugin elements.</li>
+  <li>Richer View Results Tree diagnostics, source navigation, and HAR-backed recorded-vs-replayed request/response diff views.</li>
+  <li>Easier If/While controller conditions, transaction timing controls, random CSV ordering, CSV preview, and extractor fail-on-no-match options.</li>
+  <li>AI-assisted scripting support through the BreakTest MCP workflow, including visible GUI change highlighting when scripts are repaired automatically.</li>
 </ul>
 
-  <ch_section>Changes</ch_section>
-  <h3>General</h3>
-  <ul>
-    <li>Require Java 21 or later for running BreakTest</li>
-    <li><pr>6550</pr> Require Kotlin 1.9 or later for running JMeter</li>
-    <li><pr>6274</pr> Change references to old MySQL driver to new class <code>com.mysql.cj.jdbc.Driver</code></li>
-    <li><issue>6352</issue> Calculate delays in Open Model Thread Group and Precise Throughput
-        Timer relative to start of Thread Group instead of the start of the test.</li>
-    <li><issue>6357</issue><pr>6358</pr> Ensure writable directories when copying template files while report generation.</li>
-    <li><pr>6509</pr><pr>6675</pr> Synchronize recent file menu across multiple JVMs. Contributed by Corneliu C (https://github.com/KingRabbid)</li>
-    <li><pr>6596</pr>Fallback to English locale when loading test plans that use string values for enum properties, so old sample plans load correctly even with non-English locales.</li>
-  </ul>
-
-  <h3>HTTP Samplers and Test Script Recorder</h3>
-  <ul>
-    <li><pr>5891</pr>Skip Internet Explorer 6-9 conditional comment processing when fetching resource links</li>
-    <li><issue>5466</issue>Allow enabling or disabling individual HTTP request arguments in the HTTP Sampler UI. Contributed by Pasquale Pochop (github.com/pochopsp)</li>
-    <li><issue>6250</issue>Avoid adding "; charset=" automatically to <code>multipart/form-data</code> requests to align behavior with modern HTTP clients.</li>
-    <li><issue>6080</issue>Preserve the original HTTP method when following 307 and 308 redirects according to the HTTP specification. Contributed by LeeJiWon (github.com/dlwldnjs1009)</li>
-    <li><issue>6267</issue><pr>6268</pr>Add a space between key and value after <code>:</code> in View Results Tree &gt; Sampler result tab for better readability.</li>
-    <li>Add support for decoding HTTP responses with <code>Content-Encoding: zstd</code>.</li>
-  </ul>
-
-  <h3>Timers, Assertions, Config, Pre- &amp; Post-Processors</h3>
-  <ul>
-    <li><issue>6448</issue>Support trailing empty default values in JSON Extractor so expressions like <code>${VAR:-}</code> are handled correctly. Contributed by Raul Almeida (github.com/ratacolita)</li>
-    <li><pr>6596</pr>Add a schema for ConstantThroughputTimer and use it to ensure required properties are initialized properly.</li>
-  </ul>
-
-  <h3>Non-functional changes</h3>
-  <ul>
-    <li>Update Apache Tika to 3.x from 1.x to use the latest parser engine.</li>
-    <li>Update Saxon-HE to 12.x from 11.x for XSLT and XQuery processing.</li>
-    <li>Update Groovy to 5.x for the Groovy-based scripting environment.</li>
-    <li>Update Bouncy Castle to 1.82 for cryptographic operations.</li>
-    <li>Update json-path to 2.10.0 for JSON query expressions.</li>
-    <li>Update Neo4j Java driver to 6.x for Bolt-based database tests.</li>
-    <li>Update Rhino JavaScript engine to 1.8.0 for JSR-223 JavaScript execution.</li>
-  </ul>
-
-  <h3>UI</h3>
-  <ul>
-    <li><pr>6333</pr>Apply HiDPI mode automatically when setting up the GUI so JMeter looks sharp on high-resolution displays. Contributed by Gabriele Coletta (github.com/gdmg92)</li>
-    <li><pr>6656</pr>Replace the previous feather icon with the new oak leaf in the JMeter logo.</li>
-    <li>Modernize the GUI with the FlatLaf look and feel. The Look and Feel menu now offers two themes,
-        Light (default) and Dark, that switch instantly without a restart. Previous Darklaf/Darcula theme
-        preferences are migrated automatically, and the legacy Swing look and feels can be re-enabled with
-        <code>jmeter.laf.legacy=true</code>. The test plan tree uses a tighter indentation and the whole UI
-        received rounded corners, slimmer scrollbars and a unified accent color.</li>
-  </ul>
-
-  <ch_section>Bug fixes</ch_section>
-  <h3>General</h3>
-  <ul>
-    <li><pr>6654</pr><issue>6611</issue>Support JDK 25 and above for result collectors with empty file names</li>
-    <li>Trim whitespace when parsing numeric JMeter properties so accidental spaces do not silently change configuration values.</li>
-    <li><pr>6372</pr>Fix KeyManager logging when using CLI mode so keystore passwords are not incorrectly reported as missing. Contributed by Patrick Uiterwijk (patrick at puiterwijk.org)</li>
-    <li><issue>5937</issue>Remove deprecated Log4j package scanning and configure plugin metadata processing to improve startup time and avoid deprecation warnings. Contributed by Piotr P. Karwasz (github.com/piotrgithub)</li>
-    <li><pr>6620</pr>Fix report generation paths so dashboard output files are created in the correct location after internal refactoring.</li>
-    <li><bug>6456</bug>Handle malformed percent-encoded URLs gracefully when recording HTTP traffic, logging a warning instead of failing the recording.</li>
-  </ul>
- <!--  =================== Thanks =================== -->
-
-<ch_section>Thanks</ch_section>
-<p>We thank all contributors mentioned in bug and improvement sections above:
-</p>
+<ch_section>Modern HTTP Runtime</ch_section>
 <ul>
-  <li>Raul Almeida (github.com/ratacolita)</li>
-  <li>Pasquale Pochop (github.com/pochopsp)</li>
-  <li>Gabriele Coletta (github.com/gdmg92)</li>
-  <li>Patrick Uiterwijk (patrick at puiterwijk.org)</li>
-  <li>Piotr P. Karwasz (github.com/piotrgithub)</li>
+  <li>Added Apache HttpClient 5 sampler support for HTTP/1.1.</li>
+  <li>Added an async HttpClient 5 HTTP/2 sampler path with HTTP/2 and HTTP/2-preferred protocol selection.</li>
+  <li>Added negotiated fallback, connect-time reporting, HTTP/2 upload content length handling, and safer HTTP/2 replay behavior.</li>
+  <li>Reduced HTTP/2 resource usage by limiting reactor threads by default and avoiding unnecessary async client/reactor rebuilds between same-user iterations.</li>
+  <li>Added conservative HTTP/2 closed-session retry handling for common connection-closure failures.</li>
+  <li>Fixed NTLM authentication on the HttpClient 5 path, including variable resolution before async authentication callbacks.</li>
+  <li>Kept HttpClient 4 runtime jars available for legacy plugin compatibility while keeping the built-in HTTP Request sampler on HttpClient 5.</li>
+  <li>Added Brotli and Zstandard response decoding alongside gzip and deflate.</li>
 </ul>
-<p>We also thank bug reporters who helped us improve JMeter.</p>
+
+<ch_section>Controllers, Scheduling, and Flow Control</ch_section>
 <ul>
+  <li>Added native Parallel Controller execution with bounded parallel sampler scheduling and HTTP state safeguards.</li>
+  <li>Added Fork Controller for asynchronous child branches that share virtual-user context and complete before thread teardown.</li>
+  <li>Added unified Thread Group scheduling controls with closed/open model selection.</li>
+  <li>Added closed-model phases so a schedule can combine different ramp-up speeds, hold periods, and thread targets.</li>
+  <li>Added open-model schedule helpers, even-arrival scheduling, max active thread limits, safe schedule parsing, and graph preview support.</li>
+  <li>Added Thread Group pacing controls.</li>
+  <li>Cleared runtime user variables on new iterations when same-user mode is disabled, while preserving initial variables.</li>
+  <li>Added Pause and Resume in the GUI and on the UDP command port, with <code>bin/pause.*</code> and <code>bin/resume.*</code> wrappers.</li>
+  <li>Improved shutdown so it no longer waits for timers to complete and only waits for in-flight server responses to finish cleanly.</li>
 </ul>
+
+<ch_section>GUI and Test-Plan Editing</ch_section>
+<ul>
+  <li>Modernized the GUI with a cleaner light/dark look and more compact tree/editing layouts.</li>
+  <li>Added undo and redo for semantic tree edits including add, delete, update, move, and search/replace operations.</li>
+  <li>Added background JMX loading with a loading overlay.</li>
+  <li>Added opt-in fast GUI loading through <code>jmeter.gui.load.fast=true</code>.</li>
+  <li>JMX files with missing plugin elements now load with disabled placeholders instead of failing the whole file.</li>
+  <li>Improved Search Tree flagging for pre-processors, post-processors, assertions, timers, and config elements.</li>
+  <li>Added selective removal of matching search results with confirmation so bulk cleanup can avoid accidental parent-node deletion.</li>
+</ul>
+
+<ch_section>Scripting, Data, and Correlation</ch_section>
+<ul>
+  <li>Added structured If and While Controller condition rows with all/any matching, while preserving legacy condition expressions.</li>
+  <li>Added loop/while index behavior options and exported index variable display.</li>
+  <li>Added Transaction Controller measurement modes plus built-in delay and pacing controls.</li>
+  <li>Added extractor fail-on-no-match options for Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors.</li>
+  <li>Added random-order reading for CSV Data Set records.</li>
+  <li>Added CSV preview of the first sample variable assignments.</li>
+  <li>Focused scripting on JSR223/Groovy by removing legacy BeanShell, BSF/JEXL2, Rhino JavaScript, and LogKit paths.</li>
+</ul>
+
+<ch_section>Visual Debugging and HAR Migration</ch_section>
+<ul>
+  <li>View Results Tree now shows richer request/response diagnostics, endpoint details, HTTP/TLS metadata, cookies, variables, binary/text detection, and jump-to-source.</li>
+  <li>BreakTest JMX metadata preserves origin and source-path information for debugging tools.</li>
+  <li>HAR-backed recorded request/response tabs appear in View Results Tree and HTTP sampler editors when matching BreakTest HAR metadata is available.</li>
+  <li>Recorded-vs-replayed diffs make HAR migration and HTTP/2 replay debugging easier.</li>
+  <li>Transaction child samples preserve source test-element paths so folded transaction results can still navigate to the correct source element.</li>
+  <li>HTTP/2 replay removes unsupported hop-by-hop headers and normalizes request/status lines for cleaner diffs.</li>
+  <li>Host-only cookie matching is stricter so cookies do not leak to unrelated hosts or subdomains.</li>
+</ul>
+
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+  <li>Existing JMeter JMX files remain supported where practical.</li>
+  <li>Many package names, property names, command internals, and Maven coordinates intentionally still use <code>jmeter</code> or <code>org.apache.jmeter</code> for compatibility.</li>
+  <li>BreakTest-specific JMX metadata may not round-trip into older JMeter versions.</li>
+  <li>Plugins that depend on removed internals may need migration.</li>
+  <li>RMI Remote Server style distributed execution is removed. Use BreakTest Enterprise or another controlled orchestration layer for distributed tests.</li>
+</ul>
+
+<ch_section>Legal and Attribution</ch_section>
 <p>
-Apologies if we have omitted anyone else.
+BreakTest is a derivative work of Apache JMeter. Apache JMeter copyright and
+attribution notices are retained in the source tree and distribution notices.
+BreakTest is independent from The Apache Software Foundation and is not
+affiliated with, endorsed by, or sponsored by The Apache Software Foundation.
 </p>
- <!--  =================== Known bugs or issues related to JAVA Bugs =================== -->
-
-<ch_section>Known problems and workarounds</ch_section>
-<ul>
-<li>The Once Only controller behaves correctly under a Thread Group or Loop Controller,
-but otherwise its behaviour is not consistent (or clearly specified).</li>
-
-<li>
-The numbers that appear to the left of the green box are the number of active threads / total number of threads,
-the total number of threads only applies to a locally run test, otherwise it will show <code>0</code> (see <bugzilla>55510</bugzilla>).
-</li>
-
-<li>
-Note that under some windows systems you may have this WARNING:
-<source>
-java.util.prefs.WindowsPreferences
-WARNING: Could not open/create prefs root node Software\JavaSoft\Prefs at root 0
-x80000002. Windows RegCreateKeyEx(&hellip;) returned error code 5.
-</source>
-The fix is to run JMeter as Administrator, it will create the registry key for you, then you can restart JMeter as a normal user and you won't have the warning anymore.
-</li>
-
-<li>
-You may encounter the following error:
-<source>java.security.cert.CertificateException: Certificates does not conform to algorithm constraints</source>
- if you run a HTTPS request on a web site with a SSL certificate (itself or one of SSL certificates in its chain of trust) with a signature
- algorithm using MD2 (like <code>md2WithRSAEncryption</code>) or with a SSL certificate with a size lower than 1024 bits.
-This error is related to certificate algorithm constraints in modern Java runtimes.
-<br></br>
-To allow you to perform your HTTPS request, you can downgrade the security of your Java installation by editing
-the Java <code>jdk.certpath.disabledAlgorithms</code> property. Remove the MD2 value or the constraint on size, depending on your case.
-<br></br>
-This property is in this file:
-<source>JAVA_HOME/jre/lib/security/java.security</source>
-See  <bugzilla>56357</bugzilla> for details.
-</li>
-
-<li>
-The Nashorn JavaScript implementation is not available in the Java versions supported by BreakTest.
-BreakTest ships with a JSR-223 compatible JavaScript engine by default (Mozilla Rhino 1.8.0),
-so you do not need to download Rhino separately anymore.<br></br>
-If you prefer to use Nashorn instead, you can still add it as a module. One way to download
-version 15.7 (or later) and its dependencies and set the module path is outlined below:
-  <source>
-mkdir lib/modules
-pushd lib/modules
-wget https://repo1.maven.org/maven2/org/openjdk/nashorn/nashorn-core/15.7/nashorn-core-15.7.jar
-wget https://repo1.maven.org/maven2/org/ow2/asm/asm/9.9.1/asm-9.9.1.jar
-wget https://repo1.maven.org/maven2/org/ow2/asm/asm-commons/9.9.1/asm-commons-9.9.1.jar
-wget https://repo1.maven.org/maven2/org/ow2/asm/asm-util/9.9.1/asm-util-9.9.1.jar
-wget https://repo1.maven.org/maven2/org/ow2/asm/asm-tree/9.9.1/asm-tree-9.9.1.jar
-wget https://repo1.maven.org/maven2/org/ow2/asm/asm-analysis/9.9.1/asm-analysis-9.9.1.jar
-popd
-export JVM_ARGS="--module-path $PWD/lib/modules"
-./bin/breaktest
-  </source>
-</li>
-
-</ul>
 
 </section>
 </body>

@@ -18,64 +18,46 @@
 
 <document>
 <properties>
-    <title>Nightly builds for developers</title>
+    <title>Development builds</title>
 </properties>
 <body>
-<section name="Nightly builds for developers">
-    <p></p>
-    <h2>What are the nightly builds?</h2>
+<section name="Development builds">
     <p>
-    The nightly builds are interim builds that are <b>untested and unsupported</b>.
-    <i>Use at your own risk!</i>
-    <br/>
-    These unreleased builds may not even load, may have undocumented features,
-    known defects, and any number of other issues.
-    <br/>
-    They are intended for use by developers and others wishing to help with resolving JMeter bugs.
+    BreakTest publishes official releases on GitHub. Development builds are
+    produced by pull requests and branch builds when project automation is
+    enabled. They are interim builds that are <b>untested and unsupported</b>.
+    <i>Use at your own risk.</i>
     </p>
-    <note><b>These builds should not be used in production.</b></note>
+    <note><b>Development builds should not be used in production.</b></note>
 
-    <h2>Last Build status on Jenkins</h2>
-    <a href='https://ci-builds.apache.org/job/JMeter/job/JMeter-trunk/'><img src='https://ci-builds.apache.org/buildStatus/icon?job=JMeter%2FJMeter-trunk'/></a>
-
-    <h2>Last Quality Report on Sonar</h2>
-    <a href="https://sonarcloud.io/dashboard?id=JMeter">Apache JMeter quality report</a>
-
-    <h2>Where are the nightly builds?</h2>
-    <p>JMeter CI builds are currently run by Jenkins and Buildbot</p>
-    <p>These are located at:
-    <ul>
-    <li><a href="https://ci-builds.apache.org/job/JMeter/job/JMeter-trunk/lastSuccessfulBuild/artifact/src/dist/build/distributions/">Last Successful Jenkins build for JMeter-trunk</a></li>
-    <li><a href="https://nightlies.apache.org/jmeter/nightlies/">Buildbot nightly builds for JMeter-trunk</a></li>
-    <li><a href="https://repository.apache.org/content/repositories/snapshots/org/apache/jmeter/">Maven Snapshots (Buildbot nightly builds)</a></li>
-    </ul>
+    <h2>Where are the builds?</h2>
+    <p>
+    Use <a href="https://github.com/Breaking-IT/breaktest/actions">GitHub Actions</a>
+    for current CI runs and <a href="download_breaktest.cgi">Download BreakTest</a>
+    for official releases.
     </p>
+
     <h2>What do they consist of?</h2>
-<p>
-JMeter is distributed as a set of zip (or tar-gz) archive files as are the released versions.
-You can find the bundles:
-<ul>
-<li>{git revision}/apache-jmeter-{version}.zip - Bundle in ZIP format</li>
-<li>{git revision}/apache-jmeter-{version}.tgz - Bundle in TAR GZIP format</li>
-<li>{git revision}/apache-jmeter-{version}_src.zip - Sources in ZIP format</li>
-<li>{git revision}/apache-jmeter-{version}_src.tgz - Sources in TAR GZIP format</li>
-</ul>
-For each file you will also find a hash (MD5, SHA) that allows you to test its integrity.
-</p>
+    <p>
+    BreakTest release builds consist of binary and source archives:
+    </p>
+    <ul>
+    <li><code>breaktest-{version}.zip</code> - binary distribution in ZIP format</li>
+    <li><code>breaktest-{version}.tgz</code> - binary distribution in TAR GZIP format</li>
+    <li><code>breaktest-{version}_src.zip</code> - source distribution in ZIP format</li>
+    <li><code>breaktest-{version}_src.tgz</code> - source distribution in TAR GZIP format</li>
+    </ul>
+    <p>
+    Each official release asset includes a SHA-512 checksum.
+    </p>
 
-<h2>Using the nightly builds</h2>
-<p>Just unzip the bundle and use it as you would use any release.</p>
-
-<h2>Warning - please note!</h2>
-<note>
-    <span style="font-size : large">
-    <b>The nightly builds may or may not work properly - or at all.</b>
-    </span>
-</note>
-<p>
-    If there is a problem with a particular version,
-    it is worth reporting this on the JMeter-dev mailing list and/or open a bug and/or trying again in a day or two.
-</p>
+    <h2>Using development builds</h2>
+    <p>
+    Unpack the bundle and use it as you would use a release, but keep in mind
+    that development builds may include incomplete features or regressions.
+    Report BreakTest-specific problems in the
+    <a href="https://github.com/Breaking-IT/breaktest/issues">BreakTest issue tracker</a>.
+    </p>
 </section>
 </body>
 </document>

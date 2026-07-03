@@ -54,8 +54,8 @@ CSV files are much smaller than XML files, so use CSV if you are generating lots
 <p>
 The file name can be specified using either a relative or an absolute path name.
 Relative paths are resolved relative to the current working directory (which defaults to the <code>bin/</code> directory).
-JMeter also supports paths relative to the directory containing the current test plan (JMX file).
-If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> JMeter property),
+BreakTest also supports paths relative to the directory containing the current test plan (JMX file).
+If the path name begins with "<code>~/</code>" (or whatever is in the <code>jmeter.save.saveservice.base_prefix</code> BreakTest property),
 then the path is assumed to be relative to the JMX file location.
 </p>
 <p>
@@ -160,19 +160,19 @@ The full set of properties that affect result file output is shown below.
 # where the fields' values are separated by specified delimiters.
 # Default:
 #jmeter.save.saveservice.default_delimiter=,
-# For TAB, since JMeter 2.3 one can use:
+# For TAB, use:
 #jmeter.save.saveservice.default_delimiter=\t
 
 # Only applies to CSV format files:
 # Print field names as first line in CSV
 #jmeter.save.saveservice.print_field_names=true
 
-# Optional list of JMeter variable names whose values are to be saved in the result data files.
+# Optional list of BreakTest variable names whose values are to be saved in the result data files.
 # Use commas to separate the names. For example:
 #sample_variables=SESSION_ID,REFERENCE
 # N.B. The current implementation saves the values in XML as attributes,
 # so the names must be valid XML names.
-# JMeter sends the variable to all servers
+# BreakTest sends the variable to all servers
 # to ensure that the correct data is available at the client.
 
 # Optional xml processing instruction for line 2 of the file:
@@ -184,7 +184,7 @@ The full set of properties that affect result file output is shown below.
 # AutoFlush on each line written in XML or CSV output
 # Setting this to true will result in less test results data loss in case of Crash
 # but with impact on performances, particularly for intensive tests (low or no pauses)
-# Since JMeter 2.10, this is false by default
+# This is false by default
 #jmeter.save.saveservice.autoflush=false
 
 # Put the start time stamp in logs instead of the end
@@ -199,11 +199,11 @@ sampleresult.timestamp.start=true
 </source>
 <p>
 The date format to be used for the <code>timestamp_format</code> is described in <a
-HREF="http://docs.oracle.com/javase/7/docs/api/java/text/SimpleDateFormat.html">
+HREF="https://docs.oracle.com/en/java/javase/21/docs/api/java/text/SimpleDateFormat.html">
 <b>SimpleDateFormat</b></a>.
 The timestamp format is used for both writing and reading files.
 If the format is set to "<code>ms</code>", and the column does not parse as a long integer,
-JMeter (2.9+) will try the following formats:
+BreakTest will try the following formats:
 <ul>
 <li><code>yyyy/MM/dd HH:mm:ss.SSS</code></li>
 <li><code>yyyy/MM/dd HH:mm:ss</code></li>
@@ -212,12 +212,12 @@ JMeter (2.9+) will try the following formats:
 <li><code>MM/dd/yy HH:mm:ss</code> (this is for compatibility with previous versions; it is not recommended as a format)</li>
 </ul>
 Matching is now also strict (non-lenient).
-JMeter 2.8 and earlier used lenient mode which could result in timestamps with incorrect dates
-(times were usually correct).</p>
+Older JMeter-compatible result files might have been written with lenient timestamp parsing,
+which could result in timestamps with incorrect dates (times were usually correct).</p>
 <subsection name="&sect-num;.1.1 Sample Variables" anchor="sample_variables">
 <p>
-JMeter supports the <code>sample_variables</code>
-property to define a list of additional JMeter variables which are to be saved with
+BreakTest supports the <code>sample_variables</code>
+property to define a list of additional BreakTest variables which are to be saved with
 each sample in the JTL files. The values are written to CSV files as additional columns,
 and as additional attributes in XML files. See above for an example.
 </p>
@@ -252,11 +252,11 @@ jmeter -n -t testplan.jmx -l testplan_01.jtl -j testplan_01.log
 jmeter -n -t testplan.jmx -l testplan_02.jtl -j testplan_02.log
 </source>
 <p>
-Note that JMeter logging messages are written to the file <code>jmeter.log</code> by default.
+Note that BreakTest logging messages are written to the file <code>jmeter.log</code> by default.
 This file is recreated each time, so if you want to keep the log files for each run,
 you will need to rename it using the <code>-j</code> option as above.
 </p>
-<p>JMeter supports variables in the log file name.
+<p>BreakTest supports variables in the log file name.
 If the filename contains  paired single-quotes, then the name is processed
 as a <code>SimpleDateFormat</code> format applied to the current date, for example:
 <code>log_file='jmeter_'yyyyMMddHHmmss'.tmp'</code>.
@@ -450,7 +450,7 @@ The sample attributes have the following meaning:
 </table>
 
 <note>
-JMeter allows additional variables to be saved with the test plan.
+BreakTest allows additional variables to be saved with the test plan.
 Currently, the variables are saved as additional attributes.
 The testplan variable name is used as the attribute name.
 See <a href="#sample_variables">Sample variables</a> (above) for more information.
@@ -476,10 +476,10 @@ If necessary, just create a dummy testplan with the appropriate Listener in it.
 </p>
 <p>Results can be read from XML or CSV format files.
 When reading from CSV results files, the header (if present) is used to determine which fields were saved.
-<b>In order to interpret a header-less CSV file correctly, the appropriate JMeter properties must be set.</b>
+<b>In order to interpret a header-less CSV file correctly, the appropriate BreakTest properties must be set.</b>
 </p>
 <note>
-JMeter does not clear any current data before loading the new file thus allowing files to be merged.
+BreakTest does not clear any current data before loading the new file thus allowing files to be merged.
 If you want to clear the current data, use the menu item:
   <menuchoice>
     <guimenuitem>Run</guimenuitem>
@@ -507,7 +507,7 @@ before loading the file.
 </note>
 </section>
 <section name="&sect-num;.10 Saving Listener GUI data" anchor="screencap">
-<p>JMeter is capable of saving any listener as a PNG file. To do so, select the
+<p>BreakTest is capable of saving any listener as a PNG file. To do so, select the
 listener in the left panel. Click
   <menuchoice>
     <guimenuitem>Edit</guimenuitem>

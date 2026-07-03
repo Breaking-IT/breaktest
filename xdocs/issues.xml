@@ -23,146 +23,80 @@
 <body>
 <section name="Issue tracker">
   <p>
-    JMeter uses GitHub Issues for issue tracking, i.e. for reporting bugs and requesting enhancements.
-    Previously, the issues were tracked in <a href="https://bz.apache.org/bugzilla/describecomponents.cgi">Bugzilla</a>,
-    and all the issues, comments, and attachments have been migrated to GitHub on 2022-09-22.
+    BreakTest uses GitHub Issues for BreakTest-specific bugs, regressions,
+    feature requests, and documentation feedback.
   </p>
-</section>
-<section name="Support Questions">
-  <p>
-    Please do not use GitHub Issues for asking questions. It is not a support forum.
-    Instead, please <a href="mail2.html">subscribe</a> to the JMeter user mailing list and ask there.
-    The user mailing list has a bigger audience, and you are more likely to get an answer quickly.
-  </p>
-</section>
-<section name="Known Bugs and enhancements">
   <ul>
-    <li>
-      <a href="https://github.com/apache/jmeter/issues?q=is%3Aopen+sort%3Areactions-%2B1-desc">
-        Most voted issues
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/apache/jmeter/issues?q=is%3Aopen">
-        All open bugs and enhancements
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/apache/jmeter/issues?q=is%3Aissue+is%3Aopen+-label%3Aenhancement">
-        Open bugs (excluding enhancements)
-      </a>
-    </li>
-    <li>
-      <a href="https://github.com/apache/jmeter/issues?q=is%3Aopen+label%3Aenhancement">
-        Enhancements only
-      </a>
-    </li>
+    <li><a href="https://github.com/Breaking-IT/breaktest/issues">Open BreakTest issues</a></li>
+    <li><a href="https://github.com/Breaking-IT/breaktest/issues/new/choose">Create a new BreakTest issue</a></li>
+    <li><a href="security.html">Report a security issue privately</a></li>
   </ul>
+  <note>
+    BreakTest is independent from The Apache Software Foundation. If you are
+    reporting a behavior difference from Apache JMeter, please include the
+    Apache JMeter version you compared against.
+  </note>
 </section>
+
+<section name="Support questions">
+  <p>
+    GitHub Issues are best for actionable BreakTest bugs and feature requests.
+    For usage questions, include a minimal JMX file, the exact BreakTest version,
+    Java version, operating system, and what you already tried. If your question
+    is about generic JMeter-compatible test-plan modeling, upstream Apache JMeter
+    community resources may still be useful background, but BreakTest issues
+    should stay focused on BreakTest behavior.
+  </p>
+</section>
+
 <section name="Requesting an enhancement">
   <p>
-    Please check if the same enhancement has already been requested previously.
-    If you find a very similar request in the issues list, please refrain from adding "<em>I also need this</em>" comments to the issue.
-    "<em>I also need this</em>" comments cause notifications, and the comment itself does not add much to the discussion.
-    Instead, prefer adding reactions to the first comment of an existing issue, so the issues could be sorted (see
-    <a href="https://github.com/apache/jmeter/issues?q=sort%3Areactions-%2B1-desc">Most voted issues</a>).
+    Please check whether the same enhancement has already been requested. If a
+    similar issue exists, add detail to the existing discussion instead of
+    opening a duplicate.
   </p>
   <p>
-    Please make sure that you describe the enhancement in sufficient detail. It might be a good idea to start with a use-case.
+    Good feature requests describe the use case first. For BreakTest, it is
+    especially helpful to say whether the request affects compatibility with
+    existing JMX files, resource usage, HTTP/2 behavior, controller semantics,
+    GUI editing, AI-assisted scripting, or BreakTest Enterprise handoff.
   </p>
   <p>
-    There are several options to propose an enhancement request:
-    <dl>
-      <dt>GitHub issue</dt>
-      <dd>
-        <p>
-          You could <a href="https://github.com/apache/jmeter/issues/new/choose">file an issue on GitHub</a> to start a discussion
-          and gather opinions. GitHub issues allow
-          <a href="https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax">basic formatting</a>,
-          <a href="https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting">advanced formatting</a>,
-          <a href="https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files">attaching files</a>,
-          <a href="https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#quoting-code">syntax highlight</a>,
-          <a href="https://docs.github.com/en/issues/tracking-your-work-with-issues/about-task-lists">task lists</a>,
-          reactions,
-          <a href="https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/autolinked-references-and-urls#issues-and-pull-requests">references to the other
-            issues and the source code</a>.
-        </p>
-        <p>
-          When you create an issue at GitHub, it suggests one of the templates (e.g. "<em>Bug report</em>",
-          "<em>Feedback about the manual</em>", "<em>Feature Request</em>", "<em>Regression</em>"), and it guides which information is required for each case.
-          You could read more on <a href="https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue">creating issues</a> in
-          GitHub documentation.
-        </p>
-      </dd>
-      <dt>Mailing list discussion</dt>
-      <dd>
-        <p>
-          If you are not sure if something is an enhancement, or if you are unsure regarding the possible solutions,
-          it might be a good idea to start a discussion on <a href="https://jmeter.apache.org/mail2.html#JMeterDev">JMeter dev mailing list</a>
-        </p>
-      </dd>
-      <dt>GitHub pull request</dt>
-      <dd>
-        <p>
-          If you are positive regarding the solution, you could start a discussion by creating a
-          <a href="https://github.com/apache/jmeter/pulls">pull request on GitHub</a>.
-          Pull requests are not much different from issues, however, sometimes it is easier to discuss with code at hand.
-          For instance, if you fix a typo or make other small fixes, there's no need to create "<em>issue and PR</em>" for each change.
-          The following <a href="https://github.blog/2015-01-21-how-to-write-the-perfect-pull-request/">GitHub post</a> might be helpful
-          for creating your perfect pull request.
-        </p>
-        <note>
-          There's no guarantee that your contribution will be accepted, so it might be wise to discuss your suggestions
-          before you invest significant efforts on implementing the changes.
-        </note>
-        <p>
-          If you are providing a code patch, also provide a test case, and documentation on how to use the new feature (ideally as a documentation patch).
-        </p>
-      </dd>
-    </dl>
+    If you already have a concrete implementation, open a pull request from a
+    fork. Small documentation fixes do not need a separate issue.
   </p>
 </section>
-<section name="Raising an Issue">
+
+<section name="Raising an issue">
   <p>
-    First check that the issue has not already been reported on <a href="https://github.com/apache/jmeter/issues">GitHub issues</a>
-    and <a href="https://lists.apache.org/list.html?user@jmeter.apache.org">JMeter user mailing list</a>).
-    If reporting a bug, are you sure it really is a bug in JMeter, not just a misunderstanding of how JMeter works?
-  </p>
-  <p>
-    If you face a bug or regression, please create an <a href="https://github.com/apache/jmeter/issues">issue on GitHub</a>.
-    In case you can't create an issue, you might send the bug report to <a href="https://jmeter.apache.org/mail2.html#JMeterDev">JMeter dev mailing list</a>.
+    First check the <a href="https://github.com/Breaking-IT/breaktest/issues">BreakTest issue tracker</a>.
+    If the issue appears to be inherited from Apache JMeter, please say so and
+    include the upstream version you tested. If the behavior is specific to a
+    BreakTest feature, include enough detail for maintainers to reproduce it.
   </p>
 </section>
-<section name="Required Information for bug reporting">
+
+<section name="Required information for bug reporting">
 <p>
-Please make sure you provide sufficient information for others to be able to make use of the report effectively.
-Use the checklist below to guide you.
+Please provide enough information for others to reproduce the report:
 </p>
 <ul>
-<li>JMeter version</li>
-<li>Java version (output from <code>java -version</code>)</li>
-<li>OS version</li>
-<li><code>jmeter.log</code> file (unlikely to contain sensitive information, but check before uploading)</li>
-<li>JMX file if relevant (redact any sensitive information first), providing a simplified Test Plan (using <complink name="Debug Sampler"/>) will ensure BUG is fixed much more rapidly than without it</li>
-<li>Try to reproduce the bug without third-party plug-ins. Minimal JMX files should not contain third-party plug-ins, as it makes it harder to test them on a plain JMeter installation.</li>
-<li>JTL file if relevant (may need to redact sensitive information)</li>
-<li>For a suspected bug, describe what you did, what happened, and how this differs from what you expected to happen.
-Does it happen every time?
-</li>
-<li>If you have error messages, that you wish to report, copy them as text into the issue, as it makes it easier to search for them and re-use the message in our research for the origin of the issue</li>
-<li>When a bug is market as <code>need info</code>, please provide as soon as possible the required information so that bug can be understood and fixed. Be aware that if
-no information is provided after team requires more information and bug is not reproducible, then bug will be closed as <code>invalid</code>. You can always ask to reopen it later once you provide the required information.</li>
-<li>Prefer using issue templates (e.g. "<em>Bug report</em>", "<em>Feedback about the manual</em>", "<em>Feature Request</em>", "<em>Regression</em>")</li>
-<li>If you are providing a patch file to fix a bug, please ensure it is in unified diff format.
-If using Eclipse, please set the patch root to "<code>Project</code>", not the default "<code>Workspace</code>" which is harder to apply.</li>
-<li>New source files can be provided as is; please ensure they have the standard Apache License header (as per other JMeter files).
-Please do not use <code>@author</code> tags (credit will be given in the changes file).
-</li>
-<li>In the case of patches for new features, please also provide documentation patches if at all possible.
-Components are documented in <code>xdocs/usermanual/component_reference.xml</code>.</li>
+<li>BreakTest version, for example <code>2026.07.03</code></li>
+<li>Java version, from <code>java -version</code>; BreakTest requires Java 21 or later</li>
+<li>Operating system and architecture</li>
+<li><code>jmeter.log</code> or other relevant log files, after checking for secrets</li>
+<li>Minimal JMX file if relevant, with secrets and private endpoints redacted</li>
+<li>JTL/result files if relevant, with sensitive information redacted</li>
+<li>Whether third-party plugins are required to reproduce the behavior</li>
+<li>Whether the same plan behaves differently in Apache JMeter 5.6.3</li>
+<li>Steps to reproduce, expected behavior, and actual behavior</li>
+<li>Screenshots or screen recordings for GUI issues</li>
 </ul>
-<p><b>See also the following <a href="https://bz.apache.org/bugwritinghelp.html">Bug writing guidelines</a>,
-also the terms and conditions noted on the <a href="https://docs.github.com/en/site-policy/github-terms/github-terms-of-service">GitHub Terms of Service</a></b></p>
+<p>
+New source files should use the existing Apache License header style used in
+this repository. Do not add <code>@author</code> tags; credit is handled through
+Git history and release notes.
+</p>
 </section>
 </body>
 </document>

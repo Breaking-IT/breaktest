@@ -46,8 +46,8 @@
 <section name="&sect-num; Introduction" anchor="introduction">
 <description>
 <p>
-This document describes JMeter properties. The properties present in <code>jmeter.properties</code> or <code>reportgenerator.properties</code> should be set in the <code>user.properties</code> file.
-These properties are only taken into account after restarting JMeter as they are usually resolved when the class is loaded.
+This document describes BreakTest properties. The properties present in <code>jmeter.properties</code> or <code>reportgenerator.properties</code> should be set in the <code>user.properties</code> file.
+These properties are only taken into account after restarting BreakTest as they are usually resolved when the class is loaded.
 </p>
 </description>
 </section>
@@ -86,7 +86,7 @@ These properties are only taken into account after restarting JMeter as they are
 </section>
 <section name="&sect-num;.3 SSL configuration" anchor="ssl_config">
 <note>SSL (Java) System properties are now in <code>system.properties</code><br/>
-JMeter no longer converts <code>javax.<em>xxx</em></code> property entries in
+BreakTest no longer converts <code>javax.<em>xxx</em></code> property entries in
 <code>jmeter.properties</code> into System properties. These must now be
 defined in the <code>system.properties</code> file or on the command-line. The
 <code>system.properties</code> file gives more flexibility.</note>
@@ -113,13 +113,13 @@ defined in the <code>system.properties</code> file or on the command-line. The
     Comma-separated list of SSL cipher suites that may be used in HTTPS
     connections.  It may be desirable to use a subset of cipher suites in order
     to match expected client behavior or to reduce encryption overhead in
-    JMeter when running with large numbers of users. Errors may occur if the
+    BreakTest when running with large numbers of users. Errors may occur if the
     JVM does not support the specified cipher suites, or if the cipher suites
     supported by the HTTPS server do not overlap this list.  See the
-    <a href="https://docs.oracle.com/javase/8/docs/technotes/guides/security/jsse/JSSERefGuide.html#Customization">JSSE
+    <a href="https://docs.oracle.com/en/java/javase/21/security/java-secure-socket-extension-jsse-reference-guide.html#Customization">JSSE
     Reference Guide.</a><br/>
     For example: <source>https.cipherSuites=TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,TLS_RSA_WITH_AES_128_GCM_SHA256</source>
-    If not specified, JMeter will use the default list of cipher suites
+    If not specified, BreakTest will use the default list of cipher suites
     supported by the JVM.
 </property>
 <property name="httpclient.reset_state_on_thread_group_iteration">
@@ -242,7 +242,7 @@ Defaults to: <code>true</code>
     Defaults to: <code>25</code>
 </property>
 <property name="gui.quick_X">
-    Hotkeys to add JMeter components where <code><em>X</em></code> is the shortcut key, for example:
+    Hotkeys to add BreakTest components where <code><em>X</em></code> is the shortcut key, for example:
 <source>
 gui.quick_0=ThreadGroupGui
 gui.quick_1=HttpTestSampleGui
@@ -278,7 +278,7 @@ gui.quick_9=ViewResultsFullVisualizer
 <property name="jmeter.gui.action.save.backup_directory">
     Set the backup directory path where JMX backups will be created upon save in the GUI.<br/>
     If not set (what it defaults to) then backup files will be created in a sub-directory of
-    the JMeter base installation. If set and the directory does not exist, a corresponding directory will be created.<br/>
+    the BreakTest base installation. If set and the directory does not exist, a corresponding directory will be created.<br/>
     Defaults to: <code>${JMETER_HOME}/backups</code>
 </property>
 <property name="jmeter.gui.action.save.keep_backup_max_hours">
@@ -310,7 +310,7 @@ Defaults to: <code>true</code>
 <section name="&sect-num;.10 Apache HttpClient common properties" anchor="httpclient_common_properties">
 <properties>
 <property name="http.post_add_content_type_if_missing">
-    Should JMeter add to POST request a Header <code>Content-type: application/x-www-form-urlencoded</code> if missing? <br/>
+    Should BreakTest add to POST request a Header <code>Content-type: application/x-www-form-urlencoded</code> if missing? <br/>
     Was true before version 4.1.<br/>
     Defaults to: <code>false</code>
 </property>
@@ -353,7 +353,7 @@ Defaults to: <code>true</code>
 <property name="kerberos_jaas_application">
     AuthManager Kerberos configuration<br/>
     Name of application module used in <code>jaas.conf</code>.<br/>
-    Defaults to: <code>JMeter</code>
+    Defaults to: <code>BreakTest</code>
 </property>
 <property name="kerberos.spnego.strip_port">
     Should port be stripped from urls before constructing SPNs for SPNEGO authentication.
@@ -444,7 +444,7 @@ Defaults to: <code>true</code>
 </property>
 <property name="cache_manager.cached_resource_mode">
     <note>N.B. This property is currently a temporary solution for <bugzilla>56162</bugzilla>.</note>
-    Since version 2.12, JMeter does not create anymore a Sample Result with a response
+    BreakTest does not create a Sample Result with a response
     code of <code>204</code> for a resource found in cache. This is in line with what browser do.<br/>
     You can choose between three modes:
     <dl>
@@ -583,13 +583,13 @@ Defaults to: <code>true</code>
     Defaults to: <code>true</code>
 </property>
 <property name="sample_variables">
-    Optional list of JMeter variable names whose values are to be saved in the result data files.<br/>
+    Optional list of BreakTest variable names whose values are to be saved in the result data files.<br/>
     Use commas to separate the names.<br/>
     Defaults to: <code>SESSION_ID,REFERENCE</code>
 </property>
 <property name="jmeter.save.saveservice.xml_pi">
     <note>N.B. The current implementation saves the values in XML as attributes, so the names must be valid XML names.</note>
-    Versions of JMeter after 2.3.2 send the variable to all servers to ensure that the correct data is available at the client.<br/>
+    Versions of BreakTest after 2.3.2 send the variable to all servers to ensure that the correct data is available at the client.<br/>
     Optional XML processing instruction for line two of the file.<br/>
     Defaults to empty value
 </property>
@@ -601,7 +601,7 @@ Defaults to: <code>true</code>
     AutoFlush on each line written in XML or CSV output.<br/>
     Setting this to <code>true</code> will result in less test results data loss in case of a crash, but
     with impact on performances, particularly for intensive tests (low or no pauses).<br/>
-    Since JMeter version 2.10, this is <code>false</code> by default.<br/>
+    This is <code>false</code> by default.<br/>
     Defaults to: <code>false</code>
 </property>
 </properties>
@@ -623,8 +623,8 @@ Defaults to: <code>true</code>
     Defaults to: <code>5000</code>
 </property>
 <property name="subresults.disable_renaming">
-    Since version 5.0 JMeter has a new SubResult Naming Policy which numbers subresults by default<br/>
-    This property if set to <code>true</code> discards renaming policy. This can be required if you're using JMeter for functional testing.<br/>
+    BreakTest has a SubResult Naming Policy which numbers subresults by default<br/>
+    This property if set to <code>true</code> discards renaming policy. This can be required if you're using BreakTest for functional testing.<br/>
     Defaults to: <code>false</code>
 </property>
 </properties>
@@ -637,7 +637,7 @@ Defaults to: <code>true</code>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.18 JMeter Test Script recorder configuration" anchor="test_script_recorder">
+<section name="&sect-num;.18 BreakTest Test Script recorder configuration" anchor="test_script_recorder">
 <properties>
 <property name="proxy.pause">
     <note>N.B. The element was originally called the Proxy recorder, which is why the properties
@@ -667,10 +667,10 @@ Defaults to: <code>true</code>
     Defaults to an empty value, which means HTTP/2 preferred with HTTP/1.1 fallback.
 </property>
 <property name="jmeter.httpclient.strict_rfc2616">
-    By default JMeter tries to be more lenient with <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>
+    By default BreakTest tries to be more lenient with <a href="http://tools.ietf.org/html/rfc2616">RFC 2616</a>
     redirects and allows relative paths.<br/>
     If you want to test strict conformance, set this value to <code>true</code>.<br/>
-    When the property is <code>true</code>, JMeter follows
+    When the property is <code>true</code>, BreakTest follows
     <rfc link="3986#section-5.2">RFC 3986 section 5.2</rfc>.<br/>
     Defaults to: <code>false</code>
 </property>
@@ -714,7 +714,7 @@ Defaults to: <code>true</code>
 <section name="&sect-num;.19 Test Script Recorder certificate configuration" anchor="test_script_recorder_cert">
 <properties>
 <property name="proxy.cert.directory">
-    Defaults to: <em>JMeter <code>bin</code> directory</em>
+    Defaults to: <em>BreakTest <code>bin</code> directory</em>
 </property>
 <property name="proxy.cert.file">
     Defaults to: <code>proxyserver.jks</code>
@@ -736,17 +736,17 @@ Defaults to: <code>true</code>
     Defaults to empty value
 </property>
 <property name="proxy.cert.validity">
-    The default validity (in days) for certificates created by JMeter.<br/>
+    The default validity (in days) for certificates created by BreakTest.<br/>
     Defaults to: <code>7</code>
 </property>
 <property name="proxy.cert.dynamic_keys">
-    Use dynamic key generation (if supported by JMeter/JVM).<br/>
+    Use dynamic key generation (if supported by BreakTest/JVM).<br/>
     If <code>false</code>, will revert to using a single key with no certificate.<br/>
     Defaults to: <code>true</code>
 </property>
 </properties>
 </section>
-<section name="&sect-num;.20 JMeter Proxy configuration" anchor="proxy_config">
+<section name="&sect-num;.20 BreakTest Proxy configuration" anchor="proxy_config">
 <properties>
 <property name="http.proxyDomain">
     Use command-line flags for user-name and password.<br/>
@@ -785,7 +785,7 @@ Defaults to: <code>true</code>
         <dt><code>org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser</code></dt>
         <dd>This new parser (since 2.10) should perform better than all others. See <bugzilla>55632</bugzilla>.</dd>
         <dt><code>org.apache.jmeter.protocol.http.parser.JTidyHTMLParser</code></dt>
-        <dd>Default parser before JMeter version 2.10</dd>
+        <dd>Historical compatibility parser</dd>
         <dt><code>org.apache.jmeter.protocol.http.parser.RegexpHTMLParser</code></dt>
         <dd><note>Note that Regexp extractor may detect references that have been commented out.</note>
          In many cases it will work OK, but you should be aware that it may generate additional references.</dd>
@@ -1063,7 +1063,7 @@ Defaults to: <code>true</code>
 </property>
 <property name="function.cache.per.iteration">
     <p>Cache function execution during test execution.</p>
-    <p>By default, JMeter caches function properties during a test iteration, however,
+    <p>By default, BreakTest caches function properties during a test iteration, however,
     it might cause unexpected results when a component is shared across threads and the expression depends on
     the thread variables.</p>
     <note>The property will likely be removed in an upcoming version, so if you need it consider raising
@@ -1081,7 +1081,7 @@ Defaults to: <code>true</code>
 <property name="httpsampler.max_bytes_to_store_per_request">
     Max size of bytes stored in memory per <code>SampleResult</code>. Ensure that you
     don't exceed the maximum capacity of a Java Array and remember that the higher you
-    set this value, the more memory JMeter will consume.<br/>
+    set this value, the more memory BreakTest will consume.<br/>
     Defaults to: <code>0</code> bytes which means no truncation will occur
 </property>
 <property name="httpsampler.max_buffer_size">
@@ -1153,14 +1153,14 @@ Defaults to: <code>true</code>
 <property name="javascript.use_rhino">
     Ability to switch to Rhino as default Javascript Engine used by <code>IfController</code>
     and <code><funclink name="__javaScript"/></code> function.<br/>
-    <note>JMeter uses Nashorn since 3.2 version.
-    If you want to use Rhino, set this value to <code>true</code></note>
+    <note>Legacy JavaScript engines are not part of the modern BreakTest scripting model.
+    Prefer JSR223/Groovy for new scripts.</note>
     Defaults to: <code>false</code>
 </property>
 <property name="jmeter.regex.engine">
     Ability to switch out the old Oro Regex implementation with the JDK built-in implementation.
     Any value different to <code>oro</code> will disable the Oro implementation and enable the JDK based.
-    <note>We intend to switch the default to the JDK based one in a later version of JMeter.</note>
+    <note>Use the JDK based engine unless you need Oro compatibility for an existing test plan.</note>
     Defaults to: <code>oro</code>
 </property>
 <property name="jmeter.regex.patterncache.size">
@@ -1188,11 +1188,11 @@ Defaults to: <code>true</code>
 <property name="jmeter.exit.check.pause">
     How long to pause (in ms) in the daemon thread before reporting that the JVM has
     failed to exit.<br/>
-    If the value is less than zero, the JMeter does not start the daemon thread<br/>
+    If the value is less than zero, the BreakTest does not start the daemon thread<br/>
     Defaults to: <code>2000</code>
 </property>
 <property name="jmeterengine.nongui.port">
-    If running CLI mode, then JMeter listens on the following port for a shutdown message.<br/>
+    If running CLI mode, then BreakTest listens on the following port for a shutdown message.<br/>
     To disable, set the port to <code>1000</code> or less.<br/>
     Defaults to: <code>4445</code>
 </property>
@@ -1206,15 +1206,15 @@ Defaults to: <code>true</code>
     Defaults to: <code>1000</code>
 </property>
 <property name="jmeter.threads.virtual.enabled">
-    Enable Java 21 Virtual Threads for JMeter threads.<br/>
+    Enable Java 21 virtual threads for BreakTest worker threads.<br/>
     When enabled, virtual user threads use lightweight virtual threads instead of platform threads.<br/>
     Benefits: Lower memory per thread, better I/O scalability for high thread counts.<br/>
     Requires: Java 21+.<br/>
     Defaults to: <code>true</code>
 </property>
 <property name="onload.expandtree">
-    Should JMeter expand the tree when loading a test plan?<br/>
-    Default value is <code>false</code> since JMeter 2.7<br/>
+    Should BreakTest expand the tree when loading a test plan?<br/>
+    Default value is <code>false</code><br/>
     Defaults to: <code>false</code>
 </property>
 <property name="jsyntaxtextarea.wrapstyleword">
@@ -1268,8 +1268,8 @@ Defaults to: <code>true</code>
 </property>
 <property name="view.results.tree.renderers_order">
     Order of Renderers in View Results Tree.<br/>
-    <note>Note full class names should be used for non JMeter core renderers</note>
-    For JMeter core renderers, class names start with <code>.</code> and are automatically
+    <note>Note full class names should be used for non BreakTest core renderers</note>
+    For BreakTest core renderers, class names start with <code>.</code> and are automatically
     prefixed with <code>org.apache.jmeter.visualizers</code><br/>
     Defaults to:
     <source>.RenderAsText,.RenderAsRegexp,.RenderAsCssJQuery,.RenderAsXPath,.RenderAsHTML,.RenderAsHTMLWithEmbedded,.RenderAsDocument,.RenderAsJSON,.RenderAsXML</source>
@@ -1307,34 +1307,34 @@ Defaults to: <code>true</code>
 <properties>
 <property name="search_paths">
     List of directories (separated by <code>;</code>) to search for additional
-    JMeter plugin classes, for example new GUI elements and samplers.<br/>
+    BreakTest plugin classes, for example new GUI elements and samplers.<br/>
     Any jar file in such a directory will be automatically included; jar files in sub directories are ignored.<br/>
     The given value is in addition to any jars found in the <code>lib/ext</code> directory.<br/>
     Do not use this for utility or plugin dependency jars.<br/>
     Defaults to empty value.
 </property>
 <property name="user.classpath">
-    List of directories that JMeter will search for utility and plugin dependency classes.<br/>
+    List of directories that BreakTest will search for utility and plugin dependency classes.<br/>
     Use your platform path separator (<code>java.io.File.pathSeparatorChar</code> in Java) to separate multiple paths.<br/>
     Any jar file in such a directory will be automatically included; jar files in sub directories are ignored.<br/>
     The given value is in addition to any jars found in the <code>lib</code> directory.<br/>
     All entries will be added to the class path of the system class loader and also to the path
-    of the JMeter internal loader.<br/>
+    of the BreakTest internal loader.<br/>
     Paths with spaces may cause problems for the JVM.<br/>
     Defaults to empty value.
 </property>
 <property name="plugin_dependency_paths">
-    List of directories (separated by <code>;</code>) that JMeter will search for utility
+    List of directories (separated by <code>;</code>) that BreakTest will search for utility
     and plugin dependency classes.<br/>
     Any jar file in such a directory will be automatically included; jar files in sub directories are ignored.<br/>
     The given value is in addition to any jars found in the <code>lib</code> directory
     or given by the <code>user.classpath</code> property.<br/>
-    All entries will be added to the path of the JMeter internal loader only.<br/>
+    All entries will be added to the path of the BreakTest internal loader only.<br/>
     For plugin dependencies this property should be used instead of <code>user.classpath</code>.<br/>
     Defaults to empty value.
 </property>
 <property name="classfinder.functions.contain">
-    The classpath finder currently needs to load every single JMeter class to find the classes it needs.<br/>
+    The classpath finder currently needs to load every single BreakTest class to find the classes it needs.<br/>
     For CLI mode, it's only necessary to scan for Function classes, but all classes are still loaded.<br/>
     All current Function classes include "<code>.function.</code>" in their name, and none include
     "<code>.gui.</code>" in the name, so the number of unwanted classes loaded can be reduced by
@@ -1565,18 +1565,18 @@ Defaults to: <code>true</code>
 <section name="&sect-num;.37 Additional property files to load" anchor="properties">
 <properties>
 <property name="user.properties">
-    Should JMeter automatically load additional JMeter properties?<br/>
+    Should BreakTest automatically load additional BreakTest properties?<br/>
     File name to look for (comment to disable)<br/>
     Defaults to: <code>user.properties</code>
 </property>
 <property name="system.properties">
-    Should JMeter automatically load additional system properties?<br/>
+    Should BreakTest automatically load additional system properties?<br/>
     File name to look for (comment to disable)<br/>
     Defaults to: <code>system.properties</code>
 </property>
 <property name="template.files">
     Comma separated list of files that contain reference to templates and their description.<br/>
-    Path must be relative to JMeter root folder<br/>
+    Path must be relative to BreakTest root folder<br/>
     Defaults to: <code>/bin/templates/templates.xml</code>
 </property>
 </properties>
@@ -1588,7 +1588,7 @@ Defaults to: <code>true</code>
     Default implementation is <source>org.apache.jmeter.gui.action.validation.TreeClonerForValidation</source>
     It runs validation without timers, with one thread and one iteration.<br/>
     You can implement your own policy that must extend <code>org.apache.jmeter.engine.TreeCloner</code>.<br/>
-    JMeter will instantiate it and use it to create the Tree used to run validation on Thread Group.<br/>
+    BreakTest will instantiate it and use it to create the Tree used to run validation on Thread Group.<br/>
     Defaults to:
     <source>org.apache.jmeter.gui.action.validation.TreeClonerForValidation</source>
 </property>
@@ -1669,7 +1669,7 @@ Defaults to: <code>true</code>
 </section>
 
 <section name="&sect-num;.41 Help" anchor="help">
-<description>Controls how documentation in JMeter is displayed</description>
+<description>Controls how documentation in BreakTest is displayed</description>
 <properties>
     <property name="help.local">
     Switch that allows using Local documentation opened in BreakTest GUI.<br/>
@@ -1693,14 +1693,14 @@ Defaults to: <code>true</code>
 <description>Advanced properties for configuration of scripting in JSR-223</description>
 <properties>
     <property name="jsr223.init.file">
-    <p>Path to JSR-223 file containing script to call on JMeter startup.</p>
+    <p>Path to JSR-223 file containing script to call on BreakTest startup.</p>
     <p>The actual scripting engine to use will be determined by the extension
     of the init file name. If the file name has no extension, or no scripting
     engine could be found for that extension, Groovy will be used.</p>
     <p>This script can use pre-defined variables:</p>
     <ul>
         <li><code>log</code>: Logger to log any message, uses SLF4J library</li>
-        <li><code>props</code>: JMeter Properties</li>
+        <li><code>props</code>: BreakTest Properties</li>
         <li><code>OUT</code>: System.OUT, useful to write in the console</li>
     </ul>
     No script is defined by default.
@@ -1717,7 +1717,7 @@ Defaults to: <code>true</code>
 <properties>
     <property name="docgeneration.schematic_xsl">
     Path to XSL file used to generate Schematic View of Test Plan.<br/>
-    When empty, JMeter will use the embedded one in src/core/org/apache/jmeter/gui/action/schematic.xsl<br/>
+    When empty, BreakTest will use the embedded one in src/core/org/apache/jmeter/gui/action/schematic.xsl<br/>
     No default value</property>
 </properties>
 </section>

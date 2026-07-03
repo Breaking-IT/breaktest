@@ -13,7 +13,7 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
- Making a TestBean Plugin For JMeter
+ Making a TestBean Plugin For BreakTest
 
 This component will be a CSV file reading element that will let users easily vary their input
 data using csv files.
@@ -40,7 +40,7 @@ ConfigTestElement, and implement LoopIterationListener.
 
 5. Implement your special logic for you plugin class.
     - The CSVDataSet will read a single CSV file and will store the values it finds into
-    JMeter's running context.  The user will define the file, define the variable names for
+    BreakTest's running context.  The user will define the file, define the variable names for
     each "column".  The CSVDataSet will open the file when the test starts, and close it
     when the test ends (thus we implement TestListener).  The CSVDataSet will update the
     contents of the variables for every test thread, and for each iteration through its
@@ -51,7 +51,7 @@ ConfigTestElement, and implement LoopIterationListener.
     properties will become the basis of a gui form by which users will configure the CSVDataSet
     element.
 
-    - Your element will be cloned by JMeter when the test starts.  Each thread will get it's own instance.  However, you will
+    - Your element will be cloned by BreakTest when the test starts.  Each thread will get it's own instance.  However, you will
     have a chance to control how the cloning is done - we'll be taking advantage of this for CSVDataSet (since we don't want to open the file X number of times from X number of threads).
 
     a. Properties: filename, variableNames.  With public getters and setters.
@@ -97,7 +97,7 @@ ConfigTestElement, and implement LoopIterationListener.
                DEFAULT        : A default values must be given if NOT_UNDEFINED is true.
                NOT_EXPRESSION : The value will not be parsed for functions if this is true.
                NOT_OTHER      : This is not a free form entry field - a list of values has to be provided.
-               TAGS           : with a String[] as the value, this sets up a predefined list of acceptable values, and JMeter will create a dropdown select.
+               TAGS           : with a String[] as the value, this sets up a predefined list of acceptable values, and BreakTest will create a dropdown select.
 
        Additionally, a custom property editor can be specified for a property:
 

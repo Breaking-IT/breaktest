@@ -42,8 +42,8 @@ the users to run their tests 4 times. So,  the total number of requests is (4 us
         <p>This example assumes that the LDAP Server is available at ldap.test.com.</p>
 </section>
     <section name="&sect-num;.1 Adding Users" anchor="adding_users">
-        <p>The first step you want to do with every JMeter Test Plan is to add a Thread Group element.
-The Thread Group tells JMeter the number of users you want to simulate, how often the users should send
+        <p>The first step you want to do with every BreakTest Test Plan is to add a Thread Group element.
+The Thread Group tells BreakTest the number of users you want to simulate, how often the users should send
 requests, and the how many requests  they should send.</p>
                 <p>Go ahead and add the ThreadGroup element by first selecting the Test Plan, clicking your
 right mouse button to get the <menuchoice><guimenuitem>Add</guimenuitem></menuchoice> menu, and then select
@@ -67,7 +67,7 @@ button to get the Add menu, and then select
     <guimenuitem>Login Config Element</guimenuitem>
   </menuchoice>.
 Then,  select this new element to view its Control Panel.</p>
-        <p>Like most JMeter elements, the <code>Login  Config Element</code>'s Control Panel has a name
+        <p>Like most BreakTest elements, the <code>Login  Config Element</code>'s Control Panel has a name
 field that you can modify. In this example, leave this field with the default value.</p>
 
 <figure image="ldaptest/login-config-element.png">
@@ -88,7 +88,7 @@ to get the <menuchoice><guimenuitem>Add</guimenuitem></menuchoice> menu, and the
   <guimenuitem>LDAP Request Defaults</guimenuitem>
 </menuchoice>. Then,
 select this new element to view its Control Panel.</p>
-        <p>Like most JMeter elements, the <code>LDAP Request Defaults</code> Control Panel has a name
+        <p>Like most BreakTest elements, the <code>LDAP Request Defaults</code> Control Panel has a name
 field that you can modify. In this example, leave this field with the default value.</p>
 
 
@@ -111,7 +111,7 @@ field that you can modify. In this example, leave this field with the default va
             <li>Inbuilt Delete Test</li>
 
         </ol>
-        <p>JMeter sends requests in the order that you add them to the tree.
+        <p>BreakTest sends requests in the order that you add them to the tree.
 Start by adding the first LDAP Request to the LDAP Users element
 (<menuchoice>
   <guimenuitem>Add</guimenuitem>

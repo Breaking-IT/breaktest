@@ -31,7 +31,7 @@
 <section name="&sect-num;. Regular Expressions" anchor="regex">
 <subsection name="&sect-num;.1 Overview" anchor="overview">
 <p>
-JMeter includes the pattern matching software <a href="http://attic.apache.org/projects/jakarta-oro.html">Apache Jakarta ORO</a>
+BreakTest includes the pattern matching software <a href="http://attic.apache.org/projects/jakarta-oro.html">Apache Jakarta ORO</a>
 <br/>
 There is some documentation for this on the Jakarta web-site, for example
 <a href="http://archimedes.fas.harvard.edu/scrapbook/jakarta-oro-2.0.6/docs/api/org/apache/oro/text/regex/package-summary.html">
@@ -41,8 +41,8 @@ a summary of the pattern matching characters</a>
 There is also documentation on an older incarnation of the product at
 <a href="http://www.savarese.org/oro/docs/OROMatcher/index.html">OROMatcher User's guide</a>, which might prove useful.
 </p>
-<note>With JMeter version 5.5 the Regex implementation can be switched from Oro to the JDK based one by setting
-the JMeter property <code>jmeter.regex.engine</code> to some value different than <code>oro</code>.</note>
+<note>The Regex implementation can be switched from Oro to the JDK based one by setting
+the BreakTest property <code>jmeter.regex.engine</code> to some value different than <code>oro</code>.</note>
 <p>
 The pattern matching is very similar to the pattern matching in Perl.
 A full installation of Perl will include plenty of documentation on regular expressions - look for <code>perlrequick</code>,
@@ -122,10 +122,10 @@ A suitable regular expression would be:
 <br/>
 <code>name="([^"]+)" value="([^"]+)"</code>
 <br/>
-This would create 2 groups, which could be used in the JMeter Regular Expression Extractor template as <code>$1$</code> and <code>$2$</code>.
+This would create 2 groups, which could be used in the BreakTest Regular Expression Extractor template as <code>$1$</code> and <code>$2$</code>.
 </p>
 <p>
-The JMeter Regex Extractor saves the values of the groups in additional variables.
+The BreakTest Regex Extractor saves the values of the groups in additional variables.
 </p>
 <p>
 For example, assume:
@@ -145,7 +145,7 @@ The following variables would be set:
 <dt><code>MYREF_g1</code></dt><dd><code>file.name</code></dd>
 <dt><code>MYREF_g2</code></dt><dd><code>readme.txt</code></dd>
 </dl>
-These variables can be referred to later on in the JMeter test plan, as <code>${MYREF}</code>, <code>${MYREF_g1}</code> etc.
+These variables can be referred to later on in the BreakTest test plan, as <code>${MYREF}</code>, <code>${MYREF_g1}</code> etc.
 </p>
 </subsection>
 <subsection name="&sect-num;.3 Line mode" anchor="line_mode">
@@ -240,7 +240,7 @@ would match <code>Match ExAct case or arbitrary case</code> as well as <code>Mat
 
 <section name="&sect-num;.6 Testing Regular Expressions" anchor="testing_expressions">
 <p>
-Since JMeter 2.4, the listener <a href="component_reference.html#View_Results_Tree">View Results Tree</a>
+The listener <a href="component_reference.html#View_Results_Tree">View Results Tree</a>
 include a RegExp Tester to test regular expressions directly on sampler response data.
 </p>
 <p>
