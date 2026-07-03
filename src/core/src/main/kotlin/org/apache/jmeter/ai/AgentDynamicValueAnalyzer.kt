@@ -17,9 +17,9 @@
 
 package org.apache.jmeter.ai
 
-import org.apache.jmeter.samplers.Sampler
 import org.apache.jmeter.control.Controller
 import org.apache.jmeter.control.TransactionController
+import org.apache.jmeter.samplers.Sampler
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.property.JMeterProperty
 import org.apache.jmeter.testelement.property.MultiProperty
@@ -268,11 +268,29 @@ public class AgentDynamicValueAnalyzer(
                 )
             }
         }
+        // Long pure-hex literals (hashes, process/order ids) and opaque tokens that
+        // form a URL path segment are near-certain server-issued dynamic values, so
+        // they are classified as their own high-confidence kinds instead of blending
+        // into the low-priority opaque-token pool.
+        val inPathProperty = propertyName == "HTTPSampler.path" || propertyName.endsWith(".path", ignoreCase = true)
+        for (match in HEX_ID_REGEX.findAll(value)) {
+            add(
+                "hex-id",
+                match.value,
+                "Long hexadecimal literal in request data; almost always a server-issued hash, process id, or order id. " +
+                    "Correlate it from the earlier response that issued it (search validated/recorded responses for the literal).",
+            )
+        }
         for (match in OPAQUE_TOKEN_REGEX.findAll(value)) {
             add(
-                "opaque-token",
+                if (inPathProperty) "path-opaque-id" else "opaque-token",
                 match.value,
-                "Long mixed alpha-numeric literal in request data; review as possible session, nonce, hash, or scenario id.",
+                if (inPathProperty) {
+                    "Long opaque literal inside a request URL path; random-looking path segments are almost always " +
+                        "server-issued and must be correlated from the response that issued them."
+                } else {
+                    "Long mixed alpha-numeric literal in request data; review as possible session, nonce, hash, or scenario id."
+                },
             )
         }
         return result
@@ -291,6 +309,8 @@ public class AgentDynamicValueAnalyzer(
         val context = "$propertyName\n$value"
         val base = when (kind) {
             "bearer-token", "csrf-or-verification-token", "credential" -> 100
+            "path-opaque-id" -> 95
+            "hex-id" -> 92
             "uuid" -> 90
             "epoch-ms" -> 80
             "draw-id" -> 78
@@ -370,6 +390,8 @@ public class AgentDynamicValueAnalyzer(
         val UUID_REGEX: Regex =
             Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b""")
         val EPOCH_MS_REGEX: Regex = Regex("""(?<!\d)1[6-9]\d{11}(?!\d)""")
+        val HEX_ID_REGEX: Regex =
+            Regex("""(?i)(?<![0-9a-f])(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{32,}(?![0-9a-f])""")
         val DATE_TIME_REGEX: Regex =
             Regex("""(?<!\d)(?:20\d{2}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]20\d{2})(?:[T\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?)?(?!\d)""")
         val BEARER_REGEX: Regex = Regex("""(?i)\bBearer\s+([A-Za-z0-9._~+/=-]{16,})""")

@@ -17,9 +17,9 @@
 
 package org.apache.jmeter.ai
 
-import org.apache.jmeter.dsl.DslPrinterTraverser
 import org.apache.jmeter.control.Controller
 import org.apache.jmeter.control.TransactionController
+import org.apache.jmeter.dsl.DslPrinterTraverser
 import org.apache.jmeter.samplers.Sampler
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jorphan.collections.HashTree

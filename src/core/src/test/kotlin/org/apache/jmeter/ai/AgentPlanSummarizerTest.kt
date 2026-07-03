@@ -17,12 +17,12 @@
 
 package org.apache.jmeter.ai
 
+import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.testelement.AbstractTestElement
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.property.StringProperty
 import org.apache.jmeter.testelement.property.TestElementProperty
-import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.threads.ThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jmeter.treebuilder.oneRequest

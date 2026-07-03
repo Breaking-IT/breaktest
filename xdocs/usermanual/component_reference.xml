@@ -5283,6 +5283,20 @@ can be set to <code>true</code> to use a separate Runnable thread instead of the
 </properties>
 </component>
 
+<component name="BreakTest AI Knowledge" index="&sect-num;.4.22">
+<description>
+<p>
+The BreakTest AI Knowledge element stores project-local scripting learnings inside the test plan so AI Auto Scripting
+can reuse confirmed correlation hints, variable mappings, dynamic fields, timestamp rules, and transaction dependencies
+on later repair runs.
+</p>
+</description>
+<properties>
+  <property name="Name" required="">Descriptive name for this element that is shown in the tree.</property>
+  <property name="Knowledge JSON" required="">JSON document containing BreakTest AI scripting learnings for this test plan.</property>
+</properties>
+</component>
+
 <a href="#">^</a>
 
 </section>

@@ -29,15 +29,45 @@ public object AgentReportCompactor {
         report: BreakTestAgentReport,
         sampleLimit: Int = DEFAULT_SAMPLE_LIMIT,
         bodyLimit: Int = DEFAULT_BODY_LIMIT,
+        fullEvidenceWindow: Int = DEFAULT_FULL_EVIDENCE_WINDOW,
+        previousSampleStatus: Map<String, Pair<Boolean, String>>? = null,
     ): Map<String, Any?> {
         val firstFailureIndex = report.validation.firstFailureIndex
+        val greenRun = report.validation.successful && firstFailureIndex == null
         val reachedSamples = report.validation.samples.filter { sample ->
             firstFailureIndex == null || sample.index <= firstFailureIndex
         }
-        val evidenceSamples = reachedSamples
+        val evidenceCandidates = reachedSamples
             .filter { sample -> sample.index == firstFailureIndex || !sample.isStaticAssetRequest() }
             .take(sampleLimit.coerceAtLeast(1))
-            .map { sample -> sample.compact(bodyLimit.coerceAtLeast(0)) }
+        // Full request/response evidence is only useful around the failure; samples
+        // that already passed long before it (and every sample of a green run) only
+        // need a response-body marker preview. This is what keeps repeated
+        // validation payloads from dwarfing everything else in the agent's context.
+        val fullEvidenceFrom = if (greenRun) {
+            evidenceCandidates.size
+        } else {
+            (evidenceCandidates.size - (fullEvidenceWindow.coerceAtLeast(1) + 1)).coerceAtLeast(0)
+        }
+        val evidenceSamples = evidenceCandidates.mapIndexed { position, sample ->
+            val failed = !sample.success || sample.hasAssertionFailure
+            val unchanged = !failed &&
+                position < fullEvidenceFrom &&
+                previousSampleStatus?.get(sample.label) == (sample.success to sample.responseCode)
+            when {
+                position >= fullEvidenceFrom || failed -> sample.compact(bodyLimit.coerceAtLeast(0))
+                // Same sampler, same outcome as the previous validation run: the agent
+                // already has this evidence, so repeat runs shrink instead of grow.
+                unchanged -> mapOf(
+                    "evidenceLevel" to "unchanged",
+                    "index" to sample.index,
+                    "label" to sample.label,
+                    "success" to sample.success,
+                    "responseCode" to sample.responseCode,
+                )
+                else -> sample.compactLight(bodyLimit.coerceAtLeast(0))
+            }
+        }
         val validationRepairActions = validationRepairActions(report, bodyLimit.coerceAtLeast(0))
         return mapOf(
             "compact" to true,
@@ -70,6 +100,7 @@ public object AgentReportCompactor {
                     )
                 },
                 "evidenceSamples" to evidenceSamples,
+                "unchangedEvidenceCount" to evidenceSamples.count { it["evidenceLevel"] == "unchanged" },
                 "omittedReachedStaticSampleCount" to reachedSamples.count { it.isStaticAssetRequest() },
             ),
             "analysis" to mapOf(
@@ -87,6 +118,7 @@ public object AgentReportCompactor {
 
     private fun AgentSampleSummary.compact(bodyLimit: Int): Map<String, Any?> =
         mapOf(
+            "evidenceLevel" to "full",
             "index" to index,
             "label" to label,
             "success" to success,
@@ -107,7 +139,45 @@ public object AgentReportCompactor {
                 .map { it.compactLeaf((bodyLimit / 2).coerceAtLeast(300)) },
         )
 
+    // Failed leaves carry the full request/response surfaces; leaves that passed only
+    // need a response preview, which keeps multi-sampler transactions from exploding
+    // the payload of every full-evidence sample.
     private fun AgentSampleSummary.compactLeaf(bodyLimit: Int): Map<String, Any?> =
+        if (!success || hasAssertionFailure) {
+            compactFullLeaf(bodyLimit)
+        } else {
+            mapOf(
+                "index" to index,
+                "label" to label,
+                "success" to success,
+                "responseCode" to responseCode,
+                "elapsedTimeMillis" to elapsedTimeMillis,
+                "responseBodyPreview" to responseBody.limit(bodyLimit.coerceAtMost(MAX_LIGHT_PREVIEW)),
+                "assertions" to assertions,
+                "staticAsset" to isStaticAssetRequest(),
+            )
+        }
+
+    // Marker-preview form for samples that passed well before the first failure and
+    // for green runs: enough response text to pick assertion markers, without the
+    // request/response header and body payloads.
+    private fun AgentSampleSummary.compactLight(bodyLimit: Int): Map<String, Any?> =
+        mapOf(
+            "evidenceLevel" to "light",
+            "index" to index,
+            "label" to label,
+            "success" to success,
+            "responseCode" to responseCode,
+            "elapsedTimeMillis" to elapsedTimeMillis,
+            "responseBodyPreview" to responseBody.limit(lightPreviewLimit(bodyLimit)),
+            "assertions" to assertions,
+            "subResultCount" to subResults.size,
+        )
+
+    private fun lightPreviewLimit(bodyLimit: Int): Int =
+        (bodyLimit / 2).coerceIn(MIN_LIGHT_PREVIEW, MAX_LIGHT_PREVIEW)
+
+    private fun AgentSampleSummary.compactFullLeaf(bodyLimit: Int): Map<String, Any?> =
         mapOf(
             "index" to index,
             "label" to label,
@@ -274,18 +344,22 @@ public object AgentReportCompactor {
     }
 
     private fun regexForFieldValue(sourceText: String, fieldName: String, literal: String): String? {
+        // The probing regexes run in Kotlin, but the returned pattern runs in
+        // JMeter's ORO engine, so it must use ORO-safe escaping (Regex.escape's
+        // \Q...\E form never matches there).
         val field = Regex.escape(fieldName)
         val value = Regex.escape(literal)
+        val oroField = AgentRegexSupport.oroEscape(fieldName)
         return when {
             Regex(""""$field"\s*:\s*"$value"""").containsMatchIn(sourceText) ->
-                """"$field"\s*:\s*"([^"]+)""""
+                """"$oroField"\s*:\s*"([^"]+)""""
             Regex("""'$field'\s*:\s*'$value'""").containsMatchIn(sourceText) ->
-                """'$field'\s*:\s*'([^']+)'"""
+                """'$oroField'\s*:\s*'([^']+)'"""
             Regex("""(?is)name\s*=\s*["']$field["'][^>]{0,300}value\s*=\s*["']$value["']""")
                 .containsMatchIn(sourceText) ->
-                """(?is)name\s*=\s*["']$field["'][^>]{0,300}value\s*=\s*["']([^"']+)["']"""
+                """(?is)name\s*=\s*["']$oroField["'][^>]{0,300}value\s*=\s*["']([^"']+)["']"""
             Regex("""(?:^|[?&\s])$field=$value(?:[&\s]|$)""").containsMatchIn(sourceText) ->
-                """(?:^|[?&\s])$field=([^&\s]+)"""
+                """(?:^|[?&\s])$oroField=([^&\s]+)"""
             else -> null
         }
     }
@@ -332,10 +406,13 @@ public object AgentReportCompactor {
         }
     }
 
-    private const val MAX_SUB_RESULT_SUMMARY = 80
+    private const val MAX_SUB_RESULT_SUMMARY = 25
     private const val MAX_SUB_RESULT_EVIDENCE = 10
     private const val MAX_LITERAL_LENGTH = 220
     private const val MAX_REPAIR_ACTIONS = 30
     private const val DEFAULT_SAMPLE_LIMIT = 20
     private const val DEFAULT_BODY_LIMIT = 1_500
+    private const val DEFAULT_FULL_EVIDENCE_WINDOW = 4
+    private const val MIN_LIGHT_PREVIEW = 400
+    private const val MAX_LIGHT_PREVIEW = 800
 }

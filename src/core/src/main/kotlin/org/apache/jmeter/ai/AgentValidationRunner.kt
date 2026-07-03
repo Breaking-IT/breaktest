@@ -109,21 +109,26 @@ public class AgentValidationRunner {
     }
 }
 
-private class AgentCollectSamplesListener(
-    private val options: AgentRunOptions,
-) : AbstractListenerElement(), SampleListener, NoThreadClone {
+public class AgentCollectSamplesListener() : AbstractListenerElement(), SampleListener, NoThreadClone {
+    @Transient
+    private var options: AgentRunOptions? = AgentRunOptions()
     private val mutableEvents: MutableList<SampleEvent> = Collections.synchronizedList(mutableListOf())
     @Volatile
-    var stopReason: String? = null
+    public var stopReason: String? = null
         private set
     @Volatile
-    var engine: StandardJMeterEngine? = null
+    @Transient
+    public var engine: StandardJMeterEngine? = null
 
-    val events: List<SampleEvent>
+    public val events: List<SampleEvent>
         get() = mutableEvents.toList()
 
     init {
         name = "Agent Sample Collector"
+    }
+
+    public constructor(options: AgentRunOptions) : this() {
+        this.options = options
     }
 
     override fun sampleOccurred(e: SampleEvent) {
@@ -141,12 +146,13 @@ private class AgentCollectSamplesListener(
         if (stopReason != null) {
             return
         }
-        val maxSamples = options.maxSamples
+        val runOptions = options ?: AgentRunOptions()
+        val maxSamples = runOptions.maxSamples
         when {
             maxSamples != null && mutableEvents.size >= maxSamples -> {
                 stopReason = "maxSamples"
             }
-            options.stopOnFirstFailure && result.isFailureForAnalysis() -> {
+            runOptions.stopOnFirstFailure && result.isFailureForAnalysis(runOptions) -> {
                 stopReason = "firstFailure"
             }
         }
@@ -155,21 +161,21 @@ private class AgentCollectSamplesListener(
         }
     }
 
-    private fun SampleResult.isFailureForAnalysis(): Boolean {
+    private fun SampleResult.isFailureForAnalysis(runOptions: AgentRunOptions): Boolean {
         val assertionFailure = assertionResults.any { it.isFailure || it.isError }
         if (assertionFailure) {
             return true
         }
-        val ignoredStatic = options.ignoreStaticAssetFailures && AgentStaticAssetClassifier.isStaticAsset(this)
+        val ignoredStatic = runOptions.ignoreStaticAssetFailures && AgentStaticAssetClassifier.isStaticAsset(this)
         if (!isSuccessful && !ignoredStatic) {
             return if (subResults.isEmpty()) {
                 true
             } else {
                 val childFailures = subResults.filter { it.isFailure() }
-                childFailures.isEmpty() || childFailures.any { it.isFailureForAnalysis() }
+                childFailures.isEmpty() || childFailures.any { it.isFailureForAnalysis(runOptions) }
             }
         }
-        return subResults.any { it.isFailureForAnalysis() }
+        return subResults.any { it.isFailureForAnalysis(runOptions) }
     }
 
     private fun SampleResult.isFailure(): Boolean =

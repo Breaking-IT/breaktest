@@ -272,19 +272,31 @@ public object AiAutoScriptingLogWindow {
     private fun toolbar(): JPanel =
         JPanel(BorderLayout()).apply {
             border = BorderFactory.createEmptyBorder(6, 8, 6, 8)
-            add(JPanel(BorderLayout(8, 0)).apply {
-                add(ensureProgressBar(), BorderLayout.WEST)
-                add(ensureStatusLabel(), BorderLayout.CENTER)
-            }, BorderLayout.CENTER)
-            add(JPanel(BorderLayout(6, 0)).apply {
-                add(JButton("Clear").apply {
-                    addActionListener { clear() }
-                }, BorderLayout.WEST)
-                add(JPanel(BorderLayout(6, 0)).apply {
-                    add(ensureStopButton(), BorderLayout.WEST)
-                    add(ensurePlacementButton(), BorderLayout.EAST)
-                }, BorderLayout.EAST)
-            }, BorderLayout.EAST)
+            add(
+                JPanel(BorderLayout(8, 0)).apply {
+                    add(ensureProgressBar(), BorderLayout.WEST)
+                    add(ensureStatusLabel(), BorderLayout.CENTER)
+                },
+                BorderLayout.CENTER
+            )
+            add(
+                JPanel(BorderLayout(6, 0)).apply {
+                    add(
+                        JButton("Clear").apply {
+                            addActionListener { clear() }
+                        },
+                        BorderLayout.WEST
+                    )
+                    add(
+                        JPanel(BorderLayout(6, 0)).apply {
+                            add(ensureStopButton(), BorderLayout.WEST)
+                            add(ensurePlacementButton(), BorderLayout.EAST)
+                        },
+                        BorderLayout.EAST
+                    )
+                },
+                BorderLayout.EAST
+            )
         }
 
     private fun ensureStopButton(): JButton {

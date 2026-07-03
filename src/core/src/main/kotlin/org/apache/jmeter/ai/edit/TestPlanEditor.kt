@@ -56,6 +56,7 @@ public data class RegexCorrelationRequest(
 )
 
 public data class LiteralReplacementRequest(
+    val targetNodeId: String? = null,
     val targetSamplerIndex: Int? = null,
     val targetSamplerLabel: String? = null,
     val targetNodePath: String? = null,
@@ -194,8 +195,12 @@ public class TestPlanEditor {
             else -> clazz.getMethod("setTestFieldResponseData").invoke(assertion)
         }
         when (request.matchType.lowercase()) {
-            "contains" -> clazz.getMethod("setToContainsType").invoke(assertion)
+            // JMeter's "Contains" type is a Perl5 regex match, which silently breaks
+            // literal markers holding ? [ ] etc. Agents saying "contains" mean a
+            // literal substring, so both map to the substring type; regex matching
+            // must be requested explicitly.
             "matches", "match", "regex" -> clazz.getMethod("setToMatchType").invoke(assertion)
+            "regex_contains", "contains_regex" -> clazz.getMethod("setToContainsType").invoke(assertion)
             "equals" -> clazz.getMethod("setToEqualsType").invoke(assertion)
             else -> clazz.getMethod("setToSubstringType").invoke(assertion)
         }

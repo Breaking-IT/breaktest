@@ -20,17 +20,17 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentDynamicValueAnalyzer
+import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
+import org.apache.jmeter.ai.AgentSampleSummary
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
 import org.apache.jmeter.ai.edit.LiteralReplacementRequest
-import org.apache.jmeter.ai.edit.LiteralReplacementResult
 import org.apache.jmeter.ai.edit.RedirectModeRequest
-import org.apache.jmeter.ai.edit.RegexExtractorUpdateRequest
 import org.apache.jmeter.ai.edit.RegexCorrelationRequest
+import org.apache.jmeter.ai.edit.RegexExtractorUpdateRequest
 import org.apache.jmeter.ai.edit.ResponseAssertionRequest
-import org.apache.jmeter.ai.edit.TestPlanEditResult
 import org.apache.jmeter.ai.edit.TestPlanEditor
 import org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge
 import org.apache.jmeter.ai.knowledge.gui.BreakTestAiKnowledgeGui
@@ -41,11 +41,11 @@ import org.apache.jmeter.gui.action.ActionNames
 import org.apache.jmeter.gui.action.Load
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver
-import org.apache.jmeter.save.SaveService
 import org.apache.jmeter.samplers.Sampler
+import org.apache.jmeter.save.SaveService
 import org.apache.jmeter.testbeans.gui.TestBeanGUI
-import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.TestElement
+import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.property.BooleanProperty
 import org.apache.jmeter.testelement.property.JMeterProperty
 import org.apache.jmeter.testelement.property.MultiProperty
@@ -53,8 +53,8 @@ import org.apache.jmeter.testelement.property.ObjectProperty
 import org.apache.jmeter.testelement.property.StringProperty
 import org.apache.jmeter.testelement.property.TestElementProperty
 import org.apache.jmeter.threads.AbstractThreadGroup
-import org.apache.jmeter.util.JSR223TestElement
 import org.apache.jmeter.util.JMeterUtils
+import org.apache.jmeter.util.JSR223TestElement
 import org.apache.jorphan.collections.HashTree
 import org.apache.jorphan.collections.ListedHashTree
 import org.slf4j.LoggerFactory
@@ -63,10 +63,13 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.net.StandardProtocolFamily
+import java.lang.ref.WeakReference
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.StandardProtocolFamily
+import java.net.URLDecoder
+import java.net.URLEncoder
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.Channels
 import java.nio.channels.ServerSocketChannel
@@ -76,6 +79,8 @@ import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicLong
 import javax.swing.SwingUtilities
 import javax.swing.tree.TreePath
 import kotlin.concurrent.thread
@@ -104,6 +109,17 @@ public object BreakTestAgentGuiService {
         "body",
     )
     private val INVALID_UUID_FUNCTION_REGEX = Regex("""\$\{__UUID\s*\(""")
+
+    // Assertion markers that carry run-specific values: JSON number values
+    // ("total":35), UUIDs, ISO-like dates, or epoch-millisecond numbers.
+    private val VOLATILE_ASSERTION_FRAGMENT_REGEX = Regex(
+        """(?x)
+        "[^"]+"\s*:\s*-?\d+(?:\.\d+)?(?![\w.]) |
+        [0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12} |
+        \b20\d{2}-\d{2}-\d{2} |
+        (?<!\d)1[6-9]\d{11}(?!\d)
+        """,
+    )
     private val STATIC_HAR_REQUEST_REGEX =
         Regex("""(?:\.|/)(?:css|js|mjs|map|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|otf)(?:[?/"'\s]|$)""")
     private val HAR_FIELD_VALUE_REGEX = Regex(
@@ -269,6 +285,7 @@ public object BreakTestAgentGuiService {
                 includeStaticAssets(arguments),
             )
             "validate_open_plan" -> validateOpenPlan(arguments)
+            "search_validated_response_open_plan" -> searchValidatedResponseOpenPlan(arguments)
             "backup_open_plan" -> mapOf("backupPath" to createBackupForOpenPlan())
             "get_ai_knowledge_open_plan" -> getAiKnowledgeOpenPlan(arguments)
             "update_ai_knowledge_open_plan" -> updateAiKnowledgeOpenPlan(arguments)
@@ -282,6 +299,8 @@ public object BreakTestAgentGuiService {
             "plan_repair_actions_open_plan" -> planRepairActionsOpenPlan(arguments)
             "get_repair_action_open_plan" -> getRepairActionOpenPlan(arguments)
             "get_repair_actions_open_plan" -> getRepairActionsOpenPlan(arguments)
+            "apply_repair_actions_open_plan" -> applyRepairActionsOpenPlan(arguments)
+            "add_response_assertions_open_plan" -> addResponseAssertionsOpenPlan(arguments)
             "apply_boundary_correlation_open_plan" -> applyBoundaryCorrelationOpenPlan(arguments)
             "apply_regex_correlation_open_plan" -> applyRegexCorrelationOpenPlan(arguments)
             "update_regex_extractor_open_plan" -> updateRegexExtractorOpenPlan(arguments)
@@ -361,12 +380,12 @@ public object BreakTestAgentGuiService {
                 val generatedName = uniqueGeneratedThreadGroupName(gui, repairedThreadGroup.name.orEmpty())
                 repairedThreadGroup.name = generatedName
                 mergeUserDefinedVariables(gui, repairedTree)
-                val generatedTree = ListedHashTree().apply {
-                    add(repairedThreadGroup, repairedSubTree)
-                }
-                gui.treeModel.addSubTree(generatedTree, parent)
-                val generatedNode = gui.treeModel.getNodeOf(repairedThreadGroup)
-                    ?: throw IllegalStateException("Merged Thread Group was added but could not be found in the GUI tree")
+                // Insert the subtree without JMeterTreeModel.addSubTree: that path runs
+                // every element through the shared per-class GUI panels and flushes them
+                // into the currently selected node, which renamed the user's original
+                // (still selected) Thread Group to the *_AI_Generated name.
+                val generatedNode = insertDetachedNode(gui, parent, repairedThreadGroup)
+                insertDetachedSubTree(gui, generatedNode, repairedSubTree)
                 gui.treeModel.nodeStructureChanged(parent)
                 markEdited(gui, parent, generatedNode)
                 postActivity(
@@ -737,10 +756,11 @@ public object BreakTestAgentGuiService {
                 "actionCount" to sortedActions.size,
                 "unresolvedCount" to unresolved.size,
                 "includeApplyArguments" to includeApplyArguments,
-                "guidance" to "Use this ranked local repair plan before broad HAR/validation dumps. Fetch selected full apply arguments with get_repair_actions_open_plan, or one action with get_repair_action_open_plan, unless includeApplyArguments=true was requested.",
+                "guidance" to "Apply selected actionIds with apply_repair_actions_open_plan.",
+                "unresolvedReason" to "No source found in earlier linked HAR recorded responses.".takeIf { unresolved.isNotEmpty() },
                 "actions" to sortedActions.map { compactRepairAction(it, includeApplyArguments) },
                 "unresolved" to unresolved.take(maxUnresolved),
-            )
+            ).filterValues { it != null }
         }
 
     private fun getRepairActionOpenPlan(arguments: JsonNode): Map<String, Any?> =
@@ -779,6 +799,110 @@ public object BreakTestAgentGuiService {
             )
         }
 
+    private fun applyRepairActionsOpenPlan(arguments: JsonNode): Map<String, Any?> {
+        val snapshotId = arguments.requiredText("snapshotId")
+        val snapshot = repairActionSnapshots[snapshotId]
+            ?: throw IllegalArgumentException("Unknown or expired repair action snapshot '$snapshotId'")
+        val actionIds = arguments.path("actionIds")
+            .takeIf { it.isArray }
+            ?.mapNotNull { it.asText(null)?.takeIf(String::isNotBlank) }
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("actionIds must be a non-empty array")
+        val stopOnFirstError = arguments.path("stopOnFirstError").asBoolean(false)
+        val results = mutableListOf<Map<String, Any?>>()
+        var applied = 0
+        var failed = 0
+        for (actionId in actionIds) {
+            val action = snapshot[actionId]
+            if (action == null) {
+                failed++
+                results += mapOf("actionId" to actionId, "status" to "missing")
+                continue
+            }
+            val outcome = runCatching { applySingleRepairAction(action) }
+            outcome.fold(
+                onSuccess = { result ->
+                    applied++
+                    results += mapOf("actionId" to actionId, "status" to "applied", "result" to result)
+                },
+                onFailure = { error ->
+                    failed++
+                    results += mapOf(
+                        "actionId" to actionId,
+                        "status" to "failed",
+                        "error" to (error.message ?: error.toString()),
+                    )
+                },
+            )
+            if (stopOnFirstError && outcome.isFailure) {
+                break
+            }
+        }
+        postActivity(
+            "info",
+            "Applied repair action batch",
+            details = "applied=$applied failed=$failed of ${actionIds.size} requested",
+        )
+        return mapOf(
+            "snapshotId" to snapshotId,
+            "requestedCount" to actionIds.size,
+            "appliedCount" to applied,
+            "failedCount" to failed,
+            "results" to results,
+        )
+    }
+
+    private fun applySingleRepairAction(action: Map<String, Any?>): Any {
+        val applyTool = action["applyTool"] as? String
+        val applyArguments = action["applyArguments"]
+        if (applyTool != null && applyArguments != null) {
+            return handleTool(applyTool.removePrefix("breaktest."), mapper.valueToTree(applyArguments))
+        }
+        @Suppress("UNCHECKED_CAST")
+        val steps = action["steps"] as? List<Map<String, Any?>>
+            ?: throw IllegalArgumentException("Repair action '${action["id"]}' has no applyArguments or steps")
+        val stepResults = mutableListOf<Any?>()
+        for (step in steps) {
+            val tool = step["tool"] as? String
+                ?: throw IllegalArgumentException("Repair action step is missing 'tool'")
+            stepResults += handleTool(tool, mapper.valueToTree(step["arguments"]))
+        }
+        return mapOf("steps" to stepResults)
+    }
+
+    private fun addResponseAssertionsOpenPlan(arguments: JsonNode): Map<String, Any?> {
+        val assertionItems = arguments.path("assertions")
+            .takeIf { it.isArray && it.size() > 0 }
+            ?: throw IllegalArgumentException("assertions must be a non-empty array of add_response_assertion_open_plan argument objects")
+        val results = mutableListOf<Map<String, Any?>>()
+        var added = 0
+        var failed = 0
+        for (item in assertionItems) {
+            runCatching { addResponseAssertionOpenPlan(item) }.fold(
+                onSuccess = { result ->
+                    added++
+                    results += mapOf("status" to "added", "result" to result)
+                },
+                onFailure = { error ->
+                    failed++
+                    results += mapOf(
+                        "status" to "failed",
+                        "targetNodePath" to item.path("targetNodePath").optionalText(),
+                        "targetNodeId" to item.path("targetNodeId").optionalText(),
+                        "pattern" to item.path("pattern").optionalText(),
+                        "error" to (error.message ?: error.toString()),
+                    )
+                },
+            )
+        }
+        return mapOf(
+            "requestedCount" to assertionItems.size(),
+            "addedCount" to added,
+            "failedCount" to failed,
+            "results" to results,
+        )
+    }
+
     private fun getAiKnowledgeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
@@ -795,7 +919,6 @@ public object BreakTestAgentGuiService {
                     "isDefaultKnowledge" to true,
                     "created" to false,
                     "knowledgeMissing" to true,
-                    "knowledgeJson" to BreakTestAiKnowledge.DEFAULT_JSON,
                     "knowledge" to defaultKnowledgeJson,
                 )
             }
@@ -818,24 +941,29 @@ public object BreakTestAgentGuiService {
                         "isDefaultKnowledge" to candidate.defaultKnowledge,
                     )
                 },
-                "knowledgeJson" to json,
                 "knowledge" to mapper.readTree(json),
             )
         }
 
     private fun updateAiKnowledgeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
-            val knowledgeJson = knowledgeJsonFrom(arguments)
-            mapper.readTree(knowledgeJson)
-            val allowDefault = arguments.path("allowDefault").asBoolean(false)
-            require(allowDefault || !isDefaultKnowledge(knowledgeJson)) {
-                "Refusing to write default/empty AI Knowledge. Append reusable run learnings or a learnedFromThreadGroups noReusableLearnings entry before finishing."
-            }
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             ensureBackupForOpenPlan(gui)
             val node = ensureKnowledgeNode(gui).selected.node
             val element = node.testElement as BreakTestAiKnowledge
+            val appendLearnings = arguments.path("appendLearnings").takeIfPresent()?.takeIf { it.isObject }
+            val appendedCounts = linkedMapOf<String, Int>()
+            val knowledgeJson = if (appendLearnings != null) {
+                mergeKnowledgeAppend(element.knowledgeJson, appendLearnings, appendedCounts)
+            } else {
+                knowledgeJsonFrom(arguments)
+            }
+            mapper.readTree(knowledgeJson)
+            val allowDefault = arguments.path("allowDefault").asBoolean(false)
+            require(allowDefault || !isDefaultKnowledge(knowledgeJson)) {
+                "Refusing to write default/empty AI Knowledge. Append reusable run learnings or a learnedFromThreadGroups noReusableLearnings entry before finishing."
+            }
             element.knowledgeJson = knowledgeJson
             gui.setDirty(true)
             gui.treeModel.nodeChanged(node)
@@ -855,11 +983,50 @@ public object BreakTestAgentGuiService {
             mapOf(
                 "updated" to true,
                 "nodeName" to element.name,
-                "knowledgeJson" to element.knowledgeJson,
+                "mode" to if (appendLearnings != null) "append" else "replace",
+                "appendedCounts" to appendedCounts.ifEmpty { null },
+                "knowledgeBytes" to knowledgeJson.toByteArray(Charsets.UTF_8).size,
             )
         }
 
-    private fun applyBoundaryCorrelationOpenPlan(arguments: JsonNode): TestPlanEditResult =
+    /**
+     * Merges appended learnings into the existing knowledge JSON server-side so agents
+     * don't have to fetch, rewrite, and resend the whole knowledge document just to
+     * add run learnings. Array fields append (skipping exact duplicates); scalar and
+     * object fields overwrite.
+     */
+    private fun mergeKnowledgeAppend(
+        existingJson: String,
+        appendLearnings: JsonNode,
+        appendedCounts: MutableMap<String, Int>,
+    ): String {
+        val root = runCatching { mapper.readTree(existingJson) }
+            .getOrElse { mapper.readTree(BreakTestAiKnowledge.DEFAULT_JSON) }
+        require(root.isObject) { "Existing AI Knowledge is not a JSON object" }
+        val target = root as com.fasterxml.jackson.databind.node.ObjectNode
+        appendLearnings.fields().forEach { (fieldName, appendValue) ->
+            if (appendValue.isArray) {
+                val existingArray = target.path(fieldName).takeIf { it.isArray }
+                    ?.let { it as com.fasterxml.jackson.databind.node.ArrayNode }
+                    ?: target.putArray(fieldName)
+                var appended = 0
+                appendValue.forEach { item ->
+                    val duplicate = existingArray.any { it == item }
+                    if (!duplicate) {
+                        existingArray.add(item)
+                        appended++
+                    }
+                }
+                appendedCounts[fieldName] = appended
+            } else {
+                target.set<JsonNode>(fieldName, appendValue)
+                appendedCounts[fieldName] = 1
+            }
+        }
+        return mapper.writeValueAsString(target)
+    }
+
+    private fun applyBoundaryCorrelationOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val evidence = requireResponseEvidence(arguments, "add boundary correlation")
             val request = boundaryCorrelationRequest(arguments)
@@ -880,9 +1047,12 @@ public object BreakTestAgentGuiService {
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
                     ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
-                val replacements = editor.replaceLiteral(targetElement, targetSubTree, request.literal, variableReference)
+                val (_, replacements) = replaceWithVariants(request.literal) { variant ->
+                    editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                }
                 require(replacements > 0) {
-                    "Literal '${request.literal}' was not found under target sampler '${targetElement.name}'"
+                    "Literal '${request.literal}' was not found under target sampler '${targetElement.name}' " +
+                        "(also tried encoded/decoded variants)"
                 }
                 gui.setDirty(true)
                 gui.treeModel.nodeStructureChanged(source)
@@ -907,22 +1077,53 @@ public object BreakTestAgentGuiService {
                     "Replaced literal with $variableReference",
                     "Replacements: $replacements",
                 )
-                TestPlanEditResult(
-                    sourceSamplerLabel = source.testElement.name.orEmpty(),
-                    targetSamplerLabel = targetElement.name.orEmpty(),
-                    variableReference = variableReference,
-                    replacements = replacements,
-                    extractorClass = extractorNode.testElement::class.java.name,
+                mapOf(
+                    "action" to "created_extractor",
+                    "sourceSamplerLabel" to source.testElement.name.orEmpty(),
+                    "sourceNodePath" to nodePath(source),
+                    "sourceNodeId" to nodeId(source),
+                    "extractorNodePath" to nodePath(extractorNode),
+                    "extractorNodeId" to nodeId(extractorNode),
+                    "targetSamplerLabel" to targetElement.name.orEmpty(),
+                    "targetNodePath" to nodePath(target),
+                    "variableReference" to variableReference,
+                    "replacements" to replacements,
+                    "extractorClass" to extractorNode.testElement::class.java.name,
                 )
             } finally {
                 gui.endUndoTransaction()
             }
         }
 
-    private fun applyRegexCorrelationOpenPlan(arguments: JsonNode): TestPlanEditResult =
+    /**
+     * Runs the regex through the same ORO engine the Regex Extractor uses and, when
+     * evidence text is supplied, requires it to actually match that evidence. This
+     * catches java.util.regex-isms (\\Q...\\E quoting in particular) and wrong
+     * patterns at edit time instead of as a mysterious fail-on-missing extractor
+     * failure several validation runs later.
+     */
+    private fun verifyExtractorRegex(regex: String, evidenceText: String?, arguments: JsonNode) {
+        AgentRegexSupport.oroProblem(regex)?.let { problem ->
+            throw IllegalArgumentException("Regex '$regex' $problem")
+        }
+        if (arguments.path("allowUnmatchedEvidence").asBoolean(false)) {
+            return
+        }
+        val text = evidenceText?.takeIf { it.isNotBlank() } ?: return
+        if (!AgentRegexSupport.oroMatches(regex, text)) {
+            throw IllegalArgumentException(
+                "Regex '$regex' does not match the provided evidence snippet, so the extractor would fail at runtime. " +
+                    "Fix the regex or the evidence (JMeter's ORO/Perl5 engine: no \\Q...\\E, no lookbehind). " +
+                    "Pass allowUnmatchedEvidence=true only when the evidence is intentionally partial.",
+            )
+        }
+    }
+
+    private fun applyRegexCorrelationOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val evidence = requireResponseEvidence(arguments, "add regex correlation")
             val request = regexCorrelationRequest(arguments)
+            verifyExtractorRegex(request.regex, evidence.details, arguments)
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             ensureBackupForOpenPlan(gui)
@@ -948,21 +1149,25 @@ public object BreakTestAgentGuiService {
                 val variableReference = "\${${request.variableName}}"
                 val literal = request.literal?.takeIf { it.isNotBlank() }
                 val scope = if (literal != null && target == null) selectedBroadEditScope(gui, arguments) else null
-                val replacements = if (literal == null) {
-                    0
-                } else if (target == null) {
-                    editor.replaceLiteralInTree(scopedEditTree(gui, scope), literal, variableReference)
+                val (matchedLiteral, replacements) = if (literal == null) {
+                    null to 0
                 } else {
-                    val targetElement = target.testElement
-                    val targetSubTree = currentPlanTree().findSubTree(targetElement)
-                        ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
-                    editor.replaceLiteral(targetElement, targetSubTree, literal, variableReference)
+                    replaceWithVariants(literal) { variant ->
+                        if (target == null) {
+                            editor.replaceLiteralInTree(scopedEditTree(gui, scope), variant, variableReference)
+                        } else {
+                            val targetElement = target.testElement
+                            val targetSubTree = currentPlanTree().findSubTree(targetElement)
+                                ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
+                            editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                        }
+                    }
                 }
                 if (literal != null) {
                     require(replacements > 0) {
-                        target?.let {
-                            "Literal '$literal' was not found under target sampler '${it.testElement.name}'"
-                        } ?: "Literal '$literal' was not found in ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                        val where = target?.let { "under target sampler '${it.testElement.name}'" }
+                            ?: "in ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                        "Literal '$literal' was not found $where (also tried encoded/decoded variants)"
                     }
                 }
                 val changedNode = target ?: scope ?: testPlanNode(gui)
@@ -993,12 +1198,37 @@ public object BreakTestAgentGuiService {
                         "Replacements: $replacements",
                     )
                 }
-                TestPlanEditResult(
-                    sourceSamplerLabel = source.testElement.name.orEmpty(),
-                    targetSamplerLabel = if (literal == null) "(extractor only)" else target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan",
-                    variableReference = variableReference,
-                    replacements = replacements,
-                    extractorClass = extractorNode.testElement::class.java.name,
+                val siblingExtractors = regexExtractorNodes(source, variableName = null, requireFound = false)
+                mapOf(
+                    "action" to if (existingExtractorNodes.isNotEmpty() && !allowDuplicateExtractor) {
+                        "updated_existing_extractor"
+                    } else {
+                        "created_extractor"
+                    },
+                    "sourceSamplerLabel" to source.testElement.name.orEmpty(),
+                    "sourceNodePath" to nodePath(source),
+                    "sourceNodeId" to nodeId(source),
+                    "extractorNodePath" to nodePath(extractorNode),
+                    "extractorNodeId" to nodeId(extractorNode),
+                    "targetSamplerLabel" to if (literal == null) {
+                        "(extractor only)"
+                    } else {
+                        target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"
+                    },
+                    "targetNodePath" to target?.let { nodePath(it) },
+                    "scopeNodePath" to scope?.let { nodePath(it) },
+                    "variableReference" to variableReference,
+                    "replacements" to replacements,
+                    "matchedLiteral" to matchedLiteral,
+                    "matchedEncodingVariant" to (matchedLiteral != null && matchedLiteral != literal),
+                    "extractorClass" to extractorNode.testElement::class.java.name,
+                    "sourceExtractors" to siblingExtractors.map { node ->
+                        mapOf(
+                            "variableName" to extractorVariableName(node.testElement),
+                            "nodePath" to nodePath(node),
+                            "nodeId" to nodeId(node),
+                        )
+                    },
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -1008,6 +1238,9 @@ public object BreakTestAgentGuiService {
     private fun updateRegexExtractorOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val request = regexExtractorUpdateRequest(arguments)
+            request.regex?.let { regex ->
+                verifyExtractorRegex(regex, arguments.path("evidence").optionalText(), arguments)
+            }
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             ensureBackupForOpenPlan(gui)
@@ -1015,8 +1248,21 @@ public object BreakTestAgentGuiService {
             try {
                 val updateAllMatches = arguments.path("updateAllMatches").asBoolean(false)
                 val extractorMatchIndex = arguments.path("extractorMatchIndex").takeIfPresent()?.asInt()
-                val source = selectSamplerReference(gui, arguments, "source", "source")
-                val extractorNodes = regexExtractorNodes(source, request.variableName)
+                // An extractor's own nodeId (from find_open_plan_nodes or edit results)
+                // identifies it directly; the source sampler is derived from it.
+                val extractorNodeIdArgument = arguments.path("extractorNodeId").optionalText()
+                    ?: arguments.path("nodeId").optionalText()
+                val extractorByNodeId = extractorNodeIdArgument?.let { id ->
+                    val node = selectNodeById(gui, id, "extractor")
+                    require(node.testElement::class.java.name == "org.apache.jmeter.extractor.RegexExtractor") {
+                        "extractor nodeId '$id' is not a Regex Extractor; it is ${node.testElement::class.java.name}"
+                    }
+                    node
+                }
+                val source = extractorByNodeId?.let { it.ancestorSampler() ?: it.parent as? JMeterTreeNode ?: it }
+                    ?: selectSamplerReference(gui, arguments, "source", "source")
+                val extractorNodes = extractorByNodeId?.let { listOf(it) }
+                    ?: regexExtractorNodes(source, request.variableName)
                 val selectedExtractors = when {
                     updateAllMatches -> extractorNodes
                     extractorMatchIndex != null -> listOf(
@@ -1054,6 +1300,7 @@ public object BreakTestAgentGuiService {
                 mapOf(
                     "sourceSamplerLabel" to source.testElement.name,
                     "sourceNodePath" to nodePath(source),
+                    "sourceNodeId" to nodeId(source),
                     "variableName" to request.variableName,
                     "updatedCount" to selectedExtractors.size,
                     "extractors" to selectedExtractors.mapIndexed { index, extractorNode ->
@@ -1061,6 +1308,7 @@ public object BreakTestAgentGuiService {
                             "matchIndex" to index,
                             "extractorName" to extractorNode.testElement.name,
                             "extractorNodePath" to nodePath(extractorNode),
+                            "extractorNodeId" to nodeId(extractorNode),
                         )
                     },
                 )
@@ -1069,7 +1317,7 @@ public object BreakTestAgentGuiService {
             }
         }
 
-    private fun replaceLiteralOpenPlan(arguments: JsonNode): LiteralReplacementResult =
+    private fun replaceLiteralOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val request = literalReplacementRequest(arguments)
             validateJMeterFunctionSyntax(request.replacement)
@@ -1081,37 +1329,40 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editor = TestPlanEditor()
-                val replacements = if (target == null) {
-                    editor.replaceLiteralInTree(
-                        scopedEditTree(gui, scope),
-                        request.literal,
-                        request.replacement,
-                        request.includeNames,
-                        request.excludeUserDefinedVariables,
-                    )
-                } else {
-                    val targetSubTree = currentPlanTree().findSubTree(target.testElement)
-                        ?: throw IllegalStateException("Could not locate target sampler subtree '${target.testElement.name}'")
-                    editor.replaceLiteral(
-                        target.testElement,
-                        targetSubTree,
-                        request.literal,
-                        request.replacement,
-                        request.includeNames,
-                        request.excludeUserDefinedVariables,
-                    )
+                val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    if (target == null) {
+                        editor.replaceLiteralInTree(
+                            scopedEditTree(gui, scope),
+                            variant,
+                            request.replacement,
+                            request.includeNames,
+                            request.excludeUserDefinedVariables,
+                        )
+                    } else {
+                        val targetSubTree = currentPlanTree().findSubTree(target.testElement)
+                            ?: throw IllegalStateException("Could not locate target sampler subtree '${target.testElement.name}'")
+                        editor.replaceLiteral(
+                            target.testElement,
+                            targetSubTree,
+                            variant,
+                            request.replacement,
+                            request.includeNames,
+                            request.excludeUserDefinedVariables,
+                        )
+                    }
                 }
                 require(replacements > 0) {
-                    target?.let {
-                        "Literal '${request.literal}' was not found under target sampler '${it.testElement.name}'"
-                    } ?: "Literal '${request.literal}' was not found in ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                    val where = target?.let { "under target sampler '${it.testElement.name}'" }
+                        ?: "in ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                    "Literal '${request.literal}' was not found $where " +
+                        "(also tried encoded/decoded variants: ${literalVariants(request.literal).joinToString(", ") { "'$it'" }})"
                 }
                 val changedNode = target ?: scope ?: testPlanNode(gui)
                 markEdited(gui, changedNode)
                 postActivity(
                     "info",
                     "Applied live literal replacement",
-                    details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: ${request.literal} -> ${request.replacement}",
+                    details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
                 recordChange(
                     if (target == null) "Updated plan" else "Updated sampler",
@@ -1119,13 +1370,21 @@ public object BreakTestAgentGuiService {
                     "Replaced literal with ${request.replacement}",
                     "Replacements: $replacements",
                 )
-                LiteralReplacementResult(target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan", replacements)
+                mapOf(
+                    "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
+                    "targetNodePath" to target?.let { nodePath(it) },
+                    "targetNodeId" to target?.let { nodeId(it) },
+                    "scopeNodePath" to scope?.let { nodePath(it) },
+                    "replacements" to replacements,
+                    "matchedLiteral" to matchedLiteral,
+                    "matchedEncodingVariant" to (matchedLiteral != request.literal),
+                )
             } finally {
                 gui.endUndoTransaction()
             }
         }
 
-    private fun replaceLiteralInNamesOpenPlan(arguments: JsonNode): LiteralReplacementResult =
+    private fun replaceLiteralInNamesOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val request = literalReplacementRequest(arguments)
             require(!request.replacement.contains("\${")) {
@@ -1139,22 +1398,25 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editTree = if (target == null) scopedEditTree(gui, scope) else scopedEditTree(gui, target)
-                val replacements = TestPlanEditor().replaceLiteralInNamesInTree(
-                    editTree,
-                    request.literal,
-                    request.replacement,
-                )
+                val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    TestPlanEditor().replaceLiteralInNamesInTree(
+                        editTree,
+                        variant,
+                        request.replacement,
+                    )
+                }
                 require(replacements > 0) {
-                    target?.let {
-                        "Literal '${request.literal}' was not found in names under target sampler '${it.testElement.name}'"
-                    } ?: "Literal '${request.literal}' was not found in names under ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                    val where = target?.let { "under target sampler '${it.testElement.name}'" }
+                        ?: "under ${scope?.let { nodePath(it) } ?: "the open plan"}"
+                    "Literal '${request.literal}' was not found in names $where " +
+                        "(also tried encoded/decoded variants)"
                 }
                 val changedNode = target ?: scope ?: testPlanNode(gui)
                 markEdited(gui, changedNode)
                 postActivity(
                     "info",
                     "Applied live name replacement",
-                    details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: ${request.literal} -> ${request.replacement}",
+                    details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
                 recordChange(
                     if (target == null) "Renamed elements" else "Renamed sampler elements",
@@ -1162,15 +1424,80 @@ public object BreakTestAgentGuiService {
                     "Replaced name literal with ${request.replacement}",
                     "Name replacements: $replacements",
                 )
-                LiteralReplacementResult(target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan", replacements)
+                mapOf(
+                    "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
+                    "targetNodePath" to target?.let { nodePath(it) },
+                    "targetNodeId" to target?.let { nodeId(it) },
+                    "scopeNodePath" to scope?.let { nodePath(it) },
+                    "replacements" to replacements,
+                    "matchedLiteral" to matchedLiteral,
+                    "matchedEncodingVariant" to (matchedLiteral != request.literal),
+                )
             } finally {
                 gui.endUndoTransaction()
             }
         }
 
+    /**
+     * Request data captured during validation is URL/HTML-encoded (user@x.nl appears
+     * as user%40x.nl) while the plan stores raw field values, so a literal taken from
+     * validation evidence often fails an exact match. These variants let replace and
+     * search operations fall back to the decoded/encoded forms of the same value.
+     */
+    private fun literalVariants(literal: String): List<String> {
+        val variants = LinkedHashSet<String>()
+        variants += literal
+        if (Regex("%[0-9a-fA-F]{2}").containsMatchIn(literal)) {
+            runCatching { URLDecoder.decode(literal, Charsets.UTF_8) }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { variants += it }
+        }
+        runCatching { URLEncoder.encode(literal, Charsets.UTF_8) }
+            .getOrNull()
+            ?.takeIf { it != literal }
+            ?.let { variants += it }
+        val htmlDecoded = literal
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&#x27;", "'")
+        variants += htmlDecoded
+        return variants.toList()
+    }
+
+    private fun replaceWithVariants(literal: String, replace: (String) -> Int): Pair<String, Int> {
+        for (variant in literalVariants(literal)) {
+            val replacements = replace(variant)
+            if (replacements > 0) {
+                return variant to replacements
+            }
+        }
+        return literal to 0
+    }
+
     private fun selectedReplacementTarget(gui: GuiPackage, request: LiteralReplacementRequest): JMeterTreeNode? {
+        if (!request.targetNodeId.isNullOrBlank()) {
+            return selectNodeById(gui, request.targetNodeId, "target")
+        }
+        val scope = when {
+            !request.scopeNodePath.isNullOrBlank() ->
+                selectNodeByPath(gui.treeModel.testPlan, request.scopeNodePath, "scope")
+            !request.threadGroupName.isNullOrBlank() ->
+                runCatching { selectThreadGroup(gui, request.threadGroupName) }.getOrNull()
+            else -> null
+        }
         if (!request.targetNodePath.isNullOrBlank()) {
-            val node = selectNodeByPath(gui.treeModel.testPlan, request.targetNodePath, "target", request.targetOccurrenceIndex)
+            val node = selectNodeByPath(
+                gui.treeModel.testPlan,
+                request.targetNodePath,
+                "target",
+                request.targetOccurrenceIndex,
+                scope = scope,
+                nodeFilter = { it.testElement is Sampler },
+            )
             require(node.testElement is Sampler) {
                 "target node '${request.targetNodePath}' is not a sampler; it is ${node.testElement::class.java.name}"
             }
@@ -1179,8 +1506,14 @@ public object BreakTestAgentGuiService {
         if (request.targetSamplerIndex == null && request.targetSamplerLabel.isNullOrBlank()) {
             return null
         }
+        val samplers = samplerNodes(gui.treeModel.testPlan)
+        val labelCandidates = if (scope != null && request.targetSamplerIndex == null) {
+            samplers.filter { it === scope || it.isDescendantOf(scope) }
+        } else {
+            samplers
+        }
         return selectSampler(
-            samplerNodes(gui.treeModel.testPlan),
+            labelCandidates,
             request.targetSamplerIndex,
             request.targetSamplerLabel,
             "target",
@@ -1420,6 +1753,7 @@ public object BreakTestAgentGuiService {
     private fun searchOpenPlanValues(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val literal = arguments.path("literal").takeIfPresent()?.asText()
+                ?: arguments.path("query").takeIfPresent()?.asText()
             val regex = arguments.path("regex").takeIfPresent()?.asText()
             val includeNames = arguments.path("includeNames").asBoolean(false)
             val excludeUserDefinedVariables = arguments.path("excludeUserDefinedVariables").asBoolean(false)
@@ -1428,6 +1762,7 @@ public object BreakTestAgentGuiService {
                 "Specify literal or regex"
             }
             val pattern = regex?.takeIf { it.isNotBlank() }?.toRegex()
+            val literals = literal?.takeIf { it.isNotBlank() }?.let(::literalVariants)
             val matches = mutableListOf<Map<String, Any?>>()
             val visitedElements = java.util.IdentityHashMap<TestElement, Boolean>()
             val visitedProperties = java.util.IdentityHashMap<JMeterProperty, Boolean>()
@@ -1444,7 +1779,7 @@ public object BreakTestAgentGuiService {
                         searchElementValues(
                             element,
                             path + nodeName,
-                            literal,
+                            literals,
                             pattern,
                             includeNames,
                             excludeUserDefinedVariables,
@@ -1462,9 +1797,76 @@ public object BreakTestAgentGuiService {
                 "matchCount" to matches.size,
                 "truncated" to (matches.size >= maxMatches),
                 "scopeNodePath" to scope?.let { nodePath(it) },
+                "literalVariantsSearched" to literals,
                 "matches" to matches,
             )
         }
+
+    /**
+     * Serves evidence snippets from the cached most-recent validation run so agents
+     * can find assertion markers and correlation sources without re-running
+     * validation or receiving another full validation payload.
+     */
+    private fun searchValidatedResponseOpenPlan(arguments: JsonNode): Map<String, Any?> {
+        val last = lastValidation
+            ?: throw IllegalStateException("No validation result is cached yet; run validate_open_plan first")
+        val query = arguments.path("query").optionalText()
+            ?: arguments.path("literal").optionalText()
+        val regex = arguments.path("regex").optionalText()?.toRegex()
+        val samplerLabel = arguments.path("samplerLabel").optionalText()
+        require(query != null || regex != null || samplerLabel != null) {
+            "Specify query, regex, and/or samplerLabel"
+        }
+        val includeRequests = arguments.path("includeRequests").asBoolean(false)
+        val contextChars = arguments.path("contextChars").takeIfPresent()?.asInt()?.coerceIn(20, 2_000) ?: 160
+        val maxMatches = arguments.path("maxMatches").takeIfPresent()?.asInt()?.coerceAtLeast(1) ?: 20
+        val queryVariants = query?.let(::literalVariants)
+        val matches = mutableListOf<Map<String, Any?>>()
+        outer@ for (sample in last.samples.flatMap { it.flatten() }) {
+            if (samplerLabel != null && sample.label != samplerLabel) {
+                continue
+            }
+            val surfaces = buildList {
+                add("responseHeaders" to sample.responseHeaders)
+                add("responseBody" to sample.responseBody)
+                if (includeRequests) {
+                    add("requestHeaders" to sample.requestHeaders)
+                    add("requestBody" to sample.requestBody)
+                }
+            }
+            for ((surface, text) in surfaces) {
+                if (text.isEmpty()) {
+                    continue
+                }
+                val range = when {
+                    queryVariants != null -> queryVariants.firstNotNullOfOrNull { variant ->
+                        text.indexOf(variant).takeIf { it >= 0 }?.let { it until it + variant.length }
+                    }
+                    regex != null -> regex.find(text)?.range?.let { it.first until it.last + 1 }
+                    // samplerLabel-only lookup: return the head of each surface
+                    else -> 0 until minOf(text.length, contextChars * 2)
+                } ?: continue
+                matches += mapOf(
+                    "sampleIndex" to sample.index,
+                    "label" to sample.label,
+                    "success" to sample.success,
+                    "responseCode" to sample.responseCode,
+                    "surface" to surface,
+                    "snippet" to text.contextAround(range.first, range.last + 1, contextChars),
+                )
+                if (matches.size >= maxMatches) {
+                    break@outer
+                }
+            }
+        }
+        return mapOf(
+            "validatedAtMillis" to last.atMillis,
+            "scopeNodePath" to last.scopeNodePath,
+            "matchCount" to matches.size,
+            "truncated" to (matches.size >= maxMatches),
+            "matches" to matches,
+        )
+    }
 
     private fun findOpenPlanNodes(arguments: JsonNode): Map<String, Any?> =
         guiCall {
@@ -1478,11 +1880,18 @@ public object BreakTestAgentGuiService {
             val variableName = arguments.path("variableName").optionalText()
             val underNodePath = arguments.path("underNodePath").optionalText()
             val maxMatches = arguments.path("maxMatches").takeIfPresent()?.asInt()?.coerceAtLeast(1) ?: 80
-            val underNode = underNodePath?.let { selectNodeByPath(gui.treeModel.testPlan, it, "under") }
+            // An ambiguous under-path is fine for a read-only search: scan under all
+            // matching subtrees instead of failing like the edit tools must.
+            val underNodes = underNodePath?.let { matchingNodesByPath(gui.treeModel.testPlan, it) }
+            require(underNodePath == null || !underNodes.isNullOrEmpty()) {
+                "No node matched underNodePath '$underNodePath'"
+            }
             val allNodes = allTreeNodes(gui.treeModel.testPlan)
             val matches = allNodes
                 .asSequence()
-                .filter { node -> underNode == null || node === underNode || node.isDescendantOf(underNode) }
+                .filter { node ->
+                    underNodes == null || underNodes.any { under -> node === under || node.isDescendantOf(under) }
+                }
                 .filter { node -> name == null || node.testElement.name == name }
                 .filter { node -> nameContains == null || node.testElement.name.orEmpty().contains(nameContains, ignoreCase = true) }
                 .filter { node -> className == null || node.testElement::class.java.name == className }
@@ -1523,6 +1932,8 @@ public object BreakTestAgentGuiService {
                 "csrf-or-verification-token",
                 "credential",
                 "uuid",
+                "hex-id",
+                "path-opaque-id",
                 "epoch-ms",
                 "date-time",
                 "draw-id",
@@ -1535,7 +1946,7 @@ public object BreakTestAgentGuiService {
                 "includeStaticAssets" to includeStaticAssets,
                 "threadGroupName" to threadGroupName,
                 "highConfidenceKinds" to highConfidenceKinds.sorted(),
-                "guidance" to "A successful validation run is not enough when high-confidence hard-coded request values remain. Review path, query, body, cookies, and custom headers. Correlate, parameterize, generate at runtime, randomize from prior responses, or document why each candidate is safe/static. Date/time values and drawId-style fields are high-confidence until proven safe. Static browser asset requests are ignored by default; set includeStaticAssets=true only when asset responses are relevant to a failure.",
+                "guidance" to "Correlate, parameterize, generate, or explicitly document every high-confidence candidate; a green run does not clear them. Random-looking path segments (hex-id/path-opaque-id) are server-issued until response evidence says otherwise.",
                 "candidates" to candidates,
             )
         }
@@ -1550,7 +1961,9 @@ public object BreakTestAgentGuiService {
             val script = arguments.requiredText("script")
             val language = arguments.path("language").takeIfPresent()?.asText()?.takeIf { it.isNotBlank() } ?: "groovy"
             val parameters = arguments.path("parameters").takeIfPresent()?.asText() ?: ""
-            val cacheKey = arguments.path("cacheKey").takeIfPresent()?.asText()
+            // Compile caching is on unless explicitly disabled: an uncached Groovy
+            // script recompiles on every execution, which is disastrous under load.
+            val cacheKey = arguments.path("cacheKey").takeIfPresent()?.asText()?.takeIf { it.isNotBlank() } ?: "true"
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             ensureBackupForOpenPlan(gui)
@@ -1585,8 +1998,8 @@ public object BreakTestAgentGuiService {
                     jsr223.setProperty(StringProperty("script", script))
                     jsr223.setProperty(StringProperty("parameters", parameters))
                     jsr223.setProperty(StringProperty("filename", ""))
-                    cacheKey?.let { setOptionalMethod(jsr223, "setCacheKey", it) }
-                    cacheKey?.let { jsr223.setProperty(StringProperty("cacheKey", it)) }
+                    setOptionalMethod(jsr223, "setCacheKey", cacheKey)
+                    jsr223.setProperty(StringProperty("cacheKey", cacheKey))
                     require(callString(jsr223, "getScript") == script || jsr223.getPropertyAsString("script") == script) {
                         "JSR223 script was not applied to the new element"
                     }
@@ -1603,15 +2016,28 @@ public object BreakTestAgentGuiService {
                     "Added JSR223 $elementType `$name`",
                     "language=$language parent=${parent.testElement.name}",
                 )
+                val uuidOnlyScript = script.lines()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() && !it.startsWith("//") }
+                    .all { it.contains("vars.put") && it.contains("randomUUID") }
                 mapOf(
                     "parentName" to parent.testElement.name,
                     "parentNodePath" to nodePath(parent),
                     "nodeName" to node.testElement.name,
                     "nodePath" to nodePath(node),
+                    "nodeId" to nodeId(node),
                     "elementType" to elementType,
                     "language" to language,
                     "scriptLength" to script.length,
-                )
+                    "compileCacheEnabled" to (cacheKey == "true"),
+                    "hint" to if (uuidOnlyScript) {
+                        "This script only generates UUID variables. If each variable is used in exactly one request " +
+                            "field, replace that field with inline \${__UUID} and delete this element; keep a JSR223 " +
+                            "setup only when one generated value must be identical across several fields or requests."
+                    } else {
+                        null
+                    },
+                ).filterValues { it != null }
             } finally {
                 gui.endUndoTransaction()
             }
@@ -1643,6 +2069,58 @@ public object BreakTestAgentGuiService {
         }
     }
 
+    /**
+     * Rejects assertion patterns that do not occur in the target sampler's most
+     * recently validated response. This catches misplaced assertions at add time
+     * (pattern taken from one sampler, assertion attached to another) instead of
+     * letting a later validation fail and sending the agent into a repair loop.
+     */
+    private fun verifyAssertionPatternAgainstLastValidation(
+        target: JMeterTreeNode,
+        pattern: String,
+        field: String,
+        matchType: String,
+        arguments: JsonNode,
+    ) {
+        if (arguments.path("allowUnverifiedPattern").asBoolean(false)) {
+            return
+        }
+        if (matchType !in setOf("substring", "contains")) {
+            return
+        }
+        val evidenceSource = arguments.path("evidenceSource").optionalText()
+        if (evidenceSource != null && evidenceSource != "validated_response") {
+            return
+        }
+        val last = lastValidation ?: return
+        val samples = last.samples.flatMap { it.flatten() }
+        val targetLabel = target.testElement.name.orEmpty()
+        val targetSamples = samples.filter { it.label == targetLabel }
+        if (targetSamples.isEmpty()) {
+            return
+        }
+        fun surfaceText(sample: AgentSampleSummary): String =
+            if (field == "headers") sample.responseHeaders else sample.responseBody
+        if (targetSamples.any { surfaceText(it).contains(pattern) }) {
+            return
+        }
+        val containing = samples
+            .filter { surfaceText(it).contains(pattern) }
+            .map { it.label }
+            .distinct()
+            .take(5)
+        val hint = if (containing.isEmpty()) {
+            "It was not found in any validated response; pick a marker from search_validated_response_open_plan."
+        } else {
+            "It occurs in the validated response of: ${containing.joinToString(", ") { "'$it'" }}. " +
+                "Either target that sampler or pick a marker from '$targetLabel' via search_validated_response_open_plan."
+        }
+        throw IllegalArgumentException(
+            "Assertion pattern '$pattern' does not occur in the latest validated $field of sampler '$targetLabel'. " +
+                hint + " Pass allowUnverifiedPattern=true only for deliberate unvalidated assertions.",
+        )
+    }
+
     private fun addResponseAssertionOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val evidence = requireResponseEvidence(arguments, "add response assertion")
@@ -1653,6 +2131,7 @@ public object BreakTestAgentGuiService {
             gui.beginUndoTransaction()
             try {
                 val target = selectSamplerReference(gui, arguments, "target", "target")
+                verifyAssertionPatternAgainstLastValidation(target, request.pattern, request.field, request.matchType, arguments)
                 val assertionNode = addConfiguredComponent(
                     gui,
                     target,
@@ -1673,9 +2152,12 @@ public object BreakTestAgentGuiService {
                 mapOf(
                     "targetSamplerLabel" to target.testElement.name,
                     "targetNodePath" to nodePath(target),
+                    "targetNodeId" to nodeId(target),
                     "assertionName" to assertionNode.testElement.name,
                     "assertionNodePath" to nodePath(assertionNode),
+                    "assertionNodeId" to nodeId(assertionNode),
                     "pattern" to request.pattern,
+                    "targetAssertions" to assertionPlacementSummary(target),
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -1696,6 +2178,13 @@ public object BreakTestAgentGuiService {
                 val targetSamplerIndex = arguments.path("targetSamplerIndex").takeIfPresent()?.asInt()
                 val targetSamplerLabel = arguments.path("targetSamplerLabel").takeIfPresent()?.asText()
                 val target = selectSamplerReference(gui, arguments, "target", "target")
+                verifyAssertionPatternAgainstLastValidation(
+                    target,
+                    pattern,
+                    arguments.path("field").takeIfPresent()?.asText() ?: "body",
+                    arguments.path("matchType").takeIfPresent()?.asText() ?: "substring",
+                    arguments,
+                )
                 val assertionNode = responseAssertionNode(target, assertionName, currentPattern)
                 val request = ResponseAssertionRequest(
                     targetSamplerIndex = targetSamplerIndex,
@@ -1721,9 +2210,12 @@ public object BreakTestAgentGuiService {
                 mapOf(
                     "targetSamplerLabel" to target.testElement.name,
                     "targetNodePath" to nodePath(target),
+                    "targetNodeId" to nodeId(target),
                     "assertionName" to assertionNode.testElement.name,
                     "assertionNodePath" to nodePath(assertionNode),
+                    "assertionNodeId" to nodeId(assertionNode),
                     "pattern" to request.pattern,
+                    "targetAssertions" to assertionPlacementSummary(target),
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -1762,8 +2254,8 @@ public object BreakTestAgentGuiService {
                 )
             } finally {
                 gui.endUndoTransaction()
+            }
         }
-    }
 
     private fun moveNodeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
@@ -1786,8 +2278,9 @@ public object BreakTestAgentGuiService {
                     ?: throw IllegalArgumentException("Source node has no movable parent")
                 val oldIndex = oldParent.getIndex(source)
                 val newParent = when (position) {
-                    "before", "after" -> target.parent as? JMeterTreeNode
-                        ?: throw IllegalArgumentException("Target node has no parent")
+                    "before", "after" ->
+                        target.parent as? JMeterTreeNode
+                            ?: throw IllegalArgumentException("Target node has no parent")
                     "first_child", "last_child" -> target
                     else -> error("Unsupported position $position")
                 }
@@ -1822,6 +2315,7 @@ public object BreakTestAgentGuiService {
                     "moved" to true,
                     "sourceName" to source.testElement.name,
                     "sourcePath" to nodePath(source),
+                    "sourceNodeId" to nodeId(source),
                     "targetName" to target.testElement.name,
                     "targetPath" to nodePath(target),
                     "position" to position,
@@ -1964,10 +2458,8 @@ public object BreakTestAgentGuiService {
         guiClassName: String,
         configure: (TestElement) -> Unit,
     ): JMeterTreeNode {
-        val element = gui.createTestElement(guiClassName)
-            ?: throw IllegalStateException("Could not create test element from $guiClassName")
-        configure(element)
-        return gui.treeModel.addComponent(element, parent)
+        val element = createDetachedTestElement(guiClassName)
+        return addConfiguredComponent(gui, parent, element, configure)
     }
 
     private fun addConfiguredComponent(
@@ -1977,7 +2469,45 @@ public object BreakTestAgentGuiService {
         configure: (TestElement) -> Unit,
     ): JMeterTreeNode {
         configure(element)
-        return gui.treeModel.addComponent(element, parent)
+        // Deliberately bypasses JMeterTreeModel.addComponent: that path routes the
+        // element through the shared per-class GUI panel and then flushes the panel
+        // into the *currently selected* node (getCurrentGui -> updateCurrentNode).
+        // When the selection is a same-class node - e.g. the assertion or extractor
+        // added a moment earlier in a batch - its name and content get silently
+        // overwritten with this element's data, which manifested as assertions and
+        // extractors "shifting one sampler back" after batch edits.
+        val newNode = JMeterTreeNode(element, gui.treeModel)
+        runCatching { newNode.isEnabled = element.isEnabled }
+        gui.treeModel.insertNodeInto(newNode, parent, parent.childCount)
+        return newNode
+    }
+
+    private fun insertDetachedNode(gui: GuiPackage, parent: JMeterTreeNode, element: TestElement): JMeterTreeNode {
+        val node = JMeterTreeNode(element, gui.treeModel)
+        runCatching { node.isEnabled = element.isEnabled }
+        gui.treeModel.insertNodeInto(node, parent, parent.childCount)
+        return node
+    }
+
+    private fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
+        for (element in tree.list()) {
+            if (element !is TestElement) {
+                continue
+            }
+            val node = insertDetachedNode(gui, parent, element)
+            insertDetachedSubTree(gui, node, tree.getTree(element))
+        }
+    }
+
+    /**
+     * Creates a test element from a fresh, throwaway GUI component instance instead
+     * of GuiPackage.createTestElement, which resets the shared cached panel that may
+     * currently be displaying (and later be flushed into) the selected node.
+     */
+    private fun createDetachedTestElement(guiClassName: String): TestElement {
+        val guiComponent = Class.forName(guiClassName).getDeclaredConstructor().newInstance()
+            as org.apache.jmeter.gui.JMeterGUIComponent
+        return guiComponent.createTestElement()
     }
 
     private fun setRedirectProperty(element: TestElement, setter: String, fallbackProperty: String, value: Boolean) {
@@ -2114,7 +2644,7 @@ public object BreakTestAgentGuiService {
 
     private fun regexExtractorNodes(
         source: JMeterTreeNode,
-        variableName: String,
+        variableName: String?,
         requireFound: Boolean = true,
     ): List<JMeterTreeNode> {
         val sourceSubTree = GuiPackage.getInstance().treeModel.testPlan.findSubTree(source)
@@ -2124,7 +2654,7 @@ public object BreakTestAgentGuiService {
             for (node in tree.list()) {
                 if (node is JMeterTreeNode) {
                     if (node.testElement::class.java.name == "org.apache.jmeter.extractor.RegexExtractor" &&
-                        callString(node.testElement, "getRefName") == variableName
+                        (variableName == null || callString(node.testElement, "getRefName") == variableName)
                     ) {
                         matches += node
                     }
@@ -2174,6 +2704,33 @@ public object BreakTestAgentGuiService {
             )
         }
     }
+
+    private fun responseAssertionNodesUnder(target: JMeterTreeNode): List<JMeterTreeNode> {
+        val targetSubTree = GuiPackage.getInstance().treeModel.testPlan.findSubTree(target)
+            ?: return emptyList()
+        val matches = mutableListOf<JMeterTreeNode>()
+        fun visit(tree: HashTree) {
+            for (node in tree.list()) {
+                if (node is JMeterTreeNode) {
+                    if (node.testElement::class.java.name == "org.apache.jmeter.assertions.ResponseAssertion") {
+                        matches += node
+                    }
+                    visit(tree.getTree(node))
+                }
+            }
+        }
+        visit(targetSubTree)
+        return matches
+    }
+
+    private fun assertionPlacementSummary(target: JMeterTreeNode): List<Map<String, Any?>> =
+        responseAssertionNodesUnder(target).map { node ->
+            mapOf(
+                "assertionName" to node.testElement.name,
+                "nodeId" to nodeId(node),
+                "patterns" to responseAssertionPatterns(node.testElement),
+            )
+        }
 
     private fun responseAssertionPatterns(assertion: TestElement): List<String> {
         val property = assertion.getProperty("Asserion.test_strings") as? MultiProperty ?: return emptyList()
@@ -2235,7 +2792,7 @@ public object BreakTestAgentGuiService {
     ) {
         fun matches(argumentIndex: Int?, index: Int, argumentName: String?, argumentValue: String?): Boolean =
             (argumentIndex == null || argumentIndex == index) &&
-            (argumentName.isNullOrBlank() || name == argumentName) &&
+                (argumentName.isNullOrBlank() || name == argumentName) &&
                 (argumentValue.isNullOrBlank() || value == argumentValue)
     }
 
@@ -2331,7 +2888,7 @@ public object BreakTestAgentGuiService {
     private fun searchElementValues(
         element: TestElement,
         path: List<String>,
-        literal: String?,
+        literals: List<String>?,
         pattern: Regex?,
         includeNames: Boolean,
         excludeUserDefinedVariables: Boolean,
@@ -2348,7 +2905,7 @@ public object BreakTestAgentGuiService {
             searchPropertyValues(
                 iterator.next(),
                 path,
-                literal,
+                literals,
                 pattern,
                 includeNames,
                 excludeUserDefinedVariables,
@@ -2363,7 +2920,7 @@ public object BreakTestAgentGuiService {
     private fun searchPropertyValues(
         property: JMeterProperty,
         path: List<String>,
-        literal: String?,
+        literals: List<String>?,
         pattern: Regex?,
         includeNames: Boolean,
         excludeUserDefinedVariables: Boolean,
@@ -2384,12 +2941,14 @@ public object BreakTestAgentGuiService {
             else -> null
         }
         if (value != null && (includeNames || property.name != TestElement.NAME)) {
-            val matched = literal?.let { value.contains(it) } ?: (pattern?.containsMatchIn(value) == true)
+            val matchedLiteral = literals?.firstOrNull { value.contains(it) }
+            val matched = if (literals != null) matchedLiteral != null else pattern?.containsMatchIn(value) == true
             if (matched) {
                 matches += mapOf(
                     "nodePath" to path.joinToString(" / "),
                     "property" to property.name,
                     "excerpt" to value.take(500),
+                    "matchedLiteral" to matchedLiteral,
                 )
             }
         }
@@ -2397,7 +2956,7 @@ public object BreakTestAgentGuiService {
             searchElementValues(
                 property.objectValue as TestElement,
                 path,
-                literal,
+                literals,
                 pattern,
                 includeNames,
                 excludeUserDefinedVariables,
@@ -2411,7 +2970,7 @@ public object BreakTestAgentGuiService {
                 searchPropertyValues(
                     child,
                     path,
-                    literal,
+                    literals,
                     pattern,
                     includeNames,
                     excludeUserDefinedVariables,
@@ -2663,6 +3222,7 @@ public object BreakTestAgentGuiService {
 
     private fun literalReplacementRequest(arguments: JsonNode): LiteralReplacementRequest =
         LiteralReplacementRequest(
+            targetNodeId = arguments.path("targetNodeId").optionalText(),
             targetSamplerIndex = arguments.path("targetSamplerIndex").takeIfPresent()?.asInt(),
             targetSamplerLabel = arguments.path("targetSamplerLabel").takeIfPresent()?.asText(),
             targetNodePath = arguments.path("targetNodePath").optionalText(),
@@ -2744,6 +3304,16 @@ public object BreakTestAgentGuiService {
         require(!singleToken || !genericToken) {
             "Weak response assertion '$pattern': generic single-word assertions are not allowed"
         }
+        // A marker that embeds run-specific data (JSON numbers, UUIDs, dates, epoch
+        // values) matches the cached run it was copied from but fails on the next
+        // execution when the value changes. Force the stable structural part.
+        val volatileFragment = VOLATILE_ASSERTION_FRAGMENT_REGEX.find(normalized)?.value
+        require(volatileFragment == null) {
+            "Volatile response assertion '$pattern': the fragment '$volatileFragment' embeds run-specific data " +
+                "(number, id, or date) that will differ on the next execution. Assert the stable field name or " +
+                "phrase without the changing value, e.g. use '\"totalDraws\"' instead of '\"totalDraws\":35'. " +
+                "Pass allowWeakPattern=true only when the value is genuinely constant."
+        }
     }
 
     private fun redirectModeRequest(arguments: JsonNode): RedirectModeRequest {
@@ -2798,8 +3368,9 @@ public object BreakTestAgentGuiService {
             "regex_extractor", "regexextractor" -> className == "org.apache.jmeter.extractor.RegexExtractor"
             "boundary_extractor", "boundaryextractor" -> className == "org.apache.jmeter.extractor.BoundaryExtractor"
             "extractor" -> extractorVariableName(testElement) != null
-            "response_assertion", "assertion" -> className == "org.apache.jmeter.assertions.ResponseAssertion" ||
-                className.contains(".assertions.")
+            "response_assertion", "assertion" ->
+                className == "org.apache.jmeter.assertions.ResponseAssertion" ||
+                    className.contains(".assertions.")
             "jsr223" -> testElement is JSR223TestElement || className.contains("JSR223")
             "preprocessor", "postprocessor", "processor" -> className.contains("PreProcessor") ||
                 className.contains("PostProcessor") ||
@@ -2830,12 +3401,12 @@ public object BreakTestAgentGuiService {
         }
         return mapOf(
             "matchIndex" to matchIndex,
+            "nodeId" to nodeId(node),
             "name" to node.testElement.name,
             "nodePath" to nodePath(node),
             "className" to node.testElement::class.java.name,
             "enabled" to node.isEnabled,
             "childCount" to node.childCount,
-            "parentPath" to (node.parent as? JMeterTreeNode)?.let(::nodePath),
             "samplerIndex" to samplerIndex,
             "parentSamplerIndex" to parentSamplerIndex,
             "parentSamplerName" to parentSampler?.testElement?.name,
@@ -2844,7 +3415,7 @@ public object BreakTestAgentGuiService {
             "regex" to callString(node.testElement, "getRegex"),
             "useField" to extractorUseField(node.testElement),
             "failOnNoMatch" to callBoolean(node.testElement, "isFailOnNoMatch"),
-        )
+        ).filterValues { it != null }
     }
 
     private fun JMeterTreeNode.ancestorSampler(): JMeterTreeNode? {
@@ -2910,7 +3481,9 @@ public object BreakTestAgentGuiService {
             if (!resolution.exchange().isPresent) {
                 return@mapIndexedNotNull null
             }
-            if (!includeStaticAssets && isStaticHarRequest(resolution.requestText())) {
+            if (!includeStaticAssets &&
+                (isStaticHarRequest(resolution.requestText()) || isStaticHarResponse(resolution.responseText()))
+            ) {
                 return@mapIndexedNotNull null
             }
             HarExchange(
@@ -2936,6 +3509,29 @@ public object BreakTestAgentGuiService {
 
     private fun firstNonBlankLine(text: String): String =
         text.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+
+    // Extension-less asset URLs (e.g. /assets/{uuid} serving image/webp) slip past
+    // the URL-based check, flooding HAR listings and planner actions with junk
+    // uuid correlations for images. The response content type is authoritative.
+    private fun isStaticHarResponse(responseText: String): Boolean {
+        val headerEnd = harHeaderBlockEnd(responseText) ?: responseText.length
+        val contentType = responseText.substring(0, headerEnd)
+            .lineSequence()
+            .firstOrNull { it.startsWith("content-type:", ignoreCase = true) }
+            ?.substringAfter(':')
+            ?.trim()
+            ?.lowercase()
+            ?: return false
+        return contentType.startsWith("image/") ||
+            contentType.startsWith("font/") ||
+            contentType.startsWith("audio/") ||
+            contentType.startsWith("video/") ||
+            contentType.startsWith("text/css") ||
+            contentType.contains("javascript") ||
+            contentType.contains("font-woff") ||
+            contentType.startsWith("application/wasm") ||
+            contentType.contains("source-map")
+    }
 
     private fun isStaticHarRequest(requestText: String): Boolean {
         val firstLine = firstNonBlankLine(requestText).lowercase()
@@ -2995,18 +3591,26 @@ public object BreakTestAgentGuiService {
         val actions = mutableListOf<Map<String, Any?>>()
         val exchanges = linkedHarExchanges(gui, testPlanFile, threadGroupName, includeStaticAssets)
         val seen = mutableSetOf<String>()
+        val scopeNodePath = threadGroupName
+            ?.let { runCatching { nodePath(selectThreadGroup(gui, it)) }.getOrNull() }
         for (target in exchanges) {
             for (requestCandidate in harRequestCandidates(target.request)) {
                 val seenKey = "${target.globalIndex}:${requestCandidate.literal}"
                 if (!seen.add(seenKey)) {
                     continue
                 }
+                // The recorded request often carries the URL/HTML-encoded form of a
+                // value that the issuing response contains raw (or vice versa), so
+                // source matching tries the encoding variants of the literal too.
+                // Header-block occurrences win over body occurrences: recorded
+                // redirect bodies frequently differ from what JMeter replays, while
+                // Location/Set-Cookie headers are stable at runtime.
                 val source = exchanges
                     .asSequence()
                     .filter { it.index < target.index }
                     .mapNotNull { sourceExchange ->
-                        val index = sourceExchange.response.indexOf(requestCandidate.literal, ignoreCase = false)
-                        if (index >= 0) sourceExchange to index else null
+                        preferredLiteralOccurrence(sourceExchange.response, requestCandidate.literal)
+                            ?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
                     }
                     .lastOrNull()
                 if (source == null) {
@@ -3016,12 +3620,19 @@ public object BreakTestAgentGuiService {
                     continue
                 }
 
-                val (sourceExchange, literalIndex) = source
-                val regex = regexForHarCandidate(sourceExchange.response, requestCandidate, literalIndex)
+                val (sourceExchange, literalIndex, matchedLiteral) = source
+                val regex = regexForHarCandidate(sourceExchange.response, requestCandidate, matchedLiteral, literalIndex)
+                    ?.takeIf {
+                        AgentRegexSupport.oroProblem(it) == null &&
+                            AgentRegexSupport.oroMatches(it, sourceExchange.response)
+                    }
+                    // Never fall back to a Boundary Extractor action: derive an
+                    // ORO-safe regex from the literal's boundaries instead.
+                    ?: boundaryDerivedRegex(sourceExchange.response, matchedLiteral, literalIndex)
                 val variableName = uniqueVariableName(variableNameFor(requestCandidate), usedVariableNames)
                 val evidence = sourceExchange.response.contextAround(
                     literalIndex,
-                    literalIndex + requestCandidate.literal.length,
+                    literalIndex + matchedLiteral.length,
                     contextChars,
                 )
                 val applyTool = if (regex == null) {
@@ -3030,12 +3641,13 @@ public object BreakTestAgentGuiService {
                     "apply_regex_correlation_open_plan"
                 }
                 val applyArguments = if (regex == null) {
-                    val boundaries = boundariesAroundLiteral(sourceExchange.response, requestCandidate.literal, literalIndex)
+                    val boundaries = boundariesAroundLiteral(sourceExchange.response, matchedLiteral, literalIndex)
                     mapOf(
-                        "sourceSamplerIndex" to sourceExchange.globalIndex,
-                        "sourceSamplerLabel" to sourceExchange.sampler.testElement.name,
-                        "targetSamplerIndex" to target.globalIndex,
-                        "targetSamplerLabel" to target.sampler.testElement.name,
+                        "sourceNodeId" to nodeId(sourceExchange.sampler),
+                        "sourceNodePath" to nodePath(sourceExchange.sampler),
+                        "targetNodeId" to nodeId(target.sampler),
+                        "targetNodePath" to nodePath(target.sampler),
+                        "scopeNodePath" to scopeNodePath,
                         "variableName" to variableName,
                         "leftBoundary" to boundaries.first,
                         "rightBoundary" to boundaries.second,
@@ -3043,11 +3655,12 @@ public object BreakTestAgentGuiService {
                         "failOnNoMatch" to true,
                         "evidenceSource" to "recorded_response",
                         "evidence" to evidence,
-                    )
+                    ).filterValues { it != null }
                 } else {
                     mapOf(
-                        "sourceSamplerIndex" to sourceExchange.globalIndex,
-                        "sourceSamplerLabel" to sourceExchange.sampler.testElement.name,
+                        "sourceNodeId" to nodeId(sourceExchange.sampler),
+                        "sourceNodePath" to nodePath(sourceExchange.sampler),
+                        "scopeNodePath" to scopeNodePath,
                         "variableName" to variableName,
                         "regex" to regex,
                         "template" to "$1$",
@@ -3058,7 +3671,7 @@ public object BreakTestAgentGuiService {
                         "failOnNoMatch" to true,
                         "evidenceSource" to "recorded_response",
                         "evidence" to evidence,
-                    )
+                    ).filterValues { it != null }
                 }
                 val replacementCount = countLiteralMatchesInOpenPlan(gui, requestCandidate.literal, includeNames = false)
                 actions += mapOf(
@@ -3070,6 +3683,8 @@ public object BreakTestAgentGuiService {
                     "fieldName" to requestCandidate.fieldName,
                     "variableName" to variableName,
                     "literalPreview" to requestCandidate.literal.previewToken(),
+                    "sourceEncodingVariant" to (matchedLiteral != requestCandidate.literal),
+                    "matchedSourceLiteralPreview" to matchedLiteral.takeIf { it != requestCandidate.literal }?.previewToken(),
                     "sourceSamplerIndex" to sourceExchange.globalIndex,
                     "sourceSamplerLabel" to sourceExchange.sampler.testElement.name,
                     "sourceNodePath" to nodePath(sourceExchange.sampler),
@@ -3143,7 +3758,8 @@ public object BreakTestAgentGuiService {
                             "replacement" to replacement,
                             "includeNames" to false,
                             "excludeUserDefinedVariables" to true,
-                        ),
+                            "threadGroupName" to threadGroupName,
+                        ).filterValues { it != null },
                     ),
                     mapOf(
                         "tool" to "set_user_defined_variable_open_plan",
@@ -3159,7 +3775,8 @@ public object BreakTestAgentGuiService {
                             "includeNames" to false,
                             "excludeUserDefinedVariables" to true,
                             "maxMatches" to 20,
-                        ),
+                            "threadGroupName" to threadGroupName,
+                        ).filterValues { it != null },
                     ),
                 ),
             )
@@ -3177,6 +3794,7 @@ public object BreakTestAgentGuiService {
             "fieldName" to action["fieldName"],
             "variableName" to action["variableName"],
             "literalPreview" to action["literalPreview"],
+            "sourceEncodingVariant" to action["sourceEncodingVariant"],
             "sourceSamplerLabel" to action["sourceSamplerLabel"],
             "targetSamplerLabel" to action["targetSamplerLabel"],
             "replacementCount" to action["replacementCount"],
@@ -3195,42 +3813,47 @@ public object BreakTestAgentGuiService {
         target: HarExchange,
         requestCandidate: HarRequestCandidate,
     ): Map<String, Any?> =
+        // The shared "no source found" reason lives once at the top level of the
+        // planner result instead of being repeated per entry: planner output stays
+        // in the agent's context for every later turn of the run.
         mapOf(
             "priority" to requestCandidate.priority,
             "kind" to requestCandidate.kind,
             "fieldName" to requestCandidate.fieldName,
             "literalPreview" to requestCandidate.literal.previewToken(),
-            "targetSamplerIndex" to target.globalIndex,
-            "targetSamplerLabel" to target.sampler.testElement.name,
             "targetNodePath" to nodePath(target.sampler),
             "targetSurface" to requestCandidate.surface,
-            "reason" to "Suspicious request value was not found in earlier linked HAR recorded responses.",
-        )
+        ).filterValues { it != null }
 
     private fun regexForHarCandidate(
         responseText: String,
         candidate: HarRequestCandidate,
+        matchedLiteral: String,
         literalIndex: Int,
     ): String? {
         val fieldName = candidate.fieldName?.takeIf { it.isNotBlank() } ?: return null
+        // Kotlin Regex is only used to probe the recorded response; the returned
+        // pattern runs in JMeter's ORO engine, so it must use ORO-safe escaping
+        // (Regex.escape's \Q...\E form never matches there).
         val escapedField = Regex.escape(fieldName)
-        val quotedJsonRegex = Regex(""""$escapedField"\s*:\s*"${Regex.escape(candidate.literal)}"""")
+        val oroField = AgentRegexSupport.oroEscape(fieldName)
+        val quotedJsonRegex = Regex(""""$escapedField"\s*:\s*"${Regex.escape(matchedLiteral)}"""")
         if (quotedJsonRegex.containsMatchIn(responseText)) {
-            return """"$escapedField"\s*:\s*"([^"]+)""""
+            return """"$oroField"\s*:\s*"([^"]+)""""
         }
-        val singleQuotedJsonRegex = Regex("""'$escapedField'\s*:\s*'${Regex.escape(candidate.literal)}'""")
+        val singleQuotedJsonRegex = Regex("""'$escapedField'\s*:\s*'${Regex.escape(matchedLiteral)}'""")
         if (singleQuotedJsonRegex.containsMatchIn(responseText)) {
-            return """'$escapedField'\s*:\s*'([^']+)'"""
+            return """'$oroField'\s*:\s*'([^']+)'"""
         }
         val htmlNameValueRegex = Regex(
-            """(?is)name\s*=\s*["']$escapedField["'][^>]{0,300}value\s*=\s*["']${Regex.escape(candidate.literal)}["']""",
+            """(?is)name\s*=\s*["']$escapedField["'][^>]{0,300}value\s*=\s*["']${Regex.escape(matchedLiteral)}["']""",
         )
         if (htmlNameValueRegex.containsMatchIn(responseText)) {
-            return """(?is)name\s*=\s*["']$escapedField["'][^>]{0,300}value\s*=\s*["']([^"']+)["']"""
+            return """(?is)name\s*=\s*["']$oroField["'][^>]{0,300}value\s*=\s*["']([^"']+)["']"""
         }
-        val assignmentRegex = Regex("""$escapedField\s*=\s*${Regex.escape(candidate.literal)}""")
+        val assignmentRegex = Regex("""$escapedField\s*=\s*${Regex.escape(matchedLiteral)}""")
         if (assignmentRegex.containsMatchIn(responseText)) {
-            return """$escapedField\s*=\s*([^&"'\s<>]+)"""
+            return """$oroField\s*=\s*([^&"'\s<>]+)"""
         }
         return if (literalIndex >= 0) null else null
     }
@@ -3242,13 +3865,58 @@ public object BreakTestAgentGuiService {
         return left to right
     }
 
-    private fun extractorUseFieldFor(responseText: String, literalIndex: Int): String {
-        val headerEnd = responseText.indexOf("\n\n").takeIf { it >= 0 }
+    private fun harHeaderBlockEnd(responseText: String): Int? =
+        responseText.indexOf("\n\n").takeIf { it >= 0 }
             ?: responseText.indexOf("\r\n\r\n").takeIf { it >= 0 }
-        return if (headerEnd != null && literalIndex < headerEnd) {
-            "headers"
-        } else {
-            "body"
+
+    private fun isRedirectHarResponse(responseText: String): Boolean =
+        Regex("""^HTTP/\S+\s+30\d\b""").containsMatchIn(responseText.lineSequence().firstOrNull().orEmpty())
+
+    /**
+     * Finds the occurrence of any encoding variant of the literal, preferring a
+     * match inside the response header block over one in the body.
+     */
+    private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? {
+        val variants = literalVariants(literal)
+        val headerEnd = harHeaderBlockEnd(responseText)
+        if (headerEnd != null) {
+            variants.firstNotNullOfOrNull { variant ->
+                responseText.indexOf(variant).takeIf { it in 0 until headerEnd }?.let { it to variant }
+            }?.let { return it }
+        }
+        return variants.firstNotNullOfOrNull { variant ->
+            responseText.indexOf(variant).takeIf { it >= 0 }?.let { it to variant }
+        }
+    }
+
+    /**
+     * Builds an ORO-safe extraction regex from the literal's immediate boundaries
+     * when no structured field regex applies, so planner actions never need the
+     * disallowed Boundary Extractor form.
+     */
+    private fun boundaryDerivedRegex(responseText: String, literal: String, literalIndex: Int): String? {
+        val (left, right) = boundariesAroundLiteral(responseText, literal, literalIndex)
+        val leftAnchor = left.substringAfterLast('\n').substringAfterLast('\r').takeLast(24)
+        val rightAnchor = right.takeWhile { it != '\n' && it != '\r' }.take(6)
+        if (leftAnchor.length < 3 || rightAnchor.isEmpty()) {
+            return null
+        }
+        val regex = AgentRegexSupport.oroEscape(leftAnchor) + "(.+?)" + AgentRegexSupport.oroEscape(rightAnchor)
+        return regex.takeIf {
+            AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
+        }
+    }
+
+    private fun extractorUseFieldFor(responseText: String, literalIndex: Int): String {
+        val headerEnd = harHeaderBlockEnd(responseText)
+        return when {
+            headerEnd != null && literalIndex < headerEnd -> "headers"
+            // Redirect bodies recorded in a HAR ("Found. Redirecting to <a href=...>")
+            // are rarely replayed verbatim by JMeter, but the same values are issued
+            // in the Location header at runtime, so header extraction is the safer
+            // default for 3xx sources.
+            isRedirectHarResponse(responseText) -> "headers"
+            else -> "body"
         }
     }
 
@@ -3305,7 +3973,7 @@ public object BreakTestAgentGuiService {
                     searchElementValues(
                         element,
                         path + nodeName,
-                        literal,
+                        literalVariants(literal),
                         null,
                         includeNames,
                         false,
@@ -3426,6 +4094,65 @@ public object BreakTestAgentGuiService {
             else -> "$this B"
         }
 
+    /**
+     * Stable IDs for GUI tree nodes. Node paths and flat sampler indexes both drift
+     * after structural edits (move/delete/add); an ID handed out here keeps resolving
+     * to the same node for the lifetime of the GUI session regardless of later edits.
+     */
+    private object NodeIds {
+        private val idsByNode = WeakHashMap<JMeterTreeNode, String>()
+        private val nodesById = HashMap<String, WeakReference<JMeterTreeNode>>()
+        private val counter = AtomicLong()
+
+        @Synchronized
+        fun idFor(node: JMeterTreeNode): String =
+            idsByNode.getOrPut(node) {
+                val id = "n${counter.incrementAndGet()}"
+                nodesById[id] = WeakReference(node)
+                id
+            }
+
+        @Synchronized
+        fun nodeFor(id: String): JMeterTreeNode? {
+            val node = nodesById[id]?.get()
+            if (node == null) {
+                nodesById.remove(id)
+            }
+            return node
+        }
+    }
+
+    private fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
+
+    private fun selectNodeById(gui: GuiPackage, nodeId: String, role: String): JMeterTreeNode {
+        val node = NodeIds.nodeFor(nodeId)
+            ?: throw IllegalArgumentException(
+                "Unknown $role nodeId '$nodeId'. Node IDs come from find_open_plan_nodes or earlier edit results in this GUI session.",
+            )
+        require(node.parent != null || node === testPlanNode(gui)) {
+            "$role node '$nodeId' (${node.testElement.name}) has been deleted from the open plan"
+        }
+        return node
+    }
+
+    /**
+     * Optional resolution scope shared by the edit tools: when the agent passes
+     * threadGroupName/scopeNodePath, label and path lookups are restricted to that
+     * subtree so identical transaction/sampler names in other Thread Groups can
+     * never be selected by mistake.
+     */
+    private fun resolutionScope(gui: GuiPackage, arguments: JsonNode): JMeterTreeNode? {
+        val scopeNodePath = arguments.path("scopeNodePath").optionalText()
+        if (scopeNodePath != null) {
+            return selectNodeByPath(gui.treeModel.testPlan, scopeNodePath, "scope")
+        }
+        val threadGroupName = arguments.path("threadGroupName").optionalText()
+        if (threadGroupName != null) {
+            return runCatching { selectThreadGroup(gui, threadGroupName) }.getOrNull()
+        }
+        return null
+    }
+
     private fun selectSampler(
         samplers: List<JMeterTreeNode>,
         index: Int?,
@@ -3449,12 +4176,15 @@ public object BreakTestAgentGuiService {
                 1 -> matches.single()
                 0 -> throw IllegalArgumentException("No $role sampler named '$label'")
                 else -> throw IllegalArgumentException(
-                    "Expected exactly one $role sampler named '$label', found ${matches.size}. " +
-                        "Use ${role}OccurrenceIndex or ${role}NodePath.",
+                    "Expected exactly one $role sampler named '$label', found ${matches.size}: " +
+                        matches.take(10).joinToString("; ") { "${nodePath(it)} [nodeId=${nodeId(it)}]" } +
+                        ". Retry with ${role}NodeId, ${role}OccurrenceIndex, or ${role}NodePath.",
                 )
             }
         }
-        throw IllegalArgumentException("Specify ${role}SamplerIndex or ${role}SamplerLabel")
+        throw IllegalArgumentException(
+            "Specify ${role}NodeId (preferred), ${role}NodePath, ${role}SamplerIndex, or ${role}SamplerLabel",
+        )
     }
 
     private fun selectSamplerReference(
@@ -3463,11 +4193,27 @@ public object BreakTestAgentGuiService {
         prefix: String,
         role: String,
     ): JMeterTreeNode {
+        val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        if (nodeIdArgument != null) {
+            val node = selectNodeById(gui, nodeIdArgument, role)
+            require(node.testElement is Sampler) {
+                "$role nodeId '$nodeIdArgument' is not a sampler; it is ${node.testElement::class.java.name}"
+            }
+            return node
+        }
+        val scope = resolutionScope(gui, arguments)
         val nodePath = arguments.path("${prefix}NodePath").optionalText()
         val occurrenceIndex = arguments.path("${prefix}OccurrenceIndex").takeIfPresent()?.asInt()
             ?: arguments.path("occurrenceIndex").takeIfPresent()?.asInt()
         if (nodePath != null) {
-            val node = selectNodeByPath(gui.treeModel.testPlan, nodePath, role, occurrenceIndex)
+            val node = selectNodeByPath(
+                gui.treeModel.testPlan,
+                nodePath,
+                role,
+                occurrenceIndex,
+                scope = scope,
+                nodeFilter = { it.testElement is Sampler },
+            )
             require(node.testElement is Sampler) {
                 "$role node '$nodePath' is not a sampler; it is ${node.testElement::class.java.name}"
             }
@@ -3475,7 +4221,16 @@ public object BreakTestAgentGuiService {
         }
         val samplerIndex = arguments.path("${prefix}SamplerIndex").takeIfPresent()?.asInt()
         val samplerLabel = arguments.path("${prefix}SamplerLabel").optionalText()
-        return selectSampler(samplerNodes(gui.treeModel.testPlan), samplerIndex, samplerLabel, role, occurrenceIndex)
+        val samplers = samplerNodes(gui.treeModel.testPlan)
+        // Indexes are positions in the whole-plan sampler list, so scope must not
+        // change the index space; label lookups are scoped to avoid same-name
+        // samplers in other Thread Groups.
+        val labelCandidates = if (scope != null && samplerIndex == null) {
+            samplers.filter { it === scope || it.isDescendantOf(scope) }
+        } else {
+            samplers
+        }
+        return selectSampler(labelCandidates, samplerIndex, samplerLabel, role, occurrenceIndex)
     }
 
     private fun selectOptionalSamplerReference(
@@ -3484,10 +4239,11 @@ public object BreakTestAgentGuiService {
         prefix: String,
         role: String,
     ): JMeterTreeNode? {
+        val hasNodeId = arguments.path("${prefix}NodeId").optionalText() != null
         val hasNodePath = arguments.path("${prefix}NodePath").optionalText() != null
         val hasSamplerIndex = arguments.path("${prefix}SamplerIndex").takeIfPresent() != null
         val hasSamplerLabel = arguments.path("${prefix}SamplerLabel").optionalText() != null
-        if (!hasNodePath && !hasSamplerIndex && !hasSamplerLabel) {
+        if (!hasNodeId && !hasNodePath && !hasSamplerIndex && !hasSamplerLabel) {
             return null
         }
         return selectSamplerReference(gui, arguments, prefix, role)
@@ -3511,13 +4267,23 @@ public object BreakTestAgentGuiService {
         prefix: String,
         role: String,
     ): JMeterTreeNode {
+        val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        if (nodeIdArgument != null) {
+            return selectNodeById(gui, nodeIdArgument, role)
+        }
         val nodePath = arguments.path("${prefix}NodePath").takeIfPresent()
             ?.asText()
             ?.takeIf { it.isNotBlank() }
         if (nodePath != null) {
             val occurrenceIndex = arguments.path("${prefix}OccurrenceIndex").takeIfPresent()?.asInt()
                 ?: arguments.path("occurrenceIndex").takeIfPresent()?.asInt()
-            return selectNodeByPath(gui.treeModel.testPlan, nodePath, role, occurrenceIndex)
+            return selectNodeByPath(
+                gui.treeModel.testPlan,
+                nodePath,
+                role,
+                occurrenceIndex,
+                scope = resolutionScope(gui, arguments),
+            )
         }
         val samplerIndex = arguments.path("${prefix}SamplerIndex").takeIfPresent()?.asInt()
         val samplerLabel = arguments.path("${prefix}SamplerLabel").takeIfPresent()
@@ -3527,7 +4293,7 @@ public object BreakTestAgentGuiService {
             return selectSampler(samplerNodes(gui.treeModel.testPlan), samplerIndex, samplerLabel, role)
         }
         throw IllegalArgumentException(
-            "Specify ${prefix}NodePath, ${prefix}SamplerIndex, or ${prefix}SamplerLabel for the $role node",
+            "Specify ${prefix}NodeId, ${prefix}NodePath, ${prefix}SamplerIndex, or ${prefix}SamplerLabel for the $role node",
         )
     }
 
@@ -3537,11 +4303,19 @@ public object BreakTestAgentGuiService {
         prefix: String,
         role: String,
     ): List<JMeterTreeNode> {
+        val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        if (nodeIdArgument != null) {
+            return listOf(selectNodeById(gui, nodeIdArgument, role))
+        }
         val nodePath = arguments.path("${prefix}NodePath").takeIfPresent()
             ?.asText()
             ?.takeIf { it.isNotBlank() }
         if (nodePath != null) {
-            val matches = matchingNodesByPath(gui.treeModel.testPlan, nodePath)
+            var matches = matchingNodesByPath(gui.treeModel.testPlan, nodePath)
+            val scope = resolutionScope(gui, arguments)
+            if (scope != null) {
+                matches = matches.filter { it === scope || it.isDescendantOf(scope) }
+            }
             require(matches.isNotEmpty()) {
                 "No $role node matched '$nodePath'"
             }
@@ -3555,8 +4329,27 @@ public object BreakTestAgentGuiService {
         requestedPath: String,
         role: String,
         occurrenceIndex: Int? = null,
+        scope: JMeterTreeNode? = null,
+        nodeFilter: ((JMeterTreeNode) -> Boolean)? = null,
     ): JMeterTreeNode {
-        val matches = matchingNodesByPath(root, requestedPath)
+        var matches = matchingNodesByPath(root, requestedPath)
+        if (scope != null && matches.isNotEmpty()) {
+            val scoped = matches.filter { it === scope || it.isDescendantOf(scope) }
+            if (scoped.isEmpty()) {
+                throw IllegalArgumentException(
+                    "No $role node matched '$requestedPath' inside scope '${nodePath(scope)}'; " +
+                        "${matches.size} match(es) exist outside the scope: " +
+                        matches.take(5).joinToString("; ") { nodePath(it) },
+                )
+            }
+            matches = scoped
+        }
+        if (nodeFilter != null && matches.size > 1) {
+            val filtered = matches.filter(nodeFilter)
+            if (filtered.isNotEmpty()) {
+                matches = filtered
+            }
+        }
         if (occurrenceIndex != null) {
             return matches.getOrNull(occurrenceIndex)
                 ?: throw IllegalArgumentException(
@@ -3568,24 +4361,33 @@ public object BreakTestAgentGuiService {
             0 -> throw IllegalArgumentException("No $role node matched '$requestedPath'")
             else -> throw IllegalArgumentException(
                 "Expected exactly one $role node matching '$requestedPath', found ${matches.size}: " +
-                    matches.take(10).joinToString("; ") { nodePath(it) } +
-                    ". Use ${role}OccurrenceIndex or deleteAllMatches=true when appropriate.",
+                    matches.take(10).joinToString("; ") { "${nodePath(it)} [nodeId=${nodeId(it)}]" } +
+                    ". Retry with ${role}NodeId, ${role}OccurrenceIndex, or deleteAllMatches=true when appropriate.",
             )
         }
     }
 
     private fun matchingNodesByPath(root: HashTree, requestedPath: String): List<JMeterTreeNode> {
-        val normalized = normalizeNodePath(requestedPath)
-        val exactMatches = mutableListOf<JMeterTreeNode>()
-        val suffixMatches = mutableListOf<JMeterTreeNode>()
+        val requestedStrict = normalizeNodePath(requestedPath)
+        val requestedLegacy = normalizeNodePathLegacy(requestedPath)
+        val strictExact = mutableListOf<JMeterTreeNode>()
+        val strictSuffix = mutableListOf<JMeterTreeNode>()
+        val legacyExact = mutableListOf<JMeterTreeNode>()
+        val legacySuffix = mutableListOf<JMeterTreeNode>()
         val nameMatches = mutableListOf<JMeterTreeNode>()
         fun visit(tree: HashTree) {
             for (node in tree.list()) {
                 if (node is JMeterTreeNode) {
-                    val candidatePath = normalizeNodePath(nodePath(node))
+                    val candidateStrict = node.path
+                        .filterIsInstance<JMeterTreeNode>()
+                        .map { it.testElement.name.orEmpty().trim() }
+                        .filter { it.isNotBlank() }
+                    val candidateLegacy = normalizeNodePathLegacy(nodePath(node))
                     when {
-                        candidatePath == normalized -> exactMatches += node
-                        pathEndsWith(candidatePath, normalized) -> suffixMatches += node
+                        candidateStrict == requestedStrict -> strictExact += node
+                        pathEndsWith(candidateStrict, requestedStrict) -> strictSuffix += node
+                        candidateLegacy == requestedLegacy -> legacyExact += node
+                        pathEndsWith(candidateLegacy, requestedLegacy) -> legacySuffix += node
                         node.testElement.name == requestedPath.trim() -> nameMatches += node
                     }
                 }
@@ -3594,13 +4396,23 @@ public object BreakTestAgentGuiService {
         }
         visit(root)
         return when {
-            exactMatches.isNotEmpty() -> exactMatches
-            suffixMatches.isNotEmpty() -> suffixMatches
+            strictExact.isNotEmpty() -> strictExact
+            strictSuffix.isNotEmpty() -> strictSuffix
+            legacyExact.isNotEmpty() -> legacyExact
+            legacySuffix.isNotEmpty() -> legacySuffix
             else -> nameMatches
         }.distinct()
     }
 
+    // Splits on the same " / " separator that nodePath() joins with, so element
+    // names that are or contain "/" (e.g. an HTTP sampler named "/") survive as
+    // their own path segment instead of collapsing into the parent path.
     private fun normalizeNodePath(path: String): List<String> =
+        path.split(" / ")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+    private fun normalizeNodePathLegacy(path: String): List<String> =
         path.split("/")
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -3652,10 +4464,18 @@ public object BreakTestAgentGuiService {
     private fun enabledThreadGroupCount(gui: GuiPackage): Int =
         gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).count { it.isEnabled }
 
+    @Volatile
+    private var activeAgentLabel: String = "Codex"
+
+    @JvmStatic
+    public fun setActiveAgentLabel(label: String) {
+        activeAgentLabel = label.ifBlank { "Codex" }
+    }
+
     private fun handleAgentActivity(arguments: JsonNode): Map<String, Any> {
         val message = arguments.path("message").asText().ifBlank { "Agent activity" }
         val level = arguments.path("level").asText("info")
-        val source = arguments.path("source").asText("Codex").ifBlank { "Codex" }
+        val source = arguments.path("source").asText(activeAgentLabel).ifBlank { activeAgentLabel }
         val details = arguments.path("details").takeIfPresent()?.asText()?.takeIf { it.isNotBlank() }
         postActivity(level, message, source, details)
         return mapOf(
@@ -3842,33 +4662,49 @@ public object BreakTestAgentGuiService {
             ignoreStaticAssetFailures = arguments.path("ignoreStaticAssetFailures").asBoolean(false),
         )
 
+    private data class LastValidationSnapshot(
+        val scopeNodePath: String?,
+        val atMillis: Long,
+        val samples: List<AgentSampleSummary>,
+    )
+
+    @Volatile
+    private var lastValidation: LastValidationSnapshot? = null
+
     private fun validateOpenPlan(arguments: JsonNode): Any {
-        val tree = validationTree(arguments)
+        val (tree, scopePath) = validationTreeWithScope(arguments)
         val report = BreakTestAgent().inspectAndValidate(
             tree,
             optionsFrom(arguments),
             dslCharacterLimit(arguments),
             includeStaticAssets(arguments),
         )
+        val previous = lastValidation
+        lastValidation = LastValidationSnapshot(scopePath, System.currentTimeMillis(), report.validation.samples)
         return if (arguments.path("compact").asBoolean(false)) {
+            val previousStatus = previous
+                ?.takeIf { it.scopeNodePath == scopePath }
+                ?.samples
+                ?.associate { it.label to (it.success to it.responseCode) }
             AgentReportCompactor.compactForRepair(
                 report,
                 sampleLimit = arguments.path("compactSampleLimit").asInt(20),
                 bodyLimit = arguments.path("compactBodyLimit").asInt(1_500),
+                previousSampleStatus = previousStatus,
             )
         } else {
             report
         }
     }
 
-    private fun validationTree(arguments: JsonNode): HashTree =
+    private fun validationTreeWithScope(arguments: JsonNode): Pair<HashTree, String?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             val planTree = convertTree(gui.treeModel.testPlan)
             val threadGroup = selectedValidationThreadGroup(gui, arguments)
-                ?: return@guiCall planTree
-            scopedThreadGroupValidationTree(planTree, threadGroup)
+                ?: return@guiCall planTree to null
+            scopedThreadGroupValidationTree(planTree, threadGroup) to nodePath(threadGroup)
         }
 
     private fun selectedValidationThreadGroup(gui: GuiPackage, arguments: JsonNode): JMeterTreeNode? {

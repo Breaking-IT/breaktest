@@ -18,9 +18,11 @@
 package org.apache.jmeter.gui.action;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -38,6 +40,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -76,11 +79,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.auto.service.AutoService;
 
 /**
- * Starts a local Codex repair session for the currently open BreakTest plan.
+ * Starts a local AI Auto Scripting session for the currently open BreakTest plan.
  */
 @AutoService(Command.class)
-public class CodexAiRepair extends AbstractAction {
-    private static final Logger log = LoggerFactory.getLogger(CodexAiRepair.class);
+public class AiAutoScriptingAction extends AbstractAction {
+    private static final Logger log = LoggerFactory.getLogger(AiAutoScriptingAction.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static final AtomicBoolean STOP_REQUESTED = new AtomicBoolean(false);
@@ -92,6 +95,7 @@ public class CodexAiRepair extends AbstractAction {
 
     static {
         Set<String> commands = new HashSet<>();
+        commands.add(ActionNames.AI_AUTO_SCRIPTING);
         commands.add(ActionNames.CODEX_AI_REPAIR);
         COMMANDS = Collections.unmodifiableSet(commands);
     }
@@ -118,7 +122,7 @@ public class CodexAiRepair extends AbstractAction {
 
         try {
             AiAutoScriptingLogWindow.showLog();
-            AiAutoScriptingLogWindow.setStopHandler(CodexAiRepair::stopCurrentRun);
+            AiAutoScriptingLogWindow.setStopHandler(AiAutoScriptingAction::stopCurrentRun);
             AiAutoScriptingLogWindow.startRun();
             BreakTestAgentGuiService.start();
             String backupPath = BreakTestAgentGuiService.createBackupForOpenPlan();
@@ -128,7 +132,7 @@ public class CodexAiRepair extends AbstractAction {
             };
             AiRunRequest runRequest = request.withPaths(backupPath, repairTargetPath);
 
-            Thread worker = new Thread(() -> runCodex(runRequest), "BreakTest AI Auto Scripting");
+            Thread worker = new Thread(() -> runAiAutoScripting(runRequest), "BreakTest AI Auto Scripting");
             worker.setDaemon(true);
             worker.start();
         } catch (Exception ex) {
@@ -147,16 +151,18 @@ public class CodexAiRepair extends AbstractAction {
         return COMMANDS;
     }
 
-    private static void runCodex(AiRunRequest request) {
+    private static void runAiAutoScripting(AiRunRequest request) {
         Instant started = Instant.now();
-        CodexRunOutput output = new CodexRunOutput();
+        AiRunOutput output = new AiRunOutput();
         AtomicBoolean timedOut = new AtomicBoolean(false);
         try {
             File workingDirectory = aiWorkingDirectory(request.tool());
             List<String> command = aiCommand(request, workingDirectory);
+            BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
                     + " (dangerous local-agent settings approved in the start dialog).");
+            postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName()));
             postActivity("Edit surface: " + request.editSurface().displayName());
             postActivity("Run limits: max runtime " + request.maxRuntimeSeconds()
                     + "s, similar retry limit " + request.maxSimilarRetries()
@@ -164,7 +170,11 @@ public class CodexAiRepair extends AbstractAction {
             postActivity("AI telemetry: initial prompt " + payloadSize(prompt(request)));
             postActivity("Command: " + commandSummary(command));
             if (request.hasUserInput()) {
-                postActivity("Included extra user instructions from the start dialog.");
+                String instructions = request.instructions().strip();
+                if (instructions.length() > 1_500) {
+                    instructions = instructions.substring(0, 1_500) + "... (truncated)";
+                }
+                postActivity("User instructions: " + instructions);
             }
             if (!request.repairTargetPath().isBlank()) {
                 postActivity("Repair target: " + request.repairTargetPath());
@@ -192,7 +202,17 @@ public class CodexAiRepair extends AbstractAction {
                 postActivity("AI Auto Scripting stopped by user.");
                 AiAutoScriptingLogWindow.finishRun("Stopped");
             } else if (exitCode == 0) {
-                if (output.hasRepairBlocker()) {
+                boolean endedWithoutChanges = request.editSurface() == AiEditSurface.LIVE_GUI
+                        && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR
+                        && AiAutoScriptingLogWindow.changes().isEmpty();
+                if (endedWithoutChanges) {
+                    // Weaker models sometimes reply with plain text mid-run; non-interactive
+                    // CLIs (codex exec, opencode run) then exit 0 with nothing done.
+                    postActivity("AI Auto Scripting ended without making any changes. "
+                            + "The agent likely stopped early (a plain reply without a tool call ends the run); "
+                            + "try again or use a stronger model/reasoning setting.");
+                    AiAutoScriptingLogWindow.finishRun("Ended without changes");
+                } else if (output.hasRepairBlocker()) {
                     postActivity("AI Auto Scripting finished with blockers.");
                     AiAutoScriptingLogWindow.finishRun("Finished with blockers");
                 } else {
@@ -459,101 +479,50 @@ public class CodexAiRepair extends AbstractAction {
 
                 Repair and harden the currently open BreakTest/JMeter GUI plan through the BreakTest MCP server.
 
-                Requirements:
-                - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
-                - A GUI backup is created before this run starts. Use it only as a rollback safety net.
-                - Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
-                - Before the first edit, call `{{BRIDGE}} tools` to inspect exact bridge tool schemas. Read only the schemas needed for the next action, and do not echo the full tool output back into progress or final text. Do not make intentional missing-argument or dummy-target calls to discover argument names. Do not search the filesystem for a different bridge unless this exact command fails.
-                - Prefer GUI-backed MCP tools: inspect_open_plan, validate_open_plan, agent_activity, get_ai_knowledge_open_plan, update_ai_knowledge_open_plan, list_agent_changes_open_plan, find_open_plan_nodes, plan_repair_actions_open_plan, get_repair_actions_open_plan, get_repair_action_open_plan, audit_recorded_har_correlations_open_plan, list_recorded_har_exchanges_open_plan, get_recorded_har_exchange_open_plan, search_recorded_har_open_plan, and open-plan edit tools.
-                - Use live open-plan edit tools for supported changes: apply_regex_correlation_open_plan, update_regex_extractor_open_plan, replace_literal_open_plan, replace_literal_in_names_open_plan, set_user_defined_variable_open_plan, list_http_arguments_open_plan, set_http_argument_encode_open_plan, set_http_argument_value_open_plan, search_open_plan_values, audit_dynamic_request_values_open_plan, add_jsr223_open_plan, add_response_assertion_open_plan, update_response_assertion_open_plan, set_redirect_mode_open_plan, move_node_open_plan, delete_node_open_plan, and move_think_times_to_transactions_open_plan.
-                - The GUI edit tools create elements through BreakTest/JMeter GUI components. If a live edit tool fails, report it with agent_activity and continue with other safe GUI-backed edits.
-                - First call `{{BRIDGE}} agent_activity '{"level":"info","message":"Starting AI Auto Scripting"}'` so progress is visible in the BreakTest AI Auto Scripting window.
-                - Keep the open BreakTest test plan as the live edit surface so changes are visible in the GUI.
-                - Do not start a separate MCP server by hand. Use the supported BreakTest agent bridge command for validation, inspection, and edits.
-                - Peek existing BreakTest AI Knowledge with get_ai_knowledge_open_plan createIfMissing=false. Do not create a missing/default AI Knowledge node at the start. If non-default knowledge exists, post a concise agent_activity message with nodePath, knowledgeNodeCount, and isDefaultKnowledge, then reuse confirmed project patterns. If knowledge is missing/default, continue with runtime evidence and create/update knowledge only before finishing.
-                - Treat non-default BreakTest AI Knowledge as mandatory first context. Reuse applicable confirmed project patterns for correlations, assertions, variables, timestamps, dependencies, and randomization before inventing a fresh approach.
-                - If AI Knowledge records a confirmed limitation from an earlier run, such as an encoded HTTP argument issue or a failed inline Groovy expression, do not repeat the same failed approach. Use the dedicated bridge tool for that limitation or choose the previously validated fallback.
-                - Before finishing every full repair run, update BreakTest AI Knowledge with update_ai_knowledge_open_plan. This is mandatory even if validation did not become fully green.
-                - Preserve existing BreakTest AI Knowledge arrays and append only reusable run learnings. Record confirmed fixes, confirmed limitations, and unresolved high-confidence patterns that future runs should know about, including the selected Thread Group and transaction/request where each pattern was observed.
-                - If there were no reusable learnings, still append a learnedFromThreadGroups entry for this run with the selected Thread Group, reviewed scope, and "noReusableLearnings": true. Never finish a full repair with BreakTest AI Knowledge unchanged from the start.
-                - Store recurring dynamic field names such as drawId, expiredDateTime, ticket path UUIDs, transactionId, basketItemId, csrf/request-verification tokens, and credential fields under knownDynamicFields/timestampRules/correlationPatterns as appropriate, with status such as confirmed, generated, correlated, or unresolved.
-                - If linked HAR evidence is known to be available, call plan_repair_actions_open_plan with threadGroupName="%s", includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, and includeApplyArguments=false before the first validation. Review the compact ranked actions first. Fetch full details for multiple selected high-confidence actions with get_repair_actions_open_plan; use get_repair_action_open_plan only for a single follow-up action.
-                - If linked HAR response bodies are omitted or blank, do not pretend the HAR proved an extractor source. Use the next bounded validation response for runtime evidence, keep the value as a User Defined Variable, or report it as unresolved. Do not add speculative extractors that overwrite scenario variables with NOT_FOUND.
-                - If no HAR is linked or known, do not call plan_repair_actions_open_plan before the first validation. Run one bounded compact validation first, then use analysis.validationRepairActions, preFailureRequestCandidates, preFailureDynamicCandidates, and evidenceSamples to correlate as many high-confidence reached values as possible before rerunning.
-                - Use audit_recorded_har_correlations_open_plan, search_recorded_har_open_plan, get_recorded_har_exchange_open_plan, and broad inspect_open_plan only for targeted follow-up evidence when the compact validation/action planner is insufficient. Do not call inspect_open_plan repeatedly just to understand the same failure.
-                - Use find_open_plan_nodes instead of broad inspect_open_plan when you only need node paths, duplicate counts, extractor metadata, assertion nodes, JSR223 processors, or sampler/controller locations. This is the preferred way to locate misplaced or duplicate nodes after an edit.
-                - Follow this repair loop in order when no HAR is available: initial bounded validation; ignore static resources for analysis; inspect reached non-static requests up to the first failure; identify high-correlation-potential values in paths, query strings, POST/form/raw bodies, cookies, and headers; search earlier validation responses by field name and literal; add extractors/replacements for all values with evidence; rerun; repeat until the selected Thread Group validates through the flow or a real external blocker remains.
-                - After the first green flow, run audit_dynamic_request_values_open_plan and harden high-confidence leftovers before adding assertions. If the assertion phase is enabled, add response assertions only after the flow is green and high-confidence dynamic leftovers have been resolved or explicitly documented.
-                - Scope the repair to exactly one Thread Group path: `%s`.
-                - Do not repair, validate for broad fixes, add assertions, or change samplers in other Thread Groups unless the selected Thread Group directly depends on a shared test-plan-level config element.
-                - Work from top to bottom through the selected Thread Group. For each transaction, review the previous transaction's extracted values before blaming the current failing request.
-                - A failing callback, payment, basket, or order request can be a symptom of earlier static data. Check upstream requests first for stale login state, redirect/session/correlation cookies, request verification tokens, anti-forgery values, product/ticket/order IDs, and timestamps.
-                - Keep inspection and validation compact for local agents. Call inspect_open_plan and validate_open_plan with includeDsl=false and includeStaticAssets=false unless you need raw DSL or static assets for a specific edit/correlation question; if DSL is needed, request the smallest dslCharacterLimit that can answer the question.
-                - Validate first with `validate_open_plan` using scopeNodePath set to the selected Thread Group path, compact=true, maxSamples, stopOnFirstFailure, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500, and tight responseBodyLimit/requestBodyLimit values. Do not validate enabled backup/duplicate Thread Groups during selected Thread Group repair. Do not rerun validation merely to reshape or summarize the same evidence; use the compact result's reachedSampleSummary, evidenceSamples, firstFailure, validationRepairActions, preFailureDynamicCandidates, and preFailureRequestCandidates for the first repair analysis.
-                - If the next blocker is a static browser asset such as css/js/mjs/map/image/font returning 404 and no current HTML/response evidence references that exact asset URL, keep the sampler enabled but rerun functional validation with ignoreStaticAssetFailures=true so repair can continue to the next non-static request. Report ignoredStaticFailureCount and do not declare the script repaired only because static failures were ignored.
-                - A first validation failure is a starting point, not the full scope. If validation blocks early, continue by inspecting the whole open plan and auditing later transactions statically.
-                - Before declaring a login/callback/payment/basket/order failure blocked, perform and report a pre-failure dependency audit using `preFailureDynamicCandidates`, `preFailureRequestCandidates`, `validation.evidenceSamples`, and the successful samples before `analysis.firstFailure` from validate_open_plan. Review every enabled non-static sampler up to and including the failing sampler for dynamic path/query/body/header/cookie values, credentials, OAuth/OpenID state/code/nonce, and missing extractor reuse.
-                - For callback/auth failures, inspect the successful authorize/login/resume samples before the callback. Check whether `state`, `code`, nonce, correlation cookies, csrf/request-verification values, redirect `Location`, or hidden form fields were issued in an earlier response or header. If redirects hide those values, consider a diagnostic `set_redirect_mode_open_plan` only with a posted reason and immediate revalidation.
-                - Do not treat an upstream `access_denied`, 401, 403, or 500 as proof that no correlation is possible until the pre-failure dependency audit has checked all previous successful response bodies and headers for the failed request's tokens and suspicious request literals.
-                - If `preFailureRequestCandidates` reports username, password, login, or email values, immediately parameterize them: preserve the original literal, replace request data with `${variable}`, set the top-level User Defined Variable to the original literal, and verify stale request literals are gone with excludeUserDefinedVariables=true before continuing auth/callback repair.
-                - Use `plan.samplers[*].transactionName` and `plan.dynamicValueCandidates[*].transactionName` from inspect/validate results to group work by transaction and sampler order.
-                - Use `plan.dynamicValueCandidates` and `audit_dynamic_request_values_open_plan` as structured checklists for hard-coded UUIDs, IDs, tokens, hashes, nonces, and epoch timestamps in requests that were not reached by validation.
-                - Build a request inventory for the selected Thread Group before broad edits. For every enabled non-static sampler, review method, path, query string, POST/form/multipart/raw body, cookies, and request headers.
-                - For each request surface, check for high-correlation-potential values: UUID/GUIDs, numeric IDs, selected scenario data, random/fuzzy strings, long opaque values, nonces, state values, hashes, current/future/past dates, formatted date-times, epoch seconds/milliseconds, usernames, passwords, emails, bearer/access/refresh tokens, CSRF/request-verification tokens, and custom token/security headers.
-                - Treat custom headers as request data, not metadata. Audit headers such as Authorization, X-CSRF-Token, X-Request-Verification-Token, X-Requested-With, X-Api-Key, nonce/state/correlation/request IDs, and any application-specific `x-*` header carrying an ID, token, timestamp, or random-looking value.
-                - Classify each suspicious value as server-issued correlation, client-generated runtime data, user/config variable, randomized scenario data, or safe static constant. Do not ignore a value merely because the current validation run is green.
-                - For each dynamic value candidate, decide whether it has enough evidence for a live correlation edit, should become a runtime-generated value, or must be reported as a candidate needing source-response evidence. The default for UUIDs, IDs, timestamps, draw IDs, and tokens is correlation from earlier response evidence, not runtime generation.
-                - When a recorded literal can occur in multiple places, such as path, query string, POST form argument, raw body, header, referer, cookie, callback URL, or nested child element, use replace_literal_open_plan with scopeNodePath="%s" for the selected Thread Group. Do not run whole-plan replacement when backup/duplicate Thread Groups exist unless the user explicitly asks. Element names are ignored by default; do not set includeNames=true unless the user explicitly asks for renaming. Use a target sampler only when the literal is known to be local to that sampler.
-                - When request data replacement leaves an old dynamic literal in sampler/controller names, use replace_literal_in_names_open_plan with scopeNodePath="%s" for the selected Thread Group and a display-safe replacement like `{basket_page_id}`. Do not put `${...}` in element names.
-                - After adding a correlation extractor, replace every dependent occurrence of the old literal, not only the first query/path occurrence. Re-inspect the plan and verify no stale copies remain in POST data, headers, or callback args.
-                - Do not stop solely because the first failing request lacks a confirmed source response. Continue reviewing other requests and transactions, apply safe GUI-backed correlations, credential variables, and replacements where source/target/literal/pattern is known, and include unresolved candidates in the audit.
-                - Prefer native extractors for dynamic values: Regex Extractors by default, JSONPath extractors for JSON fields/arrays when JSON-path extraction is more robust, CSS selectors for HTML when CSS selection is more robust, and XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not replace a simple native extractor with JSR223 merely because the first extractor was attached to the wrong sampler or used the wrong field; instead update, move, delete/re-add, or recreate the native extractor with stable sourceNodePath/targetNodePath from find_open_plan_nodes.
-                - Only add extractors from response evidence. For apply_regex_correlation_open_plan, pass evidenceSource and evidence. Use evidenceSource=validated_response only when validate_open_plan returned the source sampler response containing the marker; use recorded_response only when get_recorded_har_exchange_open_plan or search_recorded_har_open_plan returned the recorded response body/header containing the marker; use ai_knowledge only for a previously confirmed project pattern. Do not invent extractors from request literals alone.
-                - Choose the extractor field at creation time from the evidence location. If the marker is in response headers, Location, Set-Cookie, or another response header, create/update the extractor with useField=headers immediately instead of first trying body.
-                - Before adding a Regex Extractor, use find_open_plan_nodes for the intended source sampler and variableName. If the variable already exists under that source, update it instead of adding a duplicate unless you have a deliberate reason and pass allowDuplicateExtractor=true.
-                - If a later sampler was not reached in validation and no recorded response or AI Knowledge proves the response marker, do not add a Response Assertion to it. Document the assertion gap in the final audit instead.
-                - When adding assertions, pass evidenceSource and evidence. Prefer evidenceSource=validated_response with the exact response snippet from validate_open_plan. Static request/plan inference is not a valid success assertion unless the user explicitly requested a static edit and you mark it with allowStaticInference=true.
-                - For extractors whose variable is required by later requests, enable "Assertion error when not matched" by setting failOnNoMatch=true so missing correlations fail the run clearly. Leave it false only for truly optional extractors with a proven safe fallback.
-                - Do not add new response assertions during the repair/correlation phase while validation is still blocked. If the assertion phase is enabled, after the selected Thread Group validates successfully through the intended flow and the dynamic audit is clean or documented, add one meaningful assertion per transaction using the latest green validation response evidence, then rerun validation to verify the assertions. Do not rerun validation only to collect snippets unless the latest compact evidence lacks safe markers.
-                - Automatic redirects can hide the intermediate response that issues dynamic values, but redirect mode changes can also alter auth/payment behavior. Do not change redirects as generic hardening. Only use set_redirect_mode_open_plan after inspection proves a needed source value is hidden by redirect handling, post the reason with agent_activity, and revalidate immediately so the change can be treated as a possible regression. If the diagnostic redirect change does not produce usable source evidence, revert it before finishing unless the user explicitly asked to keep redirects disabled.
-                - Keep progress updates concise: report validations, edits, blockers, and audit results. Do not echo prompts, code, full XML, or long tool payloads.
-                - Review all transactions, POST bodies, URL/query/path values, cookies, and headers for dynamic UUIDs, IDs, random strings, timestamps, csrf/requestverification tokens, and bearer/access tokens.
-                - Call audit_dynamic_request_values_open_plan with threadGroupName="%s" before finishing, even after a green validation run. A successful run only proves the current data happened to work; it does not prove recorded UUIDs, long opaque IDs, tokens, or timestamps are safe to replay. Correlate, parameterize, generate, or explicitly report every high-confidence leftover candidate.
-                - Keep static browser assets enabled and runnable, but keep them out of model-facing analysis by default. Use includeStaticAssets=true only when a stylesheet, JavaScript, image, font, favicon, or source-map response is directly relevant to a failure or suspected correlation source.
-                - UUIDs in request fields such as transactionId, basketItemId, cartItemId, clientId, correlationId, or requestId might be server-issued, selected from prior data, or browser-generated. First search earlier reached responses and headers for the literal or surrounding field. Only generate a UUID at runtime after response evidence is exhausted and either validated HTML/JavaScript shows client-side generation, AI Knowledge confirms this project pattern, or the request field is reached and clearly client-owned. Do not generate UUIDs for unreached later requests merely because they look client-like; report them as unresolved until source evidence exists.
-                - JavaScript evidence such as `crypto.randomUUID()` proves the browser can generate UUIDs, not that every UUID path/header/body value accepts any random UUID. If a generated UUID causes a 404/400 on a server endpoint, stop generating it; keep it as a named User Defined Variable seeded with the recorded value or mark it unresolved until a server/source response is proven.
-                - Detect millisecond epoch timestamps, typically 13-digit current-era values. Check whether they came from an earlier response and should be correlated, or whether they should be generated at runtime as the current epoch timestamp in milliseconds.
-                - Detect formatted date/time fields and drawId-style fields such as drawId, draw_id, expiry/expire/expiredDateTime, validUntil, startDate, endDate, and timestamp. Correlate them from earlier product/draw/session responses or generate/derive them at runtime; do not leave recorded values merely because validation is green.
-                - Prefer native extractors for correlations. Use Regex Extractors by default; use JSONPath when the source is JSON and JSON-path extraction is more robust than regex; use CSS selectors for HTML when CSS selection is more robust; use XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not use a JSR223 PostProcessor that reads `prev.getResponseDataAsString()` or `prev.getResponseHeaders()` for a value that a native Regex/JSONPath/CSS/XPath extractor can capture.
-                - For extractors whose variable is required by later requests, enable "Assertion error when not matched" by setting failOnNoMatch=true so missing correlations fail the run clearly. Leave it false only for truly optional extractors with a proven safe fallback.
-                - After structural edits such as adding, deleting, or moving nodes, sampler indexes can drift. Prefer targetNodePath/sourceNodePath from find_open_plan_nodes, search, validation, or HAR results for list_http_arguments_open_plan, set_http_argument_value_open_plan, add_jsr223_open_plan, assertion edits, redirect edits, move_node_open_plan, and delete_node_open_plan. If only an index is available after a structural edit, use find_open_plan_nodes for the narrow node type/name/path before broad inspect_open_plan.
-                - For identified username/password values, preserve the original literal value, replace the old literal in request data first, then immediately create/update the matching top-level User Defined Variable with the original literal value. For POST form credentials, first call list_http_arguments_open_plan on the exact sampler, preferably by targetNodePath, to discover actual argument names/values/indexes, then use set_http_argument_value_open_plan with argumentIndex and alwaysEncode=false where needed. If an old credential literal might occur outside arguments, use replace_literal_open_plan with excludeUserDefinedVariables=true before or after setting the variable so the User Defined Variables table is not self-replaced. Verify with search_open_plan_values using excludeUserDefinedVariables=true.
-                - After credential, UUID, token, state, timestamp, or ID replacement, call search_open_plan_values with scopeNodePath="%s" for the old literal or an appropriate regex to verify stale request values are gone in the selected Thread Group. Use allowWholePlan=true only for an explicit out-of-scope/global audit. Do not rely only on a green validation run.
-                - Use add_jsr223_open_plan only when runtime data generation or transformation cannot be expressed cleanly with native extractors, JMeter functions, variables, or simple replacements. JSR223 is appropriate for complex JSON selection/transformation that JSONPath cannot express cleanly, derived values, or grouped setup variables; it is not appropriate for a single field capture that a JSONPath or Regex Extractor can do. For a one-off client-generated UUID in a request field, prefer inline `${__UUID}`. Use JSR223/setup only when the same generated UUID must be reused across multiple request fields or transformed before use.
-                - When a regex extractor supports multiple response shapes, design it with one capture group or a template that cannot emit `null`. Avoid `$1$$2$` style templates unless this BreakTest/JMeter runtime is known not to render unmatched groups as `null`.
-                - Never add JSR223 PreProcessors, PostProcessors, or Assertions directly under the Test Plan, Thread Group, or transaction/controller. Pre/PostProcessors must be attached to the exact sampler they prepare or process. For setup logic that should run once in sequence, add a JSR223 Sampler at the correct location in the selected Thread Group.
-                - When an existing Regex Extractor needs a changed regex, useField, template, match number, default value, or failOnNoMatch, use update_regex_extractor_open_plan. If duplicate extractors exist, use find_open_plan_nodes with type=regex_extractor and variableName first, then pass extractorMatchIndex for one extractor or updateAllMatches=true for intentional duplicate cleanup. Do not use broad literal replacement of values like `false`, `true`, or `headers` to edit extractor internals. Do not delete native Regex/JSONPath/CSS/XPath extractors and rebuild them as JSR223 unless no native extractor can represent the proven source/value relationship.
-                - When an existing Response Assertion needs a changed pattern, field, or match type, use update_response_assertion_open_plan. Do not use broad literal replacement to edit assertion internals because the same literal can occur in request JSON.
-                - If the assertion phase is enabled, after the repair loop validates successfully through the selected Thread Group and high-confidence dynamic leftovers are resolved or documented, ensure every transaction has at least one meaningful assertion on text or response data that identifies the expected page, transaction, or API response.
-                - Do not use weak single-word assertions unless the word is genuinely unique and scenario-significant. Prefer a significant sentence, phrase, HTML fragment, JSON field/value, or XML fragment. For example, after login assert on text only visible after successful login; after purchase assert on confirmation text such as "Thank you for your purchase".
-                - Avoid generic assertion strings that could also match an error page, fallback response, generic layout, or unrelated transaction. The assertion tools reject weak/generic patterns by default; if rejected, inspect validation samples for a stronger marker instead of bypassing with allowWeakPattern.
-                - If a response assertion fails, update or remove only that failing assertion. Do not remove all AI-created assertions just because one marker was too strict. If a required extractor has failOnNoMatch=true, do not add another assertion merely to prove the extractor matched.
-                - Never put `${...}` variable references in sampler, controller, transaction, assertion, extractor, or other element names. Names must remain static. If a dynamic value must be hinted in a name, use `{name}` without `$` so repeated runs do not create unique names.
-                - When a dynamic literal is replaced in request data and that literal also appears in a sampler/controller/transaction name, immediately use replace_literal_in_names_open_plan with a static `{variable}` placeholder. Never finish with raw UUIDs or hard-coded IDs in HTTP sampler names when the path/body/header has been parameterized.
-                - Keep static browser assets parallel only when independent; keep dependent API/REST/XHR calls sequential.
-                - If a correlation extractor is correct but a dependent request still sends an unresolved variable, inspect execution order. When the source sampler is after, inside a parallel branch with, or otherwise not guaranteed to run before the dependent sampler, use move_node_open_plan with sourceNodePath/targetNodePath to move the source sampler or dependent chain into deterministic order before declaring a GUI-edit blocker. To move a sampler out of a Parallel Controller, place it before/after the Parallel Controller node rather than under a sampler.
-                - After replacing hard-coded values with extracted variables, re-check Parallel Controllers. Token/API/XHR samplers that depend on extracted data should run sequentially before their dependents; keep only independent static browser assets in parallel.
-                - If an edit creates a duplicate or misplaced processor, extractor, assertion, sampler, controller, or config node, use find_open_plan_nodes to locate it, then use delete_node_open_plan with targetNodePath. If multiple identical duplicate nodes are intentional cleanup targets, use deleteAllMatches=true instead of adding compensating JSR223 scripts or neutralizing bad extractors with broad literal replacement.
-                - When asked to move separate ThinkTime timers to transaction level, use move_think_times_to_transactions_open_plan for the selected Thread Group. This converts standalone ThinkTime TestAction sampler nodes with timer children into delay fields on the next Transaction Controller and removes the standalone ThinkTime nodes by default. Do not edit TransactionController.delayMode/delayMin/delayMax through broad literal replacement.
-                - Randomize scenario data where practical by selecting from prior responses instead of replaying fixed IDs.
-                - Do not disable samplers merely to make the test green.
-                %s
+                Setup:
+                - This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Never pause to think aloud or summarize between steps — post progress via agent_activity and keep calling tools until the work is complete. Only the final report may be a plain reply.
+                - First call `{{BRIDGE}} agent_activity '{"level":"info","message":"Starting AI Auto Scripting"}'` so progress is visible in the BreakTest AI Auto Scripting window, and keep posting concise progress (validations, edits, blockers, audits). Do not echo prompts, code, full XML, or long tool payloads into progress or final text.
+                - A GUI backup was created before this run; use it only as a rollback safety net. Keep the open plan as the live edit surface so changes stay visible in the GUI. Do not start a separate MCP server; when native MCP tools are unavailable use the supported bridge command: `{{BRIDGE}} <tool-name> '<json-arguments>'`. Call `{{BRIDGE}} tools` once before the first edit and read only the schemas you need; do not probe tools with dummy or missing-argument calls, and do not search the filesystem for a different bridge unless this exact command fails.
+                - Scope every step to exactly one Thread Group path: `%s`. Pass threadGroupName or scopeNodePath on validation, search, replace, correlation, and audit calls so identically named transactions/samplers in other Thread Groups are never touched. Do not repair, validate, or edit other Thread Groups unless the selected one depends on a shared test-plan-level config element.
+                - If a live edit tool fails, report it with agent_activity and continue with other safe GUI-backed edits.
 
-                Before finishing, call list_agent_changes_open_plan and provide:
-                - a plain-text audit list with transaction name, assertion status, dynamic values reviewed, correlations added, and remaining blockers.
-                - a concise change list matching the BreakTest AI Auto Scripting table.
-                - the BreakTest AI Knowledge update summary, including whether update_ai_knowledge_open_plan succeeded and what reusable learnings were appended.
-                - Use plain text only in the final response. Do not use markdown tables because the BreakTest AI log is a plain Swing text area.
+                Targeting (prevents wrong-node edits):
+                - Prefer stable node IDs. find_open_plan_nodes and every edit result return nodeId values that keep pointing at the same GUI node even after add/move/delete edits; pass sourceNodeId/targetNodeId to edit tools whenever available. Node paths are the fallback; flat sampler indexes drift after structural edits, so never reuse an index captured before an add/move/delete.
+                - Edit results are self-verifying: they report where the node actually landed (extractorNodePath/extractorNodeId, assertionNodePath, targetAssertions, sourceExtractors, replacements, scopeNodePath). Read the result instead of calling find_open_plan_nodes to confirm each edit; re-locate nodes only when a result looks wrong.
+                - Use find_open_plan_nodes (not broad inspect_open_plan) to locate nodes, duplicates, extractor/assertion metadata, and sampler/controller positions. If an edit produced a duplicate or misplaced node, delete only that node with delete_node_open_plan (deleteAllMatches=true only for intentional duplicate cleanup); never compensate with JSR223 scripts or broad literal replacement.
+
+                Knowledge first:
+                - Peek BreakTest AI Knowledge with get_ai_knowledge_open_plan createIfMissing=false. If non-default knowledge exists, post a concise agent_activity with nodePath, knowledgeNodeCount, and isDefaultKnowledge, then treat it as mandatory context: reuse confirmed correlations, variables, timestamps, and dependencies, and never repeat an approach it records as a confirmed limitation. If knowledge is missing/default, continue from runtime evidence and create it only at the end.
+
+                Evidence and planning:
+                - If linked HAR evidence is available, aim to one-shot the repair before the first validation: call plan_repair_actions_open_plan with threadGroupName="%s", includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, includeApplyArguments=false. The planner already resolves each value's source (response body vs headers), request order, and encoding variants (sourceEncodingVariant=true means the issuing response holds a differently encoded form). Apply all selected high-confidence actions in one apply_repair_actions_open_plan(snapshotId, actionIds) call, then run a single bounded validation to confirm; fall back to get_repair_actions_open_plan plus manual edits only when an action needs changes before applying. If no HAR is linked, run one bounded compact validation first and work from its analysis instead.
+                - Validate with validate_open_plan using scopeNodePath set to the selected Thread Group path, compact=true, stopOnFirstFailure, maxSamples, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500. Compact results carry full request/response evidence only for the first failure and the samples just before it; samples whose outcome is unchanged from the previous run collapse to one-line unchanged entries, and green runs return light responseBodyPreview entries. For any snippet you need afterwards (assertion markers, correlation sources), use search_validated_response_open_plan against the cached last run instead of re-validating; do not rerun validation just to reshape evidence, and do not call inspect_open_plan repeatedly for the same failure. Use search_recorded_har_open_plan / get_recorded_har_exchange_open_plan / audit_recorded_har_correlations_open_plan only for targeted follow-up evidence.
+                - Encoding: validation request evidence shows URL/HTML-encoded data (@ appears as %%40) while the plan stores raw field values. Replace and search tools automatically try encoded/decoded variants and report matchedLiteral/matchedEncodingVariant, so pass the literal you saw and read the result. For credentials and User Defined Variables, take the raw value from list_http_arguments_open_plan (or the plan property), not from encoded request data, and store the raw form in the variable; set alwaysEncode on the argument when the extracted raw value must be re-encoded at runtime.
+                - If linked HAR response bodies are blank or omitted, do not pretend the HAR proved a source: use bounded validation evidence, keep the value as a User Defined Variable, or report it unresolved. Never add speculative extractors that overwrite scenario variables with NOT_FOUND.
+
+                Repair loop (repeat until the selected flow is green or a real external blocker remains):
+                - Work top to bottom. A failing login/callback/basket/payment/order request is often a symptom of earlier static data: before declaring it blocked, audit every reached non-static request up to and including the failure for dynamic path/query/body/cookie/header values, credentials, OAuth/OpenID state/code/nonce, csrf/request-verification and anti-forgery tokens, hidden form fields, redirect Location values, and missing extractor reuse. Treat custom headers (Authorization, X-CSRF-Token, x-* IDs/tokens/timestamps) as request data. Do not treat an upstream access_denied/401/403/500 as unfixable until that pre-failure audit is done.
+                - Correlate from response evidence only. apply_regex_correlation_open_plan requires evidenceSource and evidence: validated_response when validate_open_plan returned the marker, recorded_response when a HAR tool returned it, ai_knowledge for a confirmed project pattern. Choose useField at creation time — headers immediately when the marker is in response headers, Location, or Set-Cookie. The tool updates an existing same-variable extractor under the source instead of duplicating (allowDuplicateExtractor=true only deliberately).
+                - Prefer native extractors: Regex by default; JSONPath for JSON, CSS for HTML, XPath for XML/HTML when clearly more robust; never Boundary Extractors. JSR223 only when no native extractor, JMeter function, variable, or simple replacement can express the value — never for a single field capture, and never attached to the Test Plan, Thread Group, or a controller: Pre/PostProcessors belong on their exact sampler, sequenced setup logic in a JSR223 Sampler. To change an existing extractor use update_regex_extractor_open_plan (extractorMatchIndex/updateAllMatches for duplicates); to change an existing assertion use update_response_assertion_open_plan; never edit element internals via literal replacement, and never rebuild a native extractor as JSR223 just because it was misplaced — move or update it.
+                - Set failOnNoMatch=true on extractors whose variable later requests need, so missing correlations fail loudly; leave it false only for optional extractors with a proven fallback. Use one capture group; avoid templates that can render `null`.
+                - JMeter's Regex Extractor uses the ORO/Perl5 engine, not java.util.regex: \\Q...\\E quoting and lookbehind never match. Escape literal metacharacters with single backslashes. Build regexes against the exact evidence snippet you pass to the tool, including whether JSON uses quoted strings, numbers, arrays, or escaped/encoded text. Example for a quoted JSON field: `"pageId"\\s*:\\s*"([^"]+)"` only works when the evidence snippet literally contains `"pageId":"..."`; if the value is numeric, encoded, absent, or in headers, change the regex/evidence/useField instead. The apply/update tools validate every regex against that engine and require it to match the provided evidence snippet; when a call is rejected for this, fix the regex or fetch the correct evidence — do not retry with allowUnmatchedEvidence unless the evidence is intentionally partial.
+                - After adding a correlation, replace every dependent occurrence of the stale literal (path, query, POST/form/raw body, headers, cookies, referers, callback args) with replace_literal_open_plan scopeNodePath="%s"; use a target sampler only when the literal is local to it. Element names are ignored by default (includeNames=true only if the user asked for renaming); clean stale IDs in names separately with replace_literal_in_names_open_plan scopeNodePath="%s" and a static `{variable}` placeholder. Never put `${...}` in element names.
+                - Credentials (username/password/email in preFailureRequestCandidates): parameterize immediately — replace the request literal with `${variable}` using excludeUserDefinedVariables=true, set the top-level User Defined Variable to the original literal, verify with search_open_plan_values excludeUserDefinedVariables=true. For POST form credentials use list_http_arguments_open_plan first, then set_http_argument_value_open_plan with argumentIndex (alwaysEncode=false where needed).
+                - UUIDs, IDs, tokens, drawId/expiry-style fields, hex hashes, opaque URL path segments, and epoch-millisecond timestamps default to correlation from earlier response evidence, not runtime generation — even when validation is green. A random-looking segment inside a request path is server-issued until proven otherwise: search validated and recorded responses for it before anything else. Generate at runtime only after response evidence is exhausted and client-side generation is proven (validated JS, AI Knowledge, or a reached clearly client-owned field). If a generated value causes 4xx, stop generating it and seed a UDV with the recorded value or mark it unresolved.
+                - For runtime generation, prefer native JMeter functions over scripting: inline ${__UUID} for a UUID used in one field (the only valid form — never ${__UUID()} ), ${__time(,)} for epoch milliseconds, ${__Random(,,)} / ${__RandomString(,,)} for random data. Use a JSR223 setup sampler only when one generated value must be identical across several fields or requests (compile caching is enabled automatically); never use JSR223 for something a function or extractor can do.
+                - Execution order: if a dependent request sends an unresolved variable while its extractor is correct, move the source sampler into deterministic order with move_node_open_plan (to leave a Parallel Controller, position before/after the controller node). Dependent API/XHR calls run sequentially; only independent static assets stay parallel.
+                - Redirect modes can alter auth/payment behavior: use set_redirect_mode_open_plan only as a diagnostic after inspection proves a source value is hidden by redirect handling, post the reason, revalidate immediately, and revert before finishing if it produced no usable evidence.
+                - Keep static browser assets enabled but out of analysis (includeStaticAssets=false everywhere unless an asset response is directly relevant). If the next blocker is a 404 on a css/js/mjs/map/image/font asset that nothing references, rerun with ignoreStaticAssetFailures=true, report ignoredStaticFailureCount, and never declare success only because static failures were ignored.
+                - Do not stop at the first unresolvable failure: continue applying safe evidence-backed correlations, credential variables, and replacements elsewhere, and report unresolved candidates in the audit. Do not disable samplers to make the test green. Randomize scenario data from prior responses where practical.
+
+                After the first green run:
+                - Run audit_dynamic_request_values_open_plan with threadGroupName="%s". A green run only proves the current data happened to work: correlate, parameterize, generate, or explicitly document every high-confidence leftover (UUIDs, opaque IDs, tokens, hashes, nonces, timestamps). Verify replaced literals are gone with search_open_plan_values scopeNodePath="%s" (allowWholePlan=true only for an explicit global audit).
+                %s
+                - When adding assertions: pick each transaction's marker from its own sampler's validated response via search_validated_response_open_plan(samplerLabel=...), then add all assertions in a single add_response_assertions_open_plan call with targetNodeId/targetNodePath per item, then run one validation to verify. The add/update tools verify validated_response patterns against the target sampler's cached latest response and reject markers that only occur on a different sampler (the error names where it was found) — fix the target or the marker, never bypass with allowUnverifiedPattern. Pass evidenceSource/evidence per assertion; static inference needs allowStaticInference=true. Prefer significant phrases, HTML/JSON fragments, or post-login/confirmation text over weak single words; if a pattern is rejected as weak, find a stronger marker instead of using allowWeakPattern. Do not assert on samplers that validation never reached unless a recorded response or AI Knowledge proves the marker — document the gap instead. If one assertion fails, fix or remove only that one.
+
+                Finish (mandatory even if validation never became fully green):
+                - Update AI Knowledge with update_ai_knowledge_open_plan appendLearnings: pass only the new entries per array field (projectHints, correlationPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, learnedFromThreadGroups) — confirmed fixes, confirmed limitations, and unresolved high-confidence patterns with the Thread Group and transaction/request where each was observed. The GUI merges them server-side, so do not fetch and resend the whole document. If there were no reusable learnings, still append a learnedFromThreadGroups entry with "noReusableLearnings": true.
+                - Call list_agent_changes_open_plan, then report in plain text only (the BreakTest AI log is a plain Swing text area, no markdown tables): a per-transaction audit list (assertion status, dynamic values reviewed, correlations added, remaining blockers), a concise change list matching the BreakTest table, and the AI Knowledge update summary.
 
                 Context:
                 - Open plan file: %s
@@ -562,8 +531,8 @@ public class CodexAiRepair extends AbstractAction {
                 - Selected Thread Group path: %s
                 %s
                 """.replace("{{BRIDGE}}", bridgeCommand()).formatted(
-                request.threadGroupName(),
                 request.threadGroupPath(),
+                request.threadGroupName(),
                 request.threadGroupPath(),
                 request.threadGroupPath(),
                 request.threadGroupName(),
@@ -584,12 +553,13 @@ public class CodexAiRepair extends AbstractAction {
                 Complete a specific targeted task against the currently open BreakTest/JMeter GUI plan.
 
                 Requirements:
+                - This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Keep calling tools until the task is complete; only the final report may be a plain reply.
                 - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
                 - A GUI backup is created before this run starts. Use it only as a rollback safety net.
                 - Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
                 - Before the first edit, call `{{BRIDGE}} tools` to inspect exact bridge tool schemas. Read only the schemas needed for the next action, and do not echo the full tool output back into progress or final text. Do not search the filesystem for a different bridge unless this exact command fails.
                 - Scope the work to exactly one Thread Group path: `%s`.
-                - Do only the user-requested task. Do not start a full script repair, full correlation pass, assertion pass, or validation loop unless the request explicitly asks for it.
+                - Do only the user-requested task, with the fewest tool calls that complete it correctly. Do not start a full script repair, full correlation pass, assertion pass, dynamic audit, or validation loop unless the request explicitly asks for it. Do not call plan_repair_actions_open_plan, audit_dynamic_request_values_open_plan, or broad inspect_open_plan for a targeted task: locate nodes with find_open_plan_nodes and evidence with search_open_plan_values / search_validated_response_open_plan / search_recorded_har_open_plan.
                 - Keep the open BreakTest test plan as the live edit surface so changes are visible in the GUI.
                 - Use GUI-backed edit tools where available, including replace_literal_open_plan, replace_literal_in_names_open_plan, search_open_plan_values, list_http_arguments_open_plan, set_http_argument_value_open_plan, add_response_assertion_open_plan, update_response_assertion_open_plan, add_jsr223_open_plan, set_redirect_mode_open_plan, move_node_open_plan, delete_node_open_plan, and move_think_times_to_transactions_open_plan.
                 - When the specific request is to move separate ThinkTime timers to transaction level, call move_think_times_to_transactions_open_plan with the selected threadGroupName. Do not inspect code internals or try broad literal replacement for TransactionController delay fields.
@@ -597,11 +567,12 @@ public class CodexAiRepair extends AbstractAction {
                 - The only valid inline UUID function form in this BreakTest/JMeter build is `${__UUID}`. Never use `${__UUID()}` or `${__UUID(name)}`. For a one-off client-generated UUID in a request field, prefer inline `${__UUID}`; use JSR223/setup only when the same generated UUID must be reused across multiple request fields or transformed before use.
                 - When adding response assertions or correlation extractors, provide evidenceSource and evidence. Do not add assertions/extractors for responses that were not reached unless a recorded response or confirmed AI Knowledge entry proves the marker.
                 - Prefer native extractors for simple response/header/body captures: Regex by default, JSONPath for robust JSON field/array extraction, CSS selectors for HTML when CSS selection is more robust, and XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not add a JSR223 PostProcessor that reads prev.getResponseDataAsString() or prev.getResponseHeaders() when a native Regex/JSONPath/CSS/XPath extractor can capture the value. JSR223 PreProcessors, PostProcessors, and Assertions must be attached to a specific sampler, never directly under a Test Plan, Thread Group, or transaction/controller. Use a JSR223 Sampler for setup logic that should run once in sequence.
+                - JMeter Regex Extractors use the ORO/Perl5 engine, not java.util.regex. Do not use \\Q...\\E, lookbehind, named groups, or Java-only constructs. Escape literal metacharacters with single backslashes and make the regex match the exact evidence snippet you provide; for JSON, first verify whether the field is a quoted string, number, array, escaped value, or absent. If the bridge rejects the regex/evidence pair, fix the regex or fetch the correct body/header evidence instead of bypassing with allowUnmatchedEvidence.
                 - For credential parameterization, preserve the original username/password literal, replace request data with `${variable}` first, then set the User Defined Variable to the original literal. When using broad replace/search for credentials, pass excludeUserDefinedVariables=true so the Test Plan variables table is not self-replaced.
                 - When renaming stale UUIDs or IDs in element names after request data has been parameterized, use replace_literal_in_names_open_plan so request data is not changed to `{variable}` by mistake.
                 - When using replace_literal_open_plan, replace_literal_in_names_open_plan, apply_regex_correlation_open_plan without a target sampler, or search_open_plan_values, pass threadGroupName or scopeNodePath for the selected Thread Group. Use allowWholePlan=true only when the user explicitly requested a global edit.
-                - Keep inspection and validation compact for local agents. Call inspect_open_plan and validate_open_plan with includeDsl=false and includeStaticAssets=false unless raw DSL or static asset evidence is truly required.
-                - Validate only when it is useful for the specific request. Prefer a bounded validate_open_plan run with scopeNodePath set to the selected Thread Group path, maxSamples, stopOnFirstFailure, and includeDsl=false when validation is needed.
+                - Do NOT run validate_open_plan or validate_jmx unless the user's instructions explicitly ask to validate, test, or run the script. Edit tool results are self-verifying (they report the resolved nodes, replacements, and extractor placement), and regex/assertion edits are checked against evidence at apply time — for a typical targeted change, confirm via the edit results plus one search_open_plan_values check and finish. If validation is explicitly requested, run one bounded compact validate_open_plan with scopeNodePath set to the selected Thread Group path, stopOnFirstFailure, and includeDsl=false.
+                - Update BreakTest AI Knowledge only when the task produced a clearly reusable project pattern, using one small appendLearnings call; skip it otherwise.
                 - Keep progress concise. Do not echo prompts, code, full XML, or long tool payloads.
                 - Before finishing, call list_agent_changes_open_plan and summarize only the changes made for this specific request.
                 - Use plain text only in the final response. Do not use markdown tables because the BreakTest AI log is a plain Swing text area.
@@ -626,7 +597,10 @@ public class CodexAiRepair extends AbstractAction {
         String taskScope = request.mode() == AiRunMode.SPECIFIC_REQUEST
                 ? "Complete only the specific user-requested task against the repair target file."
                 : "Repair and harden the selected Thread Group in the repair target file.";
-        String workflowDescription = "This is the native BreakTest non-GUI repair workflow. The open GUI plan is first saved as a separate repair JMX that includes the current in-memory GUI state, including unsaved edits. The GUI remains unchanged while the AI edits the repair copy.";
+        String workflowDescription = """
+                This is the native BreakTest non-GUI repair workflow. The open GUI plan is first saved as a \
+                separate repair JMX that includes the current in-memory GUI state, including unsaved edits. \
+                The GUI remains unchanged while the AI edits the repair copy.""";
         String targetDescription = "Edit only this repair copy: `%s`. Do not edit or reload the currently open GUI plan.";
         String finishInstruction = "- Provide the repaired JMX copy path. The BreakTest launcher will ask the user whether to load it after the run.\n";
         return """
@@ -665,6 +639,7 @@ public class CodexAiRepair extends AbstractAction {
                 - Never put `${...}` variable references in sampler/controller/transaction/assertion/extractor names. Use static display placeholders such as `{ticket_id}` in names.
                 - Preserve original credential literal values in User Defined Variables and replace request data with variable references. Do not self-replace the variable values.
                 - When a regex extractor supports multiple response shapes, design it with one capture group or a template that cannot emit `null`. Avoid `$1$$2$` style templates unless this BreakTest/JMeter runtime is known not to render unmatched groups as `null`. Do not replace a simple native Regex/JSONPath extractor with JSR223 just because the first attempt had the wrong field, sampler parent, regex, or JSON path; correct, move, or re-add the native extractor by stable sourceNodePath first.
+                - JMeter Regex Extractors use the ORO/Perl5 engine, not java.util.regex. Do not use \\Q...\\E, lookbehind, named groups, or Java-only constructs. Escape literal metacharacters with single backslashes and make the regex match the exact validated/recorded response snippet you used as evidence. For JSON fields, verify whether the field is a quoted string, number, array, escaped value, encoded value, or absent before choosing a regex; use JSONPath instead when that is more robust. If a bridge tool rejects a regex/evidence pair, fix the regex or fetch the correct body/header evidence instead of bypassing with allowUnmatchedEvidence.
                 - Do not add new response assertions during the repair/correlation phase while validation is still blocked. If the assertion phase is enabled, immediately after the first green flow, do one compact dynamic request audit. If that audit finds evidence-backed leftovers, apply those hardening edits and add one meaningful assertion per transaction in the same edit batch, then run one final validate_jmx. Do not run a separate validation between post-green hardening and assertion insertion unless the hardening changes credentials/auth, redirect behavior, sampler execution order, or the source evidence is uncertain. Use assertion snippets from the latest green validation response evidence whenever possible; do not rerun validation only to collect snippets unless that evidence lacks safe markers. Assertions must be meaningful and unique to the expected response; avoid weak single words and generic strings that could match an error page.
                 - If a response assertion fails, update or remove only that failing assertion. Do not remove all AI-created assertions just because one marker was too strict. If a required extractor has failOnNoMatch=true, do not add another assertion merely to prove the extractor matched.
                 - Keep static browser assets enabled and runnable, but keep them out of model-facing analysis by default. Use includeStaticAssets=true only when a stylesheet, JavaScript, image, font, favicon, or source-map response is directly relevant to a failure or suspected correlation source.
@@ -738,8 +713,13 @@ public class CodexAiRepair extends AbstractAction {
 
     private static String runOptionsInstruction(AiRunRequest request) {
         String assertionInstruction = request.addAssertions()
-                ? "- Assertion phase is enabled. Add meaningful response assertions only after the selected flow is green and high-confidence dynamic leftovers are resolved or documented."
-                : "- Assertion phase is disabled by the start dialog. Skip adding or updating Response Assertions unless the user explicitly asks for assertions in the extra instructions. Keep failOnNoMatch=true for required extractors because that is correlation failure detection, not a transaction assertion.";
+                ? """
+                        - Assertion phase is enabled. Add meaningful response assertions only after the selected flow is green \
+                        and high-confidence dynamic leftovers are resolved or documented."""
+                : """
+                        - Assertion phase is disabled by the start dialog. Skip adding or updating Response Assertions unless \
+                        the user explicitly asks for assertions in the extra instructions. Keep failOnNoMatch=true for required \
+                        extractors because that is correlation failure detection, not a transaction assertion.""";
         return """
                 - Start-dialog run budget: finish or report blockers before %d seconds. Do not repeat a similar failed validation/edit loop more than %d times; if the same task fails again, summarize the blocker and move to other safe candidates or stop.
                 %s
@@ -866,7 +846,7 @@ public class CodexAiRepair extends AbstractAction {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         panel.setPreferredSize(new Dimension(780, 740));
-        panel.add(new JLabel("Plan: " + (testPlanFile == null ? "(unsaved)" : testPlanFile)), BorderLayout.NORTH);
+        panel.add(startDialogHeader(gui, testPlanFile), BorderLayout.NORTH);
         panel.add(body, BorderLayout.CENTER);
         panel.add(warningPanel, BorderLayout.SOUTH);
 
@@ -935,6 +915,60 @@ public class CodexAiRepair extends AbstractAction {
                 parseIntegerField(maxSimilarRetries, "Similar retry limit", 0, 50),
                 instructionText
         );
+    }
+
+    private static JPanel startDialogHeader(GuiPackage gui, String testPlanFile) {
+        JPanel header = new JPanel(new BorderLayout(8, 0));
+        header.add(new JLabel("Plan: " + (testPlanFile == null ? "(unsaved)" : testPlanFile)), BorderLayout.CENTER);
+        JButton help = new JButton("?");
+        help.setMargin(new Insets(1, 7, 1, 7));
+        help.setToolTipText("AI Auto Scripting setup help");
+        help.addActionListener(event -> showSetupHelpDialog(gui == null ? null : gui.getMainFrame()));
+        header.add(help, BorderLayout.EAST);
+        return header;
+    }
+
+    private static void showSetupHelpDialog(Component parent) {
+        JTextArea helpText = new JTextArea(aiSetupHelpText(), 28, 84);
+        helpText.setEditable(false);
+        helpText.setLineWrap(true);
+        helpText.setWrapStyleWord(true);
+        helpText.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(
+                helpText,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        );
+        scrollPane.setPreferredSize(new Dimension(760, 520));
+
+        JOptionPane.showMessageDialog(
+                parent,
+                scrollPane,
+                "AI Auto Scripting Setup",
+                JOptionPane.INFORMATION_MESSAGE
+        );
+    }
+
+    private static String aiSetupHelpText() {
+        try (InputStream input = AiAutoScriptingAction.class.getResourceAsStream("ai-auto-scripting-setup-help.properties")) {
+            if (input != null) {
+                Properties properties = new Properties();
+                properties.load(input);
+                String text = properties.getProperty("text");
+                if (text != null && !text.isBlank()) {
+                    return text;
+                }
+            }
+        } catch (IOException ignored) {
+            // Use the fallback text below.
+        }
+        return """
+                AI Auto Scripting (Beta)
+
+                Codex and Claude Code are the preferred harnesses. OpenCode is available for experimentation.
+                Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
+                """;
     }
 
     private static JTextField integerTextField(String value, int columns) {
@@ -1053,8 +1087,8 @@ public class CodexAiRepair extends AbstractAction {
         return "  " + text.replace("\r", "").replace("\n", "\n  ");
     }
 
-    private static CodexRunOutput streamOutput(InputStream inputStream, AiTool tool) throws IOException {
-        CodexOutputFilter filter = new CodexOutputFilter(tool);
+    private static AiRunOutput streamOutput(InputStream inputStream, AiTool tool) throws IOException {
+        AiOutputFilter filter = new AiOutputFilter(tool);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -1071,10 +1105,11 @@ public class CodexAiRepair extends AbstractAction {
         AiAutoScriptingLogWindow.append(message);
     }
 
-    private static void postCompletionSummary(AiRunRequest request, int exitCode, Duration elapsed, CodexRunOutput output) {
+    private static void postCompletionSummary(AiRunRequest request, int exitCode, Duration elapsed, AiRunOutput output) {
         List<String> followUps = new ArrayList<>(output.followUpLines());
         postActivity("AI Auto Scripting summary:");
         postActivity("Status: " + completionStatus(exitCode, output));
+        postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName()));
         postActivity("Total time: " + formatDuration(elapsed));
         postActivity("Token usage: input=" + output.inputTokensText()
                 + ", output=" + output.outputTokensText()
@@ -1105,7 +1140,7 @@ public class CodexAiRepair extends AbstractAction {
         }
     }
 
-    private static String completionStatus(int exitCode, CodexRunOutput output) {
+    private static String completionStatus(int exitCode, AiRunOutput output) {
         if (exitCode != 0) {
             return "exit code " + exitCode;
         }
@@ -1191,48 +1226,27 @@ public class CodexAiRepair extends AbstractAction {
             postActivity("Repair clone was not found after the run: " + repairClone.getPath());
             return;
         }
+        if (exitCode != 0) {
+            postActivity("AI run exited with code " + exitCode
+                    + "; repaired clone left on disk (not merged): " + repairClone.getPath());
+            return;
+        }
+        // Merge automatically: the repaired Thread Group is added as *_AI_Generated
+        // next to the original, so the user reviews the result in the tree instead
+        // of answering a modal dialog after every non-GUI run.
         SwingUtilities.invokeLater(() -> {
-            GuiPackage gui = GuiPackage.getInstance();
-            String status = exitCode == 0 ? "The AI run finished." : "The AI run exited with code " + exitCode + ".";
-            Object[] options = {
-                    "Merge _AI_Generated",
-                    "Load Clone",
-                    "Leave On Disk"
-            };
-            int choice = JOptionPane.showOptionDialog(
-                    gui == null ? null : gui.getMainFrame(),
-                    "<html>" + status + "<br><br>"
-                            + "What do you want to do with the repaired JMX clone?<br>"
-                            + "<code>" + repairClone.getPath() + "</code><br><br>"
-                            + "Merge adds the repaired Thread Group as <code>_AI_Generated</code> "
-                            + "and merges top-level User Defined Variables without replacing the open plan.</html>",
-                    "AI Repaired Clone",
-                    JOptionPane.YES_NO_CANCEL_OPTION,
-                    JOptionPane.QUESTION_MESSAGE,
-                    null,
-                    options,
-                    options[0]
-            );
-            if (choice == 0) {
-                try {
-                    postActivity("Merging repaired Thread Group into open plan: " + repairClone.getPath());
-                    Map<String, Object> result = BreakTestAgentGuiService.mergeRepairCloneIntoOpenPlan(
-                            repairClone.getPath(),
-                            request.threadGroupPath()
-                    );
-                    postActivity("Merged repaired Thread Group: " + result.getOrDefault("threadGroupNodePath", ""));
-                } catch (Exception ex) {
-                    log.warn("Could not merge AI repaired clone {}", repairClone, ex);
-                    postActivity("Could not merge repaired Thread Group: " + ex.getMessage());
-                }
-            } else if (choice == 1) {
-                postActivity("Loading repaired clone: " + repairClone.getPath());
-                LoadDraggedFile.loadProject(
-                        new ActionEvent(CodexAiRepair.class, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
-                        repairClone
+            try {
+                postActivity("Merging repaired Thread Group into open plan: " + repairClone.getPath());
+                Map<String, Object> result = BreakTestAgentGuiService.mergeRepairCloneIntoOpenPlan(
+                        repairClone.getPath(),
+                        request.threadGroupPath()
                 );
-            } else {
-                postActivity("Repaired clone left on disk: " + repairClone.getPath());
+                postActivity("Merged repaired Thread Group: " + result.getOrDefault("threadGroupNodePath", "")
+                        + " (original Thread Group unchanged; clone remains at " + repairClone.getPath() + ")");
+            } catch (Exception ex) {
+                log.warn("Could not merge AI repaired clone {}", repairClone, ex);
+                postActivity("Could not merge repaired Thread Group: " + ex.getMessage()
+                        + ". Clone left on disk: " + repairClone.getPath());
             }
         });
     }
@@ -1475,21 +1489,22 @@ public class CodexAiRepair extends AbstractAction {
         }
     }
 
-    private static class CodexOutputFilter {
+    private static class AiOutputFilter {
         private final AiTool tool;
         private boolean finalResponseStarted;
         private boolean skipNextTokenCount;
         private boolean suppressToolOutput;
         private boolean suppressDiffOutput;
         private final Set<String> displayedFinalLines = new HashSet<>();
-        private final CodexRunOutput output = new CodexRunOutput();
+        private final AiRunOutput output = new AiRunOutput();
 
-        CodexOutputFilter(AiTool tool) {
+        AiOutputFilter(AiTool tool) {
             this.tool = tool;
             this.finalResponseStarted = tool == AiTool.OPENCODE || tool == AiTool.CLAUDE;
         }
 
-        String displayLine(String line) {
+        String displayLine(String rawLine) {
+            String line = stripAnsi(rawLine);
             String display = null;
             String trimmed = line.trim();
             if (!line.isBlank()) {
@@ -1518,6 +1533,13 @@ public class CodexAiRepair extends AbstractAction {
                     display = tool == AiTool.CODEX ? displayFilteredLine(trimmed) : displayPlainAgentLine(trimmed);
                 }
             }
+            // CLI agents such as opencode echo every shell command and its JSON
+            // result into stdout. Those lines are neither useful in the activity
+            // log (the GUI bridge already logs each tool call) nor valid "final
+            // response" content for summary/follow-up extraction.
+            if (display != null && looksLikeToolEcho(display)) {
+                return null;
+            }
             if (display != null && finalResponseStarted && isDuplicateFinalLine(display)) {
                 return null;
             }
@@ -1531,7 +1553,28 @@ public class CodexAiRepair extends AbstractAction {
             return display;
         }
 
-        CodexRunOutput output() {
+        private static String stripAnsi(String line) {
+            return line.replaceAll("\u001B\\[[0-9;]*[A-Za-z]", "").replace("\u001B", "");
+        }
+
+        private static boolean looksLikeToolEcho(String line) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                return false;
+            }
+            char first = trimmed.charAt(0);
+            if (first == '{' || first == '}' || first == '[' || first == ']' || first == '$') {
+                return true;
+            }
+            if (first == '"' && (trimmed.contains("\" : ") || trimmed.contains("\": ") || trimmed.endsWith(","))) {
+                return true;
+            }
+            return trimmed.contains("breaktest-agent-tool ")
+                    || trimmed.startsWith("\"required\"")
+                    || trimmed.startsWith("},");
+        }
+
+        AiRunOutput output() {
             return output;
         }
 
@@ -1636,7 +1679,7 @@ public class CodexAiRepair extends AbstractAction {
         }
     }
 
-    private static final class CodexRunOutput {
+    private static final class AiRunOutput {
         private static final int MAX_FOLLOW_UP_LINES = 4;
         private static final int MAX_SUMMARY_LINES = 5;
         private Long inputTokens;
