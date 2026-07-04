@@ -66,6 +66,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTree;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
@@ -144,6 +145,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private static final int REFRESH_PERIOD = JMeterUtils.getPropDefault("jmeter.gui.refresh_period", 500);
 
+    private static final String AUTO_DETACH_ON_VALIDATION =
+            "ViewResultsFullVisualizer.auto_detach_on_validation"; // $NON-NLS-1$
+
     private static final ImageIcon imageSuccess = JMeterUtils.getImage(
             JMeterUtils.getPropDefault("viewResultsTree.success",  //$NON-NLS-1$
                     "vrt/" + ICON_SIZE + "/security-high-2.png")); //$NON-NLS-1$ $NON-NLS-2$
@@ -161,6 +165,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private JComboBox<ResultRenderer> selectRenderPanel;
     private Component visualizerPanel;
     private Component detachedPlaceholder;
+    private JCheckBox autoDetachOnValidationCB;
     private JButton detachButton;
     private JFrame detachedWindow;
     private JPanel detachedWindowContent;
@@ -202,6 +207,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void add(final SampleEvent event) {
         SampleResult sample = event.getResult();
         if (sample != null) {
+            detachForValidationIfNeeded();
             if (!sample.hasJMeterVariables()) {
                 sample.setJMeterVariables(snapshotVariables(event));
             }
@@ -391,7 +397,18 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void configure(TestElement el) {
         configuredElement = el;
         super.configure(el);
+        if (autoDetachOnValidationCB != null) {
+            autoDetachOnValidationCB.setSelected(el.getPropertyAsBoolean(AUTO_DETACH_ON_VALIDATION, false));
+        }
         updateDetachedWindowTitle();
+    }
+
+    @Override
+    public void modifyTestElement(TestElement c) {
+        super.modifyTestElement(c);
+        c.setProperty(AUTO_DETACH_ON_VALIDATION,
+                autoDetachOnValidationCB != null && autoDetachOnValidationCB.isSelected(),
+                false);
     }
 
     /**
@@ -437,17 +454,19 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
 
         Component[] titleComponents = panel.getComponents();
+        autoDetachOnValidationCB = new JCheckBox(JMeterUtils.getResString("view_results_auto_detach_on_validation")); // $NON-NLS-1$
         detachButton = new JButton();
         detachButton.addActionListener(e -> toggleDetached());
 
         panel.removeAll();
-        panel.setLayout(new MigLayout("fillx, wrap 3, insets 0", "[][fill,grow][]")); // $NON-NLS-1$ //$NON-NLS-2$
-        panel.add(titleComponents[0], "span 3"); // $NON-NLS-1$
+        panel.setLayout(new MigLayout("fillx, wrap 4, insets 0", "[][fill,grow][][]")); // $NON-NLS-1$ //$NON-NLS-2$
+        panel.add(titleComponents[0], "span 4"); // $NON-NLS-1$
         panel.add(titleComponents[1]);
         panel.add(titleComponents[2], "growx"); // $NON-NLS-1$
+        panel.add(autoDetachOnValidationCB);
         panel.add(detachButton);
         panel.add(titleComponents[3]);
-        panel.add(titleComponents[4], "span 2, growx"); // $NON-NLS-1$
+        panel.add(titleComponents[4], "span 3, growx"); // $NON-NLS-1$
         updateDetachButton();
     }
 
@@ -488,6 +507,19 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         updateDetachButton();
         revalidate();
         repaint();
+    }
+
+    private void detachForValidationIfNeeded() {
+        if (autoDetachOnValidationCB == null || !autoDetachOnValidationCB.isSelected()
+                || !JMeterContextService.isValidationRun()) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (autoDetachOnValidationCB.isSelected() && JMeterContextService.isValidationRun()
+                    && detachedWindow == null) {
+                detachResultTree();
+            }
+        });
     }
 
     private void dockResultTree(boolean selectVisualizer) {
