@@ -269,6 +269,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      */
     public void initButtonsState() {
         Map<String, Boolean> buttonStates = new HashMap<>();
+        buttonStates.put(ActionNames.VALIDATE_TG, true);
         buttonStates.put(ActionNames.ACTION_START, true);
         buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, true);
         buttonStates.put(ActionNames.ACTION_PAUSE, false);
@@ -286,7 +287,8 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      *            Flag whether local test is started
      */
     public void setLocalTestStarted(boolean started) {
-        Map<String, Boolean> buttonStates = new HashMap<>(5);
+        Map<String, Boolean> buttonStates = new HashMap<>(6);
+        buttonStates.put(ActionNames.VALIDATE_TG, !started);
         buttonStates.put(ActionNames.ACTION_START, !started);
         buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, !started);
         buttonStates.put(ActionNames.ACTION_PAUSE, started);
