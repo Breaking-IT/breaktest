@@ -20,13 +20,17 @@ package org.apache.jmeter.visualizers;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -49,16 +53,22 @@ import javax.swing.BorderFactory;
 import javax.swing.ComboBoxModel;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JMenuItem;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTree;
+import javax.swing.SwingConstants;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.WindowConstants;
 import javax.swing.border.Border;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
@@ -79,6 +89,7 @@ import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
@@ -90,6 +101,8 @@ import org.apache.jorphan.util.StringWrap;
 import org.apiguardian.api.API;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import net.miginfocom.swing.MigLayout;
 
 /**
  * Base for ViewResults
@@ -146,6 +159,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private Component leftSide;
     private JTabbedPane rightSide;
     private JComboBox<ResultRenderer> selectRenderPanel;
+    private Component visualizerPanel;
+    private Component detachedPlaceholder;
+    private JButton detachButton;
+    private JFrame detachedWindow;
+    private JPanel detachedWindowContent;
+    private TestElement configuredElement;
     private int selectedTab;
     private ResultRenderer resultsRender = null;
     private Object resultsObject = null;
@@ -368,6 +387,13 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return "view_results_tree_title"; // $NON-NLS-1$
     }
 
+    @Override
+    public void configure(TestElement el) {
+        configuredElement = el;
+        super.configure(el);
+        updateDetachedWindowTitle();
+    }
+
     /**
      * Initialize this visualizer
      */
@@ -391,11 +417,171 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, makeTitlePanel(), searchAndMainSP);
         splitPane.setOneTouchExpandable(true);
         splitPane.setBorder(BorderFactory.createEmptyBorder());
-        add(splitPane);
+        visualizerPanel = splitPane;
+        add(visualizerPanel, BorderLayout.CENTER);
 
         // init right side with first render
         resultsRender.setRightSide(rightSide);
         resultsRender.init();
+    }
+
+    @Override
+    protected Container wrapTitlePanel(Container titlePanel) {
+        addDetachButtonToTitlePanel(titlePanel);
+        return super.wrapTitlePanel(titlePanel);
+    }
+
+    private void addDetachButtonToTitlePanel(Container titlePanel) {
+        if (!(titlePanel instanceof JPanel panel) || panel.getComponentCount() < 5) {
+            return;
+        }
+
+        Component[] titleComponents = panel.getComponents();
+        detachButton = new JButton();
+        detachButton.addActionListener(e -> toggleDetached());
+
+        panel.removeAll();
+        panel.setLayout(new MigLayout("fillx, wrap 3, insets 0", "[][fill,grow][]")); // $NON-NLS-1$ //$NON-NLS-2$
+        panel.add(titleComponents[0], "span 3"); // $NON-NLS-1$
+        panel.add(titleComponents[1]);
+        panel.add(titleComponents[2], "growx"); // $NON-NLS-1$
+        panel.add(detachButton);
+        panel.add(titleComponents[3]);
+        panel.add(titleComponents[4], "span 2, growx"); // $NON-NLS-1$
+        updateDetachButton();
+    }
+
+    private void toggleDetached() {
+        if (detachedWindow == null) {
+            detachResultTree();
+        } else {
+            dockResultTree(true);
+        }
+    }
+
+    private void detachResultTree() {
+        if (detachedWindow != null) {
+            return;
+        }
+
+        remove(visualizerPanel);
+        detachedPlaceholder = createDetachedPlaceholder();
+        add(detachedPlaceholder, BorderLayout.CENTER);
+
+        detachedWindow = new JFrame(detachedWindowTitle());
+        detachedWindow.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        detachedWindow.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                dockResultTree(true);
+            }
+        });
+        detachedWindowContent = new JPanel(new BorderLayout());
+        detachedWindowContent.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        detachedWindowContent.add(visualizerPanel, BorderLayout.CENTER);
+        detachedWindow.getContentPane().add(detachedWindowContent, BorderLayout.CENTER);
+        detachedWindow.setSize(detachedWindowSize());
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        detachedWindow.setLocationRelativeTo(guiPackage == null ? null : guiPackage.getMainFrame());
+        detachedWindow.setVisible(true);
+
+        updateDetachButton();
+        revalidate();
+        repaint();
+    }
+
+    private void dockResultTree(boolean selectVisualizer) {
+        if (detachedWindow == null) {
+            return;
+        }
+
+        JFrame window = detachedWindow;
+        detachedWindow = null;
+        if (detachedWindowContent != null) {
+            detachedWindowContent.remove(visualizerPanel);
+            detachedWindowContent = null;
+        } else {
+            window.getContentPane().remove(visualizerPanel);
+        }
+        window.dispose();
+
+        if (detachedPlaceholder != null) {
+            remove(detachedPlaceholder);
+            detachedPlaceholder = null;
+        }
+        add(visualizerPanel, BorderLayout.CENTER);
+        updateDetachButton();
+        revalidate();
+        repaint();
+
+        if (selectVisualizer) {
+            selectConfiguredVisualizerNode();
+        }
+    }
+
+    private Component createDetachedPlaceholder() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        JLabel message = new JLabel(JMeterUtils.getResString("view_results_detached_message")); // $NON-NLS-1$
+        message.setHorizontalAlignment(SwingConstants.CENTER);
+        JButton dockButton = new JButton(JMeterUtils.getResString("view_results_dock")); // $NON-NLS-1$
+        dockButton.addActionListener(e -> dockResultTree(true));
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        buttonPanel.add(dockButton);
+        panel.add(message, BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        panel.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
+        return panel;
+    }
+
+    private Dimension detachedWindowSize() {
+        return new Dimension(Math.max(getWidth(), 900), Math.max(getHeight(), 650));
+    }
+
+    private void updateDetachButton() {
+        if (detachButton == null) {
+            return;
+        }
+        if (detachedWindow == null) {
+            detachButton.setText(JMeterUtils.getResString("view_results_detach")); // $NON-NLS-1$
+            detachButton.setToolTipText(JMeterUtils.getResString("view_results_detach_tooltip")); // $NON-NLS-1$
+        } else {
+            detachButton.setText(JMeterUtils.getResString("view_results_dock")); // $NON-NLS-1$
+            detachButton.setToolTipText(JMeterUtils.getResString("view_results_dock_tooltip")); // $NON-NLS-1$
+        }
+    }
+
+    private String detachedWindowTitle() {
+        String name = getName().trim();
+        String title = JMeterUtils.getResString("view_results_tree_title"); // $NON-NLS-1$
+        return StringUtilities.isEmpty(name) || name.equals(title) ? title : name + " - " + title; // $NON-NLS-1$
+    }
+
+    private void updateDetachedWindowTitle() {
+        if (detachedWindow != null) {
+            detachedWindow.setTitle(detachedWindowTitle());
+        }
+    }
+
+    private void selectConfiguredVisualizerNode() {
+        if (configuredElement == null) {
+            return;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null || guiPackage.getTreeListener() == null) {
+            return;
+        }
+        JMeterTreeNode visualizerNode = guiPackage.getNodeOf(configuredElement);
+        if (visualizerNode == null) {
+            return;
+        }
+        JTree testPlanTree = guiPackage.getTreeListener().getJTree();
+        if (testPlanTree == null) {
+            return;
+        }
+        TreePath visualizerPath = new TreePath(visualizerNode.getPath());
+        testPlanTree.setSelectionPath(visualizerPath);
+        testPlanTree.scrollPathToVisible(visualizerPath);
     }
 
     /** {@inheritDoc} */
@@ -500,6 +686,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.addTreeSelectionListener(this);
         jTree.addMouseListener(new MouseAdapter() {
             @Override
+            public void mouseClicked(MouseEvent event) {
+                jumpToResultTestPlanElementOnDoubleClick(event);
+            }
+
+            @Override
             public void mousePressed(MouseEvent event) {
                 showResultTreePopup(event);
             }
@@ -522,6 +713,20 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         autoScrollCB.addItemListener(this);
         leftPane.add(autoScrollCB, BorderLayout.SOUTH);
         return leftPane;
+    }
+
+    private void jumpToResultTestPlanElementOnDoubleClick(MouseEvent event) {
+        if (detachedWindow == null || event.getClickCount() != 2 || event.getButton() != MouseEvent.BUTTON1) {
+            return;
+        }
+        TreePath resultPath = jTree.getPathForLocation(event.getX(), event.getY());
+        if (resultPath == null) {
+            return;
+        }
+        jTree.setSelectionPath(resultPath);
+
+        SampleResult sampleResult = getSampleResult(resultPath);
+        jumpToTestPlanElement(findTestPlanNode(sampleResult));
     }
 
     private void showResultTreePopup(MouseEvent event) {
