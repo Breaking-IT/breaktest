@@ -84,7 +84,7 @@ public final class KeyStrokes {
     public static final KeyStroke REDO_CONTROL      = KeyStroke.getKeyStroke(KeyEvent.VK_Z,
             InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
     public static final KeyStroke PASTE             = KeyStroke.getKeyStroke(KeyEvent.VK_V, CONTROL_MASK);
-    public static final KeyStroke VALIDATE          = KeyStroke.getKeyStroke(KeyEvent.VK_V, CONTROL_MASK | InputEvent.SHIFT_DOWN_MASK);
+    public static final KeyStroke VALIDATE          = KeyStroke.getKeyStroke(KeyEvent.VK_R, CONTROL_MASK | InputEvent.SHIFT_DOWN_MASK);
     public static final KeyStroke WHAT_CLASS        = KeyStroke.getKeyStroke(KeyEvent.VK_W, CONTROL_MASK);
     public static final KeyStroke CUT               = KeyStroke.getKeyStroke(KeyEvent.VK_X, CONTROL_MASK);
 
