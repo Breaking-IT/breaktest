@@ -95,11 +95,32 @@ public class Start extends AbstractAction {
     }
 
     private StandardJMeterEngine engine;
+    private static volatile AbstractThreadGroup[] activeValidationThreadGroups;
 
     /**
      * Constructor for the Start object.
      */
     public Start() {
+    }
+
+    /**
+     * Create a validation event for a known set of thread groups.
+     *
+     * @param source action source
+     * @param id event id
+     * @param threadGroupsToRun thread groups to validate
+     * @return action event carrying an explicit validation target
+     */
+    public static ActionEvent validateThreadGroupsEvent(
+            Object source, int id, AbstractThreadGroup[] threadGroupsToRun) {
+        return new ThreadGroupsActionEvent(source, id, ActionNames.VALIDATE_TG, threadGroupsToRun);
+    }
+
+    /**
+     * @return original thread groups targeted by the latest validation run
+     */
+    public static AbstractThreadGroup[] getActiveValidationThreadGroups() {
+        return activeValidationThreadGroups == null ? null : activeValidationThreadGroups.clone();
     }
 
     /**
@@ -154,11 +175,18 @@ public class Start extends AbstractAction {
             } else {
                 runMode = RunMode.AS_IS;
             }
-            JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
-            JMeterTreeNode[] nodes = treeListener.getSelectedNodes();
-            nodes = Copy.keepOnlyAncestors(nodes);
-            AbstractThreadGroup[] tg = keepOnlyThreadGroups(nodes);
-            if(nodes.length > 0) {
+            AbstractThreadGroup[] tg;
+            boolean hasExplicitThreadGroups = e instanceof ThreadGroupsActionEvent;
+            JMeterTreeNode[] nodes = new JMeterTreeNode[0];
+            if (hasExplicitThreadGroups) {
+                tg = ((ThreadGroupsActionEvent) e).getThreadGroupsToRun();
+            } else {
+                JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
+                nodes = treeListener.getSelectedNodes();
+                nodes = Copy.keepOnlyAncestors(nodes);
+                tg = keepOnlyThreadGroups(nodes);
+            }
+            if((hasExplicitThreadGroups && tg != null && tg.length > 0) || (!hasExplicitThreadGroups && nodes.length > 0)) {
                 startEngine(tg, runMode);
             }
             else {
@@ -191,6 +219,9 @@ public class Start extends AbstractAction {
         // Let samplers know this is a validation run so they keep response bodies they would
         // otherwise discard (set for every run, so a later normal run resets it).
         JMeterContextService.setValidationRun(runMode == RunMode.VALIDATION);
+        activeValidationThreadGroups = runMode == RunMode.VALIDATION && threadGroupsToRun != null
+                ? threadGroupsToRun.clone()
+                : null;
         GuiPackage gui = GuiPackage.getInstance();
         HashTree testTree = gui.getTreeModel().getTestPlan();
 
@@ -301,5 +332,21 @@ public class Start extends AbstractAction {
         };
         testTree.traverse(cloner);
         return cloner.getClonedTree();
+    }
+
+    private static final class ThreadGroupsActionEvent extends ActionEvent {
+        private static final long serialVersionUID = 1L;
+
+        private final AbstractThreadGroup[] threadGroupsToRun;
+
+        private ThreadGroupsActionEvent(
+                Object source, int id, String command, AbstractThreadGroup[] threadGroupsToRun) {
+            super(source, id, command);
+            this.threadGroupsToRun = threadGroupsToRun;
+        }
+
+        private AbstractThreadGroup[] getThreadGroupsToRun() {
+            return threadGroupsToRun;
+        }
     }
 }

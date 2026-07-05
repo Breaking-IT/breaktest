@@ -20,13 +20,17 @@ package org.apache.jmeter.visualizers;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -45,20 +49,32 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.ComboBoxModel;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.InputMap;
+import javax.swing.JLabel;
 import javax.swing.JMenuItem;
+import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JToggleButton;
 import javax.swing.JTree;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.UIManager;
+import javax.swing.WindowConstants;
 import javax.swing.border.Border;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
@@ -74,11 +90,17 @@ import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.KeyStrokes;
+import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
@@ -90,6 +112,8 @@ import org.apache.jorphan.util.StringWrap;
 import org.apiguardian.api.API;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import net.miginfocom.swing.MigLayout;
 
 /**
  * Base for ViewResults
@@ -131,6 +155,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private static final int REFRESH_PERIOD = JMeterUtils.getPropDefault("jmeter.gui.refresh_period", 500);
 
+    private static final String AUTO_DETACH_ON_VALIDATION =
+            "ViewResultsFullVisualizer.auto_detach_on_validation"; // $NON-NLS-1$
+
     private static final ImageIcon imageSuccess = JMeterUtils.getImage(
             JMeterUtils.getPropDefault("viewResultsTree.success",  //$NON-NLS-1$
                     "vrt/" + ICON_SIZE + "/security-high-2.png")); //$NON-NLS-1$ $NON-NLS-2$
@@ -146,6 +173,19 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private Component leftSide;
     private JTabbedPane rightSide;
     private JComboBox<ResultRenderer> selectRenderPanel;
+    private Component visualizerPanel;
+    private Component detachedPlaceholder;
+    private JCheckBox autoDetachOnValidationCB;
+    private JButton detachButton;
+    private JButton validateButton;
+    private JToggleButton searchPanelToggle;
+    private JToggleButton filePanelToggle;
+    private JPanel filePanelWrapper;
+    private SearchTreePanel searchPanel;
+    private JFrame detachedWindow;
+    private JPanel detachedWindowContent;
+    private AbstractThreadGroup[] validationThreadGroups;
+    private TestElement configuredElement;
     private int selectedTab;
     private ResultRenderer resultsRender = null;
     private Object resultsObject = null;
@@ -183,6 +223,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void add(final SampleEvent event) {
         SampleResult sample = event.getResult();
         if (sample != null) {
+            detachForValidationIfNeeded();
             if (!sample.hasJMeterVariables()) {
                 sample.setJMeterVariables(snapshotVariables(event));
             }
@@ -368,6 +409,24 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return "view_results_tree_title"; // $NON-NLS-1$
     }
 
+    @Override
+    public void configure(TestElement el) {
+        configuredElement = el;
+        super.configure(el);
+        if (autoDetachOnValidationCB != null) {
+            autoDetachOnValidationCB.setSelected(el.getPropertyAsBoolean(AUTO_DETACH_ON_VALIDATION, false));
+        }
+        updateDetachedWindowTitle();
+    }
+
+    @Override
+    public void modifyTestElement(TestElement c) {
+        super.modifyTestElement(c);
+        c.setProperty(AUTO_DETACH_ON_VALIDATION,
+                autoDetachOnValidationCB != null && autoDetachOnValidationCB.isSelected(),
+                false);
+    }
+
     /**
      * Initialize this visualizer
      */
@@ -385,17 +444,341 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSide, rightSide);
         mainSplit.setOneTouchExpandable(true);
 
-        JSplitPane searchAndMainSP = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                new SearchTreePanel(root), mainSplit);
-        searchAndMainSP.setOneTouchExpandable(true);
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, makeTitlePanel(), searchAndMainSP);
-        splitPane.setOneTouchExpandable(true);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        add(splitPane);
+        searchPanel = new SearchTreePanel(root);
+        searchPanel.setVisible(false);
+
+        JPanel resultsPanel = new JPanel(new BorderLayout());
+        resultsPanel.add(searchPanel, BorderLayout.NORTH);
+        resultsPanel.add(mainSplit, BorderLayout.CENTER);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder());
+        panel.add(makeTitlePanel(), BorderLayout.NORTH);
+        panel.add(resultsPanel, BorderLayout.CENTER);
+        visualizerPanel = panel;
+        add(visualizerPanel, BorderLayout.CENTER);
 
         // init right side with first render
         resultsRender.setRightSide(rightSide);
         resultsRender.init();
+    }
+
+    @Override
+    protected Container wrapTitlePanel(Container titlePanel) {
+        configureTitlePanel(titlePanel);
+        filePanelWrapper = new JPanel(new BorderLayout());
+        filePanelWrapper.setVisible(false);
+
+        JPanel wrapper = new JPanel(new MigLayout("fillx, wrap 1, insets 0, hidemode 3", "[fill,grow]")) { // $NON-NLS-1$ //$NON-NLS-2$
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void addImpl(Component comp, Object constraints, int index) {
+                if (comp == ViewResultsFullVisualizer.this.getFilePanel() && filePanelWrapper != null) {
+                    filePanelWrapper.add(comp, BorderLayout.CENTER);
+                    updateFilePanelVisibility();
+                    return;
+                }
+                super.addImpl(comp, constraints, index);
+            }
+        };
+        wrapper.add(titlePanel, "growx"); // $NON-NLS-1$
+        wrapper.add(filePanelWrapper, "growx"); // $NON-NLS-1$
+        updateFilePanelVisibility();
+        return wrapper;
+    }
+
+    private void configureTitlePanel(Container titlePanel) {
+        if (!(titlePanel instanceof JPanel panel) || panel.getComponentCount() < 6) {
+            return;
+        }
+
+        Component[] titleComponents = panel.getComponents();
+        autoDetachOnValidationCB = new JCheckBox(JMeterUtils.getResString("view_results_auto_detach_on_validation")); // $NON-NLS-1$
+        validateButton = new JButton(JMeterUtils.getResString("validate_threadgroup")); // $NON-NLS-1$
+        validateButton.setToolTipText(JMeterUtils.getResString("view_results_validate_tooltip")); // $NON-NLS-1$
+        validateButton.setActionCommand(ActionNames.VALIDATE_TG);
+        validateButton.addActionListener(this::validateThreadGroup);
+        detachButton = new JButton();
+        detachButton.addActionListener(e -> toggleDetached());
+        filePanelToggle = new JToggleButton(JMeterUtils.getResString("view_results_file_panel_show")); // $NON-NLS-1$
+        filePanelToggle.addActionListener(e -> updateFilePanelVisibility());
+        searchPanelToggle = new JToggleButton(JMeterUtils.getResString("view_results_search_panel_show")); // $NON-NLS-1$
+        searchPanelToggle.addActionListener(e -> updateSearchPanelVisibility());
+
+        titleComponents[2].setMinimumSize(new Dimension(80, titleComponents[2].getPreferredSize().height));
+        titleComponents[5].setMinimumSize(new Dimension(80, titleComponents[5].getPreferredSize().height));
+
+        panel.removeAll();
+        panel.setLayout(new MigLayout(
+                "fillx, wrap 8, insets 0, hidemode 3", // $NON-NLS-1$
+                "[][fill,grow,shrinkprio 200][right,shrinkprio 0][right,shrinkprio 0]"
+                        + "[right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0]")); // $NON-NLS-1$
+        panel.add(titleComponents[0], "span 8"); // $NON-NLS-1$
+        panel.add(titleComponents[1]);
+        panel.add(titleComponents[2], "growx, pushx, wmin 80"); // $NON-NLS-1$
+        panel.add(titleComponents[3], "gapleft 8"); // $NON-NLS-1$
+        panel.add(validateButton, "gapleft 8"); // $NON-NLS-1$
+        panel.add(searchPanelToggle, "gapleft 8"); // $NON-NLS-1$
+        panel.add(filePanelToggle, "gapleft 8"); // $NON-NLS-1$
+        panel.add(autoDetachOnValidationCB, "gapleft 8"); // $NON-NLS-1$
+        panel.add(detachButton, "wmin button, gapleft 6, wrap"); // $NON-NLS-1$
+        panel.add(titleComponents[4]);
+        panel.add(titleComponents[5], "span 7, growx, wmin 80"); // $NON-NLS-1$
+        updateDetachButton();
+        updateSearchPanelVisibility();
+    }
+
+    private void updateFilePanelVisibility() {
+        if (filePanelToggle == null || filePanelWrapper == null) {
+            return;
+        }
+        boolean visible = filePanelToggle.isSelected();
+        filePanelWrapper.setVisible(visible);
+        filePanelToggle.setText(JMeterUtils.getResString(
+                visible ? "view_results_file_panel_hide" : "view_results_file_panel_show")); // $NON-NLS-1$ //$NON-NLS-2$
+        filePanelToggle.setToolTipText(JMeterUtils.getResString(
+                visible ? "view_results_file_panel_hide_tooltip" : "view_results_file_panel_show_tooltip")); // $NON-NLS-1$ //$NON-NLS-2$
+        revalidateVisualizerLayout(filePanelWrapper);
+    }
+
+    private void updateSearchPanelVisibility() {
+        if (searchPanelToggle == null || searchPanel == null) {
+            return;
+        }
+        boolean visible = searchPanelToggle.isSelected();
+        searchPanel.setVisible(visible);
+        searchPanelToggle.setText(JMeterUtils.getResString(
+                visible ? "view_results_search_panel_hide" : "view_results_search_panel_show")); // $NON-NLS-1$ //$NON-NLS-2$
+        searchPanelToggle.setToolTipText(JMeterUtils.getResString(
+                visible ? "view_results_search_panel_hide_tooltip" : "view_results_search_panel_show_tooltip")); // $NON-NLS-1$ //$NON-NLS-2$
+        revalidateVisualizerLayout(searchPanel);
+    }
+
+    private void revalidateVisualizerLayout(Component component) {
+        Container parent = component == null ? null : component.getParent();
+        Component target = parent == null ? component : parent;
+        if (target != null) {
+            target.revalidate();
+            target.repaint();
+        }
+        if (visualizerPanel != null) {
+            visualizerPanel.revalidate();
+            visualizerPanel.repaint();
+        }
+    }
+
+    private void toggleDetached() {
+        if (detachedWindow == null) {
+            detachResultTree();
+        } else {
+            dockResultTree(true);
+        }
+    }
+
+    private void detachResultTree() {
+        if (detachedWindow != null) {
+            return;
+        }
+
+        AbstractThreadGroup configuredThreadGroup = findConfiguredThreadGroup();
+        if (configuredThreadGroup != null) {
+            validationThreadGroups = new AbstractThreadGroup[] { configuredThreadGroup };
+        }
+        remove(visualizerPanel);
+        detachedPlaceholder = createDetachedPlaceholder();
+        add(detachedPlaceholder, BorderLayout.CENTER);
+
+        detachedWindow = new JFrame(detachedWindowTitle());
+        detachedWindow.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        detachedWindow.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                dockResultTree(true);
+            }
+        });
+        detachedWindowContent = new JPanel(new BorderLayout());
+        detachedWindowContent.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        detachedWindowContent.add(visualizerPanel, BorderLayout.CENTER);
+        detachedWindow.getContentPane().add(detachedWindowContent, BorderLayout.CENTER);
+        installDetachedWindowShortcuts();
+        detachedWindow.setSize(detachedWindowSize());
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        detachedWindow.setLocationRelativeTo(guiPackage == null ? null : guiPackage.getMainFrame());
+        detachedWindow.setVisible(true);
+
+        updateDetachButton();
+        revalidate();
+        repaint();
+    }
+
+    private void installDetachedWindowShortcuts() {
+        InputMap inputMap = detachedWindow.getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = detachedWindow.getRootPane().getActionMap();
+        inputMap.put(KeyStrokes.CLEAR_ALL, ActionNames.CLEAR_ALL);
+        actionMap.put(ActionNames.CLEAR_ALL, new AbstractAction() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                ActionRouter.getInstance().actionPerformed(
+                        new ActionEvent(detachedWindow, event.getID(), ActionNames.CLEAR_ALL));
+            }
+        });
+        inputMap.put(KeyStrokes.CLEAR, ActionNames.CLEAR);
+        actionMap.put(ActionNames.CLEAR, new AbstractAction() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                clearData();
+            }
+        });
+    }
+
+    private void detachForValidationIfNeeded() {
+        if (autoDetachOnValidationCB == null || !autoDetachOnValidationCB.isSelected()
+                || !JMeterContextService.isValidationRun()) {
+            return;
+        }
+        AbstractThreadGroup[] activeValidationThreadGroups = Start.getActiveValidationThreadGroups();
+        if (detachedWindow == null && activeValidationThreadGroups != null
+                && activeValidationThreadGroups.length > 0) {
+            validationThreadGroups = activeValidationThreadGroups;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (autoDetachOnValidationCB.isSelected() && JMeterContextService.isValidationRun()
+                    && detachedWindow == null) {
+                detachResultTree();
+            }
+        });
+    }
+
+    private void dockResultTree(boolean selectVisualizer) {
+        if (detachedWindow == null) {
+            return;
+        }
+
+        JFrame window = detachedWindow;
+        detachedWindow = null;
+        if (detachedWindowContent != null) {
+            detachedWindowContent.remove(visualizerPanel);
+            detachedWindowContent = null;
+        } else {
+            window.getContentPane().remove(visualizerPanel);
+        }
+        window.dispose();
+
+        if (detachedPlaceholder != null) {
+            remove(detachedPlaceholder);
+            detachedPlaceholder = null;
+        }
+        add(visualizerPanel, BorderLayout.CENTER);
+        updateDetachButton();
+        revalidate();
+        repaint();
+
+        if (selectVisualizer) {
+            selectConfiguredVisualizerNode();
+        }
+    }
+
+    private Component createDetachedPlaceholder() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        JLabel message = new JLabel(JMeterUtils.getResString("view_results_detached_message")); // $NON-NLS-1$
+        message.setHorizontalAlignment(SwingConstants.CENTER);
+        JButton dockButton = new JButton(JMeterUtils.getResString("view_results_dock")); // $NON-NLS-1$
+        dockButton.addActionListener(e -> dockResultTree(true));
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        buttonPanel.add(dockButton);
+        panel.add(message, BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        panel.setBorder(BorderFactory.createEmptyBorder(30, 30, 30, 30));
+        return panel;
+    }
+
+    private Dimension detachedWindowSize() {
+        return new Dimension(Math.max(getWidth(), 900), Math.max(getHeight(), 650));
+    }
+
+    private void updateDetachButton() {
+        if (detachButton == null) {
+            return;
+        }
+        if (detachedWindow == null) {
+            detachButton.setText(JMeterUtils.getResString("view_results_detach")); // $NON-NLS-1$
+            detachButton.setToolTipText(JMeterUtils.getResString("view_results_detach_tooltip")); // $NON-NLS-1$
+        } else {
+            detachButton.setText(JMeterUtils.getResString("view_results_dock")); // $NON-NLS-1$
+            detachButton.setToolTipText(JMeterUtils.getResString("view_results_dock_tooltip")); // $NON-NLS-1$
+        }
+    }
+
+    private String detachedWindowTitle() {
+        String name = getName().trim();
+        String title = JMeterUtils.getResString("view_results_tree_title"); // $NON-NLS-1$
+        return StringUtilities.isEmpty(name) || name.equals(title) ? title : name + " - " + title; // $NON-NLS-1$
+    }
+
+    private void updateDetachedWindowTitle() {
+        if (detachedWindow != null) {
+            detachedWindow.setTitle(detachedWindowTitle());
+        }
+    }
+
+    private void selectConfiguredVisualizerNode() {
+        if (configuredElement == null) {
+            return;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null || guiPackage.getTreeListener() == null) {
+            return;
+        }
+        JMeterTreeNode visualizerNode = guiPackage.getNodeOf(configuredElement);
+        if (visualizerNode == null) {
+            return;
+        }
+        JTree testPlanTree = guiPackage.getTreeListener().getJTree();
+        if (testPlanTree == null) {
+            return;
+        }
+        TreePath visualizerPath = new TreePath(visualizerNode.getPath());
+        testPlanTree.setSelectionPath(visualizerPath);
+        testPlanTree.scrollPathToVisible(visualizerPath);
+    }
+
+    private void validateThreadGroup(ActionEvent event) {
+        AbstractThreadGroup configuredThreadGroup = findConfiguredThreadGroup();
+        AbstractThreadGroup[] threadGroupsToRun = configuredThreadGroup == null
+                ? validationThreadGroups
+                : new AbstractThreadGroup[] { configuredThreadGroup };
+        if (threadGroupsToRun == null || threadGroupsToRun.length == 0) {
+            JMeterUtils.reportErrorToUser("No validation thread group is available for this visual tree yet.");
+            return;
+        }
+        ActionRouter.getInstance().actionPerformed(Start.validateThreadGroupsEvent(
+                event.getSource(), event.getID(), threadGroupsToRun));
+    }
+
+    private AbstractThreadGroup findConfiguredThreadGroup() {
+        if (configuredElement == null) {
+            return null;
+        }
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return null;
+        }
+        JMeterTreeNode visualizerNode = guiPackage.getNodeOf(configuredElement);
+        if (visualizerNode == null) {
+            return null;
+        }
+        return visualizerNode.getPathToThreadGroup().stream()
+                .map(JMeterTreeNode::getTestElement)
+                .filter(AbstractThreadGroup.class::isInstance)
+                .map(AbstractThreadGroup.class::cast)
+                .findFirst()
+                .orElse(null);
     }
 
     /** {@inheritDoc} */
@@ -500,6 +883,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.addTreeSelectionListener(this);
         jTree.addMouseListener(new MouseAdapter() {
             @Override
+            public void mouseClicked(MouseEvent event) {
+                jumpToResultTestPlanElementOnDoubleClick(event);
+            }
+
+            @Override
             public void mousePressed(MouseEvent event) {
                 showResultTreePopup(event);
             }
@@ -522,6 +910,23 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         autoScrollCB.addItemListener(this);
         leftPane.add(autoScrollCB, BorderLayout.SOUTH);
         return leftPane;
+    }
+
+    private void jumpToResultTestPlanElementOnDoubleClick(MouseEvent event) {
+        if (detachedWindow == null || event.getClickCount() != 2 || event.getButton() != MouseEvent.BUTTON1) {
+            return;
+        }
+        TreePath resultPath = jTree.getPathForLocation(event.getX(), event.getY());
+        if (resultPath == null) {
+            return;
+        }
+        if (!jTree.getModel().isLeaf(resultPath.getLastPathComponent())) {
+            return;
+        }
+        jTree.setSelectionPath(resultPath);
+
+        SampleResult sampleResult = getSampleResult(resultPath);
+        jumpToTestPlanElement(findTestPlanNode(sampleResult));
     }
 
     private void showResultTreePopup(MouseEvent event) {
