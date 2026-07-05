@@ -27,6 +27,7 @@ import java.awt.Container;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -83,6 +84,12 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
 
     private final JTextArea commentField = JFactory.tabMovesFocus(new JTextArea());
 
+    private final JButton commentsButton = new JButton(JMeterUtils.getResString("comments_show")); // $NON-NLS-1$
+
+    private JLabel commentLabel;
+
+    private boolean commentsExpanded;
+
     /**
      * Stores a collection of property editors, so GuiCompoenent can have default implementations that
      * update the UI fields based on {@link TestElement} properties and vice versa.
@@ -97,6 +104,8 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
      */
     protected AbstractJMeterGuiComponent() {
         namePanel = new NamePanel();
+        commentsButton.setToolTipText(JMeterUtils.getResString("comments_show_tooltip")); // $NON-NLS-1$
+        commentsButton.addActionListener(e -> expandComments());
         init();
     }
 
@@ -118,6 +127,7 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
      */
     public void setComment(String comment) {
         commentField.setText(comment);
+        updateCommentsVisibility();
     }
 
     /**
@@ -211,7 +221,8 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
     public void configure(TestElement element) {
         setName(element.getName());
         enabled = element.isEnabled();
-        commentField.setText(element.getComment());
+        commentsExpanded = false;
+        setComment(element.getComment());
         bindingGroup.updateUi(element);
     }
 
@@ -229,7 +240,8 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
 
     private void initGui() {
         setName(getStaticLabel());
-        commentField.setText("");
+        commentsExpanded = false;
+        setComment("");
     }
 
     private void init() {
@@ -295,17 +307,22 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
      * @return a panel containing the component title and name panel
      */
     protected Container makeTitlePanel() {
-        JPanel titlePanel = new JPanel(new MigLayout("fillx, wrap 2, insets 0", "[][fill,grow]"));
-        titlePanel.add(createTitleLabel(), "span 2");
+        JPanel titlePanel = new JPanel(new MigLayout(
+                "fillx, wrap 3, insets 0, hidemode 3", // $NON-NLS-1$
+                "[][fill,grow][right]")); // $NON-NLS-1$
+        titlePanel.add(createTitleLabel(), "span 3");
 
         JTextField nameField = namePanel.getNameField();
         titlePanel.add(labelFor(nameField, "name"));
         titlePanel.add(nameField);
+        titlePanel.add(commentsButton, "gapleft 8"); // $NON-NLS-1$
 
-        titlePanel.add(labelFor(nameField, "testplan_comments"));
+        commentLabel = labelFor(commentField, "testplan_comments");
+        titlePanel.add(commentLabel, "newline"); // $NON-NLS-1$
         commentField.setWrapStyleWord(true);
         commentField.setLineWrap(true);
-        titlePanel.add(commentField);
+        titlePanel.add(commentField, "span 2, growx"); // $NON-NLS-1$
+        updateCommentsVisibility();
 
         // Note: VerticalPanel has a workaround for Box layout which aligns elements, so we can't
         // use trivial JPanel.
@@ -313,6 +330,26 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         // For instance AbstractVisualizer adds "browse file" panel
         // If it calls just ..add(browseFilePanel), then it will go to
         return wrapTitlePanel(titlePanel);
+    }
+
+    private void expandComments() {
+        commentsExpanded = true;
+        updateCommentsVisibility();
+        commentField.requestFocusInWindow();
+    }
+
+    private void updateCommentsVisibility() {
+        if (commentLabel == null) {
+            return;
+        }
+        commentLabel.setVisible(commentsExpanded);
+        commentField.setVisible(commentsExpanded);
+        commentsButton.setVisible(!commentsExpanded);
+        Container parent = commentField.getParent();
+        if (parent != null) {
+            parent.revalidate();
+            parent.repaint();
+        }
     }
 
     @API(status = EXPERIMENTAL, since = "5.2.0")
