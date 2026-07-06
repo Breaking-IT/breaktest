@@ -283,6 +283,7 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
 
     private void makeOptionsMenu() {
         optionsMenu = makeMenuRes("option",'O'); //$NON-NLS-1$
+        optionsMenu.add(makeMenuItemRes("settings", 'E', ActionNames.SETTINGS)); //$NON-NLS-1$
         optionsMenu.add(createLaFMenu());
 
         JCheckBoxMenuItem menuLoggerPanel = makeCheckBoxMenuItemRes("menu_logger_panel", ActionNames.LOGGER_PANEL_ENABLE_DISABLE); //$NON-NLS-1$

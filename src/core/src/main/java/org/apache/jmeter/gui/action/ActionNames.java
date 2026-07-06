@@ -87,6 +87,7 @@ public final class ActionNames {
     public static final String SAVE_AS_TEST_FRAGMENT          = "save_as_test_fragment"; // $NON-NLS-1$
     public static final String SAVE_GRAPHICS    = "save_graphics"; // $NON-NLS-1$
     public static final String SAVE_GRAPHICS_ALL= "save_graphics_all"; // $NON-NLS-1$
+    public static final String SETTINGS         = "settings"; // $NON-NLS-1$
     public static final String SSL_MANAGER      = "sslManager"; // $NON-NLS-1$
     public static final String STOP_THREAD      = "stop_thread"; // $NON-NLS-1$
     public static final String SUB_TREE_LOADED  = "sub_tree_loaded"; // $NON-NLS-1$
