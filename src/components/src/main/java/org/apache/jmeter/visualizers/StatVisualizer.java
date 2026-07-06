@@ -45,6 +45,7 @@ import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRendererWrapper;
+import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.CSVSaveService;
@@ -58,7 +59,7 @@ import org.apache.jorphan.gui.RendererUtils;
 /**
  * Aggregate Table-Based Reporting Visualizer for JMeter.
  */
-@GUIMenuSortOrder(3)
+@GUIMenuSortOrder(MenuInfo.SORT_ORDER_DEFAULT + 2)
 @TestElementMetadata(labelResource = "aggregate_report")
 public class StatVisualizer extends AbstractVisualizer implements Clearable, ActionListener {
 

@@ -40,8 +40,10 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.table.TableCellRenderer;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRendererWrapper;
+import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleResult;
@@ -62,6 +64,7 @@ import org.apache.jorphan.util.AlphaNumericComparator;
  * in a JTable, and the statistics are displayed at the bottom of the table.
  *
  */
+@GUIMenuSortOrder(MenuInfo.SORT_ORDER_DEFAULT + 3)
 @TestElementMetadata(labelResource = "view_results_in_table")
 public class TableVisualizer extends AbstractVisualizer implements Clearable {
 

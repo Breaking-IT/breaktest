@@ -48,6 +48,7 @@ import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRendererWrapper;
+import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.CSVSaveService;
@@ -67,7 +68,7 @@ import org.apache.jorphan.reflect.Functor;
  * Simpler (lower memory) version of Aggregate Report (StatVisualizer).
  * Excludes the Median and 90% columns, which are expensive in memory terms
  */
-@GUIMenuSortOrder(2)
+@GUIMenuSortOrder(MenuInfo.SORT_ORDER_DEFAULT + 1)
 @TestElementMetadata(labelResource = "summary_report")
 public class SummaryReport extends AbstractVisualizer implements Clearable, ActionListener {
 
