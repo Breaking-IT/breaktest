@@ -28,6 +28,7 @@ import org.apache.jmeter.protocol.http.util.HTTPConstants
 import org.apache.jmeter.protocol.http.util.HTTPFileArgs
 import org.apache.jmeter.testelement.TestElementSchema
 import org.apache.jmeter.testelement.schema.BooleanPropertyDescriptor
+import org.apache.jmeter.testelement.schema.CollectionPropertyDescriptor
 import org.apache.jmeter.testelement.schema.IntegerPropertyDescriptor
 import org.apache.jmeter.testelement.schema.StringPropertyDescriptor
 import org.apache.jmeter.testelement.schema.TestElementPropertyDescriptor
@@ -60,6 +61,13 @@ public abstract class HTTPSamplerBaseSchema : TestElementSchema() {
 
     public val headerManager: TestElementPropertyDescriptor<HTTPSamplerBaseSchema, HeaderManager>
         by testElement("HTTPSampler.header_manager")
+
+    /**
+     * Headers configured directly on the sampler (shown in the "Headers" tab).
+     * Scoped [HeaderManager] elements still merge in at runtime; these values win on name conflicts.
+     */
+    public val headers: CollectionPropertyDescriptor<HTTPSamplerBaseSchema>
+        by collection("HTTPSampler.headers")
 
     public val dnsCacheManager: TestElementPropertyDescriptor<HTTPSamplerBaseSchema, DNSCacheManager>
         by testElement("HTTPSampler.dns_cache_manager")

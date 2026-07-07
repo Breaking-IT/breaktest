@@ -101,6 +101,17 @@ diagnostics, AI-assisted repair workflows, and BreakTest Enterprise scale.
 
 ## GUI And Test-Plan Editing
 
+- HTTP headers are now part of the HTTP Request sampler itself: a Headers tab
+  on the sampler replaces the child HTTP Header Manager element. Header
+  Managers at higher levels (Test Plan, Thread Group, controllers) still apply
+  to all samplers in scope, with sampler-level headers winning on conflicts.
+  Legacy JMX files with a Header Manager under an HTTP Request are migrated
+  automatically on load (GUI and non-GUI), and saving writes the new format.
+  Recording and cURL import now produce sampler headers directly, search and
+  search/replace cover them, and copying a sampler carries its headers along.
+- Modernized the HTTP Request editor: a URL bar row (method, protocol, server,
+  path), a Params / Headers / Body / Files / Advanced tab strip, and a side
+  column with Request Options, Web Server, and Timeouts boxes.
 - Added undo and redo for semantic tree edits including add, delete, update,
   move, and search/replace operations.
 - Added background JMX loading with a loading overlay.

@@ -20,12 +20,14 @@ package org.apache.jmeter.protocol.http.control.gui;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.util.Arrays;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
+import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
@@ -40,6 +42,7 @@ import org.apache.jmeter.gui.util.InfoButton;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
@@ -239,41 +242,68 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         return "web_testing_title"; // $NON-NLS-1$
     }
 
+    /**
+     * Headers are edited on the sampler's Headers tab, so the Add menu
+     * no longer offers a child HTTP Header Manager.
+     */
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getDefaultSamplerMenu(
+                Set.of("org.apache.jmeter.protocol.http.gui.HeaderPanel")); // $NON-NLS-1$
+    }
+
     private void init() {// called from ctor, so must not be overridable
         setLayout(new BorderLayout(0, 5));
         setBorder(BorderFactory.createEmptyBorder());
 
-        JTabbedPane tabbedPane = createTabbedConfigPane();
+        urlConfigGui = createUrlConfigGui();
+        recordedRequestPane = createRecordedDataPanel(true);
+        recordedResponsePane = createRecordedDataPanel(false);
 
-        JPanel wrapper = new JPanel(new BorderLayout());
-        wrapper.setBorder(makeBorder());
-        wrapper.add(makeTitlePanel(), BorderLayout.CENTER);
+        if (urlConfigGui.isModernLayout()) {
+            // URL bar + tab strip + side column; Advanced joins the shared tab strip
+            // and the Timeouts box joins the side column.
+            configTabbedPane = urlConfigGui.getContentTabbedPane();
+            urlConfigGui.addContentTab(JMeterUtils
+                    .getResString("web_request_tab_advanced"), createAdvancedConfigPanel(false)); // $NON-NLS-1$
+            if (!isAJP) {
+                urlConfigGui.addSidePanel(getTimeOutPanel());
+            }
+            configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, wrapper, tabbedPane);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setOneTouchExpandable(true);
-        add(splitPane);
+            JPanel wrapper = new JPanel(new BorderLayout(0, 5));
+            wrapper.setBorder(makeBorder());
+            wrapper.add(makeTitlePanel(), BorderLayout.NORTH);
+            wrapper.add(urlConfigGui, BorderLayout.CENTER);
+            add(wrapper);
+        } else {
+            JTabbedPane tabbedPane = createTabbedConfigPane();
+
+            JPanel wrapper = new JPanel(new BorderLayout());
+            wrapper.setBorder(makeBorder());
+            wrapper.add(makeTitlePanel(), BorderLayout.CENTER);
+
+            JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, wrapper, tabbedPane);
+            splitPane.setBorder(BorderFactory.createEmptyBorder());
+            splitPane.setOneTouchExpandable(true);
+            add(splitPane);
+        }
     }
 
     /**
      * Create the parameters configuration tabstrip which includes the Basic tab ({@link UrlConfigGui})
-     * and the Advanced tab by default.
+     * and the Advanced tab by default. Only used with the classic (non-modern) layout.
      * @return the parameters configuration tabstrip which includes the Basic tab ({@link UrlConfigGui})
      *         and the Advanced tab by default
      */
     protected JTabbedPane createTabbedConfigPane() {
         configTabbedPane = new JTabbedPane();
 
-        // URL CONFIG
-        urlConfigGui = createUrlConfigGui();
-        recordedRequestPane = createRecordedDataPanel(true);
-        recordedResponsePane = createRecordedDataPanel(false);
-
         configTabbedPane.add(JMeterUtils
                 .getResString("web_testing_basic"), urlConfigGui);
 
         // AdvancedPanel (embedded resources, source address and optional tasks)
-        final JPanel advancedPanel = createAdvancedConfigPanel();
+        final JPanel advancedPanel = createAdvancedConfigPanel(true);
         configTabbedPane.add(JMeterUtils
                 .getResString("web_testing_advanced"), advancedPanel);
         configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
@@ -360,16 +390,18 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
      * @return a {@link UrlConfigGui} which is used as the Basic tab
      */
     protected UrlConfigGui createUrlConfigGui() {
-        final UrlConfigGui configGui = new UrlConfigGui(true, true, true);
+        final UrlConfigGui configGui = new UrlConfigGui(true, true, true, true);
         configGui.setBorder(makeBorder());
         return configGui;
     }
 
-    private JPanel createAdvancedConfigPanel() {
-        // HTTP request options
+    private JPanel createAdvancedConfigPanel(boolean includeTimeouts) {
+        // HTTP request options; in the modern layout the Timeouts box lives in the side column
         JPanel httpOptions = new HorizontalPanel();
         httpOptions.add(getProtocolPanel());
-        httpOptions.add(getTimeOutPanel());
+        if (includeTimeouts) {
+            httpOptions.add(getTimeOutPanel());
+        }
 
         // AdvancedPanel (embedded resources, source address and optional tasks)
         JPanel advancedPanel = new VerticalPanel();

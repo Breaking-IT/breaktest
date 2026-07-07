@@ -252,8 +252,8 @@ public class ParseCurlCommandActionTest {
         assertEquals("www.example.com", httpSampler.getDomain());
         assertEquals("/12345?param1=value1&param2=value2", httpSampler.getPath());
         assertEquals("PUT", httpSampler.getMethod());
-        assertEquals(new Header("accept", "*/*"), httpSampler.getHeaderManager().getHeader(0));
-        assertEquals(new Header("X-XSRF-TOKEN", "1234"), httpSampler.getHeaderManager().getHeader(1));
+        assertEquals(new Header("accept", "*/*"), httpSampler.getNativeHeaderList().get(0));
+        assertEquals(new Header("X-XSRF-TOKEN", "1234"), httpSampler.getNativeHeaderList().get(1));
     }
 
     @Test

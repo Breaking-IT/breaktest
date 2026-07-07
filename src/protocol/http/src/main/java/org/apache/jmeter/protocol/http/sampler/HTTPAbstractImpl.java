@@ -192,12 +192,13 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
     }
 
     /**
-     * Invokes {@link HTTPSamplerBase#getHeaderManager()}
+     * Invokes {@link HTTPSamplerBase#getEffectiveHeaderManager()}: scoped Header Managers
+     * combined with the headers configured directly on the sampler (native headers win).
      *
-     * @return the {@link HeaderManager} of the associated test element
+     * @return the effective {@link HeaderManager} of the associated test element
      */
     protected HeaderManager getHeaderManager() {
-        return testElement.getHeaderManager();
+        return testElement.getEffectiveHeaderManager();
     }
 
     /**

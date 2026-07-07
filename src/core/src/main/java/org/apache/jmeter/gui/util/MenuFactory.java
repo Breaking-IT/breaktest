@@ -59,6 +59,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.TestBeanGUI;
+import org.apache.jmeter.testelement.ChildElementFilter;
 import org.apache.jmeter.testelement.NonTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -394,29 +395,48 @@ public final class MenuFactory {
 
     @VisibleForTesting
     static JMenu createDefaultAddMenu() {
+        return createDefaultAddMenu(Collections.emptySet());
+    }
+
+    private static JMenu createDefaultAddMenu(Set<String> excludedGuiClasses) {
         String addAction = ActionNames.ADD;
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
         addMenu.setIcon(ModernMenuIcon.of(ModernMenuIcon.Kind.ADD));
-        addDefaultAddMenuToMenu(addMenu, addAction);
+        addDefaultAddMenuToMenu(addMenu, addAction, excludedGuiClasses);
         return addMenu;
     }
 
     private static JMenu addDefaultAddMenuToMenu(JMenu addMenu, String addAction) {
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.ASSERTIONS, addAction));
+        return addDefaultAddMenuToMenu(addMenu, addAction, Collections.emptySet());
+    }
+
+    private static JMenu addDefaultAddMenuToMenu(JMenu addMenu, String addAction, Set<String> excludedGuiClasses) {
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.ASSERTIONS, addAction, excludedGuiClasses));
         addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.TIMERS, addAction));
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.TIMERS, addAction, excludedGuiClasses));
         addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.PRE_PROCESSORS, addAction));
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.POST_PROCESSORS, addAction));
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.PRE_PROCESSORS, addAction, excludedGuiClasses));
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.POST_PROCESSORS, addAction, excludedGuiClasses));
         addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.CONFIG_ELEMENTS, addAction));
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.LISTENERS, addAction));
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.CONFIG_ELEMENTS, addAction, excludedGuiClasses));
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.LISTENERS, addAction, excludedGuiClasses));
         return addMenu;
     }
 
     public static JPopupMenu getDefaultSamplerMenu() {
+        return getDefaultSamplerMenu(Collections.emptySet());
+    }
+
+    /**
+     * Sampler popup menu whose Add submenu hides the given GUI classes
+     * (e.g. samplers that edit headers natively hide the Header Manager entry).
+     *
+     * @param excludedGuiClasses fully qualified GUI class names to omit
+     * @return the popup menu
+     */
+    public static JPopupMenu getDefaultSamplerMenu(Set<String> excludedGuiClasses) {
         JPopupMenu pop = new JPopupMenu();
-        pop.add(createDefaultAddMenu());
+        pop.add(createDefaultAddMenu(excludedGuiClasses));
         pop.add(makeMenus(new String[]{CONTROLLERS},
                 JMeterUtils.getResString("insert_parent"),// $NON-NLS-1$
                 ActionNames.ADD_PARENT));
@@ -471,11 +491,16 @@ public final class MenuFactory {
      * @return the menu
      */
     public static JMenu makeMenu(String category, String actionCommand) {
+        return makeMenu(category, actionCommand, Collections.emptySet());
+    }
+
+    private static JMenu makeMenu(String category, String actionCommand, Set<String> excludedGuiClasses) {
         return makeMenu(
                 menuMap.get(category),
                 actionCommand,
                 JMeterUtils.getResString(category),
-                category);
+                category,
+                excludedGuiClasses);
     }
 
     /**
@@ -488,11 +513,13 @@ public final class MenuFactory {
      * @return the menu
      */
     private static JMenu makeMenu(
-            Collection<? extends MenuInfo> menuInfo, String actionCommand, String menuName, String category) {
+            Collection<? extends MenuInfo> menuInfo, String actionCommand, String menuName, String category,
+            Set<String> excludedGuiClasses) {
 
         JMenu menu = new JMenu(menuName);
         menu.setIcon(ModernMenuIcon.fromCategory(category));
         menuInfo.stream()
+                .filter(info -> !excludedGuiClasses.contains(info.getClassName()))
                 .map(info -> makeMenuItem(info, actionCommand, category))
                 .forEach(menu::add);
         GuiUtils.makeScrollableMenu(menu);
@@ -616,6 +643,15 @@ public final class MenuFactory {
         }
         TestElement parent = parentNode.getTestElement();
 
+        // Let the parent element veto specific child types (e.g. HTTP samplers reject Header Managers)
+        if (parent instanceof ChildElementFilter filter) {
+            for (JMeterTreeNode node : nodes) {
+                if (node.getUserObject() instanceof TestElement child && !filter.acceptsChildElement(child)) {
+                    return false;
+                }
+            }
+        }
+
         // Force TestFragment to only be pastable under a Test Plan
         if (foundClass(nodes, new Class[]{TestFragmentController.class})) {
             return parent instanceof TestPlan;
@@ -702,114 +738,75 @@ public final class MenuFactory {
             };
         }
 
+        // Ordered substring -> icon kind matching; first hit wins, so keep the
+        // more specific tokens (e.g. RandomOrderController) before the general ones.
+        private static final List<Map.Entry<Kind, String[]>> PRIMARY_KINDS = List.of(
+                Map.entry(Kind.COOKIE, new String[] {"Cookie"}), // $NON-NLS-1$
+                Map.entry(Kind.THREADS, new String[] {"ThreadGroup"}), // $NON-NLS-1$
+                Map.entry(Kind.REPORT, new String[] {"Visualizer", "Listener", "ResultCollector", "Report"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
+                Map.entry(Kind.REQUEST, new String[] {"Sampler"})); // $NON-NLS-1$
+
+        private static final List<Map.Entry<Kind, String[]>> CONTROLLER_KINDS = List.of(
+                Map.entry(Kind.IF_CONTROLLER, new String[] {"IfController", "If Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.SWITCH_CONTROLLER, new String[] {"SwitchController", "Switch Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.TRANSACTION, new String[] {"TransactionController", "Transaction Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.LOOP, new String[] {"LoopController", "Loop Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.WHILE_CONTROLLER, new String[] {"WhileController", "While Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.CRITICAL_CONTROLLER, new String[] {"CriticalSectionController", "Critical Section Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.FOREACH_CONTROLLER,
+                        new String[] {"ForeachController", "ForEachController", "ForEach Controller"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                Map.entry(Kind.INCLUDE_CONTROLLER, new String[] {"IncludeController", "Include Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.INTERLEAVE_CONTROLLER, new String[] {"InterleaveControl", "Interleave Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.ONCE_CONTROLLER, new String[] {"OnceOnlyController", "Once Only Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.RANDOM_ORDER_CONTROLLER, new String[] {"RandomOrderController", "Random Order Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.RANDOM_CONTROLLER, new String[] {"RandomController", "Random Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.RECORDING_CONTROLLER, new String[] {"RecordingController", "Recording Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.RUNTIME_CONTROLLER, new String[] {"RuntimeController", "Runtime Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.PARALLEL_CONTROLLER, new String[] {"ParallelController", "Parallel Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.THROUGHPUT_CONTROLLER, new String[] {"ThroughputController", "Throughput Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.FORK_CONTROLLER, new String[] {"ForkController", "Fork Controller"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.MODULE, new String[] {"ModuleController", "Module Controller", "Test Fragment"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                Map.entry(Kind.SIMPLE_CONTROLLER, new String[] {"SimpleController", "Simple Controller", "Controller"})); // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+
+        private static final List<Map.Entry<Kind, String[]>> FALLBACK_KINDS = List.of(
+                Map.entry(Kind.CONFIG, new String[] {"Config", "Defaults", "Manager"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                Map.entry(Kind.TIMER, new String[] {"Timer"}), // $NON-NLS-1$
+                Map.entry(Kind.ASSERTION, new String[] {"Assertion"}), // $NON-NLS-1$
+                Map.entry(Kind.PRE_PROCESSOR, new String[] {"PreProcessor"}), // $NON-NLS-1$
+                Map.entry(Kind.POST_PROCESSOR, new String[] {"PostProcessor"})); // $NON-NLS-1$
+
         static Icon fromDescriptor(String category, String descriptor) {
-            if (LISTENERS.equals(category)) {
-                return of(Kind.REPORT);
-            }
-            if (PRE_PROCESSORS.equals(category)) {
-                return of(Kind.PRE_PROCESSOR);
-            }
-            if (POST_PROCESSORS.equals(category)) {
-                return of(Kind.POST_PROCESSOR);
-            }
-            if (SAMPLERS.equals(category)) {
-                return of(Kind.REQUEST);
-            }
-            if (descriptor.contains("Cookie")) { // $NON-NLS-1$
-                return of(Kind.COOKIE);
-            }
-            if (descriptor.contains("ThreadGroup")) { // $NON-NLS-1$
-                return of(Kind.THREADS);
-            }
-            if (descriptor.contains("Visualizer") || descriptor.contains("Listener") || descriptor.contains("ResultCollector")
-                    || descriptor.contains("Report")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
-                return of(Kind.REPORT);
-            }
-            if (descriptor.contains("Sampler")) { // $NON-NLS-1$
-                return of(Kind.REQUEST);
-            }
-            Kind controllerKind = controllerKind(descriptor);
-            if (controllerKind != null) {
-                return of(controllerKind);
-            }
-            if (descriptor.contains("Config") || descriptor.contains("Defaults") || descriptor.contains("Manager")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
-                return of(Kind.CONFIG);
-            }
-            if (descriptor.contains("Timer")) { // $NON-NLS-1$
-                return of(Kind.TIMER);
-            }
-            if (descriptor.contains("Assertion")) { // $NON-NLS-1$
-                return of(Kind.ASSERTION);
-            }
-            if (descriptor.contains("PreProcessor")) { // $NON-NLS-1$
-                return of(Kind.PRE_PROCESSOR);
-            }
-            if (descriptor.contains("PostProcessor")) { // $NON-NLS-1$
-                return of(Kind.POST_PROCESSOR);
-            }
-            return of(Kind.NODE);
+            return of(kindFor(category, descriptor));
         }
 
-        private static Kind controllerKind(String descriptor) {
-            if (descriptor.contains("IfController") || descriptor.contains("If Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.IF_CONTROLLER;
+        private static Kind kindFor(String category, String descriptor) {
+            Kind byCategory = LISTENERS.equals(category) ? Kind.REPORT
+                    : PRE_PROCESSORS.equals(category) ? Kind.PRE_PROCESSOR
+                    : POST_PROCESSORS.equals(category) ? Kind.POST_PROCESSOR
+                    : SAMPLERS.equals(category) ? Kind.REQUEST
+                    : null;
+            if (byCategory != null) {
+                return byCategory;
             }
-            if (descriptor.contains("SwitchController") || descriptor.contains("Switch Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.SWITCH_CONTROLLER;
+            Kind primary = matchKind(PRIMARY_KINDS, descriptor);
+            if (primary != null) {
+                return primary;
             }
-            if (descriptor.contains("TransactionController") || descriptor.contains("Transaction Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.TRANSACTION;
+            Kind controllerKind = matchKind(CONTROLLER_KINDS, descriptor);
+            if (controllerKind != null) {
+                return controllerKind;
             }
-            if (descriptor.contains("LoopController") || descriptor.contains("Loop Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.LOOP;
-            }
-            if (descriptor.contains("WhileController") || descriptor.contains("While Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.WHILE_CONTROLLER;
-            }
-            if (descriptor.contains("CriticalSectionController") || descriptor.contains("Critical Section Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.CRITICAL_CONTROLLER;
-            }
-            if (descriptor.contains("ForeachController") || descriptor.contains("ForEachController")
-                    || descriptor.contains("ForEach Controller")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
-                return Kind.FOREACH_CONTROLLER;
-            }
-            if (descriptor.contains("IncludeController") || descriptor.contains("Include Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.INCLUDE_CONTROLLER;
-            }
-            if (descriptor.contains("InterleaveControl") || descriptor.contains("Interleave Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.INTERLEAVE_CONTROLLER;
-            }
-            if (descriptor.contains("OnceOnlyController") || descriptor.contains("Once Only Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.ONCE_CONTROLLER;
-            }
-            if (descriptor.contains("RandomOrderController") || descriptor.contains("Random Order Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.RANDOM_ORDER_CONTROLLER;
-            }
-            if (descriptor.contains("RandomController") || descriptor.contains("Random Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.RANDOM_CONTROLLER;
-            }
-            if (descriptor.contains("RecordingController") || descriptor.contains("Recording Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.RECORDING_CONTROLLER;
-            }
-            if (descriptor.contains("RuntimeController") || descriptor.contains("Runtime Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.RUNTIME_CONTROLLER;
-            }
-            if (descriptor.contains("ParallelController") || descriptor.contains("Parallel Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.PARALLEL_CONTROLLER;
-            }
-            if (descriptor.contains("ThroughputController") || descriptor.contains("Throughput Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.THROUGHPUT_CONTROLLER;
-            }
-            if (descriptor.contains("ForkController") || descriptor.contains("Fork Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.FORK_CONTROLLER;
-            }
-            if (descriptor.contains("ModuleController") || descriptor.contains("Module Controller")
-                    || descriptor.contains("Test Fragment")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
-                return Kind.MODULE;
-            }
-            if (descriptor.contains("SimpleController") || descriptor.contains("Simple Controller")
-                    || descriptor.contains("Controller")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
-                return Kind.SIMPLE_CONTROLLER;
+            Kind fallback = matchKind(FALLBACK_KINDS, descriptor);
+            return fallback != null ? fallback : Kind.NODE;
+        }
+
+        private static Kind matchKind(List<Map.Entry<Kind, String[]>> table, String descriptor) {
+            for (Map.Entry<Kind, String[]> entry : table) {
+                for (String token : entry.getValue()) {
+                    if (descriptor.contains(token)) {
+                        return entry.getKey();
+                    }
+                }
             }
             return null;
         }

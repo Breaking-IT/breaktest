@@ -135,9 +135,12 @@ public class TargetRateChart : JPanel() {
         prevValuesPerMinute = null
         prevContinuation = null
         clearChart()
-        add(JLabel(message, SwingConstants.CENTER).also {
-            it.foreground = uiColor("Label.foreground", Color(0x111827))
-        }, BorderLayout.CENTER)
+        add(
+            JLabel(message, SwingConstants.CENTER).also {
+                it.foreground = uiColor("Label.foreground", Color(0x111827))
+            },
+            BorderLayout.CENTER
+        )
         revalidate()
         repaint()
     }

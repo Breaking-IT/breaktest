@@ -27,8 +27,8 @@ import java.lang.reflect.Field;
 import java.util.Collection;
 import java.util.List;
 
-import javax.swing.JTree;
 import javax.swing.JPopupMenu;
+import javax.swing.JTree;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.config.ConfigTestElement;
@@ -37,8 +37,8 @@ import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.EnableComponent;
-import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
