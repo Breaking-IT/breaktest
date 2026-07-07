@@ -41,8 +41,11 @@ import javax.swing.JTextArea
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.Timer
+import javax.swing.UIManager
 import javax.swing.table.AbstractTableModel
 import javax.swing.tree.TreePath
+
+import org.apache.jorphan.gui.JFactory
 
 public object AiAutoScriptingLogWindow {
     private const val MAX_LINE_LENGTH = 2_000
@@ -116,6 +119,22 @@ public object AiAutoScriptingLogWindow {
     public fun dockedComponent(): JPanel {
         ensureContentPanel()
         return contentPanel ?: error("AI log panel was not created")
+    }
+
+    @JvmStatic
+    public fun refreshUi() {
+        onEdt {
+            contentPanel?.let {
+                SwingUtilities.updateComponentTreeUI(it)
+                it.revalidate()
+                it.repaint()
+            }
+            dialog?.let {
+                SwingUtilities.updateComponentTreeUI(it)
+                it.repaint()
+            }
+            textArea?.let(::styleLogTextArea)
+        }
     }
 
     @JvmStatic
@@ -371,8 +390,16 @@ public object AiAutoScriptingLogWindow {
             wrapStyleWord = true
             margin = Insets(6, 8, 6, 8)
         }
+        JFactory.withDynamic(area) { styleLogTextArea(it) }
         textArea = area
         return area
+    }
+
+    private fun styleLogTextArea(area: JTextArea) {
+        UIManager.getColor("TextArea.background")?.let { area.background = it }
+        UIManager.getColor("TextArea.foreground")?.let { area.foreground = it }
+        UIManager.getColor("TextArea.caretForeground")?.let { area.caretColor = it }
+        UIManager.getFont("TextArea.font")?.let { area.font = it }
     }
 
     private fun ensureChangeTable(): JTable {

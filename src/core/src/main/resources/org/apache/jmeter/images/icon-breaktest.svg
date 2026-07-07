@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">BreakTest logo</title>
+  <desc id="desc">A yellow hammer striking a yellow bar chart on a dark blue background.</desc>
+  <defs>
+    <linearGradient id="gold" x1="88" y1="35" x2="211" y2="211" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0c75f"/>
+      <stop offset="0.52" stop-color="#d9ad4d"/>
+      <stop offset="1" stop-color="#f1c557"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="36" y1="160" x2="112" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2e7eaa"/>
+      <stop offset="1" stop-color="#4c99c3"/>
+    </linearGradient>
+    <filter id="soft-edge" x="-8%" y="-8%" width="116%" height="116%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.1" result="blur"/>
+      <feOffset dx="0.8" dy="1.1" result="offset"/>
+      <feComposite in="SourceGraphic" in2="offset" operator="over"/>
+    </filter>
+  </defs>
+  <rect width="256" height="256" fill="#0a2139"/>
+  <g opacity="0.34" fill="#111a20">
+    <rect x="47" y="113" width="84" height="19" rx="4" transform="rotate(-45 89 122)"/>
+    <path d="M106 55h47a8 8 0 0 1 8 8v31a8 8 0 0 1-8 8h-47a8 8 0 0 1-8-8V63a8 8 0 0 1 8-8Z" transform="rotate(45 129.5 78.5)"/>
+    <rect x="108" y="154" width="29" height="59"/>
+    <rect x="147" y="127" width="30" height="86"/>
+    <rect x="185" y="97" width="29" height="116"/>
+  </g>
+  <g filter="url(#soft-edge)">
+    <rect x="43" y="108" width="84" height="19" rx="4" transform="rotate(-45 85 117.5)" fill="url(#blue)"/>
+    <g transform="rotate(45 128 75)">
+      <rect x="96" y="53" width="59" height="39" rx="6" fill="url(#gold)"/>
+    </g>
+    <g>
+      <rect x="103" y="151" width="29" height="60" fill="#d9ad4d"/>
+      <rect x="141" y="125" width="30" height="86" fill="#d9ad4d"/>
+      <rect x="181" y="96" width="30" height="115" fill="#d9ad4d"/>
+    </g>
+  </g>
+</svg>

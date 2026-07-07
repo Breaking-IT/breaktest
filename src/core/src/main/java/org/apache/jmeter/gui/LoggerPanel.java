@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Insets;
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -26,7 +27,9 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.ScrollPaneConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.UIManager;
 
 import org.apache.jmeter.gui.logging.GuiLogEventListener;
 import org.apache.jmeter.gui.logging.LogEventObject;
@@ -34,6 +37,8 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 import org.apache.jmeter.util.JMeterUtils;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rtextarea.Gutter;
+import org.fife.ui.rtextarea.RTextScrollPane;
 
 /**
  * Panel that shows log events
@@ -43,6 +48,8 @@ public class LoggerPanel extends JPanel implements GuiLogEventListener {
     private static final long serialVersionUID = 4935188629475943229L;
 
     private final JTextArea textArea;
+
+    private JScrollPane areaScrollPane;
 
     // Limit length of log content
     // 0 means unlimited
@@ -65,6 +72,64 @@ public class LoggerPanel extends JPanel implements GuiLogEventListener {
      */
     public LoggerPanel() {
         textArea = init();
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        refreshLogAreaStyle();
+    }
+
+    public void refreshUi() {
+        SwingUtilities.updateComponentTreeUI(this);
+        refreshLogAreaStyle();
+        revalidate();
+        repaint();
+    }
+
+    private void refreshLogAreaStyle() {
+        if (textArea != null) {
+            if (textArea instanceof JSyntaxTextArea syntaxTextArea) {
+                JSyntaxTextArea.refreshTheme(syntaxTextArea);
+            }
+            Color background = UIManager.getColor("TextArea.background"); // $NON-NLS-1$
+            Color foreground = UIManager.getColor("TextArea.foreground"); // $NON-NLS-1$
+            Color caret = UIManager.getColor("TextArea.caretForeground"); // $NON-NLS-1$
+            Color border = UIManager.getColor("Component.borderColor"); // $NON-NLS-1$
+            Color disabled = UIManager.getColor("Label.disabledForeground"); // $NON-NLS-1$
+            if (background != null) {
+                textArea.setBackground(background);
+                if (areaScrollPane != null) {
+                    areaScrollPane.getViewport().setBackground(background);
+                    areaScrollPane.setBackground(background);
+                }
+            }
+            if (foreground != null) {
+                textArea.setForeground(foreground);
+            }
+            if (caret != null) {
+                textArea.setCaretColor(caret);
+            }
+            if (areaScrollPane instanceof RTextScrollPane rTextScrollPane) {
+                Gutter gutter = rTextScrollPane.getGutter();
+                if (gutter != null) {
+                    if (background != null) {
+                        gutter.setBackground(background);
+                        gutter.setFoldIndicatorBackground(background);
+                    }
+                    if (disabled != null) {
+                        gutter.setLineNumberColor(disabled);
+                        gutter.setFoldIndicatorForeground(disabled);
+                    }
+                    if (foreground != null) {
+                        gutter.setCurrentLineNumberColor(foreground);
+                    }
+                    if (border != null) {
+                        gutter.setBorderColor(border);
+                    }
+                }
+            }
+        }
     }
 
     private JTextArea init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -90,9 +155,11 @@ public class LoggerPanel extends JPanel implements GuiLogEventListener {
             areaScrollPane = new JScrollPane(jTextArea);
         }
 
-        areaScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
-        areaScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        this.add(areaScrollPane, BorderLayout.CENTER);
+        this.areaScrollPane = areaScrollPane;
+        this.areaScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        this.areaScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        this.add(this.areaScrollPane, BorderLayout.CENTER);
+        refreshLogAreaStyle();
 
         initWorker();
 

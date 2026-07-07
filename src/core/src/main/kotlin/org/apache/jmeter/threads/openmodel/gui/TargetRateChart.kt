@@ -31,13 +31,20 @@ import org.jetbrains.letsPlot.label.ggtitle
 import org.jetbrains.letsPlot.label.ylab
 import org.jetbrains.letsPlot.letsPlot
 import org.jetbrains.letsPlot.scale.scaleXTime
+import org.jetbrains.letsPlot.themes.elementLine
+import org.jetbrains.letsPlot.themes.elementRect
+import org.jetbrains.letsPlot.themes.elementText
+import org.jetbrains.letsPlot.themes.theme
 import org.slf4j.LoggerFactory
 import java.awt.BorderLayout
+import java.awt.Color
 import java.util.concurrent.TimeUnit
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
 
 /**
  * Draws a line chart with the expected load rate over time for given [ThreadSchedule].
@@ -46,12 +53,7 @@ import javax.swing.SwingConstants
 public class TargetRateChart : JPanel() {
     private companion object {
         private val log = LoggerFactory.getLogger(TargetRateChart::class.java)
-        private const val LINE_COLOR = "#2962AA"
         private const val MIN_TICKS_FOR_TIME_AXIS = 2.5
-    }
-
-    init {
-        layout = BorderLayout()
     }
 
     private var prevSteps: List<ThreadScheduleStep>? = null
@@ -61,6 +63,14 @@ public class TargetRateChart : JPanel() {
     private var prevYAxisLabel: String? = null
     private var prevValuesPerMinute: Boolean? = null
     private var prevContinuation: Boolean? = null
+    private var initialized = false
+
+    init {
+        layout = BorderLayout()
+        isOpaque = true
+        updateChartBackground()
+        initialized = true
+    }
 
     public fun updateSchedule(threadSchedule: ThreadSchedule) {
         if (threadSchedule.steps == prevSteps) {
@@ -125,7 +135,9 @@ public class TargetRateChart : JPanel() {
         prevValuesPerMinute = null
         prevContinuation = null
         clearChart()
-        add(JLabel(message, SwingConstants.CENTER), BorderLayout.CENTER)
+        add(JLabel(message, SwingConstants.CENTER).also {
+            it.foreground = uiColor("Label.foreground", Color(0x111827))
+        }, BorderLayout.CENTER)
         revalidate()
         repaint()
     }
@@ -196,10 +208,25 @@ public class TargetRateChart : JPanel() {
             "time" to time.copyOf(mainSize),
             "rate" to rate.copyOf(mainSize)
         )
-        var plot = letsPlot(data) + geomLine(color = LINE_COLOR, size = 1.2) { x = "time"; y = "rate" } +
+        val colors = chartColors()
+        var plot = letsPlot(data) + geomLine(color = colors.line, size = 1.2) { x = "time"; y = "rate" } +
             scaleXTime("Time since test start", expand = listOf(0, 0)) +
             ggtitle(title) +
-            ylab(yAxisLabel)
+            ylab(yAxisLabel) +
+            theme(
+                rect = elementRect(fill = colors.background, color = colors.background),
+                plotBackground = elementRect(fill = colors.background, color = colors.background),
+                panelBackground = elementRect(fill = colors.panel, color = colors.border),
+                panelBorder = elementRect(fill = null, color = colors.border, size = 0.8),
+                panelGridMajor = elementLine(color = colors.grid, size = 0.5),
+                panelGridMinor = elementLine(color = colors.minorGrid, size = 0.3),
+                axisLine = elementLine(color = colors.axis, size = 0.7),
+                axisTicks = elementLine(color = colors.axis, size = 0.7),
+                axisText = elementText(color = colors.text, size = 11),
+                axisTitle = elementText(color = colors.text, size = 12),
+                plotTitle = elementText(color = colors.text, size = 15),
+                text = elementText(color = colors.text)
+            )
         if (continuation && time.size > 1) {
             val last = time.lastIndex
             plot += geomSegment(
@@ -209,7 +236,7 @@ public class TargetRateChart : JPanel() {
                     "xend" to listOf(time[last]),
                     "yend" to listOf(rate[last])
                 ),
-                color = LINE_COLOR,
+                color = colors.line,
                 linetype = "dashed",
                 size = 1.2,
                 arrow = arrow(length = 9, ends = "last", type = "open")
@@ -224,14 +251,141 @@ public class TargetRateChart : JPanel() {
         val rawSpec = plot.toSpec()
         val processedSpec = MonolithicCommon.processRawSpecs(rawSpec, frontendOnly = false)
 
-        return DefaultPlotPanelBatik(
+        return ThemedPlotPanelBatik(
             processedSpec = processedSpec,
             preserveAspectRatio = false,
             preferredSizeFromPlot = false,
             repaintDelay = 10,
+            chartBackground = colors.awtBackground,
         ) { messages ->
             for (message in messages) {
                 log.info(message)
+            }
+        }
+    }
+
+    override fun updateUI() {
+        super.updateUI()
+        updateChartBackground()
+        if (initialized) {
+            SwingUtilities.invokeLater {
+                refreshChartTheme()
+            }
+        }
+    }
+
+    private fun updateChartBackground() {
+        background = uiColor("Panel.background", Color(0xFFFFFF))
+    }
+
+    private fun refreshChartTheme() {
+        val time = prevTimes?.copyOf() ?: return
+        val rate = prevRate?.copyOf() ?: return
+        val title = prevTitle ?: return
+        val yAxisLabel = prevYAxisLabel ?: return
+        val valuesPerMinute = prevValuesPerMinute ?: return
+        val continuation = prevContinuation ?: return
+
+        prevTimes = null
+        prevRate = null
+        prevTitle = null
+        prevYAxisLabel = null
+        prevValuesPerMinute = null
+        prevContinuation = null
+        setData(time, rate, title, yAxisLabel, valuesPerMinute, continuation)
+    }
+
+    private fun chartColors(): ChartColors {
+        val container = uiColor("Panel.background", Color(0xFFFFFF))
+        val text = uiColor("Label.foreground", Color(0x111827))
+        val dark = luminance(container) < 0.45
+        val background = if (dark) container else Color(0xF6F8FB)
+        val panel = if (dark) mix(container, Color.WHITE, 0.04) else Color(0xF8FAFC)
+        val grid = if (dark) mix(container, Color.WHITE, 0.14) else Color(0xE5E7EB)
+        val minorGrid = if (dark) mix(container, Color.WHITE, 0.09) else Color(0xEEF2F7)
+        val border = if (dark) mix(container, Color.WHITE, 0.22) else Color(0xD1D5DB)
+        val axis = if (dark) mix(text, container, 0.2) else Color(0x6B7280)
+        val line = if (dark) Color(0x7DB3FF) else Color(0x2962AA)
+        return ChartColors(
+            background = toHex(background),
+            panel = toHex(panel),
+            text = toHex(text),
+            grid = toHex(grid),
+            minorGrid = toHex(minorGrid),
+            border = toHex(border),
+            axis = toHex(axis),
+            line = toHex(line),
+            awtBackground = background
+        )
+    }
+
+    private data class ChartColors(
+        val background: String,
+        val panel: String,
+        val text: String,
+        val grid: String,
+        val minorGrid: String,
+        val border: String,
+        val axis: String,
+        val line: String,
+        val awtBackground: Color
+    )
+
+    private fun uiColor(key: String, fallback: Color): Color =
+        UIManager.getColor(key) ?: fallback
+
+    private fun toHex(color: Color): String =
+        "#%02x%02x%02x".format(color.red, color.green, color.blue)
+
+    private fun mix(base: Color, overlay: Color, amount: Double): Color {
+        fun channel(baseChannel: Int, overlayChannel: Int): Int =
+            (baseChannel + (overlayChannel - baseChannel) * amount).toInt().coerceIn(0, 255)
+
+        return Color(
+            channel(base.red, overlay.red),
+            channel(base.green, overlay.green),
+            channel(base.blue, overlay.blue)
+        )
+    }
+
+    private fun luminance(color: Color): Double {
+        fun channel(value: Int): Double {
+            val normalized = value / 255.0
+            return if (normalized <= 0.03928) normalized / 12.92
+            else Math.pow((normalized + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(color.red) + 0.7152 * channel(color.green) + 0.0722 * channel(color.blue)
+    }
+
+    private class ThemedPlotPanelBatik(
+        processedSpec: MutableMap<String, Any>,
+        preserveAspectRatio: Boolean,
+        preferredSizeFromPlot: Boolean,
+        repaintDelay: Int,
+        private val chartBackground: Color,
+        computationMessagesHandler: (List<String>) -> Unit
+    ) : DefaultPlotPanelBatik(
+        processedSpec,
+        preserveAspectRatio,
+        preferredSizeFromPlot,
+        repaintDelay,
+        computationMessagesHandler
+    ) {
+        init {
+            setChartBackground(this, chartBackground)
+        }
+
+        override fun plotComponentCreated(plotComponent: JComponent) {
+            setChartBackground(plotComponent, chartBackground)
+        }
+
+        private fun setChartBackground(component: JComponent, color: Color) {
+            component.isOpaque = true
+            component.background = color
+            for (child in component.components) {
+                if (child is JComponent) {
+                    setChartBackground(child, color)
+                }
             }
         }
     }

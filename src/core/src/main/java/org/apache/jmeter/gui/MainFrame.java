@@ -26,9 +26,11 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
+import java.awt.FlowLayout;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Image;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
 import java.awt.Rectangle;
@@ -53,6 +55,7 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.URL;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +68,7 @@ import javax.swing.Action;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.DropMode;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.InputMap;
 import javax.swing.JButton;
@@ -78,6 +82,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.MenuElement;
@@ -113,11 +118,14 @@ import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.ComponentUtil;
+import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 
 /**
  * The main JMeter frame, containing the menu bar, test tree, and an area for
@@ -150,6 +158,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
                     .matcher(OS_NAME)
                     .find();
 
+    private static final int APP_CHROME_GAP = 8;
+
     /** The menu bar. */
     private JMeterMenuBar menuBar;
 
@@ -160,7 +170,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     private ScrollableMainPanel mainPanelView;
 
     /** The panel where the test tree is shown. */
-    private JScrollPane treePanel;
+    private JComponent treePanel;
 
     /** The LOG panel. */
     private LoggerPanel logPanel;
@@ -174,19 +184,14 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     /** The test tree. */
     private JTree tree;
 
-    private final String iconSize = JMeterUtils.getPropDefault(JMeterToolBar.TOOLBAR_ICON_SIZE, JMeterToolBar.DEFAULT_TOOLBAR_ICON_SIZE);
-
     /** An image which is displayed when a test is running. */
-    private final ImageIcon runningIcon = JMeterUtils.getImage("status/" + iconSize +"/user-online-2.png");// $NON-NLS-1$
+    private final Icon runningIcon = new StatusDotIcon(new Color(0x16A34A), true);
 
     /** An image which is displayed when a test is not currently running. */
-    private final ImageIcon stoppedIcon = JMeterUtils.getImage("status/" + iconSize +"/user-offline-2.png");// $NON-NLS-1$
+    private final Icon stoppedIcon = new StatusDotIcon(new Color(0x9CA3AF), false);
 
     /** An image which is displayed to indicate FATAL, ERROR or WARNING. */
-    private final ImageIcon warningIcon = JMeterUtils.getImage("status/" + iconSize +"/pictogram-din-w000-general.png");// $NON-NLS-1$
-
-    /** The button used to display the running/stopped image. */
-    private JButton runningIndicator;
+    private final Icon warningIcon = new WarningStatusIcon();
 
     /** The set of currently running hosts. */
     private final Set<String> hosts = new HashSet<>();
@@ -197,6 +202,18 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     private LoadingGlassPane loadingGlassPane;
 
     private JLabel activeAndTotalThreads;
+
+    private JLabel bottomElapsed;
+
+    private JLabel bottomThreads;
+
+    private JLabel bottomWarnings;
+
+    private JLabel bottomRunState;
+
+    private JLabel bottomProjectFile;
+
+    private JLabel bottomSaveState;
 
     private JMeterToolBar toolbar;
 
@@ -226,12 +243,6 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      *            the listener for the test tree
      */
     public MainFrame(TreeModel treeModel, JMeterTreeListener treeListener) {
-        runningIndicator = new JButton(stoppedIcon);
-        runningIndicator.setFocusable(false);
-        runningIndicator.setBorderPainted(false);
-        runningIndicator.setContentAreaFilled(false);
-        runningIndicator.setMargin(new Insets(0, 0, 0, 0));
-
         testTimeDuration = new JLabel("00:00:00"); //$NON-NLS-1$
         testTimeDuration.setToolTipText(JMeterUtils.getResString("duration_tooltip")); //$NON-NLS-1$
 
@@ -293,6 +304,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         if (errorOrFatal.get() > 0) {
             warnIndicator.setForeground(UIManager.getColor(JMeterUIDefaults.BUTTON_ERROR_FOREGROUND));
             warnIndicator.setText(Integer.toString(errorOrFatal.get()));
+            if (bottomWarnings != null) {
+                bottomWarnings.setText("Issues: " + errorOrFatal.get()); // $NON-NLS-1$
+            }
         }
     }
 
@@ -300,7 +314,11 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         long startTime = JMeterContextService.getTestStartTime();
         if (startTime > 0) {
             long elapsedSec = (System.currentTimeMillis() - startTime + 500) / 1000; // rounded seconds
-            testTimeDuration.setText(JOrphanUtils.formatDuration(elapsedSec));
+            String duration = JOrphanUtils.formatDuration(elapsedSec);
+            testTimeDuration.setText(duration);
+            if (bottomElapsed != null) {
+                bottomElapsed.setText("Elapsed: " + duration); // $NON-NLS-1$
+            }
         }
     }
 
@@ -336,6 +354,18 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      */
     public void setFileSaveEnabled(boolean enabled) {
         menuBar.setFileSaveEnabled(enabled);
+        updateDirtyStatus(enabled);
+    }
+
+    public void updateDirtyStatus(boolean dirty) {
+        if (bottomSaveState == null) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            bottomSaveState.setText(dirty ? "Unsaved changes" : "Saved"); // $NON-NLS-1$ $NON-NLS-2$
+            bottomSaveState.setForeground(uiColor(dirty ? "Actions.Yellow" : "Actions.Green", // $NON-NLS-1$ $NON-NLS-2$
+                    dirty ? new Color(0xD97706) : new Color(0x16A34A)));
+        });
     }
 
     /**
@@ -446,11 +476,15 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     }
 
     public void updateCounts() {
-        SwingUtilities.invokeLater(() ->
-                activeAndTotalThreads.setText(
-                        String.format("%d/%d",
-                                JMeterContextService.getNumberOfThreads(),
-                                JMeterContextService.getTotalThreads())));
+        SwingUtilities.invokeLater(() -> {
+            String threads = String.format("%d/%d",
+                    JMeterContextService.getNumberOfThreads(),
+                    JMeterContextService.getTotalThreads());
+            activeAndTotalThreads.setText(threads);
+            if (bottomThreads != null) {
+                bottomThreads.setText("Threads: " + threads); // $NON-NLS-1$
+            }
+        });
     }
 
     public void setMainPanel(JComponent comp) {
@@ -503,8 +537,14 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     public void testStarted(String host) {
         hosts.add(host);
         computeTestDurationTimer.start();
-        runningIndicator.setIcon(runningIcon);
+        updateRunStatus(true);
         activeAndTotalThreads.setText("0/0"); // $NON-NLS-1$
+        if (bottomThreads != null) {
+            bottomThreads.setText("Threads: 0/0"); // $NON-NLS-1$
+        }
+        if (bottomElapsed != null) {
+            bottomElapsed.setText("Elapsed: 00:00:00"); // $NON-NLS-1$
+        }
         toolbar.setLocalTestStarted(true);
     }
 
@@ -530,15 +570,26 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     public void testEnded(String host) {
         hosts.remove(host);
         if (hosts.isEmpty()) {
-            runningIndicator.setIcon(stoppedIcon);
+            updateRunStatus(false);
             JMeterContextService.endTest();
             computeTestDurationTimer.stop();
+            if (bottomThreads != null) {
+                bottomThreads.setText("Threads: 0/0"); // $NON-NLS-1$
+            }
         }
         toolbar.setLocalTestStarted(false);
         if (stoppingMessage != null) {
             stoppingMessage.dispose();
             stoppingMessage = null;
         }
+    }
+
+    private void updateRunStatus(boolean running) {
+        if (bottomRunState == null) {
+            return;
+        }
+        bottomRunState.setIcon(running ? runningIcon : stoppedIcon);
+        bottomRunState.setText(running ? "Running" : "Stopped"); // $NON-NLS-1$ $NON-NLS-2$
     }
 
     /**
@@ -584,6 +635,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         treeAndMain.setResizeWeight(.2);
         treeAndMain.setContinuousLayout(true);
         all.add(treeAndMain, BorderLayout.CENTER);
+        all.add(createStatusBar(), BorderLayout.SOUTH);
 
         getContentPane().add(all);
 
@@ -592,7 +644,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         // Building is complete, register as listener
         GuiPackage.getInstance().registerAsListener();
         setTitle(DEFAULT_TITLE);
-        setIconImage(JMeterUtils.getImage("icon-breaktest.png").getImage());// $NON-NLS-1$
+        setApplicationIcon();
         setWindowTitle(); // define AWT WM_CLASS string
         refreshErrorsTimer.start();
     }
@@ -609,6 +661,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         // file New operation may set to null, so just return app name
         if (fname == null) {
             setTitle(DEFAULT_TITLE);
+            if (bottomProjectFile != null) {
+                bottomProjectFile.setText("Untitled plan"); // $NON-NLS-1$
+            }
             return;
         }
 
@@ -616,6 +671,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         String temp = fname.replace('\\', '/'); // $NON-NLS-1$ // $NON-NLS-2$
         String simpleName = temp.substring(temp.lastIndexOf('/') + 1);// $NON-NLS-1$
         setTitle(simpleName + " (" + fname + ") - " + DEFAULT_TITLE); // $NON-NLS-1$ // $NON-NLS-2$
+        if (bottomProjectFile != null) {
+            bottomProjectFile.setText(simpleName);
+        }
     }
 
     /**
@@ -624,31 +682,35 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      * @return a panel containing the running indicator
      */
     private Component createToolBar() {
+        JPanel commandBar = new JPanel(new BorderLayout(APP_CHROME_GAP, 0));
+        JFactory.withDynamic(commandBar, MainFrame::styleChromeBar);
+
         JMeterToolBar toolPanel = JMeterToolBar.createToolbar(true);
         // add the toolbar
         this.toolbar = toolPanel;
         GuiPackage guiInstance = GuiPackage.getInstance();
         guiInstance.setMainToolbar(toolbar);
 
-        toolPanel.add(Box.createRigidArea(new Dimension(5, 15)));
         toolPanel.add(Box.createGlue());
 
-        toolPanel.add(testTimeDuration);
-        toolPanel.add(Box.createRigidArea(new Dimension(5, 15)));
-
-        toolPanel.add(warnIndicator);
         warnIndicator.setText("0");
-        toolPanel.add(Box.createRigidArea(new Dimension(5, 15)));
+        commandBar.add(toolPanel, BorderLayout.CENTER);
 
-        toolPanel.add(activeAndTotalThreads);
-        toolPanel.add(Box.createRigidArea(new Dimension(5, 15)));
-        toolPanel.add(runningIndicator);
-        toolPanel.add(Box.createRigidArea(new Dimension(8, 15)));
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        statusPanel.setOpaque(false);
+        styleStatusLabel(testTimeDuration);
+        styleStatusLabel(activeAndTotalThreads);
+        styleStatusButton(warnIndicator);
+        statusPanel.add(testTimeDuration);
+        statusPanel.add(activeAndTotalThreads);
+        statusPanel.add(warnIndicator);
         JButton aiLogButton = new JButton("AI Log");
         aiLogButton.setToolTipText("Show or hide the AI Auto Scripting (Beta) log");
         aiLogButton.addActionListener(event -> AiAutoScriptingLogWindow.toggleVisibility());
-        toolPanel.add(aiLogButton);
-        return toolPanel;
+        styleStatusButton(aiLogButton);
+        statusPanel.add(aiLogButton);
+        commandBar.add(statusPanel, BorderLayout.EAST);
+        return commandBar;
     }
 
     /**
@@ -657,10 +719,45 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      *
      * @return a scroll pane containing the test tree GUI
      */
-    private JScrollPane createTreePanel() {
+    private JComponent createTreePanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(true);
+        panel.setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
+        panel.setMinimumSize(new Dimension(240, 0));
+        panel.setPreferredSize(new Dimension(320, 0));
+        panel.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1,
+                uiColor("Component.borderColor", new Color(0xD7DEE8)))); // $NON-NLS-1$
+
+        JPanel header = new JPanel(new BorderLayout(APP_CHROME_GAP, 0));
+        header.setOpaque(false);
+        header.setBorder(BorderFactory.createEmptyBorder(10, 12, 8, 10));
+        JLabel title = new JLabel("Test Plan"); // $NON-NLS-1$
+        title.setFont(title.getFont().deriveFont(title.getFont().getStyle() | java.awt.Font.BOLD));
+        header.add(title, BorderLayout.WEST);
+
+        JTextField searchField = new JTextField("Search plan"); // $NON-NLS-1$
+        searchField.setEditable(false);
+        searchField.setFocusable(false);
+        searchField.setToolTipText(JMeterUtils.getResString("menu_search")); // $NON-NLS-1$
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(uiColor("Component.borderColor", new Color(0xD7DEE8))), // $NON-NLS-1$
+                BorderFactory.createEmptyBorder(5, 9, 5, 9)));
+        searchField.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                ActionRouter.getInstance().doActionNow(
+                        new ActionEvent(searchField, ActionEvent.ACTION_PERFORMED, ActionNames.SEARCH_TREE));
+            }
+        });
+        header.add(searchField, BorderLayout.CENTER);
+        panel.add(header, BorderLayout.NORTH);
+
         JScrollPane treeP = new JScrollPane(tree);
         treeP.setMinimumSize(new Dimension(100, 0));
-        return treeP;
+        treeP.setBorder(BorderFactory.createEmptyBorder());
+        treeP.getViewport().setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
+        panel.add(treeP, BorderLayout.CENTER);
+        return panel;
     }
 
     /**
@@ -670,7 +767,42 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      */
     private JScrollPane createMainPanel() {
         mainPanelView = new ScrollableMainPanel();
-        return new JScrollPane(mainPanelView);
+        JScrollPane scrollPane = new JScrollPane(mainPanelView);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getViewport().setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
+        return scrollPane;
+    }
+
+    private JComponent createStatusBar() {
+        JPanel statusBar = new JPanel(new BorderLayout(APP_CHROME_GAP, 0));
+        JFactory.withDynamic(statusBar, MainFrame::styleStatusBar);
+
+        JLabel ready = new JLabel("Ready"); // $NON-NLS-1$
+        ready.setForeground(uiColor("Actions.Green", new Color(0x16A34A))); // $NON-NLS-1$
+        statusBar.add(ready, BorderLayout.WEST);
+
+        bottomProjectFile = new JLabel("Untitled plan"); // $NON-NLS-1$
+        JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        center.setOpaque(false);
+        center.add(bottomProjectFile);
+        bottomSaveState = new JLabel();
+        updateDirtyStatus(GuiPackage.getInstance() != null && GuiPackage.getInstance().isDirty());
+        center.add(bottomSaveState);
+        statusBar.add(center, BorderLayout.CENTER);
+
+        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 14, 0));
+        right.setOpaque(false);
+        bottomThreads = new JLabel("Threads: 0/0"); // $NON-NLS-1$
+        bottomElapsed = new JLabel("Elapsed: 00:00:00"); // $NON-NLS-1$
+        bottomWarnings = new JLabel("Issues: 0"); // $NON-NLS-1$
+        bottomRunState = new JLabel("Stopped", stoppedIcon, SwingConstants.LEADING); // $NON-NLS-1$
+        bottomRunState.setIconTextGap(6);
+        right.add(bottomRunState);
+        right.add(bottomThreads);
+        right.add(bottomElapsed);
+        right.add(bottomWarnings);
+        statusBar.add(right, BorderLayout.EAST);
+        return statusBar;
     }
 
     private static class ScrollableMainPanel extends JPanel implements Scrollable {
@@ -678,6 +810,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         ScrollableMainPanel() {
             super(new BorderLayout());
+            setOpaque(true);
+            setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
+            setBorder(BorderFactory.createEmptyBorder(14, 16, 16, 16));
         }
 
         void setMainPanel(JComponent comp) {
@@ -710,6 +845,204 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         @Override
         public boolean getScrollableTracksViewportHeight() {
             return getParent() != null && getPreferredSize().height <= getParent().getHeight();
+        }
+    }
+
+    private static void styleStatusLabel(JLabel label) {
+        JFactory.withDynamic(label, MainFrame::applyStatusLabelStyle);
+    }
+
+    private static void applyStatusLabelStyle(JLabel label) {
+        label.setOpaque(true);
+        label.setBackground(statusChipBackground());
+        label.setForeground(statusChipForeground());
+        label.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(statusChipBorder()),
+                BorderFactory.createEmptyBorder(4, 9, 4, 9)));
+    }
+
+    private static void styleStatusButton(JButton button) {
+        JFactory.withDynamic(button, MainFrame::applyStatusButtonStyle);
+    }
+
+    private static void applyStatusButtonStyle(JButton button) {
+        button.setFocusable(false);
+        button.setOpaque(true);
+        button.setContentAreaFilled(true);
+        button.setBorderPainted(true);
+        button.setMargin(new Insets(4, 9, 4, 9));
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(statusChipBorder()),
+                BorderFactory.createEmptyBorder(3, 8, 3, 8)));
+        button.setBackground(statusChipBackground());
+        button.setForeground(statusChipForeground());
+    }
+
+    private static void styleChromeBar(JPanel panel) {
+        panel.setOpaque(true);
+        panel.setBackground(uiColor("ToolBar.background", uiColor("Panel.background", Color.WHITE))); // $NON-NLS-1$ $NON-NLS-2$
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0,
+                        uiColor("Component.borderColor", new Color(0xD7DEE8))), // $NON-NLS-1$
+                BorderFactory.createEmptyBorder(6, 10, 6, 10)));
+    }
+
+    private static void styleStatusBar(JPanel panel) {
+        panel.setOpaque(true);
+        panel.setBackground(uiColor("ToolBar.background", uiColor("Panel.background", Color.WHITE))); // $NON-NLS-1$ $NON-NLS-2$
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0,
+                        uiColor("Component.borderColor", new Color(0xD7DEE8))), // $NON-NLS-1$
+                BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+    }
+
+    private static Color uiColor(String key, Color fallback) {
+        Color color = UIManager.getColor(key);
+        return color != null ? color : fallback;
+    }
+
+    private static Color statusChipBackground() {
+        Color toolbar = uiColor("ToolBar.background", uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$ $NON-NLS-2$
+        if (isDark(toolbar)) {
+            return mix(toolbar, Color.WHITE, 0.08);
+        }
+        return uiColor("Component.background", Color.WHITE); // $NON-NLS-1$
+    }
+
+    private static Color statusChipBorder() {
+        Color background = statusChipBackground();
+        return isDark(background)
+                ? mix(background, Color.WHITE, 0.18)
+                : uiColor("Component.borderColor", new Color(0xD7DEE8)); // $NON-NLS-1$
+    }
+
+    private static Color statusChipForeground() {
+        Color toolbar = uiColor("ToolBar.background", uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$ $NON-NLS-2$
+        return isDark(toolbar)
+                ? mix(toolbar, Color.WHITE, 0.78)
+                : uiColor("Label.foreground", new Color(0x111827)); // $NON-NLS-1$
+    }
+
+    private static boolean isDark(Color color) {
+        return luminance(color) < 0.45;
+    }
+
+    private static double luminance(Color color) {
+        return 0.2126 * luminanceChannel(color.getRed())
+                + 0.7152 * luminanceChannel(color.getGreen())
+                + 0.0722 * luminanceChannel(color.getBlue());
+    }
+
+    private static double luminanceChannel(int value) {
+        double normalized = value / 255.0;
+        return normalized <= 0.03928
+                ? normalized / 12.92
+                : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    }
+
+    private static Color mix(Color base, Color overlay, double amount) {
+        return new Color(
+                mixChannel(base.getRed(), overlay.getRed(), amount),
+                mixChannel(base.getGreen(), overlay.getGreen(), amount),
+                mixChannel(base.getBlue(), overlay.getBlue(), amount));
+    }
+
+    private static int mixChannel(int base, int overlay, double amount) {
+        return Math.max(0, Math.min(255, (int) Math.round(base + (overlay - base) * amount)));
+    }
+
+    private void setApplicationIcon() {
+        URL svgUrl = JMeterUtils.class.getResource("/org/apache/jmeter/images/icon-breaktest.svg"); // $NON-NLS-1$
+        if (svgUrl != null) {
+            setIconImages(Arrays.asList(
+                    svgImage(svgUrl, 16),
+                    svgImage(svgUrl, 24),
+                    svgImage(svgUrl, 32),
+                    svgImage(svgUrl, 48),
+                    svgImage(svgUrl, 64),
+                    svgImage(svgUrl, 128),
+                    svgImage(svgUrl, 256),
+                    svgImage(svgUrl, 512)));
+            return;
+        }
+
+        ImageIcon fallback = JMeterUtils.getImage("icon-breaktest.png"); // $NON-NLS-1$
+        if (fallback != null) {
+            setIconImage(fallback.getImage());
+        }
+    }
+
+    private static Image svgImage(URL svgUrl, int size) {
+        return new FlatSVGIcon(svgUrl).derive(size, size).getImage();
+    }
+
+    private static final class StatusDotIcon implements Icon {
+        private static final int SIZE = 16;
+
+        private final Color color;
+        private final boolean filled;
+
+        private StatusDotIcon(Color color, boolean filled) {
+            this.color = color;
+            this.filled = filled;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return SIZE;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return SIZE;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setStroke(new BasicStroke(1.8f));
+                g2.setColor(color);
+                if (filled) {
+                    g2.fillOval(x + 3, y + 3, 10, 10);
+                } else {
+                    g2.drawOval(x + 3, y + 3, 10, 10);
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+    }
+
+    private static final class WarningStatusIcon implements Icon {
+        private static final int SIZE = 16;
+
+        @Override
+        public int getIconWidth() {
+            return SIZE;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return SIZE;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(new Color(0xD97706));
+                g2.drawLine(x + 8, y + 3, x + 14, y + 13);
+                g2.drawLine(x + 14, y + 13, x + 2, y + 13);
+                g2.drawLine(x + 2, y + 13, x + 8, y + 3);
+                g2.drawLine(x + 8, y + 7, x + 8, y + 10);
+                g2.drawLine(x + 8, y + 12, x + 8, y + 12);
+            } finally {
+                g2.dispose();
+            }
         }
     }
 
@@ -941,6 +1274,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         treevar.setCellRenderer(getCellRenderer());
         treevar.setRootVisible(false);
         treevar.setShowsRootHandles(false);
+        treevar.setRowHeight(26);
+        treevar.setToggleClickCount(2);
+        treevar.setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
         treevar.expandRow(0);
 
         treeListener.setJTree(treevar);
@@ -1173,6 +1509,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
             SwingUtilities.invokeLater(() -> {
                 warnIndicator.setForeground(UIManager.getColor("Button.foreground"));
                 warnIndicator.setText(Integer.toString(errorOrFatal.get()));
+                if (bottomWarnings != null) {
+                    bottomWarnings.setText("Issues: 0"); // $NON-NLS-1$
+                }
             });
         }
     }

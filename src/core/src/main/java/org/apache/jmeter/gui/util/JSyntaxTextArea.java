@@ -165,6 +165,10 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
         }
     }
 
+    public static void refreshTheme(JSyntaxTextArea jSyntaxTextArea) {
+        applyTheme(jSyntaxTextArea);
+    }
+
     /**
      * Creates the default syntax highlighting text area. The following are set:
      * <ul>

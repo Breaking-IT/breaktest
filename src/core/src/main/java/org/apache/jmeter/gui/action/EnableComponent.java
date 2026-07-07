@@ -68,6 +68,7 @@ public class EnableComponent extends AbstractAction {
             node.setEnabled(enable);
             pack.getGui(node.getTestElement()).setEnabled(enable);
         }
+        pack.refreshCurrentGui();
     }
 
     private static void toggleComponents(JMeterTreeNode[] nodes) {
@@ -77,6 +78,7 @@ public class EnableComponent extends AbstractAction {
             node.setEnabled(enable);
             pack.getGui(node.getTestElement()).setEnabled(enable);
         }
+        pack.refreshCurrentGui();
     }
 
     /**

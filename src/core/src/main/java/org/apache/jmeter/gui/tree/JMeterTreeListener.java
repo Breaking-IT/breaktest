@@ -125,9 +125,12 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
     }
 
     public JMeterTreeNode[] getSelectedNodes() {
-        TreePath[] paths = tree.getSelectionPaths();
-        if (paths == null) {
+        TreePath[] paths = tree == null ? null : tree.getSelectionPaths();
+        if (paths == null || paths.length == 0) {
             return new JMeterTreeNode[] { getCurrentNode() };
+        }
+        if (currentPath != null && !containsPath(paths, currentPath)) {
+            return new JMeterTreeNode[] { (JMeterTreeNode) currentPath.getLastPathComponent() };
         }
         JMeterTreeNode[] nodes = new JMeterTreeNode[paths.length];
         for (int i = 0; i < paths.length; i++) {
@@ -135,6 +138,15 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
         }
 
         return nodes;
+    }
+
+    private static boolean containsPath(TreePath[] paths, TreePath path) {
+        for (TreePath selectedPath : paths) {
+            if (selectedPath.equals(path)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public TreePath removedSelectedNode() {
@@ -240,7 +252,7 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
         }
         currentPath = closestPath;
         if (isRightClick(e)) {
-            if (tree.getSelectionCount() < 2) {
+            if (tree.getSelectionCount() < 2 || !tree.isPathSelected(currentPath)) {
                 tree.setSelectionPath(currentPath);
             }
             log.debug("About to display pop-up");

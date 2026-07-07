@@ -18,6 +18,8 @@
 package org.apache.jmeter.gui.util;
 
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Insets;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -73,9 +75,9 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     protected static final String TOOLBAR_LIST = "jmeter.toolbar";
 
-    private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-custom/pause.svg";
+    private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/pause.svg";
 
-    private static final String RESUME_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-custom/resume.svg";
+    private static final String RESUME_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/play.svg";
 
     /**
      * Create the default JMeter toolbar
@@ -101,8 +103,15 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         if (comp instanceof JButton b) {
             // Ensure buttons added to the toolbar have the same style.
             b.setFocusable(false);
-            if (b.isBorderPainted() && (b.getText() == null || b.getText().isEmpty())) {
+            if (b.isBorderPainted()) {
+                b.setMargin(new Insets(4, 6, 4, 6));
+                b.setPreferredSize(new Dimension(62, 58));
+                b.setMinimumSize(new Dimension(54, 54));
                 b.setRolloverEnabled(true);
+                b.setHorizontalTextPosition(JButton.CENTER);
+                b.setVerticalTextPosition(JButton.BOTTOM);
+                b.setIconTextGap(4);
+                b.setFont(b.getFont().deriveFont(11f));
                 b.putClientProperty(FlatClientProperties.BUTTON_TYPE, FlatClientProperties.BUTTON_TYPE_TOOLBAR_BUTTON);
             }
         }
@@ -146,6 +155,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      */
     private static JButton makeButtonItemRes(IconToolbarBean iconBean) throws Exception {
         JButton button = new JButton(loadIcon(iconBean, iconBean.getIconPath()));
+        button.setText(toolbarLabel(iconBean));
         button.setToolTipText(JMeterUtils.getResString(iconBean.getI18nKey()));
         if (!iconBean.getIconPathPressed().equals(iconBean.getIconPath())) {
             button.setPressedIcon(loadIcon(iconBean, iconBean.getIconPathPressed()));
@@ -153,6 +163,37 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         button.addActionListener(ActionRouter.getInstance());
         button.setActionCommand(iconBean.getActionNameResolve());
         return button;
+    }
+
+    private static String toolbarLabel(IconToolbarBean iconBean) {
+        return switch (iconBean.getActionName()) {
+            case "CLOSE" -> "New"; // $NON-NLS-1$ $NON-NLS-2$
+            case "TEMPLATES" -> "Template"; // $NON-NLS-1$ $NON-NLS-2$
+            case "OPEN" -> "Open"; // $NON-NLS-1$ $NON-NLS-2$
+            case "SAVE" -> "Save"; // $NON-NLS-1$ $NON-NLS-2$
+            case "UNDO" -> "Undo"; // $NON-NLS-1$ $NON-NLS-2$
+            case "REDO" -> "Redo"; // $NON-NLS-1$ $NON-NLS-2$
+            case "CUT" -> "Cut"; // $NON-NLS-1$ $NON-NLS-2$
+            case "COPY" -> "Copy"; // $NON-NLS-1$ $NON-NLS-2$
+            case "PASTE" -> "Paste"; // $NON-NLS-1$ $NON-NLS-2$
+            case "EXPAND_ALL" -> "Expand"; // $NON-NLS-1$ $NON-NLS-2$
+            case "COLLAPSE_ALL" -> "Collapse"; // $NON-NLS-1$ $NON-NLS-2$
+            case "TOGGLE" -> "Toggle"; // $NON-NLS-1$ $NON-NLS-2$
+            case "VALIDATE_TG" -> "Check"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_START" -> "Run"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_START_NO_TIMERS" -> "Run"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_PAUSE" -> "Pause"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_STOP" -> "Stop"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_SHUTDOWN" -> "Shutdown"; // $NON-NLS-1$ $NON-NLS-2$
+            case "AI_AUTO_SCRIPTING" -> "AI"; // $NON-NLS-1$ $NON-NLS-2$
+            case "CLEAR" -> "Clear"; // $NON-NLS-1$ $NON-NLS-2$
+            case "CLEAR_ALL" -> "Clear all"; // $NON-NLS-1$ $NON-NLS-2$
+            case "SEARCH_TREE" -> "Search"; // $NON-NLS-1$ $NON-NLS-2$
+            case "SEARCH_RESET" -> "Reset"; // $NON-NLS-1$ $NON-NLS-2$
+            case "FUNCTIONS" -> "Function"; // $NON-NLS-1$ $NON-NLS-2$
+            case "HELP" -> "Help"; // $NON-NLS-1$ $NON-NLS-2$
+            default -> ""; // $NON-NLS-1$
+        };
     }
 
     private static Icon loadIcon(IconToolbarBean iconBean, String iconPath) {
