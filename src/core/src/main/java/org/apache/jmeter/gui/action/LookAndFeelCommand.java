@@ -29,6 +29,7 @@ import java.util.prefs.Preferences;
 import javax.swing.JOptionPane;
 import javax.swing.UIManager;
 
+import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.JMeterMenuBar;
 import org.apache.jmeter.util.JMeterUtils;
@@ -284,6 +285,10 @@ public class LookAndFeelCommand extends AbstractAction {
             FlatAnimatedLafChange.showSnapshot();
         }
         JFactory.refreshUI(item.lafClassName);
+        if (instance != null && instance.getLoggerPanel() != null) {
+            instance.getLoggerPanel().refreshUi();
+        }
+        AiAutoScriptingLogWindow.refreshUi();
         if (animate) {
             FlatAnimatedLafChange.hideSnapshotWithAnimation();
         }

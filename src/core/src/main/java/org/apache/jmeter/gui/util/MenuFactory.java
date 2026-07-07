@@ -17,8 +17,13 @@
 
 package org.apache.jmeter.gui.util;
 
+import java.awt.BasicStroke;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.HeadlessException;
+import java.awt.RenderingHints;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.swing.Icon;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -350,6 +356,7 @@ public final class MenuFactory {
 
     public static JMenu makeMenus(String[] categories, String label, String actionCommand) {
         JMenu addMenu = new JMenu(label);
+        addMenu.setIcon(ModernMenuIcon.fromCategories(categories));
         Arrays.stream(categories)
                 .map(category -> makeMenu(category, actionCommand))
                 .forEach(addMenu::add);
@@ -361,6 +368,7 @@ public final class MenuFactory {
         JPopupMenu pop = new JPopupMenu();
         String addAction = ActionNames.ADD;
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
+        addMenu.setIcon(ModernMenuIcon.of(ModernMenuIcon.Kind.ADD));
         addMenu.add(MenuFactory.makeMenu(MenuFactory.SAMPLERS, addAction));
         addMenu.addSeparator();
         addMenu.add(MenuFactory.makeMenu(MenuFactory.CONTROLLERS, addAction));
@@ -388,6 +396,7 @@ public final class MenuFactory {
     static JMenu createDefaultAddMenu() {
         String addAction = ActionNames.ADD;
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
+        addMenu.setIcon(ModernMenuIcon.of(ModernMenuIcon.Kind.ADD));
         addDefaultAddMenuToMenu(addMenu, addAction);
         return addMenu;
     }
@@ -465,7 +474,8 @@ public final class MenuFactory {
         return makeMenu(
                 menuMap.get(category),
                 actionCommand,
-                JMeterUtils.getResString(category));
+                JMeterUtils.getResString(category),
+                category);
     }
 
     /**
@@ -478,11 +488,12 @@ public final class MenuFactory {
      * @return the menu
      */
     private static JMenu makeMenu(
-            Collection<? extends MenuInfo> menuInfo, String actionCommand, String menuName) {
+            Collection<? extends MenuInfo> menuInfo, String actionCommand, String menuName, String category) {
 
         JMenu menu = new JMenu(menuName);
+        menu.setIcon(ModernMenuIcon.fromCategory(category));
         menuInfo.stream()
-                .map(info -> makeMenuItem(info, actionCommand))
+                .map(info -> makeMenuItem(info, actionCommand, category))
                 .forEach(menu::add);
         GuiUtils.makeScrollableMenu(menu);
         return menu;
@@ -541,12 +552,14 @@ public final class MenuFactory {
      *                      {@link ActionNames}
      * @return the menu item
      */
-    private static Component makeMenuItem(MenuInfo info, String actionCommand) {
+    private static Component makeMenuItem(MenuInfo info, String actionCommand, String category) {
         if (info instanceof MenuSeparatorInfo) {
             return new JPopupMenu.Separator();
         }
 
         JMenuItem newMenuChoice = new JMenuItem(info.getLabel());
+        newMenuChoice.setIcon(ModernMenuIcon.fromDescriptor(category, info.getClassName() + " " + info.getLabel())); // $NON-NLS-1$
+        newMenuChoice.setIconTextGap(10);
         newMenuChoice.setName(info.getClassName());
         newMenuChoice.setEnabled(info.getEnabled(actionCommand));
         newMenuChoice.addActionListener(ActionRouter.getInstance());
@@ -654,6 +667,653 @@ public final class MenuFactory {
             }
         }
         return false;
+    }
+
+    private static final class ModernMenuIcon implements Icon {
+        private static final int SIZE = 16;
+
+        private final Kind kind;
+
+        private ModernMenuIcon(Kind kind) {
+            this.kind = kind;
+        }
+
+        static Icon of(Kind kind) {
+            return new ModernMenuIcon(kind);
+        }
+
+        static Icon fromCategories(String[] categories) {
+            return categories.length == 1 ? fromCategory(categories[0]) : of(Kind.ADD);
+        }
+
+        static Icon fromCategory(String category) {
+            return switch (category) {
+            case THREADS -> of(Kind.THREADS);
+            case SAMPLERS -> of(Kind.REQUEST);
+            case CONTROLLERS -> of(Kind.CONTROLLER);
+            case TIMERS -> of(Kind.TIMER);
+            case ASSERTIONS -> of(Kind.ASSERTION);
+            case CONFIG_ELEMENTS -> of(Kind.CONFIG);
+            case LISTENERS -> of(Kind.REPORT);
+            case PRE_PROCESSORS -> of(Kind.PRE_PROCESSOR);
+            case POST_PROCESSORS -> of(Kind.POST_PROCESSOR);
+            case FRAGMENTS -> of(Kind.MODULE);
+            default -> of(Kind.NODE);
+            };
+        }
+
+        static Icon fromDescriptor(String category, String descriptor) {
+            if (LISTENERS.equals(category)) {
+                return of(Kind.REPORT);
+            }
+            if (PRE_PROCESSORS.equals(category)) {
+                return of(Kind.PRE_PROCESSOR);
+            }
+            if (POST_PROCESSORS.equals(category)) {
+                return of(Kind.POST_PROCESSOR);
+            }
+            if (SAMPLERS.equals(category)) {
+                return of(Kind.REQUEST);
+            }
+            if (descriptor.contains("Cookie")) { // $NON-NLS-1$
+                return of(Kind.COOKIE);
+            }
+            if (descriptor.contains("ThreadGroup")) { // $NON-NLS-1$
+                return of(Kind.THREADS);
+            }
+            if (descriptor.contains("Visualizer") || descriptor.contains("Listener") || descriptor.contains("ResultCollector")
+                    || descriptor.contains("Report")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
+                return of(Kind.REPORT);
+            }
+            if (descriptor.contains("Sampler")) { // $NON-NLS-1$
+                return of(Kind.REQUEST);
+            }
+            Kind controllerKind = controllerKind(descriptor);
+            if (controllerKind != null) {
+                return of(controllerKind);
+            }
+            if (descriptor.contains("Config") || descriptor.contains("Defaults") || descriptor.contains("Manager")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                return of(Kind.CONFIG);
+            }
+            if (descriptor.contains("Timer")) { // $NON-NLS-1$
+                return of(Kind.TIMER);
+            }
+            if (descriptor.contains("Assertion")) { // $NON-NLS-1$
+                return of(Kind.ASSERTION);
+            }
+            if (descriptor.contains("PreProcessor")) { // $NON-NLS-1$
+                return of(Kind.PRE_PROCESSOR);
+            }
+            if (descriptor.contains("PostProcessor")) { // $NON-NLS-1$
+                return of(Kind.POST_PROCESSOR);
+            }
+            return of(Kind.NODE);
+        }
+
+        private static Kind controllerKind(String descriptor) {
+            if (descriptor.contains("IfController") || descriptor.contains("If Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.IF_CONTROLLER;
+            }
+            if (descriptor.contains("SwitchController") || descriptor.contains("Switch Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.SWITCH_CONTROLLER;
+            }
+            if (descriptor.contains("TransactionController") || descriptor.contains("Transaction Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.TRANSACTION;
+            }
+            if (descriptor.contains("LoopController") || descriptor.contains("Loop Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.LOOP;
+            }
+            if (descriptor.contains("WhileController") || descriptor.contains("While Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.WHILE_CONTROLLER;
+            }
+            if (descriptor.contains("CriticalSectionController") || descriptor.contains("Critical Section Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.CRITICAL_CONTROLLER;
+            }
+            if (descriptor.contains("ForeachController") || descriptor.contains("ForEachController")
+                    || descriptor.contains("ForEach Controller")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                return Kind.FOREACH_CONTROLLER;
+            }
+            if (descriptor.contains("IncludeController") || descriptor.contains("Include Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.INCLUDE_CONTROLLER;
+            }
+            if (descriptor.contains("InterleaveControl") || descriptor.contains("Interleave Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.INTERLEAVE_CONTROLLER;
+            }
+            if (descriptor.contains("OnceOnlyController") || descriptor.contains("Once Only Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.ONCE_CONTROLLER;
+            }
+            if (descriptor.contains("RandomOrderController") || descriptor.contains("Random Order Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.RANDOM_ORDER_CONTROLLER;
+            }
+            if (descriptor.contains("RandomController") || descriptor.contains("Random Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.RANDOM_CONTROLLER;
+            }
+            if (descriptor.contains("RecordingController") || descriptor.contains("Recording Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.RECORDING_CONTROLLER;
+            }
+            if (descriptor.contains("RuntimeController") || descriptor.contains("Runtime Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.RUNTIME_CONTROLLER;
+            }
+            if (descriptor.contains("ParallelController") || descriptor.contains("Parallel Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.PARALLEL_CONTROLLER;
+            }
+            if (descriptor.contains("ThroughputController") || descriptor.contains("Throughput Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.THROUGHPUT_CONTROLLER;
+            }
+            if (descriptor.contains("ForkController") || descriptor.contains("Fork Controller")) { // $NON-NLS-1$ $NON-NLS-2$
+                return Kind.FORK_CONTROLLER;
+            }
+            if (descriptor.contains("ModuleController") || descriptor.contains("Module Controller")
+                    || descriptor.contains("Test Fragment")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                return Kind.MODULE;
+            }
+            if (descriptor.contains("SimpleController") || descriptor.contains("Simple Controller")
+                    || descriptor.contains("Controller")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                return Kind.SIMPLE_CONTROLLER;
+            }
+            return null;
+        }
+
+        @Override
+        public int getIconWidth() {
+            return SIZE;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return SIZE;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color stroke = foreground(c);
+                g2.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                kind.paint(g2, x, y, stroke, kind.accent);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private static Color foreground(Component c) {
+            return c == null || c.getForeground() == null ? new Color(0x4B5563) : c.getForeground();
+        }
+
+        private enum Kind {
+            ADD(new Color(0x2563EB)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawOval(x + 3, y + 3, 10, 10);
+                    g.drawLine(x + 8, y + 5, x + 8, y + 11);
+                    g.drawLine(x + 5, y + 8, x + 11, y + 8);
+                }
+            },
+            THREADS(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawOval(x + 5, y + 2, 6, 6);
+                    g.setColor(stroke);
+                    g.drawArc(x + 3, y + 8, 10, 7, 20, 140);
+                    g.drawLine(x + 3, y + 13, x + 13, y + 13);
+                }
+            },
+            REQUEST(new Color(0x16A34A)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 3, y + 12, x + 12, y + 3);
+                    g.setColor(stroke);
+                    g.drawLine(x + 9, y + 3, x + 13, y + 3);
+                    g.drawLine(x + 12, y + 3, x + 12, y + 7);
+                }
+            },
+            HTTP_SAMPLER(new Color(0x16A34A)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 3, y + 5, 10, 7, 2, 2);
+                    g.setColor(accent);
+                    g.drawLine(x + 11, y + 8, x + 14, y + 8);
+                    g.drawLine(x + 12, y + 6, x + 14, y + 8);
+                    g.drawLine(x + 12, y + 10, x + 14, y + 8);
+                }
+            },
+            CODE_SAMPLER(new Color(0x8B5CF6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 7, y + 5, x + 4, y + 8);
+                    g.drawLine(x + 4, y + 8, x + 7, y + 11);
+                    g.drawLine(x + 10, y + 5, x + 13, y + 8);
+                    g.drawLine(x + 13, y + 8, x + 10, y + 11);
+                    g.setColor(stroke);
+                    g.drawLine(x + 9, y + 4, x + 7, y + 12);
+                }
+            },
+            DB_SAMPLER(new Color(0x0EA5E9)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawOval(x + 4, y + 3, 9, 4);
+                    g.drawLine(x + 4, y + 5, x + 4, y + 12);
+                    g.drawLine(x + 13, y + 5, x + 13, y + 12);
+                    g.drawOval(x + 4, y + 10, 9, 4);
+                    g.setColor(stroke);
+                    g.drawLine(x + 5, y + 8, x + 12, y + 8);
+                }
+            },
+            MESSAGE_SAMPLER(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawRoundRect(x + 3, y + 5, 10, 7, 2, 2);
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 6, x + 8, y + 9);
+                    g.drawLine(x + 12, y + 6, x + 8, y + 9);
+                }
+            },
+            FILE_SAMPLER(new Color(0xD97706)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 4, y + 4, x + 9, y + 4);
+                    g.drawLine(x + 9, y + 4, x + 12, y + 7);
+                    g.drawLine(x + 12, y + 7, x + 12, y + 13);
+                    g.drawLine(x + 4, y + 4, x + 4, y + 13);
+                    g.drawLine(x + 4, y + 13, x + 12, y + 13);
+                    g.setColor(stroke);
+                    g.drawLine(x + 6, y + 8, x + 10, y + 8);
+                }
+            },
+            MAIL_SAMPLER(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawRoundRect(x + 3, y + 5, 10, 8, 2, 2);
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 6, x + 8, y + 10);
+                    g.drawLine(x + 12, y + 6, x + 8, y + 10);
+                }
+            },
+            TCP_SAMPLER(new Color(0x06B6D4)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 8, x + 12, y + 8);
+                    g.setColor(accent);
+                    g.drawOval(x + 2, y + 6, 4, 4);
+                    g.drawOval(x + 10, y + 6, 4, 4);
+                    g.drawOval(x + 6, y + 11, 4, 4);
+                }
+            },
+            SYSTEM_SAMPLER(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 3, y + 5, 10, 8, 2, 2);
+                    g.setColor(accent);
+                    g.drawLine(x + 6, y + 8, x + 8, y + 10);
+                    g.drawLine(x + 8, y + 10, x + 11, y + 6);
+                }
+            },
+            COOKIE(new Color(0xB45309)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawOval(x + 3, y + 3, 10, 10);
+                    g.setColor(stroke);
+                    g.fillOval(x + 6, y + 6, 2, 2);
+                    g.fillOval(x + 10, y + 5, 2, 2);
+                    g.fillOval(x + 8, y + 10, 2, 2);
+                    g.setColor(accent);
+                    g.drawArc(x + 8, y + 2, 6, 6, 190, 130);
+                }
+            },
+            CONFIG(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 5, x + 12, y + 5);
+                    g.drawLine(x + 4, y + 8, x + 12, y + 8);
+                    g.drawLine(x + 4, y + 11, x + 12, y + 11);
+                    g.setColor(accent);
+                    g.drawOval(x + 3, y + 4, 2, 2);
+                    g.drawOval(x + 10, y + 10, 2, 2);
+                }
+            },
+            CONTROLLER(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRect(x + 3, y + 3, 10, 10);
+                    g.setColor(accent);
+                    g.drawLine(x + 6, y + 7, x + 10, y + 7);
+                    g.drawLine(x + 6, y + 10, x + 10, y + 10);
+                }
+            },
+            LOOP(new Color(0x8B5CF6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawArc(x + 3, y + 3, 10, 10, 35, 280);
+                    g.drawLine(x + 12, y + 4, x + 13, y + 8);
+                    g.drawLine(x + 12, y + 4, x + 8, y + 4);
+                }
+            },
+            IF_CONTROLLER(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 3, x + 4, y + 13);
+                    g.drawLine(x + 4, y + 8, x + 9, y + 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 9, y + 5, x + 13, y + 8);
+                    g.drawLine(x + 9, y + 11, x + 13, y + 8);
+                }
+            },
+            SWITCH_CONTROLLER(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 8, x + 8, y + 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 8, x + 13, y + 4);
+                    g.drawLine(x + 8, y + 8, x + 13, y + 12);
+                    g.drawLine(x + 11, y + 3, x + 13, y + 4);
+                    g.drawLine(x + 11, y + 5, x + 13, y + 4);
+                    g.drawLine(x + 11, y + 11, x + 13, y + 12);
+                    g.drawLine(x + 11, y + 13, x + 13, y + 12);
+                }
+            },
+            WHILE_CONTROLLER(new Color(0x8B5CF6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawArc(x + 3, y + 3, 10, 10, 45, 250);
+                    g.drawLine(x + 4, y + 6, x + 3, y + 3);
+                    g.drawLine(x + 4, y + 6, x + 7, y + 5);
+                    g.setColor(stroke);
+                    g.fillOval(x + 7, y + 7, 3, 3);
+                }
+            },
+            CRITICAL_CONTROLLER(new Color(0xDC2626)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawArc(x + 5, y + 2, 6, 7, 0, 180);
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 4, y + 7, 8, 6, 2, 2);
+                    g.drawLine(x + 8, y + 9, x + 8, y + 11);
+                }
+            },
+            FOREACH_CONTROLLER(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 4, x + 10, y + 4);
+                    g.drawLine(x + 4, y + 8, x + 10, y + 8);
+                    g.drawLine(x + 4, y + 12, x + 10, y + 12);
+                    g.setColor(accent);
+                    g.drawLine(x + 10, y + 4, x + 13, y + 7);
+                    g.drawLine(x + 13, y + 7, x + 10, y + 10);
+                }
+            },
+            INCLUDE_CONTROLLER(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 3, x + 4, y + 13);
+                    g.drawLine(x + 12, y + 3, x + 12, y + 13);
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 8, x + 11, y + 8);
+                    g.drawLine(x + 9, y + 6, x + 11, y + 8);
+                    g.drawLine(x + 9, y + 10, x + 11, y + 8);
+                }
+            },
+            INTERLEAVE_CONTROLLER(new Color(0xEC4899)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 5, x + 7, y + 5);
+                    g.drawLine(x + 3, y + 11, x + 7, y + 11);
+                    g.setColor(accent);
+                    g.drawLine(x + 7, y + 5, x + 13, y + 11);
+                    g.drawLine(x + 7, y + 11, x + 13, y + 5);
+                }
+            },
+            ONCE_CONTROLLER(new Color(0x6366F1)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawOval(x + 3, y + 3, 10, 10);
+                    g.setColor(stroke);
+                    g.drawLine(x + 8, y + 6, x + 8, y + 11);
+                    g.drawLine(x + 6, y + 7, x + 8, y + 6);
+                }
+            },
+            RANDOM_CONTROLLER(new Color(0xEC4899)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 4, y + 4, 8, 8, 2, 2);
+                    g.setColor(accent);
+                    g.fillOval(x + 6, y + 6, 2, 2);
+                    g.fillOval(x + 9, y + 9, 2, 2);
+                }
+            },
+            RANDOM_ORDER_CONTROLLER(new Color(0xEC4899)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 5, x + 7, y + 5);
+                    g.drawLine(x + 3, y + 11, x + 7, y + 11);
+                    g.setColor(accent);
+                    g.drawLine(x + 7, y + 5, x + 13, y + 11);
+                    g.drawLine(x + 7, y + 11, x + 13, y + 5);
+                    g.drawLine(x + 11, y + 4, x + 13, y + 5);
+                    g.drawLine(x + 11, y + 6, x + 13, y + 5);
+                    g.drawLine(x + 11, y + 10, x + 13, y + 11);
+                    g.drawLine(x + 11, y + 12, x + 13, y + 11);
+                }
+            },
+            RECORDING_CONTROLLER(new Color(0xEF4444)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 3, y + 4, 10, 8, 3, 3);
+                    g.setColor(accent);
+                    g.fillOval(x + 6, y + 6, 4, 4);
+                }
+            },
+            RUNTIME_CONTROLLER(new Color(0xD97706)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawOval(x + 4, y + 4, 8, 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 8, x + 8, y + 5);
+                    g.drawLine(x + 8, y + 8, x + 11, y + 8);
+                }
+            },
+            SIMPLE_CONTROLLER(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 4, y + 3, 8, 10, 2, 2);
+                    g.setColor(accent);
+                    g.drawLine(x + 6, y + 6, x + 10, y + 6);
+                    g.drawLine(x + 6, y + 9, x + 10, y + 9);
+                }
+            },
+            PARALLEL_CONTROLLER(new Color(0x06B6D4)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 4, x + 4, y + 12);
+                    g.drawLine(x + 8, y + 4, x + 8, y + 12);
+                    g.drawLine(x + 12, y + 4, x + 12, y + 12);
+                    g.setColor(accent);
+                    g.drawLine(x + 3, y + 8, x + 13, y + 8);
+                }
+            },
+            THROUGHPUT_CONTROLLER(new Color(0x22C55E)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawArc(x + 3, y + 5, 10, 10, 0, 180);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 10, x + 12, y + 6);
+                    g.fillOval(x + 7, y + 9, 2, 2);
+                }
+            },
+            FORK_CONTROLLER(new Color(0x0EA5E9)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 8, x + 8, y + 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 8, x + 13, y + 4);
+                    g.drawLine(x + 8, y + 8, x + 13, y + 12);
+                    g.drawOval(x + 3, y + 7, 2, 2);
+                    g.drawOval(x + 12, y + 3, 2, 2);
+                    g.drawOval(x + 12, y + 11, 2, 2);
+                }
+            },
+            BRANCH(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 4, x + 4, y + 12);
+                    g.drawLine(x + 4, y + 8, x + 10, y + 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 10, y + 5, x + 13, y + 8);
+                    g.drawLine(x + 10, y + 11, x + 13, y + 8);
+                }
+            },
+            TRANSACTION(new Color(0x06B6D4)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 3, y + 4, 10, 8, 3, 3);
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 8, x + 11, y + 8);
+                    g.drawLine(x + 9, y + 6, x + 11, y + 8);
+                    g.drawLine(x + 9, y + 10, x + 11, y + 8);
+                }
+            },
+            MODULE(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRect(x + 3, y + 3, 4, 4);
+                    g.drawRect(x + 9, y + 3, 4, 4);
+                    g.drawRect(x + 6, y + 9, 4, 4);
+                    g.setColor(accent);
+                    g.drawLine(x + 7, y + 5, x + 9, y + 5);
+                    g.drawLine(x + 8, y + 7, x + 8, y + 9);
+                }
+            },
+            ROUTER(new Color(0xEC4899)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 5, x + 8, y + 5);
+                    g.drawLine(x + 3, y + 11, x + 8, y + 11);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 5, x + 13, y + 3);
+                    g.drawLine(x + 8, y + 11, x + 13, y + 13);
+                    g.drawLine(x + 11, y + 2, x + 13, y + 3);
+                    g.drawLine(x + 11, y + 4, x + 13, y + 3);
+                    g.drawLine(x + 11, y + 12, x + 13, y + 13);
+                    g.drawLine(x + 11, y + 14, x + 13, y + 13);
+                }
+            },
+            TIMER(new Color(0xD97706)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawOval(x + 4, y + 4, 8, 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 8, x + 8, y + 5);
+                    g.drawLine(x + 8, y + 8, x + 10, y + 10);
+                }
+            },
+            ASSERTION(new Color(0x16A34A)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawOval(x + 3, y + 3, 10, 10);
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 8, x + 7, y + 10);
+                    g.drawLine(x + 7, y + 10, x + 12, y + 5);
+                }
+            },
+            REPORT(new Color(0x2563EB)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 13, x + 13, y + 13);
+                    g.drawLine(x + 3, y + 13, x + 3, y + 4);
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 10, x + 8, y + 7);
+                    g.drawLine(x + 8, y + 7, x + 11, y + 9);
+                    g.drawLine(x + 11, y + 9, x + 13, y + 4);
+                    g.setColor(new Color(0x16A34A));
+                    g.fillOval(x + 4, y + 9, 2, 2);
+                    g.setColor(new Color(0xF59E0B));
+                    g.fillOval(x + 12, y + 3, 2, 2);
+                }
+            },
+            PROCESSOR(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawOval(x + 4, y + 4, 8, 8);
+                    g.setColor(accent);
+                    g.drawLine(x + 8, y + 2, x + 8, y + 14);
+                    g.drawLine(x + 2, y + 8, x + 14, y + 8);
+                }
+            },
+            PRE_PROCESSOR(new Color(0x0EA5E9)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 12, y + 4, x + 5, y + 8);
+                    g.drawLine(x + 5, y + 8, x + 12, y + 12);
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 4, x + 4, y + 12);
+                }
+            },
+            POST_PROCESSOR(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 4, y + 4, x + 11, y + 8);
+                    g.drawLine(x + 11, y + 8, x + 4, y + 12);
+                    g.setColor(stroke);
+                    g.drawLine(x + 12, y + 4, x + 12, y + 12);
+                }
+            },
+            NODE(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 3, y + 4, 10, 8, 3, 3);
+                }
+            };
+
+            private final Color accent;
+
+            Kind(Color accent) {
+                this.accent = accent;
+            }
+
+            abstract void paint(Graphics2D g, int x, int y, Color stroke, Color accent);
+        }
     }
 
     /**

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <defs>
+    <linearGradient id="ai-stroke" x1="4" y1="19" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="0.52" stop-color="#7C3AED"/>
+      <stop offset="1" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <path d="M4.75 17.5 8.6 6.5h1.8l3.85 11M6.25 14h6.5M17.5 6.5v11" stroke="url(#ai-stroke)" stroke-width="2.05" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M19.45 4.65 20.2 6.3l1.65.75-1.65.75-.75 1.65-.75-1.65-1.65-.75 1.65-.75.75-1.65Z" fill="#8B5CF6"/>
+</svg>
