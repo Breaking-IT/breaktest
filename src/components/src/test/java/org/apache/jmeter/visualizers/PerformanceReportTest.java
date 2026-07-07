@@ -28,11 +28,23 @@ import javax.swing.JLabel;
 import javax.swing.JTable;
 
 import org.apache.jmeter.gui.util.MenuInfo;
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jorphan.gui.ObjectTableModel;
 import org.junit.jupiter.api.Test;
 
-public class PerformanceReportTest {
+public class PerformanceReportTest extends JMeterTestCase {
+
+    @Test
+    public void saveServiceCanResolvePerformanceReportAlias() {
+        assertEquals(
+                PerformanceReport.class.getName(),
+                SaveService.aliasToClass("PerformanceReport"));
+        assertEquals(
+                "PerformanceReport",
+                SaveService.classToAlias(PerformanceReport.class.getName()));
+    }
 
     @Test
     public void tableModelExposesErrorCountAndPercentiles() {

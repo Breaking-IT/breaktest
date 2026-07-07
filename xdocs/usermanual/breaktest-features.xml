@@ -25,7 +25,7 @@
 <section name="BreakTest Features And Differences">
 <p>
 This is the BreakTest manual. It documents the features and behavioral changes
-that are specific to BreakTest 2026.07.03. For the inherited JMeter-compatible
+that are specific to BreakTest 2026.07.07. For the inherited JMeter-compatible
 test-plan model, use the official Apache JMeter documentation.
 </p>
 

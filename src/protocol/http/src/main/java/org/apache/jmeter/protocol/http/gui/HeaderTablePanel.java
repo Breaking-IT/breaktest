@@ -34,6 +34,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.ListSelectionModel;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.AbstractTableModel;
 
 import org.apache.jmeter.gui.util.FileDialoger;
@@ -142,6 +143,29 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
             }
         }
         return result;
+    }
+
+    /**
+     * @return the number of headers with a non-empty name
+     */
+    public int getHeaderCount() {
+        stopEditing();
+        int count = 0;
+        for (int i = 0; i < headerManager.size(); i++) {
+            if (!headerManager.get(i).getName().isEmpty()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Add a listener for table row/cell changes.
+     *
+     * @param listener listener to notify
+     */
+    public void addTableModelListener(TableModelListener listener) {
+        tableModel.addTableModelListener(listener);
     }
 
     private void init() { // called from ctor, so must not be overridable
@@ -387,6 +411,7 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
             } else if (column == 1) {
                 header.setValue((String) value);
             }
+            fireTableCellUpdated(row, column);
         }
     }
 }

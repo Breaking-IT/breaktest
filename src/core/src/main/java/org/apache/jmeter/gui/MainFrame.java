@@ -27,6 +27,7 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -1248,28 +1249,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
      *
      * @return the initialized test tree GUI
      */
-    private JTree makeTree(TreeModel treeModel, JMeterTreeListener treeListener) {
-        JTree treevar = new JTree(treeModel) {
-            private static final long serialVersionUID = 240L;
-
-            @Override
-            public String getToolTipText(MouseEvent event) {
-                TreePath path = this.getPathForLocation(event.getX(), event.getY());
-                if (path != null) {
-                    Object treeNode = path.getLastPathComponent();
-                    if (treeNode instanceof DefaultMutableTreeNode defaultMutableTreeNode) {
-                        Object testElement = defaultMutableTreeNode.getUserObject();
-                        if (testElement instanceof TestElement element) {
-                            String comment = element.getComment();
-                            if (StringUtilities.isNotBlank(comment)) {
-                                return comment.length() <= 80 ? comment : comment.substring(0, 77) + "...";
-                            }
-                        }
-                    }
-                }
-                return null;
-            }
-        };
+    private static JTree makeTree(TreeModel treeModel, JMeterTreeListener treeListener) {
+        JTree treevar = new TestPlanTree(treeModel);
         treevar.setToolTipText("");
         treevar.setCellRenderer(getCellRenderer());
         treevar.setRootVisible(false);
@@ -1293,6 +1274,102 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         addUndoRedoHotkeys(treevar);
 
         return treevar;
+    }
+
+    private static final class TestPlanTree extends JTree {
+        private static final long serialVersionUID = 240L;
+
+        private static final int CHILD_BADGE_HORIZONTAL_PADDING = 7;
+        private static final int CHILD_BADGE_RIGHT_INSET = 8;
+
+        private TestPlanTree(TreeModel treeModel) {
+            super(treeModel);
+        }
+
+        @Override
+        public String getToolTipText(MouseEvent event) {
+            TreePath path = this.getPathForLocation(event.getX(), event.getY());
+            if (path == null) {
+                return null;
+            }
+            Object treeNode = path.getLastPathComponent();
+            if (treeNode instanceof DefaultMutableTreeNode defaultMutableTreeNode) {
+                Object testElement = defaultMutableTreeNode.getUserObject();
+                if (testElement instanceof TestElement element) {
+                    String comment = element.getComment();
+                    if (StringUtilities.isNotBlank(comment)) {
+                        return comment.length() <= 80 ? comment : comment.substring(0, 77) + "...";
+                    }
+                }
+            }
+            return null;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            paintChildCountBadges(g);
+        }
+
+        private void paintChildCountBadges(Graphics g) {
+            Rectangle visible = getVisibleRect();
+            if (visible.width <= 0 || getRowCount() == 0) {
+                return;
+            }
+            int firstRow = Math.max(0, getClosestRowForLocation(visible.x, visible.y));
+            int lastRow = Math.max(firstRow,
+                    getClosestRowForLocation(visible.x, visible.y + visible.height - 1));
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                paintChildCountBadges(g2, visible, firstRow, lastRow);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private void paintChildCountBadges(Graphics2D g, Rectangle visible, int firstRow, int lastRow) {
+            for (int row = firstRow; row <= lastRow; row++) {
+                TreePath path = getPathForRow(row);
+                Rectangle rowBounds = getRowBounds(row);
+                if (path == null || rowBounds == null || !rowBounds.intersects(visible)) {
+                    continue;
+                }
+                Object node = path.getLastPathComponent();
+                if (node instanceof JMeterTreeNode treeNode && treeNode.getChildCount() > 0) {
+                    paintChildBadge(g, treeNode, path, rowBounds, visible);
+                }
+            }
+        }
+
+        private void paintChildBadge(Graphics2D g, JMeterTreeNode treeNode, TreePath path,
+                Rectangle rowBounds, Rectangle visible) {
+            String count = Integer.toString(treeNode.getChildCount());
+            Font font = badgeFont();
+            FontMetrics metrics = g.getFontMetrics(font);
+            int width = metrics.stringWidth(count) + CHILD_BADGE_HORIZONTAL_PADDING * 2;
+            int height = Math.max(16, metrics.getHeight() + 2);
+            int x = visible.x + visible.width - CHILD_BADGE_RIGHT_INSET - width;
+            int y = rowBounds.y + (rowBounds.height - height) / 2;
+            boolean selected = isPathSelected(path);
+            Color background = selected ? new Color(0xDBEAFE) : new Color(0xE5E7EB);
+            Color foreground = selected ? new Color(0x1D4ED8) : new Color(0x6B7280);
+            if (!treeNode.isEnabled()) {
+                background = new Color(background.getRed(), background.getGreen(), background.getBlue(), 120);
+                foreground = new Color(foreground.getRed(), foreground.getGreen(), foreground.getBlue(), 150);
+            }
+            g.setColor(background);
+            g.fillRoundRect(x, y, width, height, height, height);
+            g.setColor(foreground);
+            g.setFont(font);
+            int textX = x + (width - metrics.stringWidth(count)) / 2;
+            int textY = y + (height - metrics.getHeight()) / 2 + metrics.getAscent();
+            g.drawString(count, textX, textY);
+        }
+
+        private Font badgeFont() {
+            return getFont().deriveFont(Font.BOLD, Math.max(9f, getFont().getSize2D() - 3f));
+        }
     }
 
     private static void addUndoRedoHotkeys(JTree treevar) {

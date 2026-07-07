@@ -20,6 +20,9 @@ package org.apache.jmeter.gui.tree;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -32,6 +35,7 @@ import javax.swing.JTree;
 import javax.swing.border.Border;
 import javax.swing.tree.DefaultTreeCellRenderer;
 
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -47,6 +51,11 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
 
     private static final Border RED_BORDER = BorderFactory.createLineBorder(new Color(0xDC2626));
     private static final Border BLUE_BORDER = BorderFactory.createLineBorder(new Color(0x2563EB));
+    private static final int DELAY_SUMMARY_GAP = 7;
+    private static final int BADGE_RIGHT_INSET = 8;
+
+    private String delaySummary;
+
     public JMeterCellRenderer() {
         // A little more air between the node icon and its label
         setIconTextGap(6);
@@ -56,6 +65,7 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded,
             boolean leaf, int row, boolean p_hasFocus) {
         JMeterTreeNode node = (JMeterTreeNode) value;
+        this.delaySummary = delaySummary(node);
         super.getTreeCellRendererComponent(tree,
                 StringUtilities.isBlank(node.getName()) ? BLANK : node.getName(),
                         sel, expanded, leaf, row, p_hasFocus);
@@ -72,6 +82,104 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             setBorder(null);
         }
         return this;
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        Dimension size = super.getPreferredSize();
+        if (delaySummary != null) {
+            Font suffixFont = suffixFont();
+            FontMetrics suffixMetrics = getFontMetrics(suffixFont);
+            size.width += suffixMetrics.stringWidth(delaySummary) + DELAY_SUMMARY_GAP + BADGE_RIGHT_INSET;
+        }
+        return size;
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g);
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (delaySummary != null) {
+                paintDelaySummary(g2);
+            }
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    private int textStartX() {
+        Icon icon = getIcon();
+        int x = getInsets().left;
+        if (icon != null) {
+            x += icon.getIconWidth() + getIconTextGap();
+        }
+        return x;
+    }
+
+    private int primaryTextEndX() {
+        return textStartX() + getFontMetrics(getFont()).stringWidth(getText());
+    }
+
+    private Font suffixFont() {
+        return getFont().deriveFont(Math.max(9f, getFont().getSize2D() - 3f));
+    }
+
+    private void paintDelaySummary(Graphics2D g) {
+        Font font = suffixFont();
+        FontMetrics metrics = g.getFontMetrics(font);
+        int x = primaryTextEndX() + DELAY_SUMMARY_GAP;
+        int maxX = getWidth() - BADGE_RIGHT_INSET;
+        if (x + metrics.stringWidth(delaySummary) > maxX) {
+            return;
+        }
+        g.setFont(font);
+        g.setColor(isEnabled() ? new Color(0x9CA3AF) : new Color(0x6B7280));
+        int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent() + 1;
+        g.drawString(delaySummary, x, y);
+    }
+
+    private static String delaySummary(JMeterTreeNode node) {
+        TestElement element = node.getTestElement();
+        if (!(element instanceof TransactionController)) {
+            return null;
+        }
+        String mode = element.getPropertyAsString("TransactionController.delayMode", TransactionController.DELAY_DISABLED);
+        long millis;
+        if (TransactionController.DELAY_FIXED.equals(mode)) {
+            millis = parseMillis(element.getPropertyAsString("TransactionController.fixedDelay", "0"));
+        } else if (TransactionController.DELAY_RANDOM.equals(mode)
+                || TransactionController.DELAY_GAUSSIAN_RANDOM.equals(mode)) {
+            long min = parseMillis(element.getPropertyAsString("TransactionController.delayMin", "0"));
+            long max = parseMillis(element.getPropertyAsString("TransactionController.delayMax", "0"));
+            if (min < 0 || max < 0) {
+                return null;
+            }
+            millis = Math.round((min + max) / 2.0);
+        } else {
+            return null;
+        }
+        return millis > 0 ? "(" + formatSeconds(millis) + ")" : null;
+    }
+
+    private static long parseMillis(String value) {
+        if (StringUtilities.isBlank(value)) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
+    }
+
+    private static String formatSeconds(long millis) {
+        double seconds = millis / 1000.0;
+        if (Math.abs(seconds - Math.rint(seconds)) < 0.000001) {
+            return Long.toString(Math.round(seconds)) + "s";
+        }
+        return String.format(java.util.Locale.ROOT, "%.1fs", seconds);
     }
 
     private static final class ModernTreeIcon implements Icon {
@@ -547,11 +655,18 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                 @Override
                 void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
                     g.setColor(stroke);
-                    g.drawRoundRect(x + 3, y + 4, 10, 8, 3, 3);
+                    g.drawLine(x + 3, y + 3, x + 3, y + 13);
+                    g.drawLine(x + 13, y + 3, x + 13, y + 13);
+                    g.drawLine(x + 3, y + 3, x + 6, y + 3);
+                    g.drawLine(x + 10, y + 3, x + 13, y + 3);
+                    g.drawLine(x + 3, y + 13, x + 6, y + 13);
+                    g.drawLine(x + 10, y + 13, x + 13, y + 13);
                     g.setColor(accent);
                     g.drawLine(x + 5, y + 8, x + 11, y + 8);
                     g.drawLine(x + 9, y + 6, x + 11, y + 8);
                     g.drawLine(x + 9, y + 10, x + 11, y + 8);
+                    g.fillOval(x + 4, y + 7, 3, 3);
+                    g.fillOval(x + 10, y + 7, 3, 3);
                 }
             },
             MODULE(new Color(0x14B8A6)) {

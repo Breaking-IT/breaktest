@@ -22,6 +22,7 @@ import java.util.Iterator;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JTable;
+import javax.swing.event.TableModelListener;
 
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
@@ -124,6 +125,32 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
     public Arguments getParameters() {
         Arguments args = getUnclonedParameters();
         return (Arguments) args.clone();
+    }
+
+    /**
+     * @return the number of non-empty parameters currently shown in the table
+     */
+    public int getParameterCount() {
+        stopTableEditing();
+        int count = 0;
+        @SuppressWarnings("unchecked") // only contains HTTPArgument
+        Iterator<HTTPArgument> modelData = (Iterator<HTTPArgument>) tableModel.iterator();
+        while (modelData.hasNext()) {
+            HTTPArgument arg = modelData.next();
+            if (StringUtilities.isNotEmpty(arg.getName()) || StringUtilities.isNotEmpty(arg.getValue())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Add a listener for table row/cell changes.
+     *
+     * @param listener listener to notify
+     */
+    public void addTableModelListener(TableModelListener listener) {
+        tableModel.addTableModelListener(listener);
     }
 
     private Arguments getUnclonedParameters() {

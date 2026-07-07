@@ -39,6 +39,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JViewport;
 import javax.swing.ListSelectionModel;
+import javax.swing.event.TableModelListener;
 
 import org.apache.jmeter.config.gui.RowDetailDialog;
 import org.apache.jmeter.gui.util.FileDialoger;
@@ -171,6 +172,23 @@ public class HTTPFileArgsPanel extends JPanel implements ActionListener {
 
     public boolean hasData() {
         return tableModel.iterator().hasNext();
+    }
+
+    /**
+     * @return the number of file upload rows currently shown in the table
+     */
+    public int getFileCount() {
+        stopTableEditing();
+        return tableModel.getRowCount();
+    }
+
+    /**
+     * Add a listener for table row/cell changes.
+     *
+     * @param listener listener to notify
+     */
+    public void addTableModelListener(TableModelListener listener) {
+        tableModel.addTableModelListener(listener);
     }
 
     /**
