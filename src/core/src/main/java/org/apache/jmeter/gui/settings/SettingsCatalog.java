@@ -1,0 +1,78 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.jmeter.gui.settings;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+/**
+ * The catalog of all JMeter properties known to the Settings dialog,
+ * loaded from the {@code settings-catalog.json} resource.
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class SettingsCatalog {
+
+    private static final String CATALOG_RESOURCE = "settings-catalog.json";
+
+    private List<SettingsGroup> groups = new ArrayList<>();
+
+    public List<SettingsGroup> getGroups() {
+        return groups;
+    }
+
+    public void setGroups(List<SettingsGroup> groups) {
+        this.groups = groups == null ? new ArrayList<>() : groups;
+    }
+
+    /**
+     * @param key property key to look up
+     * @return the definition of {@code key}, or {@code null} when the catalog does not contain it
+     */
+    public SettingDefinition findSetting(String key) {
+        for (SettingsGroup group : groups) {
+            for (SettingDefinition setting : group.getSettings()) {
+                if (setting.getKey().equals(key)) {
+                    return setting;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Loads the built-in settings catalog from the classpath.
+     *
+     * @return the catalog, never {@code null}
+     */
+    public static SettingsCatalog load() {
+        try (InputStream in = SettingsCatalog.class.getResourceAsStream(CATALOG_RESOURCE)) {
+            if (in == null) {
+                throw new IllegalStateException("Settings catalog resource not found: " + CATALOG_RESOURCE);
+            }
+            return new ObjectMapper().readValue(in, SettingsCatalog.class);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to load settings catalog", e);
+        }
+    }
+}

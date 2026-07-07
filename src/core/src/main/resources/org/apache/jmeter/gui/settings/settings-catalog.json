@@ -1,0 +1,522 @@
+{
+  "groups": [
+    {
+      "id": "general",
+      "title": "General & Startup",
+      "description": "Language, additional property files and behavior when the application starts.",
+      "settings": [
+        {"key": "language", "type": "enum", "options": ["en", "fr", "de", "no", "es", "tr", "ja", "zh_CN", "zh_TW", "pl", "pt_BR"], "description": "Preferred GUI language. When unset the JVM default locale's language is used."},
+        {"key": "locales.add", "type": "list", "description": "Comma-separated list of additional locales to add to the displayed language list."},
+        {"key": "user.properties", "type": "file", "default": "user.properties", "description": "Name of the additional JMeter properties file to load at startup. Clear to disable loading user properties."},
+        {"key": "system.properties", "type": "file", "default": "system.properties", "description": "Name of the additional system properties file to load at startup. Clear to disable loading system properties."},
+        {"key": "template.files", "type": "list", "default": "/bin/templates/templates.xml", "description": "Comma-separated list of files describing test plan templates and their descriptions, relative to the JMeter root folder."},
+        {"key": "upgrade_properties", "type": "file", "default": "/bin/upgrade.properties", "description": "File that holds a record of element name changes for backward compatibility."},
+        {"key": "onload.expandtree", "type": "boolean", "default": "false", "description": "Expand the whole test plan tree when loading a test plan."},
+        {"key": "load.jmx.fast", "type": "boolean", "default": "false", "description": "Use the fast JMX loading mode when opening test plans."},
+        {"key": "confirm.delete.skip", "type": "boolean", "default": "false", "description": "Skip the confirmation dialogue when deleting tree elements."},
+        {"key": "help.local", "type": "boolean", "default": "false", "description": "Open local documentation in the GUI instead of the online documentation in a browser."},
+        {"key": "docgeneration.schematic_xsl", "type": "file", "description": "Path to the XSL file used to generate the Schematic View of a test plan. When empty the embedded stylesheet is used."}
+      ]
+    },
+    {
+      "id": "appearance",
+      "title": "Appearance & Toolbar",
+      "description": "Look and feel themes, icons, toolbar layout and display scaling.",
+      "settings": [
+        {"key": "jmeter.laf", "type": "enum", "options": ["light", "dark"], "default": "light", "description": "Theme used on first start, before a choice made in Options > Look and Feel is remembered. Per-OS variants such as jmeter.laf.windows are also supported. With jmeter.laf.legacy enabled, a Swing LAF class name or the strings System / CrossPlatform are also accepted."},
+        {"key": "jmeter.laf.legacy", "type": "boolean", "default": "false", "description": "Show the legacy Swing look and feels (Metal, Nimbus, System, CrossPlatform) in the Look and Feel menu."},
+        {"key": "jmeter.hidpi.mode", "type": "boolean", "default": "false", "description": "Activate a pseudo-HiDPI mode that increases the size of UI elements which are not correctly scaled by the JVM on high resolution screens."},
+        {"key": "jmeter.hidpi.scale.factor", "type": "decimal", "default": "1.0", "description": "Scale factor applied in pseudo-HiDPI mode. A value of 2.0 is suggested for HiDPI screens."},
+        {"key": "jmeter.toolbar.icons", "type": "text", "default": "org/apache/jmeter/images/toolbar/icons-toolbar.properties", "description": "Classpath resource containing the toolbar icon definitions."},
+        {"key": "jmeter.toolbar", "type": "list", "description": "Comma-separated list of buttons shown on the toolbar; use | for a separator. When unset, the list from the toolbar icon definition file is used."},
+        {"key": "jmeter.toolbar.icons.size", "type": "enum", "options": ["22x22", "32x32", "48x48"], "default": "22x22", "description": "Toolbar icon size. 48x48 is suggested for HiDPI screens."},
+        {"key": "jmeter.icons", "type": "enum", "options": ["org/apache/jmeter/images/icon.properties", "org/apache/jmeter/images/icon_1.properties", "org/apache/jmeter/images/icon_old.properties"], "default": "org/apache/jmeter/images/icon.properties", "description": "Classpath resource containing the tree element icon definitions."},
+        {"key": "jmeter.tree.icons.size", "type": "enum", "options": ["19x19", "24x24", "32x32", "48x48"], "default": "19x19", "description": "Test plan tree icon size. Larger values are useful on HiDPI displays."},
+        {"key": "zoom_scale", "type": "decimal", "default": "1.1", "description": "Factor applied to the GUI font size by the Options > Zoom In / Zoom Out actions."}
+      ]
+    },
+    {
+      "id": "gui-behavior",
+      "title": "GUI Behavior",
+      "description": "Menus, undo history, refresh rate and quick-add hotkeys.",
+      "settings": [
+        {"key": "not_in_menu", "type": "list", "default": "org.apache.jmeter.protocol.http.control.gui.SoapSamplerGui", "description": "Components (GUI class name or static label) that are hidden from the GUI menus."},
+        {"key": "jmeter.expertMode", "type": "boolean", "default": "false", "description": "Show expert-mode components and settings in the GUI."},
+        {"key": "undo.history.size", "type": "integer", "default": "25", "description": "Number of items kept in the undo history for test plan tree changes. Set to 0 to disable undo/redo; larger values use more memory."},
+        {"key": "jmeter.gui.refresh_period", "type": "integer", "default": "500", "description": "Interval in milliseconds at which GUI listeners process their event queue."},
+        {"key": "gui.quick_0", "type": "text", "default": "ThreadGroupGui", "description": "Component added by the quick-add hotkey Ctrl+0 (Command+0 on Mac)."},
+        {"key": "gui.quick_1", "type": "text", "default": "HttpTestSampleGui", "description": "Component added by the quick-add hotkey Ctrl+1."},
+        {"key": "gui.quick_2", "type": "text", "default": "RegexExtractorGui", "description": "Component added by the quick-add hotkey Ctrl+2."},
+        {"key": "gui.quick_3", "type": "text", "default": "AssertionGui", "description": "Component added by the quick-add hotkey Ctrl+3."},
+        {"key": "gui.quick_4", "type": "text", "default": "ConstantTimerGui", "description": "Component added by the quick-add hotkey Ctrl+4."},
+        {"key": "gui.quick_5", "type": "text", "default": "TestActionGui", "description": "Component added by the quick-add hotkey Ctrl+5."},
+        {"key": "gui.quick_6", "type": "text", "default": "JSR223PostProcessor", "description": "Component added by the quick-add hotkey Ctrl+6."},
+        {"key": "gui.quick_7", "type": "text", "default": "JSR223PreProcessor", "description": "Component added by the quick-add hotkey Ctrl+7."},
+        {"key": "gui.quick_8", "type": "text", "default": "DebugSampler", "description": "Component added by the quick-add hotkey Ctrl+8."},
+        {"key": "gui.quick_9", "type": "text", "default": "ViewResultsFullVisualizer", "description": "Component added by the quick-add hotkey Ctrl+9."}
+      ]
+    },
+    {
+      "id": "logger-panel",
+      "title": "Logger Panel",
+      "description": "The log viewer panel at the bottom of the main window.",
+      "settings": [
+        {"key": "jmeter.loggerpanel.display", "type": "boolean", "default": "false", "description": "Show the logger panel when the application starts."},
+        {"key": "jmeter.loggerpanel.enable_when_closed", "type": "boolean", "default": "true", "description": "Let the logger panel receive log events even while it is closed. Has a small performance impact in GUI mode."},
+        {"key": "jmeter.loggerpanel.maxlength", "type": "integer", "default": "1000", "description": "Maximum number of characters kept in the logger panel. 0 means no limit."},
+        {"key": "loggerpanel.usejsyntaxtext", "type": "boolean", "default": "true", "description": "Use the syntax-highlighting text area for the console logger panel."}
+      ]
+    },
+    {
+      "id": "script-editor",
+      "title": "Script Editor",
+      "description": "The syntax-highlighting text areas used for scripts and text content.",
+      "settings": [
+        {"key": "jsyntaxtextarea.wrapstyleword", "type": "boolean", "default": "true", "description": "Wrap lines at word boundaries in script editors."},
+        {"key": "jsyntaxtextarea.linewrap", "type": "boolean", "default": "true", "description": "Enable line wrapping in script editors."},
+        {"key": "jsyntaxtextarea.codefolding", "type": "boolean", "default": "true", "description": "Enable code folding in script editors."},
+        {"key": "jsyntaxtextarea.maxundos", "type": "integer", "default": "50", "description": "Maximum number of undo operations in script editors. Set to 0 to disable undo."},
+        {"key": "jsyntaxtextarea.font.family", "type": "text", "description": "Font family for script editors, e.g. Hack. Useful for HiDPI screens. When unset the default font is used."},
+        {"key": "jsyntaxtextarea.font.size", "type": "integer", "description": "Font size for script editors. Only applied when jsyntaxtextarea.font.family is also set."},
+        {"key": "text.kerning.max_document_size", "type": "integer", "default": "10000", "description": "Maximum document length (in characters) for which text rendering with kerning is enabled."}
+      ]
+    },
+    {
+      "id": "view-results-tree",
+      "title": "View Results Tree",
+      "description": "Limits and renderers of the View Results Tree listener.",
+      "settings": [
+        {"key": "view.results.tree.max_size", "type": "integer", "default": "10485760", "description": "Maximum size in bytes of a response that can be displayed. Set to 0 to disable the size check and display the whole response."},
+        {"key": "view.results.tree.max_line_size", "type": "integer", "default": "110000", "description": "Maximum line length before an artificial line break is added, to keep the UI responsive on very long lines."},
+        {"key": "view.results.tree.soft_wrap_line_size", "type": "integer", "default": "100000", "description": "Preferred position for artificial line breaks; breaking happens on a word boundary between this and the maximum line size."},
+        {"key": "view.results.tree.simple_view_limit", "type": "integer", "default": "10000", "description": "Content size above which the faster simple view mode is used in the text renderer. Set to -1 to switch off."},
+        {"key": "view.results.tree.max_results", "type": "integer", "default": "500", "description": "Maximum number of results kept in the results tree. Set to 0 to store all results, which might consume a lot of memory."},
+        {"key": "view.results.tree.renderers_order", "type": "list", "default": ".RenderAsText,.RenderAsRegexp,.RenderAsBoundaryExtractor,.RenderAsCssJQuery,org.apache.jmeter.extractor.json.render.RenderAsJsonRenderer,.RenderAsXPath2,org.apache.jmeter.extractor.json.render.RenderAsJmesPathRenderer,.RenderAsXPath,.RenderAsHTML,.RenderAsHTMLFormatted,.RenderAsHTMLWithEmbedded,.RenderAsDocument,.RenderAsJSON,.RenderAsXML", "description": "Order of the renderers in View Results Tree. Class names starting with a dot are relative to org.apache.jmeter.visualizers."},
+        {"key": "document.max_size", "type": "integer", "default": "10485760", "description": "Maximum size in bytes of a document that can be parsed by the Tika engine for the Document renderer. Set to 0 to disable the size check."}
+      ]
+    },
+    {
+      "id": "saving",
+      "title": "Saving & JMX Backups",
+      "description": "Automatic backups and saving of .jmx test plan files.",
+      "settings": [
+        {"key": "jmeter.gui.action.save.backup_on_save", "type": "boolean", "default": "true", "description": "Back up the .jmx file to the backup directory every time the test plan is saved."},
+        {"key": "jmeter.gui.action.save.backup_directory", "type": "directory", "description": "Directory where JMX backups are created. When unset, backups go to JMETER_HOME/backups. The directory is created if it does not exist."},
+        {"key": "jmeter.gui.action.save.keep_backup_max_hours", "type": "integer", "default": "0", "description": "Maximum age of backup files in hours since save time. 0 keeps backups forever."},
+        {"key": "jmeter.gui.action.save.keep_backup_max_count", "type": "integer", "default": "10", "description": "Maximum number of backup files preserved. 0 disables deletion by count."},
+        {"key": "save_automatically_before_run", "type": "boolean", "default": "true", "description": "Automatically save (and back up) the .jmx file before running a test plan."}
+      ]
+    },
+    {
+      "id": "ai",
+      "title": "AI Auto Scripting",
+      "description": "BreakTest AI Auto Scripting (Beta): local AI tool integration for repairing and editing test plans.",
+      "settings": [
+        {"key": "breaktest.ai.tool", "type": "enum", "options": ["codex", "opencode", "claude"], "default": "codex", "description": "Local AI tool selected by default in the AI Auto Scripting start dialog."},
+        {"key": "breaktest.ai.edit_surface", "type": "enum", "options": ["gui", "non-gui"], "default": "gui", "description": "Edit surface selected by default: gui uses live GUI edit tools; non-gui repairs a copied JMX and offers to merge the repaired Thread Group back afterward."},
+        {"key": "breaktest.ai.cwd", "type": "directory", "description": "Optional shared working directory for local AI tools. Tool-specific cwd settings take precedence. Defaults to the open test plan directory, then JMETER_HOME."},
+        {"key": "breaktest.ai.show_raw_output", "type": "boolean", "default": "false", "description": "Show raw prompt and tool text of the local AI CLI instead of concise progress. Only intended for debugging the AI CLI itself."},
+        {"key": "breaktest.codex.show_raw_output", "type": "boolean", "default": "false", "description": "Deprecated alias for breaktest.ai.show_raw_output."},
+        {"key": "breaktest.agent.tool", "type": "file", "description": "Absolute path to the BreakTest agent bridge used by local AI tools. Defaults to JMETER_HOME/bin/breaktest-agent-tool, then breaktest-agent-tool on PATH."},
+        {"key": "breaktest.codex.command", "type": "text", "default": "codex", "description": "Command used to launch local Codex."},
+        {"key": "breaktest.codex.model", "type": "text", "description": "Optional model override for codex exec."},
+        {"key": "breaktest.codex.cwd", "type": "directory", "description": "Working directory for codex exec. Defaults to breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."},
+        {"key": "breaktest.codex.sandbox", "type": "text", "default": "danger-full-access", "description": "Sandbox setting used for codex exec. AI Auto Scripting needs local temp/socket access for the running BreakTest GUI bridge."},
+        {"key": "breaktest.codex.approval", "type": "text", "default": "never", "description": "Approval setting used for codex exec."},
+        {"key": "breaktest.codex.prompt", "type": "text", "description": "Optional full prompt override. Defaults to the built-in BreakTest/JMeter repair prompt."},
+        {"key": "breaktest.opencode.command", "type": "text", "default": "opencode", "description": "Command used to launch local opencode."},
+        {"key": "breaktest.opencode.model", "type": "text", "description": "Optional model override for opencode run, in provider/model format."},
+        {"key": "breaktest.opencode.agent", "type": "text", "description": "Optional opencode agent name."},
+        {"key": "breaktest.opencode.cwd", "type": "directory", "description": "Working directory for opencode run. Defaults to breaktest.codex.cwd, breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."},
+        {"key": "breaktest.claude.command", "type": "text", "default": "claude", "description": "Command used to launch local Claude Code."},
+        {"key": "breaktest.claude.model", "type": "text", "description": "Optional model override for Claude Code, for example sonnet, opus, haiku, or a full model ID."},
+        {"key": "breaktest.claude.agent", "type": "text", "description": "Optional Claude Code agent name."},
+        {"key": "breaktest.claude.max_turns", "type": "integer", "description": "Optional maximum number of turns for Claude Code print mode."},
+        {"key": "breaktest.claude.cwd", "type": "directory", "description": "Working directory for Claude Code. Defaults to breaktest.codex.cwd, breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."}
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Engine & Threads",
+      "description": "Test engine behavior: thread scheduling, shutdown and non-GUI runs.",
+      "settings": [
+        {"key": "jmeter.threads.virtual.enabled", "type": "boolean", "default": "true", "description": "Use lightweight Java 21 virtual threads for JMeter threads instead of platform threads. Lowers memory per thread and improves I/O scalability for high thread counts."},
+        {"key": "jmeter.clone.lightweight.enabled", "type": "boolean", "default": "true", "description": "Enable lightweight cloning of test elements to preserve memory. Disable for complex scenarios with many variables."},
+        {"key": "jmeterthread.rampup.granularity", "type": "integer", "default": "1000", "description": "How often to check for shutdown during ramp-up, in milliseconds."},
+        {"key": "jmeterthread.timer.granularity", "type": "integer", "default": "1000", "description": "How often to check for shutdown during timer delays, in milliseconds."},
+        {"key": "jmeterengine.threadstop.wait", "type": "integer", "default": "5000", "description": "Number of milliseconds to wait for a thread to stop."},
+        {"key": "jmeterengine.stopfail.system.exit", "type": "boolean", "default": "true", "description": "Call System.exit(1) when threads fail to stop in non-GUI mode after the test was explicitly requested to stop."},
+        {"key": "jmeterengine.force.system.exit", "type": "boolean", "default": "false", "description": "Force System.exit(0) at the end of a non-GUI test even without failures, in case non-daemon threads spawned by the test would keep the JVM alive."},
+        {"key": "jmeter.exit.check.pause", "type": "integer", "default": "0", "description": "Pause in milliseconds in the daemon thread before reporting that the JVM failed to exit. Values <= 0 disable the daemon thread."},
+        {"key": "jmeterengine.nongui.port", "type": "integer", "default": "4445", "description": "Port on which non-GUI runs listen for a shutdown message. Set to 1000 or less to disable."},
+        {"key": "jmeterengine.nongui.maxport", "type": "integer", "default": "4455", "description": "Highest port to try when the initial shutdown port is busy. Set lower than or equal to the port property to disable searching."},
+        {"key": "jmeter.regex.engine", "type": "enum", "options": ["oro", "java"], "default": "oro", "description": "Regular expression engine used by extractors and assertions: the historical ORO engine or the JDK java.util.regex engine."},
+        {"key": "jmeter.regex.patterncache.size", "type": "integer", "default": "1000", "description": "Size of the cache of compiled regex Pattern objects for the JDK regex implementation. Set to 0 to disable."},
+        {"key": "jsr223.compiled_scripts_cache_size", "type": "integer", "default": "100", "description": "Size of the compiled scripts cache used by JSR-223 elements."},
+        {"key": "mirror.server.port", "type": "integer", "default": "0", "description": "Port for the built-in mirror server. 0 disables it."}
+      ]
+    },
+    {
+      "id": "timers",
+      "title": "Timers & Think Time",
+      "description": "Timer scaling and the Add Think Times action.",
+      "settings": [
+        {"key": "timer.factor", "type": "decimal", "default": "1.0", "description": "Factor applied to the pauses computed by the Gaussian, Uniform and Poisson Random Timers."},
+        {"key": "think_time_creator.impl", "type": "text", "default": "org.apache.jmeter.thinktime.DefaultThinkTimeCreator", "description": "Implementation of ThinkTimeCreator used by the Add Think Times action."},
+        {"key": "think_time_creator.default_timer_implementation", "type": "text", "default": "org.apache.jmeter.timers.gui.UniformRandomTimerGui", "description": "Timer GUI class added to the test plan by the default think time creator."},
+        {"key": "think_time_creator.default_constant_pause", "type": "integer", "default": "1000", "description": "Default constant pause of the created timer, in milliseconds."},
+        {"key": "think_time_creator.default_range", "type": "integer", "default": "100", "description": "Default range of the created timer, in milliseconds."}
+      ]
+    },
+    {
+      "id": "results-file",
+      "title": "Results File",
+      "description": "Which fields are written to CSV/XML result files and how.",
+      "settings": [
+        {"key": "jmeter.save.saveservice.output_format", "type": "enum", "options": ["csv", "xml"], "default": "csv", "description": "Format of result files."},
+        {"key": "jmeter.save.saveservice.timestamp_format", "type": "text", "default": "ms", "description": "Timestamp format for CSV output: none, ms, or a SimpleDateFormat pattern such as yyyy/MM/dd HH:mm:ss.SSS."},
+        {"key": "jmeter.save.saveservice.default_delimiter", "type": "text", "default": ",", "description": "Field delimiter for CSV files. Use \\t for TAB."},
+        {"key": "jmeter.save.saveservice.print_field_names", "type": "boolean", "default": "true", "description": "Print field names as the first line of CSV files."},
+        {"key": "jmeter.save.saveservice.autoflush", "type": "boolean", "default": "false", "description": "Flush after each line written to XML or CSV output. Reduces data loss on a crash at the cost of performance for intensive tests."},
+        {"key": "sample_variables", "type": "list", "description": "Comma-separated list of JMeter variable names whose values are saved in the result files. In XML output the names must be valid XML names."},
+        {"key": "jmeter.save.saveservice.assertion_results", "type": "enum", "options": ["none", "first", "all"], "default": "none", "description": "Which assertion results to save."},
+        {"key": "jmeter.save.saveservice.assertion_results_failure_message", "type": "boolean", "default": "true", "description": "Save the assertion failure message. Only affects CSV output."},
+        {"key": "jmeter.save.saveservice.data_type", "type": "boolean", "default": "true", "description": "Save the data type field."},
+        {"key": "jmeter.save.saveservice.label", "type": "boolean", "default": "true", "description": "Save the sample label field."},
+        {"key": "jmeter.save.saveservice.response_code", "type": "boolean", "default": "true", "description": "Save the response code field."},
+        {"key": "jmeter.save.saveservice.response_data", "type": "boolean", "default": "false", "description": "Save the response data. Not supported for CSV output."},
+        {"key": "jmeter.save.saveservice.response_data.on_error", "type": "boolean", "default": "false", "description": "Save the response data for failed samples."},
+        {"key": "jmeter.save.saveservice.response_message", "type": "boolean", "default": "true", "description": "Save the response message field."},
+        {"key": "jmeter.save.saveservice.successful", "type": "boolean", "default": "true", "description": "Save the success flag field."},
+        {"key": "jmeter.save.saveservice.thread_name", "type": "boolean", "default": "true", "description": "Save the thread name field."},
+        {"key": "jmeter.save.saveservice.time", "type": "boolean", "default": "true", "description": "Save the elapsed time field."},
+        {"key": "jmeter.save.saveservice.subresults", "type": "boolean", "default": "true", "description": "Save sub-results."},
+        {"key": "jmeter.save.saveservice.assertions", "type": "boolean", "default": "true", "description": "Save assertion results."},
+        {"key": "jmeter.save.saveservice.latency", "type": "boolean", "default": "true", "description": "Save the latency field."},
+        {"key": "jmeter.save.saveservice.connect_time", "type": "boolean", "default": "true", "description": "Save the connect time field."},
+        {"key": "jmeter.save.saveservice.samplerData", "type": "boolean", "default": "false", "description": "Save the sampler data (e.g. request body)."},
+        {"key": "jmeter.save.saveservice.responseHeaders", "type": "boolean", "default": "false", "description": "Save the response headers."},
+        {"key": "jmeter.save.saveservice.requestHeaders", "type": "boolean", "default": "false", "description": "Save the request headers."},
+        {"key": "jmeter.save.saveservice.encoding", "type": "boolean", "default": "false", "description": "Save the response encoding field."},
+        {"key": "jmeter.save.saveservice.bytes", "type": "boolean", "default": "true", "description": "Save the received bytes count field."},
+        {"key": "jmeter.save.saveservice.sent_bytes", "type": "boolean", "default": "true", "description": "Save the sent bytes count field."},
+        {"key": "jmeter.save.saveservice.url", "type": "boolean", "default": "true", "description": "Save the request URL field."},
+        {"key": "jmeter.save.saveservice.filename", "type": "boolean", "default": "false", "description": "Save the response file name field."},
+        {"key": "jmeter.save.saveservice.hostname", "type": "boolean", "default": "false", "description": "Save the host name field."},
+        {"key": "jmeter.save.saveservice.thread_counts", "type": "boolean", "default": "true", "description": "Save the active thread counts field."},
+        {"key": "jmeter.save.saveservice.sample_count", "type": "boolean", "default": "false", "description": "Save the sample count field."},
+        {"key": "jmeter.save.saveservice.idle_time", "type": "boolean", "default": "true", "description": "Save the idle time field."},
+        {"key": "jmeter.save.saveservice.xml_pi", "type": "text", "description": "Optional XML processing instruction written on line 2 of XML result files."},
+        {"key": "jmeter.save.saveservice.base_prefix", "type": "text", "default": "~/", "description": "Prefix used to identify file names that are relative to the current base."}
+      ]
+    },
+    {
+      "id": "sample-results",
+      "title": "Sample Results",
+      "description": "How sample results record timestamps and encodings.",
+      "settings": [
+        {"key": "sampleresult.timestamp.start", "type": "boolean", "default": "true", "description": "Record the sample start time instead of the end time. Also affects the timestamp stored in result files."},
+        {"key": "sampleresult.useNanoTime", "type": "boolean", "default": "true", "description": "Use System.nanoTime() for timing; otherwise only System.currentTimeMillis() is used."},
+        {"key": "sampleresult.nanoThreadSleep", "type": "integer", "default": "5000", "description": "Interval of the background thread that calculates the nanoTime offset, in milliseconds. Set to 0 or less to disable the background thread."},
+        {"key": "sampleresult.default.encoding", "type": "text", "default": "ISO-8859-1", "description": "Default encoding assumed for response data when the server does not specify one."},
+        {"key": "subresults.disable_renaming", "type": "boolean", "default": "false", "description": "Disable the sub-result numbering policy introduced in JMeter 5.0. Can be required when using JMeter for functional testing."}
+      ]
+    },
+    {
+      "id": "http-samplers",
+      "title": "HTTP Samplers",
+      "description": "Shared configuration of the HTTP request samplers.",
+      "settings": [
+        {"key": "jmeter.httpsampler", "type": "text", "description": "Default HTTP sampler implementation. Blank uses HttpClient5 with HTTP/2 preferred. Legacy implementation names are accepted when loading old test plans but are executed by the HttpClient5 sampler."},
+        {"key": "http.post_add_content_type_if_missing", "type": "boolean", "default": "false", "description": "Add a Content-Type: application/x-www-form-urlencoded header to POST requests when the header is missing."},
+        {"key": "httpsampler.max_redirects", "type": "integer", "default": "20", "description": "Maximum number of redirects to follow."},
+        {"key": "httpsampler.max_frame_depth", "type": "integer", "default": "5", "description": "Maximum depth of nested frames followed when downloading embedded resources."},
+        {"key": "httpsampler.ignore_failed_embedded_resources", "type": "boolean", "default": "false", "description": "Do not mark the main sample as failed when downloading an embedded resource fails."},
+        {"key": "httpsampler.embedded_resources_use_md5", "type": "boolean", "default": "false", "description": "Store an MD5 hash of embedded resource responses instead of the response body."},
+        {"key": "httpsampler.max_bytes_to_store_per_request", "type": "integer", "default": "0", "description": "Maximum response bytes stored per request. 0 stores the whole response."},
+        {"key": "httpsampler.max_buffer_size", "type": "integer", "default": "65536", "description": "Size in bytes of the internal buffer used when reading responses."},
+        {"key": "httpsampler.max_preallocate_size", "type": "integer", "default": "16777216", "description": "Maximum number of bytes preallocated for a response based on its Content-Length header."},
+        {"key": "httpsampler.parallel_download_thread_keepalive_inseconds", "type": "integer", "default": "60", "description": "Keep-alive time in seconds of the thread pool used for parallel embedded resource downloads."},
+        {"key": "httpsampler.redirect.removeslashdotdot", "type": "boolean", "default": "true", "description": "Normalize redirect URLs by removing /../ segments."},
+        {"key": "httpsampler.separate.container", "type": "boolean", "default": "true", "description": "Store embedded resource results in a separate container sample."},
+        {"key": "httpsampler.lightweight_header_merge", "type": "boolean", "default": "true", "description": "Use the lightweight header merging optimization when combining Header Managers."},
+        {"key": "httpclient.timeout", "type": "integer", "default": "0", "description": "Socket timeout in milliseconds for the AJP sampler implementation. 0 means no timeout."},
+        {"key": "httpclient.version", "type": "text", "default": "1.1", "description": "HTTP version used by the AJP sampler implementation."},
+        {"key": "httpclient.socket.http.cps", "type": "integer", "default": "0", "description": "Characters per second to emulate a slow HTTP connection. 0 disables the emulation."},
+        {"key": "httpclient.socket.https.cps", "type": "integer", "default": "0", "description": "Characters per second to emulate a slow HTTPS connection. 0 disables the emulation."},
+        {"key": "httpclient.loopback", "type": "boolean", "default": "false", "description": "Enable the loopback pseudo-protocol for testing."},
+        {"key": "httpclient.localaddress", "type": "text", "description": "Local host address used for multi-homed hosts."},
+        {"key": "http.proxyDomain", "type": "text", "description": "NTLM domain used when the sampler goes through an authenticating proxy. Use command line flags for user name and password."},
+        {"key": "httpclient.reset_state_on_thread_group_iteration", "type": "boolean", "default": "true", "description": "Reset HTTP state (close opened connections, reset SSL state) when starting a new Thread Group iteration, so each iteration represents a new user."}
+      ]
+    },
+    {
+      "id": "httpclient5",
+      "title": "HttpClient5",
+      "description": "Apache HttpComponents HttpClient 5 transport configuration.",
+      "settings": [
+        {"key": "hc.parameters.file", "type": "file", "description": "Properties file overriding Apache HttpClient parameters, e.g. hc.parameters in the bin directory."},
+        {"key": "httpclient5.default_user_agent_disabled", "type": "boolean", "default": "false", "description": "Do not add the default HttpClient5 User-Agent header."},
+        {"key": "httpclient5.auth.preemptive", "type": "boolean", "default": "true", "description": "Preemptively send the Authorization header when BASIC auth is used."},
+        {"key": "httpclient5.retrycount", "type": "integer", "default": "0", "description": "Number of retries to attempt for failed requests."},
+        {"key": "httpclient5.request_sent_retry_enabled", "type": "boolean", "default": "false", "description": "Retry requests that have already been sent, including non-idempotent ones. Usually false, but useful when testing against some load balancers like Amazon ELB."},
+        {"key": "httpclient5.idletimeout", "type": "integer", "default": "0", "description": "Idle connection timeout in milliseconds applied when the server does not send Keep-Alive headers. When 0 or less, the idle timeout only applies if the server sends a Keep-Alive header."},
+        {"key": "httpclient5.validate_after_inactivity", "type": "integer", "default": "4900", "description": "Check connections when the elapsed time in milliseconds since last use exceeds this value."},
+        {"key": "httpclient5.time_to_live", "type": "integer", "default": "-1", "description": "Absolute connection time-to-live in milliseconds. When > 0 a connection is not reused beyond its TTL; negative values disable TTL-based expiry."},
+        {"key": "httpclient5.http2.io_thread_count", "type": "integer", "default": "1", "description": "I/O reactor thread count of the async HTTP/2 client. BreakTest creates one HTTP/2 client per JMeter thread to preserve virtual-user connection isolation, so keep this small."}
+      ]
+    },
+    {
+      "id": "cache-manager",
+      "title": "HTTP Cache Manager",
+      "description": "Behavior of the HTTP Cache Manager for resources found in cache.",
+      "settings": [
+        {"key": "cacheable_methods", "type": "list", "default": "GET", "description": "Space or comma separated list of HTTP methods that can be cached."},
+        {"key": "cache_manager.cached_resource_mode", "type": "enum", "options": ["RETURN_NO_SAMPLE", "RETURN_200_CACHE", "RETURN_CUSTOM_STATUS"], "default": "RETURN_NO_SAMPLE", "description": "What to return for a resource found in cache: no sample result, a 200 result with an (ex cache) message, or a custom status."},
+        {"key": "RETURN_200_CACHE.message", "type": "text", "default": "(ex cache)", "description": "Response message returned in RETURN_200_CACHE mode."},
+        {"key": "RETURN_CUSTOM_STATUS.code", "type": "text", "description": "Response code returned in RETURN_CUSTOM_STATUS mode."},
+        {"key": "RETURN_CUSTOM_STATUS.message", "type": "text", "description": "Response message returned in RETURN_CUSTOM_STATUS mode."}
+      ]
+    },
+    {
+      "id": "cookies",
+      "title": "Cookie Manager",
+      "description": "HTTP Cookie Manager behavior.",
+      "settings": [
+        {"key": "CookieManager.delete_null_cookies", "type": "boolean", "default": "true", "description": "Delete cookies with null or empty values."},
+        {"key": "CookieManager.allow_variable_cookies", "type": "boolean", "default": "true", "description": "Allow variable expressions in cookie values."},
+        {"key": "CookieManager.name.prefix", "type": "text", "default": "COOKIE_", "description": "Prefix of the JMeter variables in which cookies are stored when Cookie Manager saves cookies as variables."},
+        {"key": "CookieManager.save.cookies", "type": "boolean", "default": "false", "description": "Store cookies as JMeter thread variables."},
+        {"key": "CookieManager.check.cookies", "type": "boolean", "default": "true", "description": "Check received cookies are valid before storing them."}
+      ]
+    },
+    {
+      "id": "kerberos",
+      "title": "Kerberos (SPNEGO)",
+      "description": "Kerberos authentication used by the HTTP Authorization Manager.",
+      "settings": [
+        {"key": "kerberos_jaas_application", "type": "text", "default": "JMeter", "description": "Name of the application module used in jaas.conf."},
+        {"key": "kerberos.spnego.strip_port", "type": "boolean", "default": "true", "description": "Strip ports from URLs before constructing SPNs for SPNEGO authentication."},
+        {"key": "kerberos.spnego.use_canonical_host_name", "type": "boolean", "default": "true", "description": "Canonicalize the host name when constructing SPNs for SPNEGO authentication."},
+        {"key": "kerberos.spnego.delegate_cred", "type": "boolean", "default": "false", "description": "Delegate credentials to web servers when using SPNEGO authentication."}
+      ]
+    },
+    {
+      "id": "ssl",
+      "title": "SSL / TLS",
+      "description": "TLS behavior of the samplers. Keystore and truststore locations belong in the System Properties group.",
+      "settings": [
+        {"key": "https.sessioncontext.shared", "type": "boolean", "default": "false", "description": "Share one SSL session context between all threads instead of creating one per thread."},
+        {"key": "https.default.protocol", "type": "text", "default": "TLS", "description": "Default HTTPS protocol level, e.g. TLS, TLSv1.2 or TLSv1.3. The effective default may vary with the JVM version."},
+        {"key": "https.socket.protocols", "type": "list", "description": "Space-separated list of protocols to enable, e.g. TLSv1.2 TLSv1.3. Only needed when the target server does not support version negotiation."},
+        {"key": "https.cipherSuites", "type": "list", "description": "Comma-separated list of cipher suites to enable for HTTPS connections."},
+        {"key": "https.use.cached.ssl.context", "type": "boolean", "default": "true", "description": "Reuse the cached SSL context between iterations. Deprecated since JMeter 5.0."},
+        {"key": "https.keyStoreStartIndex", "type": "integer", "default": "0", "description": "First keystore entry index used with keystores containing many entries."},
+        {"key": "https.keyStoreEndIndex", "type": "integer", "default": "0", "description": "Last keystore entry index used with keystores containing many entries."}
+      ]
+    },
+    {
+      "id": "response-parsers",
+      "title": "Response Parsers",
+      "description": "Parsers used to find embedded resources in HTML, CSS and WML responses.",
+      "settings": [
+        {"key": "HTTPResponse.parsers", "type": "list", "default": "htmlParser wmlParser cssParser", "description": "Space-separated list of parser groups. Each parser needs corresponding .types and .className properties."},
+        {"key": "htmlParser.className", "type": "enum", "options": ["org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser", "org.apache.jmeter.protocol.http.parser.JTidyHTMLParser", "org.apache.jmeter.protocol.http.parser.RegexpHTMLParser", "org.apache.jmeter.protocol.http.parser.JsoupBasedHtmlParser"], "default": "org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser", "description": "HTML parser implementation. Lagarto (default) performs best; Jsoup is the most accurate but slower; the Regexp parser may detect references that are commented out."},
+        {"key": "htmlParser.types", "type": "list", "default": "text/html application/xhtml+xml application/xml text/xml", "description": "Space-separated content types handled by the HTML parser."},
+        {"key": "cssParser.className", "type": "text", "default": "org.apache.jmeter.protocol.http.parser.CssParser", "description": "CSS parser implementation, based on ph-css by default."},
+        {"key": "cssParser.types", "type": "list", "default": "text/css", "description": "Space-separated content types handled by the CSS parser."},
+        {"key": "css.parser.cache.size", "type": "integer", "default": "400", "description": "Size of the LRU cache storing URLs found in a CSS file to avoid parsing it repeatedly. Set to 0 to disable."},
+        {"key": "css.parser.ignore_all_css_errors", "type": "boolean", "default": "true", "description": "Let the CSS parser ignore all CSS errors."},
+        {"key": "wmlParser.className", "type": "text", "default": "org.apache.jmeter.protocol.http.parser.RegexpHTMLParser", "description": "WML parser implementation."},
+        {"key": "wmlParser.types", "type": "list", "default": "text/vnd.wap.wml", "description": "Space-separated content types handled by the WML parser."}
+      ]
+    },
+    {
+      "id": "recorder",
+      "title": "Test Script Recorder",
+      "description": "The HTTP(S) Test Script Recorder. The properties keep the historical proxy prefix.",
+      "settings": [
+        {"key": "proxy.pause", "type": "integer", "default": "5000", "description": "Gap in milliseconds between requests after which the recorder assumes the user clicked a new URL."},
+        {"key": "proxy.number.requests", "type": "boolean", "default": "true", "description": "Add a numeric suffix to recorded sampler names."},
+        {"key": "proxy.sampler_format", "type": "text", "default": "#{counter,number,000} - #{path} (#{name})", "description": "Format string for new sampler names when the naming scheme 'Use format string' is selected."},
+        {"key": "proxy.excludes.suggested", "type": "text", "default": ".*\\.(bmp|css|js|gif|ico|jpe?g|png|swf|woff|woff2)", "description": "URL patterns offered by the 'Add suggested Excludes' button. Separate multiple lines with ;"},
+        {"key": "proxy.content_type_include", "type": "text", "default": "text/html|text/plain|text/xml", "description": "Default content-type include filter."},
+        {"key": "proxy.content_type_exclude", "type": "text", "default": "image/.*|text/css|application/.*", "description": "Default content-type exclude filter."},
+        {"key": "proxy.headers.remove", "type": "list", "default": "If-Modified-Since,If-None-Match,Host", "description": "Headers removed from recorded Header Manager elements. Cookie and Authorization are always removed."},
+        {"key": "proxy.binary.types", "type": "list", "default": "application/x-amf,application/x-java-serialized-object,binary/octet-stream", "description": "Content types treated as binary; their request payloads are saved to files."},
+        {"key": "proxy.binary.directory", "type": "directory", "default": "user.dir", "description": "Directory where binary request payloads are saved."},
+        {"key": "proxy.binary.filesuffix", "type": "text", "default": ".binary", "description": "File suffix used for saved binary request payloads."},
+        {"key": "proxy.redirect.disabling", "type": "boolean", "default": "true", "description": "Disable recorded samples that resulted from redirects when the generating sampler uses auto-redirection."},
+        {"key": "proxy.ssl.protocol", "type": "text", "default": "TLS", "description": "SSL protocol used by the recorder."}
+      ]
+    },
+    {
+      "id": "recorder-cert",
+      "title": "Recorder Certificate",
+      "description": "The certificate the Test Script Recorder uses to intercept HTTPS traffic.",
+      "settings": [
+        {"key": "proxy.cert.directory", "type": "directory", "description": "Directory containing the recorder keystore. Defaults to the JMeter bin directory."},
+        {"key": "proxy.cert.file", "type": "text", "default": "proxyserver.jks", "description": "File name of the recorder keystore."},
+        {"key": "proxy.cert.type", "type": "text", "default": "JKS", "description": "Type of the recorder keystore."},
+        {"key": "proxy.cert.keystorepass", "type": "text", "default": "password", "description": "Password of the recorder keystore."},
+        {"key": "proxy.cert.keypassword", "type": "text", "default": "password", "description": "Password of the private key in the recorder keystore."},
+        {"key": "proxy.cert.factory", "type": "text", "default": "SunX509", "description": "Key factory algorithm used for the recorder certificate."},
+        {"key": "proxy.cert.alias", "type": "text", "description": "Alias of the keystore entry to use. Define this to use your own keystore."},
+        {"key": "proxy.cert.validity", "type": "integer", "default": "7", "description": "Validity in days of certificates created by the recorder."},
+        {"key": "proxy.cert.dynamic_keys", "type": "boolean", "default": "true", "description": "Generate keys dynamically when supported. When false a single key with no certificate is used."}
+      ]
+    },
+    {
+      "id": "listeners",
+      "title": "Listeners & Live Statistics",
+      "description": "Summariser output, aggregate report percentiles and backend listeners.",
+      "settings": [
+        {"key": "summariser.name", "type": "text", "description": "Name of the summariser used for non-GUI runs, e.g. summary. When empty, no summariser output is generated."},
+        {"key": "summariser.interval", "type": "integer", "default": "30", "description": "Interval between summaries, in seconds."},
+        {"key": "summariser.log", "type": "boolean", "default": "true", "description": "Write summaries to the log file."},
+        {"key": "summariser.out", "type": "boolean", "default": "true", "description": "Write summaries to standard output."},
+        {"key": "summariser.ignore_transaction_controller_sample_result", "type": "boolean", "default": "false", "description": "Ignore Transaction Controller parent sample results in the summary statistics."},
+        {"key": "aggregate_rpt_pct1", "type": "decimal", "default": "90", "description": "First percentile shown in the Aggregate Report and Summary Report listeners."},
+        {"key": "aggregate_rpt_pct2", "type": "decimal", "default": "95", "description": "Second percentile shown in the Aggregate Report and Summary Report listeners."},
+        {"key": "aggregate_rpt_pct3", "type": "decimal", "default": "99", "description": "Third percentile shown in the Aggregate Report and Summary Report listeners."},
+        {"key": "backend_metrics_window", "type": "integer", "default": "100", "description": "Size of the sliding window used to compute percentiles in Backend Listeners."},
+        {"key": "backend_metrics_large_window", "type": "integer", "default": "5000", "description": "Size of the large sliding window used by backend metrics."},
+        {"key": "backend_metrics_percentile_estimator", "type": "enum", "options": ["LEGACY", "TDIGEST"], "default": "LEGACY", "description": "Percentile estimation algorithm used by backend metrics and the dashboard report."},
+        {"key": "backend_metrics_window_mode", "type": "enum", "options": ["FIXED", "TIMED"], "default": "FIXED", "description": "Backend metrics window mode: a fixed-size sliding window or time-boxed windows."},
+        {"key": "backend_graphite.send_interval", "type": "integer", "default": "1", "description": "Interval in seconds at which the Graphite Backend Listener sends metrics."},
+        {"key": "backend_influxdb.send_interval", "type": "integer", "default": "5", "description": "Interval in seconds at which the InfluxDB Backend Listener sends metrics."},
+        {"key": "backend_influxdb.connection_timeout", "type": "integer", "default": "1000", "description": "InfluxDB connection timeout in milliseconds."},
+        {"key": "backend_influxdb.socket_timeout", "type": "integer", "default": "3000", "description": "InfluxDB socket timeout in milliseconds."},
+        {"key": "backend_influxdb.connection_request_timeout", "type": "integer", "default": "100", "description": "InfluxDB connection request timeout in milliseconds."},
+        {"key": "mailer.successlimit", "type": "integer", "default": "2", "description": "Number of successful samples after which the Mailer Visualizer sends a success message."},
+        {"key": "mailer.failurelimit", "type": "integer", "default": "2", "description": "Number of failed samples after which the Mailer Visualizer sends a failure message."}
+      ]
+    },
+    {
+      "id": "dashboard",
+      "title": "HTML Dashboard Report",
+      "description": "APDEX thresholds and report generation. More jmeter.reportgenerator options live in bin/reportgenerator.properties.",
+      "settings": [
+        {"key": "jmeter.reportgenerator.apdex_satisfied_threshold", "type": "integer", "default": "500", "description": "APDEX satisfaction threshold in milliseconds."},
+        {"key": "jmeter.reportgenerator.apdex_tolerated_threshold", "type": "integer", "default": "1500", "description": "APDEX tolerance threshold in milliseconds."},
+        {"key": "jmeter.reportgenerator.exported_transactions_pattern", "type": "text", "default": "[a-zA-Z0-9_\\-{}$]*[-_][0-9]*", "description": "Regular expression matching the transaction names exported to the dashboard's statistics table."},
+        {"key": "generate_report_ui.generation_timeout", "type": "integer", "default": "300000", "description": "Timeout in milliseconds for report generation via Tools > Generate HTML report."}
+      ]
+    },
+    {
+      "id": "functions",
+      "title": "Functions & Assertions",
+      "description": "Defaults of built-in functions and assertion diff output.",
+      "settings": [
+        {"key": "time.YMD", "type": "text", "default": "yyyyMMdd", "description": "Date format used by __time(YMD)."},
+        {"key": "time.HMS", "type": "text", "default": "HHmmss", "description": "Time format used by __time(HMS)."},
+        {"key": "time.YMDHMS", "type": "text", "default": "yyyyMMdd-HHmmss", "description": "Timestamp format used by __time(YMDHMS)."},
+        {"key": "time.USER1", "type": "text", "description": "Custom format used by __time(USER1)."},
+        {"key": "time.USER2", "type": "text", "description": "Custom format used by __time(USER2)."},
+        {"key": "csvread.delimiter", "type": "text", "default": ",", "description": "Delimiter used by the __CSVRead function."},
+        {"key": "assertion.equals_section_diff_len", "type": "integer", "default": "100", "description": "Number of characters shown in the diff sections of an equals assertion failure."},
+        {"key": "assertion.equals_diff_delta_start", "type": "text", "default": "[[[", "description": "Marker placed before a differing section in equals assertion diffs."},
+        {"key": "assertion.equals_diff_delta_end", "type": "text", "default": "]]]", "description": "Marker placed after a differing section in equals assertion diffs."},
+        {"key": "jmespath.parser.cache.size", "type": "integer", "default": "400", "description": "Size of the compiled JMESPath query cache."}
+      ]
+    },
+    {
+      "id": "csv-data",
+      "title": "CSV Data Set",
+      "description": "CSV Data Set Config element behavior.",
+      "settings": [
+        {"key": "csvdataset.eofstring", "type": "text", "default": "<EOF>", "description": "Value returned by CSV Data Set when the end of file is reached and recycling is off."},
+        {"key": "csvdataset.file.encoding_list", "type": "list", "description": "Pipe-separated list of file encodings offered in the CSV Data Set GUI."}
+      ]
+    },
+    {
+      "id": "protocols",
+      "title": "Other Protocols",
+      "description": "TCP, JDBC, LDAP and JMS sampler configuration.",
+      "settings": [
+        {"key": "tcp.handler", "type": "text", "default": "TCPClientImpl", "description": "Default TCP client handler implementation class."},
+        {"key": "tcp.charset", "type": "text", "description": "Character set used to encode and decode TCP data. Defaults to the platform default charset."},
+        {"key": "tcp.eolByte", "type": "integer", "default": "1000", "description": "End-of-line byte value used by TCPClientImpl. Values outside -128..127 disable end-of-line detection."},
+        {"key": "tcp.BinaryTCPClient.eomByte", "type": "integer", "default": "1000", "description": "End-of-message byte value used by BinaryTCPClientImpl. Values outside -128..127 disable end-of-message detection."},
+        {"key": "tcp.binarylength.prefix.length", "type": "integer", "default": "2", "description": "Length in bytes of the length prefix used by LengthPrefixedBinaryTCPClientImpl."},
+        {"key": "tcp.status.prefix", "type": "text", "description": "Text preceding the status number in TCP responses. When defined, the sampler parses a status code from responses."},
+        {"key": "tcp.status.suffix", "type": "text", "description": "Text following the status number in TCP responses."},
+        {"key": "tcp.status.properties", "type": "file", "description": "Properties file mapping TCP status codes to messages."},
+        {"key": "jdbc.config.jdbc.driver.class", "type": "list", "description": "Pipe-separated list of JDBC driver class names offered in the JDBC Connection Configuration GUI, in addition to the built-in ones."},
+        {"key": "jdbc.config.check.query", "type": "list", "description": "Pipe-separated list of validation queries offered in the JDBC Connection Configuration GUI, in addition to the built-in ones."},
+        {"key": "jdbcsampler.max_retain_result_size", "type": "integer", "default": "65536", "description": "Maximum size in bytes of a JDBC result set retained in the sample result."},
+        {"key": "jdbcsampler.nullmarker", "type": "text", "default": "]NULL[", "description": "String used to represent SQL NULL values in JDBC sampler parameters and results."},
+        {"key": "ldapsampler.max_sorted_results", "type": "integer", "default": "1000", "description": "Maximum number of LDAP results that are sorted before display."},
+        {"key": "JMSSampler.useSecurity.properties", "type": "boolean", "default": "true", "description": "Use java.naming.security properties when the JMS Point-to-Point sampler creates the queue connection. Set to false to stop passing them."}
+      ]
+    },
+    {
+      "id": "validation",
+      "title": "Thread Group Validation",
+      "description": "The Validate action that rapidly checks a Thread Group runs fine.",
+      "settings": [
+        {"key": "testplan_validation.tree_cloner_class", "type": "text", "default": "org.apache.jmeter.validation.ComponentTreeClonerForValidation", "description": "Tree cloner implementation used to create the tree for validation runs. Must extend org.apache.jmeter.engine.TreeCloner."},
+        {"key": "testplan_validation.nb_threads_per_thread_group", "type": "integer", "default": "1", "description": "Number of threads used when validating a Thread Group."},
+        {"key": "testplan_validation.number_iterations", "type": "integer", "default": "1", "description": "Number of iterations used when validating a Thread Group."},
+        {"key": "testplan_validation.ignore_timers", "type": "boolean", "default": "true", "description": "Ignore timers when validating a Thread Group."},
+        {"key": "testplan_validation.ignore_backends", "type": "boolean", "default": "true", "description": "Ignore Backend Listeners when validating a Thread Group."},
+        {"key": "testplan_validation.tpc_force_100_pct", "type": "boolean", "default": "false", "description": "Force Throughput Controllers in percentage mode to run at 100% during validation."}
+      ]
+    },
+    {
+      "id": "naming",
+      "title": "Naming Policy",
+      "description": "Automatic naming of test plan elements.",
+      "settings": [
+        {"key": "naming_policy.prefix", "type": "text", "description": "Prefix used when naming elements."},
+        {"key": "naming_policy.suffix", "type": "text", "description": "Suffix used when naming elements."},
+        {"key": "naming_policy.impl", "type": "text", "default": "org.apache.jmeter.gui.action.impl.DefaultTreeNodeNamingPolicy", "description": "Implementation of the TreeNodeNamingPolicy interface applied by the Apply Naming Policy action."},
+        {"key": "includecontroller.prefix", "type": "text", "description": "Prefix prepended by the Include Controller when building the include file name."}
+      ]
+    },
+    {
+      "id": "classpath",
+      "title": "Classpath & Plugins",
+      "description": "Where additional plugin and utility classes are loaded from. Changes require a restart.",
+      "settings": [
+        {"key": "search_paths", "type": "list", "description": "Directories (separated by ;) searched for additional JMeter plugin classes, in addition to lib/ext. Jar files in sub directories are ignored."},
+        {"key": "user.classpath", "type": "list", "description": "Directories searched for utility and dependency classes (platform path separator), in addition to lib. Entries are added to the system class loader and the JMeter internal loader."},
+        {"key": "plugin_dependency_paths", "type": "list", "description": "Directories (separated by ;) searched for plugin dependency classes; added to the JMeter internal loader only. Prefer this over user.classpath for plugin dependencies."},
+        {"key": "classfinder.functions.contain", "type": "text", "default": ".functions.", "description": "Only classes whose name contains this string are scanned as JMeter functions."},
+        {"key": "classfinder.functions.notContain", "type": "text", "default": ".gui.", "description": "Classes whose name contains this string are skipped when scanning for JMeter functions."}
+      ]
+    },
+    {
+      "id": "xml",
+      "title": "XML & Parser Caches",
+      "description": "XML and XPath processing.",
+      "settings": [
+        {"key": "xpath.namespace.config", "type": "file", "description": "Path to a properties file containing XML namespace mappings in the form prefix=Namespace."},
+        {"key": "xpath2query.parser.cache.size", "type": "integer", "default": "400", "description": "Size of the cache storing compiled XPath2 queries."}
+      ]
+    },
+    {
+      "id": "system",
+      "title": "System Properties",
+      "description": "JVM system properties loaded from system.properties: SSL keystores, Kerberos files and JVM-level proxy settings. Values are written to bin/system.properties.",
+      "target": "system",
+      "settings": [
+        {"key": "javax.net.ssl.keyStore", "type": "file", "description": "Path to the keystore holding client certificates used by the samplers."},
+        {"key": "javax.net.ssl.keyStorePassword", "type": "text", "description": "Password of the client certificate keystore."},
+        {"key": "javax.net.ssl.keyStoreType", "type": "text", "description": "Type of the client certificate keystore, e.g. JKS or PKCS12."},
+        {"key": "javax.net.ssl.trustStore", "type": "file", "description": "Path to the truststore holding trusted certificates."},
+        {"key": "javax.net.ssl.trustStorePassword", "type": "text", "description": "Password of the truststore."},
+        {"key": "javax.net.debug", "type": "text", "description": "JSSE debugging switches, e.g. ssl, all, or a combination like sslctx,session,sessioncache."},
+        {"key": "java.security.krb5.conf", "type": "file", "default": "krb5.conf", "description": "Kerberos configuration file. Relative names are resolved against the bin folder."},
+        {"key": "java.security.auth.login.config", "type": "file", "default": "jaas.conf", "description": "JAAS login configuration file used for Kerberos authentication. Relative names are resolved against the bin folder."},
+        {"key": "keytool.directory", "type": "directory", "description": "Directory containing the keytool application, when JMeter cannot find it automatically."},
+        {"key": "sun.net.http.allowRestrictedHeaders", "type": "boolean", "default": "true", "description": "Allow restricted headers such as Host and Connection to be passed through to the server."},
+        {"key": "http.proxyHost", "type": "text", "description": "JVM-level HTTP proxy host used when no proxy is configured in the sampler."},
+        {"key": "http.proxyPort", "type": "integer", "description": "JVM-level HTTP proxy port."},
+        {"key": "https.proxyHost", "type": "text", "description": "JVM-level HTTPS proxy host."},
+        {"key": "https.proxyPort", "type": "integer", "description": "JVM-level HTTPS proxy port."},
+        {"key": "http.nonProxyHosts", "type": "list", "description": "Hosts reached directly, bypassing the proxy. Separate entries with |; wildcards like *.example.com are allowed."}
+      ]
+    }
+  ]
+}
