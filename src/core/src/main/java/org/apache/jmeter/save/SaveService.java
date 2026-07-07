@@ -36,6 +36,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.ServiceLoader;
 
 import org.apache.jmeter.reporters.ResultCollectorHelper;
 import org.apache.jmeter.samplers.SampleEvent;
@@ -43,6 +44,7 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.NameUpdater;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.ExceptionUtils;
 import org.apache.jorphan.util.JMeterError;
 import org.apache.jorphan.util.JOrphanUtils;
@@ -455,7 +457,13 @@ public class SaveService {
                 log.error("Problem loading XML: see above.");
                 return null;
             }
-            return wrapper.testPlan;
+            HashTree tree = wrapper.testPlan;
+            if (tree != null) {
+                for (LoadedTreePostProcessor postProcessor : LoadedTreePostProcessorHolder.POST_PROCESSORS) {
+                    postProcessor.process(tree);
+                }
+            }
+            return tree;
         } catch (CannotResolveClassException | ConversionException | NoClassDefFoundError e) {
             if(file != null) {
                 throw new IllegalArgumentException("Problem loading XML from:'"+file.getAbsolutePath()+"'. \nCause:\n"+
@@ -537,5 +545,24 @@ public class SaveService {
 
     public static String getVERSION() {
         return VERSION;
+    }
+
+    /**
+     * Lazily discovers {@link LoadedTreePostProcessor} services on first tree load,
+     * so protocol modules can migrate legacy JMX shapes without core depending on them.
+     */
+    private static class LoadedTreePostProcessorHolder {
+        private static final List<LoadedTreePostProcessor> POST_PROCESSORS = loadPostProcessors();
+
+        private static List<LoadedTreePostProcessor> loadPostProcessors() {
+            List<LoadedTreePostProcessor> processors = new ArrayList<>(
+                    JMeterUtils.loadServicesAndScanJars(
+                            LoadedTreePostProcessor.class,
+                            ServiceLoader.load(LoadedTreePostProcessor.class),
+                            Thread.currentThread().getContextClassLoader(),
+                            new LogAndIgnoreServiceLoadExceptionHandler(log)));
+            processors.sort(Comparator.comparing(p -> p.getClass().getName()));
+            return processors;
+        }
     }
 }

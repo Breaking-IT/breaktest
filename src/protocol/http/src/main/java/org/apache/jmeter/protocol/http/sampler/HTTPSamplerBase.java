@@ -59,6 +59,7 @@ import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.Cookie;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.DNSCacheManager;
+import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.parser.BaseParser;
 import org.apache.jmeter.protocol.http.parser.LinkExtractorParseException;
@@ -76,6 +77,7 @@ import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.ResponseDecoderRegistry;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.ChildElementFilter;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestIterationListener;
 import org.apache.jmeter.testelement.TestStateListener;
@@ -107,7 +109,7 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class HTTPSamplerBase extends AbstractSampler
     implements TestStateListener, TestIterationListener, ThreadListener, HTTPConstantsInterface,
-        Replaceable {
+        Replaceable, ChildElementFilter {
 
     private static final long serialVersionUID = 243L;
 
@@ -141,6 +143,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public static final String CACHE_MANAGER = "HTTPSampler.cache_manager"; // $NON-NLS-1$
 
     public static final String HEADER_MANAGER = "HTTPSampler.header_manager"; // $NON-NLS-1$
+
+    /** Headers configured directly on the sampler (Headers tab). */
+    public static final String HEADERS = "HTTPSampler.headers"; // $NON-NLS-1$
 
     public static final String DNS_CACHE_MANAGER = "HTTPSampler.dns_cache_manager"; // $NON-NLS-1$
 
@@ -1133,6 +1138,115 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public HeaderManager getHeaderManager() {
         return getOrNull(getSchema().getHeaderManager());
+    }
+
+    /**
+     * Get the headers configured directly on this sampler (the "Headers" tab),
+     * or {@code null} when none are set.
+     *
+     * @return the native header collection property, or {@code null}
+     */
+    public @Nullable CollectionProperty getNativeHeaders() {
+        return getOrNull(getSchema().getHeaders());
+    }
+
+    /**
+     * Get the headers configured directly on this sampler as a list.
+     * The returned {@link Header} instances are live: mutating them changes the sampler.
+     *
+     * @return the native headers, empty when none are set
+     */
+    public List<Header> getNativeHeaderList() {
+        CollectionProperty headers = getNativeHeaders();
+        if (headers == null) {
+            return new ArrayList<>();
+        }
+        List<Header> result = new ArrayList<>(headers.size());
+        for (JMeterProperty property : headers) {
+            if (property.getObjectValue() instanceof Header header) {
+                result.add(header);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Replace the headers configured directly on this sampler.
+     * The property is removed when the list is null or empty so saved JMX stays clean.
+     *
+     * @param headers new native headers
+     */
+    public void setNativeHeaders(@Nullable List<Header> headers) {
+        if (headers == null || headers.isEmpty()) {
+            removeProperty(getSchema().getHeaders());
+        } else {
+            set(getSchema().getHeaders(), new ArrayList<>(headers));
+        }
+    }
+
+    /**
+     * Append the given manager's headers to this sampler's native headers, skipping any header
+     * whose name (case-insensitive) is already present natively. Used when folding legacy
+     * child Header Managers into the sampler: first folded manager wins on name conflicts,
+     * matching the old innermost-config-first merge order.
+     *
+     * @param manager source of headers to fold in
+     */
+    public void addNativeHeadersIfAbsent(HeaderManager manager) {
+        CollectionProperty source = manager.getHeaders();
+        if (source == null || source.size() == 0) {
+            return;
+        }
+        List<Header> merged = getNativeHeaderList();
+        Set<String> existingNames = new HashSet<>();
+        for (Header header : merged) {
+            existingNames.add(header.getName().toLowerCase(Locale.ROOT));
+        }
+        for (int i = 0; i < manager.size(); i++) {
+            Header header = manager.get(i);
+            if (!existingNames.contains(header.getName().toLowerCase(Locale.ROOT))) {
+                merged.add((Header) header.clone());
+            }
+        }
+        setNativeHeaders(merged);
+    }
+
+    /**
+     * The manager actually used to build request headers: native sampler headers combined with
+     * the scoped Header Managers merged in by the compiler ({@link #getHeaderManager()}).
+     * Native headers win on name conflicts, like a child Header Manager used to.
+     *
+     * @return the effective manager, or {@code null} when there are no headers at all
+     */
+    public @Nullable HeaderManager getEffectiveHeaderManager() {
+        HeaderManager nativeManager = buildNativeHeaderManager();
+        HeaderManager scoped = getHeaderManager();
+        if (nativeManager == null) {
+            return scoped;
+        }
+        if (scoped == null) {
+            return nativeManager;
+        }
+        return nativeManager.merge(scoped);
+    }
+
+    /**
+     * Wrap the native headers in a transient {@link HeaderManager} sharing the {@link Header}
+     * property instances by reference (same trick as the manager's per-sample lightweight merge).
+     */
+    private @Nullable HeaderManager buildNativeHeaderManager() {
+        CollectionProperty headers = getNativeHeaders();
+        if (headers == null || headers.size() == 0) {
+            return null;
+        }
+        HeaderManager manager = new HeaderManager();
+        manager.setName(getName());
+        CollectionProperty target = manager.getHeaders();
+        for (JMeterProperty header : headers) {
+            target.addProperty(header);
+        }
+        manager.setRunningVersion(isRunningVersion());
+        return manager;
     }
 
     // private method to allow AsyncSample to reset the value without performing checks
@@ -2698,7 +2812,17 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * Replace by replaceBy in path and body (arguments) properties
+     * Header Managers are no longer accepted as tree children: per-request headers live
+     * on the sampler itself (Headers tab), while scoped managers keep applying from
+     * higher tree levels.
+     */
+    @Override
+    public boolean acceptsChildElement(TestElement child) {
+        return !(child instanceof HeaderManager);
+    }
+
+    /**
+     * Replace by replaceBy in path, body (arguments) and native header properties
      */
     @Override
     public int replace(String regex, String replaceBy, boolean caseSensitive) throws Exception {
@@ -2714,6 +2838,20 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, getString(key), s -> set(key, s));
         }
 
+        for (Header header : getNativeHeaderList()) {
+            totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, header.getValue(), header::setValue);
+        }
+
         return totalReplaced;
+    }
+
+    @Override
+    public List<String> getSearchableTokens() {
+        List<String> tokens = super.getSearchableTokens();
+        for (Header header : getNativeHeaderList()) {
+            tokens.add(header.getName());
+            tokens.add(header.getValue());
+        }
+        return tokens;
     }
 }

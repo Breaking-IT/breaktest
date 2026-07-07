@@ -23,6 +23,8 @@ import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.util.List;
+import java.util.Map;
 
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
@@ -83,109 +85,73 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             this.enabled = enabled;
         }
 
+        // Ordered substring -> icon kind matching; first hit wins, so keep the
+        // more specific tokens (e.g. RandomOrderController) before the general ones.
+        private static final List<Map.Entry<Kind, String[]>> PRIMARY_KINDS = List.of(
+                Map.entry(Kind.PLAN, new String[] {"TestPlanGui"}), // $NON-NLS-1$
+                Map.entry(Kind.THREADS, new String[] {"ThreadGroup"}), // $NON-NLS-1$
+                Map.entry(Kind.REPORT, new String[] {"Visualizer", "Listener", "ResultCollector", "Report"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
+                Map.entry(Kind.COOKIE, new String[] {"Cookie"}), // $NON-NLS-1$
+                Map.entry(Kind.CONFIG, new String[] {"Config", "BreakTestAiKnowledge", "BreakTest AI Knowledge"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
+                Map.entry(Kind.REQUEST, new String[] {"Sampler"})); // $NON-NLS-1$
+
+        private static final List<Map.Entry<Kind, String[]>> CONTROLLER_KINDS = List.of(
+                Map.entry(Kind.IF_CONTROLLER, new String[] {"IfController"}), // $NON-NLS-1$
+                Map.entry(Kind.SWITCH_CONTROLLER, new String[] {"SwitchController"}), // $NON-NLS-1$
+                Map.entry(Kind.TRANSACTION, new String[] {"TransactionController"}), // $NON-NLS-1$
+                Map.entry(Kind.LOOP, new String[] {"LoopController"}), // $NON-NLS-1$
+                Map.entry(Kind.WHILE_CONTROLLER, new String[] {"WhileController"}), // $NON-NLS-1$
+                Map.entry(Kind.CRITICAL_CONTROLLER, new String[] {"CriticalSectionController"}), // $NON-NLS-1$
+                Map.entry(Kind.FOREACH_CONTROLLER, new String[] {"ForeachController", "ForEachController"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.INCLUDE_CONTROLLER, new String[] {"IncludeController"}), // $NON-NLS-1$
+                Map.entry(Kind.INTERLEAVE_CONTROLLER, new String[] {"InterleaveControl"}), // $NON-NLS-1$
+                Map.entry(Kind.ONCE_CONTROLLER, new String[] {"OnceOnlyController"}), // $NON-NLS-1$
+                Map.entry(Kind.RANDOM_ORDER_CONTROLLER, new String[] {"RandomOrderController"}), // $NON-NLS-1$
+                Map.entry(Kind.RANDOM_CONTROLLER, new String[] {"RandomController"}), // $NON-NLS-1$
+                Map.entry(Kind.RECORDING_CONTROLLER, new String[] {"RecordingController"}), // $NON-NLS-1$
+                Map.entry(Kind.RUNTIME_CONTROLLER, new String[] {"RuntimeController"}), // $NON-NLS-1$
+                Map.entry(Kind.PARALLEL_CONTROLLER, new String[] {"ParallelController"}), // $NON-NLS-1$
+                Map.entry(Kind.THROUGHPUT_CONTROLLER, new String[] {"ThroughputController"}), // $NON-NLS-1$
+                Map.entry(Kind.FORK_CONTROLLER, new String[] {"ForkController"}), // $NON-NLS-1$
+                Map.entry(Kind.MODULE, new String[] {"ModuleController"}), // $NON-NLS-1$
+                Map.entry(Kind.SIMPLE_CONTROLLER, new String[] {"SimpleController", "Controller"})); // $NON-NLS-1$ $NON-NLS-2$
+
+        private static final List<Map.Entry<Kind, String[]>> FALLBACK_KINDS = List.of(
+                Map.entry(Kind.TIMER, new String[] {"Timer"}), // $NON-NLS-1$
+                Map.entry(Kind.ASSERTION, new String[] {"Assertion"}), // $NON-NLS-1$
+                Map.entry(Kind.PRE_PROCESSOR, new String[] {"PreProcessor"}), // $NON-NLS-1$
+                Map.entry(Kind.POST_PROCESSOR, new String[] {"PostProcessor"})); // $NON-NLS-1$
+
         static Icon from(JMeterTreeNode node, boolean enabled) {
+            return new ModernTreeIcon(kindFor(node), enabled);
+        }
+
+        private static Kind kindFor(JMeterTreeNode node) {
             TestElement element = node.getTestElement();
             if (element == null) {
-                return new ModernTreeIcon(Kind.NODE, enabled);
+                return Kind.NODE;
             }
             String guiClass = element.getPropertyAsString(TestElement.GUI_CLASS);
             String name = (guiClass == null ? "" : guiClass) + " " + element.getClass().getName(); // $NON-NLS-1$ // $NON-NLS-2$
-            if (name.contains("TestPlanGui")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.PLAN, enabled);
+            Kind primary = matchKind(PRIMARY_KINDS, name);
+            if (primary != null) {
+                return primary;
             }
-            if (name.contains("ThreadGroup")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.THREADS, enabled);
-            }
-            if (name.contains("Visualizer") || name.contains("Listener") || name.contains("ResultCollector")
-                    || name.contains("Report")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
-                return new ModernTreeIcon(Kind.REPORT, enabled);
-            }
-            if (name.contains("Cookie")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.COOKIE, enabled);
-            }
-            if (name.contains("Config") || name.contains("BreakTestAiKnowledge")
-                    || name.contains("BreakTest AI Knowledge")) { // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
-                return new ModernTreeIcon(Kind.CONFIG, enabled);
-            }
-            if (name.contains("Sampler")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.REQUEST, enabled);
-            }
-            Kind controllerKind = controllerKind(name);
+            Kind controllerKind = matchKind(CONTROLLER_KINDS, name);
             if (controllerKind != null) {
-                return new ModernTreeIcon(controllerKind, enabled);
+                return controllerKind;
             }
-            if (name.contains("Timer")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.TIMER, enabled);
-            }
-            if (name.contains("Assertion")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.ASSERTION, enabled);
-            }
-            if (name.contains("PreProcessor")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.PRE_PROCESSOR, enabled);
-            }
-            if (name.contains("PostProcessor")) { // $NON-NLS-1$
-                return new ModernTreeIcon(Kind.POST_PROCESSOR, enabled);
-            }
-            return new ModernTreeIcon(Kind.NODE, enabled);
+            Kind fallback = matchKind(FALLBACK_KINDS, name);
+            return fallback != null ? fallback : Kind.NODE;
         }
 
-        private static Kind controllerKind(String descriptor) {
-            if (descriptor.contains("IfController")) { // $NON-NLS-1$
-                return Kind.IF_CONTROLLER;
-            }
-            if (descriptor.contains("SwitchController")) { // $NON-NLS-1$
-                return Kind.SWITCH_CONTROLLER;
-            }
-            if (descriptor.contains("TransactionController")) { // $NON-NLS-1$
-                return Kind.TRANSACTION;
-            }
-            if (descriptor.contains("LoopController")) { // $NON-NLS-1$
-                return Kind.LOOP;
-            }
-            if (descriptor.contains("WhileController")) { // $NON-NLS-1$
-                return Kind.WHILE_CONTROLLER;
-            }
-            if (descriptor.contains("CriticalSectionController")) { // $NON-NLS-1$
-                return Kind.CRITICAL_CONTROLLER;
-            }
-            if (descriptor.contains("ForeachController") || descriptor.contains("ForEachController")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.FOREACH_CONTROLLER;
-            }
-            if (descriptor.contains("IncludeController")) { // $NON-NLS-1$
-                return Kind.INCLUDE_CONTROLLER;
-            }
-            if (descriptor.contains("InterleaveControl")) { // $NON-NLS-1$
-                return Kind.INTERLEAVE_CONTROLLER;
-            }
-            if (descriptor.contains("OnceOnlyController")) { // $NON-NLS-1$
-                return Kind.ONCE_CONTROLLER;
-            }
-            if (descriptor.contains("RandomOrderController")) { // $NON-NLS-1$
-                return Kind.RANDOM_ORDER_CONTROLLER;
-            }
-            if (descriptor.contains("RandomController")) { // $NON-NLS-1$
-                return Kind.RANDOM_CONTROLLER;
-            }
-            if (descriptor.contains("RecordingController")) { // $NON-NLS-1$
-                return Kind.RECORDING_CONTROLLER;
-            }
-            if (descriptor.contains("RuntimeController")) { // $NON-NLS-1$
-                return Kind.RUNTIME_CONTROLLER;
-            }
-            if (descriptor.contains("ParallelController")) { // $NON-NLS-1$
-                return Kind.PARALLEL_CONTROLLER;
-            }
-            if (descriptor.contains("ThroughputController")) { // $NON-NLS-1$
-                return Kind.THROUGHPUT_CONTROLLER;
-            }
-            if (descriptor.contains("ForkController")) { // $NON-NLS-1$
-                return Kind.FORK_CONTROLLER;
-            }
-            if (descriptor.contains("ModuleController")) { // $NON-NLS-1$
-                return Kind.MODULE;
-            }
-            if (descriptor.contains("SimpleController") || descriptor.contains("Controller")) { // $NON-NLS-1$ $NON-NLS-2$
-                return Kind.SIMPLE_CONTROLLER;
+        private static Kind matchKind(List<Map.Entry<Kind, String[]>> table, String descriptor) {
+            for (Map.Entry<Kind, String[]> entry : table) {
+                for (String token : entry.getValue()) {
+                    if (descriptor.contains(token)) {
+                        return entry.getKey();
+                    }
+                }
             }
             return null;
         }

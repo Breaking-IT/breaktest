@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.gui
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.EscapeDialog
+import org.apache.jorphan.gui.JFactory
 import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
@@ -44,8 +45,6 @@ import javax.swing.Timer
 import javax.swing.UIManager
 import javax.swing.table.AbstractTableModel
 import javax.swing.tree.TreePath
-
-import org.apache.jorphan.gui.JFactory
 
 public object AiAutoScriptingLogWindow {
     private const val MAX_LINE_LENGTH = 2_000

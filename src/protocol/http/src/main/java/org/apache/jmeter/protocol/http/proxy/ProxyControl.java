@@ -645,7 +645,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
                 if (authorization != null) {
                     setAuthorization(authorization, myTarget);
                 }
-                sampleQueue.add(new SamplerInfo(sampler, testElements, myTarget, getPrefixHTTPSampleName(), groupingMode));
+                TestElement[] childElements = foldHeaderManagers(sampler, testElements);
+                sampleQueue.add(new SamplerInfo(sampler, childElements, myTarget, getPrefixHTTPSampleName(), groupingMode));
             } else {
                 if (log.isDebugEnabled()) {
                     log.debug(
@@ -664,6 +665,30 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     "Sample not delivered to Child Sampler Listener based on url or content-type: {} - {}",
                     result.getUrlAsString(), result.getContentType());
         }
+    }
+
+    /**
+     * Recorded browser headers become native sampler headers instead of a child Header Manager
+     * element. Also drops the runtime {@code HTTPSampler.header_manager} property that was set
+     * on the sampler to execute the live recording sample, so it is not persisted.
+     * Runs after {@link #replaceValues} and {@link #createAuthorization}, so variable
+     * replacement has been applied and the Authorization header has been extracted.
+     *
+     * @param sampler      the recorded sampler
+     * @param testElements elements captured alongside the sampler
+     * @return the elements that should still be added as tree children of the sampler
+     */
+    private static TestElement[] foldHeaderManagers(HTTPSamplerBase sampler, TestElement[] testElements) {
+        sampler.removeProperty(HTTPSamplerBase.HEADER_MANAGER);
+        List<TestElement> remaining = new ArrayList<>();
+        for (TestElement testElement : testElements) {
+            if (testElement instanceof HeaderManager headerManager) {
+                sampler.addNativeHeadersIfAbsent(headerManager);
+            } else {
+                remaining.add(testElement);
+            }
+        }
+        return remaining.toArray(new TestElement[0]);
     }
 
     /**

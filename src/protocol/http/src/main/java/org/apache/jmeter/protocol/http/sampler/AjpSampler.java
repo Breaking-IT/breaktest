@@ -201,7 +201,7 @@ public class AjpSampler extends HTTPSamplerBase implements Interruptible {
     }
 
     private int getHeaderSize(String method, URL url) {
-        HeaderManager headers = getHeaderManager();
+        HeaderManager headers = getEffectiveHeaderManager();
         CookieManager cookies = getCookieManager();
         AuthManager auth = getAuthManager();
         int hsz = 1; // Host always
@@ -231,7 +231,7 @@ public class AjpSampler extends HTTPSamplerBase implements Interruptible {
 
     private String setConnectionHeaders(URL url, String host, String method)
     throws IOException {
-        HeaderManager headers = getHeaderManager();
+        HeaderManager headers = getEffectiveHeaderManager();
         AuthManager auth = getAuthManager();
         StringBuilder hbuf = new StringBuilder();
         // Allow Headers to override Host setting

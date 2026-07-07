@@ -41,16 +41,21 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 import org.apache.jmeter.protocol.http.gui.HTTPArgumentsPanel;
 import org.apache.jmeter.protocol.http.gui.HTTPFileArgsPanel;
+import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
+import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.gui.JLabeledChoice;
+import org.apache.jorphan.gui.JLabeledField;
 import org.apache.jorphan.gui.JLabeledTextField;
 import org.apache.jorphan.util.StringUtilities;
+
+import net.miginfocom.swing.MigLayout;
 
 /**
  * Basic URL / HTTP Request configuration:
@@ -72,19 +77,27 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
     private static final int TAB_PARAMETERS = 0;
 
-    private int tabRawBodyIndex = 1;
-
-    private int tabFileUploadIndex = 2;
+    private int tabRawBodyIndex = -1;
 
     private HTTPArgumentsPanel argsPanel;
 
     private HTTPFileArgsPanel filesPanel;
 
+    private HeaderTablePanel headersPanel;
+
+    // Column of option boxes shown right of the tabs in the modern layout
+    private JPanel sidePanel;
+
     private JLabeledTextField domain;
 
     private JLabeledTextField port;
 
-    private JLabeledTextField protocol;
+    // Text field in the classic layout, editable http/https dropdown in the modern one
+    private JLabeledField protocol;
+
+    // Suppresses the protocol listener's default-port autofill while the UI is
+    // being populated from the test element
+    private boolean updatingUiFromElement;
 
     private JLabeledTextField contentEncoding;
 
@@ -113,6 +126,7 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
     private final boolean showRawBodyPane;
     private final boolean showFileUploadPane;
+    private final boolean modernLayout;
 
     private final BindingGroup bindingGroup;
 
@@ -152,9 +166,26 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
      * @param showFileUploadPane flag whether the file upload pane should be shown
      */
     public UrlConfigGui(boolean showSamplerFields, boolean showRawBodyPane, boolean showFileUploadPane) {
+        this(showSamplerFields, showRawBodyPane, showFileUploadPane, false);
+    }
+
+    /**
+     * @param showSamplerFields
+     *            flag whether sampler fields should be shown
+     * @param showRawBodyPane
+     *            flag whether the raw body pane should be shown
+     * @param showFileUploadPane flag whether the file upload pane should be shown
+     * @param modernLayout
+     *            when true, lay the editor out REST-client style: a URL bar row
+     *            (method, protocol, server, path), a tab strip with a native Headers tab,
+     *            and a side column with request options; when false, keep the classic layout
+     */
+    public UrlConfigGui(boolean showSamplerFields, boolean showRawBodyPane, boolean showFileUploadPane,
+            boolean modernLayout) {
         this.notConfigOnly = showSamplerFields;
         this.showRawBodyPane = showRawBodyPane;
         this.showFileUploadPane = showFileUploadPane;
+        this.modernLayout = modernLayout;
         init();
         HTTPSamplerBaseSchema schema = HTTPSamplerBaseSchema.INSTANCE;
         bindingGroup = new BindingGroup(
@@ -182,6 +213,9 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
     public void clear() {
         argsPanel.clear();
+        if (headersPanel != null) {
+            headersPanel.clear();
+        }
         if(showFileUploadPane) {
             filesPanel.clear();
         }
@@ -229,6 +263,9 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         }
         if(showFileUploadPane) {
             filesPanel.modifyTestElement(element);
+        }
+        if (headersPanel != null && element instanceof HTTPSamplerBase sampler) {
+            sampler.setNativeHeaders(headersPanel.getHeaders());
         }
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
         // Treat "unset" checkbox as "property removal" for HTTP Request Defaults component
@@ -280,7 +317,12 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
      */
     public void configure(TestElement el) {
         setName(el.getName());
-        bindingGroup.updateUi(el);
+        updatingUiFromElement = true;
+        try {
+            bindingGroup.updateUi(el);
+        } finally {
+            updatingUiFromElement = false;
+        }
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
         Arguments arguments = el.get(httpSchema.getArguments());
 
@@ -299,12 +341,24 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
             }
         }
 
+        if (headersPanel != null) {
+            if (el instanceof HTTPSamplerBase sampler) {
+                headersPanel.setHeaders(sampler.getNativeHeaderList());
+            } else {
+                headersPanel.clear();
+            }
+        }
+
         if(showFileUploadPane) {
             filesPanel.configure(el);
         }
     }
 
     private void init() {// called from ctor, so must not be overridable
+        if (modernLayout) {
+            initModern();
+            return;
+        }
         this.setLayout(new BorderLayout());
 
         // WEB REQUEST PANEL
@@ -321,23 +375,131 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     }
 
     /**
+     * REST-client style layout: URL bar on top, tab strip in the middle,
+     * option boxes in a column on the right.
+     */
+    private void initModern() {
+        // Create the shared field components; the returned classic panels are discarded
+        // and the fields re-parented into the modern containers below.
+        getWebServerPanel();
+        getPathPanel();
+
+        setLayout(new BorderLayout(5, 5));
+        add(createUrlBarPanel(), BorderLayout.NORTH);
+        add(getParameterPanel(), BorderLayout.CENTER);
+        add(createSidePanel(), BorderLayout.EAST);
+    }
+
+    private JPanel createUrlBarPanel() {
+        JPanel urlBar = new JPanel(new MigLayout("insets 2 0 2 0, fillx", // $NON-NLS-1$
+                notConfigOnly ? "[][][grow 45][][grow 55]" : "[][grow 45][][grow 55]")); // $NON-NLS-1$
+        if (notConfigOnly) {
+            urlBar.add(method);
+        }
+        urlBar.add((Component) protocol);
+        urlBar.add(domain, "growx"); // $NON-NLS-1$
+        urlBar.add(port, "wmin 90"); // $NON-NLS-1$
+        urlBar.add(path, "growx"); // $NON-NLS-1$
+        return urlBar;
+    }
+
+    private JPanel createSidePanel() {
+        sidePanel = new JPanel(new MigLayout("insets 0, wrap 1, fillx, hidemode 3", "[240:280:340,fill]")); // $NON-NLS-1$
+        if (notConfigOnly) {
+            JPanel requestOptions = new JPanel(new MigLayout("insets 4, wrap 1, fillx")); // $NON-NLS-1$
+            requestOptions.setBorder(BorderFactory.createTitledBorder(
+                    JMeterUtils.getResString("web_request_options"))); // $NON-NLS-1$
+            requestOptions.add(followRedirects);
+            requestOptions.add(autoRedirects);
+            requestOptions.add(useKeepAlive);
+            requestOptions.add(useMultipart);
+            requestOptions.add(useBrowserCompatibleMultipartMode);
+            requestOptions.add(contentEncoding, "growx"); // $NON-NLS-1$
+            sidePanel.add(requestOptions, "growx"); // $NON-NLS-1$
+        }
+        return sidePanel;
+    }
+
+    /**
+     * @return whether this editor uses the modern (URL bar + side column) layout
+     */
+    public boolean isModernLayout() {
+        return modernLayout;
+    }
+
+    /**
+     * The tab strip holding Params / Headers / Body / Files, so callers can append
+     * their own tabs (e.g. Advanced, Recorded Request/Response). Modern layout only.
+     *
+     * @return the content tab strip
+     */
+    public JTabbedPane getContentTabbedPane() {
+        return postContentTabbedPane;
+    }
+
+    /**
+     * Append a tab to the content tab strip (modern layout only).
+     *
+     * @param title tab title
+     * @param component tab content
+     */
+    public void addContentTab(String title, Component component) {
+        postContentTabbedPane.add(title, component);
+    }
+
+    /**
+     * Append an option box to the side column (modern layout only).
+     *
+     * @param component the box to add
+     */
+    public void addSidePanel(Component component) {
+        sidePanel.add(component, "growx"); // $NON-NLS-1$
+    }
+
+    /**
      * Create a panel containing the webserver (domain+port) and scheme.
      *
      * @return the panel
      */
     protected final JPanel getWebServerPanel() {
         // PROTOCOL
-        protocol = new JLabeledTextField(JMeterUtils.getResString("protocol"), 4); // $NON-NLS-1$
-        port = new JLabeledTextField(JMeterUtils.getResString("web_server_port"), 7); // $NON-NLS-1$
-        domain = new JLabeledTextField(JMeterUtils.getResString("web_server_domain"), 40); // $NON-NLS-1$
+        if (modernLayout) {
+            JLabeledChoice protocolChoice = new JLabeledChoice("", // $NON-NLS-1$
+                    new String[] {"", HTTPConstants.PROTOCOL_HTTP, HTTPConstants.PROTOCOL_HTTPS}, true, false); // $NON-NLS-1$
+            protocolChoice.addChangeListener(e -> applyDefaultPortForProtocol());
+            protocol = protocolChoice;
+            port = new JLabeledTextField(JMeterUtils.getResString("web_request_port"), 7); // $NON-NLS-1$
+            domain = new JLabeledTextField(JMeterUtils.getResString("web_request_host"), 40); // $NON-NLS-1$
+        } else {
+            protocol = new JLabeledTextField(JMeterUtils.getResString("protocol"), 4); // $NON-NLS-1$
+            port = new JLabeledTextField(JMeterUtils.getResString("web_server_port"), 7); // $NON-NLS-1$
+            domain = new JLabeledTextField(JMeterUtils.getResString("web_server_domain"), 40); // $NON-NLS-1$
+        }
 
         JPanel webServerPanel = new HorizontalPanel();
         webServerPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("web_server"))); // $NON-NLS-1$
-        webServerPanel.add(protocol);
+        webServerPanel.add((Component) protocol);
         webServerPanel.add(domain);
         webServerPanel.add(port);
         return webServerPanel;
+    }
+
+    /**
+     * Selecting http/https in the protocol dropdown pre-fills the matching default port;
+     * the user can still change it afterwards. Skipped while the UI is being populated
+     * from the test element so loaded plans keep their configured port.
+     */
+    private void applyDefaultPortForProtocol() {
+        if (updatingUiFromElement) {
+            return;
+        }
+        String selected = protocol.getText();
+        if (HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(selected)) {
+            port.setText(String.valueOf(HTTPConstants.DEFAULT_HTTPS_PORT));
+        } else if (HTTPConstants.PROTOCOL_HTTP.equalsIgnoreCase(selected)) {
+            port.setText(String.valueOf(HTTPConstants.DEFAULT_HTTP_PORT));
+        }
     }
 
     /**
@@ -426,19 +588,28 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     protected JTabbedPane getParameterPanel() {
         postContentTabbedPane = new ValidationTabbedPane();
         argsPanel = new HTTPArgumentsPanel();
-        postContentTabbedPane.add(JMeterUtils.getResString("post_as_parameters"), argsPanel);// $NON-NLS-1$
+        postContentTabbedPane.add(JMeterUtils.getResString(
+                modernLayout ? "web_request_tab_params" : "post_as_parameters"), argsPanel);// $NON-NLS-1$
 
         int indx = TAB_PARAMETERS;
+        if (modernLayout) {
+            ++indx;
+            headersPanel = new HeaderTablePanel(false);
+            postContentTabbedPane.add(JMeterUtils.getResString("web_request_headers"), headersPanel);// $NON-NLS-1$
+        }
+
         if(showRawBodyPane) {
             tabRawBodyIndex = ++indx;
             postBodyContent = JSyntaxTextArea.getInstance(30, 50);// $NON-NLS-1$
-            postContentTabbedPane.add(JMeterUtils.getResString("post_body"), JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
+            postContentTabbedPane.add(JMeterUtils.getResString(
+                    modernLayout ? "web_request_tab_body" : "post_body"), JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
         }
 
         if(showFileUploadPane) {
-            tabFileUploadIndex = ++indx;
+            ++indx;
             filesPanel = new HTTPFileArgsPanel();
-            postContentTabbedPane.add(JMeterUtils.getResString("post_files_upload"), filesPanel);
+            postContentTabbedPane.add(JMeterUtils.getResString(
+                    modernLayout ? "web_request_tab_files" : "post_files_upload"), filesPanel);
         }
         return postContentTabbedPane;
     }
@@ -457,33 +628,24 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
         @Override
         protected int getValidatedTabIndex(int currentTabIndex, int newTabIndex) {
-            if (newTabIndex == tabFileUploadIndex) { // We're going to File, no problem
+            if (newTabIndex == currentTabIndex) {
                 return newTabIndex;
             }
-
-            // We're moving to Raw or Parameters
-            if (newTabIndex != currentTabIndex) {
-                // If the Parameter data can be converted (i.e. no names)
-                // we switch
-                if (newTabIndex == tabRawBodyIndex) {
-                    if (canSwitchToRawBodyPane()) {
-                        convertParametersToRaw();
-                        return newTabIndex;
-                    } else {
-                        return TAB_PARAMETERS;
-                    }
+            // Only the Parameters and Body tabs need validation: their contents are two views
+            // of the same property, so switching between them converts or is refused.
+            // All other tabs (Headers, Files, Advanced, Recorded ...) switch freely.
+            if (newTabIndex == tabRawBodyIndex) {
+                // If the Parameter data can be converted (i.e. no names) we switch
+                if (canSwitchToRawBodyPane()) {
+                    convertParametersToRaw();
+                    return newTabIndex;
                 }
-                else {
-                    // If the Parameter data cannot be converted to Raw, then the user should be
-                    // prevented from doing so raise an error dialog
-                    if (canSwitchToParametersTab()) {
-                        return newTabIndex;
-                    } else {
-                        return tabRawBodyIndex;
-                    }
-                }
+                return TAB_PARAMETERS;
             }
-
+            if (newTabIndex == TAB_PARAMETERS && !canSwitchToParametersTab()) {
+                // Body holds content that cannot be shown as parameters: stay on Body
+                return tabRawBodyIndex;
+            }
             return newTabIndex;
         }
 
@@ -502,10 +664,10 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         }
 
         /**
-         * @return true if postBodyContent is empty
+         * @return true if there is no raw body pane or its content is empty
          */
         private boolean canSwitchToParametersTab() {
-            return showRawBodyPane && postBodyContent.getText().isEmpty();
+            return !showRawBodyPane || postBodyContent.getText().isEmpty();
         }
     }
 
