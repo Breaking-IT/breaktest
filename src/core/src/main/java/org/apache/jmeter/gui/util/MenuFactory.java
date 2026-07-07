@@ -1195,11 +1195,18 @@ public final class MenuFactory {
                 @Override
                 void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
                     g.setColor(stroke);
-                    g.drawRoundRect(x + 3, y + 4, 10, 8, 3, 3);
+                    g.drawLine(x + 3, y + 3, x + 3, y + 13);
+                    g.drawLine(x + 13, y + 3, x + 13, y + 13);
+                    g.drawLine(x + 3, y + 3, x + 6, y + 3);
+                    g.drawLine(x + 10, y + 3, x + 13, y + 3);
+                    g.drawLine(x + 3, y + 13, x + 6, y + 13);
+                    g.drawLine(x + 10, y + 13, x + 13, y + 13);
                     g.setColor(accent);
                     g.drawLine(x + 5, y + 8, x + 11, y + 8);
                     g.drawLine(x + 9, y + 6, x + 11, y + 8);
                     g.drawLine(x + 9, y + 10, x + 11, y + 8);
+                    g.fillOval(x + 4, y + 7, 3, 3);
+                    g.fillOval(x + 10, y + 7, 3, 3);
                 }
             },
             MODULE(new Color(0x14B8A6)) {

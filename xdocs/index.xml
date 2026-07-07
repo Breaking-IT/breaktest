@@ -30,7 +30,7 @@
 
       <h2>Where To Start</h2>
       <ul>
-        <li><a href="changes.html">Release Notes</a> describe the BreakTest 2026.07.03 release only.</li>
+        <li><a href="changes.html">Release Notes</a> describe the latest BreakTest release and earlier BreakTest release history.</li>
         <li><a href="usermanual/breaktest-features.html">BreakTest Features</a> explains the new BreakTest-only behavior and differences.</li>
         <li><a href="usermanual/get-started.html">Getting Started</a> covers the BreakTest runtime, scripts, and Java 21 requirement.</li>
         <li><a href="usermanual/index.html">JMeter Compatibility</a> explains where to use the official Apache JMeter docs.</li>

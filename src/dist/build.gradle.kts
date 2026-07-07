@@ -585,6 +585,7 @@ for (type in listOf("binary", "source")) {
             if (this is Tar) {
                 compression = Compression.GZIP
             }
+            isPreserveFileTimestamps = true
             // dist task excludes jar files from bin/, and lib/ however Gradle does not see that
             // So we add an artificial dependency
             mustRunAfter(copyBinLibs)

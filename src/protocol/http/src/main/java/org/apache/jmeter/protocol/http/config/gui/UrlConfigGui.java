@@ -29,6 +29,8 @@ import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
@@ -78,6 +80,13 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     private static final int TAB_PARAMETERS = 0;
 
     private int tabRawBodyIndex = -1;
+    private int tabHeadersIndex = -1;
+    private int tabFilesIndex = -1;
+
+    private String paramsTabTitle;
+    private String headersTabTitle;
+    private String bodyTabTitle;
+    private String filesTabTitle;
 
     private HTTPArgumentsPanel argsPanel;
 
@@ -223,6 +232,7 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
             postBodyContent.setInitialText("");// $NON-NLS-1$
         }
         postContentTabbedPane.setSelectedIndex(TAB_PARAMETERS, false);
+        updateContentTabTitles();
     }
 
     public TestElement createTestElement() {
@@ -352,6 +362,7 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         if(showFileUploadPane) {
             filesPanel.configure(el);
         }
+        updateContentTabTitles();
     }
 
     private void init() {// called from ctor, so must not be overridable
@@ -588,30 +599,76 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     protected JTabbedPane getParameterPanel() {
         postContentTabbedPane = new ValidationTabbedPane();
         argsPanel = new HTTPArgumentsPanel();
-        postContentTabbedPane.add(JMeterUtils.getResString(
-                modernLayout ? "web_request_tab_params" : "post_as_parameters"), argsPanel);// $NON-NLS-1$
+        argsPanel.addTableModelListener(e -> updateContentTabTitles());
+        paramsTabTitle = JMeterUtils.getResString(
+                modernLayout ? "web_request_tab_params" : "post_as_parameters");
+        postContentTabbedPane.add(paramsTabTitle, argsPanel);// $NON-NLS-1$
 
         int indx = TAB_PARAMETERS;
         if (modernLayout) {
-            ++indx;
+            tabHeadersIndex = ++indx;
             headersPanel = new HeaderTablePanel(false);
-            postContentTabbedPane.add(JMeterUtils.getResString("web_request_headers"), headersPanel);// $NON-NLS-1$
+            headersPanel.addTableModelListener(e -> updateContentTabTitles());
+            headersTabTitle = JMeterUtils.getResString("web_request_headers");
+            postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
         }
 
         if(showRawBodyPane) {
             tabRawBodyIndex = ++indx;
             postBodyContent = JSyntaxTextArea.getInstance(30, 50);// $NON-NLS-1$
-            postContentTabbedPane.add(JMeterUtils.getResString(
-                    modernLayout ? "web_request_tab_body" : "post_body"), JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
+            postBodyContent.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    updateContentTabTitles();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    updateContentTabTitles();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    updateContentTabTitles();
+                }
+            });
+            bodyTabTitle = JMeterUtils.getResString(
+                    modernLayout ? "web_request_tab_body" : "post_body");
+            postContentTabbedPane.add(bodyTabTitle, JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
         }
 
         if(showFileUploadPane) {
-            ++indx;
+            tabFilesIndex = ++indx;
             filesPanel = new HTTPFileArgsPanel();
-            postContentTabbedPane.add(JMeterUtils.getResString(
-                    modernLayout ? "web_request_tab_files" : "post_files_upload"), filesPanel);
+            filesPanel.addTableModelListener(e -> updateContentTabTitles());
+            filesTabTitle = JMeterUtils.getResString(
+                    modernLayout ? "web_request_tab_files" : "post_files_upload");
+            postContentTabbedPane.add(filesTabTitle, filesPanel);
         }
+        updateContentTabTitles();
         return postContentTabbedPane;
+    }
+
+    private void updateContentTabTitles() {
+        if (postContentTabbedPane == null || argsPanel == null) {
+            return;
+        }
+        setTabTitle(TAB_PARAMETERS, paramsTabTitle, argsPanel.getParameterCount());
+        if (headersPanel != null && tabHeadersIndex >= 0) {
+            setTabTitle(tabHeadersIndex, headersTabTitle, headersPanel.getHeaderCount());
+        }
+        if (postBodyContent != null && tabRawBodyIndex >= 0) {
+            setTabTitle(tabRawBodyIndex, bodyTabTitle, StringUtilities.isNotEmpty(postBodyContent.getText()) ? 1 : 0);
+        }
+        if (filesPanel != null && tabFilesIndex >= 0) {
+            setTabTitle(tabFilesIndex, filesTabTitle, filesPanel.getFileCount());
+        }
+    }
+
+    private void setTabTitle(int index, String title, int count) {
+        if (title != null && index >= 0 && index < postContentTabbedPane.getTabCount()) {
+            postContentTabbedPane.setTitleAt(index, count > 0 ? title + " (" + count + ")" : title);
+        }
     }
 
     /**

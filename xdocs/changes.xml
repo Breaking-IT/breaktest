@@ -24,9 +24,68 @@
 <body>
 <section name="Release Notes">
 <note>
-BreakTest requires Java 21 or later. BreakTest 2026.07.03 is the first public
-BreakTest release and is licensed under the Apache License, Version 2.0.
+BreakTest requires Java 21 or later. BreakTest 2026.07.07 is licensed under
+the Apache License, Version 2.0.
 </note>
+
+<h1>Version 2026.07.07</h1>
+<p>
+BreakTest 2026.07.07 is a focused desktop and reporting update built from the
+changes since BreakTest 2026.07.03. It keeps the same Java 21+ baseline and
+JMeter-compatible test-plan model while improving the GUI workflow, settings
+management, validation, and live performance reporting.
+</p>
+
+<ch_section>Highlights</ch_section>
+<ul>
+  <li>Added a configurable Performance Report listener with percentile, throughput, bandwidth, error, and connect-time columns.</li>
+  <li>Added a Settings dialog backed by the full JMeter properties catalog, with search, default/modified indicators, reset controls, and safe persistence to local override property files.</li>
+  <li>Modernized the BreakTest desktop UI with a refreshed application icon, modern toolbar icons, cleaner tree rendering, improved menu organization, and better light/dark FlatLaf styling.</li>
+  <li>Improved View Results Tree and validation ergonomics with detach/dock support, validation targeting, auto-detach controls, collapsible search/file panels, and comment visibility controls.</li>
+  <li>Moved sampler-scoped HTTP headers into the HTTP Request sampler with automatic migration from child HTTP Header Manager elements.</li>
+  <li>Fixed saved test plans with the new Performance Report listener so they reload correctly.</li>
+  <li>Added child-count badges in the test-plan tree and compact Transaction Controller delay summaries beside transaction names.</li>
+  <li>Added counts to HTTP Request Params, Headers, Body, and Files tabs so hidden request data is visible at a glance.</li>
+</ul>
+
+<ch_section>Performance Reporting</ch_section>
+<ul>
+  <li>Added a dedicated Performance Report visualizer for configurable live aggregate metrics.</li>
+  <li>Added optional percentile columns including median, P75, P90, P95, and P99.</li>
+  <li>Added controls to ignore error response times in response-time metrics.</li>
+  <li>Added resource-use guidance for percentile columns, since they retain richer response-time distribution data while enabled.</li>
+  <li>Added tests for column configuration, percentile tracking, error handling, and report reset behavior.</li>
+</ul>
+
+<ch_section>Settings Management</ch_section>
+<ul>
+  <li>Added a Settings page available from the GUI menu and toolbar.</li>
+  <li>Added typed setting definitions, editors, grouping, search, default-value display, modified badges, and reset/save actions.</li>
+  <li>Added a full settings catalog resource for JMeter and BreakTest properties.</li>
+  <li>Persisted changes to local user/system override properties rather than modifying the bundled <code>jmeter.properties</code> file.</li>
+  <li>Added tests for catalog loading, property storage, and model behavior.</li>
+</ul>
+
+<ch_section>Desktop UI and Validation</ch_section>
+<ul>
+  <li>Refreshed the main frame, toolbar, menu factory, tree renderer, logger panel, target-rate chart, and scripting log presentation.</li>
+  <li>Added modern SVG toolbar assets and updated icon mappings for common actions.</li>
+  <li>Improved validation controls so selected thread groups can be targeted more directly.</li>
+  <li>Added View Results Tree detach/dock workflows and clearer validation result viewing.</li>
+  <li>Added native HTTP Request headers so sampler-specific headers live on the request itself, while higher-level Header Managers still apply by scope.</li>
+  <li>Updated the Transaction Controller icon so it reads as a transaction span rather than a small generic controller/action glyph.</li>
+  <li>Added direct-child count badges to tree nodes and compact delay summaries for Transaction Controllers with built-in delay.</li>
+  <li>Added value counts to HTTP Request data tabs for Params, Headers, Body, and Files.</li>
+  <li>Added tests around tree-listener behavior.</li>
+</ul>
+
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+  <li>Java 21 or later is still required.</li>
+  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
+  <li>Percentile columns in the Performance Report intentionally keep additional response-time history only while those columns are selected.</li>
+  <li>Most Settings changes are written as local overrides and take effect after restarting BreakTest.</li>
+</ul>
 
 <h1>Version 2026.07.03</h1>
 <p>

@@ -13,7 +13,93 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
-# BreakTest 2026.07.03 Release Notes
+# BreakTest Release Notes
+
+## BreakTest 2026.07.07
+
+BreakTest 2026.07.07 is a focused desktop and reporting update built from the
+changes since BreakTest 2026.07.03. It keeps the same Java 21+ baseline and
+JMeter-compatible test-plan model while improving the day-to-day GUI workflow,
+local settings management, validation, and live performance reporting.
+
+### Highlights
+
+- Added a configurable Performance Report listener with percentile, throughput,
+  bandwidth, error, and connect-time columns.
+- Added a Settings dialog backed by the full JMeter properties catalog, with
+  search, default/modified indicators, reset controls, and safe persistence to
+  local override property files.
+- Modernized the BreakTest desktop UI with a refreshed application icon,
+  modern toolbar icons, cleaner tree rendering, improved menu organization, and
+  better light/dark FlatLaf styling.
+- Improved View Results Tree and validation ergonomics with detach/dock support,
+  validation targeting, auto-detach controls, collapsible search/file panels,
+  and comment visibility controls.
+- Moved sampler-scoped HTTP headers into the HTTP Request sampler with
+  automatic migration from child HTTP Header Manager elements.
+- Fixed saved test plans with the new Performance Report listener so they
+  reload correctly.
+- Added child-count badges in the test-plan tree and compact Transaction
+  Controller delay summaries beside transaction names.
+- Added counts to HTTP Request Params, Headers, Body, and Files tabs so hidden
+  request data is visible at a glance.
+
+### Performance Reporting
+
+- Added a dedicated Performance Report visualizer for configurable live
+  aggregate metrics.
+- Added optional percentile columns including median, P75, P90, P95, and P99.
+- Added controls to ignore error response times in response-time metrics.
+- Added resource-use guidance for percentile columns, since they retain richer
+  response-time distribution data while enabled.
+- Added tests for column configuration, percentile tracking, error handling, and
+  report reset behavior.
+
+### Settings Management
+
+- Added a Settings page available from the GUI menu and toolbar.
+- Added typed setting definitions, editors, grouping, search, default-value
+  display, modified badges, and reset/save actions.
+- Added a full settings catalog resource for JMeter/BreakTest properties.
+- Persisted changes to local user/system override properties rather than
+  modifying the bundled `jmeter.properties` file.
+- Added tests for catalog loading, property storage, and model behavior.
+
+### Desktop UI And Validation
+
+- Refreshed the main frame, toolbar, menu factory, tree renderer, logger panel,
+  target-rate chart, and scripting log presentation.
+- Added modern SVG toolbar assets and updated icon mappings for common actions.
+- Improved validation controls so selected thread groups can be targeted more
+  directly.
+- Added View Results Tree detach/dock workflows and clearer validation result
+  viewing.
+- Added native HTTP Request headers so sampler-specific headers live on the
+  request itself, while higher-level Header Managers still apply by scope.
+- Updated the Transaction Controller icon so it reads as a transaction span
+  rather than a small generic controller/action glyph.
+- Added direct-child count badges to tree nodes and compact delay summaries for
+  Transaction Controllers with built-in delay.
+- Added value counts to HTTP Request data tabs for Params, Headers, Body, and
+  Files.
+- Added tests around tree-listener behavior.
+
+### Compatibility Notes
+
+- Java 21 or later is still required.
+- Existing JMeter-compatible JMX files remain supported where practical.
+- Percentile columns in the Performance Report intentionally keep additional
+  response-time history only while those columns are selected.
+- Most Settings changes are written as local overrides and take effect after
+  restarting BreakTest.
+
+### Security Notes
+
+BreakTest continues to use the trusted-test-plan model. Treat JMX files as
+executable input and run untrusted plans only in an isolated environment. See
+[SECURITY.md](./SECURITY.md) and [THREAT_MODEL.md](./THREAT_MODEL.md).
+
+## BreakTest 2026.07.03
 
 BreakTest 2026.07.03 is the first public BreakTest release: an independent,
 Apache-2.0, JMeter-compatible continuation focused on a leaner runtime, modern
