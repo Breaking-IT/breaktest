@@ -119,13 +119,19 @@ public class SamplePackage {
      * @see TestElement#recoverRunningVersion()
      */
     public void recoverRunningVersion() {
+        recoverRunningVersion(true);
+    }
+
+    public void recoverRunningVersion(boolean recoverControllers) {
         recoverRunningVersion(configs);
         recoverRunningVersion(sampleListeners);
         recoverRunningVersion(assertions);
         recoverRunningVersion(timers);
         recoverRunningVersion(postProcessors);
         recoverRunningVersion(preProcessors);
-        recoverRunningVersion(controllers);
+        if (recoverControllers) {
+            recoverRunningVersion(controllers);
+        }
         sampler.recoverRunningVersion();
     }
 

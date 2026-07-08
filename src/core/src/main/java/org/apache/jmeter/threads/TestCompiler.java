@@ -24,6 +24,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.Set;
 
 import org.apache.jmeter.assertions.Assertion;
@@ -110,8 +111,20 @@ public class TestCompiler implements HashTreeTraverser {
      * @return {@link SamplePackage}
      */
     public SamplePackage configureTransactionSampler(TransactionSampler transactionSampler) {
+        return configureTransactionSampler(transactionSampler, Function.identity());
+    }
+
+    public SamplePackage configureTransactionSampler(TransactionSampler transactionSampler,
+            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
         TransactionController controller = transactionSampler.getTransactionController();
         SamplePackage pack = transactionControllerConfigMap.get(controller);
+        if (pack == null) {
+            pack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
+        }
+        if (pack == null) {
+            throw new IllegalStateException(
+                    "Unable to find compiled sample package for transaction controller " + controller.getName());
+        }
         pack.setSampler(transactionSampler);
         return pack;
     }
@@ -121,6 +134,17 @@ public class TestCompiler implements HashTreeTraverser {
      * @param pack the {@link SamplePackage} to reset
      */
     public void done(SamplePackage pack) {
+        done(pack, Function.identity());
+    }
+
+    public void done(SamplePackage pack,
+            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
+        done(pack, sourceControllerResolver, true);
+    }
+
+    public void done(SamplePackage pack,
+            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver,
+            boolean recoverControllers) {
         Sampler sampler = pack.getSampler();
         if (sampler instanceof TransactionSampler transactionSampler) {
             TransactionController controller = transactionSampler.getTransactionController();
@@ -128,10 +152,18 @@ public class TestCompiler implements HashTreeTraverser {
                 // Create new sampler for next iteration
                 TransactionSampler newSampler = new TransactionSampler(controller, transactionSampler.getName());
                 SamplePackage newPack = transactionControllerConfigMap.get(controller);
+                if (newPack == null) {
+                    newPack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
+                }
+                if (newPack == null) {
+                    throw new IllegalStateException(
+                            "Unable to reset compiled sample package for transaction controller "
+                                    + controller.getName());
+                }
                 newPack.setSampler(newSampler);
             }
         }
-        pack.recoverRunningVersion();
+        pack.recoverRunningVersion(recoverControllers);
     }
 
     /** {@inheritDoc} */

@@ -38,6 +38,7 @@ import org.apache.jmeter.control.Controller
 import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.action.ActionNames
+import org.apache.jmeter.gui.action.Copy
 import org.apache.jmeter.gui.action.Load
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver
@@ -316,6 +317,7 @@ public object BreakTestAgentGuiService {
             "add_response_assertion_open_plan" -> addResponseAssertionOpenPlan(arguments)
             "update_response_assertion_open_plan" -> updateResponseAssertionOpenPlan(arguments)
             "set_redirect_mode_open_plan" -> setRedirectModeOpenPlan(arguments)
+            "clone_node_open_plan" -> cloneNodeOpenPlan(arguments)
             "move_node_open_plan" -> moveNodeOpenPlan(arguments)
             "delete_node_open_plan" -> deleteNodeOpenPlan(arguments)
             "move_think_times_to_transactions_open_plan" -> moveThinkTimesToTransactionsOpenPlan(arguments)
@@ -2329,6 +2331,77 @@ public object BreakTestAgentGuiService {
             }
         }
 
+    private fun cloneNodeOpenPlan(arguments: JsonNode): Map<String, Any?> =
+        guiCall {
+            val position = arguments.path("position").asText("after").lowercase()
+            require(position in setOf("before", "after", "first_child", "last_child")) {
+                "position must be one of before, after, first_child, or last_child"
+            }
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            ensureBackupForOpenPlan(gui)
+            gui.beginUndoTransaction()
+            try {
+                val source = selectNodeReference(gui, arguments, "source", "source")
+                val target = selectNodeReference(gui, arguments, "target", "target")
+                require(source !== testPlanNode(gui)) {
+                    "Cannot clone the open Test Plan root"
+                }
+
+                val newParent = when (position) {
+                    "before", "after" ->
+                        target.parent as? JMeterTreeNode
+                            ?: throw IllegalArgumentException("Target node has no parent")
+                    "first_child", "last_child" -> target
+                    else -> error("Unsupported position $position")
+                }
+                require(!isAncestorOf(source, newParent)) {
+                    "Cannot clone `${source.testElement.name}` under one of its descendants"
+                }
+
+                val cloned = Copy.cloneTreeNode(source)
+                val insertIndex = when (position) {
+                    "before" -> newParent.getIndex(target).coerceAtLeast(0)
+                    "after" -> (newParent.getIndex(target) + 1).coerceAtMost(newParent.childCount)
+                    "first_child" -> 0
+                    "last_child" -> newParent.childCount
+                    else -> error("Unsupported position $position")
+                }
+                gui.treeModel.insertNodeInto(cloned, newParent, insertIndex)
+                markEdited(gui, newParent, cloned)
+                recordChange(
+                    "Cloned node",
+                    cloned,
+                    "Cloned `${source.testElement.name}` $position `${target.testElement.name}`",
+                    "from ${nodePath(source)} to ${nodePath(newParent)}[$insertIndex]",
+                )
+                postActivity(
+                    "info",
+                    "Cloned node",
+                    details = "${source.testElement.name} $position ${target.testElement.name}",
+                )
+                mapOf(
+                    "cloned" to true,
+                    "sourceName" to source.testElement.name,
+                    "sourcePath" to nodePath(source),
+                    "sourceNodeId" to nodeId(source),
+                    "clonedName" to cloned.testElement.name,
+                    "clonedPath" to nodePath(cloned),
+                    "clonedNodeId" to nodeId(cloned),
+                    "targetName" to target.testElement.name,
+                    "targetPath" to nodePath(target),
+                    "targetNodeId" to nodeId(target),
+                    "position" to position,
+                    "newParentPath" to nodePath(newParent),
+                    "newIndex" to insertIndex,
+                    "childCount" to cloned.childCount,
+                    "clonedClassName" to cloned.testElement::class.java.name,
+                )
+            } finally {
+                gui.endUndoTransaction()
+            }
+        }
+
     private fun deleteNodeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
@@ -2988,6 +3061,7 @@ public object BreakTestAgentGuiService {
         gui.treeModel.nodeStructureChanged(changedNode)
         gui.mainFrame.tree.expandPath(TreePath(changedNode.path))
         gui.mainFrame.tree.selectionPath = TreePath(selectNode.path)
+        gui.refreshCurrentGui()
         gui.mainFrame.repaint()
     }
 

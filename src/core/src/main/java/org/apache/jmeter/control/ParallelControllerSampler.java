@@ -17,12 +17,12 @@
 
 package org.apache.jmeter.control;
 
+import java.util.IdentityHashMap;
 import java.util.List;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
-import org.apache.jmeter.samplers.Sampler;
 
 /**
  * Internal marker sampler consumed by {@link org.apache.jmeter.threads.JMeterThread}.
@@ -32,16 +32,19 @@ public class ParallelControllerSampler extends AbstractSampler {
 
     private final ParallelController controller;
     private final int maxParallel;
-    private final List<Sampler> samplers;
+    private final List<Controller> branches;
+    private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
 
     public ParallelControllerSampler() {
-        this(null, "", 1, List.of());
+        this(null, "", 1, List.of(), new IdentityHashMap<>());
     }
 
-    ParallelControllerSampler(ParallelController controller, String name, int maxParallel, List<Sampler> samplers) {
+    ParallelControllerSampler(ParallelController controller, String name, int maxParallel, List<Controller> branches,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
         this.controller = controller;
         this.maxParallel = maxParallel;
-        this.samplers = List.copyOf(samplers);
+        this.branches = List.copyOf(branches);
+        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
@@ -53,8 +56,12 @@ public class ParallelControllerSampler extends AbstractSampler {
         return maxParallel;
     }
 
-    public List<Sampler> getSamplers() {
-        return samplers;
+    public List<Controller> getBranches() {
+        return branches;
+    }
+
+    public TransactionController getSourceTransactionController(TransactionController controller) {
+        return sourceTransactionControllers.getOrDefault(controller, controller);
     }
 
     @Override

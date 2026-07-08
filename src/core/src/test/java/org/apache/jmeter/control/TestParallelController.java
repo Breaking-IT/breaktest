@@ -42,7 +42,7 @@ class TestParallelController {
         ParallelControllerSampler parallelSampler = assertInstanceOf(ParallelControllerSampler.class, sampler);
         assertEquals("parallel", parallelSampler.getName());
         assertEquals(6, parallelSampler.getMaxParallel());
-        assertEquals(3, parallelSampler.getSamplers().size());
+        assertEquals(3, parallelSampler.getBranches().size());
         assertNull(controller.next());
     }
 
@@ -58,7 +58,7 @@ class TestParallelController {
             Sampler sampler = controller.next();
             ParallelControllerSampler parallelSampler =
                     assertInstanceOf(ParallelControllerSampler.class, sampler);
-            assertEquals(2, parallelSampler.getSamplers().size());
+            assertEquals(2, parallelSampler.getBranches().size());
             // End of this pass: returns null but must not be "done", otherwise the
             // parent controller would remove it from the tree (bug: 2nd iteration
             // skipped everything).

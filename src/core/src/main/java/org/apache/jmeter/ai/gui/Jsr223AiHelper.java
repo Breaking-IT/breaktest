@@ -19,6 +19,8 @@ package org.apache.jmeter.ai.gui;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -34,6 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
+import javax.swing.InputMap;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -41,8 +45,10 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.text.DefaultEditorKit;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
@@ -94,6 +100,7 @@ public final class Jsr223AiHelper {
         JTextArea request = new JTextArea(7, 56);
         request.setLineWrap(true);
         request.setWrapStyleWord(true);
+        installShiftEnterNewLine(request);
 
         JPanel panel = new JPanel(new BorderLayout(0, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -134,6 +141,14 @@ public final class Jsr223AiHelper {
         );
         worker.setDaemon(true);
         worker.start();
+    }
+
+    private static void installShiftEnterNewLine(JTextArea textArea) {
+        InputMap inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
+        inputMap.put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.SHIFT_DOWN_MASK),
+                DefaultEditorKit.insertBreakAction
+        );
     }
 
     private static ScriptContext captureContext(

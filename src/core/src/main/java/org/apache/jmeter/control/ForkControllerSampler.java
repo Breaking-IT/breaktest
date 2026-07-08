@@ -17,12 +17,11 @@
 
 package org.apache.jmeter.control;
 
-import java.util.List;
+import java.util.IdentityHashMap;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
-import org.apache.jmeter.samplers.Sampler;
 
 /**
  * Internal marker sampler consumed by {@link org.apache.jmeter.threads.JMeterThread}.
@@ -30,19 +29,32 @@ import org.apache.jmeter.samplers.Sampler;
 public class ForkControllerSampler extends AbstractSampler {
     private static final long serialVersionUID = 240L;
 
-    private final List<Sampler> samplers;
+    private final ForkController sourceController;
+    private final Controller controller;
+    private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
 
     public ForkControllerSampler() {
-        this("", List.of());
+        this(null, "", new GenericController(), new IdentityHashMap<>());
     }
 
-    ForkControllerSampler(String name, List<Sampler> samplers) {
-        this.samplers = List.copyOf(samplers);
+    ForkControllerSampler(ForkController sourceController, String name, Controller controller,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        this.sourceController = sourceController;
+        this.controller = controller;
+        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
-    public List<Sampler> getSamplers() {
-        return samplers;
+    public ForkController getSourceController() {
+        return sourceController;
+    }
+
+    public Controller getController() {
+        return controller;
+    }
+
+    public TransactionController getSourceTransactionController(TransactionController controller) {
+        return sourceTransactionControllers.getOrDefault(controller, controller);
     }
 
     @Override

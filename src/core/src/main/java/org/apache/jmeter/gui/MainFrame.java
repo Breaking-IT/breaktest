@@ -624,6 +624,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         topAndDown.setTopComponent(mainPanel);
         bottomLogTabs = new JTabbedPane();
+        bottomLogTabs.setBorder(BorderFactory.createMatteBorder(2, 0, 0, 0, bottomLogDividerColor()));
         topAndDown.setBottomComponent(bottomLogTabs);
         if (DISPLAY_LOGGER_PANEL) {
             showLoggerPanel();
@@ -1233,10 +1234,17 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         boolean wasVisible = bottomLogTabs.isVisible();
         boolean visible = bottomLogTabs.getTabCount() > 0;
         bottomLogTabs.setVisible(visible);
-        topAndDown.setDividerSize(visible ? UIManager.getInt("SplitPane.dividerSize") : 0);
+        topAndDown.setDividerSize(visible ? Math.max(UIManager.getInt("SplitPane.dividerSize"), 8) : 0);
         if (visible && !wasVisible) {
             topAndDown.setDividerLocation(0.8);
         }
+    }
+
+    private static Color bottomLogDividerColor() {
+        Color panel = uiColor("Panel.background", Color.WHITE); // $NON-NLS-1$
+        return isDark(panel)
+                ? mix(panel, Color.WHITE, 0.22)
+                : uiColor("Component.borderColor", new Color(0xC6CED8)); // $NON-NLS-1$
     }
 
     /**
