@@ -1126,8 +1126,10 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
             currentSamplerForInterruption = null;
-            currentSamplersForInterruption.remove(sampler);
-            currentForkSamplersForInterruption.remove(sampler);
+            // Remove by identity: TestElement.equals() compares configuration, so a sibling
+            // sampler with identical settings must not be removed in place of this one.
+            currentSamplersForInterruption.removeIf(candidate -> candidate == sampler);
+            currentForkSamplersForInterruption.removeIf(candidate -> candidate == sampler);
         }
     }
 
@@ -1472,12 +1474,23 @@ public class JMeterThread implements Runnable, Interruptible {
         }
         synchronized (currentSamplersForInterruption) {
             for (Sampler currentSampler : currentSamplersForInterruption) {
-                if (!samplers.contains(currentSampler)) {
+                // Dedup by identity: TestElement.equals() compares configuration, so distinct
+                // concurrent samplers with identical settings must not collapse into one here.
+                if (!containsIdentity(samplers, currentSampler)) {
                     samplers.add(currentSampler);
                 }
             }
         }
         return samplers;
+    }
+
+    private static boolean containsIdentity(List<Sampler> samplers, Sampler target) {
+        for (Sampler sampler : samplers) {
+            if (sampler == target) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean interruptSamplers(List<Sampler> samplers) {
@@ -1681,8 +1694,8 @@ public class JMeterThread implements Runnable, Interruptible {
                     try {
                         TimeUnit.MILLISECONDS.sleep(pause);
                     } catch (InterruptedException e) {
-                        if (running) { // NOSONAR running may have been changed from another thread
-                            log.warn("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
+                        if (log.isDebugEnabled() && running && !isCurrentForkStopRequested()) {
+                            log.debug("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
                                     threadName, System.currentTimeMillis() - start, totalDelay);
                         }
                         Thread.currentThread().interrupt();
@@ -1694,7 +1707,9 @@ public class JMeterThread implements Runnable, Interruptible {
             return null;
         } finally {
             currentTimersForInterruption = null;
-            currentForkTimersForInterruption.remove(timers);
+            // Remove by identity: List#remove uses equals(), and equally-configured timer lists
+            // from sibling branches would otherwise remove the wrong entry.
+            currentForkTimersForInterruption.removeIf(candidate -> candidate == timers);
         }
     }
 
