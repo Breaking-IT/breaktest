@@ -162,6 +162,69 @@ has little or nothing. These are the real backlog candidates.
 
 ---
 
+## Part 5 — Further items (additional tracker requests and long-standing bugs)
+
+A third pass surfaced more distinct items. Grouped by theme; BreakTest status
+noted where determinable from README/release notes.
+
+### I. Protocol & transport (beyond Part 4)
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **HTTP/3 & QUIC** (#5752) | No native HTTP/3; only third-party HTTP/2. Next transport frontier. | Not addressed. Natural follow-on to the strong HTTP/2 story. |
+| **Per-thread TLS client certificates** (Bugzilla #58236) | Long-standing bug: JMeter loads only the first keystore and applies it globally; can't give each virtual user a unique client cert without `https.use.cached.ssl.context=false` workarounds. | Verify on the HC5 path — good correctness win for mTLS/enterprise auth testing. |
+| **Multipart body custom headers** (#2398) | Can't add fields to multipart body part headers. | Not addressed; relevant given headers were made native to the HTTP sampler. |
+
+### J. Load modeling & timing accuracy
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Virtual-thread thread groups** (#6411) | Users explicitly ask for JDK21 virtual threads instead of platform threads. | **Done / leading** — BreakTest already uses Java 21 + virtual threads. Worth calling out as a direct answer to this request. |
+| **Constant Throughput Timer precision** | Only accurate at the *minute* level; can't hold sub-minute target RPS reliably; interferes with other timers. | Partially adjacent via new pacing/scheduling; a precise arrival-rate throughput shaper would close it fully. |
+| **Ramp-up doesn't guarantee a request rate** | Ramp-up controls concurrency, not throughput — a persistent source of user confusion. | Open-model even-arrival scheduling helps; documenting/UX around it would reduce the confusion. |
+
+### K. Reporting & results pipeline (beyond Part 4)
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **HTML report generation slow on big JTL** (#5637) | Report generation is slow/memory-heavy for large result files. | Not addressed; fits the low-footprint thesis. |
+| **InfluxDB Backend Listener granularity** | Only coarse "all" aggregation; no reliable per-transaction detail; disk growth with no built-in retention/compaction. | Not addressed; ties to the native-observability opportunity (own the export path). |
+| **Custom decimal percentiles in report** (#6468) | Already in Part 4 — reinforced here as part of the reporting cluster. | Not addressed. |
+
+### L. GUI / workflow / distribution ergonomics
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Organize Thread Groups into folders** (#2723) | Large plans are flat and hard to navigate. | Not addressed; strong quality-of-life win for big plans. |
+| **Remember last opened folder** (#6070) | Small but frequently requested file-dialog nicety. | Not addressed; trivial. |
+| **If/While UI for common comparison patterns** (#5981) | UI for equals/not-equals/greater/less instead of raw expressions. | **Done** — BreakTest's structured condition rows (all/any matching) directly answer this. |
+| **Official Docker Hub image** (#4936) | High-voted; users want a maintained container image. | Opportunity: a first-class OSS container image (distinct from Enterprise distribution). |
+| **Flatpak distribution at Flathub** (#5702) | Linux desktop packaging request. | Not addressed; low effort, good desktop reach. |
+
+### M. Ecosystem / platform
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Plugin ecosystem fragmentation** | Core capability often lives in third-party plugins (gRPC, WebSocket, Throughput Shaping Timer, correlation recorder); version/compat churn is a maintenance burden. | Strategic: decide which "must-have" plugin capabilities to absorb into core (correlation, WS/gRPC, throughput shaping) vs. keep external. |
+| **Access Log Sampler on HttpClient4 + keep-alive** (#6461) | Modernize the access-log sampler path. | Aligns with HC5 modernization; verify/replace. |
+
+### Consolidated backlog view (Parts 4 + 5)
+
+The strongest cross-cutting clusters, in priority order:
+1. **Observability & reporting** — native Prometheus/OTel export, modern interactive report, big-JTL report perf (#5637), decimal percentiles (#6468), CI SLA gating.
+2. **Correlation & recorder productivity** — deterministic auto-correlation, headless recorder (#6464), auto proxy (#6635).
+3. **Modern protocols** — gRPC (+streaming), WebSocket, HTTP/3 (#5752), GraphQL.
+4. **Correctness/enterprise auth** — per-thread client certs (#58236), CLOSED_WAIT (#6330), large-payload VRT (#6336).
+5. **Plan authoring at scale** — thread-group folders (#2723), modularity/reuse, step debugger, secrets management.
+6. **Distribution & packaging** — OSS container image (#4936), Flatpak (#5702), CI-native story.
+7. **Quick GUI wins** — remember last folder (#6070), zoom (#6104), body search (#6443), max-width restore (#6244).
+
+**Already answered by BreakTest (keep highlighting):** virtual-thread thread
+groups (#6411), If/While comparison UI (#5981), undo/redo (#1930), open-model
+concurrency limiter (#5966), HTTP/2, AI-assisted repair, lower footprint.
+
+---
+
 ## Sources
 
 - [Apache JMeter — Issues (project page)](https://jmeter.apache.org/issues.html)
@@ -181,7 +244,14 @@ has little or nothing. These are the real backlog candidates.
 - [How to Handle Correlation in JMeter — BlazeMeter](https://www.blazemeter.com/blog/correlation-in-jmeter)
 - [Generating Dashboard Report — Apache JMeter User Manual](https://jmeter.apache.org/usermanual/generating-dashboard.html)
 - [How to speed up JMeter (Part 1) — PFLB](https://pflb.us/blog/how-to-speed-up-jmeter-part-1/)
+- [JMeter Constant Throughput Timer — BrowserStack](https://www.browserstack.com/guide/jmeter-constant-throughput-timer)
+- [JMeter Ramp Up Period guide — PFLB](https://pflb.us/blog/jmeter-ramp-up-period/)
+- [JMeter SSL for HTTPS / client certificates — BrowserStack](https://www.browserstack.com/guide/jmeter-ssl-settings-for-https)
+- [HTTP/3 QUIC for performance testers — QAInsights](https://qainsights.com/http-3-quic-whats-in-it-for-performance-testers/)
+- [Distributed JMeter Load Testing on Kubernetes — DZone](https://dzone.com/articles/distributed-jmeter-load-testing-kubernetes)
 
-_Specific tracker items referenced: #1896, #1930, #2870, #2892, #3038, #3075,
-#3708, #5507, #5553, #5966, #6104, #6244, #6330, #6336, #6443, #6457, #6461,
-#6464, #6467, #6468, #6498, #6635, #6645, #6700, #6720._
+_Specific tracker items referenced: #1896, #1930, #2398, #2723, #2870, #2892,
+#3038, #3075, #3708, #4936, #5507, #5553, #5637, #5702, #5752, #5966, #5981,
+#6070, #6104, #6244, #6330, #6336, #6411, #6443, #6457, #6461, #6464, #6467,
+#6468, #6498, #6635, #6645, #6700, #6720. Bugzilla: #58236 (per-thread client
+certificates)._
