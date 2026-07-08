@@ -19,9 +19,12 @@ package org.apache.jmeter.control;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 
+import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 
 /**
@@ -60,19 +63,72 @@ public class ParallelController extends GenericController implements Serializabl
             return null;
         }
 
-        List<Sampler> samplers = new ArrayList<>();
-        Sampler sampler;
-        // Draining super.next() collects every sampler of a single pass; the last
-        // call hits nextIsNull() which already reInitialises this controller.
-        while ((sampler = super.next()) != null) {
-            samplers.add(sampler);
-        }
-        if (samplers.isEmpty()) {
+        if (getSubControllers().isEmpty()) {
             return null;
         }
 
         samplerReturned = true;
-        return new ParallelControllerSampler(this, getName(), getMaxParallel(), samplers);
+        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
+                new IdentityHashMap<>();
+        return new ParallelControllerSampler(
+                this,
+                getName(),
+                getMaxParallel(),
+                createParallelBranches(sourceTransactionControllers),
+                sourceTransactionControllers);
+    }
+
+    private List<Controller> createParallelBranches(
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        List<Controller> branches = new ArrayList<>();
+        for (TestElement child : getSubControllers()) {
+            branches.add(createParallelBranch(child, sourceTransactionControllers));
+        }
+        return branches;
+    }
+
+    private static Controller createParallelBranch(TestElement child,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        if (child instanceof GenericController controller) {
+            GenericController clone = cloneController(controller, sourceTransactionControllers);
+            clone.initialize();
+            return clone;
+        }
+        GenericController branch = new GenericController();
+        branch.setName(child.getName());
+        addParallelChild(branch, child, sourceTransactionControllers);
+        branch.initialize();
+        return branch;
+    }
+
+    private static GenericController cloneController(GenericController controller,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        GenericController clone = (GenericController) controller.clone();
+        if (clone instanceof TransactionController parallelTransactionController
+                && controller instanceof TransactionController sourceTransactionController) {
+            sourceTransactionControllers.put(parallelTransactionController, sourceTransactionController);
+        }
+        for (TestElement nestedChild : controller.getSubControllers()) {
+            addParallelChild(clone, nestedChild, sourceTransactionControllers);
+        }
+        return clone;
+    }
+
+    private static void addParallelChild(GenericController parent, TestElement child,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        TestElement parallelChild = parallelChild(child, sourceTransactionControllers);
+        parent.addTestElement(parallelChild);
+        if (parallelChild instanceof LoopIterationListener listener) {
+            parent.addIterationListener(listener);
+        }
+    }
+
+    private static TestElement parallelChild(TestElement child,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        if (!(child instanceof GenericController controller)) {
+            return child;
+        }
+        return cloneController(controller, sourceTransactionControllers);
     }
 
     public int getMaxParallel() {

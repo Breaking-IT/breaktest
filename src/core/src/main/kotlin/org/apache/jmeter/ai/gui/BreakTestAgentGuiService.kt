@@ -2988,6 +2988,7 @@ public object BreakTestAgentGuiService {
         gui.treeModel.nodeStructureChanged(changedNode)
         gui.mainFrame.tree.expandPath(TreePath(changedNode.path))
         gui.mainFrame.tree.selectionPath = TreePath(selectNode.path)
+        gui.refreshCurrentGui()
         gui.mainFrame.repaint()
     }
 

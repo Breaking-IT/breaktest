@@ -36,6 +36,8 @@ import javax.swing.border.Border;
 import javax.swing.tree.DefaultTreeCellRenderer;
 
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -182,7 +184,7 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         return String.format(java.util.Locale.ROOT, "%.1fs", seconds);
     }
 
-    private static final class ModernTreeIcon implements Icon {
+    static final class ModernTreeIcon implements Icon {
         private static final int SIZE = 16;
 
         private final Kind kind;
@@ -228,13 +230,13 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                 Map.entry(Kind.TIMER, new String[] {"Timer"}), // $NON-NLS-1$
                 Map.entry(Kind.ASSERTION, new String[] {"Assertion"}), // $NON-NLS-1$
                 Map.entry(Kind.PRE_PROCESSOR, new String[] {"PreProcessor"}), // $NON-NLS-1$
-                Map.entry(Kind.POST_PROCESSOR, new String[] {"PostProcessor"})); // $NON-NLS-1$
+                Map.entry(Kind.POST_PROCESSOR, new String[] {"PostProcessor", "Extractor"})); // $NON-NLS-1$ $NON-NLS-2$
 
         static Icon from(JMeterTreeNode node, boolean enabled) {
             return new ModernTreeIcon(kindFor(node), enabled);
         }
 
-        private static Kind kindFor(JMeterTreeNode node) {
+        static Kind kindFor(JMeterTreeNode node) {
             TestElement element = node.getTestElement();
             if (element == null) {
                 return Kind.NODE;
@@ -249,8 +251,22 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             if (controllerKind != null) {
                 return controllerKind;
             }
+            Kind interfaceKind = interfaceKind(element);
+            if (interfaceKind != null) {
+                return interfaceKind;
+            }
             Kind fallback = matchKind(FALLBACK_KINDS, name);
             return fallback != null ? fallback : Kind.NODE;
+        }
+
+        private static Kind interfaceKind(TestElement element) {
+            if (element instanceof PreProcessor) {
+                return Kind.PRE_PROCESSOR;
+            }
+            if (element instanceof PostProcessor) {
+                return Kind.POST_PROCESSOR;
+            }
+            return null;
         }
 
         private static Kind matchKind(List<Map.Entry<Kind, String[]>> table, String descriptor) {
@@ -297,7 +313,7 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             return new Color(color.getRed(), color.getGreen(), color.getBlue(), Math.round(alpha * 255));
         }
 
-        private enum Kind {
+        enum Kind {
             PLAN(new Color(0x2563EB)) {
                 @Override
                 void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {

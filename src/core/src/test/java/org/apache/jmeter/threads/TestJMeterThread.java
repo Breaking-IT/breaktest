@@ -27,8 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,6 +42,7 @@ import java.util.function.Consumer;
 
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.ParallelControllerSampler;
@@ -115,6 +120,32 @@ class TestJMeterThread {
             return delay;
         }
     }
+
+    private static class StoppableDelayTimer extends AbstractTestElement implements Timer {
+        private static final long serialVersionUID = 1L;
+
+        private final long delay;
+        private final CountDownLatch started;
+        private final CountDownLatch stopped;
+
+        private StoppableDelayTimer(long delay, CountDownLatch started, CountDownLatch stopped) {
+            this.delay = delay;
+            this.started = started;
+            this.stopped = stopped;
+        }
+
+        @Override
+        public long delay() {
+            started.countDown();
+            return delay;
+        }
+
+        @Override
+        public void stop() {
+            stopped.countDown();
+        }
+    }
+
 
     private static final class TrackingSampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
@@ -223,6 +254,32 @@ class TestJMeterThread {
         }
     }
 
+    private static final class LoopIndexRecordingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final String loopName;
+        private final List<Integer> indexes;
+
+        private LoopIndexRecordingSampler(String name, String loopName, List<Integer> indexes) {
+            setName(name);
+            this.loopName = loopName;
+            this.indexes = indexes;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            Object index = JMeterContextService.getContext().getVariables()
+                    .getObject(GenericController.getIndexVariableName(loopName));
+            indexes.add((Integer) index);
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
     private static final class MetadataNeedingVisualizer implements Visualizer {
         private final AtomicReference<SampleResult> result = new AtomicReference<>();
 
@@ -258,6 +315,40 @@ class TestJMeterThread {
         }
     }
 
+    private static final class StopReleasableSampler extends AbstractSampler implements StoppableSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final CountDownLatch started;
+        private final CountDownLatch stopped;
+
+        private StopReleasableSampler(String name, CountDownLatch started, CountDownLatch stopped) {
+            setName(name);
+            this.started = started;
+            this.stopped = stopped;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            started.countDown();
+            try {
+                stopped.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+
+        @Override
+        public void stop() {
+            stopped.countDown();
+        }
+    }
+
     private static final class BlockingSampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
 
@@ -277,6 +368,40 @@ class TestJMeterThread {
         public SampleResult sample(Entry e) {
             observedVariables.compareAndSet(null, JMeterContextService.getContext().getVariables());
             started.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
+    private static final class CountingBlockingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final AtomicInteger calls;
+        private final CountDownLatch firstStarted;
+        private final CountDownLatch release;
+
+        private CountingBlockingSampler(String name, AtomicInteger calls, CountDownLatch firstStarted,
+                CountDownLatch release) {
+            setName(name);
+            this.calls = calls;
+            this.firstStarted = firstStarted;
+            this.release = release;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+            }
             try {
                 release.await(5, TimeUnit.SECONDS);
             } catch (InterruptedException ex) {
@@ -581,6 +706,53 @@ class TestJMeterThread {
     }
 
     @Test
+    void testParallelControllerRunsNestedLoopBranchesWithOwnIndexes() throws Exception {
+        List<Integer> firstLoopIndexes = Collections.synchronizedList(new ArrayList<>());
+        List<Integer> secondLoopIndexes = Collections.synchronizedList(new ArrayList<>());
+
+        HashTree testTree = new ListedHashTree();
+        LoopController rootLoop = new LoopController();
+        rootLoop.setLoops(1);
+        rootLoop.setContinueForever(false);
+        rootLoop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(2);
+        parallelController.setEnabled(true);
+        LoopController firstLoop = new LoopController();
+        firstLoop.setName("LoopAudio");
+        firstLoop.setLoops(2);
+        firstLoop.setContinueForever(false);
+        firstLoop.setEnabled(true);
+        LoopController secondLoop = new LoopController();
+        secondLoop.setName("LoopAudio2");
+        secondLoop.setLoops(2);
+        secondLoop.setContinueForever(false);
+        secondLoop.setEnabled(true);
+
+        testTree.add(rootLoop);
+        testTree.add(rootLoop, parallelController);
+        testTree.add(parallelController, firstLoop);
+        testTree.add(firstLoop, new LoopIndexRecordingSampler("audioDashLive", "LoopAudio", firstLoopIndexes));
+        testTree.add(parallelController, secondLoop);
+        testTree.add(secondLoop, new LoopIndexRecordingSampler("audioDashLive", "LoopAudio2", secondLoopIndexes));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
+
+        assertEquals(List.of(0, 1), firstLoopIndexes,
+                "The first branch should advance its own loop index while it runs");
+        assertEquals(List.of(0, 1), secondLoopIndexes,
+                "The second branch should advance its own loop index while it runs");
+    }
+
+    @Test
     void testParallelControllerContinuesAfterChildSamplerException() throws Exception {
         CountDownLatch completedSamplers = new CountDownLatch(1);
 
@@ -771,7 +943,7 @@ class TestJMeterThread {
         AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
         AtomicBoolean sameVariables = new AtomicBoolean(true);
 
-        HashTree testTree = new HashTree();
+        HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
         loop.setContinueForever(false);
@@ -809,6 +981,331 @@ class TestJMeterThread {
                 "Fork flow should continue after the main flow has completed");
         assertFalse(runner.isAlive(), "Virtual user should finish after the fork child completes");
         assertTrue(sameVariables.get(), "Fork worker should share virtual user variables");
+    }
+
+    @Test
+    void testForkControllerRunsTransactionControllerChild() throws InterruptedException {
+        CountDownLatch forkSampleStarted = new CountDownLatch(1);
+        CountDownLatch releaseForkSample = new CountDownLatch(1);
+        CountDownLatch mainSample = new CountDownLatch(1);
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("fork-transaction");
+        transactionController.setGenerateParentSample(true);
+        transactionController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, transactionController);
+        testTree.add(transactionController, new BlockingSampler(
+                "fork-transaction-child", forkSampleStarted, releaseForkSample, observedVariables));
+        testTree.add(loop, new CompletingSampler("main-after-fork-transaction", mainSample));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-transaction-test");
+        runner.start();
+
+        boolean forkStarted = forkSampleStarted.await(5, TimeUnit.SECONDS);
+        boolean mainFlowContinued = mainSample.await(10, TimeUnit.SECONDS);
+        releaseForkSample.countDown();
+        runner.join(5000);
+
+        assertTrue(forkStarted, "Fork worker should execute transaction-controller children");
+        assertTrue(mainFlowContinued, "Main flow should continue after starting the fork transaction");
+        assertFalse(runner.isAlive(), "Virtual user should finish after the fork transaction completes");
+    }
+
+    @Test
+    void testForkControllerDoesNotAccumulateWorkersAcrossLoopIterations() throws InterruptedException {
+        AtomicInteger forkCalls = new AtomicInteger();
+        CountDownLatch firstForkStarted = new CountDownLatch(1);
+        CountDownLatch releaseFork = new CountDownLatch(1);
+        CountDownLatch firstMainSample = new CountDownLatch(1);
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(3);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new CountingBlockingSampler(
+                "fork-child", forkCalls, firstForkStarted, releaseFork));
+        testTree.add(loop, new CompletingSampler("main-after-fork", firstMainSample));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-backpressure-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-backpressure-test");
+        runner.start();
+
+        assertTrue(firstForkStarted.await(5, TimeUnit.SECONDS), "First fork should start");
+        assertTrue(firstMainSample.await(5, TimeUnit.SECONDS),
+                "Main flow should continue after starting the first fork");
+        Thread.sleep(200);
+        assertEquals(1, forkCalls.get(),
+                "A later loop iteration should wait for the previous fork from the same controller");
+
+        releaseFork.countDown();
+        runner.join(5000);
+
+        assertEquals(3, forkCalls.get(), "Each loop iteration should still run its fork once");
+        assertFalse(runner.isAlive(), "Virtual user should finish after queued fork passes complete");
+    }
+
+    @Test
+    void testCompletedForkControllerIsCleanedWhileThreadKeepsRunning() throws Exception {
+        CountDownLatch forkFinished = new CountDownLatch(1);
+        CountDownLatch mainSamplerStarted = new CountDownLatch(1);
+        CountDownLatch releaseMainSampler = new CountDownLatch(1);
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new CompletingSampler("fork-child", forkFinished));
+        testTree.add(loop, new BlockingSampler(
+                "main-keeps-thread-running",
+                mainSamplerStarted,
+                releaseMainSampler,
+                observedVariables));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-cleanup-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-cleanup-test");
+        runner.start();
+
+        assertTrue(forkFinished.await(5, TimeUnit.SECONDS), "Fork child should finish");
+        assertTrue(mainSamplerStarted.await(5, TimeUnit.SECONDS),
+                "Main flow should keep the virtual user running after the fork finishes");
+        assertForkBookkeepingEventuallyEmpty(jMeterThread);
+
+        releaseMainSampler.countDown();
+        runner.join(5000);
+
+        assertFalse(runner.isAlive(), "Virtual user should finish after the main sampler is released");
+    }
+
+    @Test
+    void testStopForksGracefullyEndsForkTimerWithoutStoppingMainThread() throws Exception {
+        CountDownLatch timerStarted = new CountDownLatch(1);
+        CountDownLatch timerStopped = new CountDownLatch(1);
+        CountDownLatch mainSamplerStarted = new CountDownLatch(1);
+        CountDownLatch releaseMainSampler = new CountDownLatch(1);
+        AtomicInteger forkSamplerCalls = new AtomicInteger();
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new StoppableDelayTimer(
+                TimeUnit.MINUTES.toMillis(5), timerStarted, timerStopped));
+        testTree.add(forkController, new ResultStatusSampler("fork-after-timer", true, forkSamplerCalls));
+        testTree.add(loop, new BlockingSampler(
+                "main-keeps-running",
+                mainSamplerStarted,
+                releaseMainSampler,
+                observedVariables));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-stop-graceful-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-stop-graceful-test");
+        runner.start();
+
+        assertTrue(timerStarted.await(5, TimeUnit.SECONDS), "Fork timer should start");
+        assertTrue(mainSamplerStarted.await(5, TimeUnit.SECONDS),
+                "Main flow should continue while the fork waits in its timer");
+
+        jMeterThread.stopForks();
+
+        assertTrue(timerStopped.await(5, TimeUnit.SECONDS), "Graceful fork stop should notify fork timers");
+        assertForkBookkeepingEventuallyEmpty(jMeterThread);
+        assertEquals(0, forkSamplerCalls.get(),
+                "Graceful fork stop should not start the next fork sampler after waking the timer");
+        assertTrue(runner.isAlive(), "Stopping forks should not stop the main virtual-user flow");
+
+        releaseMainSampler.countDown();
+        runner.join(5000);
+
+        assertFalse(runner.isAlive(), "Virtual user should finish after the main sampler is released");
+    }
+
+    @Test
+    void testStopForksNowStopsForkSamplerWithoutStoppingMainThread() throws Exception {
+        CountDownLatch forkStarted = new CountDownLatch(1);
+        CountDownLatch releaseFork = new CountDownLatch(1);
+        CountDownLatch mainSamplerStarted = new CountDownLatch(1);
+        CountDownLatch releaseMainSampler = new CountDownLatch(1);
+        AtomicReference<JMeterVariables> observedVariables = new AtomicReference<>();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new BlockingSampler(
+                "fork-child", forkStarted, releaseFork, observedVariables));
+        testTree.add(loop, new BlockingSampler(
+                "main-keeps-running",
+                mainSamplerStarted,
+                releaseMainSampler,
+                observedVariables));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-stop-now-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-stop-now-test");
+        runner.start();
+
+        assertTrue(forkStarted.await(5, TimeUnit.SECONDS), "Fork sampler should start");
+        assertTrue(mainSamplerStarted.await(5, TimeUnit.SECONDS),
+                "Main flow should continue while the fork sampler is blocked");
+
+        jMeterThread.stopForksNow();
+
+        assertForkBookkeepingEventuallyEmpty(jMeterThread);
+        assertTrue(runner.isAlive(), "Force-stopping forks should not stop the main virtual-user flow");
+
+        releaseMainSampler.countDown();
+        runner.join(5000);
+
+        assertFalse(runner.isAlive(), "Virtual user should finish after the main sampler is released");
+    }
+
+    @Test
+    void testForkControllerStopsBranchOnErrorStartNextLoop() throws InterruptedException {
+        CountDownLatch skippedForkSampler = new CountDownLatch(1);
+        CountDownLatch mainSampler = new CountDownLatch(1);
+        AtomicInteger forkFailureCalls = new AtomicInteger();
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new ResultStatusSampler("fork-failure", false, forkFailureCalls));
+        testTree.add(forkController, new CompletingSampler("should-not-run-after-fork-failure", skippedForkSampler));
+        testTree.add(loop, new CompletingSampler("main-after-fork", mainSampler));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-on-error-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.setOnErrorStartNextLoop(true);
+        Thread runner = new Thread(jMeterThread, "fork-on-error-test");
+        runner.start();
+        runner.join(5000);
+
+        assertFalse(runner.isAlive(), "Virtual user should finish after the fork branch stops");
+        assertEquals(1, forkFailureCalls.get(), "Fork failure sampler should run once");
+        assertEquals(1, skippedForkSampler.getCount(),
+                "Fork branch should not continue after a failed sampler when Start Next Thread Loop is enabled");
+        assertEquals(0, mainSampler.getCount(), "Main flow should still continue after starting the fork");
+    }
+
+    @Test
+    void testStopStopsRunningForkSampler() throws InterruptedException {
+        CountDownLatch forkStarted = new CountDownLatch(1);
+        CountDownLatch forkStopped = new CountDownLatch(1);
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForkController forkController = new ForkController();
+        forkController.setName("fork");
+        forkController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, forkController);
+        testTree.add(forkController, new StopReleasableSampler("fork-child", forkStarted, forkStopped));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("fork-stop-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "fork-stop-test");
+        runner.start();
+
+        assertTrue(forkStarted.await(5, TimeUnit.SECONDS), "Fork child should start");
+
+        jMeterThread.stop();
+        runner.join(5000);
+
+        assertEquals(0, forkStopped.getCount(), "Clean stop should notify the running fork sampler");
+        assertFalse(runner.isAlive(), "Virtual user should not remain stuck waiting for a stopped fork");
     }
 
     @Test
@@ -1009,6 +1506,37 @@ class TestJMeterThread {
         Method setSubSampler = TransactionSampler.class.getDeclaredMethod("setSubSampler", Sampler.class);
         setSubSampler.setAccessible(true);
         setSubSampler.invoke(transactionSampler, subSampler);
+    }
+
+    private static void assertForkBookkeepingEventuallyEmpty(JMeterThread jMeterThread) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            if (privateCollectionSize(jMeterThread, "forkTasks") == 0
+                    && privateCollectionSize(jMeterThread, "forkExecutors") == 0
+                    && privateMapSize(jMeterThread, "activeForkTasksByController") == 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+
+        assertEquals(0, privateCollectionSize(jMeterThread, "forkTasks"),
+                "Completed fork futures should be removed while the thread is still running");
+        assertEquals(0, privateCollectionSize(jMeterThread, "forkExecutors"),
+                "Completed fork executors should be removed while the thread is still running");
+        assertEquals(0, privateMapSize(jMeterThread, "activeForkTasksByController"),
+                "Completed fork controller mappings should be removed while the thread is still running");
+    }
+
+    private static int privateCollectionSize(Object target, String fieldName) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return ((Collection<?>) field.get(target)).size();
+    }
+
+    private static int privateMapSize(Object target, String fieldName) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return ((Map<?, ?>) field.get(target)).size();
     }
 
     private static JMeterProperty functionProperty(String propertyName, String value) throws Exception {
