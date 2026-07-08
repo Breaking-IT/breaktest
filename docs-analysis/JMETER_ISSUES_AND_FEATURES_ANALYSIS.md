@@ -101,6 +101,67 @@ should be stated as such so they aren't re-litigated as "missing features."
 
 ---
 
+## Part 4 — Extended list: gaps BreakTest has **not** yet tackled
+
+Parts 1–3 lean toward areas where BreakTest already leads. This section is the
+opposite: still-open JMeter pain points and requests where the fork currently
+has little or nothing. These are the real backlog candidates.
+
+### D. Protocol breadth (all plugin-only or absent upstream)
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Native gRPC** | Only community plugins exist upstream, and most support **unary RPC only** — client/server **streaming and bidirectional** are largely unsupported. | Not in core. High-value modern protocol; owning unary + streaming would be a real differentiator. |
+| **Native WebSocket** | Load-testing WS needs a third-party sampler pack; not in core. | Not in core. Common in modern apps (chat, trading, live dashboards). |
+| **GraphQL** | Only thin HTTP-body helpers; no first-class query/variables/introspection support. | Not in core. Increasingly requested. |
+| **Messaging: Kafka / MQTT / AMQP / SSE** | JMS exists; modern event/streaming protocols are plugin territory. | Not in core. Candidate for event-driven system testing. |
+
+### E. Scripting & correlation productivity (the #1 friction upstream)
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Deterministic auto-correlation on record** | JMeter has **no native auto-correlation**; every session token/CSRF/redirect value is manually extracted. This is *the* productivity gap vs commercial tools and the top learning-curve complaint. | **Partial via AI repair**, but a fast, deterministic, offline record-time correlation engine (rules + heuristics) is distinct and still missing. |
+| **Recorder modernization** | Open requests: **headless/CLI recorder** (#6464), **automatic proxy configuration** for the recorder (#6635). | Not addressed. Recording still assumes GUI + manual proxy setup. |
+| **Python 3 scripting** | Jython is stuck on Python 2; #6498 asks for Python 3. | Not addressed (BreakTest's sanctioned path is JSR223/Groovy — but Py3 is a real ask). |
+
+### F. Debugging & authoring ergonomics
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Step debugger / breakpoints** | No native breakpoint-and-inspect; users lean on Debug Sampler + View Results Tree. | Not addressed. VRT diagnostics improved, but no true step-through debugging. |
+| **Search bar in HTTP request body** (#6443) | Large bodies are hard to navigate/edit. | Not addressed; small win, pairs with the FlatLaf work. |
+| **Response Assertion prints each pattern** (#6700) | Better assertion failure output. | Not addressed; low effort. |
+| **Test-plan modularity/reuse ergonomics** | Include Controller / Module Controller are clunky; reuse across plans is painful. | Not addressed; strong quality-of-life target. |
+
+### G. Reporting, analysis & CI gating
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **HTML dashboard rigidity** | Graphs must be **pre-declared in properties** or render empty; **custom decimal percentiles** requested (#6468); report is static and dated. | Not addressed. Modern interactive/live report is high ROI (ties to Part 3 opportunity #2). |
+| **Native SLA / threshold pass-fail gating** | No first-class "fail the run if p95 > X" for CI; users bolt it on. | Not addressed. Small, high-value CI feature. |
+| **Result diffing across runs / baselines** | No native run-to-run regression comparison. | Not addressed (BreakTest has recorded-vs-replayed diffs, but not run-vs-baseline perf diffs). |
+
+### H. Data, secrets & maintenance
+
+| Item | Detail | BreakTest status |
+|------|--------|------------------|
+| **Native secrets/credential management** | Tokens/passwords live in plaintext CSV/properties; no vault integration. | Not addressed. Security-relevant, increasingly expected. |
+| **Synthetic/test-data generation** | No native faker/data-gen; users hand-build CSVs. | Not addressed. |
+| **JDBC multi-statement scripts** (#6467) | Run several SQL statements from one sampler. | Not addressed. |
+| **Deprecated-library modernization** | Replace ORO regex (#6645) and the xpp pull parser in xstream (#3708); reduces CVE surface and speeds regex/XPath. | Partially aligned with BreakTest's modernization thrust, but these specific libs likely remain. Also note XPath "Use Tidy" is memory-heavy/slow. |
+| **Parent Controller path-caching optimization** (#6720) | Recent perf enhancement request. | Not specifically addressed; fits BreakTest's low-footprint story. |
+
+### Updated highest-ROI shortlist (incorporating the extended gaps)
+
+1. **Native observability export** (Prometheus/OpenTelemetry) — _still #1._
+2. **Modern, interactive reporting + native CI SLA gating** — reporting is the most persistent competitive weakness; SLA gating is cheap and high-value.
+3. **Deterministic auto-correlation engine** — the top JMeter productivity complaint; complements (not replaces) AI repair.
+4. **Protocol expansion: gRPC (incl. streaming) + WebSocket** — where modern apps live; mostly unsolved even by plugins.
+5. **Recorder modernization** — headless/CLI recording (#6464) + auto proxy config (#6635).
+6. **Native secrets management** — security-relevant, differentiating.
+
+---
+
 ## Sources
 
 - [Apache JMeter — Issues (project page)](https://jmeter.apache.org/issues.html)
@@ -115,6 +176,12 @@ should be stated as such so they aren't re-litigated as "missing features."
 - [Load Testing Tools compared — Ranorex](https://www.ranorex.com/blog/load-testing-tools/)
 - [Real-time Results — Apache JMeter User Manual](https://jmeter.apache.org/usermanual/realtime-results.html)
 - [jmeter-prometheus-plugin (community) — GitHub](https://github.com/johrstrom/jmeter-prometheus-plugin)
+- [JMeter gRPC Request plugin (zalopay-oss) — GitHub](https://github.com/zalopay-oss/jmeter-grpc-request)
+- [WebSockets, gRPC, and GraphQL in the Core — DZone](https://dzone.com/articles/websockets-grpc-graphql-core)
+- [How to Handle Correlation in JMeter — BlazeMeter](https://www.blazemeter.com/blog/correlation-in-jmeter)
+- [Generating Dashboard Report — Apache JMeter User Manual](https://jmeter.apache.org/usermanual/generating-dashboard.html)
+- [How to speed up JMeter (Part 1) — PFLB](https://pflb.us/blog/how-to-speed-up-jmeter-part-1/)
 
-_Specific tracker items referenced: #1930, #1896, #2870, #2892, #3038, #3075,
-#3708, #5507, #5553, #5966, #6104, #6244, #6330, #6336, #6457._
+_Specific tracker items referenced: #1896, #1930, #2870, #2892, #3038, #3075,
+#3708, #5507, #5553, #5966, #6104, #6244, #6330, #6336, #6443, #6457, #6461,
+#6464, #6467, #6468, #6498, #6635, #6645, #6700, #6720._
