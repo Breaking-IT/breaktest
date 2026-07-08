@@ -24,9 +24,68 @@
 <body>
 <section name="Release Notes">
 <note>
-BreakTest requires Java 21 or later. BreakTest 2026.07.07 is licensed under
+BreakTest requires Java 21 or later. BreakTest 2026.07.08 is licensed under
 the Apache License, Version 2.0.
 </note>
+
+<h1>Version 2026.07.08</h1>
+<p>
+BreakTest 2026.07.08 is a focused stability and GUI-assistance release built
+from the changes since BreakTest 2026.07.07. It keeps the same Java 21+
+baseline while improving fork and parallel execution, AI-assisted GUI repair
+actions, and day-to-day desktop ergonomics.
+</p>
+
+<ch_section>Highlights</ch_section>
+<ul>
+  <li>Fixed Fork Controller lifecycle cleanup so completed forks are removed while the parent virtual user keeps running.</li>
+  <li>Added <code>ctx.getThread().stopForks()</code> and <code>ctx.getThread().stopForksNow()</code> for Groovy/JSR223 scripts that need to end active fork branches from the main thread.</li>
+  <li>Improved fork shutdown so timers, pacing waits, active fork samplers, and virtual-thread fork workers are woken promptly.</li>
+  <li>Fixed fork branch behavior for "Start Next Thread Loop on error" so failed fork samples stop the fork branch locally instead of continuing to later requests.</li>
+  <li>Hardened Parallel Controller execution so nested loop branches keep their own loop indexes and sampler package configuration is synchronized safely across concurrent branches.</li>
+  <li>Added a GUI-backed <code>clone_node_open_plan</code> MCP tool so AI-assisted repair can copy full controller/sampler subtrees, including Transaction Controller pacing settings, without falling back to raw JMX reconstruction.</li>
+  <li>Improved AI Helper and log-panel usability with Shift+Enter newlines in the JSR223 AI Helper prompt and a visible bottom-log resize boundary.</li>
+  <li>Reduced noisy delay-interruption warnings during intentional fork and test stops.</li>
+</ul>
+
+<ch_section>Fork and Parallel Controller Stability</ch_section>
+<ul>
+  <li>Completed fork tasks, executors, and active-controller mappings are now cleaned up promptly instead of waiting for thread teardown.</li>
+  <li>Fork workers now track current timers, samplers, and worker threads so graceful and forced fork stops can wake the correct in-flight operation.</li>
+  <li><code>stopForks()</code> requests graceful fork completion and wakes fork timers without stopping the main virtual user.</li>
+  <li><code>stopForksNow()</code> cancels active fork tasks, shuts down fork executors, and stops fork samplers that implement <code>StoppableSampler</code>.</li>
+  <li>Intentional fork-stop interruptions no longer emit WARN-level "Loss of delay" timer messages.</li>
+  <li>Fork timer/sampler bookkeeping now removes active entries by identity so equally configured sibling branches cannot remove the wrong entry.</li>
+  <li>Fork branches now consume local logical error actions and reset <code>LAST_SAMPLE_OK</code> so fork control-flow decisions do not leak into the main virtual-user path.</li>
+  <li>Parallel branch sampler configuration is protected from concurrent compiler state corruption.</li>
+</ul>
+
+<ch_section>AI-Assisted GUI Repair</ch_section>
+<ul>
+  <li>Added <code>clone_node_open_plan</code> to the BreakTest MCP bridge for cloning a node and its complete child subtree in the live GUI plan.</li>
+  <li>The clone tool supports stable <code>nodeId</code> selectors from <code>find_open_plan_nodes</code> and path/index fallbacks, matching the existing move/delete structural tools.</li>
+  <li>The clone operation uses the same full subtree copy path as the GUI Duplicate action, preserving element properties and children rather than rebuilding controllers from partial fields.</li>
+</ul>
+
+<ch_section>Desktop Polish</ch_section>
+<ul>
+  <li>The docked Logs / AI Auto Scripting panel now has a visible top divider and a wider split-pane drag target, making the resize area discoverable without hovering.</li>
+  <li>The JSR223 AI Helper request text area now treats Shift+Enter as an explicit newline.</li>
+  <li>Extractor and post-processor icons in the test-plan tree were aligned more closely with the Add menu iconography.</li>
+</ul>
+
+<ch_section>Benchmarks and Tests</ch_section>
+<ul>
+  <li>Added a JMH benchmark for Fork Controller capacity, including lightweight and more representative fork branch scenarios.</li>
+  <li>Added regression tests for fork cleanup, fork stopping, fork error handling, nested parallel loop indexes, and tree icon rendering.</li>
+</ul>
+
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+  <li>Java 21 or later is still required.</li>
+  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
+  <li><code>stopForks()</code> and <code>stopForksNow()</code> are BreakTest extensions intended for scripts that explicitly need to manage asynchronous fork branches.</li>
+</ul>
 
 <h1>Version 2026.07.07</h1>
 <p>
