@@ -81,7 +81,7 @@
 Please provide enough information for others to reproduce the report:
 </p>
 <ul>
-<li>BreakTest version, for example <code>2026.07.07</code></li>
+<li>BreakTest version, for example <code>2026.07.08</code></li>
 <li>Java version, from <code>java -version</code>; BreakTest requires Java 21 or later</li>
 <li>Operating system and architecture</li>
 <li><code>jmeter.log</code> or other relevant log files, after checking for secrets</li>

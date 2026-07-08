@@ -15,6 +15,89 @@ specific language governing permissions and limitations under the License.
 
 # BreakTest Release Notes
 
+## BreakTest 2026.07.08
+
+BreakTest 2026.07.08 is a focused stability and GUI-assistance release built
+from the changes since BreakTest 2026.07.07. It keeps the same Java 21+
+baseline while improving fork/parallel execution, AI-assisted GUI repair
+actions, and day-to-day desktop ergonomics.
+
+### Highlights
+
+- Fixed Fork Controller lifecycle cleanup so completed forks are removed while
+  the parent virtual user keeps running.
+- Added `ctx.getThread().stopForks()` and `ctx.getThread().stopForksNow()` for
+  Groovy/JSR223 scripts that need to end active fork branches from the main
+  thread.
+- Improved fork shutdown so timers, pacing waits, active fork samplers, and
+  virtual-thread fork workers are woken promptly.
+- Fixed fork branch behavior for "Start Next Thread Loop on error" so failed
+  fork samples stop the fork branch locally instead of continuing to later
+  requests.
+- Hardened Parallel Controller execution so nested loop branches keep their own
+  loop indexes and sampler package configuration is synchronized safely across
+  concurrent branches.
+- Added a GUI-backed `clone_node_open_plan` MCP tool so AI-assisted repair can
+  copy full controller/sampler subtrees, including Transaction Controller
+  pacing settings, without falling back to raw JMX reconstruction.
+- Improved AI Helper and log-panel usability with Shift+Enter newlines in the
+  JSR223 AI Helper prompt and a visible bottom-log resize boundary.
+- Reduced noisy delay-interruption warnings during intentional fork/test stops.
+
+### Fork And Parallel Controller Stability
+
+- Completed fork tasks, executors, and active-controller mappings are now
+  cleaned up promptly instead of waiting for thread teardown.
+- Fork workers now track current timers, samplers, and worker threads so
+  graceful and forced fork stops can wake the correct in-flight operation.
+- `stopForks()` requests graceful fork completion and wakes fork timers without
+  stopping the main virtual user.
+- `stopForksNow()` cancels active fork tasks, shuts down fork executors, and
+  stops fork samplers that implement `StoppableSampler`.
+- Intentional fork-stop interruptions no longer emit WARN-level "Loss of delay"
+  timer messages.
+- Fork timer/sampler bookkeeping now removes active entries by identity so
+  equally configured sibling branches cannot remove the wrong entry.
+- Fork branches now consume local logical error actions and reset
+  `LAST_SAMPLE_OK` so fork control-flow decisions do not leak into the main
+  virtual-user path.
+- Parallel branch sampler configuration is protected from concurrent compiler
+  state corruption.
+
+### AI-Assisted GUI Repair
+
+- Added `clone_node_open_plan` to the BreakTest MCP bridge for cloning a node
+  and its complete child subtree in the live GUI plan.
+- The clone tool supports stable `nodeId` selectors from `find_open_plan_nodes`
+  and path/index fallbacks, matching the existing move/delete structural tools.
+- The clone operation uses the same full subtree copy path as the GUI Duplicate
+  action, preserving element properties and children rather than rebuilding
+  controllers from partial fields.
+
+### Desktop Polish
+
+- The docked Logs / AI Auto Scripting panel now has a visible top divider and a
+  wider split-pane drag target, making the resize area discoverable without
+  hovering.
+- The JSR223 AI Helper request text area now treats Shift+Enter as an explicit
+  newline.
+- Extractor and post-processor icons in the test-plan tree were aligned more
+  closely with the Add menu iconography.
+
+### Benchmarks And Tests
+
+- Added a JMH benchmark for Fork Controller capacity, including lightweight and
+  more representative fork branch scenarios.
+- Added regression tests for fork cleanup, fork stopping, fork error handling,
+  nested parallel loop indexes, and tree icon rendering.
+
+### Compatibility Notes
+
+- Java 21 or later is still required.
+- Existing JMeter-compatible JMX files remain supported where practical.
+- `stopForks()` and `stopForksNow()` are BreakTest extensions intended for
+  scripts that explicitly need to manage asynchronous fork branches.
+
 ## BreakTest 2026.07.07
 
 BreakTest 2026.07.07 is a focused desktop and reporting update built from the
