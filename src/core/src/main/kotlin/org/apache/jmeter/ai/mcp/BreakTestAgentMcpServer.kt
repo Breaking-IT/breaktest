@@ -679,6 +679,24 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
+                    "clone_node_open_plan",
+                    "Clone a node and its full child subtree in the running BreakTest GUI plan, preserving controller/sampler/processor properties such as Transaction Controller pacing settings. Use this when copying an existing controller structure is safer than reconstructing it from partial fields. Prefer sourceNodeId/targetNodeId from find_open_plan_nodes; node paths are the fallback. position is before, after, first_child, or last_child.",
+                    mapOf(
+                        "sourceNodeId" to "string",
+                        "sourceSamplerIndex" to "number",
+                        "sourceSamplerLabel" to "string",
+                        "sourceNodePath" to "string",
+                        "targetNodeId" to "string",
+                        "targetSamplerIndex" to "number",
+                        "targetSamplerLabel" to "string",
+                        "targetNodePath" to "string",
+                        "position" to "string",
+                    ),
+                    emptyList(),
+                )
+            )
+            add(
+                tool(
                     "move_node_open_plan",
                     "Move or reorder a node in the running BreakTest GUI plan while preserving its children. Use this when a sampler/config/postprocessor/extractor must execute before or after another node, for example moving an /api/token sampler before the Parallel Controller containing API requests that need its extracted token. Prefer sourceNodeId/targetNodeId from find_open_plan_nodes or earlier edit results; node paths are the fallback and sampler indexes drift after structural edits. position is before, after, first_child, or last_child.",
                     mapOf(
@@ -890,6 +908,7 @@ public object BreakTestAgentMcpServer {
                 "add_response_assertion_open_plan" -> callGuiTool("add_response_assertion_open_plan", arguments)
                 "update_response_assertion_open_plan" -> callGuiTool("update_response_assertion_open_plan", arguments)
                 "set_redirect_mode_open_plan" -> callGuiTool("set_redirect_mode_open_plan", arguments)
+                "clone_node_open_plan" -> callGuiTool("clone_node_open_plan", arguments)
                 "move_node_open_plan" -> callGuiTool("move_node_open_plan", arguments)
                 "delete_node_open_plan" -> callGuiTool("delete_node_open_plan", arguments)
                 "move_think_times_to_transactions_open_plan" -> callGuiTool("move_think_times_to_transactions_open_plan", arguments)
@@ -976,6 +995,7 @@ public object BreakTestAgentMcpServer {
             "add_response_assertion_open_plan",
             "update_response_assertion_open_plan",
             "set_redirect_mode_open_plan",
+            "clone_node_open_plan",
             "move_node_open_plan",
             "delete_node_open_plan",
             "move_think_times_to_transactions_open_plan",
