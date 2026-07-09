@@ -19,6 +19,7 @@ package org.apache.jmeter.control;
 
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.function.IntFunction;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -30,25 +31,33 @@ import org.apache.jmeter.samplers.SampleResult;
 public class ParallelControllerSampler extends AbstractSampler {
     private static final long serialVersionUID = 240L;
 
-    private final ParallelController controller;
+    private final Controller controller;
     private final int maxParallel;
-    private final List<Controller> branches;
+    private final int branchCount;
+    private final IntFunction<Controller> branchFactory;
     private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
 
     public ParallelControllerSampler() {
         this(null, "", 1, List.of(), new IdentityHashMap<>());
     }
 
-    ParallelControllerSampler(ParallelController controller, String name, int maxParallel, List<Controller> branches,
+    ParallelControllerSampler(Controller controller, String name, int maxParallel, List<Controller> branches,
+            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+        this(controller, name, maxParallel, branches.size(), branches::get, sourceTransactionControllers);
+    }
+
+    ParallelControllerSampler(Controller controller, String name, int maxParallel, int branchCount,
+            IntFunction<Controller> branchFactory,
             IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
         this.controller = controller;
         this.maxParallel = maxParallel;
-        this.branches = List.copyOf(branches);
+        this.branchCount = branchCount;
+        this.branchFactory = branchFactory;
         this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
-    public ParallelController getController() {
+    public Controller getController() {
         return controller;
     }
 
@@ -56,8 +65,21 @@ public class ParallelControllerSampler extends AbstractSampler {
         return maxParallel;
     }
 
+    public int getBranchCount() {
+        return branchCount;
+    }
+
+    public Controller getBranch(int index) {
+        if (index < 0 || index >= branchCount) {
+            throw new IndexOutOfBoundsException(index);
+        }
+        return branchFactory.apply(index);
+    }
+
     public List<Controller> getBranches() {
-        return branches;
+        return java.util.stream.IntStream.range(0, branchCount)
+                .mapToObj(this::getBranch)
+                .toList();
     }
 
     public TransactionController getSourceTransactionController(TransactionController controller) {

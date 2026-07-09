@@ -49,6 +49,7 @@ import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.IteratingController;
+import org.apache.jmeter.control.ParallelContextModifier;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
@@ -822,21 +823,21 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void processParallelSampler(ParallelControllerSampler parallelSampler,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext) {
-        List<Controller> branches = parallelSampler.getBranches();
-        if (branches.isEmpty()) {
+        int branchCount = parallelSampler.getBranchCount();
+        if (branchCount == 0) {
             return;
         }
 
-        int maxParallel = Math.min(parallelSampler.getMaxParallel(), branches.size());
+        int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextBranch = 0;
         int activeBranches = 0;
         boolean startNextLoop = false;
         try {
-            while (nextBranch < branches.size() && activeBranches < maxParallel) {
+            while (nextBranch < branchCount && activeBranches < maxParallel) {
                 completionService.submit(parallelTask(
-                        parallelSampler, branches.get(nextBranch++), transactionSampler, transactionPack,
+                        parallelSampler, parallelSampler.getBranch(nextBranch++), transactionSampler, transactionPack,
                         parentContext));
                 activeBranches++;
             }
@@ -858,9 +859,9 @@ public class JMeterThread implements Runnable, Interruptible {
                         startNextLoop = true;
                     }
                 }
-                if (running && !startNextLoop && nextBranch < branches.size()) {
+                if (running && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
-                            parallelSampler, branches.get(nextBranch++), transactionSampler, transactionPack,
+                            parallelSampler, parallelSampler.getBranch(nextBranch++), transactionSampler, transactionPack,
                             parentContext));
                     activeBranches++;
                 }
@@ -889,6 +890,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 currentForkThreadsForInterruption.add(Thread.currentThread());
             }
             JMeterContext workerContext = createParallelContext(parentContext);
+            if (branch instanceof ParallelContextModifier contextModifier) {
+                contextModifier.prepareParallelContext(workerContext);
+            }
             JMeterContextService.replaceContext(workerContext);
             SampleResult branchResult = null;
             try {

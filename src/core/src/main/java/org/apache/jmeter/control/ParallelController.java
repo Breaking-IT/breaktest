@@ -114,7 +114,11 @@ public class ParallelController extends GenericController implements Serializabl
         return clone;
     }
 
-    private static void addParallelChild(GenericController parent, TestElement child,
+    /**
+     * Adds a child to a synthetic parallel branch using the same cloning and
+     * transaction-source tracking rules as {@link ParallelController}.
+     */
+    public static void addParallelChild(GenericController parent, TestElement child,
             IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
         TestElement parallelChild = parallelChild(child, sourceTransactionControllers);
         parent.addTestElement(parallelChild);
