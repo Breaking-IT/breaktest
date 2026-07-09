@@ -17,12 +17,15 @@
 
 package org.apache.jmeter.visualizers;
 
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -31,7 +34,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.net.URL;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -47,17 +53,22 @@ import java.util.Objects;
 import java.util.Queue;
 import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
 import javax.swing.ComboBoxModel;
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
@@ -68,8 +79,10 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JToggleButton;
 import javax.swing.JTree;
+import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
@@ -78,6 +91,9 @@ import javax.swing.WindowConstants;
 import javax.swing.border.Border;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -95,7 +111,6 @@ import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
@@ -130,12 +145,18 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public static final Color SERVER_ERROR_COLOR = Color.red;
     public static final Color CLIENT_ERROR_COLOR = Color.blue;
     public static final Color REDIRECT_COLOR = Color.green;
+    private static final Color SUCCESS_ICON_COLOR = new Color(0x2EAD4F);
+    private static final Color FAILURE_ICON_COLOR = new Color(0xD83A34);
 
     protected static final String COMBO_CHANGE_COMMAND = "change_combo"; // $NON-NLS-1$
 
     private static final Border RED_BORDER = BorderFactory.createLineBorder(Color.red);
     private static final Border BLUE_BORDER = BorderFactory.createLineBorder(Color.blue);
     private static final String ICON_SIZE = JMeterUtils.getPropDefault(JMeter.TREE_ICON_SIZE, JMeter.DEFAULT_TREE_ICON_SIZE);
+    private static final Pattern JMETER_THREAD_NAME =
+            Pattern.compile("(.+) \\d+-\\d+$"); // $NON-NLS-1$
+    private static final DateTimeFormatter RESULT_TABLE_TIMESTAMP_FORMAT =
+            DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault()); // $NON-NLS-1$
 
     // Default limited to 10 megabytes
     private static final int MAX_DISPLAY_SIZE =
@@ -158,18 +179,25 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private static final String AUTO_DETACH_ON_VALIDATION =
             "ViewResultsFullVisualizer.auto_detach_on_validation"; // $NON-NLS-1$
 
-    private static final ImageIcon imageSuccess = JMeterUtils.getImage(
-            JMeterUtils.getPropDefault("viewResultsTree.success",  //$NON-NLS-1$
-                    "vrt/" + ICON_SIZE + "/security-high-2.png")); //$NON-NLS-1$ $NON-NLS-2$
+    private static final Icon imageSuccess = createStatusIcon(true);
 
-    private static final ImageIcon imageFailure = JMeterUtils.getImage(
-            JMeterUtils.getPropDefault("viewResultsTree.failure",  //$NON-NLS-1$
-                    "vrt/" + ICON_SIZE + "/security-low-2.png")); //$NON-NLS-1$ $NON-NLS-2$
+    private static final Icon imageFailure = createStatusIcon(false);
 
     private JSplitPane mainSplit;
     private DefaultMutableTreeNode root;
     private DefaultTreeModel treeModel;
     private JTree jTree;
+    private JTable resultTable;
+    private ResultTableModel resultTableModel;
+    private TableColumn[] resultTableColumns;
+    private boolean[] selectedResultTableColumns;
+    private JTabbedPane resultListTabs;
+    private JComboBox<String> threadGroupFilter;
+    private JComboBox<String> threadNameFilter;
+    private JComboBox<String> labelFilter;
+    private JPanel resultFilterPanel;
+    private JToggleButton resultFilterToggle;
+    private JButton resultColumnsButton;
     private Component leftSide;
     private JTabbedPane rightSide;
     private JComboBox<ResultRenderer> selectRenderPanel;
@@ -195,6 +223,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private final Queue<SampleResult> buffer = new ArrayDeque<>();
     private final int maxResults;
     private boolean dataChanged;
+    private String selectedThreadGroup;
+    private String selectedThreadName;
+    private String selectedLabel;
+    private boolean updatingResultFilters;
 
     /**
      * Constructor
@@ -253,16 +285,25 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             oldExpandedElements = extractExpandedObjects(expandedElements);
             oldSelectedElement = getSelectedObject();
             root.removeAllChildren();
+            updateThreadGroupFilterOptions();
+            List<ResultTableModel.ResultTableRow> tableRows = new ArrayList<>();
             for (SampleResult sampler: buffer) {
+                if (!matchesSelectedThreadFilters(sampler) || !sampleOrSubResultMatchesSelectedLabel(sampler)) {
+                    continue;
+                }
                 SampleResult res = sampler;
                 // Add sample
                 DefaultMutableTreeNode currNode = new SearchableTreeNode(res, treeModel);
                 treeModel.insertNodeInto(currNode, root, root.getChildCount());
+                if (matchesSelectedLabel(res)) {
+                    tableRows.add(new ResultTableModel.ResultTableRow(res, 0));
+                }
                 List<TreeNode> path = new ArrayList<>(Arrays.asList(root, currNode));
                 selectedPath = checkExpandedOrSelected(path,
                         res, oldSelectedElement,
                         oldExpandedElements, newExpandedPaths, selectedPath);
-                TreePath potentialSelection = addSubResults(currNode, res, path, oldSelectedElement, oldExpandedElements, newExpandedPaths);
+                TreePath potentialSelection = addSubResults(currNode, res, path, oldSelectedElement,
+                        oldExpandedElements, newExpandedPaths, tableRows, 1);
                 if (potentialSelection != null) {
                     selectedPath = potentialSelection;
                 }
@@ -281,6 +322,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 }
             }
             treeModel.nodeStructureChanged(root);
+            resultTableModel.setRows(tableRows);
             dataChanged = false;
         }
 
@@ -291,7 +333,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         if (selectedPath != null) {
             jTree.setSelectionPath(selectedPath);
         }
-        if (autoScrollCB.isSelected() && root.getChildCount() > 1) {
+        if (autoScrollCB.isSelected() && isTableMode() && resultTable.getRowCount() > 0) {
+            resultTable.scrollRectToVisible(resultTable.getCellRect(resultTable.getRowCount() - 1, 0, true));
+        } else if (autoScrollCB.isSelected() && root.getChildCount() > 1) {
             jTree.scrollPathToVisible(new TreePath(new Object[] { root,
                     treeModel.getChild(root, root.getChildCount() - 1) }));
         }
@@ -349,7 +393,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private TreePath addSubResults(DefaultMutableTreeNode currNode,
             SampleResult res, List<TreeNode> path, Object selectedObject,
-            Set<Object> oldExpandedObjects, Set<? super TreePath> newExpandedPaths) {
+            Set<Object> oldExpandedObjects, Set<? super TreePath> newExpandedPaths,
+            List<ResultTableModel.ResultTableRow> tableRows, int depth) {
         SampleResult[] subResults = res.getSubResults();
 
         int leafIndex = 0;
@@ -357,13 +402,20 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
         for (SampleResult child : subResults) {
             log.debug("updateGui1 : child sample result - {}", child);
+            if (!sampleOrSubResultMatchesSelectedLabel(child)) {
+                continue;
+            }
             DefaultMutableTreeNode leafNode = new SearchableTreeNode(child, treeModel);
 
             treeModel.insertNodeInto(leafNode, currNode, leafIndex++);
+            if (matchesSelectedLabel(child)) {
+                tableRows.add(new ResultTableModel.ResultTableRow(child, depth));
+            }
             List<TreeNode> newPath = new ArrayList<>(path);
             newPath.add(leafNode);
             result = checkExpandedOrSelected(newPath, child, selectedObject, oldExpandedObjects, newExpandedPaths, result);
-            addSubResults(leafNode, child, newPath, selectedObject, oldExpandedObjects, newExpandedPaths);
+            addSubResults(leafNode, child, newPath, selectedObject, oldExpandedObjects, newExpandedPaths,
+                    tableRows, depth + 1);
             // Add any assertion that failed as children of the sample node
             AssertionResult[] assertionResults = child.getAssertionResults();
             int assertionIndex = leafNode.getChildCount();
@@ -397,6 +449,26 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         synchronized (buffer) {
             buffer.clear();
             dataChanged = true;
+        }
+        if (threadGroupFilter != null) {
+            updatingResultFilters = true;
+            try {
+                threadGroupFilter.setModel(new DefaultComboBoxModel<>(new String[] { allThreadGroupsLabel() }));
+                if (threadNameFilter != null) {
+                    threadNameFilter.setModel(new DefaultComboBoxModel<>(new String[] { allThreadNamesLabel() }));
+                }
+                if (labelFilter != null) {
+                    labelFilter.setModel(new DefaultComboBoxModel<>(new String[] { allLabelsLabel() }));
+                }
+                selectedThreadGroup = null;
+                selectedThreadName = null;
+                selectedLabel = null;
+            } finally {
+                updatingResultFilters = false;
+            }
+        }
+        if (resultTableModel != null) {
+            resultTableModel.setRows(Collections.emptyList());
         }
         resultsRender.clearData();
         resultsObject = null;
@@ -443,6 +515,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         // Create the split pane
         mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSide, rightSide);
         mainSplit.setOneTouchExpandable(true);
+        updateResultListLayout();
 
         searchPanel = new SearchTreePanel(root);
         searchPanel.setVisible(false);
@@ -799,17 +872,20 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
 
         if (node != null && (forceRendering || node.getUserObject() != resultsObject)) {
-            resultsObject = node.getUserObject();
-            // to restore last tab used
-            if (rightSide.getTabCount() > selectedTab) {
-                resultsRender.setLastSelectedTab(rightSide.getSelectedIndex());
-            }
-            Object userObject = node.getUserObject();
-            resultsRender.setSamplerResult(userObject);
-            resultsRender.setupTabPane(); // Processes Assertions
-            renderedResponseObject = null;
-            renderSelectedTabIfNeeded();
+            showResult(node.getUserObject());
         }
+    }
+
+    private void showResult(Object userObject) {
+        resultsObject = userObject;
+        // to restore last tab used
+        if (rightSide.getTabCount() > selectedTab) {
+            resultsRender.setLastSelectedTab(rightSide.getSelectedIndex());
+        }
+        resultsRender.setSamplerResult(userObject);
+        resultsRender.setupTabPane(); // Processes Assertions
+        renderedResponseObject = null;
+        renderSelectedTabIfNeeded();
     }
 
     private void renderSelectedTabIfNeeded() {
@@ -902,14 +978,216 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         JScrollPane treePane = new JScrollPane(jTree);
         treePane.setPreferredSize(new Dimension(200, 300));
 
-        VerticalPanel leftPane = new VerticalPanel();
-        leftPane.add(treePane, BorderLayout.CENTER);
-        leftPane.add(createComboRender(), BorderLayout.NORTH);
+        resultTableModel = new ResultTableModel(imageSuccess, imageFailure, RESULT_TABLE_TIMESTAMP_FORMAT);
+        resultTable = new JTable(resultTableModel) {
+            private static final long serialVersionUID = 7261698980341042273L;
+
+            @Override
+            public String getToolTipText(MouseEvent event) {
+                int row = rowAtPoint(event.getPoint());
+                int column = columnAtPoint(event.getPoint());
+                if (row < 0 || column < 0) {
+                    return null;
+                }
+                Object value = getValueAt(row, column);
+                return value instanceof Icon ? null : Objects.toString(value, null);
+            }
+        };
+        resultTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        resultTable.setAutoCreateRowSorter(true);
+        resultTable.setDefaultRenderer(Icon.class, new StatusIconTableCellRenderer());
+        resultTable.getSelectionModel().addListSelectionListener(event -> {
+            if (!event.getValueIsAdjusting()) {
+                selectTableResult();
+            }
+        });
+        resultTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                jumpToTableResultTestPlanElementOnDoubleClick(event);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent event) {
+                showResultTablePopup(event);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showResultTablePopup(event);
+            }
+        });
+        configureResultTableColumns();
+        resultTableColumns = captureTableColumns(resultTable);
+        selectedResultTableColumns = ResultTableModel.defaultVisibleColumns();
+        applySelectedResultTableColumns();
+        JMeterUtils.applyHiDPI(resultTable);
+
+        resultListTabs = new JTabbedPane();
+        resultListTabs.addTab(JMeterUtils.getResString("view_results_tree_list"), treePane); // $NON-NLS-1$
+        resultListTabs.addTab(JMeterUtils.getResString("view_results_table_list"), new JScrollPane(resultTable)); // $NON-NLS-1$
+        resultListTabs.addChangeListener(event -> updateResultListLayout());
+
+        resultFilterPanel = new JPanel(new MigLayout("fillx, wrap 2, insets 0", "[][fill,grow]")); // $NON-NLS-1$ //$NON-NLS-2$
+        resultFilterPanel.add(new JLabel(JMeterUtils.getResString("view_results_thread_group_filter"))); // $NON-NLS-1$
+        threadGroupFilter = new JComboBox<>(new String[] { allThreadGroupsLabel() });
+        threadGroupFilter.addActionListener(event -> updateSelectedThreadGroup());
+        resultFilterPanel.add(threadGroupFilter, "growx"); // $NON-NLS-1$
+        resultFilterPanel.add(new JLabel(JMeterUtils.getResString("view_results_thread_name_filter"))); // $NON-NLS-1$
+        threadNameFilter = new JComboBox<>(new String[] { allThreadNamesLabel() });
+        threadNameFilter.addActionListener(event -> updateSelectedThreadName());
+        resultFilterPanel.add(threadNameFilter, "growx"); // $NON-NLS-1$
+        resultFilterPanel.add(new JLabel(JMeterUtils.getResString("view_results_label_filter"))); // $NON-NLS-1$
+        labelFilter = new JComboBox<>(new String[] { allLabelsLabel() });
+        labelFilter.addActionListener(event -> updateSelectedLabel());
+        resultFilterPanel.add(labelFilter, "growx"); // $NON-NLS-1$
+        resultFilterPanel.setVisible(false);
+
+        resultFilterToggle = new JToggleButton(JMeterUtils.getResString("view_results_filter_panel_show")); // $NON-NLS-1$
+        resultFilterToggle.addActionListener(event -> updateResultFilterPanelVisibility());
+        resultColumnsButton = new JButton(JMeterUtils.getResString("view_results_columns")); // $NON-NLS-1$
+        resultColumnsButton.addActionListener(event -> showResultTableColumnsMenu(resultColumnsButton));
+        JPanel controlsPanel = new JPanel(new MigLayout("fillx, insets 0, hidemode 3", // $NON-NLS-1$
+                "[fill,grow][right][right]")); // $NON-NLS-1$
+        controlsPanel.add(createComboRender(), "growx"); // $NON-NLS-1$
+        controlsPanel.add(resultFilterToggle, "gapleft 6"); // $NON-NLS-1$
+        controlsPanel.add(resultColumnsButton, "gapleft 6"); // $NON-NLS-1$
+
+        JPanel topPanel = new JPanel(new MigLayout("fillx, wrap 1, insets 0, hidemode 3", "[fill,grow]")); // $NON-NLS-1$ //$NON-NLS-2$
+        topPanel.add(controlsPanel, "growx"); // $NON-NLS-1$
+        topPanel.add(resultFilterPanel, "growx"); // $NON-NLS-1$
+
+        JPanel leftPane = new JPanel(new BorderLayout(0, 5));
+        leftPane.add(topPanel, BorderLayout.NORTH);
+        leftPane.add(resultListTabs, BorderLayout.CENTER);
         autoScrollCB = new JCheckBox(JMeterUtils.getResString("view_results_autoscroll")); // $NON-NLS-1$
         autoScrollCB.setSelected(false);
         autoScrollCB.addItemListener(this);
         leftPane.add(autoScrollCB, BorderLayout.SOUTH);
         return leftPane;
+    }
+
+    private void configureResultTableColumns() {
+        TableColumnModel columns = resultTable.getColumnModel();
+        columns.getColumn(ResultTableModel.STATUS).setMinWidth(26);
+        columns.getColumn(ResultTableModel.STATUS).setPreferredWidth(30);
+        columns.getColumn(ResultTableModel.STATUS).setMaxWidth(34);
+        columns.getColumn(ResultTableModel.TIMESTAMP).setPreferredWidth(95);
+        columns.getColumn(ResultTableModel.THREAD_GROUP).setPreferredWidth(120);
+        columns.getColumn(ResultTableModel.THREAD_NAME).setPreferredWidth(140);
+        columns.getColumn(ResultTableModel.LABEL).setPreferredWidth(180);
+        columns.getColumn(ResultTableModel.TIME).setPreferredWidth(70);
+        columns.getColumn(ResultTableModel.LATENCY).setPreferredWidth(70);
+        columns.getColumn(ResultTableModel.CONNECT_TIME).setPreferredWidth(80);
+        columns.getColumn(ResultTableModel.REQUEST_SIZE).setPreferredWidth(85);
+        columns.getColumn(ResultTableModel.RESPONSE_SIZE).setPreferredWidth(85);
+        columns.getColumn(ResultTableModel.URL).setPreferredWidth(240);
+    }
+
+    private void showResultTableColumnsMenu(Component invoker) {
+        JPopupMenu popup = new JPopupMenu();
+        for (int modelColumn = 0; modelColumn < resultTableColumns.length; modelColumn++) {
+            JCheckBoxMenuItem item = new JCheckBoxMenuItem(
+                    resultTableColumnConfigurationLabel(modelColumn), selectedResultTableColumns[modelColumn]);
+            final int column = modelColumn;
+            item.addActionListener(event -> {
+                selectedResultTableColumns[column] = item.isSelected();
+                applySelectedResultTableColumns();
+            });
+            popup.add(item);
+        }
+        popup.show(invoker, 0, invoker.getHeight());
+    }
+
+    private static String resultTableColumnConfigurationLabel(int modelColumn) {
+        return modelColumn == ResultTableModel.STATUS
+                ? JMeterUtils.getResString("table_visualizer_status") // $NON-NLS-1$
+                : JMeterUtils.getResString(ResultTableModel.COLUMNS[modelColumn]);
+    }
+
+    private void applySelectedResultTableColumns() {
+        TableColumnModel columnModel = resultTable.getColumnModel();
+        for (int modelColumn = 0; modelColumn < resultTableColumns.length; modelColumn++) {
+            boolean shouldShow = selectedResultTableColumns[modelColumn];
+            boolean isVisible = isColumnVisible(columnModel, resultTableColumns[modelColumn]);
+            if (shouldShow && !isVisible) {
+                columnModel.addColumn(resultTableColumns[modelColumn]);
+                columnModel.moveColumn(columnModel.getColumnCount() - 1, countVisibleResultTableColumnsBefore(modelColumn));
+            } else if (!shouldShow && isVisible) {
+                columnModel.removeColumn(resultTableColumns[modelColumn]);
+            }
+        }
+    }
+
+    private static TableColumn[] captureTableColumns(JTable table) {
+        TableColumnModel columnModel = table.getColumnModel();
+        TableColumn[] columns = new TableColumn[columnModel.getColumnCount()];
+        for (int i = 0; i < columns.length; i++) {
+            columns[i] = columnModel.getColumn(i);
+        }
+        return columns;
+    }
+
+    private static boolean isColumnVisible(TableColumnModel columnModel, TableColumn column) {
+        for (int i = 0; i < columnModel.getColumnCount(); i++) {
+            if (columnModel.getColumn(i) == column) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int countVisibleResultTableColumnsBefore(int modelColumn) {
+        int count = 0;
+        for (int i = 0; i < modelColumn; i++) {
+            if (selectedResultTableColumns[i]) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void updateResultFilterPanelVisibility() {
+        if (resultFilterPanel == null || resultFilterToggle == null) {
+            return;
+        }
+        boolean visible = resultFilterToggle.isSelected();
+        resultFilterPanel.setVisible(visible);
+        resultFilterToggle.setText(JMeterUtils.getResString(
+                visible ? "view_results_filter_panel_hide" : "view_results_filter_panel_show")); // $NON-NLS-1$ //$NON-NLS-2$
+        revalidateVisualizerLayout(resultFilterPanel);
+    }
+
+    private void showResultFilterPanel() {
+        if (resultFilterToggle == null) {
+            return;
+        }
+        resultFilterToggle.setSelected(true);
+        updateResultFilterPanelVisibility();
+    }
+
+    private void updateResultListLayout() {
+        if (mainSplit == null || resultListTabs == null) {
+            return;
+        }
+        int divider = mainSplit.getDividerLocation();
+        mainSplit.setOrientation(isTableMode() ? JSplitPane.VERTICAL_SPLIT : JSplitPane.HORIZONTAL_SPLIT);
+        mainSplit.setTopComponent(leftSide);
+        mainSplit.setBottomComponent(rightSide);
+        mainSplit.setResizeWeight(isTableMode() ? 0.45 : 0.25);
+        if (resultColumnsButton != null) {
+            resultColumnsButton.setVisible(isTableMode());
+            resultColumnsButton.getParent().revalidate();
+        }
+        if (divider > 0) {
+            mainSplit.setDividerLocation(divider);
+        }
+        mainSplit.revalidate();
+        mainSplit.repaint();
+    }
+
+    private boolean isTableMode() {
+        return resultListTabs != null && resultListTabs.getSelectedIndex() == 1;
     }
 
     private void jumpToResultTestPlanElementOnDoubleClick(MouseEvent event) {
@@ -927,6 +1205,271 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
         SampleResult sampleResult = getSampleResult(resultPath);
         jumpToTestPlanElement(findTestPlanNode(sampleResult));
+    }
+
+    private void jumpToTableResultTestPlanElementOnDoubleClick(MouseEvent event) {
+        if (detachedWindow == null || event.getClickCount() != 2 || event.getButton() != MouseEvent.BUTTON1) {
+            return;
+        }
+        int viewRow = resultTable.rowAtPoint(event.getPoint());
+        if (viewRow < 0) {
+            return;
+        }
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+        jumpToTestPlanElement(findTestPlanNode(resultTableModel.sampleAt(modelRow)));
+    }
+
+    private void showResultTablePopup(MouseEvent event) {
+        if (!event.isPopupTrigger()) {
+            return;
+        }
+        int viewRow = resultTable.rowAtPoint(event.getPoint());
+        if (viewRow < 0) {
+            return;
+        }
+        resultTable.setRowSelectionInterval(viewRow, viewRow);
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+        SampleResult sample = resultTableModel.sampleAt(modelRow);
+        if (sample == null || StringUtilities.isEmpty(sample.getThreadName())) {
+            return;
+        }
+
+        JMenuItem filterThread = new JMenuItem(JMeterUtils.getResString("view_results_filter_thread_name")); // $NON-NLS-1$
+        filterThread.addActionListener(action -> filterByThreadName(sample.getThreadName()));
+        JMenuItem clearThreadFilter = new JMenuItem(
+                JMeterUtils.getResString("view_results_clear_thread_name_filter")); // $NON-NLS-1$
+        clearThreadFilter.setEnabled(selectedThreadName != null);
+        clearThreadFilter.addActionListener(action -> filterByThreadName(null));
+        JMenuItem filterLabel = new JMenuItem(JMeterUtils.getResString("view_results_filter_label")); // $NON-NLS-1$
+        filterLabel.addActionListener(action -> filterByLabel(sample.getSampleLabel()));
+        JMenuItem clearLabelFilter = new JMenuItem(JMeterUtils.getResString("view_results_clear_label_filter")); // $NON-NLS-1$
+        clearLabelFilter.setEnabled(selectedLabel != null);
+        clearLabelFilter.addActionListener(action -> filterByLabel(null));
+
+        JPopupMenu popup = new JPopupMenu();
+        popup.add(filterThread);
+        popup.add(clearThreadFilter);
+        popup.addSeparator();
+        popup.add(filterLabel);
+        popup.add(clearLabelFilter);
+        popup.show(resultTable, event.getX(), event.getY());
+    }
+
+    private void selectTableResult() {
+        int viewRow = resultTable.getSelectedRow();
+        if (viewRow < 0) {
+            return;
+        }
+        int modelRow = resultTable.convertRowIndexToModel(viewRow);
+        SampleResult sample = resultTableModel.sampleAt(modelRow);
+        if (sample != null && sample != resultsObject) {
+            showResult(sample);
+        }
+    }
+
+    private void updateSelectedThreadGroup() {
+        if (updatingResultFilters || threadGroupFilter == null) {
+            return;
+        }
+        Object selectedItem = threadGroupFilter.getSelectedItem();
+        String all = allThreadGroupsLabel();
+        selectedThreadGroup = selectedItem == null || all.equals(selectedItem.toString()) ? null : selectedItem.toString();
+        synchronized (buffer) {
+            dataChanged = true;
+        }
+        updateGui();
+    }
+
+    private void updateSelectedThreadName() {
+        if (updatingResultFilters || threadNameFilter == null) {
+            return;
+        }
+        Object selectedItem = threadNameFilter.getSelectedItem();
+        String all = allThreadNamesLabel();
+        selectedThreadName = selectedItem == null || all.equals(selectedItem.toString()) ? null : selectedItem.toString();
+        synchronized (buffer) {
+            dataChanged = true;
+        }
+        updateGui();
+    }
+
+    private void updateSelectedLabel() {
+        if (updatingResultFilters || labelFilter == null) {
+            return;
+        }
+        Object selectedItem = labelFilter.getSelectedItem();
+        String all = allLabelsLabel();
+        selectedLabel = selectedItem == null || all.equals(selectedItem.toString()) ? null : selectedItem.toString();
+        synchronized (buffer) {
+            dataChanged = true;
+        }
+        updateGui();
+    }
+
+    private void updateThreadGroupFilterOptions() {
+        if (threadGroupFilter == null) {
+            return;
+        }
+        List<String> threadGroups = buffer.stream()
+                .map(SampleResult::getThreadName)
+                .map(ViewResultsFullVisualizer::threadGroupName)
+                .filter(threadGroup -> !StringUtilities.isEmpty(threadGroup))
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        String selected = selectedThreadGroup;
+        if (selected != null && !threadGroups.contains(selected)) {
+            selected = null;
+            selectedThreadGroup = null;
+        }
+        String activeThreadGroup = selected;
+        List<String> threadNames = buffer.stream()
+                .map(SampleResult::getThreadName)
+                .filter(threadName -> !StringUtilities.isEmpty(threadName))
+                .filter(threadName -> activeThreadGroup == null || activeThreadGroup.equals(threadGroupName(threadName)))
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        String selectedThread = selectedThreadName;
+        if (selectedThread != null && !threadNames.contains(selectedThread)) {
+            selectedThread = null;
+            selectedThreadName = null;
+        }
+        List<String> labels = buffer.stream()
+                .flatMap(ViewResultsFullVisualizer::sampleAndSubResults)
+                .map(SampleResult::getSampleLabel)
+                .filter(label -> !StringUtilities.isEmpty(label))
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        String selectedSamplerLabel = selectedLabel;
+        if (selectedSamplerLabel != null && !labels.contains(selectedSamplerLabel)) {
+            selectedSamplerLabel = null;
+            selectedLabel = null;
+        }
+
+        DefaultComboBoxModel<String> threadGroupModel = new DefaultComboBoxModel<>();
+        threadGroupModel.addElement(allThreadGroupsLabel());
+        threadGroups.forEach(threadGroupModel::addElement);
+        DefaultComboBoxModel<String> threadNameModel = new DefaultComboBoxModel<>();
+        threadNameModel.addElement(allThreadNamesLabel());
+        threadNames.forEach(threadNameModel::addElement);
+        DefaultComboBoxModel<String> labelModel = new DefaultComboBoxModel<>();
+        labelModel.addElement(allLabelsLabel());
+        labels.forEach(labelModel::addElement);
+
+        updatingResultFilters = true;
+        try {
+            updateComboBoxModelIfNeeded(threadGroupFilter, threadGroupModel);
+            updateComboBoxSelectionIfNeeded(threadGroupFilter, selected == null ? allThreadGroupsLabel() : selected);
+            if (threadNameFilter != null) {
+                updateComboBoxModelIfNeeded(threadNameFilter, threadNameModel);
+                updateComboBoxSelectionIfNeeded(threadNameFilter,
+                        selectedThread == null ? allThreadNamesLabel() : selectedThread);
+            }
+            if (labelFilter != null) {
+                updateComboBoxModelIfNeeded(labelFilter, labelModel);
+                updateComboBoxSelectionIfNeeded(labelFilter,
+                        selectedSamplerLabel == null ? allLabelsLabel() : selectedSamplerLabel);
+            }
+        } finally {
+            updatingResultFilters = false;
+        }
+    }
+
+    private static void updateComboBoxSelectionIfNeeded(JComboBox<String> comboBox, String selectedItem) {
+        if (!comboBox.isPopupVisible() && !Objects.equals(comboBox.getSelectedItem(), selectedItem)) {
+            comboBox.setSelectedItem(selectedItem);
+        }
+    }
+
+    private static void updateComboBoxModelIfNeeded(JComboBox<String> comboBox, DefaultComboBoxModel<String> model) {
+        if (comboBox.isPopupVisible() || comboBoxModelEquals(comboBox, model)) {
+            return;
+        }
+        comboBox.setModel(model);
+    }
+
+    private static boolean comboBoxModelEquals(JComboBox<String> comboBox, DefaultComboBoxModel<String> model) {
+        ComboBoxModel<String> existingModel = comboBox.getModel();
+        if (existingModel.getSize() != model.getSize()) {
+            return false;
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (!Objects.equals(existingModel.getElementAt(i), model.getElementAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesSelectedThreadFilters(SampleResult sample) {
+        return (selectedThreadGroup == null || selectedThreadGroup.equals(threadGroupName(sample.getThreadName())))
+                && (selectedThreadName == null || selectedThreadName.equals(sample.getThreadName()));
+    }
+
+    private boolean matchesSelectedLabel(SampleResult sample) {
+        return matchesLabel(sample, selectedLabel);
+    }
+
+    private boolean sampleOrSubResultMatchesSelectedLabel(SampleResult sample) {
+        return sampleOrSubResultMatchesLabel(sample, selectedLabel);
+    }
+
+    static boolean matchesLabel(SampleResult sample, String label) {
+        return label == null || label.equals(sample.getSampleLabel());
+    }
+
+    static boolean sampleOrSubResultMatchesLabel(SampleResult sample, String label) {
+        return label == null || sampleAndSubResults(sample)
+                .anyMatch(result -> label.equals(result.getSampleLabel()));
+    }
+
+    private static Stream<SampleResult> sampleAndSubResults(SampleResult sample) {
+        return Stream.concat(
+                Stream.of(sample),
+                Arrays.stream(sample.getSubResults()).flatMap(ViewResultsFullVisualizer::sampleAndSubResults));
+    }
+
+    private void filterByThreadName(String threadName) {
+        selectedThreadName = StringUtilities.isEmpty(threadName) ? null : threadName;
+        if (selectedThreadName != null) {
+            selectedThreadGroup = threadGroupName(selectedThreadName);
+        }
+        showResultFilterPanel();
+        synchronized (buffer) {
+            dataChanged = true;
+        }
+        updateGui();
+    }
+
+    private void filterByLabel(String label) {
+        selectedLabel = StringUtilities.isEmpty(label) ? null : label;
+        showResultFilterPanel();
+        synchronized (buffer) {
+            dataChanged = true;
+        }
+        updateGui();
+    }
+
+    static String threadGroupName(String threadName) {
+        if (StringUtilities.isEmpty(threadName)) {
+            return ""; // $NON-NLS-1$
+        }
+        Matcher matcher = JMETER_THREAD_NAME.matcher(threadName);
+        return matcher.matches() ? matcher.group(1) : threadName;
+    }
+
+    private static String allThreadGroupsLabel() {
+        return JMeterUtils.getResString("view_results_thread_group_filter_all"); // $NON-NLS-1$
+    }
+
+    private static String allThreadNamesLabel() {
+        return JMeterUtils.getResString("view_results_thread_name_filter_all"); // $NON-NLS-1$
+    }
+
+    private static String allLabelsLabel() {
+        return JMeterUtils.getResString("view_results_label_filter_all"); // $NON-NLS-1$
     }
 
     private void showResultTreePopup(MouseEvent event) {
@@ -1114,8 +1657,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                     // create and add a new right side at the old position
                     rightSide = new JTabbedPane();
                     rightSide.addChangeListener(e -> renderSelectedTabIfNeeded());
-                    mainSplit.add(rightSide);
-                    mainSplit.setDividerLocation(dividerLocation);
+                    mainSplit.setBottomComponent(rightSide);
+                    updateResultListLayout();
+                    if (dividerLocation > 0) {
+                        mainSplit.setDividerLocation(dividerLocation);
+                    }
                     resultsRender.setRightSide(rightSide);
                     resultsRender.setLastSelectedTab(selectedTab);
                     renderedResponseObject = null;
@@ -1260,6 +1806,46 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 .toLowerCase(Locale.ROOT);
     }
 
+    private static Icon createStatusIcon(boolean success) {
+        String propertyName = success ? "viewResultsTree.success" : "viewResultsTree.failure"; // $NON-NLS-1$ //$NON-NLS-2$
+        String configuredIcon = JMeterUtils.getProperty(propertyName);
+        if (!StringUtilities.isEmpty(configuredIcon)) {
+            return JMeterUtils.getImage(configuredIcon);
+        }
+
+        int size = Math.max(12, Math.min(20, iconSize()));
+        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.setColor(success ? SUCCESS_ICON_COLOR : FAILURE_ICON_COLOR);
+            graphics.fillOval(1, 1, size - 2, size - 2);
+            graphics.setColor(Color.WHITE);
+            graphics.setStroke(new BasicStroke(Math.max(1.7f, size / 8f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            if (success) {
+                graphics.drawLine(size / 4, size / 2, size * 5 / 12, size * 2 / 3);
+                graphics.drawLine(size * 5 / 12, size * 2 / 3, size * 3 / 4, size / 3);
+            } else {
+                int inset = Math.max(4, size / 4);
+                graphics.drawLine(inset, inset, size - inset, size - inset);
+                graphics.drawLine(size - inset, inset, inset, size - inset);
+            }
+        } finally {
+            graphics.dispose();
+        }
+        return new ImageIcon(image);
+    }
+
+    private static int iconSize() {
+        int separator = ICON_SIZE.indexOf('x');
+        String size = separator < 0 ? ICON_SIZE : ICON_SIZE.substring(0, separator);
+        try {
+            return Integer.parseInt(size);
+        } catch (NumberFormatException e) {
+            return 16;
+        }
+    }
+
     @API(status = API.Status.INTERNAL, since = "5.5")
     public static String wrapLongLines(String input) {
         if (StringUtilities.isEmpty(input)) {
@@ -1306,6 +1892,20 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 setBorder(null);
             }
             return this;
+        }
+    }
+
+    private static class StatusIconTableCellRenderer extends DefaultTableCellRenderer {
+        private static final long serialVersionUID = -6384657543198064346L;
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                boolean hasFocus, int row, int column) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(
+                    table, "", isSelected, hasFocus, row, column); // $NON-NLS-1$
+            label.setHorizontalAlignment(SwingConstants.CENTER);
+            label.setIcon(value instanceof Icon icon ? icon : null);
+            return label;
         }
     }
 

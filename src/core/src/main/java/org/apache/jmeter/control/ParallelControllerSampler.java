@@ -34,7 +34,8 @@ public class ParallelControllerSampler extends AbstractSampler {
     private final Controller controller;
     private final int maxParallel;
     private final int branchCount;
-    private final IntFunction<Controller> branchFactory;
+    private final List<Controller> branches;
+    private final transient IntFunction<Controller> branchFactory;
     private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
 
     public ParallelControllerSampler() {
@@ -43,7 +44,13 @@ public class ParallelControllerSampler extends AbstractSampler {
 
     ParallelControllerSampler(Controller controller, String name, int maxParallel, List<Controller> branches,
             IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
-        this(controller, name, maxParallel, branches.size(), branches::get, sourceTransactionControllers);
+        this.controller = controller;
+        this.maxParallel = maxParallel;
+        this.branchCount = branches.size();
+        this.branches = List.copyOf(branches);
+        this.branchFactory = null;
+        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
+        setName(name);
     }
 
     ParallelControllerSampler(Controller controller, String name, int maxParallel, int branchCount,
@@ -52,6 +59,7 @@ public class ParallelControllerSampler extends AbstractSampler {
         this.controller = controller;
         this.maxParallel = maxParallel;
         this.branchCount = branchCount;
+        this.branches = List.of();
         this.branchFactory = branchFactory;
         this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
@@ -73,10 +81,19 @@ public class ParallelControllerSampler extends AbstractSampler {
         if (index < 0 || index >= branchCount) {
             throw new IndexOutOfBoundsException(index);
         }
+        if (branchFactory == null) {
+            if (!branches.isEmpty()) {
+                return branches.get(index);
+            }
+            throw new IllegalStateException("Parallel branches are no longer available");
+        }
         return branchFactory.apply(index);
     }
 
     public List<Controller> getBranches() {
+        if (branchFactory == null && !branches.isEmpty()) {
+            return branches;
+        }
         return java.util.stream.IntStream.range(0, branchCount)
                 .mapToObj(this::getBranch)
                 .toList();

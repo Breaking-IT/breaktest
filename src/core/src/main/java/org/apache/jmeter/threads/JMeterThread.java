@@ -25,8 +25,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -43,8 +43,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import org.apache.jmeter.assertions.Assertion;
-import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkControllerSampler;
@@ -69,7 +67,6 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
-import org.apache.jmeter.testelement.AbstractScopedAssertion;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestIterationListener;
@@ -1026,7 +1023,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     threadContext.setPreviousResult(result);
                     runPostProcessors(pack.getPostProcessors());
-                    checkAssertions(pack.getAssertions(), result, threadContext);
+                    JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     // PostProcessors can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
@@ -1048,7 +1045,7 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                 } else {
-                    // This call is done by checkAssertions() , as we don't call it
+                    // This call is done by JMeterThreadAssertions.check(), as we don't call it
                     // for isIgnore, we explictely call it here
                     setLastSampleOk(threadContext.getVariables(), result.isSuccessful());
                     packageDone = true;
@@ -1191,7 +1188,7 @@ public class JMeterThread implements Runnable, Interruptible {
         fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
 
         // Check assertions for the transaction sample
-        checkAssertions(transactionPack.getAssertions(), transactionResult, threadContext);
+        JMeterThreadAssertions.check(transactionPack.getAssertions(), transactionResult, threadContext);
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
             List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
@@ -1584,73 +1581,6 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopThread() {
         running = false;
         log.info("Stop Thread detected by thread: {}", threadName);
-    }
-
-    private static void checkAssertions(List<? extends Assertion> assertions, SampleResult parent, JMeterContext threadContext) {
-        for (Assertion assertion : assertions) {
-            TestBeanHelper.prepare((TestElement) assertion);
-            if (assertion instanceof AbstractScopedAssertion scopedAssertion) {
-                String scope = scopedAssertion.fetchScope();
-                if (scopedAssertion.isScopeParent(scope)
-                        || scopedAssertion.isScopeAll(scope)
-                        || scopedAssertion.isScopeVariable(scope)) {
-                    processAssertion(parent, assertion);
-                }
-                if (scopedAssertion.isScopeChildren(scope)
-                        || scopedAssertion.isScopeAll(scope)) {
-                    recurseAssertionChecks(parent, assertion, 3);
-                }
-            } else {
-                processAssertion(parent, assertion);
-            }
-        }
-        setLastSampleOk(threadContext.getVariables(), parent.isSuccessful());
-    }
-
-    private static void recurseAssertionChecks(SampleResult parent, Assertion assertion, int level) {
-        if (level < 0) {
-            return;
-        }
-        SampleResult[] children = parent.getSubResults();
-        boolean childError = false;
-        for (SampleResult childSampleResult : children) {
-            processAssertion(childSampleResult, assertion);
-            recurseAssertionChecks(childSampleResult, assertion, level - 1);
-            if (!childSampleResult.isSuccessful()) {
-                childError = true;
-            }
-        }
-        // If parent is OK, but child failed, add a message and flag the parent as failed
-        if (childError && parent.isSuccessful()) {
-            AssertionResult assertionResult = new AssertionResult(((AbstractTestElement) assertion).getName());
-            assertionResult.setResultForFailure("One or more sub-samples failed");
-            parent.addAssertionResult(assertionResult);
-            parent.setSuccessful(false);
-        }
-    }
-
-    private static void processAssertion(SampleResult result, Assertion assertion) {
-        AssertionResult assertionResult;
-        try {
-            assertionResult = assertion.getResult(result);
-        } catch (AssertionError e) {
-            log.debug("Error processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file (debug level, only).");
-            assertionResult.setFailure(true);
-            assertionResult.setFailureMessage(e.toString());
-        } catch (JMeterError e) {
-            log.error("Error processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file.");
-            assertionResult.setError(true);
-            assertionResult.setFailureMessage(e.toString());
-        } catch (Exception e) {
-            log.error("Exception processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file.");
-            assertionResult.setError(true);
-            assertionResult.setFailureMessage(e.toString());
-        }
-        result.setSuccessful(result.isSuccessful() && !(assertionResult.isError() || assertionResult.isFailure()));
-        result.addAssertionResult(assertionResult);
     }
 
     private static void runPostProcessors(List<? extends PostProcessor> extractors) {

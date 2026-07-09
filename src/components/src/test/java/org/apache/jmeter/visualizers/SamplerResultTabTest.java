@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 import javax.swing.JTabbedPane;
@@ -132,6 +133,20 @@ public class SamplerResultTabTest {
         assertEquals("HTTP/1.1 200 OK\nContent-Type: image/png\n", renderer.replayedResponseText());
     }
 
+    @Test
+    public void samplerResultTabShowsUrlWhenSampleHasUrl() throws Exception {
+        RenderAsText renderer = initializedRenderer();
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n", "hello");
+        result.setURL(URI.create("https://example.invalid/orders?id=1").toURL());
+
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        renderer.rightSide.setSelectedIndex(0);
+        renderer.renderSelectedTab();
+
+        assertTrue(renderer.samplerResultText().contains("https://example.invalid/orders?id=1"));
+    }
+
     private static RenderAsText initializedRenderer() {
         RenderAsText renderer = new RenderAsText();
         renderer.setRightSide(new JTabbedPane());
@@ -158,4 +173,5 @@ public class SamplerResultTabTest {
         result.setResponseData(body, StandardCharsets.UTF_8.name());
         return result;
     }
+
 }
