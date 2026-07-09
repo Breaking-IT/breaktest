@@ -63,6 +63,7 @@ import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.visualizers.Visualizer;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.HashTreeTraverser;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
@@ -118,6 +119,24 @@ class TestJMeterThread {
         @Override
         public long delay() {
             return delay;
+        }
+    }
+
+    private static final class CountingListedHashTree extends ListedHashTree {
+        private static final long serialVersionUID = 1L;
+
+        private final AtomicInteger parentPathTraversals = new AtomicInteger();
+
+        @Override
+        public void traverse(HashTreeTraverser visitor) {
+            if (visitor instanceof FindTestElementsUpToRootTraverser) {
+                parentPathTraversals.incrementAndGet();
+            }
+            super.traverse(visitor);
+        }
+
+        private int parentPathTraversals() {
+            return parentPathTraversals.get();
         }
     }
 
@@ -932,6 +951,44 @@ class TestJMeterThread {
                 "Transaction-wrapped parallel sampler should resolve to the real ParallelController");
         assertTrue(sawTransactionController.get(),
                 "Start Next Thread Loop should unwind the enclosing TransactionController");
+    }
+
+    @Test
+    void testLoopLogicalActionCachesParentControllerPathByResolvedNode() throws Exception {
+        CountingListedHashTree testTree = new CountingListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        GenericController controller = new GenericController();
+        controller.setName("parent");
+        DummySampler sampler = createSampler();
+
+        testTree.add(loop);
+        testTree.add(loop, controller);
+        testTree.add(controller, sampler);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, null, new ListenerNotifier());
+        JMeterContext context = JMeterContextService.getContext();
+        context.setVariables(new JMeterVariables());
+        context.setThread(jMeterThread);
+        Method triggerMethod = JMeterThread.class.getDeclaredMethod(
+                "triggerLoopLogicalActionOnParentControllers",
+                Sampler.class,
+                JMeterContext.class,
+                Consumer.class);
+        triggerMethod.setAccessible(true);
+
+        Consumer<FindTestElementsUpToRootTraverser> assertPathContainsParent = traverser -> {
+            List<Controller> controllers = traverser.getControllersToRoot();
+            assertTrue(controllers.stream().anyMatch(parent -> parent == controller));
+        };
+
+        triggerMethod.invoke(jMeterThread, sampler, context, assertPathContainsParent);
+        triggerMethod.invoke(jMeterThread, sampler, context, assertPathContainsParent);
+
+        assertEquals(1, testTree.parentPathTraversals(),
+                "Parent controller path should be cached after the first lookup");
     }
 
     @Test

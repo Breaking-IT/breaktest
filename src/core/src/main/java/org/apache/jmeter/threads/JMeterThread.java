@@ -221,6 +221,8 @@ public class JMeterThread implements Runnable, Interruptible {
     private final Set<Future<?>> forksRequestedToStop =
             Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
 
+    private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
+
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
     }
@@ -445,11 +447,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     "Got null subSampler calling findRealSampler for:" +
                     (sampler != null ? sampler.getName() : "null") + ", sampler:" + sampler);
         }
-        // Find parent controllers of current sampler
-        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(nodeToFind);
-        testTree.traverse(pathToRootTraverser);
-
-        consumer.accept(pathToRootTraverser);
+        consumer.accept(pathToRootTraverser(nodeToFind));
 
         // bug 52968
         // When using Start Next Loop option combined to TransactionController.
@@ -458,6 +456,32 @@ public class JMeterThread implements Runnable, Interruptible {
         if (transactionSampler != null) {
             SamplePackage transactionPack = compiler.configureTransactionSampler(transactionSampler);
             doEndTransactionSampler(transactionSampler, null, transactionPack, threadContext);
+        }
+    }
+
+    private FindTestElementsUpToRootTraverser pathToRootTraverser(Object nodeToFind) {
+        List<Controller> cachedControllers = parentControllersToRootCache.get(nodeToFind);
+        if (cachedControllers != null) {
+            return new CachedPathToRootTraverser(nodeToFind, cachedControllers);
+        }
+
+        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(nodeToFind);
+        testTree.traverse(pathToRootTraverser);
+        parentControllersToRootCache.put(nodeToFind, pathToRootTraverser.getControllersToRoot());
+        return pathToRootTraverser;
+    }
+
+    private static final class CachedPathToRootTraverser extends FindTestElementsUpToRootTraverser {
+        private final List<Controller> controllersToRoot;
+
+        private CachedPathToRootTraverser(Object nodeToFind, List<Controller> controllersToRoot) {
+            super(nodeToFind);
+            this.controllersToRoot = controllersToRoot;
+        }
+
+        @Override
+        public List<Controller> getControllersToRoot() {
+            return new ArrayList<>(controllersToRoot);
         }
     }
 
