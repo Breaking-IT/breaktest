@@ -38,7 +38,7 @@ runtime and desktop performance improvements.
 
 <ch_section>Highlights</ch_section>
 <ul>
-  <li>Added a guided HAR import wizard for <code>.har</code> and <code>.har.gz</code> recordings, with hostname filtering, request grouping, delay options, and automatic test-plan generation.</li>
+  <li>Added a guided HAR import wizard for uncompressed <code>.har</code> recordings, with hostname filtering, request grouping, delay options, and automatic test-plan generation.</li>
   <li>Added optional parallel execution to the ForEach Controller, with configurable maximum concurrency and lazy branch creation for very large collections.</li>
   <li>Expanded View Results with a table layout, selectable columns, response-time data, request and response sizes, URLs, filtering, and improved status icons.</li>
   <li>Reduced repeated test-tree traversal by caching parent-controller paths used by loop control actions.</li>

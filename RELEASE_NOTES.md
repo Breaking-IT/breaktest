@@ -24,7 +24,7 @@ targeted runtime and desktop performance improvements.
 
 ### Highlights
 
-- Added a guided HAR import wizard for `.har` and `.har.gz` recordings, with
+- Added a guided HAR import wizard for uncompressed `.har` recordings, with
   hostname filtering, request grouping, delay options, and automatic test-plan
   generation.
 - Added optional parallel execution to the ForEach Controller, with a
