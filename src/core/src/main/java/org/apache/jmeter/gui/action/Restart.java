@@ -106,13 +106,60 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
      *            some custom code to be run before restarting
      */
     public static void restartApplication(Runnable runBeforeRestart) {
+        List<String> processArgs;
+        try {
+            processArgs = createRestartCommand();
+        } catch (IllegalStateException ex) {
+            JOptionPane.showMessageDialog(GuiPackage.getInstance().getMainFrame(),
+                    JMeterUtils.getResString("restart_error")+":\n" + ex.getMessage(),  //$NON-NLS-1$  //$NON-NLS-2$
+                    JMeterUtils.getResString("error_title"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+            return;
+        }
+        log.debug("Restarting BreakTest with {} process arguments", processArgs.size());
+        // execute the command in a shutdown hook, to be sure that all the
+        // resources have been disposed before restarting the application
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+            @Override
+            public void run() {
+                try {
+                    new ProcessBuilder(processArgs).start();
+                } catch (IOException e) {
+                    log.error("Error calling restart command {}", processArgs, e);
+                }
+            }
+        });
+        // execute some custom code before restarting
+        if (runBeforeRestart != null) {
+            runBeforeRestart.run();
+        }
+        // exit
+        System.exit(0); // NOSONAR Required
+
+    }
+
+    /**
+     * Builds the command used to relaunch the current BreakTest process.
+     *
+     * @return process arguments suitable for {@link ProcessBuilder}
+     * @throws IllegalStateException when the current JVM does not expose its launch command
+     */
+    public static List<String> createRestartCommand() {
+        ProcessHandle.Info processInfo = ProcessHandle.current().info();
+        if (processInfo.command().isPresent() && processInfo.arguments().isPresent()) {
+            List<String> exactCommand = new ArrayList<>();
+            exactCommand.add(processInfo.command().orElseThrow());
+            for (String argument : processInfo.arguments().orElseThrow()) {
+                if (!argument.contains("-agentlib")) {
+                    exactCommand.add(argument);
+                }
+            }
+            return exactCommand;
+        }
+
         String javaCommand = System.getProperty(SUN_JAVA_COMMAND);
         List<String> processArgs = new ArrayList<>();
         if (StringUtilities.isEmpty(javaCommand)) {
-            JOptionPane.showMessageDialog(GuiPackage.getInstance().getMainFrame(),
-                    JMeterUtils.getResString("restart_error")+":\n This command is only supported on Open JDK or Oracle JDK" ,  //$NON-NLS-1$  //$NON-NLS-2$
-                    JMeterUtils.getResString("error_title"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
-            return;
+            throw new IllegalStateException("This command is only supported on OpenJDK or Oracle JDK");
         }
         // java binary
         processArgs.add(System.getProperty("java.home") + "/bin/java");
@@ -142,26 +189,7 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
         }
         // finally add program arguments
         processRemainingArgs(processArgs, mainCommand);
-        log.debug("Restart with {} from [{}]", processArgs, javaCommand);
-        // execute the command in a shutdown hook, to be sure that all the
-        // resources have been disposed before restarting the application
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                try {
-                    new ProcessBuilder(processArgs).start();
-                } catch (IOException e) {
-                    log.error("Error calling restart command {}", processArgs, e);
-                }
-            }
-        });
-        // execute some custom code before restarting
-        if (runBeforeRestart != null) {
-            runBeforeRestart.run();
-        }
-        // exit
-        System.exit(0); // NOSONAR Required
-
+        return processArgs;
     }
 
     /**

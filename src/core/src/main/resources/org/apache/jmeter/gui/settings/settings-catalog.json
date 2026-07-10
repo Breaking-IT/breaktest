@@ -44,6 +44,8 @@
         {"key": "jmeter.expertMode", "type": "boolean", "default": "false", "description": "Show expert-mode components and settings in the GUI."},
         {"key": "undo.history.size", "type": "integer", "default": "25", "description": "Number of items kept in the undo history for test plan tree changes. Set to 0 to disable undo/redo; larger values use more memory."},
         {"key": "jmeter.gui.refresh_period", "type": "integer", "default": "500", "description": "Interval in milliseconds at which GUI listeners process their event queue."},
+        {"key": "breaktest.update.enabled", "type": "boolean", "default": "true", "description": "Check periodically for stable BreakTest releases. Manual checks remain available in the Help menu."},
+        {"key": "breaktest.update.interval_hours", "type": "integer", "default": "24", "description": "Minimum number of hours between automatic update checks."},
         {"key": "gui.quick_0", "type": "text", "default": "ThreadGroupGui", "description": "Component added by the quick-add hotkey Ctrl+0 (Command+0 on Mac)."},
         {"key": "gui.quick_1", "type": "text", "default": "HttpTestSampleGui", "description": "Component added by the quick-add hotkey Ctrl+1."},
         {"key": "gui.quick_2", "type": "text", "default": "RegexExtractorGui", "description": "Component added by the quick-add hotkey Ctrl+2."},
