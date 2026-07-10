@@ -55,7 +55,7 @@ public class OpenLinkAction extends AbstractAction {
         map.put(ActionNames.LINK_COMP_REF, "https://jmeter.apache.org/usermanual/component_reference.html");
         map.put(ActionNames.LINK_FUNC_REF, "https://jmeter.apache.org/usermanual/functions.html");
         map.put(ActionNames.LINK_NIGHTLY_BUILD, "https://jmeter.apache.org/nightly.html");
-        map.put(ActionNames.LINK_RELEASE_NOTES, "https://jmeter.apache.org/changes.html");
+        map.put(ActionNames.LINK_RELEASE_NOTES, "https://github.com/Breaking-IT/breaktest/releases/latest");
         return map;
     }
     /**

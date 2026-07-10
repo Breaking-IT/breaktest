@@ -230,6 +230,21 @@ For non-GUI execution:
 ./breaktest -n -t test-plan.jmx -l results.jtl
 ```
 
+### GUI updates
+
+The GUI checks for a new stable GitHub release at most once every 24 hours.
+You can also check immediately with **Help > Check for Updates**. When a new
+version is available, an update button appears in the status bar. BreakTest
+downloads the binary release, verifies both its GitHub SHA-256 digest and its
+published SHA-512 checksum, installs it after the GUI exits, and then restarts.
+
+Self-update is available from writable binary installations. Source checkouts
+are never modified by the updater. Updates preserve `bin/user.properties`,
+`bin/system.properties`, non-core plugins in `lib/ext`, and user-installed JARs
+such as JDBC/JMS drivers in `lib` or `lib/opt`. Set
+`breaktest.update.enabled=false` in `user.properties` to disable automatic
+checks, or change `breaktest.update.interval_hours` to adjust their frequency.
+
 Some internal property names, package names, and artifact names still use
 `jmeter` for compatibility.
 

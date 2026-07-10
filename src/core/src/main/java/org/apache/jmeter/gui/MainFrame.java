@@ -108,6 +108,8 @@ import org.apache.jmeter.gui.tree.JMeterCellRenderer;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.tree.JMeterTreeTransferHandler;
+import org.apache.jmeter.gui.update.ReleaseInfo;
+import org.apache.jmeter.gui.update.UpdateService;
 import org.apache.jmeter.gui.util.EscapeDialog;
 import org.apache.jmeter.gui.util.JMeterMenuBar;
 import org.apache.jmeter.gui.util.JMeterToolBar;
@@ -219,6 +221,10 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     private JLabel bottomSaveState;
 
+    private JButton bottomUpdate;
+
+    private JButton bottomReleaseNotes;
+
     private JMeterToolBar toolbar;
 
     /** Label at top right showing test duration */
@@ -267,6 +273,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         GuiPackage.getInstance().setMainFrame(this);
         init();
+        UpdateService updateService = UpdateService.getInstance();
+        updateService.addListener(this::showUpdateAvailable);
+        updateService.startAutomaticChecks();
         initTopLevelDndHandler();
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 
@@ -785,7 +794,27 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         JLabel ready = new JLabel("Ready"); // $NON-NLS-1$
         ready.setForeground(uiColor("Actions.Green", new Color(0x16A34A))); // $NON-NLS-1$
-        statusBar.add(ready, BorderLayout.WEST);
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        left.setOpaque(false);
+        left.add(ready);
+        bottomUpdate = new JButton();
+        bottomUpdate.setVisible(false);
+        bottomUpdate.setActionCommand(ActionNames.INSTALL_UPDATE);
+        bottomUpdate.addActionListener(ActionRouter.getInstance());
+        styleStatusButton(bottomUpdate);
+        left.add(bottomUpdate);
+        bottomReleaseNotes = new JButton("<html><a href=''>"
+                + JMeterUtils.getResString("link_release_notes") + "</a></html>");
+        bottomReleaseNotes.setVisible(false);
+        bottomReleaseNotes.setFocusable(false);
+        bottomReleaseNotes.setOpaque(false);
+        bottomReleaseNotes.setContentAreaFilled(false);
+        bottomReleaseNotes.setBorderPainted(false);
+        bottomReleaseNotes.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        bottomReleaseNotes.setActionCommand(ActionNames.LINK_RELEASE_NOTES);
+        bottomReleaseNotes.addActionListener(ActionRouter.getInstance());
+        left.add(bottomReleaseNotes);
+        statusBar.add(left, BorderLayout.WEST);
 
         bottomProjectFile = new JLabel("Untitled plan"); // $NON-NLS-1$
         JPanel center = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
@@ -809,6 +838,18 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         right.add(bottomWarnings);
         statusBar.add(right, BorderLayout.EAST);
         return statusBar;
+    }
+
+    private void showUpdateAvailable(ReleaseInfo release) {
+        SwingUtilities.invokeLater(() -> {
+            bottomUpdate.setText(JMeterUtils.getResString("update_status_available")
+                    .replace("{0}", release.version()));
+            bottomUpdate.setToolTipText(JMeterUtils.getResString("update_status_tooltip"));
+            bottomUpdate.setVisible(true);
+            bottomReleaseNotes.setVisible(true);
+            bottomUpdate.getParent().revalidate();
+            bottomUpdate.getParent().repaint();
+        });
     }
 
     private static class ScrollableMainPanel extends JPanel implements Scrollable {

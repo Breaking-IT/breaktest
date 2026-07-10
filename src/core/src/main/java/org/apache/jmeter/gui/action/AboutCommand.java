@@ -116,7 +116,9 @@ public class AboutCommand extends AbstractAction {
         JLabel copyright = new JLabel(JMeterUtils.getJMeterCopyright(), SwingConstants.CENTER);
         JLabel rights = new JLabel("All Rights Reserved.", SwingConstants.CENTER);
         JLabel version = new JLabel("BreakTest Version " + JMeterUtils.getJMeterVersion(), SwingConstants.CENTER);
-        JLabel releaseNotes = new JLabel("<html><a href=\"https://jmeter.apache.org/changes.html\">Release notes</a></html>", SwingConstants.CENTER);
+        JLabel releaseNotes = new JLabel(
+                "<html><a href=\"https://github.com/Breaking-IT/breaktest/releases/latest\">Release notes</a></html>",
+                SwingConstants.CENTER);
         releaseNotes.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         releaseNotes.addMouseListener(new MouseAdapter() {
             @Override
