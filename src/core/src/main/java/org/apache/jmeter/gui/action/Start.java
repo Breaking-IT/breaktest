@@ -164,9 +164,15 @@ public class Start extends AbstractAction {
         } else if (e.getActionCommand().equals(ActionNames.RUN_TG)
                 || e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS)
                 || e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
-            popupShouldSave(e);
             boolean noTimers = e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS);
             boolean isValidation = e.getActionCommand().equals(ActionNames.VALIDATE_TG);
+            // Validation runs from the in-memory tree. Rewriting an existing JMX
+            // archive here only blocks the EDT, particularly when recordings are
+            // embedded. Keep the prompt for a new plan so relative paths still
+            // get a base directory.
+            if (!isValidation || GuiPackage.getInstance().getTestPlanFile() == null) {
+                popupShouldSave(e);
+            }
             RunMode runMode = null;
             if(isValidation) {
                 runMode = RunMode.VALIDATION;

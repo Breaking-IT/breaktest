@@ -111,9 +111,11 @@ import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
@@ -206,6 +208,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private JCheckBox autoDetachOnValidationCB;
     private JButton detachButton;
     private JButton validateButton;
+    private JButton storeReplayButton;
     private JToggleButton searchPanelToggle;
     private JToggleButton filePanelToggle;
     private JPanel filePanelWrapper;
@@ -572,6 +575,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         validateButton.setToolTipText(JMeterUtils.getResString("view_results_validate_tooltip")); // $NON-NLS-1$
         validateButton.setActionCommand(ActionNames.VALIDATE_TG);
         validateButton.addActionListener(this::validateThreadGroup);
+        storeReplayButton = new JButton(JMeterUtils.getResString("view_results_store_replay_button")); // $NON-NLS-1$
+        storeReplayButton.setToolTipText(
+                JMeterUtils.getResString("view_results_store_replay_tooltip")); // $NON-NLS-1$
+        storeReplayButton.addActionListener(e -> storeReplayResults());
         detachButton = new JButton();
         detachButton.addActionListener(e -> toggleDetached());
         filePanelToggle = new JToggleButton(JMeterUtils.getResString("view_results_file_panel_show")); // $NON-NLS-1$
@@ -584,20 +591,22 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
         panel.removeAll();
         panel.setLayout(new MigLayout(
-                "fillx, wrap 8, insets 0, hidemode 3", // $NON-NLS-1$
+                "fillx, wrap 9, insets 0, hidemode 3", // $NON-NLS-1$
                 "[][fill,grow,shrinkprio 200][right,shrinkprio 0][right,shrinkprio 0]"
-                        + "[right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0]")); // $NON-NLS-1$
-        panel.add(titleComponents[0], "span 8"); // $NON-NLS-1$
+                        + "[right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0][right,shrinkprio 0]"
+                        + "[right,shrinkprio 0]")); // $NON-NLS-1$
+        panel.add(titleComponents[0], "span 9"); // $NON-NLS-1$
         panel.add(titleComponents[1]);
         panel.add(titleComponents[2], "growx, pushx, wmin 80"); // $NON-NLS-1$
         panel.add(titleComponents[3], "gapleft 8"); // $NON-NLS-1$
         panel.add(validateButton, "gapleft 8"); // $NON-NLS-1$
+        panel.add(storeReplayButton, "gapleft 8"); // $NON-NLS-1$
         panel.add(searchPanelToggle, "gapleft 8"); // $NON-NLS-1$
         panel.add(filePanelToggle, "gapleft 8"); // $NON-NLS-1$
         panel.add(autoDetachOnValidationCB, "gapleft 8"); // $NON-NLS-1$
         panel.add(detachButton, "wmin button, gapleft 6, wrap"); // $NON-NLS-1$
         panel.add(titleComponents[4]);
-        panel.add(titleComponents[5], "span 7, growx, wmin 80"); // $NON-NLS-1$
+        panel.add(titleComponents[5], "span 8, growx, wmin 80"); // $NON-NLS-1$
         updateDetachButton();
         updateSearchPanelVisibility();
     }
@@ -1488,9 +1497,50 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jumpTo.setEnabled(testPlanNode != null);
         jumpTo.addActionListener(e -> jumpToTestPlanElement(testPlanNode));
 
+        JMenuItem storeReplay = new JMenuItem(
+                JMeterUtils.getResString("view_results_store_replay_recording")); // $NON-NLS-1$
+        storeReplay.setEnabled(canStoreReplay(sampleResult, testPlanNode));
+        storeReplay.addActionListener(e -> storeReplayRecording(sampleResult, testPlanNode));
+
         JPopupMenu popup = new JPopupMenu();
         popup.add(jumpTo);
+        popup.addSeparator();
+        popup.add(storeReplay);
         popup.show(jTree, event.getX(), event.getY());
+    }
+
+    private static boolean canStoreReplay(SampleResult sampleResult, JMeterTreeNode testPlanNode) {
+        return sampleResult != null
+                && testPlanNode != null
+                && testPlanNode.getTestElement() instanceof Sampler
+                && !sampleResult.getUrlAsString().isEmpty();
+    }
+
+    private void storeReplayResults() {
+        Map<JMeterTreeNode, SampleResult> replayedSamples = new LinkedHashMap<>();
+        synchronized (buffer) {
+            for (SampleResult sampleResult : buffer) {
+                collectReplayableSamples(sampleResult, replayedSamples);
+            }
+        }
+        ReplayRecordingStore.chooseAndStore(jTree, replayedSamples);
+    }
+
+    static void collectReplayableSamples(
+            SampleResult sampleResult, Map<JMeterTreeNode, SampleResult> replayedSamples) {
+        JMeterTreeNode samplerNode = findTestPlanNode(sampleResult);
+        if (canStoreReplay(sampleResult, samplerNode)) {
+            replayedSamples.put(samplerNode, sampleResult);
+        }
+        for (SampleResult subResult : sampleResult.getSubResults()) {
+            collectReplayableSamples(subResult, replayedSamples);
+        }
+    }
+
+    private void storeReplayRecording(SampleResult sampleResult, JMeterTreeNode samplerNode) {
+        ReplayRecordingStore.chooseAndStore(jTree, canStoreReplay(sampleResult, samplerNode)
+                ? Map.of(samplerNode, sampleResult)
+                : Map.of());
     }
 
     private static SampleResult getSampleResult(TreePath resultPath) {
@@ -1506,59 +1556,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return null;
     }
 
-    private static JMeterTreeNode findTestPlanNode(SampleResult sampleResult) {
-        if (sampleResult == null || sampleResult.getSourceTestElementPath().isEmpty()) {
-            return null;
-        }
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return null;
-        }
-        List<SampleResult.TestElementPathEntry> sourcePath = sampleResult.getSourceTestElementPath();
-        JMeterTreeNode current = findDescendant((JMeterTreeNode) guiPackage.getTreeModel().getRoot(), sourcePath.get(0));
-        for (SampleResult.TestElementPathEntry pathEntry : sourcePath.subList(1, sourcePath.size())) {
-            current = findChild(current, pathEntry);
-            if (current == null) {
-                return null;
-            }
-        }
-        return current;
-    }
-
-    private static JMeterTreeNode findDescendant(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
-        JMeterTreeNode child = findChild(parent, pathEntry);
-        if (child != null) {
-            return child;
-        }
-        Enumeration<?> children = parent.children();
-        while (children.hasMoreElements()) {
-            JMeterTreeNode descendant = findDescendant((JMeterTreeNode) children.nextElement(), pathEntry);
-            if (descendant != null) {
-                return descendant;
-            }
-        }
-        return null;
-    }
-
-    private static JMeterTreeNode findChild(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
-        if (parent == null) {
-            return null;
-        }
-        int occurrence = 0;
-        Enumeration<?> children = parent.children();
-        while (children.hasMoreElements()) {
-            JMeterTreeNode child = (JMeterTreeNode) children.nextElement();
-            Object userObject = child.getUserObject();
-            if (userObject != null
-                    && userObject.getClass().getName().equals(pathEntry.className())
-                    && Objects.equals(child.getName(), pathEntry.name())) {
-                if (occurrence == pathEntry.occurrence()) {
-                    return child;
-                }
-                occurrence++;
-            }
-        }
-        return null;
+    static JMeterTreeNode findTestPlanNode(SampleResult sampleResult) {
+        return SampleResultNodeResolver.find(sampleResult);
     }
 
     private static void jumpToTestPlanElement(JMeterTreeNode testPlanNode) {

@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.gui.action;
 
+import java.awt.SecondaryLoop;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,12 +35,15 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 import org.apache.jmeter.control.gui.TestFragmentControllerGui;
@@ -176,9 +181,86 @@ public class Save extends AbstractAction {
         }
 
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_DIRTY));
-        backupAndSave(e, subTree, fullSave, updateFile);
+        boolean createBackup = GuiPackage.getInstance().isDirty();
+        prepareSubTreeForSave(subTree);
+        if (canSaveInBackground()) {
+            saveWithLoadingOverlay(e, subTree, fullSave, updateFile, createBackup);
+        } else {
+            writeTreeToFile(subTree, updateFile, createBackup);
+            finishSuccessfulSave(e, fullSave, updateFile);
+        }
 
         GuiPackage.getInstance().updateCurrentGui();
+    }
+
+    private static boolean canSaveInBackground() {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        return guiPackage != null
+                && guiPackage.getMainFrame() != null
+                && SwingUtilities.isEventDispatchThread();
+    }
+
+    private static void saveWithLoadingOverlay(
+            ActionEvent event,
+            HashTree subTree,
+            boolean fullSave,
+            String updateFile,
+            boolean createBackup) throws IllegalUserActionException {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        guiPackage.getMainFrame().showLoadingOverlay("Saving JMX..."); // $NON-NLS-1$
+        SecondaryLoop eventLoop = Toolkit.getDefaultToolkit().getSystemEventQueue().createSecondaryLoop();
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() throws IllegalUserActionException {
+                writeTreeToFile(subTree, updateFile, createBackup);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                eventLoop.exit();
+            }
+        };
+
+        try {
+            worker.execute();
+            eventLoop.enter();
+            waitForSave(worker);
+            finishSuccessfulSave(event, fullSave, updateFile);
+        } finally {
+            guiPackage.getMainFrame().hideLoadingOverlay();
+        }
+    }
+
+    private static void waitForSave(SwingWorker<Void, Void> worker) throws IllegalUserActionException {
+        try {
+            worker.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalUserActionException("Saving test plan was interrupted", ex);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof IllegalUserActionException illegalUserActionException) {
+                throw illegalUserActionException;
+            }
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalUserActionException("Couldn't save test plan", cause);
+        }
+    }
+
+    private static void finishSuccessfulSave(ActionEvent event, boolean fullSave, String updateFile) {
+        if (!fullSave) {
+            return;
+        }
+        FileServer.getFileServer().setScriptName(new File(updateFile).getName());
+        HashTree refreshedTree = GuiPackage.getInstance().getTreeModel().getTestPlan();
+        ActionRouter.getInstance().doActionNow(
+                new ActionEvent(refreshedTree, event.getID(), ActionNames.SUB_TREE_SAVED));
     }
 
     /**
@@ -234,17 +316,15 @@ public class Save extends AbstractAction {
     /**
      * Backup existing file according to jmeter/user.properties settings
      * and save
-     * @param e {@link ActionEvent}
      * @param subTree HashTree Test plan to save
-     * @param fullSave Partial or full save
      * @param newFile File to save
+     * @param createBackup whether the existing file should be backed up
      * @throws IllegalUserActionException
      */
-    void backupAndSave(ActionEvent e, HashTree subTree, boolean fullSave, String newFile)
+    private static void writeTreeToFile(HashTree subTree, String newFile, boolean createBackup)
             throws IllegalUserActionException {
-        //
         List<Path> expiredBackupFiles = Collections.emptyList();
-        if (GuiPackage.getInstance().isDirty()) {
+        if (createBackup) {
             Path fileToBackup = Path.of(newFile);
             log.debug("Test plan has changed, make backup of {}", fileToBackup);
             try {
@@ -254,22 +334,8 @@ public class Save extends AbstractAction {
             }
         }
 
-        try {
-            convertSubTree(subTree);
-        } catch (Exception err) {
-            if (log.isWarnEnabled()) {
-                log.warn("Error converting subtree. {}", err.toString());
-            }
-        }
-
         try (FileOutputStream ostream = new FileOutputStream(newFile)){
             SaveService.saveTree(subTree, ostream);
-            if (fullSave) { // Only update the stored copy of the tree for a full save
-                FileServer.getFileServer().setScriptName(new File(newFile).getName());
-                subTree = GuiPackage.getInstance().getTreeModel().getTestPlan(); // refetch, because convertSubTree affects it
-                ActionRouter.getInstance().doActionNow(new ActionEvent(subTree, e.getID(), ActionNames.SUB_TREE_SAVED));
-            }
-
             // delete expired backups : here everything went right so we can
             // proceed to deletion
             for (Path backupFile : expiredBackupFiles) {
@@ -299,6 +365,16 @@ public class Save extends AbstractAction {
         } catch (Exception ex) {
             log.error("Error saving tree.", ex);
             throw new IllegalUserActionException("Couldn't save test plan to file: " + newFile, ex);
+        }
+    }
+
+    private void prepareSubTreeForSave(HashTree subTree) {
+        try {
+            convertSubTree(subTree);
+        } catch (Exception err) {
+            if (log.isWarnEnabled()) {
+                log.warn("Error converting subtree. {}", err.toString());
+            }
         }
     }
 

@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import javax.swing.JTabbedPane;
 
@@ -145,6 +146,21 @@ public class SamplerResultTabTest {
         renderer.renderSelectedTab();
 
         assertTrue(renderer.samplerResultText().contains("https://example.invalid/orders?id=1"));
+    }
+
+    @Test
+    public void wrappingTableRendererDoesNotInstallKerningDocumentListener() {
+        SamplerResultTab.WrappingTableCellRenderer renderer =
+                new SamplerResultTab.WrappingTableCellRenderer();
+
+        assertFalse(hasKerningDocumentListener(renderer));
+        renderer.updateUI();
+        assertFalse(hasKerningDocumentListener(renderer));
+    }
+
+    private static boolean hasKerningDocumentListener(SamplerResultTab.WrappingTableCellRenderer renderer) {
+        return Arrays.stream(renderer.getPropertyChangeListeners("document"))
+                .anyMatch(listener -> listener.getClass().getSimpleName().equals("DisableKerningForLargeTexts"));
     }
 
     private static RenderAsText initializedRenderer() {

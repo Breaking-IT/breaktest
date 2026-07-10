@@ -41,6 +41,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.ViewResultsFullVisualizer;
@@ -92,13 +93,14 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         SwingWorker<HashTree, Void> worker = new SwingWorker<>() {
             @Override
             protected HashTree doInBackground() {
-                return converter.convert(result.getSelectedHostnames());
+                return convertAndRegister(result, options, converter);
             }
 
             @Override
             protected void done() {
                 try {
-                    insertUnderTestPlan(guiPackage, get());
+                    HashTree convertedTree = get();
+                    insertUnderTestPlan(guiPackage, convertedTree);
                     guiPackage.updateCurrentGui();
                     ActionRouter.getInstance().doActionNow(
                             new ActionEvent(e.getSource(), e.getID(), ActionNames.EXPAND_ALL));
@@ -118,6 +120,27 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             }
         };
         worker.execute();
+    }
+
+    private static HashTree convertAndRegister(
+            HarImportWizard.Result result, HarImportOptions options, HarConverter converter) {
+        HashTree convertedTree = converter.convert(result.getSelectedHostnames());
+        try {
+            var filteredHar = HarArchiveFilter.filterAndRelink(
+                    result.getHarContent(), convertedTree, result.getHarName(), options.getRecordingStorageMode());
+            if (filteredHar.isEmpty()) {
+                LOG.info("Recorded HAR storage disabled or no eligible entries remained");
+            } else {
+                var archive = filteredHar.orElseThrow();
+                JmxArchiveEntryStore.registerBundle(
+                        archive.manifestEntryName(), archive.checksum(), archive.entries());
+                LOG.info("Filtered embedded HAR from {} to {} entries",
+                        result.getEntries().size(), archive.exchangeCount());
+            }
+            return convertedTree;
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Failed to filter the HAR for archive storage", ex);
+        }
     }
 
     /**

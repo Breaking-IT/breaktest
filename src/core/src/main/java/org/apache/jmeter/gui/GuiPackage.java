@@ -651,6 +651,21 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     }
 
     /**
+     * Returns whether the test plan has changes that still need to be saved.
+     *
+     * <p>The regular dirty flag only covers changes that have already been
+     * written back to the test tree. The currently displayed editor can also
+     * contain a pending change, represented by {@code currentNodeUpdated}.
+     * Checking both lets callers avoid an unnecessary full save without
+     * dropping an edit that still lives in the GUI.</p>
+     *
+     * @return {@code true} when the tree or current editor has unsaved changes
+     */
+    public boolean hasUnsavedChanges() {
+        return dirty || currentNode != null && !currentNodeUpdated;
+    }
+
+    /**
      * Add a subtree to the currently selected node.
      *
      * @param subTree

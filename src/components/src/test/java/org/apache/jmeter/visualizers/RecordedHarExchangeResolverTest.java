@@ -29,19 +29,25 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
+import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class RecordedHarExchangeResolverTest {
+public class RecordedHarExchangeResolverTest extends JMeterTestCase {
 
     @TempDir
     private Path tempDir;
@@ -211,11 +217,78 @@ public class RecordedHarExchangeResolverTest {
         assertTrue(exchange.isEmpty());
     }
 
+    @Test
+    public void resolvesRecordedExchangeFromEmbeddedHar() throws Exception {
+        String har = harWithTwoEntries();
+        String entryName = "har/embedded/recording.har";
+        Path testPlan = tempDir.resolve("embedded.jmx");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(testPlan))) {
+            zip.putNextEntry(new ZipEntry(SaveService.TEST_PLAN_ZIP_ENTRY));
+            zip.write("unused".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+            zip.putNextEntry(new ZipEntry(entryName));
+            zip.write(har.getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        JMeterTreeNode samplerNode = samplerNode("1", "POST", "https://example.invalid/wrong",
+                "2026-06-24T10:00:00.000Z", md5(har), entryName);
+
+        RecordedHarExchangeResolver.Resolution resolution =
+                RecordedHarExchangeResolver.resolveFor(samplerNode, testPlan);
+        RecordedHarExchangeResolver.HarFileCheck check =
+                RecordedHarExchangeResolver.checkHarFile(entryName, md5(har), testPlan);
+
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+        assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, check.status());
+        assertTrue(check.harPath().toString().contains("!/" + entryName));
+    }
+
+    @Test
+    public void resolvesPendingEmbeddedHarBeforeTheTestPlanIsFirstSaved() throws Exception {
+        String har = harWithTwoEntries();
+        String entryName = "har/pending/recording.har";
+        JmxArchiveEntryStore.register(entryName, md5(har), har.getBytes(StandardCharsets.UTF_8));
+        JMeterTreeNode samplerNode = samplerNode("1", "POST", "https://example.invalid/wrong",
+                "2026-06-24T10:00:00.000Z", md5(har), entryName);
+
+        RecordedHarExchangeResolver.Resolution resolution =
+                RecordedHarExchangeResolver.resolveFor(samplerNode, null);
+
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+        assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
+    }
+
+    @Test
+    public void resolvesNativeRecordingWithExternalizedBodies() throws Exception {
+        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
+                harWithTwoEntries().getBytes(StandardCharsets.UTF_8), "recording.har");
+        JmxArchiveEntryStore.registerBundle(
+                archive.manifestEntryName(), archive.checksum(), archive.entries());
+        JMeterTreeNode samplerNode = nativeSamplerNode(archive, 1);
+
+        RecordedHarExchangeResolver.Resolution resolution =
+                RecordedHarExchangeResolver.resolveFor(samplerNode, null);
+        RecordedHarExchangeResolver.HarFileCheck check =
+                RecordedHarExchangeResolver.checkRecordingStore(
+                        ((JMeterTreeNode) samplerNode.getParent()).getTestElement(), null);
+
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+        assertTrue(resolution.requestText().contains("https://example.invalid/api/items"));
+        assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, check.status());
+    }
+
     private JMeterTreeNode samplerNode(String entryIndex, String method, String url, String startedDateTime,
             String harMd5) {
+        return samplerNode(entryIndex, method, url, startedDateTime, harMd5, "recording.har");
+    }
+
+    private JMeterTreeNode samplerNode(String entryIndex, String method, String url, String startedDateTime,
+            String harMd5, String harFilename) {
         ThreadGroup threadGroup = new ThreadGroup();
         threadGroup.setName("Thread Group");
-        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_FILENAME, "recording.har");
+        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_FILENAME, harFilename);
         threadGroup.setProperty(RecordedHarExchangeResolver.HAR_MD5, harMd5);
 
         DebugSampler sampler = new DebugSampler();
@@ -240,6 +313,23 @@ public class RecordedHarExchangeResolverTest {
         DebugSampler sampler = new DebugSampler();
         sampler.setName("sampler");
         sampler.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, entryIndex);
+
+        JMeterTreeNode threadGroupNode = new JMeterTreeNode(threadGroup, null);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, null);
+        threadGroupNode.add(samplerNode);
+        return samplerNode;
+    }
+
+    private static JMeterTreeNode nativeSamplerNode(RecordedExchangeStore.Archive archive, int exchangeIndex) {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Thread Group");
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        threadGroup.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, archive.checksum());
+
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName("sampler");
+        sampler.setProperty(
+                RecordedExchangeStore.EXCHANGE_ID_PROPERTY, archive.exchangeIds().get(exchangeIndex));
 
         JMeterTreeNode threadGroupNode = new JMeterTreeNode(threadGroup, null);
         JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, null);
