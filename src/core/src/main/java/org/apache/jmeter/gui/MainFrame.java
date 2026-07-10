@@ -161,6 +161,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
     private static final int APP_CHROME_GAP = 8;
 
+    private static final int TEST_PLAN_PANE_WIDTH =
+            JMeterUtils.getPropDefault("jmeter.gui.testplan.width", 300); // $NON-NLS-1$
+
     /** The menu bar. */
     private JMeterMenuBar menuBar;
 
@@ -634,7 +637,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         treeAndMain.setRightComponent(topAndDown);
 
-        treeAndMain.setResizeWeight(.2);
+        treeAndMain.setDividerLocation(TEST_PLAN_PANE_WIDTH);
+        treeAndMain.setResizeWeight(0);
         treeAndMain.setContinuousLayout(true);
         all.add(treeAndMain, BorderLayout.CENTER);
         all.add(createStatusBar(), BorderLayout.SOUTH);
@@ -726,7 +730,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         panel.setOpaque(true);
         panel.setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
         panel.setMinimumSize(new Dimension(240, 0));
-        panel.setPreferredSize(new Dimension(320, 0));
+        panel.setPreferredSize(new Dimension(TEST_PLAN_PANE_WIDTH, 0));
         panel.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1,
                 uiColor("Component.borderColor", new Color(0xD7DEE8)))); // $NON-NLS-1$
 

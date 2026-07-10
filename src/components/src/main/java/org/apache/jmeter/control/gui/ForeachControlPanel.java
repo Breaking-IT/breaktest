@@ -61,6 +61,10 @@ public class ForeachControlPanel extends AbstractControllerGui {
     // Should we add the "_" separator?
     private JCheckBox useSeparator;
 
+    private JCheckBox parallel;
+
+    private JTextField maxParallel;
+
     /**
      * Boolean indicating whether or not this component should display its name.
      * If true, this is a standalone component. If false, this component is
@@ -118,6 +122,8 @@ public class ForeachControlPanel extends AbstractControllerGui {
         endIndex.setText(((ForeachController) element).getEndIndexAsString());
         returnVal.setText(((ForeachController) element).getReturnValString());
         useSeparator.setSelected(((ForeachController) element).getUseSeparator());
+        parallel.setSelected(((ForeachController) element).isParallel());
+        maxParallel.setText(((ForeachController) element).getMaxParallelString());
     }
 
     /* Implements JMeterGUIComponent.createTestElement() */
@@ -138,6 +144,12 @@ public class ForeachControlPanel extends AbstractControllerGui {
             fec.setEndIndex(endIndex.getText());
             fec.setReturnVal(returnVal.getText());
             fec.setUseSeparator(useSeparator.isSelected());
+            fec.setParallel(parallel.isSelected());
+            try {
+                fec.setMaxParallel(Integer.parseInt(maxParallel.getText().trim()));
+            } catch (NumberFormatException e) {
+                fec.setMaxParallel(maxParallel.getText().trim());
+            }
         }
     }
 
@@ -151,6 +163,8 @@ public class ForeachControlPanel extends AbstractControllerGui {
         endIndex.setText(""); // $NON-NLS-1$
         returnVal.setText(""); // $NON-NLS-1$
         useSeparator.setSelected(true);
+        parallel.setSelected(false);
+        maxParallel.setText("6"); // $NON-NLS-1$
     }
 
     @Override
@@ -218,6 +232,13 @@ public class ForeachControlPanel extends AbstractControllerGui {
         // Checkbox
         useSeparator = new JCheckBox(JMeterUtils.getResString("foreach_use_separator"), true); // $NON-NLS-1$
         loopPanel.add(useSeparator, "span 2");
+
+        parallel = new JCheckBox(JMeterUtils.getResString("foreach_parallel"), false); // $NON-NLS-1$
+        loopPanel.add(parallel, "span 2");
+
+        maxParallel = new JTextField("6", 5); // $NON-NLS-1$
+        loopPanel.add(JMeterUtils.labelFor(maxParallel, "foreach_max_parallel"));
+        loopPanel.add(maxParallel);
 
         return loopPanel;
     }

@@ -25,8 +25,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -43,12 +43,11 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import org.apache.jmeter.assertions.Assertion;
-import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.IteratingController;
+import org.apache.jmeter.control.ParallelContextModifier;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
@@ -68,7 +67,6 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.samplers.StoppableSampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
-import org.apache.jmeter.testelement.AbstractScopedAssertion;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestIterationListener;
@@ -220,6 +218,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final Set<Future<?>> forksRequestedToStop =
             Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
+
+    private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
 
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
@@ -445,11 +445,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     "Got null subSampler calling findRealSampler for:" +
                     (sampler != null ? sampler.getName() : "null") + ", sampler:" + sampler);
         }
-        // Find parent controllers of current sampler
-        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(nodeToFind);
-        testTree.traverse(pathToRootTraverser);
-
-        consumer.accept(pathToRootTraverser);
+        consumer.accept(pathToRootTraverser(nodeToFind));
 
         // bug 52968
         // When using Start Next Loop option combined to TransactionController.
@@ -458,6 +454,32 @@ public class JMeterThread implements Runnable, Interruptible {
         if (transactionSampler != null) {
             SamplePackage transactionPack = compiler.configureTransactionSampler(transactionSampler);
             doEndTransactionSampler(transactionSampler, null, transactionPack, threadContext);
+        }
+    }
+
+    private FindTestElementsUpToRootTraverser pathToRootTraverser(Object nodeToFind) {
+        List<Controller> cachedControllers = parentControllersToRootCache.get(nodeToFind);
+        if (cachedControllers != null) {
+            return new CachedPathToRootTraverser(nodeToFind, cachedControllers);
+        }
+
+        FindTestElementsUpToRootTraverser pathToRootTraverser = new FindTestElementsUpToRootTraverser(nodeToFind);
+        testTree.traverse(pathToRootTraverser);
+        parentControllersToRootCache.put(nodeToFind, pathToRootTraverser.getControllersToRoot());
+        return pathToRootTraverser;
+    }
+
+    private static final class CachedPathToRootTraverser extends FindTestElementsUpToRootTraverser {
+        private final List<Controller> controllersToRoot;
+
+        private CachedPathToRootTraverser(Object nodeToFind, List<Controller> controllersToRoot) {
+            super(nodeToFind);
+            this.controllersToRoot = controllersToRoot;
+        }
+
+        @Override
+        public List<Controller> getControllersToRoot() {
+            return new ArrayList<>(controllersToRoot);
         }
     }
 
@@ -798,21 +820,22 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void processParallelSampler(ParallelControllerSampler parallelSampler,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext) {
-        List<Controller> branches = parallelSampler.getBranches();
-        if (branches.isEmpty()) {
+        int branchCount = parallelSampler.getBranchCount();
+        if (branchCount == 0) {
             return;
         }
 
-        int maxParallel = Math.min(parallelSampler.getMaxParallel(), branches.size());
+        int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextBranch = 0;
         int activeBranches = 0;
         boolean startNextLoop = false;
         try {
-            while (nextBranch < branches.size() && activeBranches < maxParallel) {
+            while (nextBranch < branchCount && activeBranches < maxParallel) {
                 completionService.submit(parallelTask(
-                        parallelSampler, branches.get(nextBranch++), transactionSampler, transactionPack,
+                        parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
+                        transactionPack,
                         parentContext));
                 activeBranches++;
             }
@@ -834,9 +857,10 @@ public class JMeterThread implements Runnable, Interruptible {
                         startNextLoop = true;
                     }
                 }
-                if (running && !startNextLoop && nextBranch < branches.size()) {
+                if (running && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
-                            parallelSampler, branches.get(nextBranch++), transactionSampler, transactionPack,
+                            parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
+                            transactionPack,
                             parentContext));
                     activeBranches++;
                 }
@@ -854,24 +878,28 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private Callable<SampleResult> parallelTask(ParallelControllerSampler parallelSampler, Controller branch,
+    private Callable<SampleResult> parallelTask(ParallelControllerSampler.ParallelBranch parallelBranch,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext) {
         boolean forkWorker = isForkWorkerThread();
         Future<?> forkTask = CURRENT_FORK_TASK.get();
         return () -> {
+            Controller branch = parallelBranch.getController();
             if (forkWorker) {
                 FORK_WORKER_THREAD.set(Boolean.TRUE);
                 CURRENT_FORK_TASK.set(forkTask);
                 currentForkThreadsForInterruption.add(Thread.currentThread());
             }
             JMeterContext workerContext = createParallelContext(parentContext);
+            if (branch instanceof ParallelContextModifier contextModifier) {
+                contextModifier.prepareParallelContext(workerContext);
+            }
             JMeterContextService.replaceContext(workerContext);
             SampleResult branchResult = null;
             try {
                 Sampler sampler;
                 while (running && !isCurrentForkStopRequested() && (sampler = branch.next()) != null) {
                     SampleResult result = executeParallelBranchSampler(
-                            parallelSampler, sampler, transactionSampler, transactionPack, workerContext);
+                            parallelBranch, sampler, transactionSampler, transactionPack, workerContext);
                     if (result != null) {
                         if (branchResult == null || branchResult.isSuccessful()) {
                             branchResult = result;
@@ -901,12 +929,14 @@ public class JMeterThread implements Runnable, Interruptible {
         };
     }
 
-    private SampleResult executeParallelBranchSampler(ParallelControllerSampler parallelSampler, Sampler sampler,
+    private SampleResult executeParallelBranchSampler(ParallelControllerSampler.ParallelBranch parallelBranch,
+            Sampler sampler,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext workerContext) {
         if (sampler instanceof TransactionSampler) {
             // A nested transaction controller (parent mode) manages its own sub-samples and must not
             // be folded into the enclosing transaction; run it stand-alone.
-            return processSampler(sampler, null, workerContext, parallelSampler::getSourceTransactionController, false);
+            return processSampler(sampler, null, workerContext,
+                    parallelBranch::getSourceTransactionController, false);
         }
         if (sampler instanceof ForkControllerSampler forkSampler) {
             startForkSampler(forkSampler, workerContext);
@@ -998,7 +1028,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     threadContext.setPreviousResult(result);
                     runPostProcessors(pack.getPostProcessors());
-                    checkAssertions(pack.getAssertions(), result, threadContext);
+                    JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     // PostProcessors can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
@@ -1020,7 +1050,7 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                 } else {
-                    // This call is done by checkAssertions() , as we don't call it
+                    // This call is done by JMeterThreadAssertions.check(), as we don't call it
                     // for isIgnore, we explictely call it here
                     setLastSampleOk(threadContext.getVariables(), result.isSuccessful());
                     packageDone = true;
@@ -1163,7 +1193,7 @@ public class JMeterThread implements Runnable, Interruptible {
         fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
 
         // Check assertions for the transaction sample
-        checkAssertions(transactionPack.getAssertions(), transactionResult, threadContext);
+        JMeterThreadAssertions.check(transactionPack.getAssertions(), transactionResult, threadContext);
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
             List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
@@ -1556,73 +1586,6 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopThread() {
         running = false;
         log.info("Stop Thread detected by thread: {}", threadName);
-    }
-
-    private static void checkAssertions(List<? extends Assertion> assertions, SampleResult parent, JMeterContext threadContext) {
-        for (Assertion assertion : assertions) {
-            TestBeanHelper.prepare((TestElement) assertion);
-            if (assertion instanceof AbstractScopedAssertion scopedAssertion) {
-                String scope = scopedAssertion.fetchScope();
-                if (scopedAssertion.isScopeParent(scope)
-                        || scopedAssertion.isScopeAll(scope)
-                        || scopedAssertion.isScopeVariable(scope)) {
-                    processAssertion(parent, assertion);
-                }
-                if (scopedAssertion.isScopeChildren(scope)
-                        || scopedAssertion.isScopeAll(scope)) {
-                    recurseAssertionChecks(parent, assertion, 3);
-                }
-            } else {
-                processAssertion(parent, assertion);
-            }
-        }
-        setLastSampleOk(threadContext.getVariables(), parent.isSuccessful());
-    }
-
-    private static void recurseAssertionChecks(SampleResult parent, Assertion assertion, int level) {
-        if (level < 0) {
-            return;
-        }
-        SampleResult[] children = parent.getSubResults();
-        boolean childError = false;
-        for (SampleResult childSampleResult : children) {
-            processAssertion(childSampleResult, assertion);
-            recurseAssertionChecks(childSampleResult, assertion, level - 1);
-            if (!childSampleResult.isSuccessful()) {
-                childError = true;
-            }
-        }
-        // If parent is OK, but child failed, add a message and flag the parent as failed
-        if (childError && parent.isSuccessful()) {
-            AssertionResult assertionResult = new AssertionResult(((AbstractTestElement) assertion).getName());
-            assertionResult.setResultForFailure("One or more sub-samples failed");
-            parent.addAssertionResult(assertionResult);
-            parent.setSuccessful(false);
-        }
-    }
-
-    private static void processAssertion(SampleResult result, Assertion assertion) {
-        AssertionResult assertionResult;
-        try {
-            assertionResult = assertion.getResult(result);
-        } catch (AssertionError e) {
-            log.debug("Error processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file (debug level, only).");
-            assertionResult.setFailure(true);
-            assertionResult.setFailureMessage(e.toString());
-        } catch (JMeterError e) {
-            log.error("Error processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file.");
-            assertionResult.setError(true);
-            assertionResult.setFailureMessage(e.toString());
-        } catch (Exception e) {
-            log.error("Exception processing Assertion.", e);
-            assertionResult = new AssertionResult("Assertion failed! See log file.");
-            assertionResult.setError(true);
-            assertionResult.setFailureMessage(e.toString());
-        }
-        result.setSuccessful(result.isSuccessful() && !(assertionResult.isError() || assertionResult.isFailure()));
-        result.addAssertionResult(assertionResult);
     }
 
     private static void runPostProcessors(List<? extends PostProcessor> extractors) {

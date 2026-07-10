@@ -18,6 +18,8 @@
 package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -56,5 +58,38 @@ public class ViewResultsFullVisualizerTest {
         result.setResponseData(stackTrace, StandardCharsets.UTF_8.name());
 
         assertEquals(stackTrace, ViewResultsFullVisualizer.getResponseAsString(result));
+    }
+
+    @Test
+    public void threadGroupNameIsDerivedFromJMeterThreadName() {
+        assertEquals("Checkout Group", ViewResultsFullVisualizer.threadGroupName("Checkout Group 1-7"));
+        assertEquals("remote-a-Checkout Group", ViewResultsFullVisualizer.threadGroupName("remote-a-Checkout Group 12-42"));
+    }
+
+    @Test
+    public void nonJMeterThreadNameIsUsedAsThreadGroupFallback() {
+        assertEquals("imported-thread", ViewResultsFullVisualizer.threadGroupName("imported-thread"));
+        assertEquals("", ViewResultsFullVisualizer.threadGroupName(""));
+    }
+
+    @Test
+    public void labelFilterMatchesDirectSampleLabel() {
+        SampleResult result = new SampleResult();
+        result.setSampleLabel("GET /api/users");
+
+        assertTrue(ViewResultsFullVisualizer.matchesLabel(result, "GET /api/users"));
+        assertFalse(ViewResultsFullVisualizer.matchesLabel(result, "GET /api/orders"));
+    }
+
+    @Test
+    public void labelFilterKeepsParentWhenNestedSampleMatches() {
+        SampleResult parent = new SampleResult();
+        parent.setSampleLabel("Transaction");
+        SampleResult child = new SampleResult();
+        child.setSampleLabel("GET /api/users");
+        parent.addSubResult(child, false);
+
+        assertTrue(ViewResultsFullVisualizer.sampleOrSubResultMatchesLabel(parent, "GET /api/users"));
+        assertFalse(ViewResultsFullVisualizer.sampleOrSubResultMatchesLabel(parent, "GET /api/orders"));
     }
 }

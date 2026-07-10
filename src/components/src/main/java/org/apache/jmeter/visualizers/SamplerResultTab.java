@@ -450,6 +450,12 @@ public abstract class SamplerResultTab implements ResultRenderer {
         statsBuff
                 .append(JMeterUtils.getResString("view_results_thread_name")).append(SPACE) //$NON-NLS-1$
                 .append(result.getThreadName()).append(NL);
+        String url = result.getUrlAsString();
+        if (!url.isEmpty()) {
+            statsBuff
+                    .append(JMeterUtils.getResString("view_results_url")).append(SPACE) //$NON-NLS-1$
+                    .append(url).append(NL);
+        }
         String startTime = dateFormat.format(Instant.ofEpochMilli(result.getStartTime()));
         statsBuff
                 .append(JMeterUtils.getResString("view_results_sample_start")).append(SPACE) //$NON-NLS-1$
@@ -537,6 +543,9 @@ public abstract class SamplerResultTab implements ResultRenderer {
         statsDoc.insertString(statsDoc.getLength(), statsBuff.toString(), null);
 
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_thread_name"), result.getThreadName())); //$NON-NLS-1$
+        if (!url.isEmpty()) {
+            resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_url"), url)); //$NON-NLS-1$
+        }
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sample_start"), startTime)); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_load_time"), result.getTime())); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_connect_time"), result.getConnectTime())); //$NON-NLS-1$
@@ -835,6 +844,10 @@ public abstract class SamplerResultTab implements ResultRenderer {
             return ""; // $NON-NLS-1$
         }
         return buildResponseData(sampleResult.getResponseHeaders(), replayedResponseBodyForDiff());
+    }
+
+    String samplerResultText() {
+        return stats == null ? "" : stats.getText(); // $NON-NLS-1$
     }
 
     private String replayedResponseBodyForDiff() {

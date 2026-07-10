@@ -18,11 +18,18 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.BooleanProperty;
+import org.apache.jmeter.testelement.property.IntegerProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterVariables;
@@ -53,11 +60,19 @@ public class ForeachController extends GenericController implements Serializable
 
     private static final String USE_SEPARATOR = "ForeachController.useSeparator";// $NON-NLS-1$
 
+    private static final String PARALLEL = "ForeachController.parallel";// $NON-NLS-1$
+
+    private static final String MAX_PARALLEL = "ForeachController.maxParallel";// $NON-NLS-1$
+
+    private static final int DEFAULT_MAX_PARALLEL = 6;
+
     private static final String INDEX_DEFAULT_VALUE = ""; // start/end index default value for string getters and setters
 
     private int loopCount = 0;
 
     private boolean breakLoop;
+
+    private transient boolean parallelSamplerReturned;
 
     private static final String DEFAULT_SEPARATOR = "_";// $NON-NLS-1$
 
@@ -146,6 +161,34 @@ public class ForeachController extends GenericController implements Serializable
         return getPropertyAsBoolean(USE_SEPARATOR, true);
     }
 
+    public void setParallel(boolean parallel) {
+        setProperty(new BooleanProperty(PARALLEL, parallel));
+    }
+
+    public boolean isParallel() {
+        return getPropertyAsBoolean(PARALLEL, false);
+    }
+
+    public void setMaxParallel(int maxParallel) {
+        setProperty(new IntegerProperty(MAX_PARALLEL, Math.max(1, maxParallel)));
+    }
+
+    public void setMaxParallel(String maxParallel) {
+        setProperty(new StringProperty(MAX_PARALLEL, maxParallel));
+    }
+
+    public int getMaxParallel() {
+        try {
+            return Math.max(1, getPropertyAsInt(MAX_PARALLEL, DEFAULT_MAX_PARALLEL));
+        } catch (NumberFormatException e) {
+            return DEFAULT_MAX_PARALLEL;
+        }
+    }
+
+    public String getMaxParallelString() {
+        return getPropertyAsString(MAX_PARALLEL, Integer.toString(DEFAULT_MAX_PARALLEL));
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -198,6 +241,9 @@ public class ForeachController extends GenericController implements Serializable
     // Prevent entry if nothing to do
     @Override
     public Sampler next() {
+        if (isParallel()) {
+            return nextParallel();
+        }
         updateIterationIndex(getName(), loopCount);
         try {
             if (breakLoop || emptyList()) {
@@ -210,6 +256,75 @@ public class ForeachController extends GenericController implements Serializable
         } finally {
             updateIterationIndex(getName(), loopCount);
         }
+    }
+
+    private Sampler nextParallel() {
+        updateIterationIndex(getName(), loopCount);
+        try {
+            if (breakLoop) {
+                resetBreakLoop();
+                reInitialize();
+                resetLoopCount();
+                return null;
+            }
+            if (parallelSamplerReturned) {
+                parallelSamplerReturned = false;
+                reInitialize();
+                resetLoopCount();
+                return null;
+            }
+            ParallelControllerSampler parallelSampler = createParallelSampler();
+            if (parallelSampler.getBranchCount() == 0) {
+                reInitialize();
+                resetLoopCount();
+                return null;
+            }
+            parallelSamplerReturned = true;
+            return parallelSampler;
+        } finally {
+            updateIterationIndex(getName(), loopCount);
+        }
+    }
+
+    private ParallelControllerSampler createParallelSampler() {
+        JMeterVariables variables = getThreadContext().getVariables();
+        String input = getInputVal();
+        String separator = getSeparator();
+        String output = getReturnVal();
+        int startIndex = getStartIndex();
+        int branchCount = countInputItems(variables, input, separator, startIndex, getEndIndex());
+        return new ParallelControllerSampler(
+                this,
+                getName(),
+                getMaxParallel(),
+                branchCount,
+                branchIndex -> createParallelBranch(
+                        output,
+                        variables.getObject(input + separator + (startIndex + branchIndex + 1))));
+    }
+
+    private static int countInputItems(JMeterVariables variables, String input, String separator,
+            int startIndex, int endIndex) {
+        int itemCount = 0;
+        for (int index = startIndex + 1; index <= endIndex; index++) {
+            if (variables.getObject(input + separator + index) == null) {
+                break;
+            }
+            itemCount++;
+        }
+        return itemCount;
+    }
+
+    private ParallelControllerSampler.ParallelBranch createParallelBranch(String output, Object value) {
+        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
+                new IdentityHashMap<>();
+        ForEachParallelBranch branch = new ForEachParallelBranch(output, value);
+        branch.setName(getName());
+        for (TestElement child : getSubControllers()) {
+            ParallelController.addParallelChild(branch, child, sourceTransactionControllers);
+        }
+        branch.initialize();
+        return new ParallelControllerSampler.ParallelBranch(branch, sourceTransactionControllers);
     }
 
     /**
@@ -298,6 +413,7 @@ public class ForeachController extends GenericController implements Serializable
     public void initialize() {
         super.initialize();
         loopCount = getStartIndex();
+        parallelSamplerReturned = false;
     }
 
     @Override
@@ -314,6 +430,7 @@ public class ForeachController extends GenericController implements Serializable
     @Override
     public void breakLoop() {
         breakLoop = true;
+        parallelSamplerReturned = false;
         setFirst(true);
         resetCurrent();
         resetLoopCount();
@@ -324,5 +441,124 @@ public class ForeachController extends GenericController implements Serializable
     public void iterationStart(LoopIterationEvent iterEvent) {
         reInitialize();
         resetLoopCount();
+        parallelSamplerReturned = false;
+    }
+
+    private static final class ForEachParallelBranch extends GenericController implements ParallelContextModifier {
+        private static final long serialVersionUID = 1L;
+
+        private final String output;
+        private final Object value;
+
+        private ForEachParallelBranch(String output, Object value) {
+            this.output = output;
+            this.value = value;
+        }
+
+        @Override
+        public void prepareParallelContext(JMeterContext workerContext) {
+            workerContext.setVariables(new ForEachParallelVariables(workerContext.getVariables(), output, value));
+        }
+    }
+
+    private static final class ForEachParallelVariables extends JMeterVariables {
+        private final JMeterVariables parent;
+        private final String output;
+        private Object value;
+
+        private ForEachParallelVariables(JMeterVariables parent, String output, Object value) {
+            this.parent = parent;
+            this.output = output;
+            this.value = value;
+        }
+
+        @Override
+        public void put(String key, String value) {
+            if (output.equals(key)) {
+                this.value = value;
+            } else {
+                parent.put(key, value);
+            }
+        }
+
+        @Override
+        public void putObject(String key, Object value) {
+            if (output.equals(key)) {
+                this.value = value;
+            } else {
+                parent.putObject(key, value);
+            }
+        }
+
+        @Override
+        public void putAll(Map<String, ?> vars) {
+            for (Map.Entry<String, ?> entry : vars.entrySet()) {
+                putObject(entry.getKey(), entry.getValue());
+            }
+        }
+
+        @Override
+        public void putAll(JMeterVariables vars) {
+            for (Map.Entry<String, Object> entry : vars.entrySet()) {
+                putObject(entry.getKey(), entry.getValue());
+            }
+        }
+
+        @Override
+        public String get(String key) {
+            if (output.equals(key)) {
+                return value == null ? null : value.toString();
+            }
+            return parent.get(key);
+        }
+
+        @Override
+        public Object getObject(String key) {
+            if (output.equals(key)) {
+                return value;
+            }
+            return parent.getObject(key);
+        }
+
+        @Override
+        public Object remove(String key) {
+            if (output.equals(key)) {
+                Object previous = value;
+                value = null;
+                return previous;
+            }
+            return parent.remove(key);
+        }
+
+        @Override
+        public void clear() {
+            value = null;
+            parent.clear();
+        }
+
+        @Override
+        public Set<Map.Entry<String, Object>> entrySet() {
+            Map<String, Object> merged = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : parent.entrySet()) {
+                merged.put(entry.getKey(), entry.getValue());
+            }
+            merged.put(output, value);
+            return Collections.unmodifiableMap(merged).entrySet();
+        }
+
+        @Override
+        public int getIteration() {
+            return parent.getIteration();
+        }
+
+        @Override
+        public void incIteration() {
+            parent.incIteration();
+        }
+
+        @Override
+        public boolean isSameUserOnNextIteration() {
+            return parent.isSameUserOnNextIteration();
+        }
     }
 }
