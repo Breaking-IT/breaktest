@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -50,8 +51,10 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingWorker;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -114,12 +117,14 @@ public class HarImportWizard extends JDialog {
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
+    private final MainFrame mainFrame;
     private int step = STEP_FILE;
 
     private final JButton backButton = new JButton(JMeterUtils.getResString("har_import_back"));
     private final JButton nextButton = new JButton(JMeterUtils.getResString("har_import_next"));
     private final JButton finishButton = new JButton(JMeterUtils.getResString("har_import_finish"));
     private final JButton cancelButton = new JButton(JMeterUtils.getResString("cancel"));
+    private final JButton chooseButton = new JButton(JMeterUtils.getResString("har_import_choose_button"));
 
     // Step 1 state
     private final JLabel fileLabel = new JLabel(JMeterUtils.getResString("har_import_no_file"));
@@ -161,6 +166,7 @@ public class HarImportWizard extends JDialog {
 
     public HarImportWizard(Frame owner) {
         super(owner, JMeterUtils.getResString("har_import_title"), true);
+        this.mainFrame = owner instanceof MainFrame frame ? frame : null;
         buildUi();
         setSize(640, 560);
         setLocationRelativeTo(owner);
@@ -208,11 +214,19 @@ public class HarImportWizard extends JDialog {
     private JPanel buildFileCard() {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        panel.add(new JLabel(JMeterUtils.getResString("har_import_choose_prompt")), BorderLayout.NORTH);
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        JLabel prompt = new JLabel(JMeterUtils.getResString("har_import_choose_prompt"));
+        JLabel referenceWarning = new JLabel(JMeterUtils.getResString("har_import_reference_warning"));
+        prompt.setAlignmentX(Component.LEFT_ALIGNMENT);
+        referenceWarning.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(prompt);
+        top.add(Box.createVerticalStrut(6));
+        top.add(referenceWarning);
+        panel.add(top, BorderLayout.NORTH);
 
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
-        JButton chooseButton = new JButton(JMeterUtils.getResString("har_import_choose_button"));
         chooseButton.addActionListener(e -> chooseFile());
         chooseButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         fileLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -229,32 +243,87 @@ public class HarImportWizard extends JDialog {
     private void chooseFile() {
         JFileChooser chooser = new JFileChooser();
         chooser.setFileFilter(new FileNameExtensionFilter(
-                JMeterUtils.getResString("har_import_file_filter"), "har", "gz"));
+                JMeterUtils.getResString("har_import_file_filter"), "har"));
+        chooser.setAcceptAllFileFilterUsed(false);
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
         File file = chooser.getSelectedFile();
-        try {
-            byte[] content = Files.readAllBytes(file.toPath());
-            List<HarEntry> parsed = HarParser.parse(content);
-            this.entries = parsed;
-            this.hostnames = HarConverter.sortedHostnames(parsed);
-            this.harName = file.getName();
-            this.harMd5 = md5(content);
-            fileLabel.setText(file.getName());
-            analysisLabel.setText(MessageFormat.format(
-                    JMeterUtils.getResString("har_import_analysis"), parsed.size(), hostnames.size()));
-            rebuildHostsPanel();
-            // Immediately progress to host selection once the HAR parses.
-            step = STEP_HOSTS;
-            showStep();
-        } catch (IOException | RuntimeException ex) {
-            LOG.warn("Failed to parse HAR file {}", file, ex);
+        if (!file.getName().toLowerCase(Locale.ROOT).endsWith(".har")) {
             this.entries = null;
-            analysisLabel.setText(MessageFormat.format(
-                    JMeterUtils.getResString("har_import_parse_error"), ex.getMessage()));
+            analysisLabel.setText(JMeterUtils.getResString("har_import_raw_har_required"));
             updateButtons();
+            return;
         }
+        analyzeHarFile(file);
+    }
+
+    private void analyzeHarFile(File file) {
+        this.entries = null;
+        chooseButton.setEnabled(false);
+        fileLabel.setText(file.getName());
+        analysisLabel.setText(JMeterUtils.getResString("har_import_analyzing"));
+        updateButtons();
+        if (mainFrame != null) {
+            mainFrame.showLoadingOverlay(JMeterUtils.getResString("har_import_analyze_progress"));
+        }
+        SwingWorker<HarAnalysis, Void> worker = new SwingWorker<>() {
+            @Override
+            protected HarAnalysis doInBackground() throws IOException {
+                byte[] content = Files.readAllBytes(file.toPath());
+                List<HarEntry> parsed = HarParser.parse(content);
+                return new HarAnalysis(file, parsed, HarConverter.sortedHostnames(parsed), md5(content));
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    applyAnalysis(get());
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    LOG.warn("HAR analysis interrupted", ex);
+                    showAnalysisError(ex);
+                } catch (ExecutionException ex) {
+                    Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+                    LOG.warn("Failed to parse HAR file {}", file, cause);
+                    showAnalysisError(cause);
+                } catch (RuntimeException ex) {
+                    LOG.warn("Failed to parse HAR file {}", file, ex);
+                    showAnalysisError(ex);
+                } finally {
+                    chooseButton.setEnabled(true);
+                    if (mainFrame != null) {
+                        mainFrame.hideLoadingOverlay();
+                    }
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void applyAnalysis(HarAnalysis analysis) {
+        this.entries = analysis.entries();
+        this.hostnames = analysis.hostnames();
+        this.harName = analysis.file().getName();
+        this.harMd5 = analysis.md5();
+        fileLabel.setText(analysis.file().getName());
+        analysisLabel.setText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_analysis"), entries.size(), hostnames.size()));
+        rebuildHostsPanel();
+        // Immediately progress to host selection once the HAR parses.
+        step = STEP_HOSTS;
+        showStep();
+    }
+
+    private void showAnalysisError(Throwable ex) {
+        this.entries = null;
+        this.hostnames = null;
+        this.harName = null;
+        this.harMd5 = null;
+        String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+        analysisLabel.setText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_parse_error"), message));
+        updateButtons();
     }
 
     // ---------------------------------------------------------------------
@@ -531,5 +600,8 @@ public class HarImportWizard extends JDialog {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private record HarAnalysis(File file, List<HarEntry> entries, List<String> hostnames, String md5) {
     }
 }

@@ -17,9 +17,7 @@
 
 package org.apache.jmeter.protocol.http.har;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -27,7 +25,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.zip.GZIPInputStream;
 
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
@@ -49,15 +46,16 @@ public final class HarParser {
     }
 
     /**
-     * Parse HAR content (optionally gzip-compressed) into entries, tagging each
-     * with its original index. Entries are returned in file order.
+     * Parse raw HAR content into entries, tagging each with its original index.
+     * Entries are returned in file order.
      *
-     * @param content raw bytes of a {@code .har} or {@code .har.gz} file
+     * @param content raw bytes of a {@code .har} file
      * @return the parsed entries
      * @throws IOException if the content cannot be read or is not valid HAR
      */
     public static List<HarEntry> parse(byte[] content) throws IOException {
-        JsonNode root = MAPPER.readTree(maybeGunzip(content));
+        ensureRawHarContent(content);
+        JsonNode root = MAPPER.readTree(content);
         JsonNode entriesNode = root.path("log").path("entries");
         if (!entriesNode.isArray()) {
             throw new IOException("Not a valid HAR file: missing log.entries array");
@@ -71,13 +69,24 @@ public final class HarParser {
         return entries;
     }
 
-    private static byte[] maybeGunzip(byte[] content) throws IOException {
+    private static void ensureRawHarContent(byte[] content) throws IOException {
         if (content.length >= 2 && (content[0] & 0xff) == 0x1f && (content[1] & 0xff) == 0x8b) {
-            try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(content))) {
-                return in.readAllBytes();
-            }
+            throw new IOException("Compressed HAR files are not supported. Export an uncompressed .har file.");
         }
-        return content;
+        if (isZipSignature(content)) {
+            throw new IOException("ZIP files are not supported. Export an uncompressed .har file.");
+        }
+    }
+
+    private static boolean isZipSignature(byte[] content) {
+        if (content.length < 4 || (content[0] & 0xff) != 0x50 || (content[1] & 0xff) != 0x4b) {
+            return false;
+        }
+        int third = content[2] & 0xff;
+        int fourth = content[3] & 0xff;
+        return (third == 0x03 && fourth == 0x04)
+                || (third == 0x05 && fourth == 0x06)
+                || (third == 0x07 && fourth == 0x08);
     }
 
     private static HarEntry parseEntry(JsonNode entryNode, int index) {

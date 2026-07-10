@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,8 +80,17 @@ public final class HarConverter {
 
     private static final String UNSAFE_CHARS = " <>\"#%{}|\\^~[]`&?+";
 
-    private static final Pattern HEX_PATH_PATTERN =
+    private static final Pattern HEX_TOKEN_PATTERN =
             Pattern.compile("(?<![a-zA-Z0-9])([a-fA-F0-9]{8,})(?![a-zA-Z0-9])");
+    private static final Pattern UUID_TOKEN_PATTERN =
+            Pattern.compile("(?i)(?<![a-f0-9])([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?![a-f0-9])");
+    private static final Pattern OPAQUE_TOKEN_PATTERN =
+            Pattern.compile("(?<![A-Za-z0-9._~+/=-])([A-Za-z0-9][A-Za-z0-9._~+/=-]{11,})(?![A-Za-z0-9._~+/=-])");
+    private static final Pattern JSON_ID_FIELD_PATTERN =
+            Pattern.compile("\"([^\"]*(?:id|uuid|token|nonce|csrf|session|key|code)[^\"]*)\"\\s*:\\s*\"?([A-Za-z0-9._~+/=-]{4,})\"?",
+                    Pattern.CASE_INSENSITIVE);
+    private static final Pattern NUMERIC_TOKEN_PATTERN =
+            Pattern.compile("^[0-9]{6,}$");
     private static final Pattern REQUEST_TOKEN_PATTERN =
             Pattern.compile("[A-Za-z0-9._~+/=-]{8,}");
     private static final Pattern RESPONSE_TOKEN_PATTERN =
@@ -474,7 +484,7 @@ public final class HarConverter {
         sampler.setProperty(TestElement.GUI_CLASS, HttpTestSampleGui.class.getName());
         sampler.setName(name);
         if (options.isDetectDynamicUrls()) {
-            String comment = detectHexadecimalPaths(path);
+            String comment = detectDynamicReferences(entry, url);
             if (!comment.isEmpty()) {
                 sampler.setComment(comment);
             }
@@ -759,29 +769,141 @@ public final class HarConverter {
         return sb.toString();
     }
 
-    private String detectHexadecimalPaths(String path) {
-        if (!HEX_PATH_PATTERN.matcher(path).find()) {
-            return "";
-        }
-        String filename = path;
-        int slash = path.lastIndexOf('/');
-        if (slash >= 0) {
-            filename = path.substring(slash + 1);
-        }
-        if (filename.isEmpty()) {
+    private String detectDynamicReferences(HarEntry target, ParsedUrl url) {
+        Set<String> tokens = dynamicRequestTokens(target, url);
+        if (tokens.isEmpty()) {
             return "";
         }
         for (HarEntry entry : entries) {
+            if (entry.getOriginalIndex() >= target.getOriginalIndex()) {
+                continue;
+            }
             for (NameValue header : entry.getResponseHeaders()) {
-                if (header.getValue().contains(filename)) {
+                for (String token : tokens) {
+                    if (header.getValue().contains(token)) {
+                        return "Reference detected in " + entry.getUrl();
+                    }
+                }
+            }
+            for (String token : tokens) {
+                if (entry.getResponseContentText().contains(token)) {
                     return "Reference detected in " + entry.getUrl();
                 }
             }
-            if (entry.getResponseContentText().contains(filename)) {
-                return "Reference detected in " + entry.getUrl();
-            }
         }
         return "";
+    }
+
+    private static Set<String> dynamicRequestTokens(HarEntry entry, ParsedUrl url) {
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String segment : url.path.split("/")) {
+            if (segment.isEmpty()) {
+                continue;
+            }
+            addDynamicTokensFromText(segment, tokens);
+        }
+        addDynamicTokensFromRawQuery(url.query, tokens);
+        for (NameValue param : entry.getQueryString()) {
+            addDynamicTokensFromNameValue(param.getName(), param.getValue(), tokens);
+        }
+        PostData postData = entry.getPostData();
+        if (postData != null) {
+            addDynamicTokensFromText(postData.getText(), tokens);
+            addJsonIdFieldTokens(postData.getText(), tokens);
+            for (NameValue param : postData.getParams()) {
+                addDynamicTokensFromNameValue(param.getName(), param.getValue(), tokens);
+            }
+        }
+        return tokens;
+    }
+
+    private static void addDynamicTokensFromRawQuery(String query, Set<String> tokens) {
+        if (query == null || query.isEmpty()) {
+            return;
+        }
+        for (String param : query.split("&")) {
+            int equals = param.indexOf('=');
+            if (equals >= 0) {
+                addDynamicTokensFromNameValue(
+                        percentDecode(param.substring(0, equals)),
+                        percentDecode(param.substring(equals + 1)),
+                        tokens);
+            } else {
+                addDynamicTokensFromText(percentDecode(param), tokens);
+            }
+        }
+    }
+
+    private static void addDynamicTokensFromNameValue(String name, String value, Set<String> tokens) {
+        addDynamicTokensFromText(value, tokens);
+        if (isIdLikeName(name) && value != null && NUMERIC_TOKEN_PATTERN.matcher(value).matches()) {
+            tokens.add(value);
+        }
+    }
+
+    private static void addJsonIdFieldTokens(String text, Set<String> tokens) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        Matcher matcher = JSON_ID_FIELD_PATTERN.matcher(text);
+        while (matcher.find()) {
+            addDynamicTokensFromNameValue(matcher.group(1), matcher.group(2), tokens);
+        }
+    }
+
+    private static void addDynamicTokensFromText(String text, Set<String> tokens) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        Matcher uuidMatcher = UUID_TOKEN_PATTERN.matcher(text);
+        while (uuidMatcher.find()) {
+            tokens.add(uuidMatcher.group(1));
+        }
+        Matcher hexMatcher = HEX_TOKEN_PATTERN.matcher(text);
+        while (hexMatcher.find()) {
+            tokens.add(hexMatcher.group(1));
+        }
+        Matcher opaqueMatcher = OPAQUE_TOKEN_PATTERN.matcher(text);
+        while (opaqueMatcher.find()) {
+            String token = opaqueMatcher.group(1);
+            if (looksOpaque(token)) {
+                tokens.add(token);
+            }
+        }
+    }
+
+    private static boolean isIdLikeName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("id")
+                || lower.contains("uuid")
+                || lower.contains("token")
+                || lower.contains("nonce")
+                || lower.contains("csrf")
+                || lower.contains("session")
+                || lower.contains("key")
+                || lower.contains("code");
+    }
+
+    private static boolean looksOpaque(String token) {
+        boolean hasLetter = false;
+        boolean hasDigit = false;
+        for (int i = 0; i < token.length(); i++) {
+            char c = token.charAt(i);
+            if (Character.isLetter(c)) {
+                hasLetter = true;
+            } else if (Character.isDigit(c)) {
+                hasDigit = true;
+            } else if ("._~+/=-".indexOf(c) >= 0) {
+                return true;
+            }
+            if (hasLetter && hasDigit) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------------
