@@ -32,8 +32,8 @@ the Apache License, Version 2.0.
 <p>
 BreakTest 2026.07.10 is a workflow, visualization, and scalability release
 built from the changes since BreakTest 2026.07.08. It adds direct HAR import,
-parallel ForEach execution, a richer View Results listener, and targeted
-runtime and desktop performance improvements.
+parallel ForEach execution, GUI-assisted updates, a richer View Results
+listener, and targeted runtime and desktop performance improvements.
 </p>
 
 <ch_section>Highlights</ch_section>
@@ -43,6 +43,7 @@ runtime and desktop performance improvements.
   <li>Expanded View Results with a table layout, selectable columns, response-time data, request and response sizes, URLs, filtering, and improved status icons.</li>
   <li>Reduced repeated test-tree traversal by caching parent-controller paths used by loop control actions.</li>
   <li>Added the HTTP request URL to the Sampler Result text view and made the initial test-plan pane width configurable.</li>
+  <li>Added GUI-only automatic and manual checks for stable BreakTest releases, with verified download, post-exit installation, rollback, and restart.</li>
 </ul>
 
 <ch_section>HAR Import</ch_section>
@@ -76,6 +77,17 @@ runtime and desktop performance improvements.
   <li>Set a stable startup width for the test-plan pane, configurable through <code>jmeter.gui.testplan.width</code>.</li>
 </ul>
 
+<ch_section>GUI Updates</ch_section>
+<ul>
+  <li>Added automatic stable-release checks in GUI mode, limited to once every 24 hours by default, plus a manual <b>Help &gt; Check for Updates</b> action.</li>
+  <li>Added update notifications with links to the matching GitHub release notes.</li>
+  <li>Downloads the expected binary ZIP and verifies its published SHA-512 checksum and GitHub SHA-256 asset digest before installation.</li>
+  <li>Installs through a post-exit helper so active JAR files are not replaced, rolls back failed replacements, and restarts BreakTest after success.</li>
+  <li>Preserves user and system properties, third-party <code>lib/ext</code> plugins, and user-installed driver JARs during updates.</li>
+  <li>Refuses source checkouts and malformed distributions, and confines archive extraction and installation paths to prevent traversal or symlink escapes.</li>
+  <li>Update checks are disabled outside the GUI and can be configured through <code>breaktest.update.check.enabled</code> and <code>breaktest.update.check.interval_hours</code>.</li>
+</ul>
+
 <ch_section>Benchmarks and Tests</ch_section>
 <ul>
   <li>Added high-capacity ForEach benchmarks covering active-window memory, representative sample payloads, and parent-mode Transaction Controllers.</li>
@@ -88,6 +100,7 @@ runtime and desktop performance improvements.
   <li>Java 21 or later is still required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
   <li>Parallel ForEach execution is opt-in; existing ForEach Controllers remain sequential unless explicitly enabled.</li>
+  <li>Automatic update checks run only in the GUI; command-line and non-GUI test execution do not contact the update service.</li>
   <li>This release uses the direct Git tag <code>2026.07.10</code> rather than a <code>rel/...</code> prefix.</li>
 </ul>
 

@@ -19,8 +19,8 @@ specific language governing permissions and limitations under the License.
 
 BreakTest 2026.07.10 is a workflow, visualization, and scalability release
 built from the changes since BreakTest 2026.07.08. It adds direct HAR import,
-parallel ForEach execution, a richer View Results listener, and several
-targeted runtime and desktop performance improvements.
+parallel ForEach execution, GUI-assisted updates, a richer View Results
+listener, and several targeted runtime and desktop performance improvements.
 
 ### Highlights
 
@@ -36,6 +36,8 @@ targeted runtime and desktop performance improvements.
   by loop control actions.
 - Added the HTTP request URL to the Sampler Result text view and made the
   initial test-plan pane width configurable.
+- Added GUI-only automatic and manual checks for stable BreakTest releases,
+  with verified download, post-exit installation, rollback, and restart.
 
 ### HAR Import
 
@@ -85,6 +87,22 @@ targeted runtime and desktop performance improvements.
 - Set a stable startup width for the test-plan pane, configurable through
   `jmeter.gui.testplan.width`.
 
+### GUI Updates
+
+- Added automatic stable-release checks in GUI mode, limited to once every 24
+  hours by default, plus a manual **Help > Check for Updates** action.
+- Added update notifications with links to the matching GitHub release notes.
+- Downloads the expected binary ZIP and verifies its published SHA-512
+  checksum and GitHub SHA-256 asset digest before installation.
+- Installs through a post-exit helper so active JAR files are not replaced,
+  rolls back failed replacements, and restarts BreakTest after success.
+- Preserves user and system properties, third-party `lib/ext` plugins, and
+  user-installed driver JARs during updates.
+- Refuses source checkouts and malformed distributions, and confines archive
+  extraction and installation paths to prevent traversal or symlink escapes.
+- Update checks are disabled outside the GUI and can be configured through
+  `breaktest.update.check.enabled` and `breaktest.update.check.interval_hours`.
+
 ### Benchmarks And Tests
 
 - Added high-capacity ForEach benchmarks covering active-window memory,
@@ -101,6 +119,8 @@ targeted runtime and desktop performance improvements.
 - Existing JMeter-compatible JMX files remain supported where practical.
 - Parallel ForEach execution is opt-in; existing ForEach Controllers remain
   sequential unless explicitly enabled.
+- Automatic update checks run only in the GUI; command-line and non-GUI test
+  execution do not contact the update service.
 - This release uses the direct Git tag `2026.07.10` rather than a `rel/...`
   prefix.
 
