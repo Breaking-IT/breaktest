@@ -342,9 +342,10 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         if (commentLabel == null) {
             return;
         }
-        commentLabel.setVisible(commentsExpanded);
-        commentField.setVisible(commentsExpanded);
-        commentsButton.setVisible(!commentsExpanded);
+        boolean showComments = commentsExpanded || !commentField.getText().isBlank();
+        commentLabel.setVisible(showComments);
+        commentField.setVisible(showComments);
+        commentsButton.setVisible(!showComments);
         Container parent = commentField.getParent();
         if (parent != null) {
             parent.revalidate();

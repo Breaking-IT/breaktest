@@ -186,6 +186,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             case "ACTION_STOP" -> "Stop"; // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_SHUTDOWN" -> "Shutdown"; // $NON-NLS-1$ $NON-NLS-2$
             case "AI_AUTO_SCRIPTING" -> "AI"; // $NON-NLS-1$ $NON-NLS-2$
+            case "HAR_IMPORT" -> "HAR"; // $NON-NLS-1$ $NON-NLS-2$
             case "CLEAR" -> "Clear"; // $NON-NLS-1$ $NON-NLS-2$
             case "CLEAR_ALL" -> "Clear all"; // $NON-NLS-1$ $NON-NLS-2$
             case "SEARCH_TREE" -> "Search"; // $NON-NLS-1$ $NON-NLS-2$
