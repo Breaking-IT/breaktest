@@ -834,7 +834,8 @@ public class JMeterThread implements Runnable, Interruptible {
         try {
             while (nextBranch < branchCount && activeBranches < maxParallel) {
                 completionService.submit(parallelTask(
-                        parallelSampler, parallelSampler.getBranch(nextBranch++), transactionSampler, transactionPack,
+                        parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
+                        transactionPack,
                         parentContext));
                 activeBranches++;
             }
@@ -858,7 +859,8 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 if (running && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
-                            parallelSampler, parallelSampler.getBranch(nextBranch++), transactionSampler, transactionPack,
+                            parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
+                            transactionPack,
                             parentContext));
                     activeBranches++;
                 }
@@ -876,11 +878,12 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private Callable<SampleResult> parallelTask(ParallelControllerSampler parallelSampler, Controller branch,
+    private Callable<SampleResult> parallelTask(ParallelControllerSampler.ParallelBranch parallelBranch,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext) {
         boolean forkWorker = isForkWorkerThread();
         Future<?> forkTask = CURRENT_FORK_TASK.get();
         return () -> {
+            Controller branch = parallelBranch.getController();
             if (forkWorker) {
                 FORK_WORKER_THREAD.set(Boolean.TRUE);
                 CURRENT_FORK_TASK.set(forkTask);
@@ -896,7 +899,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 Sampler sampler;
                 while (running && !isCurrentForkStopRequested() && (sampler = branch.next()) != null) {
                     SampleResult result = executeParallelBranchSampler(
-                            parallelSampler, sampler, transactionSampler, transactionPack, workerContext);
+                            parallelBranch, sampler, transactionSampler, transactionPack, workerContext);
                     if (result != null) {
                         if (branchResult == null || branchResult.isSuccessful()) {
                             branchResult = result;
@@ -926,12 +929,14 @@ public class JMeterThread implements Runnable, Interruptible {
         };
     }
 
-    private SampleResult executeParallelBranchSampler(ParallelControllerSampler parallelSampler, Sampler sampler,
+    private SampleResult executeParallelBranchSampler(ParallelControllerSampler.ParallelBranch parallelBranch,
+            Sampler sampler,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext workerContext) {
         if (sampler instanceof TransactionSampler) {
             // A nested transaction controller (parent mode) manages its own sub-samples and must not
             // be folded into the enclosing transaction; run it stand-alone.
-            return processSampler(sampler, null, workerContext, parallelSampler::getSourceTransactionController, false);
+            return processSampler(sampler, null, workerContext,
+                    parallelBranch::getSourceTransactionController, false);
         }
         if (sampler instanceof ForkControllerSampler forkSampler) {
             startForkSampler(forkSampler, workerContext);

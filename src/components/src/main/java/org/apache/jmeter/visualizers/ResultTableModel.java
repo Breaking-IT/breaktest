@@ -85,7 +85,11 @@ class ResultTableModel extends AbstractTableModel {
 
     @Override
     public Class<?> getColumnClass(int columnIndex) {
-        return columnIndex == STATUS ? Icon.class : Object.class;
+        return switch (columnIndex) {
+        case STATUS -> Icon.class;
+        case TIME, LATENCY, CONNECT_TIME, REQUEST_SIZE, RESPONSE_SIZE -> Long.class;
+        default -> Object.class;
+        };
     }
 
     @Override

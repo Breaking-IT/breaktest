@@ -287,8 +287,6 @@ public class ForeachController extends GenericController implements Serializable
     }
 
     private ParallelControllerSampler createParallelSampler() {
-        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
-                new IdentityHashMap<>();
         JMeterVariables variables = getThreadContext().getVariables();
         String input = getInputVal();
         String separator = getSeparator();
@@ -302,9 +300,7 @@ public class ForeachController extends GenericController implements Serializable
                 branchCount,
                 branchIndex -> createParallelBranch(
                         output,
-                        variables.getObject(input + separator + (startIndex + branchIndex + 1)),
-                        sourceTransactionControllers),
-                sourceTransactionControllers);
+                        variables.getObject(input + separator + (startIndex + branchIndex + 1))));
     }
 
     private static int countInputItems(JMeterVariables variables, String input, String separator,
@@ -319,15 +315,16 @@ public class ForeachController extends GenericController implements Serializable
         return itemCount;
     }
 
-    private Controller createParallelBranch(String output, Object value,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    private ParallelControllerSampler.ParallelBranch createParallelBranch(String output, Object value) {
+        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
+                new IdentityHashMap<>();
         ForEachParallelBranch branch = new ForEachParallelBranch(output, value);
         branch.setName(getName());
         for (TestElement child : getSubControllers()) {
             ParallelController.addParallelChild(branch, child, sourceTransactionControllers);
         }
         branch.initialize();
-        return branch;
+        return new ParallelControllerSampler.ParallelBranch(branch, sourceTransactionControllers);
     }
 
     /**

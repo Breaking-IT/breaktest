@@ -19,7 +19,9 @@ package org.apache.jmeter.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
@@ -104,7 +106,7 @@ class TestForeachController extends JMeterTestCase {
         assertEquals(10_000, parallelSampler.getBranchCount());
         assertEquals(0, CountingController.cloneCalls.get(),
                 "Creating the ForEach marker must not clone every branch");
-        parallelSampler.getBranch(0);
+        parallelSampler.getParallelBranch(0);
         assertEquals(1, CountingController.cloneCalls.get(),
                 "Only requested branches should be materialized");
     }
@@ -143,6 +145,81 @@ class TestForeachController extends JMeterTestCase {
         assertEquals(Set.of("one", "two", "three"), sampler.values);
         assertEquals(2, sampler.maxActive.get(), "Max parallel executions should be honored");
         assertNull(variables.getObject("item"), "ForEach output value should stay branch-local");
+    }
+
+    @Test
+    void parallelForEachRunsParentTransactionControllerChildren() throws InterruptedException {
+        CountDownLatch completed = new CountDownLatch(3);
+        RecordingSampler sampler = new RecordingSampler("transaction-child", completed);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        transaction.setGenerateParentSample(true);
+        transaction.setEnabled(true);
+        transaction.addTestElement(sampler);
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ForeachController foreach = parallelForEachController();
+        foreach.addTestElement(transaction);
+        testTree.add(loop);
+        testTree.add(loop, foreach);
+        testTree.add(foreach, transaction);
+        testTree.add(transaction, sampler);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterVariables variables = new JMeterVariables();
+        variables.putObject("input_1", "one");
+        variables.putObject("input_2", "two");
+        variables.putObject("input_3", "three");
+
+        JMeterThread thread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        thread.setThreadName("parallel-foreach-transaction-thread");
+        thread.setThreadGroup(threadGroup);
+        thread.putVariables(variables);
+        thread.run();
+
+        assertTrue(completed.await(5, TimeUnit.SECONDS), "Every transaction child should run");
+        assertEquals(Set.of("one", "two", "three"), sampler.values);
+    }
+
+    @Test
+    void parallelForEachKeepsTransactionMappingsBranchScoped() {
+        ForeachController controller = parallelForEachController();
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        transaction.addTestElement(new RecordingSampler("child", new CountDownLatch(0)));
+        controller.addTestElement(transaction);
+        JMeterVariables variables = new JMeterVariables();
+        variables.putObject("input_1", "one");
+        variables.putObject("input_2", "two");
+        setVariables(controller, variables);
+        controller.initialize();
+
+        ParallelControllerSampler parallelSampler =
+                assertInstanceOf(ParallelControllerSampler.class, controller.next());
+        ParallelControllerSampler.ParallelBranch firstBranch = parallelSampler.getParallelBranch(0);
+        ParallelControllerSampler.ParallelBranch secondBranch = parallelSampler.getParallelBranch(1);
+        TransactionController firstClone = firstTransactionController(firstBranch.getController());
+
+        assertNotSame(transaction, firstClone);
+        assertSame(transaction, firstBranch.getSourceTransactionController(firstClone));
+        assertSame(firstClone, secondBranch.getSourceTransactionController(firstClone),
+                "A branch must not retain another branch's transaction mappings");
+    }
+
+    private static TransactionController firstTransactionController(Controller branch) {
+        for (org.apache.jmeter.testelement.TestElement child
+                : ((GenericController) branch).getSubControllers()) {
+            if (child instanceof TransactionController transactionController) {
+                return transactionController;
+            }
+        }
+        throw new AssertionError("Branch does not contain a TransactionController");
     }
 
     private static ForeachController parallelForEachController() {

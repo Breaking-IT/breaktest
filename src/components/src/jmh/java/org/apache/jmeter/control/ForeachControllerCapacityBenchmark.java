@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
@@ -94,6 +95,12 @@ public class ForeachControllerCapacityBenchmark {
         return runPlanUntilBranchesAreStalled(plan);
     }
 
+    @Benchmark
+    public CapacityResult transactionParallelForEachRetentionWindow() throws Exception {
+        ForEachPlan plan = createPlan(0, 0, 0, true);
+        return runPlanUntilBranchesAreStalled(plan);
+    }
+
     private CapacityResult runPlanUntilBranchesAreStalled(ForEachPlan plan) throws Exception {
         int expectedActiveBranches = Math.min(itemCount, maxParallel);
         long heapBefore = usedHeap();
@@ -131,6 +138,11 @@ public class ForeachControllerCapacityBenchmark {
     }
 
     private ForEachPlan createPlan(int payloadSamplersPerItem, int payloadKilobytes, int retainedPayloadKilobytes) {
+        return createPlan(payloadSamplersPerItem, payloadKilobytes, retainedPayloadKilobytes, false);
+    }
+
+    private ForEachPlan createPlan(int payloadSamplersPerItem, int payloadKilobytes,
+            int retainedPayloadKilobytes, boolean transactionRetentionScenario) {
         HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
@@ -150,15 +162,31 @@ public class ForeachControllerCapacityBenchmark {
 
         testTree.add(loop);
         testTree.add(loop, foreach);
-        for (int samplerIndex = 0; samplerIndex < payloadSamplersPerItem; samplerIndex++) {
-            testTree.add(foreach, new PayloadSampler("payload-" + samplerIndex, payloadKilobytes));
+        GenericController samplerParent = foreach;
+        if (transactionRetentionScenario) {
+            TransactionController transaction = new TransactionController();
+            transaction.setName("transaction");
+            transaction.setGenerateParentSample(true);
+            transaction.setEnabled(true);
+            foreach.addTestElement(transaction);
+            testTree.add(foreach, transaction);
+            samplerParent = transaction;
         }
-        testTree.add(foreach, new StallingSampler(
+        for (int samplerIndex = 0; samplerIndex < payloadSamplersPerItem; samplerIndex++) {
+            PayloadSampler payloadSampler = new PayloadSampler("payload-" + samplerIndex, payloadKilobytes);
+            samplerParent.addTestElement(payloadSampler);
+            testTree.add(samplerParent, payloadSampler);
+        }
+        int stallFromIndex = transactionRetentionScenario ? Math.max(1, itemCount - maxParallel + 1) : 1;
+        StallingSampler stallingSampler = new StallingSampler(
                 "stall",
                 branchesStarted,
                 releaseBranches,
                 activeBranches,
-                retainedPayloadKilobytes));
+                retainedPayloadKilobytes,
+                stallFromIndex);
+        samplerParent.addTestElement(stallingSampler);
+        testTree.add(samplerParent, stallingSampler);
 
         ThreadGroup threadGroup = new ThreadGroup();
         threadGroup.setName("thread group");
@@ -217,6 +245,8 @@ public class ForeachControllerCapacityBenchmark {
                     benchmark.sampleResultPayloadKilobytes,
                     benchmark.retainedPayloadKilobytes,
                     runForSweep(benchmark::representativeParallelForEachWindow));
+            printSweepResult("transactionParallelForEachRetentionWindow", benchmark.itemCount, benchmark.maxParallel,
+                    0, 0, 0, runForSweep(benchmark::transactionParallelForEachRetentionWindow));
         }
     }
 
@@ -268,18 +298,25 @@ public class ForeachControllerCapacityBenchmark {
         private final CountDownLatch release;
         private final AtomicInteger activeBranches;
         private final int retainedPayloadKilobytes;
+        private final int stallFromIndex;
 
         private StallingSampler(String name, CountDownLatch started, CountDownLatch release,
-                AtomicInteger activeBranches, int retainedPayloadKilobytes) {
+                AtomicInteger activeBranches, int retainedPayloadKilobytes, int stallFromIndex) {
             setName(name);
             this.started = started;
             this.release = release;
             this.activeBranches = activeBranches;
             this.retainedPayloadKilobytes = retainedPayloadKilobytes;
+            this.stallFromIndex = stallFromIndex;
         }
 
         @Override
         public SampleResult sample(Entry e) {
+            String item = JMeterContextService.getContext().getVariables().get("item");
+            int itemIndex = Integer.parseInt(item.substring("value-".length()));
+            if (itemIndex < stallFromIndex) {
+                return successfulResult(new byte[0]);
+            }
             byte[] retainedPayload = createPayload(retainedPayloadKilobytes, getName().hashCode());
             activeBranches.incrementAndGet();
             started.countDown();
@@ -290,6 +327,10 @@ public class ForeachControllerCapacityBenchmark {
             } finally {
                 activeBranches.decrementAndGet();
             }
+            return successfulResult(retainedPayload);
+        }
+
+        private SampleResult successfulResult(byte[] retainedPayload) {
             SampleResult result = new SampleResult();
             result.setSampleLabel(getName());
             result.sampleStart();

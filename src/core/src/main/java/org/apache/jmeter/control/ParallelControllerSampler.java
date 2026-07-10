@@ -35,8 +35,8 @@ public class ParallelControllerSampler extends AbstractSampler {
     private final int maxParallel;
     private final int branchCount;
     private final List<Controller> branches;
-    private final transient IntFunction<Controller> branchFactory;
-    private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
+    private final transient IntFunction<ParallelBranch> branchFactory;
+    private final IdentityHashMap<TransactionController, TransactionController> eagerSourceTransactionControllers;
 
     public ParallelControllerSampler() {
         this(null, "", 1, List.of(), new IdentityHashMap<>());
@@ -49,19 +49,18 @@ public class ParallelControllerSampler extends AbstractSampler {
         this.branchCount = branches.size();
         this.branches = List.copyOf(branches);
         this.branchFactory = null;
-        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
+        this.eagerSourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
     ParallelControllerSampler(Controller controller, String name, int maxParallel, int branchCount,
-            IntFunction<Controller> branchFactory,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+            IntFunction<ParallelBranch> branchFactory) {
         this.controller = controller;
         this.maxParallel = maxParallel;
         this.branchCount = branchCount;
         this.branches = List.of();
         this.branchFactory = branchFactory;
-        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
+        this.eagerSourceTransactionControllers = new IdentityHashMap<>();
         setName(name);
     }
 
@@ -77,13 +76,13 @@ public class ParallelControllerSampler extends AbstractSampler {
         return branchCount;
     }
 
-    public Controller getBranch(int index) {
+    public ParallelBranch getParallelBranch(int index) {
         if (index < 0 || index >= branchCount) {
             throw new IndexOutOfBoundsException(index);
         }
         if (branchFactory == null) {
             if (!branches.isEmpty()) {
-                return branches.get(index);
+                return new ParallelBranch(branches.get(index), eagerSourceTransactionControllers);
             }
             throw new IllegalStateException("Parallel branches are no longer available");
         }
@@ -95,12 +94,31 @@ public class ParallelControllerSampler extends AbstractSampler {
             return branches;
         }
         return java.util.stream.IntStream.range(0, branchCount)
-                .mapToObj(this::getBranch)
+                .mapToObj(index -> getParallelBranch(index).getController())
                 .toList();
     }
 
-    public TransactionController getSourceTransactionController(TransactionController controller) {
-        return sourceTransactionControllers.getOrDefault(controller, controller);
+    /**
+     * A materialized parallel branch and the transaction-controller mappings required only while
+     * that branch executes.
+     */
+    public static final class ParallelBranch {
+        private final Controller controller;
+        private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
+
+        ParallelBranch(Controller controller,
+                IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+            this.controller = controller;
+            this.sourceTransactionControllers = sourceTransactionControllers;
+        }
+
+        public Controller getController() {
+            return controller;
+        }
+
+        public TransactionController getSourceTransactionController(TransactionController controller) {
+            return sourceTransactionControllers.getOrDefault(controller, controller);
+        }
     }
 
     @Override
