@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -30,6 +31,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.util.JMeterUtils;
@@ -86,7 +89,7 @@ public class TestSaveService extends JMeterTestCase {
             SaveService.saveTree(new HashTree(), out);
         }
 
-        String xml = out.toString(StandardCharsets.UTF_8);
+        String xml = new String(readTestPlanXml(out.toByteArray()), StandardCharsets.UTF_8);
         assertTrue(
                 xml.matches("(?s).*<jmeterTestPlan\\b[^>]*\\borigin=\"breaktest\"[^>]*>.*"),
                 "Saved JMX root element should be marked with BreakTest origin"
@@ -102,7 +105,7 @@ public class TestSaveService extends JMeterTestCase {
             HashTree tree = SaveService.loadTree(testFile);
             SaveService.saveTree(tree, out);
         }
-        byte[] resavedXml = out.toByteArray();
+        byte[] resavedXml = readTestPlanXml(out.toByteArray());
         // Make sure all the data is flushed out
 
         // Compare XML content using normalized form for better diff output
@@ -175,6 +178,18 @@ public class TestSaveService extends JMeterTestCase {
         xml = JMETER_TEST_PLAN_PATTERN.matcher(xml).replaceFirst("<jmeterTestPlan>");
 
         return xml;
+    }
+
+    private static byte[] readTestPlanXml(byte[] archive) throws IOException {
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(archive))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if (SaveService.TEST_PLAN_ZIP_ENTRY.equals(entry.getName())) {
+                    return zip.readAllBytes();
+                }
+            }
+        }
+        throw new IOException("Saved JMX archive does not contain " + SaveService.TEST_PLAN_ZIP_ENTRY);
     }
 
 

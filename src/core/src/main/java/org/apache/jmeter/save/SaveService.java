@@ -20,6 +20,7 @@ package org.apache.jmeter.save;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -37,6 +38,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.ServiceLoader;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
 import org.apache.jmeter.reporters.ResultCollectorHelper;
 import org.apache.jmeter.samplers.SampleEvent;
@@ -80,6 +84,9 @@ public class SaveService {
     // Names of DataHolder entries for JMX processing
     public static final String TEST_CLASS_NAME = "TestClassName"; // $NON-NLS-1$
 
+    /** The required main test plan entry in a compressed JMX file. */
+    public static final String TEST_PLAN_ZIP_ENTRY = "testplan.jmx"; // $NON-NLS-1$
+
     private static final class XStreamWrapper extends XStream {
         private XStreamWrapper(ReflectionProvider reflectionProvider, HierarchicalStreamDriver hierarchicalStreamDriver) {
             super(reflectionProvider, hierarchicalStreamDriver);
@@ -110,6 +117,17 @@ public class SaveService {
                 return alias == null ? super.serializedClass(type) : alias ;
                 }
             };
+        }
+    }
+
+    private static final class NonClosingOutputStream extends FilterOutputStream {
+        private NonClosingOutputStream(OutputStream out) {
+            super(out);
+        }
+
+        @Override
+        public void close() throws IOException {
+            flush();
         }
     }
 
@@ -301,6 +319,14 @@ public class SaveService {
 
     // Called by Save function
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new NonClosingOutputStream(out))) {
+            zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
+            saveTreeAsXml(tree, zipOutputStream);
+            zipOutputStream.closeEntry();
+        }
+    }
+
+    private static void saveTreeAsXml(HashTree tree, OutputStream out) throws IOException {
         ScriptWrapper wrapper = new ScriptWrapper();
         wrapper.testPlan = tree;
 
@@ -308,11 +334,11 @@ public class SaveService {
             JMXSAVER.toXML(wrapper, out);
         } else {
             // Get the OutputWriter to use
-            try (OutputStreamWriter outputStreamWriter = getOutputStreamWriter(out)) {
-                // Use deprecated method, to avoid duplicating code
-                JMXSAVER.toXML(wrapper, outputStreamWriter);
-                outputStreamWriter.write('\n');// Ensure terminated properly
-            }
+            OutputStreamWriter outputStreamWriter = getOutputStreamWriter(out);
+            // Use deprecated method, to avoid duplicating code
+            JMXSAVER.toXML(wrapper, outputStreamWriter);
+            outputStreamWriter.write('\n');// Ensure terminated properly
+            outputStreamWriter.flush();
         }
     }
 
@@ -432,10 +458,40 @@ public class SaveService {
     public static HashTree loadTree(File file) throws IOException {
         log.info("Loading file: {}", file);
         try (InputStream inputStream = new FileInputStream(file);
-                BufferedInputStream bufferedInputStream =
+            BufferedInputStream bufferedInputStream =
                     new BufferedInputStream(inputStream)){
+            if (hasZipSignature(bufferedInputStream)) {
+                return readTreeFromZip(file);
+            }
             return readTree(bufferedInputStream, file);
         }
+    }
+
+    private static boolean hasZipSignature(BufferedInputStream inputStream) throws IOException {
+        inputStream.mark(4);
+        int first = inputStream.read();
+        int second = inputStream.read();
+        int third = inputStream.read();
+        int fourth = inputStream.read();
+        inputStream.reset();
+        return first == 'P'
+                && second == 'K'
+                && ((third == 3 && fourth == 4)
+                        || (third == 5 && fourth == 6)
+                        || (third == 7 && fourth == 8));
+    }
+
+    private static HashTree readTreeFromZip(File file) throws IOException {
+        try (ZipFile zipFile = new ZipFile(file)) {
+            ZipEntry entry = zipFile.getEntry(TEST_PLAN_ZIP_ENTRY);
+            if (entry != null && !entry.isDirectory()) {
+                try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
+                    return readTree(inputStream, file);
+                }
+            }
+        }
+        throw new IOException("Invalid JMX archive '" + file.getAbsolutePath()
+                + "': required entry '" + TEST_PLAN_ZIP_ENTRY + "' was not found");
     }
 
     /**
