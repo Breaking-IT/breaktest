@@ -24,9 +24,72 @@
 <body>
 <section name="Release Notes">
 <note>
-BreakTest requires Java 21 or later. BreakTest 2026.07.08 is licensed under
+BreakTest requires Java 21 or later. BreakTest 2026.07.10 is licensed under
 the Apache License, Version 2.0.
 </note>
+
+<h1>Version 2026.07.10</h1>
+<p>
+BreakTest 2026.07.10 is a workflow, visualization, and scalability release
+built from the changes since BreakTest 2026.07.08. It adds direct HAR import,
+parallel ForEach execution, a richer View Results listener, and targeted
+runtime and desktop performance improvements.
+</p>
+
+<ch_section>Highlights</ch_section>
+<ul>
+  <li>Added a guided HAR import wizard for <code>.har</code> and <code>.har.gz</code> recordings, with hostname filtering, request grouping, delay options, and automatic test-plan generation.</li>
+  <li>Added optional parallel execution to the ForEach Controller, with configurable maximum concurrency and lazy branch creation for very large collections.</li>
+  <li>Expanded View Results with a table layout, selectable columns, response-time data, request and response sizes, URLs, filtering, and improved status icons.</li>
+  <li>Reduced repeated test-tree traversal by caching parent-controller paths used by loop control actions.</li>
+  <li>Added the HTTP request URL to the Sampler Result text view and made the initial test-plan pane width configurable.</li>
+</ul>
+
+<ch_section>HAR Import</ch_section>
+<ul>
+  <li>Added <b>File &gt; Import HAR...</b> and a matching HAR toolbar action.</li>
+  <li>Added guided steps for selecting a HAR file, choosing hostnames, and configuring import behavior.</li>
+  <li>Added support for ignoring recorded error responses, continuing on error, adding request indexes, detecting dynamic URLs, and splitting transactions using recorded idle gaps.</li>
+  <li>Added recorded, fixed, random, Gaussian, and disabled transaction-delay modes.</li>
+  <li>Generated plans can include Transaction Controllers, Parallel Controllers for concurrent requests, HTTP Request Defaults, Cookie Managers, assertions, shared headers, and request-local headers.</li>
+  <li>Preserved BreakTest HAR metadata so imported requests remain compatible with recorded-HAR inspection and repair workflows.</li>
+  <li>Fixed reference and variable handling in imported requests.</li>
+</ul>
+
+<ch_section>Parallel ForEach and Runtime Performance</ch_section>
+<ul>
+  <li>Added <b>Parallel execution</b> and <b>Maximum parallel executions</b> options to the ForEach Controller.</li>
+  <li>Branches are created only when a concurrency slot becomes available, so very large collections do not prebuild every controller branch.</li>
+  <li>Transaction-controller source mappings are scoped to each active branch and released with that branch, keeping retained execution state proportional to configured parallelism rather than total item count.</li>
+  <li>Preserved branch-local ForEach output values while sharing the surrounding virtual-user context and honoring existing same-user iteration behavior.</li>
+  <li>Added parent-path caching for loop actions that previously traversed the test tree repeatedly after errors or logical loop transitions.</li>
+</ul>
+
+<ch_section>Results and Desktop Experience</ch_section>
+<ul>
+  <li>Added Tree and Table modes to View Results, with table results above the detail pane and the existing tree and detail split retained in Tree mode.</li>
+  <li>Added timestamp, time, latency, connect time, request size, response size, thread group, thread name, label, and URL columns with configurable visibility.</li>
+  <li>Added filtering by thread group, thread name, and sampler label, including a table context-menu action for filtering to a selected thread.</li>
+  <li>Fixed automatic scrolling and filter controls during live table refreshes.</li>
+  <li>Added full-value tooltips for truncated table cells and numeric sorting for timing and size columns.</li>
+  <li>Modernized success and failure icons and added HTTP URLs to the Sampler Result text tab.</li>
+  <li>Set a stable startup width for the test-plan pane, configurable through <code>jmeter.gui.testplan.width</code>.</li>
+</ul>
+
+<ch_section>Benchmarks and Tests</ch_section>
+<ul>
+  <li>Added high-capacity ForEach benchmarks covering active-window memory, representative sample payloads, and parent-mode Transaction Controllers.</li>
+  <li>Added regression tests for lazy branch creation, bounded transaction mapping, branch-local variables, parent transactions, table sorting, filtering, automatic scrolling, URL display, and visualizer layout behavior.</li>
+  <li>Expanded HAR conversion tests across grouping, headers, request bodies, delay modes, hostname filtering, and generated configuration elements.</li>
+</ul>
+
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+  <li>Java 21 or later is still required.</li>
+  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
+  <li>Parallel ForEach execution is opt-in; existing ForEach Controllers remain sequential unless explicitly enabled.</li>
+  <li>This release uses the direct Git tag <code>2026.07.10</code> rather than a <code>rel/...</code> prefix.</li>
+</ul>
 
 <h1>Version 2026.07.08</h1>
 <p>
