@@ -55,6 +55,7 @@ import javax.swing.SwingWorker;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.apache.jmeter.gui.MainFrame;
+import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,14 +79,16 @@ public class HarImportWizard extends JDialog {
         private final HarImportOptions options;
         private final String harName;
         private final String harMd5;
+        private final byte[] harContent;
 
         Result(List<HarEntry> entries, Set<String> selectedHostnames, HarImportOptions options,
-                String harName, String harMd5) {
+                String harName, String harMd5, byte[] harContent) {
             this.entries = entries;
             this.selectedHostnames = selectedHostnames;
             this.options = options;
             this.harName = harName;
             this.harMd5 = harMd5;
+            this.harContent = harContent;
         }
 
         public List<HarEntry> getEntries() {
@@ -106,6 +109,10 @@ public class HarImportWizard extends JDialog {
 
         public String getHarMd5() {
             return harMd5;
+        }
+
+        public byte[] getHarContent() {
+            return harContent;
         }
     }
 
@@ -133,6 +140,7 @@ public class HarImportWizard extends JDialog {
     private List<String> hostnames;
     private String harName;
     private String harMd5;
+    private byte[] harContent;
 
     // Step 2 state
     private final JPanel hostsPanel = new JPanel();
@@ -148,6 +156,11 @@ public class HarImportWizard extends JDialog {
     private final JCheckBox detectDynamicUrls =
             new JCheckBox(JMeterUtils.getResString("har_import_detect_dynamic_urls"), true);
     private final JSpinner idleTime = new JSpinner(new SpinnerNumberModel(4, 0, 3600, 1));
+    private final JComboBox<String> recordingStorageMode = new JComboBox<>(new String[] {
+            JMeterUtils.getResString("har_import_recording_storage_all"),
+            JMeterUtils.getResString("har_import_recording_storage_without_static_bodies"),
+            JMeterUtils.getResString("har_import_recording_storage_without_statics"),
+            JMeterUtils.getResString("har_import_recording_storage_none")});
 
     private final JComboBox<String> delayMode = new JComboBox<>(new String[] {
             JMeterUtils.getResString("har_import_delay_as_recorded"),
@@ -272,7 +285,7 @@ public class HarImportWizard extends JDialog {
             protected HarAnalysis doInBackground() throws IOException {
                 byte[] content = Files.readAllBytes(file.toPath());
                 List<HarEntry> parsed = HarParser.parse(content);
-                return new HarAnalysis(file, parsed, HarConverter.sortedHostnames(parsed), md5(content));
+                return new HarAnalysis(file, parsed, HarConverter.sortedHostnames(parsed), md5(content), content);
             }
 
             @Override
@@ -306,6 +319,7 @@ public class HarImportWizard extends JDialog {
         this.hostnames = analysis.hostnames();
         this.harName = analysis.file().getName();
         this.harMd5 = analysis.md5();
+        this.harContent = analysis.content();
         fileLabel.setText(analysis.file().getName());
         analysisLabel.setText(MessageFormat.format(
                 JMeterUtils.getResString("har_import_analysis"), entries.size(), hostnames.size()));
@@ -320,6 +334,7 @@ public class HarImportWizard extends JDialog {
         this.hostnames = null;
         this.harName = null;
         this.harMd5 = null;
+        this.harContent = null;
         String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
         analysisLabel.setText(MessageFormat.format(
                 JMeterUtils.getResString("har_import_parse_error"), message));
@@ -467,6 +482,7 @@ public class HarImportWizard extends JDialog {
         panel.add(detectDynamicUrls, gbc);
 
         gbc.gridwidth = 1;
+        addLabeledRow(panel, gbc, "har_import_recording_storage", recordingStorageMode);
         addLabeledRow(panel, gbc, "har_import_idle_time", idleTime);
         addLabeledRow(panel, gbc, "har_import_delay", delayMode);
 
@@ -571,6 +587,12 @@ public class HarImportWizard extends JDialog {
         options.setIgnoreErrors(ignoreErrors.isSelected());
         options.setAddIndex(addIndex.isSelected());
         options.setDetectDynamicUrls(detectDynamicUrls.isSelected());
+        options.setRecordingStorageMode(switch (recordingStorageMode.getSelectedIndex()) {
+            case 1 -> RecordingStorageMode.OMIT_STATIC_BODIES;
+            case 2 -> RecordingStorageMode.OMIT_STATICS;
+            case 3 -> RecordingStorageMode.NONE;
+            default -> RecordingStorageMode.ALL;
+        });
         options.setIdleTimeSeconds((Integer) idleTime.getValue());
         options.setDelayMode(switch (delayMode.getSelectedIndex()) {
             case 1 -> HarImportOptions.DelayMode.FIXED;
@@ -584,7 +606,7 @@ public class HarImportWizard extends JDialog {
         options.setDelayMinMs(((Number) delayMin.getValue()).longValue());
         options.setDelayMaxMs(((Number) delayMax.getValue()).longValue());
 
-        result = new Result(entries, selectedHostnames(), options, harName, harMd5);
+        result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
         dispose();
     }
 
@@ -602,6 +624,39 @@ public class HarImportWizard extends JDialog {
         }
     }
 
-    private record HarAnalysis(File file, List<HarEntry> entries, List<String> hostnames, String md5) {
+    private static final class HarAnalysis {
+        private final File file;
+        private final List<HarEntry> entries;
+        private final List<String> hostnames;
+        private final String md5;
+        private final byte[] content;
+
+        private HarAnalysis(File file, List<HarEntry> entries, List<String> hostnames, String md5, byte[] content) {
+            this.file = file;
+            this.entries = entries;
+            this.hostnames = hostnames;
+            this.md5 = md5;
+            this.content = content;
+        }
+
+        private File file() {
+            return file;
+        }
+
+        private List<HarEntry> entries() {
+            return entries;
+        }
+
+        private List<String> hostnames() {
+            return hostnames;
+        }
+
+        private String md5() {
+            return md5;
+        }
+
+        private byte[] content() {
+            return content;
+        }
     }
 }

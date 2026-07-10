@@ -321,22 +321,26 @@ public class Load extends AbstractActionWithNoRunningTest {
         Thread harPreflight = new Thread(() -> {
             try {
                 for (BreakTestHarReference reference : references) {
-                    log.info("BreakTest HAR reference detected in JMX: source='{}', file='{}', expectedMd5='{}'",
+                    log.info("BreakTest recording reference detected in JMX: source='{}', file='{}', checksum='{}'",
                             reference.sourceName(), reference.filename(), reference.expectedMd5());
-                    RecordedHarExchangeResolver.HarFileCheck check = RecordedHarExchangeResolver.checkHarFile(
-                            reference.filename(), reference.expectedMd5(), testPlanFile);
+                    RecordedHarExchangeResolver.HarFileCheck check = reference.nativeStore()
+                            ? RecordedHarExchangeResolver.checkRecordingStore(reference.source(), testPlanFile)
+                            : RecordedHarExchangeResolver.checkHarFile(
+                                    reference.filename(), reference.expectedMd5(), testPlanFile);
                     switch (check.status()) {
                         case FOUND ->
-                            log.info("BreakTest HAR file found and MD5 matched: path='{}', md5='{}'",
+                            log.info("BreakTest recording data found and checksum matched: path='{}', checksum='{}'",
                                     check.harPath(), check.actualMd5());
                         case HAR_FILE_NOT_FOUND ->
-                            log.warn("BreakTest HAR file not found: tried path='{}'",
+                            log.warn("BreakTest recording data not found: tried path='{}'",
                                     check.harPath());
                         case MD5_MISMATCH ->
-                            log.warn("BreakTest HAR file found but MD5 did not match: path='{}', expectedMd5='{}', actualMd5='{}'",
+                            log.warn("BreakTest recording data found but its checksum did not match: "
+                                    + "path='{}', expected='{}', actual='{}'",
                                     check.harPath(), check.expectedMd5(), check.actualMd5());
                         default ->
-                            log.warn("BreakTest HAR reference check failed: source='{}', file='{}', status='{}', detail='{}'",
+                            log.warn("BreakTest recording reference check failed: "
+                                    + "source='{}', file='{}', status='{}', detail='{}'",
                                     reference.sourceName(), reference.filename(), check.status(), check.diagnostic());
                     }
                 }
@@ -359,12 +363,19 @@ public class Load extends AbstractActionWithNoRunningTest {
         for (Object item : tree.list()) {
             TestElement element = testElementFromTreeItem(item);
             if (element != null) {
-                String filename = element.getPropertyAsString(RecordedHarExchangeResolver.HAR_FILENAME);
+                boolean nativeStore = !element.getPropertyAsString(
+                        RecordedHarExchangeResolver.RECORDING_MANIFEST).isEmpty();
+                String filename = nativeStore
+                        ? element.getPropertyAsString(RecordedHarExchangeResolver.RECORDING_MANIFEST)
+                        : element.getPropertyAsString(RecordedHarExchangeResolver.HAR_FILENAME);
                 if (!filename.isEmpty()) {
-                    String expectedMd5 = element.getPropertyAsString(RecordedHarExchangeResolver.HAR_MD5);
+                    String expectedMd5 = nativeStore
+                            ? element.getPropertyAsString(RecordedHarExchangeResolver.RECORDING_CHECKSUM)
+                            : element.getPropertyAsString(RecordedHarExchangeResolver.HAR_MD5);
                     String referenceKey = filename + '\0' + expectedMd5;
                     if (seenReferences.add(referenceKey)) {
-                        references.add(new BreakTestHarReference(element.getName(), filename, expectedMd5));
+                        references.add(new BreakTestHarReference(
+                                element.getName(), filename, expectedMd5, nativeStore, element));
                     }
                 }
             }
@@ -382,7 +393,8 @@ public class Load extends AbstractActionWithNoRunningTest {
         return null;
     }
 
-    record BreakTestHarReference(String sourceName, String filename, String expectedMd5) {
+    record BreakTestHarReference(String sourceName, String filename, String expectedMd5,
+            boolean nativeStore, TestElement source) {
     }
 
     /**

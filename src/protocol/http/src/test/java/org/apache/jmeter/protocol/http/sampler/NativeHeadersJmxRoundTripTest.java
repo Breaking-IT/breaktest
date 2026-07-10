@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +29,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
@@ -123,7 +126,12 @@ public class NativeHeadersJmxRoundTripTest extends JMeterTestCase {
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         SaveService.saveTree(tree, out);
-        String xml = out.toString(StandardCharsets.UTF_8);
+        String xml;
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(out.toByteArray()))) {
+            ZipEntry entry = zip.getNextEntry();
+            assertEquals(SaveService.TEST_PLAN_ZIP_ENTRY, entry.getName());
+            xml = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+        }
 
         assertTrue(xml.contains("HTTPSampler.headers"), "headers should be a sampler property:\n" + xml);
         assertFalse(xml.contains("<HeaderManager"), "no separate HeaderManager element expected:\n" + xml);

@@ -20,6 +20,7 @@ package org.apache.jmeter.save;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -29,18 +30,30 @@ import java.io.Writer;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.ServiceLoader;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollectorHelper;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.NameUpdater;
 import org.apache.jorphan.collections.HashTree;
@@ -80,6 +93,9 @@ public class SaveService {
     // Names of DataHolder entries for JMX processing
     public static final String TEST_CLASS_NAME = "TestClassName"; // $NON-NLS-1$
 
+    /** The required main test plan entry in a compressed JMX file. */
+    public static final String TEST_PLAN_ZIP_ENTRY = "testplan.jmx"; // $NON-NLS-1$
+
     private static final class XStreamWrapper extends XStream {
         private XStreamWrapper(ReflectionProvider reflectionProvider, HierarchicalStreamDriver hierarchicalStreamDriver) {
             super(reflectionProvider, hierarchicalStreamDriver);
@@ -110,6 +126,17 @@ public class SaveService {
                 return alias == null ? super.serializedClass(type) : alias ;
                 }
             };
+        }
+    }
+
+    private static final class NonClosingOutputStream extends FilterOutputStream {
+        private NonClosingOutputStream(OutputStream out) {
+            super(out);
+        }
+
+        @Override
+        public void close() throws IOException {
+            flush();
         }
     }
 
@@ -301,6 +328,43 @@ public class SaveService {
 
     // Called by Save function
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new NonClosingOutputStream(out))) {
+            zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
+            saveTreeAsXml(tree, zipOutputStream);
+            zipOutputStream.closeEntry();
+            writeReferencedArchiveEntries(tree, zipOutputStream);
+        }
+    }
+
+    private static void writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
+            throws IOException {
+        Set<String> writtenEntries = new LinkedHashSet<>();
+        writtenEntries.add(TEST_PLAN_ZIP_ENTRY);
+        for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
+            String entryName = reference.getKey();
+            if (TEST_PLAN_ZIP_ENTRY.equals(entryName)) {
+                log.warn("Ignoring attachment that uses the reserved archive entry name '{}'", entryName);
+                continue;
+            }
+            Optional<Map<String, byte[]>> bundle = JmxArchiveEntryStore.findBundle(
+                    entryName, reference.getValue());
+            if (bundle.isEmpty()) {
+                log.warn("Linked attachment '{}' is not available and will not be embedded in the saved JMX archive",
+                        entryName);
+                continue;
+            }
+            for (Map.Entry<String, byte[]> bundleEntry : bundle.orElseThrow().entrySet()) {
+                if (!writtenEntries.add(bundleEntry.getKey())) {
+                    continue;
+                }
+                zipOutputStream.putNextEntry(new ZipEntry(bundleEntry.getKey()));
+                zipOutputStream.write(bundleEntry.getValue());
+                zipOutputStream.closeEntry();
+            }
+        }
+    }
+
+    private static void saveTreeAsXml(HashTree tree, OutputStream out) throws IOException {
         ScriptWrapper wrapper = new ScriptWrapper();
         wrapper.testPlan = tree;
 
@@ -308,11 +372,11 @@ public class SaveService {
             JMXSAVER.toXML(wrapper, out);
         } else {
             // Get the OutputWriter to use
-            try (OutputStreamWriter outputStreamWriter = getOutputStreamWriter(out)) {
-                // Use deprecated method, to avoid duplicating code
-                JMXSAVER.toXML(wrapper, outputStreamWriter);
-                outputStreamWriter.write('\n');// Ensure terminated properly
-            }
+            OutputStreamWriter outputStreamWriter = getOutputStreamWriter(out);
+            // Use deprecated method, to avoid duplicating code
+            JMXSAVER.toXML(wrapper, outputStreamWriter);
+            outputStreamWriter.write('\n');// Ensure terminated properly
+            outputStreamWriter.flush();
         }
     }
 
@@ -432,10 +496,171 @@ public class SaveService {
     public static HashTree loadTree(File file) throws IOException {
         log.info("Loading file: {}", file);
         try (InputStream inputStream = new FileInputStream(file);
-                BufferedInputStream bufferedInputStream =
+            BufferedInputStream bufferedInputStream =
                     new BufferedInputStream(inputStream)){
-            return readTree(bufferedInputStream, file);
+            if (hasZipSignature(bufferedInputStream)) {
+                HashTree tree = readTreeFromZip(file);
+                cacheReferencedArchiveEntries(tree, file, true);
+                return tree;
+            }
+            HashTree tree = readTree(bufferedInputStream, file);
+            cacheReferencedArchiveEntries(tree, file, false);
+            return tree;
         }
+    }
+
+    private static boolean hasZipSignature(BufferedInputStream inputStream) throws IOException {
+        inputStream.mark(4);
+        int first = inputStream.read();
+        int second = inputStream.read();
+        int third = inputStream.read();
+        int fourth = inputStream.read();
+        inputStream.reset();
+        return first == 'P'
+                && second == 'K'
+                && ((third == 3 && fourth == 4)
+                        || (third == 5 && fourth == 6)
+                        || (third == 7 && fourth == 8));
+    }
+
+    private static HashTree readTreeFromZip(File file) throws IOException {
+        try (ZipFile zipFile = new ZipFile(file)) {
+            ZipEntry entry = zipFile.getEntry(TEST_PLAN_ZIP_ENTRY);
+            if (entry != null && !entry.isDirectory()) {
+                try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
+                    return readTree(inputStream, file);
+                }
+            }
+        }
+        throw new IOException("Invalid JMX archive '" + file.getAbsolutePath()
+                + "': required entry '" + TEST_PLAN_ZIP_ENTRY + "' was not found");
+    }
+
+    /**
+     * Reads one exact entry from a compressed JMX archive without extracting it.
+     *
+     * @param file JMX archive
+     * @param entryName exact relative entry name
+     * @return entry bytes, or empty when the file is legacy XML or the entry is absent
+     * @throws IOException when a ZIP entry cannot be read
+     */
+    public static Optional<byte[]> readArchiveEntry(File file, String entryName) throws IOException {
+        if (file == null || !file.isFile() || !JmxArchiveEntryStore.isSafeEntryName(entryName)) {
+            return Optional.empty();
+        }
+        try (ZipFile zipFile = new ZipFile(file)) {
+            ZipEntry entry = zipFile.getEntry(entryName);
+            if (entry == null || entry.isDirectory()) {
+                return Optional.empty();
+            }
+            try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
+                return Optional.of(inputStream.readAllBytes());
+            }
+        } catch (ZipException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static void cacheReferencedArchiveEntries(HashTree tree, File testPlanFile, boolean archive) {
+        for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
+            try {
+                if (archive && RecordedExchangeStore.isManifestEntry(reference.getKey())) {
+                    Map<String, byte[]> bundle = readRecordingBundle(testPlanFile, reference.getKey());
+                    JmxArchiveEntryStore.registerBundle(reference.getKey(), reference.getValue(), bundle);
+                } else {
+                    Optional<byte[]> content;
+                    if (archive) {
+                        content = readArchiveEntry(testPlanFile, reference.getKey());
+                    } else {
+                        Path baseDirectory = testPlanFile.toPath().toAbsolutePath().getParent();
+                        if (baseDirectory == null) {
+                            baseDirectory = Path.of(".").toAbsolutePath(); // $NON-NLS-1$
+                        }
+                        Path attachmentPath = baseDirectory.resolve(reference.getKey()).normalize();
+                        content = Files.isRegularFile(attachmentPath)
+                                ? Optional.of(Files.readAllBytes(attachmentPath))
+                                : Optional.empty();
+                    }
+                    content.ifPresent(bytes -> JmxArchiveEntryStore.register(
+                            reference.getKey(), reference.getValue(), bytes));
+                }
+            } catch (IOException | RuntimeException e) {
+                log.warn("Unable to cache linked archive attachment '{}' while loading {}",
+                        reference.getKey(), testPlanFile, e);
+            }
+        }
+    }
+
+    private static Map<String, byte[]> readRecordingBundle(File testPlanFile, String manifestEntryName)
+            throws IOException {
+        try (ZipFile zipFile = new ZipFile(testPlanFile)) {
+            byte[] manifest = readZipEntry(zipFile, manifestEntryName)
+                    .orElseThrow(() -> new IOException(
+                            "Recording manifest was not found: " + manifestEntryName)); // $NON-NLS-1$
+            Set<String> dependencies = RecordedExchangeStore.referencedEntryNames(
+                    manifest, entryName -> readZipEntry(zipFile, entryName));
+            Map<String, byte[]> bundle = new LinkedHashMap<>();
+            bundle.put(manifestEntryName, manifest);
+            for (String dependency : dependencies) {
+                bundle.put(dependency, readZipEntry(zipFile, dependency)
+                        .orElseThrow(() -> new IOException(
+                                "Recording archive entry was not found: " + dependency))); // $NON-NLS-1$
+            }
+            return bundle;
+        }
+    }
+
+    private static Optional<byte[]> readZipEntry(ZipFile zipFile, String entryName) throws IOException {
+        if (!JmxArchiveEntryStore.isSafeEntryName(entryName)) {
+            return Optional.empty();
+        }
+        ZipEntry entry = zipFile.getEntry(entryName);
+        if (entry == null || entry.isDirectory()) {
+            return Optional.empty();
+        }
+        try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
+            return Optional.of(inputStream.readAllBytes());
+        }
+    }
+
+    private static Map<String, String> collectArchiveReferences(HashTree tree) {
+        Map<String, String> references = new LinkedHashMap<>();
+        collectArchiveReferences(tree, references);
+        return references;
+    }
+
+    private static void collectArchiveReferences(HashTree tree, Map<String, String> references) {
+        if (tree == null) {
+            return;
+        }
+        for (Object item : tree.list()) {
+            if (item instanceof TestElement element) {
+                collectArchiveReference(element, references,
+                        JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, JmxArchiveEntryStore.HAR_MD5_PROPERTY);
+                collectArchiveReference(element, references,
+                        RecordedExchangeStore.MANIFEST_PROPERTY, RecordedExchangeStore.CHECKSUM_PROPERTY);
+            }
+            collectArchiveReferences(tree.getTree(item), references);
+        }
+    }
+
+    private static void collectArchiveReference(TestElement element, Map<String, String> references,
+            String entryProperty, String checksumProperty) {
+        String entryName = element.getPropertyAsString(entryProperty);
+        if (entryName.isEmpty() || !JmxArchiveEntryStore.isSafeEntryName(entryName)) {
+            return;
+        }
+        String checksum = element.getPropertyAsString(checksumProperty);
+        references.merge(entryName, checksum, (current, candidate) -> {
+            if (current.isEmpty()) {
+                return candidate;
+            }
+            if (!candidate.isEmpty() && !current.equalsIgnoreCase(candidate)) {
+                log.warn("Conflicting checksums found for archive entry '{}': '{}' and '{}'",
+                        entryName, current, candidate);
+            }
+            return current;
+        });
     }
 
     /**

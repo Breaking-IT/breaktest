@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.protocol.http.har;
 
+import org.apache.jmeter.recording.RecordingStorageMode;
+
 /**
  * Conversion options for the HAR import wizard. The transaction delay options
  * mirror the BreakTest Transaction Controller's delay modes.
@@ -41,6 +43,7 @@ public class HarImportOptions {
     private boolean ignoreErrors = true;
     private boolean addIndex = false;
     private boolean detectDynamicUrls = true;
+    private RecordingStorageMode recordingStorageMode = RecordingStorageMode.ALL;
 
     /** New transaction is started when idle gap exceeds this many seconds. */
     private int idleTimeSeconds = 4;
@@ -94,6 +97,14 @@ public class HarImportOptions {
 
     public void setDetectDynamicUrls(boolean detectDynamicUrls) {
         this.detectDynamicUrls = detectDynamicUrls;
+    }
+
+    public RecordingStorageMode getRecordingStorageMode() {
+        return recordingStorageMode;
+    }
+
+    public void setRecordingStorageMode(RecordingStorageMode recordingStorageMode) {
+        this.recordingStorageMode = recordingStorageMode;
     }
 
     public int getIdleTimeSeconds() {

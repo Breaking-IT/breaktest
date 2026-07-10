@@ -34,6 +34,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessin
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.locale.LocalizedValue;
 import org.apache.jorphan.locale.ResourceKeyed;
 import org.junit.jupiter.api.Assertions;
@@ -146,7 +147,20 @@ public class TestHttpTestSampleGui {
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
         Assertions.assertTrue(recordedRequestData().getText().contains(
-                tempDir.resolve("missing.har").toAbsolutePath().normalize().toString()));
+                tempDir.resolve("plan.jmx").toAbsolutePath().normalize() + "!/missing.har"));
+    }
+
+    @Test
+    public void testRecordedTabsExplainHowToStoreReplayWhenNoRecordingIsLinked() throws Exception {
+        HTTPSamplerBase sampler = (HTTPSamplerBase) gui.createTestElement();
+
+        gui.configure(sampler);
+
+        String hint = JMeterUtils.getResString("http_sampler_recorded_replay_hint");
+        Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
+        Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
+        Assertions.assertEquals(hint, recordedRequestData().getText());
+        Assertions.assertEquals(hint, recordedResponseData().getText());
     }
 
     @SuppressWarnings("unchecked")
@@ -171,6 +185,12 @@ public class TestHttpTestSampleGui {
 
     private JSyntaxTextArea recordedRequestData() throws Exception {
         Field field = HttpTestSampleGui.class.getDeclaredField("recordedRequestData");
+        field.setAccessible(true);
+        return (JSyntaxTextArea) field.get(gui);
+    }
+
+    private JSyntaxTextArea recordedResponseData() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("recordedResponseData");
         field.setAccessible(true);
         return (JSyntaxTextArea) field.get(gui);
     }

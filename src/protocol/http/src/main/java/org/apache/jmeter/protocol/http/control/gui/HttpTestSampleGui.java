@@ -336,12 +336,19 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         recordedHarElement = element;
         recordedHarResolution = RecordedHarExchangeResolver.checkLinkFor(element);
         recordedHarExchangeLoaded = false;
-        recordedRequestData.setText(recordedHarResolution.requestText());
+        String requestText = recordedHarResolution.requestText();
+        String responseText = recordedHarResolution.responseText();
+        if (recordedHarResolution.status() == RecordedHarExchangeResolver.Status.NOT_LINKED) {
+            String hint = JMeterUtils.getResString("http_sampler_recorded_replay_hint"); // $NON-NLS-1$
+            requestText = hint;
+            responseText = hint;
+        }
+        recordedRequestData.setText(requestText);
         recordedRequestData.setCaretPosition(0);
-        recordedResponseData.setText(recordedHarResolution.responseText());
+        recordedResponseData.setText(responseText);
         recordedResponseData.setCaretPosition(0);
 
-        if (recordedHarResolution.shouldShowTabs()) {
+        if (!isAJP || recordedHarResolution.shouldShowTabs()) {
             if (configTabbedPane.indexOfTab(RECORDED_REQUEST_TAB) < 0) {
                 configTabbedPane.addTab(RECORDED_REQUEST_TAB, recordedRequestPane);
             }

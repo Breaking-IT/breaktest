@@ -41,6 +41,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
+import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
@@ -86,6 +87,25 @@ class LoadTest {
         assertEquals("Thread Group", references.get(0).sourceName());
         assertEquals("recording.har", references.get(0).filename());
         assertEquals("0123456789abcdef0123456789abcdef", references.get(0).expectedMd5());
+    }
+
+    @Test
+    void collectBreakTestHarReferencesReadsNativeRecordingMetadata() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Thread Group");
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY,
+                "recordings/manifests/recording.json");
+        threadGroup.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "sha256-checksum");
+
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(threadGroup);
+
+        List<Load.BreakTestHarReference> references = Load.collectBreakTestHarReferences(tree);
+
+        assertEquals(1, references.size());
+        assertTrue(references.get(0).nativeStore());
+        assertEquals("recordings/manifests/recording.json", references.get(0).filename());
+        assertEquals("sha256-checksum", references.get(0).expectedMd5());
     }
 
     @Test

@@ -1005,16 +1005,25 @@ public abstract class SamplerResultTab implements ResultRenderer {
         }
     }
 
-    private static final class WrappingTableCellRenderer extends JTextArea implements TableCellRenderer {
+    static final class WrappingTableCellRenderer extends JTextArea implements TableCellRenderer {
         private static final long serialVersionUID = 1L;
 
-        private WrappingTableCellRenderer() {
+        WrappingTableCellRenderer() {
             setLineWrap(true);
             setWrapStyleWord(false);
             setOpaque(true);
             setMargin(new Insets(0, 3, 0, 3));
             setAlignmentX(LEFT_ALIGNMENT);
             setAlignmentY(TOP_ALIGNMENT);
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            // A renderer changes its text for every painted cell. The global
+            // kerning listener reacts to those changes by scheduling font
+            // updates, which causes another table repaint and can loop forever.
+            KerningOptimizer.INSTANCE.uninstallKerningListener(this);
         }
 
         @Override

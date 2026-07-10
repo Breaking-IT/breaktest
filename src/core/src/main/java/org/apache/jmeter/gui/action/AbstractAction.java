@@ -75,7 +75,8 @@ public abstract class AbstractAction implements Command {
                     JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION) {
                 ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SAVE));
             }
-        } else if (GuiPackage.getInstance().shouldSaveBeforeRun()) {
+        } else if (GuiPackage.getInstance().shouldSaveBeforeRun()
+                && GuiPackage.getInstance().hasUnsavedChanges()) {
             ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SAVE));
         }
     }
