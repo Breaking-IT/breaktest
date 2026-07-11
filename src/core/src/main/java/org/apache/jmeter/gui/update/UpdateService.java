@@ -20,6 +20,7 @@ package org.apache.jmeter.gui.update;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigInteger;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -74,6 +75,7 @@ public final class UpdateService {
             Pattern.compile("(?i)^([0-9a-f]{128})\\s+\\*?(.+?)\\s*$");
     private static final Pattern SAFE_VERSION = Pattern.compile("[0-9A-Za-z][0-9A-Za-z._-]{0,63}");
     private static final Pattern VERSION_NUMBER = Pattern.compile("\\d+");
+    private static final Pattern QUALIFIER_CHUNK = Pattern.compile("\\d+|\\D+");
 
     private final HttpClient httpClient;
     private final URI releaseApi;
@@ -95,7 +97,7 @@ public final class UpdateService {
                 URI.create(JMeterUtils.getPropDefault("breaktest.update.api_url", DEFAULT_RELEASE_API.toString())),
                 JMeterUtils.getJMeterVersion(),
                 Preferences.userNodeForPackage(UpdateService.class),
-                Duration.ofHours(Math.max(1, JMeterUtils.getPropDefault("breaktest.update.interval_hours", 24))),
+                Duration.ofHours(Math.max(1, JMeterUtils.getPropDefault("breaktest.update.interval_hours", 6))),
                 UpdateService::isGuiMode);
     }
 
@@ -130,15 +132,19 @@ public final class UpdateService {
         }
     }
 
-    /** Starts a delayed check and then checks no more often than the configured interval. */
+    /** Checks immediately at startup and then repeats every configured interval. */
     @SuppressWarnings("FutureReturnValueIgnored")
     public void startAutomaticChecks() {
         if (!guiMode.getAsBoolean() || !JMeterUtils.getPropDefault("breaktest.update.enabled", true)
                 || !automaticChecksStarted.compareAndSet(false, true)) {
             return;
         }
-        executor.scheduleWithFixedDelay(this::automaticCheck, 5,
-                Math.max(1, checkInterval.toHours()), TimeUnit.HOURS);
+        // The startup check is not throttled by the persisted timestamp: every fresh GUI
+        // session should learn about an available update right away.
+        executor.execute(this::checkQuietly);
+        long intervalMillis = Math.max(TimeUnit.SECONDS.toMillis(1), checkInterval.toMillis());
+        executor.scheduleWithFixedDelay(this::automaticCheck, intervalMillis, intervalMillis,
+                TimeUnit.MILLISECONDS);
     }
 
     public CompletableFuture<Optional<ReleaseInfo>> checkNow() {
@@ -160,10 +166,18 @@ public final class UpdateService {
     }
 
     private void automaticCheck() {
+        // Skip when another BreakTest instance sharing these preferences checked recently.
+        // Half the interval as threshold: a tick of this instance always lands ~interval after
+        // its own last check (never skipped), while ticks of concurrently running instances
+        // are still deduplicated.
         long elapsed = System.currentTimeMillis() - preferences.getLong(LAST_CHECK_KEY, 0);
-        if (elapsed < checkInterval.toMillis()) {
+        if (elapsed < checkInterval.toMillis() / 2) {
             return;
         }
+        checkQuietly();
+    }
+
+    private void checkQuietly() {
         try {
             checkForUpdate();
         } catch (Exception e) {
@@ -211,11 +225,14 @@ public final class UpdateService {
         ReleaseInfo.Asset archive = null;
         ReleaseInfo.Asset checksum = null;
         for (JsonNode assetNode : root.path("assets")) {
-            ReleaseInfo.Asset asset = parseAsset(assetNode);
-            if (archiveName.equals(asset.name())) {
-                archive = asset;
-            } else if (checksumName.equals(asset.name())) {
-                checksum = asset;
+            // Only the expected binary ZIP and its checksum are parsed and validated; any
+            // other asset attached to the release (sources, signatures, externally hosted
+            // files) must not break the update check.
+            String name = assetNode.path("name").asText("");
+            if (archiveName.equals(name)) {
+                archive = parseAsset(assetNode, name);
+            } else if (checksumName.equals(name)) {
+                checksum = parseAsset(assetNode, name);
             }
         }
         if (archive == null || checksum == null) {
@@ -232,11 +249,10 @@ public final class UpdateService {
         return Optional.of(new ReleaseInfo(version, page, archive, checksum));
     }
 
-    private static ReleaseInfo.Asset parseAsset(JsonNode asset) throws IOException {
-        String name = asset.path("name").asText("");
+    private static ReleaseInfo.Asset parseAsset(JsonNode asset, String name) throws IOException {
         String url = asset.path("browser_download_url").asText("");
-        if (name.isBlank() || url.isBlank()) {
-            throw new IOException("Release contains an incomplete asset");
+        if (url.isBlank()) {
+            throw new IOException("Release asset " + name + " has no download URL");
         }
         try {
             URI downloadUri = URI.create(url);
@@ -262,7 +278,40 @@ public final class UpdateService {
         if (leftValue.qualifier().isBlank() != rightValue.qualifier().isBlank()) {
             return leftValue.qualifier().isBlank() ? 1 : -1;
         }
-        return leftValue.qualifier().compareTo(rightValue.qualifier());
+        return compareQualifiers(leftValue.qualifier(), rightValue.qualifier());
+    }
+
+    /** Compares digit runs numerically so {@code rc10} sorts after {@code rc2}. */
+    private static int compareQualifiers(String left, String right) {
+        Matcher leftChunks = QUALIFIER_CHUNK.matcher(left);
+        Matcher rightChunks = QUALIFIER_CHUNK.matcher(right);
+        while (true) {
+            boolean leftHasChunk = leftChunks.find();
+            boolean rightHasChunk = rightChunks.find();
+            if (!leftHasChunk || !rightHasChunk) {
+                return Boolean.compare(leftHasChunk, rightHasChunk);
+            }
+            String leftChunk = leftChunks.group();
+            String rightChunk = rightChunks.group();
+            int result;
+            if (isDigits(leftChunk) && isDigits(rightChunk)) {
+                result = new BigInteger(leftChunk).compareTo(new BigInteger(rightChunk));
+            } else {
+                result = leftChunk.compareTo(rightChunk);
+            }
+            if (result != 0) {
+                return result;
+            }
+        }
+    }
+
+    private static boolean isDigits(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static VersionValue versionValue(String version) {
