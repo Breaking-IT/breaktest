@@ -15,6 +15,130 @@ specific language governing permissions and limitations under the License.
 
 # BreakTest Release Notes
 
+## BreakTest 2026.07.11
+
+BreakTest 2026.07.11 is a test-plan portability, parallel-runtime stability,
+and AI Repair reliability release built from the changes since BreakTest
+2026.07.10. It introduces compressed JMX archives that can carry recorded
+request and response evidence, fixes concurrency hazards in parallel and forked
+execution, and makes automated GUI repair safer and recoverable.
+
+### Highlights
+
+- Saves `.jmx` plans as compressed ZIP archives while continuing to load
+  legacy XML JMX files.
+- Embeds filtered HAR or replay recordings with the test plan so recorded
+  evidence remains available after the plan is moved or reopened.
+- Adds recording-retention choices for all traffic, omitted static bodies,
+  omitted static resources, or no embedded recording.
+- Adds **Store Replay** to View Results so the latest replayed requests and
+  responses can become the plan's current recording evidence.
+- Isolates mutable sampler and engine state between parallel ForEach and Fork
+  workers, eliminating timing-dependent configuration and status races.
+- Fixes GUI update checks so they run immediately at startup, repeat every six
+  hours by default, and tolerate unrelated release assets.
+- Hardens AI Repair with conflict-aware native Regex Extractor planning,
+  atomic rollback, safe live-tree deletion, backup restoration, and explicit
+  blocked completion reporting.
+
+### Compressed JMX Archives And Recordings
+
+- Newly saved JMX plans contain the XML test plan and referenced attachments
+  in one compressed archive, while retaining the `.jmx` filename extension.
+- Loading detects ZIP-backed plans automatically and retains support for
+  existing plain-XML JMX files.
+- Imported HAR recordings are filtered to the generated samplers and stored in
+  a native manifest with request and response bodies externalized as deduplicated
+  archive entries.
+- Recording references and checksums are retained on HTTP samplers, including
+  after GUI edits and save/load round trips.
+- Archive entry names, linked content, and required recording dependencies are
+  validated without extracting files to the filesystem.
+- Test validation no longer rewrites the open archive, and GUI saves show an
+  activity overlay while the archive is assembled.
+
+### Replay And Recorded Evidence
+
+- View Results can store the latest replayed sample for every resolved sampler
+  as a replacement recording bundle.
+- Replay storage supports the same four retention levels as HAR import.
+- Recorded request and response data remains available to Sampler Result and
+  recorded-HAR comparison views after reopening a plan.
+- Sampler lookup now resolves nodes consistently across ordinary controllers
+  and Test Fragments when replay results are associated with the plan tree.
+
+### Parallel And Fork Runtime Stability
+
+- Parallel ForEach branches now clone child samplers as well as controllers,
+  preventing siblings from racing while merged configuration is applied and
+  recovered.
+- Compiled sample packages resolve cloned samplers back to their source across
+  nested parallel sections, including clone-of-clone cases.
+- Worker-local variables isolate `LAST_SAMPLE_OK` and transaction package state
+  while other virtual-user variables remain shared for intentional branch
+  communication.
+- The parent worker now receives a deterministic all-branches success result
+  instead of whichever branch wrote its status last.
+- Fork workers no longer overwrite the main virtual user's transaction state
+  or notify the wrong transaction listeners.
+- Parent-mode Transaction Controllers in parallel or forked branches retain a
+  source-controller chain, preventing swallowed package-reset errors when
+  sibling or nested clones interleave.
+
+### GUI Update Reliability
+
+- Automatic update checks now run immediately at GUI startup and then repeat at
+  `breaktest.update.interval_hours`, whose default is now six hours.
+- Persisted check timestamps only deduplicate concurrently running instances
+  instead of suppressing expected periodic checks.
+- Numeric qualifier segments compare correctly, so for example `rc10` sorts
+  after `rc2`.
+- Release parsing strictly validates the expected binary ZIP and checksum but
+  ignores unrelated or malformed extra assets.
+- Corrected the documented settings to `breaktest.update.enabled` and
+  `breaktest.update.interval_hours`.
+
+### AI Repair Safety And Recovery
+
+- Repair planning deduplicates conflicting dynamic literals, including encoded
+  variants, and emits native Regex Extractor actions only when the recorded
+  evidence supports a safe pattern.
+- Regex planning now handles quoted token values without producing unsupported
+  extractor forms or duplicate replacements.
+- Applying a repair batch is transactional: failed actions are rolled back
+  through GUI undo, with the pre-run backup used when tree integrity cannot be
+  preserved.
+- Added `restore_open_plan_from_backup` for explicit recovery after a reported
+  live-tree integrity failure.
+- Live node deletion now validates exact membership and match counts, rejects
+  protected container deletion, and suppresses unsafe selection side effects.
+- Stale node IDs fall back to stable paths after undo or reload, avoiding edits
+  against invalid GUI tree references.
+- GUI refresh is null-safe, bridge failures retain full stack diagnostics, and
+  incomplete repair runs must report `Status: blocked` rather than appearing
+  successful.
+
+### Tests
+
+- Added archive save/load, attachment, recording-filter, replay, sampler
+  resolution, and GUI lifecycle regression coverage.
+- Added parallel sampler-isolation, worker-local status, Fork transaction
+  state, nested clone resolution, and parent-transaction reset coverage.
+- Added update scheduling, qualifier comparison, and extra-asset parsing
+  coverage.
+- Added AI Repair regression tests for conflicting literals, quoted-token
+  regexes, rollback status, safe deletion, orphan extractors, stale tree state,
+  and null-safe refresh.
+
+### Compatibility Notes
+
+- Java 21 or later is still required.
+- Legacy plain-XML JMX plans continue to load, but newly saved compressed JMX
+  archives require a BreakTest version that understands the archive format.
+- Existing JMeter-compatible test-plan elements remain supported where
+  practical; embedded recordings are a BreakTest extension.
+- This release uses the direct Git tag `2026.07.11`.
+
 ## BreakTest 2026.07.10
 
 BreakTest 2026.07.10 is a workflow, visualization, and scalability release
