@@ -24,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -43,6 +45,11 @@ import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 
 class TestForeachController extends JMeterTestCase {
@@ -181,10 +188,41 @@ class TestForeachController extends JMeterTestCase {
         thread.setThreadName("parallel-foreach-transaction-thread");
         thread.setThreadGroup(threadGroup);
         thread.putVariables(variables);
-        thread.run();
+        List<String> errors = runCapturingThreadErrors(thread);
 
         assertTrue(completed.await(5, TimeUnit.SECONDS), "Every transaction child should run");
         assertEquals(Set.of("one", "two", "three"), sampler.values);
+        assertEquals(List.of(), errors,
+                "Ending a parallel transaction must reset its compiled sample package without errors");
+    }
+
+    /**
+     * Runs the thread while recording every error {@link JMeterThread} logs, since sampler
+     * processing failures (e.g. a failed transaction package reset) are logged and swallowed
+     * rather than propagated.
+     */
+    private static List<String> runCapturingThreadErrors(JMeterThread thread) {
+        List<String> errors = new CopyOnWriteArrayList<>();
+        AbstractAppender appender = new AbstractAppender(
+                "test-jmeter-thread-errors", null, null, false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel().isMoreSpecificThan(Level.ERROR)) {
+                    errors.add(event.getMessage().getFormattedMessage() + ": " + event.getThrown());
+                }
+            }
+        };
+        appender.start();
+        org.apache.logging.log4j.core.Logger logger =
+                (org.apache.logging.log4j.core.Logger) LogManager.getLogger(JMeterThread.class);
+        logger.addAppender(appender);
+        try {
+            thread.run();
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+        return errors;
     }
 
     @Test

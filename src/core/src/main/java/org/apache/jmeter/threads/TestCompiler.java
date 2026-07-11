@@ -117,15 +117,32 @@ public class TestCompiler implements HashTreeTraverser {
     public SamplePackage configureTransactionSampler(TransactionSampler transactionSampler,
             Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
         TransactionController controller = transactionSampler.getTransactionController();
-        SamplePackage pack = transactionControllerConfigMap.get(controller);
-        if (pack == null) {
-            pack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
-        }
+        SamplePackage pack = findTransactionControllerPackage(controller, sourceControllerResolver);
         if (pack == null) {
             throw new IllegalStateException(
                     "Unable to find compiled sample package for transaction controller " + controller.getName());
         }
         pack.setSampler(transactionSampler);
+        return pack;
+    }
+
+    /**
+     * Finds the compiled package for a transaction controller that may be a per-branch clone made
+     * for parallel or fork execution. The resolver only knows the clones of the branch currently
+     * executing, but the shared package can hold a sampler from a sibling branch (both branches
+     * configure the same source package concurrently), so as a last resort walk the clone's own
+     * source-controller chain up to the controller in the compiled tree.
+     */
+    private SamplePackage findTransactionControllerPackage(TransactionController controller,
+            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
+        SamplePackage pack = transactionControllerConfigMap.get(controller);
+        if (pack == null) {
+            pack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
+        }
+        TransactionController source = controller;
+        while (pack == null && (source = source.getSourceController()) != null) {
+            pack = transactionControllerConfigMap.get(source);
+        }
         return pack;
     }
 
@@ -151,10 +168,7 @@ public class TestCompiler implements HashTreeTraverser {
             if (transactionSampler.isTransactionDone()) {
                 // Create new sampler for next iteration
                 TransactionSampler newSampler = new TransactionSampler(controller, transactionSampler.getName());
-                SamplePackage newPack = transactionControllerConfigMap.get(controller);
-                if (newPack == null) {
-                    newPack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
-                }
+                SamplePackage newPack = findTransactionControllerPackage(controller, sourceControllerResolver);
                 if (newPack == null) {
                     throw new IllegalStateException(
                             "Unable to reset compiled sample package for transaction controller "

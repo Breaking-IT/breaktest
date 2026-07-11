@@ -90,6 +90,7 @@ public class ForkController extends GenericController implements Serializable {
         if (clone instanceof TransactionController forkTransactionController
                 && controller instanceof TransactionController sourceTransactionController) {
             sourceTransactionControllers.put(forkTransactionController, sourceTransactionController);
+            forkTransactionController.setSourceController(sourceTransactionController);
         }
         for (TestElement nestedChild : controller.getSubControllers()) {
             addForkChild(clone, nestedChild, sourceTransactionControllers);
