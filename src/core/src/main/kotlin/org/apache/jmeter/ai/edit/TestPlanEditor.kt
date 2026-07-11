@@ -121,13 +121,13 @@ public class TestPlanEditor {
         val samplers = findSamplerNodes(tree)
         val source = selectSampler(samplers, request.sourceSamplerIndex, request.sourceSamplerLabel, "source")
         val target = selectSampler(samplers, request.targetSamplerIndex, request.targetSamplerLabel, "target")
-        val extractor = createBoundaryExtractor(request)
-        source.subTree.add(extractor)
         val variableReference = "\${${request.variableName}}"
         val replacements = replaceLiteral(target.element, target.subTree, request.literal, variableReference)
         require(replacements > 0) {
             "Literal '${request.literal}' was not found under target sampler '${target.element.name}'"
         }
+        val extractor = createBoundaryExtractor(request)
+        source.subTree.add(extractor)
         return TestPlanEditResult(
             sourceSamplerLabel = source.element.name.orEmpty(),
             targetSamplerLabel = target.element.name.orEmpty(),

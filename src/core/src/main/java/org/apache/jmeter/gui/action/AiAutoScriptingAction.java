@@ -205,16 +205,16 @@ public class AiAutoScriptingAction extends AbstractAction {
                 boolean endedWithoutChanges = request.editSurface() == AiEditSurface.LIVE_GUI
                         && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR
                         && AiAutoScriptingLogWindow.changes().isEmpty();
-                if (endedWithoutChanges) {
+                if (output.hasRepairBlocker()) {
+                    postActivity("AI Auto Scripting finished with blockers.");
+                    AiAutoScriptingLogWindow.finishRun("Finished with blockers");
+                } else if (endedWithoutChanges) {
                     // Weaker models sometimes reply with plain text mid-run; non-interactive
                     // CLIs (codex exec, opencode run) then exit 0 with nothing done.
                     postActivity("AI Auto Scripting ended without making any changes. "
                             + "The agent likely stopped early (a plain reply without a tool call ends the run); "
                             + "try again or use a stronger model/reasoning setting.");
                     AiAutoScriptingLogWindow.finishRun("Ended without changes");
-                } else if (output.hasRepairBlocker()) {
-                    postActivity("AI Auto Scripting finished with blockers.");
-                    AiAutoScriptingLogWindow.finishRun("Finished with blockers");
                 } else {
                     postActivity("AI Auto Scripting finished successfully.");
                     AiAutoScriptingLogWindow.finishRun("Finished successfully");
@@ -484,7 +484,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 - First call `{{BRIDGE}} agent_activity '{"level":"info","message":"Starting AI Auto Scripting"}'` so progress is visible in the BreakTest AI Auto Scripting window, and keep posting concise progress (validations, edits, blockers, audits). Do not echo prompts, code, full XML, or long tool payloads into progress or final text.
                 - A GUI backup was created before this run; use it only as a rollback safety net. Keep the open plan as the live edit surface so changes stay visible in the GUI. Do not start a separate MCP server; when native MCP tools are unavailable use the supported bridge command: `{{BRIDGE}} <tool-name> '<json-arguments>'`. Call `{{BRIDGE}} tools` once before the first edit and read only the schemas you need; do not probe tools with dummy or missing-argument calls, and do not search the filesystem for a different bridge unless this exact command fails.
                 - Scope every step to exactly one Thread Group path: `%s`. Pass threadGroupName or scopeNodePath on validation, search, replace, correlation, and audit calls so identically named transactions/samplers in other Thread Groups are never touched. Do not repair, validate, or edit other Thread Groups unless the selected one depends on a shared test-plan-level config element.
-                - If a live edit tool fails, report it with agent_activity and continue with other safe GUI-backed edits.
+                - If a live edit tool fails, read its rollback fields before continuing. Failed planner actions are rolled back automatically. If an integrity failure says the pre-run backup was restored, stop using stale node IDs, re-inspect once, and continue only when the selected Thread Group is present. Use restore_open_plan_from_backup only when the bridge reports a live-tree integrity failure that was not already restored automatically; never use it as an ordinary retry mechanism.
 
                 Targeting (prevents wrong-node edits):
                 - Prefer stable node IDs. find_open_plan_nodes and every edit result return nodeId values that keep pointing at the same GUI node even after add/move/delete edits; pass sourceNodeId/targetNodeId to edit tools whenever available. Node paths are the fallback; flat sampler indexes drift after structural edits, so never reuse an index captured before an add/move/delete.
@@ -495,7 +495,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 - Peek BreakTest AI Knowledge with get_ai_knowledge_open_plan createIfMissing=false. If non-default knowledge exists, post a concise agent_activity with nodePath, knowledgeNodeCount, and isDefaultKnowledge, then treat it as mandatory context: reuse confirmed correlations, variables, timestamps, and dependencies, and never repeat an approach it records as a confirmed limitation. If knowledge is missing/default, continue from runtime evidence and create it only at the end.
 
                 Evidence and planning:
-                - If linked HAR evidence is available, aim to one-shot the repair before the first validation: call plan_repair_actions_open_plan with threadGroupName="%s", includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, includeApplyArguments=false. The planner already resolves each value's source (response body vs headers), request order, and encoding variants (sourceEncodingVariant=true means the issuing response holds a differently encoded form). Apply all selected high-confidence actions in one apply_repair_actions_open_plan(snapshotId, actionIds) call, then run a single bounded validation to confirm; fall back to get_repair_actions_open_plan plus manual edits only when an action needs changes before applying. If no HAR is linked, run one bounded compact validation first and work from its analysis instead.
+                - If linked HAR evidence is available, aim to one-shot the repair before the first validation: call plan_repair_actions_open_plan with threadGroupName="%s", includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, includeApplyArguments=false. The planner already resolves each value's source (response body vs headers), request order, encoding variants, and conflicting literals; it emits only native Regex Extractor correlations. Apply the selected high-confidence actions in one apply_repair_actions_open_plan(snapshotId, actionIds) call, inspect any skipped_conflict/rolledBack results, then run a single bounded validation to confirm. Fall back to get_repair_actions_open_plan plus manual edits only when an action needs changes before applying. If no HAR is linked, run one bounded compact validation first and work from its analysis instead.
                 - Validate with validate_open_plan using scopeNodePath set to the selected Thread Group path, compact=true, stopOnFirstFailure, maxSamples, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500. Compact results carry full request/response evidence only for the first failure and the samples just before it; samples whose outcome is unchanged from the previous run collapse to one-line unchanged entries, and green runs return light responseBodyPreview entries. For any snippet you need afterwards (assertion markers, correlation sources), use search_validated_response_open_plan against the cached last run instead of re-validating; do not rerun validation just to reshape evidence, and do not call inspect_open_plan repeatedly for the same failure. Use search_recorded_har_open_plan / get_recorded_har_exchange_open_plan / audit_recorded_har_correlations_open_plan only for targeted follow-up evidence.
                 - Encoding: validation request evidence shows URL/HTML-encoded data (@ appears as %%40) while the plan stores raw field values. Replace and search tools automatically try encoded/decoded variants and report matchedLiteral/matchedEncodingVariant, so pass the literal you saw and read the result. For credentials and User Defined Variables, take the raw value from list_http_arguments_open_plan (or the plan property), not from encoded request data, and store the raw form in the variable; set alwaysEncode on the argument when the extracted raw value must be re-encoded at runtime.
                 - If linked HAR response bodies are blank or omitted, do not pretend the HAR proved a source: use bounded validation evidence, keep the value as a User Defined Variable, or report it unresolved. Never add speculative extractors that overwrite scenario variables with NOT_FOUND.
@@ -521,6 +521,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 - When adding assertions: pick each transaction's marker from its own sampler's validated response via search_validated_response_open_plan(samplerLabel=...), then add all assertions in a single add_response_assertions_open_plan call with targetNodeId/targetNodePath per item, then run one validation to verify. The add/update tools verify validated_response patterns against the target sampler's cached latest response and reject markers that only occur on a different sampler (the error names where it was found) — fix the target or the marker, never bypass with allowUnverifiedPattern. Pass evidenceSource/evidence per assertion; static inference needs allowStaticInference=true. Prefer significant phrases, HTML/JSON fragments, or post-login/confirmation text over weak single words; if a pattern is rejected as weak, find a stronger marker instead of using allowWeakPattern. Do not assert on samplers that validation never reached unless a recorded response or AI Knowledge proves the marker — document the gap instead. If one assertion fails, fix or remove only that one.
 
                 Finish (mandatory even if validation never became fully green):
+                - The first final-report line must be exactly `Status: completed` when the selected flow is fully validated, or `Status: blocked` when any validation, GUI, recovery, credential, permission, or unresolved-correlation blocker remains.
                 - Update AI Knowledge with update_ai_knowledge_open_plan appendLearnings: pass only the new entries per array field (projectHints, correlationPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, learnedFromThreadGroups) — confirmed fixes, confirmed limitations, and unresolved high-confidence patterns with the Thread Group and transaction/request where each was observed. The GUI merges them server-side, so do not fetch and resend the whole document. If there were no reusable learnings, still append a learnedFromThreadGroups entry with "noReusableLearnings": true.
                 - Call list_agent_changes_open_plan, then report in plain text only (the BreakTest AI log is a plain Swing text area, no markdown tables): a per-transaction audit list (assertion status, dynamic values reviewed, correlations added, remaining blockers), a concise change list matching the BreakTest table, and the AI Knowledge update summary.
 
@@ -1789,13 +1790,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 if (plain.isBlank() || reportsNoFollowUp(lower) || reportsSuccess(lower)) {
                     continue;
                 }
-                if (lower.contains("not fully green")
-                        || lower.contains("validation is not fully green")
-                        || lower.contains("validation remains")
-                        || lower.contains("not validated past")
-                        || lower.contains("not reached due")
-                        || lower.contains("remaining blocker")
-                        || lower.contains("unresolved blocker")
+                if (reportsRepairBlocker(lower)
                         || lower.contains("manual")
                         || lower.contains("could not")
                         || lower.contains("unresolved")) {
@@ -1817,18 +1812,29 @@ public class AiAutoScriptingAction extends AbstractAction {
                 if (reportsNoFollowUp(lower) || reportsSuccess(lower)) {
                     continue;
                 }
-                if (lower.contains("not fully green")
-                        || lower.contains("validation is not fully green")
-                        || lower.contains("validation remains blocked")
-                        || lower.contains("validation remains")
-                        || lower.contains("not validated past")
-                        || lower.contains("not reached due")
-                        || lower.contains("remaining blocker")
-                        || lower.contains("unresolved blocker")) {
+                if (reportsRepairBlocker(lower)) {
                     return true;
                 }
             }
             return false;
+        }
+
+        private static boolean reportsRepairBlocker(String lower) {
+            return lower.startsWith("status: blocked")
+                    || lower.startsWith("status: failed")
+                    || lower.contains("not fully green")
+                    || lower.contains("validation is not fully green")
+                    || lower.contains("validation remains blocked")
+                    || lower.contains("validation remains")
+                    || lower.contains("not validated past")
+                    || lower.contains("not reached due")
+                    || lower.contains("remaining blocker")
+                    || lower.contains("unresolved blocker")
+                    || lower.contains("gui bridge failure")
+                    || lower.contains("could not be restored")
+                    || lower.contains("could not be validated")
+                    || lower.contains("could not restore")
+                    || lower.contains("could not validate");
         }
 
         private static void addDistinct(List<String> lines, String line) {

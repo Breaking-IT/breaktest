@@ -26,6 +26,8 @@ import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jmeter.treebuilder.oneRequest
 import org.apache.jorphan.collections.ListedHashTree
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class TestPlanEditorReplacementTest {
@@ -174,5 +176,33 @@ class TestPlanEditorReplacementTest {
         assertEquals("true", TestPlanEditor().normalizeExtractorUseField("headers"))
         assertEquals("false", TestPlanEditor().normalizeExtractorUseField("body"))
         assertEquals("request_headers", TestPlanEditor().normalizeExtractorUseField("requestHeaders"))
+    }
+
+    @Test
+    fun `failed correlation does not leave an orphan extractor`() {
+        val source = ScriptRepairSampler("Source", responseBody = "token-response")
+        val target = ScriptRepairSampler("Target", requestBody = "no matching literal")
+        val sourceTree = ListedHashTree()
+        val tree = ListedHashTree().apply {
+            add(source, sourceTree)
+            add(target)
+        }
+
+        assertThrows(IllegalArgumentException::class.java) {
+            TestPlanEditor().applyBoundaryCorrelation(
+                tree,
+                BoundaryCorrelationRequest(
+                    sourceSamplerLabel = "Source",
+                    targetSamplerLabel = "Target",
+                    variableName = "csrf",
+                    leftBoundary = "\"",
+                    rightBoundary = "\"",
+                    literal = "missing-token",
+                ),
+            )
+        }
+
+        assertTrue(sourceTree.isEmpty())
+        assertEquals("no matching literal", target.getPropertyAsString("ScriptRepairSampler.requestBody"))
     }
 }

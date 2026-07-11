@@ -239,6 +239,18 @@ public object AiAutoScriptingLogWindow {
         }
 
     @JvmStatic
+    public fun truncateChanges(size: Int) {
+        val action = {
+            changeModel.truncate(size.coerceAtLeast(0))
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            action()
+        } else {
+            SwingUtilities.invokeAndWait(action)
+        }
+    }
+
+    @JvmStatic
     public fun clear() {
         onEdt {
             ensureTextArea().text = ""
@@ -643,6 +655,16 @@ public object AiAutoScriptingLogWindow {
             if (last >= 0) {
                 fireTableRowsDeleted(0, last)
             }
+        }
+
+        fun truncate(size: Int) {
+            if (rows.size <= size) {
+                return
+            }
+            val firstRemoved = size
+            val lastRemoved = rows.lastIndex
+            rows.subList(firstRemoved, rows.size).clear()
+            fireTableRowsDeleted(firstRemoved, lastRemoved)
         }
 
         fun entryAt(row: Int): ChangeEntry? = rows.getOrNull(row)

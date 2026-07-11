@@ -61,6 +61,7 @@ import org.apache.jorphan.collections.ListedHashTree
 import org.slf4j.LoggerFactory
 import java.awt.event.ActionEvent
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
@@ -76,6 +77,7 @@ import java.nio.channels.Channels
 import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 import java.nio.file.Path
+import java.security.MessageDigest
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -146,6 +148,7 @@ public object BreakTestAgentGuiService {
     private var unixServerSocket: ServerSocketChannel? = null
     private var token: String? = null
     private val backedUpPlanKeys = mutableSetOf<String>()
+    private var latestOpenPlanBackup: OpenPlanBackup? = null
     private var activeFileRefreshesThisRun = 0
     private val repairActionSnapshots = object : LinkedHashMap<String, Map<String, Map<String, Any?>>>() {
         override fun removeEldestEntry(
@@ -261,6 +264,7 @@ public object BreakTestAgentGuiService {
             }
             mapOf("ok" to true, "result" to result)
         } catch (e: Exception) {
+            log.warn("BreakTest Agent GUI tool '{}' failed", tool, e)
             if (tool != "unknown" && tool != "agent_activity") {
                 postActivity("failed", "MCP tool `$tool` failed: ${e.message ?: e}")
             }
@@ -280,6 +284,7 @@ public object BreakTestAgentGuiService {
                 )
             }
             "refresh_open_plan_from_file" -> refreshOpenPlanFromFile(arguments)
+            "restore_open_plan_from_backup" -> restoreOpenPlanFromBackup(arguments)
             "inspect_open_plan" -> BreakTestAgent().inspect(
                 currentPlanTree(),
                 dslCharacterLimit(arguments),
@@ -334,6 +339,11 @@ public object BreakTestAgentGuiService {
             backupFile.parentFile?.mkdirs()
             backupFile.outputStream().use { SaveService.saveTree(convertTree(gui.treeModel.testPlan), it) }
             backedUpPlanKeys += backupKey(gui.testPlanFile)
+            latestOpenPlanBackup = OpenPlanBackup(
+                file = backupFile.canonicalFile,
+                originalPlanPath = gui.testPlanFile?.takeIf { it.isNotBlank() },
+                wasDirty = gui.isDirty,
+            )
             postActivity(
                 "info",
                 "Created AI backup before editing",
@@ -415,7 +425,7 @@ public object BreakTestAgentGuiService {
     private fun refreshOpenPlanFromFile(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val current = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val current = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: error("The open plan must be saved before it can be refreshed")
             val requested = arguments.path("path").optionalText()?.takeIf { it.isNotBlank() } ?: current
             val currentFile = File(current).canonicalFile
@@ -474,10 +484,53 @@ public object BreakTestAgentGuiService {
             )
         }
 
+    private fun restoreOpenPlanFromBackup(arguments: JsonNode): Map<String, Any?> =
+        guiCall {
+            val requestedPath = arguments.path("path").optionalText()
+            restoreLatestOpenPlanBackup(requestedPath, "explicit agent recovery")
+        }
+
+    private fun restoreLatestOpenPlanBackup(requestedPath: String?, reason: String): Map<String, Any?> {
+        val backup = latestOpenPlanBackup
+            ?: throw IllegalStateException("No AI pre-run backup is available for the current BreakTest session")
+        val requestedFile = requestedPath?.let { File(it).canonicalFile }
+        require(requestedFile == null || requestedFile == backup.file) {
+            "Refusing to restore an unrecognized backup. Expected ${backup.file.path}, requested ${requestedFile?.path}"
+        }
+        require(backup.file.isFile) {
+            "AI pre-run backup does not exist: ${backup.file.path}"
+        }
+        // Parse before touching the live GUI so a corrupt or incomplete backup
+        // can never replace the current in-memory plan.
+        SaveService.loadTree(backup.file)
+        Load.loadProjectFile(
+            ActionEvent(BreakTestAgentGuiService::class.java, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
+            backup.file,
+            false,
+        )
+        val restoredGui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready after backup restore")
+        restoredGui.setTestPlanFile(backup.originalPlanPath)
+        restoredGui.setDirty(backup.wasDirty)
+        NodeIds.clear()
+        activeFileRefreshesThisRun = 0
+        postActivity(
+            "warn",
+            "Restored open plan from AI pre-run backup",
+            details = "${backup.file.path}; reason=$reason",
+        )
+        return mapOf(
+            "restored" to true,
+            "backupPath" to backup.file.path,
+            "originalPlanPath" to backup.originalPlanPath,
+            "dirty" to backup.wasDirty,
+            "reason" to reason,
+        )
+    }
+
     private fun listRecordedHarExchangesOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val testPlanFile = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: return@guiCall mapOf(
                     "linkedHarAvailable" to false,
                     "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
@@ -520,7 +573,7 @@ public object BreakTestAgentGuiService {
     private fun getRecordedHarExchangeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val testPlanFile = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: error("The open plan must be saved before linked HAR paths can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
             val sampler = selectSampler(
@@ -545,7 +598,7 @@ public object BreakTestAgentGuiService {
     private fun searchRecordedHarOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val testPlanFile = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: error("The open plan must be saved before linked HAR paths can be resolved")
             val query = arguments.path("query").optionalText()
             val regexText = arguments.path("regex").optionalText()
@@ -604,7 +657,7 @@ public object BreakTestAgentGuiService {
     private fun auditRecordedHarCorrelationsOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val testPlanFile = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: error("The open plan must be saved before linked HAR paths can be resolved")
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val maxCandidates = arguments.path("maxCandidates").asInt(120).coerceAtLeast(1)
@@ -717,7 +770,7 @@ public object BreakTestAgentGuiService {
             val maxUnresolved = arguments.path("maxUnresolved").asInt(30).coerceAtLeast(0)
             val includeApplyArguments = arguments.path("includeApplyArguments").asBoolean(false)
             val contextChars = arguments.path("contextChars").asInt(80).coerceAtLeast(0)
-            val testPlanFile = gui.testPlanFile.takeIf { it.isNotBlank() }
+            val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
             val actions = mutableListOf<Map<String, Any?>>()
             val unresolved = mutableListOf<Map<String, Any?>>()
             val usedVariableNames = mutableSetOf<String>()
@@ -759,7 +812,8 @@ public object BreakTestAgentGuiService {
                 "unresolvedCount" to unresolved.size,
                 "includeApplyArguments" to includeApplyArguments,
                 "guidance" to "Apply selected actionIds with apply_repair_actions_open_plan.",
-                "unresolvedReason" to "No source found in earlier linked HAR recorded responses.".takeIf { unresolved.isNotEmpty() },
+                "unresolvedReason" to "No safe evidence-backed native correlation action could be planned."
+                    .takeIf { unresolved.isNotEmpty() },
                 "actions" to sortedActions.map { compactRepairAction(it, includeApplyArguments) },
                 "unresolved" to unresolved.take(maxUnresolved),
             ).filterValues { it != null }
@@ -812,8 +866,12 @@ public object BreakTestAgentGuiService {
             ?: throw IllegalArgumentException("actionIds must be a non-empty array")
         val stopOnFirstError = arguments.path("stopOnFirstError").asBoolean(false)
         val results = mutableListOf<Map<String, Any?>>()
+        val selectedConflictKeys = mutableMapOf<String, String>()
         var applied = 0
         var failed = 0
+        var skipped = 0
+        var rolledBack = 0
+        var restoredFromBackup = false
         for (actionId in actionIds) {
             val action = snapshot[actionId]
             if (action == null) {
@@ -821,7 +879,32 @@ public object BreakTestAgentGuiService {
                 results += mapOf("actionId" to actionId, "status" to "missing")
                 continue
             }
-            val outcome = runCatching { applySingleRepairAction(action) }
+            val conflictKey = repairActionConflictKey(action)
+            val conflictingActionId = conflictKey?.let(selectedConflictKeys::get)
+            if (conflictingActionId != null) {
+                skipped++
+                results += mapOf(
+                    "actionId" to actionId,
+                    "status" to "skipped_conflict",
+                    "conflictsWithActionId" to conflictingActionId,
+                )
+                continue
+            }
+            if (conflictKey != null) {
+                selectedConflictKeys[conflictKey] = actionId
+            }
+            val before = captureRepairActionState()
+            val beforeChangeCount = AiAutoScriptingLogWindow.changes().size
+            val outcome = runCatching {
+                val result = applySingleRepairAction(action)
+                val after = captureRepairActionState()
+                require(after.elementCount >= before.elementCount && after.threadGroupCount >= before.threadGroupCount) {
+                    "Repair action '$actionId' damaged the open plan " +
+                        "(elements ${before.elementCount} -> ${after.elementCount}, " +
+                        "Thread Groups ${before.threadGroupCount} -> ${after.threadGroupCount})"
+                }
+                result
+            }
             outcome.fold(
                 onSuccess = { result ->
                     applied++
@@ -829,30 +912,153 @@ public object BreakTestAgentGuiService {
                 },
                 onFailure = { error ->
                     failed++
+                    val rollback = rollbackFailedRepairAction(before, beforeChangeCount)
+                    if (rollback.rolledBack) {
+                        rolledBack++
+                    }
+                    if (rollback.method == "pre-run-backup") {
+                        restoredFromBackup = true
+                    }
                     results += mapOf(
                         "actionId" to actionId,
                         "status" to "failed",
                         "error" to (error.message ?: error.toString()),
+                        "rolledBack" to rollback.rolledBack,
+                        "rollbackMethod" to rollback.method,
                     )
                 },
             )
             if (stopOnFirstError && outcome.isFailure) {
                 break
             }
+            if (restoredFromBackup) {
+                break
+            }
+        }
+        if (restoredFromBackup) {
+            results.indices.forEach { index ->
+                if (results[index]["status"] == "applied") {
+                    results[index] = results[index] + ("durable" to false)
+                }
+            }
         }
         postActivity(
             "info",
             "Applied repair action batch",
-            details = "applied=$applied failed=$failed of ${actionIds.size} requested",
+            details = "applied=$applied failed=$failed skipped=$skipped rolledBack=$rolledBack of ${actionIds.size} requested",
         )
         return mapOf(
             "snapshotId" to snapshotId,
             "requestedCount" to actionIds.size,
             "appliedCount" to applied,
             "failedCount" to failed,
+            "skippedCount" to skipped,
+            "rolledBackCount" to rolledBack,
+            "restoredFromBackup" to restoredFromBackup,
+            "durableAppliedCount" to if (restoredFromBackup) 0 else applied,
+            "aborted" to restoredFromBackup,
             "results" to results,
         )
     }
+
+    private fun repairActionConflictKey(action: Map<String, Any?>): String? {
+        fun keyFrom(arguments: Any?): String? {
+            val node = mapper.valueToTree<JsonNode>(arguments ?: return null)
+            val literal = node.path("literal").optionalText() ?: return null
+            val scope = node.path("scopeNodePath").optionalText()
+                ?: node.path("threadGroupName").optionalText()
+                ?: node.path("targetNodePath").optionalText()
+                ?: "open-plan"
+            return "$scope\u0000${canonicalRepairLiteral(literal)}"
+        }
+        keyFrom(action["applyArguments"])?.let { return it }
+        @Suppress("UNCHECKED_CAST")
+        val steps = action["steps"] as? List<Map<String, Any?>> ?: return null
+        return steps.firstNotNullOfOrNull { step -> keyFrom(step["arguments"]) }
+    }
+
+    private fun captureRepairActionState(): RepairActionState =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            RepairActionState(
+                signature = openPlanSignature(gui),
+                elementCount = countTreeNodes(gui.treeModel.testPlan),
+                threadGroupCount = gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).size,
+            )
+        }
+
+    private fun rollbackFailedRepairAction(before: RepairActionState, beforeChangeCount: Int): RepairRollback {
+        val current = runCatching { captureRepairActionState() }.getOrElse { captureError ->
+            val restore = runCatching {
+                guiCall { restoreLatestOpenPlanBackup(null, "unreadable plan after failed repair action") }
+            }
+            if (restore.isSuccess) {
+                AiAutoScriptingLogWindow.truncateChanges(0)
+                return RepairRollback(true, "pre-run-backup")
+            }
+            throw IllegalStateException(
+                "The failed repair action left the open plan unreadable and backup restore failed. " +
+                    "Plan read: ${captureError.message}. Backup restore: ${restore.exceptionOrNull()?.message}",
+                captureError,
+            )
+        }
+        if (current.signature == before.signature) {
+            AiAutoScriptingLogWindow.truncateChanges(beforeChangeCount)
+            return RepairRollback(false, null)
+        }
+        val undoResult = runCatching {
+            guiCall {
+                val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+                require(gui.canUndo()) { "The failed repair action changed the plan but no undo entry is available" }
+                gui.undo()
+                NodeIds.clear()
+            }
+            val restored = captureRepairActionState()
+            require(restored.signature == before.signature) {
+                "Undo did not restore the exact pre-action plan state"
+            }
+        }
+        if (undoResult.isSuccess) {
+            AiAutoScriptingLogWindow.truncateChanges(beforeChangeCount)
+            return RepairRollback(true, "undo")
+        }
+        val restoreResult = runCatching {
+            guiCall { restoreLatestOpenPlanBackup(null, "failed repair action rollback") }
+        }
+        if (restoreResult.isSuccess) {
+            AiAutoScriptingLogWindow.truncateChanges(0)
+            return RepairRollback(true, "pre-run-backup")
+        }
+        val undoError = undoResult.exceptionOrNull()?.message ?: "unknown undo failure"
+        val restoreError = restoreResult.exceptionOrNull()?.message ?: "unknown backup restore failure"
+        throw IllegalStateException(
+            "Failed repair action changed the plan and could not be rolled back. " +
+                "Undo: $undoError. Backup restore: $restoreError",
+        )
+    }
+
+    private fun openPlanSignature(gui: GuiPackage): String {
+        val bytes = ByteArrayOutputStream().use { output ->
+            SaveService.saveTree(convertTree(gui.treeModel.testPlan), output)
+            output.toByteArray()
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun countTreeNodes(tree: HashTree): Int =
+        tree.list().sumOf { node -> 1 + countTreeNodes(tree.getTree(node)) }
+
+    private fun canonicalRepairLiteral(literal: String): String =
+        (if ('%' in literal) runCatching { URLDecoder.decode(literal, Charsets.UTF_8) }.getOrDefault(literal) else literal)
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&#x27;", "'")
 
     private fun applySingleRepairAction(action: Map<String, Any?>): Any {
         val applyTool = action["applyTool"] as? String
@@ -1040,27 +1246,25 @@ public object BreakTestAgentGuiService {
                 val source = selectSamplerReference(gui, arguments, "source", "source")
                 val target = selectSamplerReference(gui, arguments, "target", "target")
                 val editor = TestPlanEditor()
-                val extractorNode = addConfiguredComponent(
-                    gui,
-                    source,
-                    "org.apache.jmeter.extractor.gui.BoundaryExtractorGui",
-                ) { editor.configureBoundaryExtractor(it, request) }
+                val extractor = createDetachedTestElement("org.apache.jmeter.extractor.gui.BoundaryExtractorGui")
+                    .also { editor.configureBoundaryExtractor(it, request) }
                 val variableReference = "\${${request.variableName}}"
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
                     ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
-                val (_, replacements) = replaceWithVariants(request.literal) { variant ->
+                val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
                     editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
                 }
                 require(replacements > 0) {
                     "Literal '${request.literal}' was not found under target sampler '${targetElement.name}' " +
                         "(also tried encoded/decoded variants)"
                 }
-                gui.setDirty(true)
-                gui.treeModel.nodeStructureChanged(source)
-                gui.mainFrame.tree.expandPath(TreePath(source.path))
-                gui.mainFrame.tree.selectionPath = TreePath(extractorNode.path)
-                gui.mainFrame.repaint()
+                val extractorNode = runCatching { insertDetachedNode(gui, source, extractor) }
+                    .getOrElse { error ->
+                        editor.replaceLiteral(targetElement, targetSubTree, variableReference, matchedLiteral)
+                        throw error
+                    }
+                markEdited(gui, source, extractorNode)
                 postActivity(
                     "info",
                     "Applied live boundary correlation",
@@ -1136,18 +1340,13 @@ public object BreakTestAgentGuiService {
                 val editor = TestPlanEditor()
                 val allowDuplicateExtractor = arguments.path("allowDuplicateExtractor").asBoolean(false)
                 val existingExtractorNodes = regexExtractorNodes(source, request.variableName, requireFound = false)
-                val extractorNodes = if (existingExtractorNodes.isNotEmpty() && !allowDuplicateExtractor) {
-                    existingExtractorNodes.onEach { editor.configureRegexExtractor(it.testElement, request) }
+                val updateExisting = existingExtractorNodes.isNotEmpty() && !allowDuplicateExtractor
+                val detachedExtractor = if (updateExisting) {
+                    null
                 } else {
-                    listOf(
-                        addConfiguredComponent(
-                            gui,
-                            source,
-                            "org.apache.jmeter.extractor.gui.RegexExtractorGui",
-                        ) { editor.configureRegexExtractor(it, request) },
-                    )
+                    createDetachedTestElement("org.apache.jmeter.extractor.gui.RegexExtractorGui")
+                        .also { editor.configureRegexExtractor(it, request) }
                 }
-                val extractorNode = extractorNodes.last()
                 val variableReference = "\${${request.variableName}}"
                 val literal = request.literal?.takeIf { it.isNotBlank() }
                 val scope = if (literal != null && target == null) selectedBroadEditScope(gui, arguments) else null
@@ -1172,6 +1371,26 @@ public object BreakTestAgentGuiService {
                         "Literal '$literal' was not found $where (also tried encoded/decoded variants)"
                     }
                 }
+                val extractorNodes = runCatching {
+                    if (updateExisting) {
+                        existingExtractorNodes.onEach { editor.configureRegexExtractor(it.testElement, request) }
+                    } else {
+                        listOf(insertDetachedNode(gui, source, requireNotNull(detachedExtractor)))
+                    }
+                }.getOrElse { error ->
+                    if (literal != null && matchedLiteral != null) {
+                        if (target == null) {
+                            editor.replaceLiteralInTree(scopedEditTree(gui, scope), variableReference, matchedLiteral)
+                        } else {
+                            val targetElement = target.testElement
+                            val targetSubTree = currentPlanTree().findSubTree(targetElement)
+                                ?: throw error
+                            editor.replaceLiteral(targetElement, targetSubTree, variableReference, matchedLiteral)
+                        }
+                    }
+                    throw error
+                }
+                val extractorNode = extractorNodes.last()
                 val changedNode = target ?: scope ?: testPlanNode(gui)
                 markEdited(gui, changedNode, extractorNode)
                 postActivity(
@@ -2407,61 +2626,127 @@ public object BreakTestAgentGuiService {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
             ensureBackupForOpenPlan(gui)
-            gui.beginUndoTransaction()
+            val beforeState = RepairActionState(
+                signature = openPlanSignature(gui),
+                elementCount = countTreeNodes(gui.treeModel.testPlan),
+                threadGroupCount = gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).size,
+            )
+            val beforeChangeCount = AiAutoScriptingLogWindow.changes().size
+            val beforeElementCount = beforeState.elementCount
+            var expectedElementCount = beforeElementCount
             try {
-                val deleteAllMatches = arguments.path("deleteAllMatches").asBoolean(false)
-                val nodes = if (deleteAllMatches) {
-                    selectNodeReferences(gui, arguments, "target", "target")
-                } else {
-                    listOf(selectNodeReference(gui, arguments, "target", "target"))
-                }.distinct()
-                    .sortedByDescending { it.path.size }
-                val deleted = mutableListOf<Map<String, Any?>>()
-                val changedParents = linkedSetOf<JMeterTreeNode>()
-                for (node in nodes) {
-                    val parent = node.parent as? JMeterTreeNode
-                        ?: throw IllegalArgumentException("Target node has no removable parent")
-                    require(node !== testPlanNode(gui)) {
-                        "Cannot delete the open Test Plan root"
+                gui.beginUndoTransaction()
+                try {
+                    val deleteAllMatches = arguments.path("deleteAllMatches").asBoolean(false)
+                    val selectedNodes = if (deleteAllMatches) {
+                        selectNodeReferences(gui, arguments, "target", "target")
+                    } else {
+                        listOf(selectNodeReference(gui, arguments, "target", "target"))
+                    }.distinct()
+                    val nodes = selectedNodes
+                        .filterNot { candidate ->
+                            selectedNodes.any { ancestor -> ancestor !== candidate && candidate.isDescendantOf(ancestor) }
+                        }
+                        .sortedByDescending { it.path.size }
+                    val allowContainerDelete = arguments.path("allowStructuralContainerDelete").asBoolean(false)
+                    if (!allowContainerDelete) {
+                        require(nodes.none { it.testElement is TestPlan || it.testElement is AbstractThreadGroup }) {
+                            "Refusing to delete a Test Plan or Thread Group through AI repair. " +
+                                "Pass allowStructuralContainerDelete=true only for an explicit user-requested structural deletion."
+                        }
                     }
-                    val deletedName = node.testElement.name.orEmpty()
-                    val deletedPath = nodePath(node)
-                    val deletedClassName = node.testElement::class.java.name
-                    val childCount = node.childCount
-                    removeTreeNode(gui, node)
-                    changedParents += parent
-                    recordChange(
-                        "Deleted node",
-                        parent,
-                        "Deleted `$deletedName`",
-                        deletedPath,
+                    nodes.forEach { node ->
+                        require(isNodeInOpenPlan(gui, node)) {
+                            "Target node '${node.testElement.name}' is no longer part of the open plan"
+                        }
+                        require(node.testElement.canRemove()) {
+                            "Target node '${node.testElement.name}' cannot be removed while it is busy"
+                        }
+                    }
+                    val deletedElementCount = nodes.sumOf(::countNodeAndDescendants)
+                    expectedElementCount = beforeElementCount - deletedElementCount
+                    val deleted = mutableListOf<Map<String, Any?>>()
+                    val changedParents = linkedSetOf<JMeterTreeNode>()
+                    moveSelectionOutsideDeletedNodes(gui, nodes)
+                    for (node in nodes) {
+                        val parent = node.parent as? JMeterTreeNode
+                            ?: throw IllegalArgumentException("Target node has no removable parent")
+                        require(node !== testPlanNode(gui)) {
+                            "Cannot delete the open Test Plan root"
+                        }
+                        val deletedName = node.testElement.name.orEmpty()
+                        val deletedPath = nodePath(node)
+                        val deletedClassName = node.testElement::class.java.name
+                        val childCount = node.childCount
+                        removeTreeNode(gui, node)
+                        changedParents += parent
+                        recordChange(
+                            "Deleted node",
+                            parent,
+                            "Deleted `$deletedName`",
+                            deletedPath,
+                        )
+                        deleted += mapOf(
+                            "deletedName" to deletedName,
+                            "deletedPath" to deletedPath,
+                            "deletedClassName" to deletedClassName,
+                            "deletedChildCount" to childCount,
+                            "parentPath" to nodePath(parent),
+                        )
+                    }
+                    val primaryParent = changedParents.firstOrNull() ?: testPlanNode(gui)
+                    markEdited(gui, primaryParent)
+                    changedParents.drop(1).forEach { gui.treeModel.nodeStructureChanged(it) }
+                    val actualElementCount = countTreeNodes(gui.treeModel.testPlan)
+                    require(actualElementCount == expectedElementCount) {
+                        "Live node deletion damaged the open plan: expected $expectedElementCount elements after deletion, found $actualElementCount"
+                    }
+                    val details = deleted.joinToString("; ") { it["deletedPath"].toString() }
+                    postActivity(
+                        "info",
+                        if (deleted.size == 1) "Deleted node" else "Deleted ${deleted.size} nodes",
+                        details = details,
                     )
-                    deleted += mapOf(
-                        "deletedName" to deletedName,
-                        "deletedPath" to deletedPath,
-                        "deletedClassName" to deletedClassName,
-                        "deletedChildCount" to childCount,
-                        "parentPath" to nodePath(parent),
+                    mapOf(
+                        "deleted" to true,
+                        "deletedCount" to deleted.size,
+                        "deletedNodes" to deleted,
+                    )
+                } finally {
+                    gui.endUndoTransaction()
+                }
+            } catch (error: Exception) {
+                val rollback = rollbackFailedRepairAction(beforeState, beforeChangeCount)
+                if (rollback.rolledBack) {
+                    throw IllegalStateException(
+                        "${error.message}. The failed deletion was rolled back via ${rollback.method}.",
+                        error,
                     )
                 }
-                val primaryParent = changedParents.firstOrNull() ?: testPlanNode(gui)
-                markEdited(gui, primaryParent)
-                changedParents.drop(1).forEach { gui.treeModel.nodeStructureChanged(it) }
-                val details = deleted.joinToString("; ") { it["deletedPath"].toString() }
-                postActivity(
-                    "info",
-                    if (deleted.size == 1) "Deleted node" else "Deleted ${deleted.size} nodes",
-                    details = details,
-                )
-                mapOf(
-                    "deleted" to true,
-                    "deletedCount" to deleted.size,
-                    "deletedNodes" to deleted,
-                )
-            } finally {
-                gui.endUndoTransaction()
+                throw error
             }
         }
+
+    private fun moveSelectionOutsideDeletedNodes(gui: GuiPackage, nodes: List<JMeterTreeNode>) {
+        val current = gui.treeListener.currentNode ?: return
+        if (nodes.none { current.isDescendantOf(it) }) {
+            return
+        }
+        var fallback = current.parent as? JMeterTreeNode
+        while (fallback != null && nodes.any { fallback.isDescendantOf(it) }) {
+            fallback = fallback.parent as? JMeterTreeNode
+        }
+        val safeFallback = fallback ?: testPlanNode(gui)
+        gui.treeListener.setSelectionPathWithoutEdit(TreePath(safeFallback.path))
+    }
+
+    private fun countNodeAndDescendants(node: JMeterTreeNode): Int {
+        var count = 1
+        for (index in 0 until node.childCount) {
+            count += countNodeAndDescendants(node.getChildAt(index) as JMeterTreeNode)
+        }
+        return count
+    }
 
     private fun moveThinkTimesToTransactionsOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
@@ -2680,8 +2965,10 @@ public object BreakTestAgentGuiService {
     }
 
     private fun removeTreeNode(gui: GuiPackage, node: JMeterTreeNode) {
+        val nodes = mutableListOf<JMeterTreeNode>()
         val elements = mutableListOf<TestElement>()
         fun collect(current: JMeterTreeNode) {
+            nodes += current
             elements += current.testElement
             for (index in 0 until current.childCount) {
                 collect(current.getChildAt(index) as JMeterTreeNode)
@@ -2689,7 +2976,11 @@ public object BreakTestAgentGuiService {
         }
         collect(node)
         gui.treeModel.removeNodeFromParent(node)
-        elements.forEach { gui.removeNode(it) }
+        elements.forEach { element ->
+            gui.removeNode(element)
+            runCatching { element.removed() }
+        }
+        nodes.forEach(NodeIds::forget)
     }
 
     private fun TestElement.delayString(): String =
@@ -3060,7 +3351,7 @@ public object BreakTestAgentGuiService {
         gui.setDirty(true)
         gui.treeModel.nodeStructureChanged(changedNode)
         gui.mainFrame.tree.expandPath(TreePath(changedNode.path))
-        gui.mainFrame.tree.selectionPath = TreePath(selectNode.path)
+        gui.treeListener.setSelectionPathWithoutEdit(TreePath(selectNode.path))
         gui.refreshCurrentGui()
         gui.mainFrame.repaint()
     }
@@ -3665,6 +3956,12 @@ public object BreakTestAgentGuiService {
         val actions = mutableListOf<Map<String, Any?>>()
         val exchanges = linkedHarExchanges(gui, testPlanFile, threadGroupName, includeStaticAssets)
         val seen = mutableSetOf<String>()
+        // Correlation actions replace their literal across the selected scope.
+        // Planning more than one action for the same literal makes the first
+        // action consume every replacement and leaves later actions with an
+        // extractor but no literal to replace. One literal therefore has one
+        // authoritative source/action per planner snapshot.
+        val plannedLiterals = mutableSetOf<String>()
         val scopeNodePath = threadGroupName
             ?.let { runCatching { nodePath(selectThreadGroup(gui, it)) }.getOrNull() }
         for (target in exchanges) {
@@ -3703,55 +4000,45 @@ public object BreakTestAgentGuiService {
                     // Never fall back to a Boundary Extractor action: derive an
                     // ORO-safe regex from the literal's boundaries instead.
                     ?: boundaryDerivedRegex(sourceExchange.response, matchedLiteral, literalIndex)
+                if (regex == null) {
+                    if (requestCandidate.priority >= 80 && unresolved.size < maxUnresolved) {
+                        unresolved += unresolvedRepairCandidate(
+                            target,
+                            requestCandidate,
+                            "The recorded response contains the value, but no safe native Regex Extractor pattern could be derived.",
+                        )
+                    }
+                    continue
+                }
+                if (!plannedLiterals.add(canonicalRepairLiteral(requestCandidate.literal))) {
+                    continue
+                }
                 val variableName = uniqueVariableName(variableNameFor(requestCandidate), usedVariableNames)
                 val evidence = sourceExchange.response.contextAround(
                     literalIndex,
                     literalIndex + matchedLiteral.length,
                     contextChars,
                 )
-                val applyTool = if (regex == null) {
-                    "apply_boundary_correlation_open_plan"
-                } else {
-                    "apply_regex_correlation_open_plan"
-                }
-                val applyArguments = if (regex == null) {
-                    val boundaries = boundariesAroundLiteral(sourceExchange.response, matchedLiteral, literalIndex)
-                    mapOf(
-                        "sourceNodeId" to nodeId(sourceExchange.sampler),
-                        "sourceNodePath" to nodePath(sourceExchange.sampler),
-                        "targetNodeId" to nodeId(target.sampler),
-                        "targetNodePath" to nodePath(target.sampler),
-                        "scopeNodePath" to scopeNodePath,
-                        "variableName" to variableName,
-                        "leftBoundary" to boundaries.first,
-                        "rightBoundary" to boundaries.second,
-                        "literal" to requestCandidate.literal,
-                        "failOnNoMatch" to true,
-                        "evidenceSource" to "recorded_response",
-                        "evidence" to evidence,
-                    ).filterValues { it != null }
-                } else {
-                    mapOf(
-                        "sourceNodeId" to nodeId(sourceExchange.sampler),
-                        "sourceNodePath" to nodePath(sourceExchange.sampler),
-                        "scopeNodePath" to scopeNodePath,
-                        "variableName" to variableName,
-                        "regex" to regex,
-                        "template" to "$1$",
-                        "matchNumber" to "1",
-                        "defaultValue" to "NOT_FOUND",
-                        "useField" to extractorUseFieldFor(sourceExchange.response, literalIndex),
-                        "literal" to requestCandidate.literal,
-                        "failOnNoMatch" to true,
-                        "evidenceSource" to "recorded_response",
-                        "evidence" to evidence,
-                    ).filterValues { it != null }
-                }
+                val applyArguments = mapOf(
+                    "sourceNodeId" to nodeId(sourceExchange.sampler),
+                    "sourceNodePath" to nodePath(sourceExchange.sampler),
+                    "scopeNodePath" to scopeNodePath,
+                    "variableName" to variableName,
+                    "regex" to regex,
+                    "template" to "$1$",
+                    "matchNumber" to "1",
+                    "defaultValue" to "NOT_FOUND",
+                    "useField" to extractorUseFieldFor(sourceExchange.response, literalIndex),
+                    "literal" to requestCandidate.literal,
+                    "failOnNoMatch" to true,
+                    "evidenceSource" to "recorded_response",
+                    "evidence" to evidence,
+                ).filterValues { it != null }
                 val replacementCount = countLiteralMatchesInOpenPlan(gui, requestCandidate.literal, includeNames = false)
                 actions += mapOf(
                     "id" to "har-${actions.size + 1}",
                     "type" to "correlate_from_har",
-                    "confidence" to confidenceForHarAction(requestCandidate, regex != null),
+                    "confidence" to confidenceForHarAction(requestCandidate, true),
                     "priority" to requestCandidate.priority,
                     "kind" to requestCandidate.kind,
                     "fieldName" to requestCandidate.fieldName,
@@ -3768,7 +4055,7 @@ public object BreakTestAgentGuiService {
                     "targetSurface" to requestCandidate.surface,
                     "replacementCount" to replacementCount,
                     "summary" to "Correlate ${requestCandidate.kind} `${requestCandidate.literal.previewToken()}` from `${sourceExchange.sampler.testElement.name}` and replace dependent request data.",
-                    "applyTool" to applyTool,
+                    "applyTool" to "apply_regex_correlation_open_plan",
                     "applyArguments" to applyArguments,
                     "verify" to listOf(
                         mapOf(
@@ -3886,6 +4173,7 @@ public object BreakTestAgentGuiService {
     private fun unresolvedRepairCandidate(
         target: HarExchange,
         requestCandidate: HarRequestCandidate,
+        reason: String? = null,
     ): Map<String, Any?> =
         // The shared "no source found" reason lives once at the top level of the
         // planner result instead of being repeated per entry: planner output stays
@@ -3897,6 +4185,7 @@ public object BreakTestAgentGuiService {
             "literalPreview" to requestCandidate.literal.previewToken(),
             "targetNodePath" to nodePath(target.sampler),
             "targetSurface" to requestCandidate.surface,
+            "reason" to reason,
         ).filterValues { it != null }
 
     private fun regexForHarCandidate(
@@ -3969,6 +4258,19 @@ public object BreakTestAgentGuiService {
      * disallowed Boundary Extractor form.
      */
     private fun boundaryDerivedRegex(responseText: String, literal: String, literalIndex: Int): String? {
+        val before = responseText.getOrNull(literalIndex - 1)
+        val after = responseText.getOrNull(literalIndex + literal.length)
+        if (before != null && before == after && before in setOf('\'', '"')) {
+            val quote = AgentRegexSupport.oroEscape(before.toString())
+            val regex = if (before == '"') {
+                "$quote([^\"]+)$quote"
+            } else {
+                "$quote([^']+)$quote"
+            }
+            return regex.takeIf {
+                AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
+            }
+        }
         val (left, right) = boundariesAroundLiteral(responseText, literal, literalIndex)
         val leftAnchor = left.substringAfterLast('\n').substringAfterLast('\r').takeLast(24)
         val rightAnchor = right.takeWhile { it != '\n' && it != '\r' }.take(6)
@@ -4142,6 +4444,23 @@ public object BreakTestAgentGuiService {
         val priority: Int,
     )
 
+    private data class OpenPlanBackup(
+        val file: File,
+        val originalPlanPath: String?,
+        val wasDirty: Boolean,
+    )
+
+    private data class RepairActionState(
+        val signature: String,
+        val elementCount: Int,
+        val threadGroupCount: Int,
+    )
+
+    private data class RepairRollback(
+        val rolledBack: Boolean,
+        val method: String?,
+    )
+
     private fun String.contextAround(start: Int, endExclusive: Int, contextChars: Int): String {
         val from = (start - contextChars).coerceAtLeast(0)
         val to = (endExclusive + contextChars).coerceAtMost(length)
@@ -4194,6 +4513,18 @@ public object BreakTestAgentGuiService {
             }
             return node
         }
+
+        @Synchronized
+        fun forget(node: JMeterTreeNode) {
+            val id = idsByNode.remove(node) ?: return
+            nodesById.remove(id)
+        }
+
+        @Synchronized
+        fun clear() {
+            idsByNode.clear()
+            nodesById.clear()
+        }
     }
 
     private fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
@@ -4203,11 +4534,14 @@ public object BreakTestAgentGuiService {
             ?: throw IllegalArgumentException(
                 "Unknown $role nodeId '$nodeId'. Node IDs come from find_open_plan_nodes or earlier edit results in this GUI session.",
             )
-        require(node.parent != null || node === testPlanNode(gui)) {
-            "$role node '$nodeId' (${node.testElement.name}) has been deleted from the open plan"
+        require(isNodeInOpenPlan(gui, node)) {
+            "$role node '$nodeId' (${node.testElement.name}) is no longer part of the open plan"
         }
         return node
     }
+
+    private fun isNodeInOpenPlan(gui: GuiPackage, target: JMeterTreeNode): Boolean =
+        allTreeNodes(gui.treeModel.testPlan).any { it === target }
 
     /**
      * Optional resolution scope shared by the edit tools: when the agent passes
@@ -4268,15 +4602,20 @@ public object BreakTestAgentGuiService {
         role: String,
     ): JMeterTreeNode {
         val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        val nodePath = arguments.path("${prefix}NodePath").optionalText()
         if (nodeIdArgument != null) {
-            val node = selectNodeById(gui, nodeIdArgument, role)
-            require(node.testElement is Sampler) {
-                "$role nodeId '$nodeIdArgument' is not a sampler; it is ${node.testElement::class.java.name}"
+            val node = runCatching { selectNodeById(gui, nodeIdArgument, role) }.getOrNull()
+            if (node != null) {
+                require(node.testElement is Sampler) {
+                    "$role nodeId '$nodeIdArgument' is not a sampler; it is ${node.testElement::class.java.name}"
+                }
+                return node
             }
-            return node
+            require(nodePath != null) {
+                "Unknown or stale $role nodeId '$nodeIdArgument'; also pass ${prefix}NodePath so the node can be re-resolved after an undo or reload"
+            }
         }
         val scope = resolutionScope(gui, arguments)
-        val nodePath = arguments.path("${prefix}NodePath").optionalText()
         val occurrenceIndex = arguments.path("${prefix}OccurrenceIndex").takeIfPresent()?.asInt()
             ?: arguments.path("occurrenceIndex").takeIfPresent()?.asInt()
         if (nodePath != null) {
@@ -4342,12 +4681,13 @@ public object BreakTestAgentGuiService {
         role: String,
     ): JMeterTreeNode {
         val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        val nodePath = arguments.path("${prefix}NodePath").optionalText()
         if (nodeIdArgument != null) {
-            return selectNodeById(gui, nodeIdArgument, role)
+            runCatching { selectNodeById(gui, nodeIdArgument, role) }.getOrNull()?.let { return it }
+            require(nodePath != null) {
+                "Unknown or stale $role nodeId '$nodeIdArgument'; also pass ${prefix}NodePath so the node can be re-resolved after an undo or reload"
+            }
         }
-        val nodePath = arguments.path("${prefix}NodePath").takeIfPresent()
-            ?.asText()
-            ?.takeIf { it.isNotBlank() }
         if (nodePath != null) {
             val occurrenceIndex = arguments.path("${prefix}OccurrenceIndex").takeIfPresent()?.asInt()
                 ?: arguments.path("occurrenceIndex").takeIfPresent()?.asInt()
@@ -4378,12 +4718,13 @@ public object BreakTestAgentGuiService {
         role: String,
     ): List<JMeterTreeNode> {
         val nodeIdArgument = arguments.path("${prefix}NodeId").optionalText()
+        val nodePath = arguments.path("${prefix}NodePath").optionalText()
         if (nodeIdArgument != null) {
-            return listOf(selectNodeById(gui, nodeIdArgument, role))
+            runCatching { selectNodeById(gui, nodeIdArgument, role) }.getOrNull()?.let { return listOf(it) }
+            require(nodePath != null) {
+                "Unknown or stale $role nodeId '$nodeIdArgument'; also pass ${prefix}NodePath so the node can be re-resolved after an undo or reload"
+            }
         }
-        val nodePath = arguments.path("${prefix}NodePath").takeIfPresent()
-            ?.asText()
-            ?.takeIf { it.isNotBlank() }
         if (nodePath != null) {
             var matches = matchingNodesByPath(gui.treeModel.testPlan, nodePath)
             val scope = resolutionScope(gui, arguments)
