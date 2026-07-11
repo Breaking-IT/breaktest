@@ -85,7 +85,7 @@ listener, and targeted runtime and desktop performance improvements.
   <li>Installs through a post-exit helper so active JAR files are not replaced, rolls back failed replacements, and restarts BreakTest after success.</li>
   <li>Preserves user and system properties, third-party <code>lib/ext</code> plugins, and user-installed driver JARs during updates.</li>
   <li>Refuses source checkouts and malformed distributions, and confines archive extraction and installation paths to prevent traversal or symlink escapes.</li>
-  <li>Update checks are disabled outside the GUI and can be configured through <code>breaktest.update.check.enabled</code> and <code>breaktest.update.check.interval_hours</code>.</li>
+  <li>Update checks are disabled outside the GUI and can be configured through <code>breaktest.update.enabled</code> and <code>breaktest.update.interval_hours</code>.</li>
 </ul>
 
 <ch_section>Benchmarks and Tests</ch_section>
