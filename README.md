@@ -214,7 +214,7 @@ preservation of every old edge case.
 Unpack the binary distribution, then start BreakTest from `bin`:
 
 ```sh
-cd breaktest-2026.07.10/bin
+cd breaktest-2026.07.11/bin
 ./breaktest
 ```
 
@@ -279,7 +279,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.07.10
+breaktest.version=2026.07.11
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix

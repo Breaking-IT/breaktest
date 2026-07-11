@@ -112,73 +112,7 @@ class UpdateServiceTest {
     }
 
     private static HttpClient respondingClient(String json, AtomicInteger requests, CountDownLatch checks) {
-        return new HttpClient() {
-            @Override
-            @SuppressWarnings("unchecked")
-            public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
-                requests.incrementAndGet();
-                checks.countDown();
-                return (HttpResponse<T>) response(request, json);
-            }
-
-            @Override
-            public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
-                    HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
-                    HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler,
-                    HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public Optional<java.net.CookieHandler> cookieHandler() {
-                return Optional.empty();
-            }
-
-            @Override
-            public Optional<Duration> connectTimeout() {
-                return Optional.empty();
-            }
-
-            @Override
-            public Redirect followRedirects() {
-                return Redirect.NEVER;
-            }
-
-            @Override
-            public Optional<java.net.ProxySelector> proxy() {
-                return Optional.empty();
-            }
-
-            @Override
-            public javax.net.ssl.SSLContext sslContext() {
-                return null;
-            }
-
-            @Override
-            public javax.net.ssl.SSLParameters sslParameters() {
-                return null;
-            }
-
-            @Override
-            public Optional<java.net.Authenticator> authenticator() {
-                return Optional.empty();
-            }
-
-            @Override
-            public Version version() {
-                return Version.HTTP_1_1;
-            }
-
-            @Override
-            public Optional<java.util.concurrent.Executor> executor() {
-                return Optional.empty();
-            }
-        };
+        return new RespondingHttpClient(json, requests, checks);
     }
 
     private static HttpResponse<InputStream> response(HttpRequest request, String json) {
@@ -335,5 +269,83 @@ class UpdateServiceTest {
         zip.putNextEntry(new ZipEntry(name));
         zip.write(value.getBytes(StandardCharsets.UTF_8));
         zip.closeEntry();
+    }
+
+    private static final class RespondingHttpClient extends HttpClient {
+        private final String json;
+        private final AtomicInteger requests;
+        private final CountDownLatch checks;
+
+        private RespondingHttpClient(String json, AtomicInteger requests, CountDownLatch checks) {
+            this.json = json;
+            this.requests = requests;
+            this.checks = checks;
+        }
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
+            requests.incrementAndGet();
+            checks.countDown();
+            return (HttpResponse<T>) response(request, json);
+        }
+
+        @Override
+        public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
+                HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public <T> java.util.concurrent.CompletableFuture<HttpResponse<T>> sendAsync(
+                HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler,
+                HttpResponse.PushPromiseHandler<T> pushPromiseHandler) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<java.net.CookieHandler> cookieHandler() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<Duration> connectTimeout() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Redirect followRedirects() {
+            return Redirect.NEVER;
+        }
+
+        @Override
+        public Optional<java.net.ProxySelector> proxy() {
+            return Optional.empty();
+        }
+
+        @Override
+        public javax.net.ssl.SSLContext sslContext() {
+            return null;
+        }
+
+        @Override
+        public javax.net.ssl.SSLParameters sslParameters() {
+            return null;
+        }
+
+        @Override
+        public Optional<java.net.Authenticator> authenticator() {
+            return Optional.empty();
+        }
+
+        @Override
+        public Version version() {
+            return Version.HTTP_1_1;
+        }
+
+        @Override
+        public Optional<java.util.concurrent.Executor> executor() {
+            return Optional.empty();
+        }
     }
 }
