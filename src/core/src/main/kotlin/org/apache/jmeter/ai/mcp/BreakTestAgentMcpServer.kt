@@ -150,6 +150,14 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
+                    "restore_open_plan_from_backup",
+                    "Restore the running BreakTest GUI plan from the exact AI pre-run backup created for this session. Use this only after a live-edit integrity failure; the bridge validates the backup before loading it, restores the original plan filename/dirty state, and refuses arbitrary files.",
+                    mapOf("path" to "string"),
+                    emptyList(),
+                )
+            )
+            add(
+                tool(
                     "inspect_open_plan",
                     "Inspect the test plan currently open in the running BreakTest GUI. Static browser asset samplers are omitted by default to keep AI analysis focused on functional requests; pass includeStaticAssets=true only when CSS/JS/font/image responses are directly relevant to correlation or a failure.",
                     mapOf(
@@ -363,7 +371,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "apply_repair_actions_open_plan",
-                    "Apply several planner actions from plan_repair_actions_open_plan in one call. Pass the snapshotId and the selected high-confidence actionIds; the GUI applies each action's stored arguments server-side and returns per-action results (applied/failed/missing) without needing get_repair_actions_open_plan first. Failed actions do not stop the batch unless stopOnFirstError=true. Prefer this over fetching apply arguments and replaying them one call at a time.",
+                    "Apply several planner actions from plan_repair_actions_open_plan in one call. Conflicting actions for the same scoped literal are skipped, and any failed action that changed the plan is rolled back before the batch continues. Returns applied/failed/missing/skipped_conflict and rollback details without needing get_repair_actions_open_plan first.",
                     mapOf(
                         "snapshotId" to "string",
                         "actionIds" to "array[string]",
@@ -716,7 +724,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "delete_node_open_plan",
-                    "Delete node(s) and their children from the running BreakTest GUI plan. Use this to remove misplaced duplicate processors, extractors, assertions, samplers, controllers, or config elements after a GUI edit targets the wrong node. Prefer targetNodeId from find_open_plan_nodes or earlier edit results; node paths are the fallback and sampler indexes drift after structural edits. If duplicate identical node paths exist, pass targetOccurrenceIndex for one or deleteAllMatches=true for intentional duplicate cleanup.",
+                    "Delete node(s) and their children from the running BreakTest GUI plan with selection-event suppression, exact element-count verification, and automatic rollback on failure. Use this to remove misplaced duplicate processors, extractors, assertions, samplers, controllers, or config elements after a GUI edit targets the wrong node. Test Plan and Thread Group deletion is refused unless allowStructuralContainerDelete=true. Prefer targetNodeId plus targetNodePath so recovery can re-resolve stale IDs.",
                     mapOf(
                         "targetNodeId" to "string",
                         "targetSamplerIndex" to "number",
@@ -724,6 +732,7 @@ public object BreakTestAgentMcpServer {
                         "targetNodePath" to "string",
                         "targetOccurrenceIndex" to "number",
                         "deleteAllMatches" to "boolean",
+                        "allowStructuralContainerDelete" to "boolean",
                     ),
                     emptyList(),
                 )
@@ -875,6 +884,7 @@ public object BreakTestAgentMcpServer {
             when (name) {
                 "gui_status" -> callGuiTool("status", arguments)
                 "refresh_open_plan_from_file" -> callGuiTool("refresh_open_plan_from_file", arguments)
+                "restore_open_plan_from_backup" -> callGuiTool("restore_open_plan_from_backup", arguments)
                 "inspect_open_plan" -> callGuiTool("inspect_open_plan", arguments)
                 "validate_open_plan" -> callGuiTool("validate_open_plan", arguments)
                 "search_validated_response_open_plan" -> callGuiTool("search_validated_response_open_plan", arguments)
@@ -963,6 +973,7 @@ public object BreakTestAgentMcpServer {
         this !in setOf(
             "gui_status",
             "refresh_open_plan_from_file",
+            "restore_open_plan_from_backup",
             "inspect_open_plan",
             "validate_open_plan",
             "search_validated_response_open_plan",
