@@ -245,4 +245,13 @@ public class SamplePackage {
         return configs;
     }
 
+    /**
+     * Returns the parent controllers of the sampler.
+     *
+     * @return List of {@link Controller}
+     */
+    public List<Controller> getControllers() {
+        return controllers;
+    }
+
 }

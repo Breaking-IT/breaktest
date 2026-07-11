@@ -24,6 +24,7 @@ import java.util.function.IntFunction;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.Sampler;
 
 /**
  * Internal marker sampler consumed by {@link org.apache.jmeter.threads.JMeterThread}.
@@ -99,17 +100,26 @@ public class ParallelControllerSampler extends AbstractSampler {
     }
 
     /**
-     * A materialized parallel branch and the transaction-controller mappings required only while
-     * that branch executes.
+     * A materialized parallel branch and the element mappings required only while that branch
+     * executes: cloned transaction controllers and cloned samplers are mapped back to their
+     * source elements from the compiled test tree.
      */
     public static final class ParallelBranch {
         private final Controller controller;
         private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
+        private final IdentityHashMap<Sampler, Sampler> sourceSamplers;
 
         ParallelBranch(Controller controller,
                 IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+            this(controller, sourceTransactionControllers, null);
+        }
+
+        ParallelBranch(Controller controller,
+                IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers,
+                IdentityHashMap<Sampler, Sampler> sourceSamplers) {
             this.controller = controller;
             this.sourceTransactionControllers = sourceTransactionControllers;
+            this.sourceSamplers = sourceSamplers;
         }
 
         public Controller getController() {
@@ -118,6 +128,20 @@ public class ParallelControllerSampler extends AbstractSampler {
 
         public TransactionController getSourceTransactionController(TransactionController controller) {
             return sourceTransactionControllers.getOrDefault(controller, controller);
+        }
+
+        /**
+         * Maps a per-branch sampler clone back to the sampler it was cloned from, so the
+         * compiled {@link org.apache.jmeter.threads.SamplePackage} of the source can be found.
+         *
+         * @param sampler a sampler executed by this branch
+         * @return the source sampler, or {@code sampler} itself when it was not cloned
+         */
+        public Sampler getSourceSampler(Sampler sampler) {
+            if (sourceSamplers == null) {
+                return sampler;
+            }
+            return sourceSamplers.getOrDefault(sampler, sampler);
         }
     }
 

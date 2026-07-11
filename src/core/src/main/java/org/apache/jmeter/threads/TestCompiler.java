@@ -99,9 +99,47 @@ public class TestCompiler implements HashTreeTraverser {
      * @return {@link SamplePackage}
      */
     public SamplePackage configureSampler(Sampler sampler) {
+        return configureSampler(sampler, Function.identity());
+    }
+
+    /**
+     * Configures a sampler, resolving per-branch sampler clones created by
+     * {@link org.apache.jmeter.control.ParallelController} to the compiled package of their
+     * source sampler. A clone gets its own {@link SamplePackage} (sharing the compiled element
+     * lists) so branches never configure or recover one another's sampler state.
+     *
+     * @param sampler {@link Sampler} from the test tree, or a per-branch clone of one
+     * @param sourceSamplerResolver maps a per-branch clone to its source sampler
+     * @return {@link SamplePackage}
+     */
+    public SamplePackage configureSampler(Sampler sampler,
+            Function<? super Sampler, ? extends Sampler> sourceSamplerResolver) {
         SamplePackage pack = samplerConfigMap.get(sampler);
+        if (pack == null) {
+            pack = createPackageForClonedSampler(sampler, sourceSamplerResolver);
+        }
         pack.setSampler(sampler);
         configureWithConfigElements(sampler, pack.getConfigs());
+        return pack;
+    }
+
+    private SamplePackage createPackageForClonedSampler(Sampler sampler,
+            Function<? super Sampler, ? extends Sampler> sourceSamplerResolver) {
+        Sampler source = sourceSamplerResolver.apply(sampler);
+        SamplePackage sourcePack = source == sampler ? null : samplerConfigMap.get(source);
+        if (sourcePack == null) {
+            throw new IllegalStateException(
+                    "Unable to find compiled sample package for sampler " + sampler.getName());
+        }
+        SamplePackage pack = new SamplePackage(
+                sourcePack.getConfigs(),
+                sourcePack.getSampleListeners(),
+                sourcePack.getTimers(),
+                sourcePack.getAssertions(),
+                sourcePack.getPostProcessors(),
+                sourcePack.getPreProcessors(),
+                sourcePack.getControllers());
+        pack.setSourceTestElementPath(sourcePack.getSourceTestElementPath());
         return pack;
     }
 
