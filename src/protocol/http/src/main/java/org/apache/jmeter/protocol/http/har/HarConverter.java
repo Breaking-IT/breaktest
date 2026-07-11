@@ -247,6 +247,12 @@ public final class HarConverter {
     }
 
     private List<Transaction> groupIntoTransactions(List<HarEntry> kept) {
+        boolean hasExplicitTransactions = kept.stream()
+                .anyMatch(entry -> !entry.getTransactionId().isBlank());
+        if (hasExplicitTransactions) {
+            return groupByExplicitTransactions(kept);
+        }
+
         List<Transaction> transactions = new ArrayList<>();
         long idleMs = idleMillis();
         int transactionCounter = 0;
@@ -276,6 +282,55 @@ public final class HarConverter {
             transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
         }
         return transactions;
+    }
+
+    private static List<Transaction> groupByExplicitTransactions(List<HarEntry> kept) {
+        List<Transaction> transactions = new ArrayList<>();
+        String currentId = null;
+        String currentName = null;
+        long currentGapMs = 0;
+        int transactionCounter = 0;
+        List<HarEntry> currentEntries = new ArrayList<>();
+        Double previousEnd = null;
+
+        for (HarEntry entry : kept) {
+            if (shouldSkip(entry)) {
+                continue;
+            }
+            String entryId = entry.getTransactionId().isBlank()
+                    ? currentId
+                    : entry.getTransactionId();
+            if (entryId == null) {
+                entryId = "unassigned-1";
+            }
+            if (currentId == null || !currentId.equals(entryId)) {
+                if (!currentEntries.isEmpty()) {
+                    transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
+                }
+                currentEntries = new ArrayList<>();
+                currentId = entryId;
+                transactionCounter++;
+                currentName = explicitTransactionName(entry, transactionCounter);
+                currentGapMs = previousEnd == null
+                        ? 0
+                        : (long) Math.max(entry.getStartMs() - previousEnd, 0);
+            }
+            currentEntries.add(entry);
+            previousEnd = entry.getEndMs();
+        }
+        if (!currentEntries.isEmpty()) {
+            transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
+        }
+        return transactions;
+    }
+
+    private static String explicitTransactionName(HarEntry entry, int transactionCounter) {
+        String name = entry.getTransactionName().trim();
+        if (name.isEmpty()) {
+            return String.format(Locale.ROOT, "%02d_Transaction", transactionCounter);
+        }
+        // Element names are display labels and must not evaluate JMeter variables.
+        return name.replace("${", "{");
     }
 
     private long idleMillis() {

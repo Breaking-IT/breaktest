@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "BreakTest Browser Recorder",
+  "description": "Record a browser session as HAR with named BreakTest transactions.",
+  "version": "0.5.0",
+  "minimum_chrome_version": "118",
+  "incognito": "split",
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open BreakTest Recorder",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

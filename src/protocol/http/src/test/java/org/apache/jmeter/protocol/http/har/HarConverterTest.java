@@ -205,6 +205,72 @@ public class HarConverterTest {
     }
 
     @Test
+    void explicitBrowserTransactionsOverrideIdleGapGrouping() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/login", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "01_Login") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:00.100Z", 50, "POST",
+                        "https://api.example.com/login", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "01_Login") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:00.200Z", 50, "GET",
+                        "https://api.example.com/search", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-2", "02_Search")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        List<TransactionController> transactions = new ArrayList<>();
+        collect(explicit, TransactionController.class, transactions);
+
+        assertEquals(2, transactions.size());
+        assertEquals("01_Login", transactions.get(0).getName());
+        assertEquals("02_Search", transactions.get(1).getName());
+    }
+
+    @Test
+    void explicitTransactionRemainsWholeAcrossLongIdleGap() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/a", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "Long business action") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:20.000Z", 50, "GET",
+                        "https://api.example.com/b", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "Long business action")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        List<TransactionController> transactions = new ArrayList<>();
+        collect(explicit, TransactionController.class, transactions);
+
+        assertEquals(1, transactions.size());
+        assertEquals("Long business action", transactions.get(0).getName());
+    }
+
+    @Test
+    void explicitTransactionNameCannotEvaluateJMeterVariables() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/a", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "${tenant} login")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        TransactionController transaction =
+                (TransactionController) findByType(explicit, TransactionController.class);
+
+        assertEquals("{tenant} login", transaction.getName());
+    }
+
+    @Test
     void gaussianDelayModeUsesMinMax() {
         HarImportOptions options = new HarImportOptions();
         options.setDelayMode(HarImportOptions.DelayMode.GAUSSIAN);
@@ -413,6 +479,11 @@ public class HarConverterTest {
 
     private static String commonHeadersOnly() {
         return "[{\"name\":\"accept-language\",\"value\":\"en\"},{\"name\":\"user-agent\",\"value\":\"UA\"}]";
+    }
+
+    private static String explicitTransaction(String entry, String id, String name) {
+        return "{\"_breaktest\":{\"transactionId\":\"" + id
+                + "\",\"transactionName\":\"" + name + "\"}," + entry.substring(1);
     }
 
     private static String entry(String started, int time, String method, String url, String queryString,
