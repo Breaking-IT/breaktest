@@ -318,13 +318,17 @@ public class ForeachController extends GenericController implements Serializable
     private ParallelControllerSampler.ParallelBranch createParallelBranch(String output, Object value) {
         IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
                 new IdentityHashMap<>();
+        // Every branch replicates the same children, so samplers must be cloned per branch:
+        // branches running concurrently would otherwise configure/recover the same sampler
+        // instance while another branch is mid-sample.
+        IdentityHashMap<Sampler, Sampler> sourceSamplers = new IdentityHashMap<>();
         ForEachParallelBranch branch = new ForEachParallelBranch(output, value);
         branch.setName(getName());
         for (TestElement child : getSubControllers()) {
-            ParallelController.addParallelChild(branch, child, sourceTransactionControllers);
+            ParallelController.addParallelChild(branch, child, sourceTransactionControllers, sourceSamplers);
         }
         branch.initialize();
-        return new ParallelControllerSampler.ParallelBranch(branch, sourceTransactionControllers);
+        return new ParallelControllerSampler.ParallelBranch(branch, sourceTransactionControllers, sourceSamplers);
     }
 
     /**
