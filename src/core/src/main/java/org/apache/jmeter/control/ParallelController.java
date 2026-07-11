@@ -110,6 +110,7 @@ public class ParallelController extends GenericController implements Serializabl
         if (clone instanceof TransactionController parallelTransactionController
                 && controller instanceof TransactionController sourceTransactionController) {
             sourceTransactionControllers.put(parallelTransactionController, sourceTransactionController);
+            parallelTransactionController.setSourceController(sourceTransactionController);
         }
         for (TestElement nestedChild : controller.getSubControllers()) {
             addParallelChild(clone, nestedChild, sourceTransactionControllers, sourceSamplers);

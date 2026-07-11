@@ -125,6 +125,14 @@ public class TransactionController extends GenericController implements SampleLi
     private transient long nextPacingStartTime = -1;
 
     /**
+     * The controller this instance was cloned from, set only on the per-branch clones created for
+     * parallel and fork execution. Compiled sample packages are keyed by the controller in the
+     * compiled test tree, so {@link org.apache.jmeter.threads.TestCompiler} follows this chain
+     * when a clone itself has no compiled package.
+     */
+    private transient TransactionController sourceController;
+
+    /**
      * Creates a Transaction Controller
      */
     public TransactionController() {
@@ -152,6 +160,20 @@ public class TransactionController extends GenericController implements SampleLi
         super.readResolve();
         lnf = new ListenerNotifier();
         return this;
+    }
+
+    /**
+     * @param sourceController the controller this parallel/fork branch clone was created from
+     */
+    public void setSourceController(TransactionController sourceController) {
+        this.sourceController = sourceController;
+    }
+
+    /**
+     * @return the controller this parallel/fork branch clone was created from, or {@code null}
+     */
+    public TransactionController getSourceController() {
+        return sourceController;
     }
 
     /**

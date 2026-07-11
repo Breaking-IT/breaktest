@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,6 +49,11 @@ import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 
 class TestForeachController extends JMeterTestCase {
@@ -166,10 +172,12 @@ class TestForeachController extends JMeterTestCase {
         variables.putObject("input_2", "two");
         variables.putObject("input_3", "three");
 
-        runTestPlan(testTree, variables, "parallel-foreach-transaction-thread");
+        List<String> errors = runTestPlanCapturingErrors(testTree, variables, "parallel-foreach-transaction-thread");
 
         assertTrue(RecordingSampler.completed.await(5, TimeUnit.SECONDS), "Every transaction child should run");
         assertEquals(Set.of("one", "two", "three"), RecordingSampler.values);
+        assertEquals(List.of(), errors,
+                "Ending a parallel transaction must reset its compiled sample package without errors");
     }
 
     @Test
@@ -304,6 +312,36 @@ class TestForeachController extends JMeterTestCase {
         runner.start();
         runner.join(TimeUnit.SECONDS.toMillis(30));
         assertFalse(runner.isAlive(), "Test plan should complete");
+    }
+
+    /**
+     * Runs the plan while recording every error {@link JMeterThread} logs, since sampler
+     * processing failures (e.g. a failed transaction package reset) are logged and swallowed
+     * rather than propagated.
+     */
+    private static List<String> runTestPlanCapturingErrors(HashTree testTree, JMeterVariables variables,
+            String threadName) throws InterruptedException {
+        List<String> errors = new CopyOnWriteArrayList<>();
+        AbstractAppender appender = new AbstractAppender(
+                "test-jmeter-thread-errors", null, null, false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel().isMoreSpecificThan(Level.ERROR)) {
+                    errors.add(event.getMessage().getFormattedMessage() + ": " + event.getThrown());
+                }
+            }
+        };
+        appender.start();
+        org.apache.logging.log4j.core.Logger logger =
+                (org.apache.logging.log4j.core.Logger) LogManager.getLogger(JMeterThread.class);
+        logger.addAppender(appender);
+        try {
+            runTestPlan(testTree, variables, threadName);
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+        return errors;
     }
 
     private static void setVariables(ForeachController controller, JMeterVariables variables) {
