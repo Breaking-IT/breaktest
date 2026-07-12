@@ -21,7 +21,7 @@ plugins {
 }
 
 allprojects {
-    group = "org.apache.jmeter"
+    group = "nl.breakingit.breaktest"
     version = "1.0.0"
 
     apply(plugin = "com.github.autostyle")
