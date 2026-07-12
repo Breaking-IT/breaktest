@@ -488,7 +488,7 @@ val previewSite by tasks.registering(Sync::class) {
 }
 
 val distributionGroup = "distribution"
-val baseFolder = "breaktest-${rootProject.version}"
+val baseFolder = "breaktest"
 
 fun CopySpec.javadocs() = from(javadocAggregate)
 
