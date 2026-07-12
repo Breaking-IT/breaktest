@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.control.gui;
 
+import java.awt.Component;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 
@@ -32,6 +33,7 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
@@ -161,6 +163,23 @@ public class TestHttpTestSampleGui {
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
         Assertions.assertEquals(hint, recordedRequestData().getText());
         Assertions.assertEquals(hint, recordedResponseData().getText());
+    }
+
+    @Test
+    public void testRecordedTabSelectionSurvivesSamplerSwitch() throws Exception {
+        gui.configure(new HTTPSamplerProxy());
+        JTabbedPane tabs = configTabbedPane();
+
+        for (String title : new String[] {"Recorded Request", "Recorded Response"}) {
+            tabs.setSelectedIndex(tabs.indexOfTab(title));
+            Component selectedTab = tabs.getSelectedComponent();
+
+            gui.clearGui();
+            gui.configure(new HTTPSamplerProxy());
+
+            Assertions.assertSame(selectedTab, tabs.getSelectedComponent());
+            Assertions.assertEquals(title, tabs.getTitleAt(tabs.getSelectedIndex()));
+        }
     }
 
     @SuppressWarnings("unchecked")

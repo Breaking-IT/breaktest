@@ -1,0 +1,138 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+:root {
+  color-scheme: light dark;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --background: #f4f6f8;
+  --surface: #ffffff;
+  --border: #d8dee4;
+  --text: #20262d;
+  --muted: #66717d;
+  --primary: #1565c0;
+  --danger: #c62828;
+  --failure: #fff0f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #171a1f;
+    --surface: #22262d;
+    --border: #3a424c;
+    --text: #e9edf1;
+    --muted: #a6afb9;
+    --primary: #5ca8ff;
+    --danger: #ef6464;
+    --failure: #3a2023;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  min-width: 320px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+h1, h2, p { margin: 0; }
+h1 { font-size: 18px; }
+h2 { font-size: 14px; }
+header p { margin-top: 4px; color: var(--muted); font-size: 12px; }
+header p.error { color: var(--danger); }
+
+#recording-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #9aa2aa;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #9aa2aa 20%, transparent);
+}
+
+#recording-indicator.active {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+#recording-indicator.reconnecting {
+  background: #f9a825;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #f9a825 25%, transparent);
+}
+
+main { padding: 12px; display: grid; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.controls { display: grid; gap: 8px; }
+.start-setup, .start-actions { display: grid; gap: 8px; }
+label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.optional { font-weight: 400; }
+.control-row { display: flex; gap: 8px; }
+input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: var(--background); color: var(--text); }
+.checkbox-option { display: flex; align-items: center; gap: 7px; font-weight: 500; }
+.checkbox-option input { flex: none; width: 14px; height: 14px; margin: 0; padding: 0; }
+button { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--text); cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--primary); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+button.incognito { flex: 1; border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
+button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+button.quiet { border: 0; padding: 3px 5px; color: var(--muted); font-size: 11px; }
+.recording-controls button { flex: 1; }
+.start-controls button { flex: 1; }
+.hint, .privacy-note { color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+.stats strong, .stats span { display: block; }
+.stats strong { font-size: 18px; }
+.stats span { margin-top: 2px; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+
+.transaction-card { display: grid; gap: 8px; }
+#transaction-list { margin: 0; padding-left: 24px; font-size: 12px; }
+#transaction-list li { padding: 3px 0; }
+
+.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.request-list { display: grid; gap: 4px; max-height: 50vh; overflow: auto; }
+.request { display: grid; grid-template-columns: 34px 42px minmax(0, 1fr) auto; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 5px 7px; min-width: 0; font-size: 11px; }
+.request.failed { background: var(--failure); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.request-status { color: var(--muted); font-variant-numeric: tabular-nums; }
+.request-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.request-body-warning { color: #f9a825; cursor: help; }
+.privacy-note { padding: 0 4px 8px; }
+
+.launcher-page { min-width: 0; min-height: 100vh; }
+.launcher-main { min-height: 100vh; place-items: center; align-content: center; padding: 24px; }
+.launcher-card { width: min(440px, 100%); display: grid; gap: 18px; padding: 28px; text-align: center; }
+.launcher-card img { margin: 0 auto; }
+.launcher-card h1 { margin-top: 4px; font-size: 24px; }
+.launcher-eyebrow { color: var(--primary); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.launcher-card > p { color: var(--muted); line-height: 1.5; }
+.launcher-card dl { margin: 0; display: grid; gap: 8px; text-align: left; }
+.launcher-card dl div { padding: 10px 12px; background: var(--background); border-radius: 6px; }
+.launcher-card dt { color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.launcher-card dd { margin: 3px 0 0; overflow-wrap: anywhere; font-size: 13px; }
+.launcher-button { width: 100%; padding: 11px; font-weight: 700; }

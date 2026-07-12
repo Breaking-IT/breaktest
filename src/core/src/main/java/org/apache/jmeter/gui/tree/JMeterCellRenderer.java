@@ -26,19 +26,27 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.JTree;
 import javax.swing.border.Border;
 import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.TreeNode;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jorphan.util.StringUtilities;
 
 /**
@@ -55,6 +63,7 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     private static final Border BLUE_BORDER = BorderFactory.createLineBorder(new Color(0x2563EB));
     private static final int DELAY_SUMMARY_GAP = 7;
     private static final int BADGE_RIGHT_INSET = 8;
+    private static final Pattern SIMPLE_VARIABLE = Pattern.compile("\\$\\{([^{}]+)}");
 
     private String delaySummary;
 
@@ -142,38 +151,85 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         g.drawString(delaySummary, x, y);
     }
 
-    private static String delaySummary(JMeterTreeNode node) {
+    static String delaySummary(JMeterTreeNode node) {
         TestElement element = node.getTestElement();
         if (!(element instanceof TransactionController)) {
             return null;
         }
+        Map<String, String> variables = testPlanVariables(node);
         String mode = element.getPropertyAsString("TransactionController.delayMode", TransactionController.DELAY_DISABLED);
         long millis;
         if (TransactionController.DELAY_FIXED.equals(mode)) {
-            millis = parseMillis(element.getPropertyAsString("TransactionController.fixedDelay", "0"));
+            millis = parseMillis(element.getPropertyAsString("TransactionController.fixedDelay", "0"), variables);
         } else if (TransactionController.DELAY_RANDOM.equals(mode)
                 || TransactionController.DELAY_GAUSSIAN_RANDOM.equals(mode)) {
-            long min = parseMillis(element.getPropertyAsString("TransactionController.delayMin", "0"));
-            long max = parseMillis(element.getPropertyAsString("TransactionController.delayMax", "0"));
+            long min = parseMillis(element.getPropertyAsString("TransactionController.delayMin", "0"), variables);
+            long max = parseMillis(element.getPropertyAsString("TransactionController.delayMax", "0"), variables);
             if (min < 0 || max < 0) {
                 return null;
             }
-            millis = Math.round((min + max) / 2.0);
+            millis = Math.round(min / 2.0 + max / 2.0);
         } else {
             return null;
         }
         return millis > 0 ? "(" + formatSeconds(millis) + ")" : null;
     }
 
-    private static long parseMillis(String value) {
+    private static long parseMillis(String value, Map<String, String> variables) {
         if (StringUtilities.isBlank(value)) {
             return 0;
         }
+        String resolved = resolveSimpleVariable(value.trim(), variables, new HashSet<>());
+        if (resolved == null) {
+            return -1;
+        }
         try {
-            return Long.parseLong(value.trim());
+            return Long.parseLong(resolved.trim());
         } catch (NumberFormatException ex) {
             return -1;
         }
+    }
+
+    private static String resolveSimpleVariable(String value, Map<String, String> variables, Set<String> visited) {
+        Matcher matcher = SIMPLE_VARIABLE.matcher(value);
+        if (!matcher.matches()) {
+            return value;
+        }
+        String name = matcher.group(1);
+        if (!visited.add(name)) {
+            return null;
+        }
+        String replacement = variables.get(name);
+        if (replacement == null) {
+            return null;
+        }
+        return resolveSimpleVariable(replacement.trim(), variables, visited);
+    }
+
+    private static Map<String, String> testPlanVariables(JMeterTreeNode node) {
+        JMeterTreeNode testPlanNode = null;
+        for (TreeNode current = node; current instanceof JMeterTreeNode treeNode; current = current.getParent()) {
+            if (treeNode.getTestElement() instanceof TestPlan) {
+                testPlanNode = treeNode;
+                break;
+            }
+        }
+        if (testPlanNode == null) {
+            return Map.of();
+        }
+        Map<String, String> variables = new LinkedHashMap<>();
+        TestPlan testPlan = (TestPlan) testPlanNode.getTestElement();
+        Object builtInVariables = testPlan.getUserDefinedVariablesAsProperty().getObjectValue();
+        if (builtInVariables instanceof Arguments arguments) {
+            variables.putAll(arguments.getArgumentsAsMap());
+        }
+        for (int i = 0; i < testPlanNode.getChildCount(); i++) {
+            TestElement child = ((JMeterTreeNode) testPlanNode.getChildAt(i)).getTestElement();
+            if (child instanceof Arguments arguments) {
+                variables.putAll(arguments.getArgumentsAsMap());
+            }
+        }
+        return variables;
     }
 
     private static String formatSeconds(long millis) {

@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,6 +39,7 @@ import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.junit.jupiter.api.BeforeEach;
@@ -202,6 +204,118 @@ public class HarConverterTest {
         TransactionController second = tcs.get(1);
         assertEquals("Fixed", second.getPropertyAsString("TransactionController.delayMode"));
         assertEquals("3000", second.getPropertyAsString("TransactionController.fixedDelay"));
+    }
+
+    @Test
+    void fixedDelayModeAcceptsJMeterVariable() {
+        HarImportOptions options = new HarImportOptions();
+        options.setDelayMode(HarImportOptions.DelayMode.FIXED);
+        options.setFixedDelay("${thinkTime}");
+
+        TransactionController second = twoTransactionControllers(options).get(1);
+
+        assertEquals("Fixed", second.getPropertyAsString("TransactionController.delayMode"));
+        assertEquals("${thinkTime}", second.getPropertyAsString("TransactionController.fixedDelay"));
+    }
+
+    @Test
+    void sharedRangeDelaysCreateAndReferenceTestPlanVariables() {
+        HarImportOptions options = new HarImportOptions();
+        options.setDelayMode(HarImportOptions.DelayMode.RANDOM);
+        options.setDelayMin("250");
+        options.setDelayMax("${externalMaximum}");
+        options.setUseDelayVariables(true);
+
+        TransactionController second = twoTransactionControllers(options).get(1);
+        assertEquals("${ThinkTimeMin}",
+                second.getPropertyAsString("TransactionController.delayMin"));
+        assertEquals("${externalMaximum}",
+                second.getPropertyAsString("TransactionController.delayMax"));
+
+        TestPlan testPlan = new TestPlan();
+        testPlan.getArguments().addArgument("unrelated", "keep-me");
+        testPlan.getArguments().addArgument(HarImportOptions.MIN_DELAY_VARIABLE, "old");
+        HarImportAction.applyDelayVariables(testPlan, options);
+
+        assertEquals("keep-me", testPlan.getUserDefinedVariables().get("unrelated"));
+        assertEquals("250", testPlan.getUserDefinedVariables().get(HarImportOptions.MIN_DELAY_VARIABLE));
+        assertFalse(testPlan.getUserDefinedVariables().containsKey(HarImportOptions.MAX_DELAY_VARIABLE));
+    }
+
+    @Test
+    void delayValidationAcceptsNumbersAndVariables() {
+        assertTrue(HarImportOptions.isValidDelay("0"));
+        assertTrue(HarImportOptions.isValidDelay(" 1500 "));
+        assertTrue(HarImportOptions.isValidDelay("${thinkTime}"));
+        assertFalse(HarImportOptions.isValidDelay("${}"));
+        assertFalse(HarImportOptions.isValidDelay("-1"));
+        assertFalse(HarImportOptions.isValidDelay("1.5"));
+    }
+
+    @Test
+    void explicitBrowserTransactionsOverrideIdleGapGrouping() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/login", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "01_Login") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:00.100Z", 50, "POST",
+                        "https://api.example.com/login", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "01_Login") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:00.200Z", 50, "GET",
+                        "https://api.example.com/search", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-2", "02_Search")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        List<TransactionController> transactions = new ArrayList<>();
+        collect(explicit, TransactionController.class, transactions);
+
+        assertEquals(2, transactions.size());
+        assertEquals("01_Login", transactions.get(0).getName());
+        assertEquals("02_Search", transactions.get(1).getName());
+    }
+
+    @Test
+    void explicitTransactionRemainsWholeAcrossLongIdleGap() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/a", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "Long business action") + ","
+                + explicitTransaction(entry("2021-01-01T00:00:20.000Z", 50, "GET",
+                        "https://api.example.com/b", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "Long business action")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        List<TransactionController> transactions = new ArrayList<>();
+        collect(explicit, TransactionController.class, transactions);
+
+        assertEquals(1, transactions.size());
+        assertEquals("Long business action", transactions.get(0).getName());
+    }
+
+    @Test
+    void explicitTransactionNameCannotEvaluateJMeterVariables() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + explicitTransaction(entry("2021-01-01T00:00:00.000Z", 50, "GET",
+                        "https://api.example.com/a", "[]", commonHeadersOnly(), null, 200),
+                        "transaction-1", "${tenant} login")
+                + "]}}";
+
+        HashTree explicit = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "browser.har", "md5")
+                .convert(Set.of("api.example.com"));
+        TransactionController transaction =
+                (TransactionController) findByType(explicit, TransactionController.class);
+
+        assertEquals("{tenant} login", transaction.getName());
     }
 
     @Test
@@ -413,6 +527,11 @@ public class HarConverterTest {
 
     private static String commonHeadersOnly() {
         return "[{\"name\":\"accept-language\",\"value\":\"en\"},{\"name\":\"user-agent\",\"value\":\"UA\"}]";
+    }
+
+    private static String explicitTransaction(String entry, String id, String name) {
+        return "{\"_breaktest\":{\"transactionId\":\"" + id
+                + "\",\"transactionName\":\"" + name + "\"}," + entry.substring(1);
     }
 
     private static String entry(String started, int time, String method, String url, String queryString,

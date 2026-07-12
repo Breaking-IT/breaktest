@@ -82,6 +82,10 @@ public class HarEntry {
     /** Raw {@code startedDateTime} string, kept for BreakTest HAR metadata. */
     private String startedDateTime = "";
 
+    /** Optional explicit transaction metadata written by the BreakTest browser recorder. */
+    private String transactionId = "";
+    private String transactionName = "";
+
     /** Effective request start time (started + queue/blocking offset), epoch millis. */
     private double startMs;
     /** Effective request end time (started + total time), epoch millis. */
@@ -152,6 +156,22 @@ public class HarEntry {
 
     public void setStartedDateTime(String startedDateTime) {
         this.startedDateTime = startedDateTime == null ? "" : startedDateTime;
+    }
+
+    public String getTransactionId() {
+        return transactionId;
+    }
+
+    public void setTransactionId(String transactionId) {
+        this.transactionId = transactionId == null ? "" : transactionId;
+    }
+
+    public String getTransactionName() {
+        return transactionName;
+    }
+
+    public void setTransactionName(String transactionName) {
+        this.transactionName = transactionName == null ? "" : transactionName;
     }
 
     public double getStartMs() {

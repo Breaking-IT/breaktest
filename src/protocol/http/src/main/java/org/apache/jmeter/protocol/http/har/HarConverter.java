@@ -247,6 +247,12 @@ public final class HarConverter {
     }
 
     private List<Transaction> groupIntoTransactions(List<HarEntry> kept) {
+        boolean hasExplicitTransactions = kept.stream()
+                .anyMatch(entry -> !entry.getTransactionId().isBlank());
+        if (hasExplicitTransactions) {
+            return groupByExplicitTransactions(kept);
+        }
+
         List<Transaction> transactions = new ArrayList<>();
         long idleMs = idleMillis();
         int transactionCounter = 0;
@@ -276,6 +282,55 @@ public final class HarConverter {
             transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
         }
         return transactions;
+    }
+
+    private static List<Transaction> groupByExplicitTransactions(List<HarEntry> kept) {
+        List<Transaction> transactions = new ArrayList<>();
+        String currentId = null;
+        String currentName = null;
+        long currentGapMs = 0;
+        int transactionCounter = 0;
+        List<HarEntry> currentEntries = new ArrayList<>();
+        Double previousEnd = null;
+
+        for (HarEntry entry : kept) {
+            if (shouldSkip(entry)) {
+                continue;
+            }
+            String entryId = entry.getTransactionId().isBlank()
+                    ? currentId
+                    : entry.getTransactionId();
+            if (entryId == null) {
+                entryId = "unassigned-1";
+            }
+            if (currentId == null || !currentId.equals(entryId)) {
+                if (!currentEntries.isEmpty()) {
+                    transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
+                }
+                currentEntries = new ArrayList<>();
+                currentId = entryId;
+                transactionCounter++;
+                currentName = explicitTransactionName(entry, transactionCounter);
+                currentGapMs = previousEnd == null
+                        ? 0
+                        : (long) Math.max(entry.getStartMs() - previousEnd, 0);
+            }
+            currentEntries.add(entry);
+            previousEnd = entry.getEndMs();
+        }
+        if (!currentEntries.isEmpty()) {
+            transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
+        }
+        return transactions;
+    }
+
+    private static String explicitTransactionName(HarEntry entry, int transactionCounter) {
+        String name = entry.getTransactionName().trim();
+        if (name.isEmpty()) {
+            return String.format(Locale.ROOT, "%02d_Transaction", transactionCounter);
+        }
+        // Element names are display labels and must not evaluate JMeter variables.
+        return name.replace("${", "{");
     }
 
     private long idleMillis() {
@@ -638,11 +693,11 @@ public final class HarConverter {
         }
         switch (options.getDelayMode()) {
             case NONE -> setDisabledDelay(tc);
-            case FIXED -> setFixedDelay(tc, options.getFixedDelayMs());
+            case FIXED -> setFixedDelay(tc, options.getEffectiveFixedDelay());
             case RANDOM -> setRangeDelay(tc, TransactionController.DELAY_RANDOM,
-                    options.getDelayMinMs(), options.getDelayMaxMs());
+                    options.getEffectiveDelayMin(), options.getEffectiveDelayMax());
             case GAUSSIAN -> setRangeDelay(tc, TransactionController.DELAY_GAUSSIAN_RANDOM,
-                    options.getDelayMinMs(), options.getDelayMaxMs());
+                    options.getEffectiveDelayMin(), options.getEffectiveDelayMax());
             case AS_RECORDED -> applyRecordedDelay(tc, recordedGapMs);
         }
     }
@@ -669,8 +724,12 @@ public final class HarConverter {
     }
 
     private static void setFixedDelay(TransactionController tc, long delayMs) {
+        setFixedDelay(tc, Long.toString(Math.max(delayMs, 0)));
+    }
+
+    private static void setFixedDelay(TransactionController tc, String delay) {
         tc.setProperty("TransactionController.delayMode", TransactionController.DELAY_FIXED);
-        tc.setProperty("TransactionController.fixedDelay", Long.toString(Math.max(delayMs, 0)));
+        tc.setProperty("TransactionController.fixedDelay", delay);
         tc.setProperty("TransactionController.delayMin", "0");
         tc.setProperty("TransactionController.delayMax", "0");
     }
@@ -678,10 +737,14 @@ public final class HarConverter {
     private static void setRangeDelay(TransactionController tc, String mode, long minMs, long maxMs) {
         long min = Math.max(minMs, 0);
         long max = Math.max(maxMs, min);
+        setRangeDelay(tc, mode, Long.toString(min), Long.toString(max));
+    }
+
+    private static void setRangeDelay(TransactionController tc, String mode, String min, String max) {
         tc.setProperty("TransactionController.delayMode", mode);
         tc.setProperty("TransactionController.fixedDelay", "0");
-        tc.setProperty("TransactionController.delayMin", Long.toString(min));
-        tc.setProperty("TransactionController.delayMax", Long.toString(max));
+        tc.setProperty("TransactionController.delayMin", min);
+        tc.setProperty("TransactionController.delayMax", max);
     }
 
     private static ParallelController buildParallelController(String name, int maxParallel) {

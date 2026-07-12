@@ -106,6 +106,11 @@ public final class HarParser {
 
         String startedDateTime = entryNode.path("startedDateTime").asText("");
         entry.setStartedDateTime(startedDateTime);
+        JsonNode breakTest = entryNode.path("_breaktest");
+        entry.setTransactionId(firstText(
+                breakTest.path("transactionId"), entryNode.path("_breaktestTransactionId")));
+        entry.setTransactionName(firstText(
+                breakTest.path("transactionName"), entryNode.path("_breaktestTransactionName")));
         double started = parseStartedMillis(startedDateTime);
         double time = entryNode.path("time").asDouble(0);
         JsonNode timings = entryNode.path("timings");
@@ -128,6 +133,11 @@ public final class HarParser {
         readNameValues(response.path("headers"), entry.getResponseHeaders());
         entry.setResponseContentText(response.path("content").path("text").asText(""));
         return entry;
+    }
+
+    private static String firstText(JsonNode primary, JsonNode fallback) {
+        String value = primary.asText("");
+        return value.isEmpty() ? fallback.asText("") : value;
     }
 
     /** Mirrors get_har_protocol: first non-empty of _protocol/protocol/httpVersion, lower-cased. */

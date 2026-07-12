@@ -18,10 +18,21 @@
 package org.apache.jmeter.gui.tree;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.awt.Component;
+import java.awt.Container;
+
+import javax.swing.JTable;
+
+import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.control.gui.TestPlanGui;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.junit.jupiter.api.Test;
 
 class JMeterCellRendererTest {
@@ -44,6 +55,88 @@ class JMeterCellRendererTest {
         assertEquals(
                 JMeterCellRenderer.ModernTreeIcon.Kind.POST_PROCESSOR,
                 JMeterCellRenderer.ModernTreeIcon.kindFor(node));
+    }
+
+    @Test
+    void randomDelaySummaryResolvesTestPlanVariables() {
+        TestPlan plan = new TestPlan("Test Plan");
+        plan.getArguments().addArgument("ThinkTimeMin", "1000");
+        plan.getArguments().addArgument("ThinkTimeMax", "3000");
+        JMeterTreeNode transactionNode = transactionNode(plan, TransactionController.DELAY_RANDOM,
+                "0", "${ThinkTimeMin}", "${ThinkTimeMax}");
+
+        assertEquals("(2s)", JMeterCellRenderer.delaySummary(transactionNode));
+    }
+
+    @Test
+    void fixedDelaySummaryResolvesTopLevelUserDefinedVariable() {
+        TestPlan plan = new TestPlan("Test Plan");
+        JMeterTreeNode planNode = new JMeterTreeNode(plan, null);
+        Arguments variables = new Arguments();
+        variables.addArgument("ThinkTime", "1500");
+        planNode.add(new JMeterTreeNode(variables, null));
+        JMeterTreeNode transactionNode = transactionNode(planNode, TransactionController.DELAY_FIXED,
+                "${ThinkTime}", "0", "0");
+
+        assertEquals("(1.5s)", JMeterCellRenderer.delaySummary(transactionNode));
+    }
+
+    @Test
+    void unresolvedDelayVariableDoesNotShowSummary() {
+        JMeterTreeNode transactionNode = transactionNode(new TestPlan("Test Plan"),
+                TransactionController.DELAY_FIXED, "${Missing}", "0", "0");
+
+        assertNull(JMeterCellRenderer.delaySummary(transactionNode));
+    }
+
+    @Test
+    void delaySummarySurvivesEditingVariableThroughTestPlanGui() {
+        TestPlan plan = new TestPlan("Test Plan");
+        plan.getArguments().addArgument("ThinkTimeMin", "1000");
+        plan.getArguments().addArgument("ThinkTimeMax", "3000");
+        JMeterTreeNode transactionNode = transactionNode(plan, TransactionController.DELAY_RANDOM,
+                "0", "${ThinkTimeMin}", "${ThinkTimeMax}");
+        TestPlanGui gui = new TestPlanGui();
+        gui.configure(plan);
+        JTable variablesTable = findTable(gui);
+        assertNotNull(variablesTable);
+        variablesTable.setValueAt("5000", 1, 1);
+
+        gui.modifyTestElement(plan);
+
+        assertEquals("(3s)", JMeterCellRenderer.delaySummary(transactionNode));
+    }
+
+    private static JTable findTable(Component component) {
+        if (component instanceof JTable table) {
+            return table;
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JTable table = findTable(child);
+                if (table != null) {
+                    return table;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static JMeterTreeNode transactionNode(TestPlan plan, String mode,
+            String fixed, String min, String max) {
+        return transactionNode(new JMeterTreeNode(plan, null), mode, fixed, min, max);
+    }
+
+    private static JMeterTreeNode transactionNode(JMeterTreeNode planNode, String mode,
+            String fixed, String min, String max) {
+        TransactionController transaction = new TransactionController();
+        transaction.setDelayMode(mode);
+        transaction.setFixedDelay(fixed);
+        transaction.setDelayMin(min);
+        transaction.setDelayMax(max);
+        JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, null);
+        planNode.add(transactionNode);
+        return transactionNode;
     }
 
     private static class DummyExtractor extends AbstractTestElement implements PostProcessor {

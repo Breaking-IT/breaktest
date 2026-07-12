@@ -1,0 +1,92 @@
+<!doctype html>
+<!--
+  Licensed to the Apache Software Foundation (ASF) under one or more
+  contributor license agreements.  See the NOTICE file distributed with
+  this work for additional information regarding copyright ownership.
+  The ASF licenses this file to you under the Apache License, Version 2.0
+  (the "License"); you may not use this file except in compliance with
+  the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BreakTest Recorder</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>BreakTest Recorder</h1>
+      <p id="status-text" hidden></p>
+    </div>
+    <span id="recording-indicator" aria-label="Recording status"></span>
+  </header>
+
+  <main>
+    <section class="card controls">
+      <div id="start-setup" class="start-setup">
+        <label for="start-url">Start URL <span class="optional">optional</span></label>
+        <div class="control-row">
+          <input id="start-url" type="url" placeholder="https://application.example/" maxlength="2048">
+        </div>
+      </div>
+      <label for="transaction-name">Transaction name</label>
+      <div class="control-row">
+        <input id="transaction-name" type="text" value="01_OpenHomepage" maxlength="120">
+      </div>
+      <div id="start-actions" class="start-actions">
+        <label class="checkbox-option" for="disable-cache">
+          <input id="disable-cache" type="checkbox">
+          Disable browser cache while recording
+        </label>
+        <div class="control-row start-controls">
+          <button id="blank-start-button" class="primary">Start in blank tab</button>
+          <button id="start-button">Start current tab</button>
+        </div>
+        <div class="control-row">
+          <button id="incognito-start-button" class="incognito">Start in incognito window</button>
+        </div>
+        <p class="hint">The recorder attaches before opening the start URL. New session cookies remain enabled so login flows work.</p>
+      </div>
+      <div class="control-row recording-controls">
+        <button id="stop-button" class="danger" disabled hidden>Finish and export</button>
+      </div>
+      <p id="transaction-hint" class="hint" hidden>Type the next transaction name, then move the pointer toward the action you want to record. The new name is applied after typing stops.</p>
+    </section>
+
+    <section class="stats" aria-label="Recording totals">
+      <div><strong id="request-count">0</strong><span>requests</span></div>
+      <div><strong id="pending-count">0</strong><span>pending</span></div>
+      <div><strong id="error-count">0</strong><span>errors</span></div>
+    </section>
+
+    <section class="card transaction-card">
+      <h2>Transactions</h2>
+      <ol id="transaction-list"></ol>
+    </section>
+
+    <section class="card requests-card">
+      <div class="section-heading">
+        <h2>Live requests</h2>
+        <button id="clear-view-button" class="quiet">Clear view</button>
+      </div>
+      <div id="request-list" class="request-list"></div>
+    </section>
+
+    <section class="privacy-note">
+      HAR recordings can contain credentials, cookies, tokens and personal data. Review them before sharing.
+    </section>
+  </main>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

@@ -770,6 +770,9 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         JScrollPane treeP = new JScrollPane(tree);
         treeP.setMinimumSize(new Dimension(100, 0));
         treeP.setBorder(BorderFactory.createEmptyBorder());
+        // Child-count badges are anchored to the visible right edge rather than to tree content.
+        // Pixel-blit scrolling can copy their old pixels and repaint only part of the new badge.
+        treeP.getViewport().setScrollMode(javax.swing.JViewport.SIMPLE_SCROLL_MODE);
         treeP.getViewport().setBackground(uiColor("Panel.background", Color.WHITE)); // $NON-NLS-1$
         panel.add(treeP, BorderLayout.CENTER);
         return panel;
