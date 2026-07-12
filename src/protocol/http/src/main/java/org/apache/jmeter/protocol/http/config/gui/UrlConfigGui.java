@@ -88,6 +88,8 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     private String bodyTabTitle;
     private String filesTabTitle;
 
+    private boolean updatingContentTabTitles;
+
     private HTTPArgumentsPanel argsPanel;
 
     private HTTPFileArgsPanel filesPanel;
@@ -650,18 +652,24 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     }
 
     private void updateContentTabTitles() {
-        if (postContentTabbedPane == null || argsPanel == null) {
+        if (postContentTabbedPane == null || argsPanel == null || updatingContentTabTitles) {
             return;
         }
-        setTabTitle(TAB_PARAMETERS, paramsTabTitle, argsPanel.getParameterCount());
-        if (headersPanel != null && tabHeadersIndex >= 0) {
-            setTabTitle(tabHeadersIndex, headersTabTitle, headersPanel.getHeaderCount());
-        }
-        if (postBodyContent != null && tabRawBodyIndex >= 0) {
-            setTabTitle(tabRawBodyIndex, bodyTabTitle, StringUtilities.isNotEmpty(postBodyContent.getText()) ? 1 : 0);
-        }
-        if (filesPanel != null && tabFilesIndex >= 0) {
-            setTabTitle(tabFilesIndex, filesTabTitle, filesPanel.getFileCount());
+        updatingContentTabTitles = true;
+        try {
+            setTabTitle(TAB_PARAMETERS, paramsTabTitle, argsPanel.getParameterCount());
+            if (headersPanel != null && tabHeadersIndex >= 0) {
+                setTabTitle(tabHeadersIndex, headersTabTitle, headersPanel.getHeaderCount());
+            }
+            if (postBodyContent != null && tabRawBodyIndex >= 0) {
+                setTabTitle(tabRawBodyIndex, bodyTabTitle,
+                        StringUtilities.isNotEmpty(postBodyContent.getText()) ? 1 : 0);
+            }
+            if (filesPanel != null && tabFilesIndex >= 0) {
+                setTabTitle(tabFilesIndex, filesTabTitle, filesPanel.getFileCount());
+            }
+        } finally {
+            updatingContentTabTitles = false;
         }
     }
 
