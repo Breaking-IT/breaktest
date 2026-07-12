@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.control.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.util.Arrays;
 import java.util.Set;
@@ -77,6 +78,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     private UrlConfigGui urlConfigGui;
     private JTabbedPane configTabbedPane;
+    private Component configTabToRestore;
     private JPanel recordedRequestPane;
     private JPanel recordedResponsePane;
     private JSyntaxTextArea recordedRequestData;
@@ -181,6 +183,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             httpProtocol.setSelectedItem(configuredHttpProtocol());
         }
         updateRecordedHarTabs(element);
+        restoreSelectedConfigTab();
     }
 
     /**
@@ -392,6 +395,14 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         }
     }
 
+    private void restoreSelectedConfigTab() {
+        Component tab = configTabToRestore;
+        configTabToRestore = null;
+        if (tab != null && configTabbedPane.indexOfComponent(tab) >= 0) {
+            configTabbedPane.setSelectedComponent(tab);
+        }
+    }
+
     /**
      * Create a {@link UrlConfigGui} which is used as the Basic tab in the parameters configuration tabstrip.
      * @return a {@link UrlConfigGui} which is used as the Basic tab
@@ -561,6 +572,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     @Override
     public void clearGui() {
+        configTabToRestore = configTabbedPane.getSelectedComponent();
         super.clearGui();
         urlConfigGui.clear();
         legacyStoreAsMD5 = null;
