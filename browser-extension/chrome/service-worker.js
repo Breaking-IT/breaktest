@@ -17,7 +17,6 @@
 
 const PROTOCOL_VERSION = "1.3";
 const MAX_BODY_CHARS = 2 * 1024 * 1024;
-const MAX_TOTAL_BODY_CHARS = 24 * 1024 * 1024;
 const NETWORK_TOTAL_BUFFER_BYTES = 48 * 1024 * 1024;
 const NETWORK_RESOURCE_BUFFER_BYTES = 24 * 1024 * 1024;
 const MAX_VISIBLE_REQUESTS = 1000;
@@ -434,10 +433,6 @@ async function requestWillBeSent(source, params) {
 }
 
 async function captureRedirectBody(owner, state, source) {
-  if (owner.capturedBodyChars >= MAX_TOTAL_BODY_CHARS) {
-    state.bodyTruncated = true;
-    return;
-  }
   try {
     const result = await chrome.debugger.sendCommand(source, "Network.getResponseBody", {
       requestId: state.requestId
@@ -504,16 +499,12 @@ async function loadingFinished(source, params) {
   }
 
   if (!state.redirect) {
-    if (recording.capturedBodyChars < MAX_TOTAL_BODY_CHARS) {
-      try {
-        const result = await getResponseBodyWithRetry(source, params.requestId);
-        captureBody(state, result);
-      } catch (error) {
-        state.bodyUnavailable = true;
-        state.bodyUnavailableReason = errorMessage(error);
-      }
-    } else {
-      state.bodyTruncated = true;
+    try {
+      const result = await getResponseBodyWithRetry(source, params.requestId);
+      captureBody(state, result);
+    } catch (error) {
+      state.bodyUnavailable = true;
+      state.bodyUnavailableReason = errorMessage(error);
     }
   }
   finalizeRequest(state, params.timestamp);
@@ -580,14 +571,7 @@ function captureBody(state, result) {
     state.bodyUnavailableReason = "Chrome returned no response body";
     return;
   }
-  const available = Math.min(
-    MAX_BODY_CHARS,
-    MAX_TOTAL_BODY_CHARS - recording.capturedBodyChars
-  );
-  if (available <= 0) {
-    state.bodyTruncated = true;
-    return;
-  }
+  const available = MAX_BODY_CHARS;
   const safeAvailable = result.base64Encoded ? available - (available % 4) : available;
   if (safeAvailable <= 0) {
     state.bodyTruncated = true;
