@@ -49,14 +49,17 @@ import com.google.auto.service.AutoService;
  *
  * <p>BreakTest ships two FlatLaf based themes: Light and Dark. The legacy Swing
  * look and feels (Metal, Nimbus, System, ...) can be re-enabled with the
- * {@code jmeter.laf.legacy=true} property.</p>
+ * {@code breaktest.laf.legacy=true} property.</p>
  */
 @AutoService(Command.class)
 public class LookAndFeelCommand extends AbstractAction {
     private static final String JMETER_LAF = "jmeter.laf"; // $NON-NLS-1$
 
     /** Property enabling the legacy Swing look and feels in the menu. */
-    private static final String JMETER_LAF_LEGACY = "jmeter.laf.legacy"; // $NON-NLS-1$
+    private static final String LAF_LEGACY = "breaktest.laf.legacy"; // $NON-NLS-1$
+
+    /** Pre-rename property name, still honored. */
+    private static final String LAF_LEGACY_OLD_NAME = "jmeter.laf.legacy"; // $NON-NLS-1$
 
     /** Command activating the light theme. */
     public static final String LAF_LIGHT = ActionNames.LAF_PREFIX + "light"; // $NON-NLS-1$
@@ -115,7 +118,7 @@ public class LookAndFeelCommand extends AbstractAction {
         items.put(LAF_DARK, MenuItem.of("Dark", LAF_DARK,
                 macOS ? FlatMacDarkLaf.class.getName() : FlatDarkLaf.class.getName()));
 
-        if (JMeterUtils.getPropDefault(JMETER_LAF_LEGACY, false)) {
+        if (JMeterUtils.getPropDefault(LAF_LEGACY, JMeterUtils.getPropDefault(LAF_LEGACY_OLD_NAME, false))) {
             for (UIManager.LookAndFeelInfo laf : JMeterMenuBar.getAllLAFs()) {
                 String command = ActionNames.LAF_PREFIX + laf.getClassName();
                 items.putIfAbsent(command, MenuItem.of(laf.getName(), command, laf.getClassName()));

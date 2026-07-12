@@ -65,6 +65,7 @@ class LoadTest {
         Properties properties = JMeterUtils.getJMeterProperties();
         if (properties != null) {
             properties.remove(Load.FAST_JMX_LOAD_PROPERTY);
+            properties.remove(Load.FAST_JMX_LOAD_PROPERTY_LEGACY);
         }
     }
 

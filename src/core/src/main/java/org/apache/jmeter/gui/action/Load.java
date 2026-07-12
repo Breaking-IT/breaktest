@@ -64,7 +64,10 @@ public class Load extends AbstractActionWithNoRunningTest {
     private static final Logger log = LoggerFactory.getLogger(Load.class);
 
     private static final boolean EXPAND_TREE = JMeterUtils.getPropDefault("onload.expandtree", false); //$NON-NLS-1$
-    static final String FAST_JMX_LOAD_PROPERTY = "jmeter.gui.load.fast"; // $NON-NLS-1$
+    static final String FAST_JMX_LOAD_PROPERTY = "breaktest.gui.load.fast"; // $NON-NLS-1$
+
+    /** Pre-rename property name, still honored. */
+    static final String FAST_JMX_LOAD_PROPERTY_LEGACY = "jmeter.gui.load.fast"; // $NON-NLS-1$
 
     private static final Set<String> commands = new HashSet<>();
 
@@ -460,7 +463,8 @@ public class Load extends AbstractActionWithNoRunningTest {
     }
 
     static boolean useFastJmxLoad() {
-        return JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY, false);
+        return JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY,
+                JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY_LEGACY, false));
     }
 
     /**
