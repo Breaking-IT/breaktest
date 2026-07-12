@@ -86,7 +86,7 @@ public class XMLAssertion extends AbstractTestElement implements Serializable, A
             }
         } else {
             result.setError(true);
-            result.setFailureMessage("Cannot initialize XMLReader in element:"+getName()+", check jmeter.log file");
+            result.setFailureMessage("Cannot initialize XMLReader in element:"+getName()+", check breaktest.log file");
         }
 
         return result;
