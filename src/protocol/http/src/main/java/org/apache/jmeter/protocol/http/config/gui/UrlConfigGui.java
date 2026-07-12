@@ -410,8 +410,8 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
             urlBar.add(method);
         }
         urlBar.add((Component) protocol);
-        urlBar.add(domain, "growx"); // $NON-NLS-1$
-        urlBar.add(port, "wmin 90"); // $NON-NLS-1$
+        urlBar.add(domain, "wmin 260, growx"); // $NON-NLS-1$
+        urlBar.add(port, "w 100!"); // $NON-NLS-1$
         urlBar.add(path, "growx"); // $NON-NLS-1$
         return urlBar;
     }
