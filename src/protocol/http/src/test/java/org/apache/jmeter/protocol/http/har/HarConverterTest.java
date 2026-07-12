@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -38,6 +39,7 @@ import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.junit.jupiter.api.BeforeEach;
@@ -202,6 +204,52 @@ public class HarConverterTest {
         TransactionController second = tcs.get(1);
         assertEquals("Fixed", second.getPropertyAsString("TransactionController.delayMode"));
         assertEquals("3000", second.getPropertyAsString("TransactionController.fixedDelay"));
+    }
+
+    @Test
+    void fixedDelayModeAcceptsJMeterVariable() {
+        HarImportOptions options = new HarImportOptions();
+        options.setDelayMode(HarImportOptions.DelayMode.FIXED);
+        options.setFixedDelay("${thinkTime}");
+
+        TransactionController second = twoTransactionControllers(options).get(1);
+
+        assertEquals("Fixed", second.getPropertyAsString("TransactionController.delayMode"));
+        assertEquals("${thinkTime}", second.getPropertyAsString("TransactionController.fixedDelay"));
+    }
+
+    @Test
+    void sharedRangeDelaysCreateAndReferenceTestPlanVariables() {
+        HarImportOptions options = new HarImportOptions();
+        options.setDelayMode(HarImportOptions.DelayMode.RANDOM);
+        options.setDelayMin("250");
+        options.setDelayMax("${externalMaximum}");
+        options.setUseDelayVariables(true);
+
+        TransactionController second = twoTransactionControllers(options).get(1);
+        assertEquals("${ThinkTimeMin}",
+                second.getPropertyAsString("TransactionController.delayMin"));
+        assertEquals("${externalMaximum}",
+                second.getPropertyAsString("TransactionController.delayMax"));
+
+        TestPlan testPlan = new TestPlan();
+        testPlan.getArguments().addArgument("unrelated", "keep-me");
+        testPlan.getArguments().addArgument(HarImportOptions.MIN_DELAY_VARIABLE, "old");
+        HarImportAction.applyDelayVariables(testPlan, options);
+
+        assertEquals("keep-me", testPlan.getUserDefinedVariables().get("unrelated"));
+        assertEquals("250", testPlan.getUserDefinedVariables().get(HarImportOptions.MIN_DELAY_VARIABLE));
+        assertFalse(testPlan.getUserDefinedVariables().containsKey(HarImportOptions.MAX_DELAY_VARIABLE));
+    }
+
+    @Test
+    void delayValidationAcceptsNumbersAndVariables() {
+        assertTrue(HarImportOptions.isValidDelay("0"));
+        assertTrue(HarImportOptions.isValidDelay(" 1500 "));
+        assertTrue(HarImportOptions.isValidDelay("${thinkTime}"));
+        assertFalse(HarImportOptions.isValidDelay("${}"));
+        assertFalse(HarImportOptions.isValidDelay("-1"));
+        assertFalse(HarImportOptions.isValidDelay("1.5"));
     }
 
     @Test

@@ -22,12 +22,16 @@ import java.awt.event.KeyEvent;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JTree;
 import javax.swing.MenuElement;
 import javax.swing.SwingWorker;
+import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
@@ -43,6 +47,8 @@ import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.ViewResultsFullVisualizer;
 import org.apache.jorphan.collections.HashTree;
@@ -100,10 +106,12 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             protected void done() {
                 try {
                     HashTree convertedTree = get();
-                    insertUnderTestPlan(guiPackage, convertedTree);
+                    // Flush any pending Test Plan GUI edits before changing its variables.
                     guiPackage.updateCurrentGui();
-                    ActionRouter.getInstance().doActionNow(
-                            new ActionEvent(e.getSource(), e.getID(), ActionNames.EXPAND_ALL));
+                    applyDelayVariables(guiPackage, options);
+                    JMeterTreeNode importedThreadGroup = insertUnderTestPlan(guiPackage, convertedTree);
+                    guiPackage.refreshCurrentGui();
+                    expandImportedThreadGroup(guiPackage.getMainFrame().getTree(), importedThreadGroup);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     LOG.error("HAR import interrupted", ex);
@@ -169,20 +177,66 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         }
     }
 
-    private static void insertUnderTestPlan(GuiPackage guiPackage, HashTree subTree) {
+    private static JMeterTreeNode insertUnderTestPlan(GuiPackage guiPackage, HashTree subTree) {
         JMeterTreeModel treeModel = guiPackage.getTreeModel();
         JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
         JMeterTreeNode testPlanNode = (JMeterTreeNode) root.getChildAt(0);
+        AtomicReference<JMeterTreeNode> importedThreadGroup = new AtomicReference<>();
         JMeterUtils.runSafe(true, () -> {
             try {
                 // configureGui=false preserves the exact properties we set (BreakTest
                 // HAR metadata, TransactionController delay/pacing) as if loading a .jmx.
+                int firstInsertedIndex = testPlanNode.getChildCount();
                 treeModel.addSubTree(subTree, testPlanNode, false);
+                for (int i = firstInsertedIndex; i < testPlanNode.getChildCount(); i++) {
+                    JMeterTreeNode node = (JMeterTreeNode) testPlanNode.getChildAt(i);
+                    if (node.getTestElement() instanceof ThreadGroup) {
+                        importedThreadGroup.set(node);
+                        break;
+                    }
+                }
             } catch (IllegalUserActionException ex) {
                 LOG.error("Failed to insert HAR test plan", ex);
                 JMeterUtils.reportErrorToUser(ex.getMessage());
             }
         });
+        return importedThreadGroup.get();
+    }
+
+    static void expandImportedThreadGroup(JTree tree, JMeterTreeNode threadGroup) {
+        if (threadGroup == null) {
+            return;
+        }
+        TreePath threadGroupPath = new TreePath(threadGroup.getPath());
+        tree.expandPath(threadGroupPath);
+        for (int i = 0; i < threadGroup.getChildCount(); i++) {
+            JMeterTreeNode child = (JMeterTreeNode) threadGroup.getChildAt(i);
+            tree.collapsePath(threadGroupPath.pathByAddingChild(child));
+        }
+    }
+
+    static void applyDelayVariables(GuiPackage guiPackage, HarImportOptions options) {
+        if (options.getDelayVariables().isEmpty()) {
+            return;
+        }
+        JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
+        if (root.getChildCount() == 0) {
+            return;
+        }
+        TestElement element = ((JMeterTreeNode) root.getChildAt(0)).getTestElement();
+        if (!(element instanceof TestPlan testPlan)) {
+            return;
+        }
+        applyDelayVariables(testPlan, options);
+    }
+
+    static void applyDelayVariables(TestPlan testPlan, HarImportOptions options) {
+        Arguments variables = testPlan.getArguments();
+        options.getDelayVariables().forEach((name, value) -> {
+            variables.removeArgument(name);
+            variables.addArgument(name, value);
+        });
+        testPlan.setUserDefinedVariables(variables);
     }
 
     @Override

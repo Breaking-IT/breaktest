@@ -693,11 +693,11 @@ public final class HarConverter {
         }
         switch (options.getDelayMode()) {
             case NONE -> setDisabledDelay(tc);
-            case FIXED -> setFixedDelay(tc, options.getFixedDelayMs());
+            case FIXED -> setFixedDelay(tc, options.getEffectiveFixedDelay());
             case RANDOM -> setRangeDelay(tc, TransactionController.DELAY_RANDOM,
-                    options.getDelayMinMs(), options.getDelayMaxMs());
+                    options.getEffectiveDelayMin(), options.getEffectiveDelayMax());
             case GAUSSIAN -> setRangeDelay(tc, TransactionController.DELAY_GAUSSIAN_RANDOM,
-                    options.getDelayMinMs(), options.getDelayMaxMs());
+                    options.getEffectiveDelayMin(), options.getEffectiveDelayMax());
             case AS_RECORDED -> applyRecordedDelay(tc, recordedGapMs);
         }
     }
@@ -724,8 +724,12 @@ public final class HarConverter {
     }
 
     private static void setFixedDelay(TransactionController tc, long delayMs) {
+        setFixedDelay(tc, Long.toString(Math.max(delayMs, 0)));
+    }
+
+    private static void setFixedDelay(TransactionController tc, String delay) {
         tc.setProperty("TransactionController.delayMode", TransactionController.DELAY_FIXED);
-        tc.setProperty("TransactionController.fixedDelay", Long.toString(Math.max(delayMs, 0)));
+        tc.setProperty("TransactionController.fixedDelay", delay);
         tc.setProperty("TransactionController.delayMin", "0");
         tc.setProperty("TransactionController.delayMax", "0");
     }
@@ -733,10 +737,14 @@ public final class HarConverter {
     private static void setRangeDelay(TransactionController tc, String mode, long minMs, long maxMs) {
         long min = Math.max(minMs, 0);
         long max = Math.max(maxMs, min);
+        setRangeDelay(tc, mode, Long.toString(min), Long.toString(max));
+    }
+
+    private static void setRangeDelay(TransactionController tc, String mode, String min, String max) {
         tc.setProperty("TransactionController.delayMode", mode);
         tc.setProperty("TransactionController.fixedDelay", "0");
-        tc.setProperty("TransactionController.delayMin", Long.toString(min));
-        tc.setProperty("TransactionController.delayMax", Long.toString(max));
+        tc.setProperty("TransactionController.delayMin", min);
+        tc.setProperty("TransactionController.delayMax", max);
     }
 
     private static ParallelController buildParallelController(String name, int maxParallel) {

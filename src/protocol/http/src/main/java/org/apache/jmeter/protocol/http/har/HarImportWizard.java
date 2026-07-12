@@ -47,9 +47,11 @@ import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingWorker;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -168,12 +170,16 @@ public class HarImportWizard extends JDialog {
             JMeterUtils.getResString("har_import_delay_random"),
             JMeterUtils.getResString("har_import_delay_gaussian"),
             JMeterUtils.getResString("har_import_delay_none")});
-    private final CardLayout delayCardLayout = new CardLayout();
-    private final JPanel delayCards = new JPanel(delayCardLayout);
     private final JSpinner recordedRandom = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
-    private final JSpinner fixedDelay = new JSpinner(new SpinnerNumberModel(1000, 0, 3_600_000, 100));
-    private final JSpinner delayMin = new JSpinner(new SpinnerNumberModel(500, 0, 3_600_000, 100));
-    private final JSpinner delayMax = new JSpinner(new SpinnerNumberModel(2000, 0, 3_600_000, 100));
+    private final JTextField fixedDelay = new JTextField("1000", 12);
+    private final JTextField delayMin = new JTextField("500", 12);
+    private final JTextField delayMax = new JTextField("2000", 12);
+    private final JLabel recordedRandomLabel = new JLabel(JMeterUtils.getResString("har_import_random_spread"));
+    private final JLabel fixedDelayLabel = new JLabel(JMeterUtils.getResString("har_import_delay_fixed_ms"));
+    private final JLabel delayMinLabel = new JLabel(JMeterUtils.getResString("har_import_delay_min_ms"));
+    private final JLabel delayMaxLabel = new JLabel(JMeterUtils.getResString("har_import_delay_max_ms"));
+    private final JCheckBox useDelayVariables =
+            new JCheckBox(JMeterUtils.getResString("har_import_delay_variables"));
 
     private Result result;
 
@@ -486,58 +492,43 @@ public class HarImportWizard extends JDialog {
         addLabeledRow(panel, gbc, "har_import_idle_time", idleTime);
         addLabeledRow(panel, gbc, "har_import_delay", delayMode);
 
-        buildDelayCards();
-        gbc.gridx = 0;
+        addLabeledRow(panel, gbc, recordedRandomLabel, recordedRandom);
+        addLabeledRow(panel, gbc, fixedDelayLabel, fixedDelay);
+        addLabeledRow(panel, gbc, delayMinLabel, delayMin);
+        addLabeledRow(panel, gbc, delayMaxLabel, delayMax);
+        gbc.gridx = 1;
         gbc.gridy++;
-        gbc.gridwidth = 2;
-        panel.add(delayCards, gbc);
+        panel.add(useDelayVariables, gbc);
 
-        delayMode.addActionListener(e -> updateDelayCard());
-        updateDelayCard();
+        delayMode.addActionListener(e -> updateDelayFields());
+        updateDelayFields();
         return panel;
     }
 
-    private void buildDelayCards() {
-        JPanel recordedCard = new JPanel(new GridBagLayout());
-        GridBagConstraints g = new GridBagConstraints();
-        g.insets = new Insets(3, 3, 3, 3);
-        g.anchor = GridBagConstraints.WEST;
-        addLabeledRow(recordedCard, g, "har_import_random_spread", recordedRandom);
-
-        JPanel fixedCard = new JPanel(new GridBagLayout());
-        GridBagConstraints g2 = new GridBagConstraints();
-        g2.insets = new Insets(3, 3, 3, 3);
-        g2.anchor = GridBagConstraints.WEST;
-        addLabeledRow(fixedCard, g2, "har_import_delay_fixed_ms", fixedDelay);
-
-        JPanel rangeCard = new JPanel(new GridBagLayout());
-        GridBagConstraints g3 = new GridBagConstraints();
-        g3.insets = new Insets(3, 3, 3, 3);
-        g3.anchor = GridBagConstraints.WEST;
-        addLabeledRow(rangeCard, g3, "har_import_delay_min_ms", delayMin);
-        addLabeledRow(rangeCard, g3, "har_import_delay_max_ms", delayMax);
-
-        delayCards.add(recordedCard, "recorded");
-        delayCards.add(fixedCard, "fixed");
-        delayCards.add(rangeCard, "range");
-        delayCards.add(new JPanel(), "none");
-    }
-
-    private void updateDelayCard() {
-        switch (delayMode.getSelectedIndex()) {
-            case 1 -> delayCardLayout.show(delayCards, "fixed");
-            case 2, 3 -> delayCardLayout.show(delayCards, "range");
-            case 4 -> delayCardLayout.show(delayCards, "none");
-            default -> delayCardLayout.show(delayCards, "recorded");
-        }
+    private void updateDelayFields() {
+        int selected = delayMode.getSelectedIndex();
+        setRowVisible(recordedRandomLabel, recordedRandom, selected == 0);
+        setRowVisible(fixedDelayLabel, fixedDelay, selected == 1);
+        setRowVisible(delayMinLabel, delayMin, selected == 2 || selected == 3);
+        setRowVisible(delayMaxLabel, delayMax, selected == 2 || selected == 3);
+        useDelayVariables.setVisible(selected >= 1 && selected <= 3);
     }
 
     private static void addLabeledRow(JPanel panel, GridBagConstraints gbc, String labelKey, Component field) {
+        addLabeledRow(panel, gbc, new JLabel(JMeterUtils.getResString(labelKey)), field);
+    }
+
+    private static void addLabeledRow(JPanel panel, GridBagConstraints gbc, JLabel label, Component field) {
         gbc.gridx = 0;
         gbc.gridy++;
-        panel.add(new JLabel(JMeterUtils.getResString(labelKey)), gbc);
+        panel.add(label, gbc);
         gbc.gridx = 1;
         panel.add(field, gbc);
+    }
+
+    private static void setRowVisible(Component label, Component field, boolean visible) {
+        label.setVisible(visible);
+        field.setVisible(visible);
     }
 
     // ---------------------------------------------------------------------
@@ -582,6 +573,10 @@ public class HarImportWizard extends JDialog {
     }
 
     private void finish() {
+        HarImportOptions.DelayMode selectedDelayMode = selectedDelayMode();
+        if (!validateDelayFields(selectedDelayMode)) {
+            return;
+        }
         HarImportOptions options = new HarImportOptions();
         options.setContinueOnError(continueOnError.isSelected());
         options.setIgnoreErrors(ignoreErrors.isSelected());
@@ -594,20 +589,62 @@ public class HarImportWizard extends JDialog {
             default -> RecordingStorageMode.ALL;
         });
         options.setIdleTimeSeconds((Integer) idleTime.getValue());
-        options.setDelayMode(switch (delayMode.getSelectedIndex()) {
+        options.setDelayMode(selectedDelayMode);
+        options.setRecordedRandomPercent((Integer) recordedRandom.getValue());
+        options.setFixedDelay(fixedDelay.getText());
+        options.setDelayMin(delayMin.getText());
+        options.setDelayMax(delayMax.getText());
+        options.setUseDelayVariables(useDelayVariables.isSelected());
+
+        result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
+        dispose();
+    }
+
+    private HarImportOptions.DelayMode selectedDelayMode() {
+        return switch (delayMode.getSelectedIndex()) {
             case 1 -> HarImportOptions.DelayMode.FIXED;
             case 2 -> HarImportOptions.DelayMode.RANDOM;
             case 3 -> HarImportOptions.DelayMode.GAUSSIAN;
             case 4 -> HarImportOptions.DelayMode.NONE;
             default -> HarImportOptions.DelayMode.AS_RECORDED;
-        });
-        options.setRecordedRandomPercent((Integer) recordedRandom.getValue());
-        options.setFixedDelayMs(((Number) fixedDelay.getValue()).longValue());
-        options.setDelayMinMs(((Number) delayMin.getValue()).longValue());
-        options.setDelayMaxMs(((Number) delayMax.getValue()).longValue());
+        };
+    }
 
-        result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
-        dispose();
+    private boolean validateDelayFields(HarImportOptions.DelayMode mode) {
+        if (mode == HarImportOptions.DelayMode.FIXED) {
+            return validateDelayValue(fixedDelay);
+        }
+        if (mode != HarImportOptions.DelayMode.RANDOM && mode != HarImportOptions.DelayMode.GAUSSIAN) {
+            return true;
+        }
+        if (!validateDelayValue(delayMin) || !validateDelayValue(delayMax)) {
+            return false;
+        }
+        String min = delayMin.getText().trim();
+        String max = delayMax.getText().trim();
+        if (isInteger(min) && isInteger(max) && Long.parseLong(min) > Long.parseLong(max)) {
+            showDelayError(JMeterUtils.getResString("har_import_delay_range_error"));
+            return false;
+        }
+        return true;
+    }
+
+    private boolean validateDelayValue(JTextField field) {
+        if (HarImportOptions.isValidDelay(field.getText())) {
+            return true;
+        }
+        field.requestFocusInWindow();
+        showDelayError(JMeterUtils.getResString("har_import_delay_value_error"));
+        return false;
+    }
+
+    private void showDelayError(String message) {
+        JOptionPane.showMessageDialog(this, message, JMeterUtils.getResString("har_import_title"),
+                JOptionPane.ERROR_MESSAGE);
+    }
+
+    private static boolean isInteger(String value) {
+        return !value.startsWith("${");
     }
 
     private static String md5(byte[] content) {

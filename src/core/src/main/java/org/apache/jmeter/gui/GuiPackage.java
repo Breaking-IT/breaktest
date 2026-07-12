@@ -49,6 +49,7 @@ import javax.swing.event.TableModelListener;
 import javax.swing.table.TableModel;
 import javax.swing.text.JTextComponent;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.UndoHistory.HistoryListener;
@@ -604,6 +605,12 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 }
                 if (!historyEnabled || (before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
+                    if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments)) {
+                        // Transaction tree labels can summarize delays backed by Test Plan/User Defined
+                        // Variables. Recalculate cached row widths when those values change.
+                        mainFrame.getTree().treeDidChange();
+                        mainFrame.getTree().repaint();
+                    }
                 }
             }
             // The current node is now updated
