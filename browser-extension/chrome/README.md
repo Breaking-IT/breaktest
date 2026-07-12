@@ -31,8 +31,8 @@ Chrome Web Store or Microsoft Edge Add-ons.
 - A local BreakTest source checkout containing `browser-extension/chrome`.
 - Developer mode enabled in the browser.
 
-Firefox is not supported because this recorder uses Chromium's DevTools and
-side-panel extension APIs.
+Firefox uses a separate native implementation in `browser-extension/firefox`.
+See that directory's README for installation and browser-specific behavior.
 
 ## Install the local extension
 
