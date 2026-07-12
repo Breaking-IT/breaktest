@@ -43,7 +43,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--background); color: var(--text); min-width: 280px; }
+body { margin: 0; min-width: 0; overflow-x: hidden; background: var(--background); color: var(--text); }
 header { display: flex; align-items: center; justify-content: space-between; padding: 12px; background: var(--surface); border-bottom: 1px solid var(--border); }
 h1, h2, p { margin: 0; }
 h1 { font-size: 18px; }
@@ -52,8 +52,8 @@ header p { margin-top: 4px; color: var(--muted); font-size: 12px; }
 header p.error { color: var(--danger); }
 #recording-indicator { width: 12px; height: 12px; border-radius: 50%; background: #9aa2aa; box-shadow: 0 0 0 4px color-mix(in srgb, #9aa2aa 20%, transparent); }
 #recording-indicator.active { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 25%, transparent); }
-main { padding: 10px; display: grid; gap: 10px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+main { min-width: 0; padding: 10px; display: grid; gap: 10px; }
+.card { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
 .controls, .start-setup, .start-actions { display: grid; gap: 8px; }
 label { color: var(--muted); font-size: 12px; font-weight: 600; }
 .optional { font-weight: 400; }
@@ -86,6 +86,10 @@ button.quiet { border: 0; padding: 3px 5px; color: var(--muted); font-size: 11px
 .request-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .request-body-warning { color: #f9a825; cursor: help; }
 .privacy-note { padding: 0 4px 8px; }
+@media (max-width: 320px) {
+  .start-controls { display: grid; grid-template-columns: 1fr; }
+  .start-controls button { width: 100%; }
+}
 .launcher-page { min-width: 0; min-height: 100vh; }
 .launcher-main { min-height: 100vh; place-items: center; align-content: center; padding: 24px; }
 .launcher-card { width: min(440px, 100%); display: grid; gap: 18px; padding: 28px; text-align: center; }
