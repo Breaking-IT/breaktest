@@ -250,7 +250,6 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         usefulLinks.add(makeMenuItemRes("link_bug_tracker", ActionNames.LINK_BUG_TRACKER));
         usefulLinks.add(makeMenuItemRes("link_comp_ref", ActionNames.LINK_COMP_REF));
         usefulLinks.add(makeMenuItemRes("link_func_ref", ActionNames.LINK_FUNC_REF));
-        usefulLinks.add(makeMenuItemRes("link_nightly_build", ActionNames.LINK_NIGHTLY_BUILD));
 
         JMenuItem helpAbout = makeMenuItemRes("about", 'A', ActionNames.ABOUT);
         JMenuItem checkForUpdates = makeMenuItemRes("check_for_updates", ActionNames.CHECK_FOR_UPDATES);
