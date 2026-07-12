@@ -30,11 +30,16 @@ dependencies {
 
 tasks.named<Jar>(JavaPlugin.JAR_TASK_NAME) {
     into("META-INF") {
-        // License file should include licenses for bundled third-party components
+        // Include the Community license and generated third-party licenses.
         CrLfSpec(LineEndings.LF).run {
-            // Note: license content is taken from "/build/..", so gitignore should not be used
-            // Note: this is a "license + third-party licenses", not just Apache-2.0
-            from(files(srcLicense))
+            textFrom("$rootDir/LICENSE")
+            textFrom("$rootDir/NOTICE")
+            from(files(srcLicense)) {
+                exclude("NOTICE")
+                rename { fileName ->
+                    if (fileName == "LICENSE") "THIRD-PARTY-LICENSES" else fileName
+                }
+            }
         }
     }
     into("bin") {

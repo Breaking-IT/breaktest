@@ -25,3 +25,4 @@
 - [ ] My code follows the existing style of this project.
 - [ ] I have updated the documentation accordingly.
 - [ ] I have run the relevant tests, or explained why they were not run.
+- [ ] I have read and accept the [Contributor License Agreement](../CONTRIBUTOR_LICENSE_AGREEMENT.md) for this contribution.

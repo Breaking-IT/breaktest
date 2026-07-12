@@ -83,9 +83,16 @@ publishing {
             url.set("https://github.com/Breaking-IT/breaktest")
             licenses {
                 license {
+                    name.set("BreakTest Community Source License 1.0")
+                    url.set("https://github.com/Breaking-IT/breaktest/blob/main/LICENSE")
+                    distribution.set("repo")
+                    comments.set("Applies to BreakTest-specific materials; source-available, not Open Source")
+                }
+                license {
                     name.set("The Apache License, Version 2.0")
-                    url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                    comments.set("A business-friendly OSS license")
+                    url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                    distribution.set("repo")
+                    comments.set("Applies to Apache JMeter-derived and other identified Apache-licensed materials")
                 }
             }
             issueManagement {

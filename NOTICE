@@ -1,8 +1,9 @@
 BreakTest
 
-Copyright 2024-2026 BreakTest contributors
+Copyright 2024-2026 Breaking IT and BreakTest contributors
 
-Licensed under the Apache License, Version 2.0.
+BreakTest-specific materials are licensed under the BreakTest Community
+Source License 1.0 unless a file or component states otherwise. See LICENSE.
 
 BreakTest is a fork and derivative work of Apache JMeter.
 
@@ -20,3 +21,7 @@ Apache, Apache JMeter, JMeter, the Apache feather, and the Apache JMeter
 logo are trademarks or registered trademarks of The Apache Software
 Foundation. BreakTest is not affiliated with, endorsed by, or sponsored by
 The Apache Software Foundation.
+
+The BreakTest name and logo are marks of Breaking IT. The Community license
+does not grant permission to use those marks except for reasonable factual
+reference to an unmodified copy of BreakTest.

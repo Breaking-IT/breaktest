@@ -93,9 +93,10 @@ Please provide enough information for others to reproduce the report:
 <li>Screenshots or screen recordings for GUI issues</li>
 </ul>
 <p>
-New source files should use the existing Apache License header style used in
-this repository. Do not add <code>@author</code> tags; credit is handled through
-Git history and release notes.
+New BreakTest-specific source files should use the BreakTest Community Source
+License header documented in the repository. Existing Apache JMeter-derived
+files retain their Apache License headers. Do not add <code>@author</code> tags;
+credit is handled through Git history and release notes.
 </p>
 </section>
 </body>

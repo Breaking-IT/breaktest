@@ -492,21 +492,28 @@ val baseFolder = "breaktest"
 
 fun CopySpec.javadocs() = from(javadocAggregate)
 
-fun CopySpec.excludeLicenseFromSourceRelease() {
+fun CopySpec.excludeGeneratedDependencyLicenses() {
     // Source release has "/licenses" folder with licenses for third-party dependencies
     // It is populated by "dependencyLicenses" above,
     // so we ignore the folder when building source releases
     exclude("licenses/**")
-    exclude("LICENSE")
+}
+
+fun CopySpec.thirdPartyLicenses() {
+    exclude("NOTICE")
+    rename { fileName ->
+        if (fileName == "LICENSE") "THIRD-PARTY-LICENSES" else fileName
+    }
 }
 
 fun CrLfSpec.binaryLayout() = copySpec {
     gitattributes(gitProps)
     into(baseFolder) {
-        // Note: license content is taken from "/build/..", so gitignore should not be used
-        // Note: this is a "license + third-party licenses", not just Apache-2.0
-        // Note: files(...) adds both "files" and "dependency"
-        from(files(binLicense))
+        // Generated license content covers Apache JMeter and other third-party
+        // materials. BreakTest's Community license and NOTICE come from rootDir.
+        from(files(binLicense)) {
+            thirdPartyLicenses()
+        }
         from(rootDir) {
             gitignore(gitProps)
             exclude("bin/testfiles")
@@ -515,7 +522,8 @@ fun CrLfSpec.binaryLayout() = copySpec {
             include("lib/junit/**")
             include("extras/**")
             include("README.md")
-            excludeLicenseFromSourceRelease()
+            include("LICENSE")
+            include("NOTICE")
         }
         into("bin") {
             with(binLibs)
@@ -541,14 +549,15 @@ fun CrLfSpec.sourceLayout() = copySpec {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     gitattributes(gitProps)
     into(baseFolder) {
-        // Note: license content is taken from "/build/..", so gitignore should not be used
-        // Note: this is a "license + third-party licenses", not just Apache-2.0
-        // Note: files(...) adds both "files" and "dependency"
-        from(files(srcLicense))
+        // Generated license content covers Apache JMeter and other third-party
+        // materials. BreakTest's Community license and NOTICE come from rootDir.
+        from(files(srcLicense)) {
+            thirdPartyLicenses()
+        }
         // Include all the source files
         from(rootDir) {
             gitignore(gitProps)
-            excludeLicenseFromSourceRelease()
+            excludeGeneratedDependencyLicenses()
             exclude("xdocs/node_modules")
             exclude("xdocs/package.json")
             exclude("xdocs/package-lock.json")

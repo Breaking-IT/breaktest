@@ -27,13 +27,10 @@ val isActualPluginApplication =
     rootProject.name.startsWith("breaktest")
 
 fun com.github.autostyle.gradle.BaseFormatExtension.license() {
-    if (isActualPluginApplication) {
-        licenseHeader(rootProject.ide.licenseHeader) {
-            copyrightStyle("bat", com.github.autostyle.generic.DefaultCopyrightStyle.REM)
-            copyrightStyle("cmd", com.github.autostyle.generic.DefaultCopyrightStyle.REM)
-            addBlankLineAfter.set(true)
-        }
-    }
+    // Existing Apache-derived files retain their Apache headers. New
+    // BreakTest-specific files receive the Community header from the IDE
+    // profile and are verified by RAT. AutoStyle must not rewrite either
+    // license family into the other.
     trimTrailingWhitespace()
     endWithNewline()
 }

@@ -7,7 +7,7 @@ JMX workflow with a leaner runtime, current protocols, better debugging, and a
 faster development loop. Existing JMeter test plans remain important, but
 BreakTest is not intended to be a frozen copy of JMeter.
 
-[![License](https://img.shields.io/:license-apache-brightgreen.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![License: source available](https://img.shields.io/badge/license-source--available-blue.svg)](LICENSE)
 
 ## Why BreakTest Exists
 
@@ -24,7 +24,7 @@ BreakTest keeps that useful model and moves the runtime forward:
 - better GUI feedback while building, debugging, and repairing scripts
 - safer loading of old plans and plugin-heavy JMX files
 - AI-assisted scripting with Codex, Claude Code, opencode, and MCP workflows
-- an open source core that can be scaled by BreakTest Enterprise when one
+- a source-available Community edition that can be scaled by BreakTest Enterprise when one
   machine is no longer enough
 
 Compared with the upstream baseline this work has already shown about 50%
@@ -33,15 +33,18 @@ test shape, and runtime conditions.
 
 ## BreakTest And BreakTest Enterprise
 
-BreakTest Community is the open source desktop and runtime distribution. Use it
-locally to build, debug, validate, and run performance scripts.
+BreakTest Community is the source-available desktop and runtime distribution.
+Organizations may use it to build, debug, validate, and run performance tests
+against systems operated for their own internal purposes, subject to the
+Community license and any release-specific Community Limits.
 
 BreakTest Enterprise is the paid shell around scaled execution and analysis. It
 runs BreakTest, JMeter, and k6 tests across your own infrastructure with
 distributed load generators, realtime results, raw data retention, reports, SLO
 validation, team workflows, and AI-assisted analysis.
 
-The engine stays open. Enterprise is for running it seriously at scale.
+The source stays available for permitted Community use. Enterprise is for
+commercially licensed use and running it seriously at scale.
 
 ## What Is New Compared With JMeter 5.6.3
 
@@ -326,11 +329,23 @@ compatibility with Apache JMeter.
 
 ## License
 
-BreakTest is licensed under the Apache License, Version 2.0.
+BreakTest-specific materials are licensed under the
+[BreakTest Community Source License 1.0](LICENSE). This is a source-available
+license, not an Open Source license.
+
+Community use is limited to testing systems operated by your own organization.
+Performance-testing service providers, load-testing platform providers,
+third-party testing, hosted or managed offerings, redistribution, reuse in
+other products or JMeter extensions, and circumvention of Community Limits
+require prior written permission or a commercial license from Breaking IT.
+
+Commercial licensing requests may be sent to `info@breakingit.nl`.
 
 BreakTest is a derivative work of Apache JMeter. Copyright and attribution
 notices for Apache JMeter and other third-party components are retained in the
-source tree and distribution notices.
+source tree and distribution notices. Those third-party materials, including
+Apache JMeter code, remain governed by their own licenses, including the
+Apache License, Version 2.0.
 
 For legal and licensing information, see:
 

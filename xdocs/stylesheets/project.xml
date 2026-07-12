@@ -40,7 +40,8 @@
        <item name="BreakTest.io"         href="https://breaktest.io/"/>
        <item name="BreakTest Enterprise" href="https://breaktest.app/"/>
        <item name="Apache JMeter Docs"   href="https://jmeter.apache.org/usermanual/index.html"/>
-       <item name="Apache License 2.0"   href="https://www.apache.org/licenses/LICENSE-2.0"/>
+       <item name="BreakTest License"   href="https://github.com/Breaking-IT/breaktest/blob/main/LICENSE"/>
+       <item name="Third-Party Licenses" href="https://github.com/Breaking-IT/breaktest/blob/main/NOTICE"/>
      </menu>
      </body>
 </project>
