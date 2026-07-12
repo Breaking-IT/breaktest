@@ -76,7 +76,8 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     /** Whether to use Java 21 Virtual Threads for JMeter threads */
     private static final boolean VIRTUAL_THREADS_ENABLED =
-            JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true); // $NON-NLS-1$
+            JMeterUtils.getPropDefault("breaktest.threads.virtual.enabled", // $NON-NLS-1$
+                    JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true)); // $NON-NLS-1$
 
     //+ JMX entries - do not change the string values
 
@@ -908,7 +909,7 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     /**
      * Creates a thread (virtual or platform) based on configuration.
-     * When {@code jmeter.threads.virtual.enabled} is true, creates a virtual thread.
+     * When {@code breaktest.threads.virtual.enabled} is true, creates a virtual thread.
      * Otherwise creates a platform thread.
      *
      * @param runnable the runnable to execute

@@ -51,7 +51,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 @Fork(value = 1, jvmArgsAppend = {
         "-Xms256m",
         "-Xmx2g",
-        "-Djmeter.threads.virtual.enabled=true"
+        "-Dbreaktest.threads.virtual.enabled=true"
 })
 @Measurement(iterations = 1, time = 1, timeUnit = TimeUnit.SECONDS)
 @Warmup(iterations = 0)

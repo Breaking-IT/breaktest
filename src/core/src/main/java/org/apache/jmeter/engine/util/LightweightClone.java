@@ -33,7 +33,7 @@ package org.apache.jmeter.engine.util;
  * property state should not implement this interface.
  *
  * <p>This can be disabled globally by setting the property
- * {@code jmeter.clone.lightweight.enabled=false} in jmeter.properties.
+ * {@code breaktest.clone.lightweight.enabled=false} in jmeter.properties.
  *
  * @see NoThreadClone
  */

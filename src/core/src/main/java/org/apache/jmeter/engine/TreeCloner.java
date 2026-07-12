@@ -37,10 +37,11 @@ public class TreeCloner implements HashTreeTraverser {
 
     /**
      * Property to enable/disable lightweight cloning for LightweightClone elements.
-     * Can be disabled by setting {@code jmeter.clone.lightweight.enabled=false} in jmeter.properties.
+     * Can be disabled by setting {@code breaktest.clone.lightweight.enabled=false} in jmeter.properties.
      */
     private static final boolean LIGHTWEIGHT_CLONE_ENABLED =
-            JMeterUtils.getPropDefault("jmeter.clone.lightweight.enabled", true);
+            JMeterUtils.getPropDefault("breaktest.clone.lightweight.enabled",
+                    JMeterUtils.getPropDefault("jmeter.clone.lightweight.enabled", true));
 
     private final ListedHashTree newTree;
 

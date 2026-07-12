@@ -23,8 +23,8 @@
       "title": "Appearance & Toolbar",
       "description": "Look and feel themes, icons, toolbar layout and display scaling.",
       "settings": [
-        {"key": "jmeter.laf", "type": "enum", "options": ["light", "dark"], "default": "light", "description": "Theme used on first start, before a choice made in Options > Look and Feel is remembered. Per-OS variants such as jmeter.laf.windows are also supported. With jmeter.laf.legacy enabled, a Swing LAF class name or the strings System / CrossPlatform are also accepted."},
-        {"key": "jmeter.laf.legacy", "type": "boolean", "default": "false", "description": "Show the legacy Swing look and feels (Metal, Nimbus, System, CrossPlatform) in the Look and Feel menu."},
+        {"key": "jmeter.laf", "type": "enum", "options": ["light", "dark"], "default": "light", "description": "Theme used on first start, before a choice made in Options > Look and Feel is remembered. Per-OS variants such as jmeter.laf.windows are also supported. With breaktest.laf.legacy enabled, a Swing LAF class name or the strings System / CrossPlatform are also accepted."},
+        {"key": "breaktest.laf.legacy", "type": "boolean", "default": "false", "description": "Show the legacy Swing look and feels (Metal, Nimbus, System, CrossPlatform) in the Look and Feel menu."},
         {"key": "jmeter.hidpi.mode", "type": "boolean", "default": "false", "description": "Activate a pseudo-HiDPI mode that increases the size of UI elements which are not correctly scaled by the JVM on high resolution screens."},
         {"key": "jmeter.hidpi.scale.factor", "type": "decimal", "default": "1.0", "description": "Scale factor applied in pseudo-HiDPI mode. A value of 2.0 is suggested for HiDPI screens."},
         {"key": "jmeter.toolbar.icons", "type": "text", "default": "org/apache/jmeter/images/toolbar/icons-toolbar.properties", "description": "Classpath resource containing the toolbar icon definitions."},
@@ -142,8 +142,8 @@
       "title": "Engine & Threads",
       "description": "Test engine behavior: thread scheduling, shutdown and non-GUI runs.",
       "settings": [
-        {"key": "jmeter.threads.virtual.enabled", "type": "boolean", "default": "true", "description": "Use lightweight Java 21 virtual threads for JMeter threads instead of platform threads. Lowers memory per thread and improves I/O scalability for high thread counts."},
-        {"key": "jmeter.clone.lightweight.enabled", "type": "boolean", "default": "true", "description": "Enable lightweight cloning of test elements to preserve memory. Disable for complex scenarios with many variables."},
+        {"key": "breaktest.threads.virtual.enabled", "type": "boolean", "default": "true", "description": "Use lightweight Java 21 virtual threads for BreakTest threads instead of platform threads. Lowers memory per thread and improves I/O scalability for high thread counts."},
+        {"key": "breaktest.clone.lightweight.enabled", "type": "boolean", "default": "true", "description": "Enable lightweight cloning of test elements to preserve memory. Disable for complex scenarios with many variables."},
         {"key": "jmeterthread.rampup.granularity", "type": "integer", "default": "1000", "description": "How often to check for shutdown during ramp-up, in milliseconds."},
         {"key": "jmeterthread.timer.granularity", "type": "integer", "default": "1000", "description": "How often to check for shutdown during timer delays, in milliseconds."},
         {"key": "jmeterengine.threadstop.wait", "type": "integer", "default": "5000", "description": "Number of milliseconds to wait for a thread to stop."},

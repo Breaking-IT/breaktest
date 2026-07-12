@@ -117,7 +117,8 @@ public class JMeterThread implements Runnable, Interruptible {
     private static final boolean APPLY_TIMER_FACTOR = Float.compare(TIMER_FACTOR,ONE_AS_FLOAT) != 0;
 
     private static final boolean VIRTUAL_THREADS_ENABLED =
-            JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true); // $NON-NLS-1$
+            JMeterUtils.getPropDefault("breaktest.threads.virtual.enabled", // $NON-NLS-1$
+                    JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true)); // $NON-NLS-1$
 
     private static final ThreadLocal<Boolean> FORK_WORKER_THREAD = ThreadLocal.withInitial(() -> Boolean.FALSE);
 

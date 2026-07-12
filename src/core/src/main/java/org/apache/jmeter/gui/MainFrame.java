@@ -164,7 +164,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     private static final int APP_CHROME_GAP = 8;
 
     private static final int TEST_PLAN_PANE_WIDTH =
-            JMeterUtils.getPropDefault("jmeter.gui.testplan.width", 300); // $NON-NLS-1$
+            JMeterUtils.getPropDefault("breaktest.gui.testplan.width", // $NON-NLS-1$
+                    JMeterUtils.getPropDefault("jmeter.gui.testplan.width", 300)); // $NON-NLS-1$
 
     /** The menu bar. */
     private JMeterMenuBar menuBar;
