@@ -43,7 +43,9 @@ See that directory's README for installation and browser-specific behavior.
 3. Choose **Load unpacked**.
 4. Select `<breaktest checkout>/browser-extension/chrome`. Select the `chrome`
    directory itself, not its parent.
-5. Open Chrome's Extensions menu and pin **BreakTest Browser Recorder**.
+5. Open **Details** for BreakTest Browser Recorder and enable **Allow in
+   incognito**.
+6. Open Chrome's Extensions menu and pin **BreakTest Browser Recorder**.
 
 ### Microsoft Edge
 
@@ -51,7 +53,9 @@ See that directory's README for installation and browser-specific behavior.
 2. Enable **Developer mode**.
 3. Choose **Load unpacked**.
 4. Select the same `<breaktest checkout>/browser-extension/chrome` directory.
-5. Pin **BreakTest Browser Recorder** to the toolbar.
+5. Open **Details** for BreakTest Browser Recorder and enable **Allow in
+   InPrivate**.
+6. Pin **BreakTest Browser Recorder** to the toolbar.
 
 Chrome and Edge use the same extension files. No separate Edge build is needed.
 
@@ -110,17 +114,9 @@ from timing gaps.
 Private mode provides a temporary cookie, history, and storage context. It is
 useful for repeatable login flows without changing the normal browser profile.
 
-### Enable private access once
-
-In Chrome:
-
-1. Open `chrome://extensions`.
-2. Open **Details** for BreakTest Browser Recorder.
-3. Enable **Allow in incognito**.
-
-In Edge, use the equivalent **Allow in InPrivate** setting under
-`edge://extensions`. The recorder button may still say **Start in incognito
-window**; in Edge it opens an InPrivate window.
+Private access is enabled as part of the installation steps above. The recorder
+button may still say **Start in incognito window** in Edge; it opens an
+InPrivate window there.
 
 ### Start a private recording
 

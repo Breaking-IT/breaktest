@@ -32,7 +32,9 @@ instead of the Chromium DevTools protocol.
 1. Open `about:debugging#/runtime/this-firefox` in Firefox.
 2. Choose **Load Temporary Add-on...**.
 3. Select `browser-extension/firefox/manifest.json` from the BreakTest checkout.
-4. Pin **BreakTest Browser Recorder** from Firefox's Extensions menu if desired.
+4. Open `about:addons`, select **BreakTest Browser Recorder**, and set **Run in
+   Private Windows** to **Allow**.
+5. Pin **BreakTest Browser Recorder** from Firefox's Extensions menu if desired.
 
 Firefox removes temporary add-ons when the browser exits. Repeat these steps
 after restarting Firefox. Changes to the extension source also require using
@@ -69,15 +71,10 @@ names into Transaction Controllers.
 
 ## Private-window recording
 
-Enable private access once before using this workflow:
-
-1. Open `about:addons`.
-2. Open **BreakTest Browser Recorder**.
-3. Set **Run in Private Windows** to **Allow**.
-
-Then open the recorder in a normal window, enter the start settings, and choose
-**Start in private window**. On the launcher page in the new private window,
-choose **Open recorder**. Capture starts before the Start URL loads.
+Private access is enabled as part of the installation steps above. Open the
+recorder in a normal window, enter the start settings, and choose **Start in
+private window**. On the launcher page in the new private window, choose **Open
+recorder**. Capture starts before the Start URL loads.
 
 Close all existing private windows before starting if you need a fresh private
 session. Cookies created during the recording remain available for login flows
