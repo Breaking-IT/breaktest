@@ -67,6 +67,14 @@ The steps to import the sources (based on Eclipse 2019-06) into Eclipse are as f
 The best way to make sure your issue or feature is addressed is to submit a patch.
 We accept patches through pull requests.
 
+Before submitting code or documentation, read and accept the
+[Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md). BreakTest
+uses a source-available Community license and separate commercial licensing,
+so contributions cannot be accepted under an Apache-2.0-only inbound grant.
+The contributor agreement leaves ownership with the contributor while giving
+Breaking IT the rights needed to distribute the contribution under both
+models.
+
 For public contributions, please fork the repository, create a topic branch in your fork, and open a pull request back to BreakTest. Direct pushes to `main` are not part of the project workflow; changes should be reviewed through pull requests before they are merged.
 
 However, before sending a patch, please make sure that the following applies:
@@ -76,6 +84,7 @@ However, before sending a patch, please make sure that the following applies:
 * Your coding style is similar to ours.
 * Your patch is tested. JUnit tests are welcome.
 * All relevant checks pass. For broad changes, run `./gradlew check`.
+* You have read and accepted the Contributor License Agreement.
 * You understand that we're very grateful for your patch!
 
 ## :heart: Adding something new

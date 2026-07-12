@@ -142,17 +142,17 @@ tasks.configureEach<Javadoc> {
     }
 }
 
-// Add default license/notice when missing (e.g. see :src:config that overrides LICENSE)
+// Add the BreakTest license, Apache-2.0 license, and notices when missing.
 afterEvaluate {
     tasks.configureEach<Jar> {
         CrLfSpec(LineEndings.LF).run {
             into("META-INF") {
                 filteringCharset = "UTF-8"
                 duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-                // Note: we need "generic Apache-2.0" text without third-party items
-                // So we use the text from $rootDir/config/ since source distribution
-                // contains altered text at $rootDir/LICENSE
-                textFrom("$rootDir/config/LICENSE")
+                textFrom("$rootDir/LICENSE")
+                from("$rootDir/config/LICENSE") {
+                    rename("LICENSE", "LICENSE-APACHE-2.0")
+                }
                 textFrom("$rootDir/NOTICE")
             }
         }
@@ -161,11 +161,11 @@ afterEvaluate {
 
 tasks.configureEach<Jar> {
     manifest {
-        attributes["Bundle-License"] = "Apache-2.0"
+        attributes["Bundle-License"] = "LicenseRef-BreakTest-Community-1.0, Apache-2.0"
         attributes["Specification-Title"] = "BreakTest"
-        attributes["Specification-Vendor"] = "Apache Software Foundation"
-        attributes["Implementation-Vendor"] = "Apache Software Foundation"
-        attributes["Implementation-Vendor-Id"] = "org.apache"
+        attributes["Specification-Vendor"] = "Breaking IT"
+        attributes["Implementation-Vendor"] = "Breaking IT"
+        attributes["Implementation-Vendor-Id"] = "nl.breakingit"
         attributes["Implementation-Version"] = rootProject.version
     }
 }

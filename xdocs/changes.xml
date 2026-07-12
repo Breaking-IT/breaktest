@@ -18,14 +18,15 @@
 
 <document>
 <properties>
-    <author email="info@breaking-it.nl">BreakTest developers</author>
+    <author email="info@breakingit.nl">BreakTest developers</author>
     <title>Release Notes</title>
 </properties>
 <body>
 <section name="Release Notes">
 <note>
-BreakTest requires Java 21 or later. BreakTest 2026.07.11 is licensed under
-the Apache License, Version 2.0.
+BreakTest requires Java 21 or later. BreakTest-specific materials are licensed
+under the BreakTest Community Source License 1.0. Apache JMeter-derived and
+other third-party materials retain their applicable licenses.
 </note>
 
 <h1>Version 2026.07.11</h1>
