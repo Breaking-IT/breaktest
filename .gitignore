@@ -65,6 +65,7 @@
 .vscode
 
 # bin/ folder is used to launch JMeter, so we ignore certain files there
+/bin/breaktest.jar
 /bin/ApacheJMeter.jar
 # Local JMeter Plugins Manager CLI wrappers (not part of Apache distribution)
 /bin/PluginsManagerCMD.*

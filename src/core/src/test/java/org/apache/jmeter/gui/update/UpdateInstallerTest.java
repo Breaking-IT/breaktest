@@ -82,6 +82,33 @@ class UpdateInstallerTest {
     }
 
     @Test
+    void installsDistributionsAcrossLauncherJarRename() throws Exception {
+        Path home = temporaryDirectory.resolve("rename-install");
+        write(home, "bin/ApacheJMeter.jar", "old launcher");
+        write(home, "lib/ext/ApacheJMeter_core.jar", "old core");
+
+        // The transition distribution ships the launcher under both names
+        Path staged = temporaryDirectory.resolve("staged-transition");
+        write(staged, "bin/breaktest.jar", "new launcher");
+        write(staged, "bin/ApacheJMeter.jar", "new launcher");
+        write(staged, "lib/ext/ApacheJMeter_core.jar", "new core");
+        UpdateInstaller.install(staged, home);
+
+        assertEquals("new launcher", Files.readString(home.resolve("bin/breaktest.jar")));
+        assertEquals("new launcher", Files.readString(home.resolve("bin/ApacheJMeter.jar")));
+
+        // A future distribution shipping only breaktest.jar installs cleanly and
+        // leaves no stale legacy launcher behind
+        Path nextStaged = temporaryDirectory.resolve("staged-future");
+        write(nextStaged, "bin/breaktest.jar", "future launcher");
+        write(nextStaged, "lib/ext/ApacheJMeter_core.jar", "future core");
+        UpdateInstaller.install(nextStaged, home);
+
+        assertEquals("future launcher", Files.readString(home.resolve("bin/breaktest.jar")));
+        assertFalse(Files.exists(home.resolve("bin/ApacheJMeter.jar")));
+    }
+
+    @Test
     void refusesToModifySourceCheckout() throws Exception {
         Path home = temporaryDirectory.resolve("checkout");
         Files.createDirectories(home.resolve(".git"));

@@ -519,16 +519,24 @@ public final class UpdateService {
     }
 
     private static void validateDistribution(Path root) throws IOException {
-        if (!Files.isRegularFile(root.resolve("bin/ApacheJMeter.jar"))
-                || !Files.isRegularFile(root.resolve("lib/ext/ApacheJMeter_core.jar"))) {
+        if (!hasLauncherJar(root) || !Files.isRegularFile(root.resolve("lib/ext/ApacheJMeter_core.jar"))) {
             throw new IOException("Downloaded archive is not a valid BreakTest binary distribution");
         }
+    }
+
+    /**
+     * The launcher is transitioning from the legacy {@code ApacheJMeter.jar} name to
+     * {@code breaktest.jar}; installations and distributions may carry either or both.
+     */
+    static boolean hasLauncherJar(Path root) {
+        return Files.isRegularFile(root.resolve("bin/breaktest.jar"))
+                || Files.isRegularFile(root.resolve("bin/ApacheJMeter.jar"));
     }
 
     public boolean canInstall() {
         Path home = Path.of(JMeterUtils.getJMeterHome()).toAbsolutePath().normalize();
         return !Files.exists(home.resolve(".git"))
-                && Files.isRegularFile(home.resolve("bin/ApacheJMeter.jar"))
+                && hasLauncherJar(home)
                 && Files.isRegularFile(home.resolve("lib/ext/ApacheJMeter_core.jar"))
                 && Files.isWritable(home);
     }

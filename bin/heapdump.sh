@@ -22,4 +22,4 @@
 
 DIRNAME="$(dirname "$0")"
 
-java -cp "${DIRNAME}/ApacheJMeter.jar" org.apache.jmeter.util.ShutdownClient HeapDump "$@"
+java -cp "${DIRNAME}/breaktest.jar" org.apache.jmeter.util.ShutdownClient HeapDump "$@"

@@ -135,7 +135,7 @@ node {
 tasks.clean {
     // copyLibs uses Sync task, so it can't predict all the possible output files (e.g. from previous executions)
     // So we register patterns to remove explicitly
-    delete(fileTree("$rootDir/bin") { include("ApacheJMeter.jar") })
+    delete(fileTree("$rootDir/bin") { include("breaktest.jar", "ApacheJMeter.jar") })
     delete(fileTree("$rootDir/lib") { include("*.jar") })
     delete(fileTree("$rootDir/lib/ext") { include("ApacheJMeter*.jar") })
     delete(fileTree("$rootDir/lib/junit") { include("test.jar") })
@@ -180,8 +180,19 @@ val populateLibs by tasks.registering {
             }
             // JMeter jars are spread across $root/bin, $root/libs, and $root/libs/ext
             // for historical reasons
+            if (compId.projectPath == launcherProject) {
+                // The launcher ships as breaktest.jar. A copy keeps the legacy name so
+                // self-updaters deployed before the rename still accept and can install
+                // this distribution; the copy will be dropped in a later release.
+                binLibs.from(dep.file) {
+                    rename { "breaktest.jar" }
+                }
+                binLibs.from(dep.file) {
+                    rename { "ApacheJMeter.jar" }
+                }
+                continue
+            }
             when (compId.projectPath) {
-                launcherProject -> binLibs
                 jorphanProject -> libs
                 else -> libsExt
             }.from(dep.file) {
@@ -639,7 +650,7 @@ val runGui by tasks.registering(JavaExec::class) {
 
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
-    classpath("$rootDir/bin/ApacheJMeter.jar")
+    classpath("$rootDir/bin/breaktest.jar")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
 
@@ -693,7 +704,7 @@ val runGuiWithAgent by tasks.registering(JavaExec::class) {
 
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
-    classpath("$rootDir/bin/ApacheJMeter.jar")
+    classpath("$rootDir/bin/breaktest.jar")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
     jvmArgs("-Dbreaktest.agent.enabled=true")

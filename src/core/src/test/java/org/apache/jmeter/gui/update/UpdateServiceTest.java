@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.update;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -252,6 +253,23 @@ class UpdateServiceTest {
         Path root = UpdateService.extractZip(archive, temporaryDirectory.resolve("valid"));
 
         assertEquals("launcher", Files.readString(root.resolve("bin/ApacheJMeter.jar")));
+    }
+
+    @Test
+    void acceptsLauncherJarUnderNewOrLegacyName() throws Exception {
+        Path newName = temporaryDirectory.resolve("dist-new");
+        Files.createDirectories(newName.resolve("bin"));
+        Files.writeString(newName.resolve("bin/breaktest.jar"), "launcher");
+        assertTrue(UpdateService.hasLauncherJar(newName), "breaktest.jar should be accepted");
+
+        Path legacyName = temporaryDirectory.resolve("dist-legacy");
+        Files.createDirectories(legacyName.resolve("bin"));
+        Files.writeString(legacyName.resolve("bin/ApacheJMeter.jar"), "launcher");
+        assertTrue(UpdateService.hasLauncherJar(legacyName), "legacy ApacheJMeter.jar should be accepted");
+
+        Path noLauncher = temporaryDirectory.resolve("dist-none");
+        Files.createDirectories(noLauncher.resolve("bin"));
+        assertFalse(UpdateService.hasLauncherJar(noLauncher));
     }
 
     @Test

@@ -164,7 +164,7 @@ public final class UpdateInstaller {
         if (Files.exists(home.resolve(".git"))) {
             throw new IOException("Refusing to self-update a source checkout");
         }
-        if (!Files.isRegularFile(staged.resolve("bin/ApacheJMeter.jar"))
+        if (!UpdateService.hasLauncherJar(staged)
                 || !Files.isRegularFile(staged.resolve("lib/ext/ApacheJMeter_core.jar"))) {
             throw new IOException("The staged update is not a BreakTest binary distribution");
         }
@@ -223,9 +223,12 @@ public final class UpdateInstaller {
                 }
             }
         }
-        Path launcher = home.resolve("bin/ApacheJMeter.jar");
-        if (Files.exists(launcher)) {
-            backupExisting(home, backup, home.relativize(launcher), backedUp);
+        // The launcher may exist under its new and/or legacy name; back up both
+        for (String launcherName : new String[] {"bin/breaktest.jar", "bin/ApacheJMeter.jar"}) {
+            Path launcher = home.resolve(launcherName);
+            if (Files.exists(launcher)) {
+                backupExisting(home, backup, home.relativize(launcher), backedUp);
+            }
         }
     }
 
