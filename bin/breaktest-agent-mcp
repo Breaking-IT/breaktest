@@ -63,7 +63,7 @@ fi
 JAVA_OPTS="--add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED"
 : "${HEAP:="-Xms256m -Xmx1g -XX:MaxMetaspaceSize=256m"}"
 
-CLASSPATH="${JMETER_HOME}/bin/ApacheJMeter.jar:${JMETER_HOME}/lib/*:${JMETER_HOME}/lib/ext/*:${JMETER_HOME}/lib/junit/*"
+CLASSPATH="${JMETER_HOME}/bin/breaktest.jar:${JMETER_HOME}/lib/*:${JMETER_HOME}/lib/ext/*:${JMETER_HOME}/lib/junit/*"
 
 exec "$JAVA_HOME/bin/java" \
   $JAVA_OPTS \

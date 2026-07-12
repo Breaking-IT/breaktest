@@ -118,7 +118,7 @@ public class HtmlReportGenerator {
         String java = System.getProperty("java.home") + "/bin/java";
         arguments.add(java);
         arguments.add("-jar");
-        arguments.add(jmeterBinDir + "/ApacheJMeter.jar");
+        arguments.add(jmeterBinDir + "/breaktest.jar");
         arguments.add("-p");
         arguments.add(jmeterBinDir + "/jmeter.properties");
         arguments.add("-q");

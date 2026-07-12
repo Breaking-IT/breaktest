@@ -197,7 +197,7 @@ if "%JM_START%" == "start" (
     set JM_START=start "BreakTest"
 )
 
-%JM_START% "%JM_LAUNCH%" %ARGS% %JVM_ARGS% -jar "%JMETER_BIN%ApacheJMeter.jar" %JMETER_CMD_LINE_ARGS%
+%JM_START% "%JM_LAUNCH%" %ARGS% %JVM_ARGS% -jar "%JMETER_BIN%breaktest.jar" %JMETER_CMD_LINE_ARGS%
 
 rem If the errorlevel is not zero, then display it and pause
 
