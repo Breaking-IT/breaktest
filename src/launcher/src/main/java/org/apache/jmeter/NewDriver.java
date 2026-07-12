@@ -78,14 +78,14 @@ public final class NewDriver {
                 tmpDir = null;
             }
         } else {// e.g. started from IDE with full classpath
-            tmpDir = System.getProperty("jmeter.home", System.getenv("JMETER_HOME"));// Allow override $NON-NLS-1$ $NON-NLS-2$
+            tmpDir = installationDirOverride();// Allow override
             if (tmpDir == null || tmpDir.isEmpty()) {
                 File userDir = new File(System.getProperty("user.dir"));// $NON-NLS-1$
                 tmpDir = userDir.getAbsoluteFile().getParent();
             }
         }
         if (tmpDir == null) {
-            tmpDir = System.getenv("JMETER_HOME");
+            tmpDir = installationDirOverride();
         }
         JMETER_INSTALLATION_DIRECTORY=tmpDir;
 
@@ -278,6 +278,25 @@ public final class NewDriver {
     }
 
     /**
+     * Returns the installation directory configured through the {@code breaktest.home} or
+     * legacy {@code jmeter.home} system property, or the {@code BREAKTEST_HOME} or legacy
+     * {@code JMETER_HOME} environment variable, whichever is set first.
+     */
+    private static String installationDirOverride() {
+        String dir = System.getProperty("breaktest.home");// $NON-NLS-1$
+        if (dir == null || dir.isEmpty()) {
+            dir = System.getProperty("jmeter.home");// $NON-NLS-1$
+        }
+        if (dir == null || dir.isEmpty()) {
+            dir = System.getenv("BREAKTEST_HOME");// $NON-NLS-1$
+        }
+        if (dir == null || dir.isEmpty()) {
+            dir = System.getenv("JMETER_HOME");// $NON-NLS-1$
+        }
+        return dir;
+    }
+
+    /**
      * Set logging related system properties.
      */
     private static void setLoggingProperties(String[] args) {
@@ -287,7 +306,7 @@ public final class NewDriver {
             jmLogFile = replaceDateFormatInFileName(jmLogFile);
             System.setProperty(JMETER_LOGFILE_SYSTEM_PROPERTY, jmLogFile);// $NON-NLS-1$
         } else if (System.getProperty(JMETER_LOGFILE_SYSTEM_PROPERTY) == null) {// $NON-NLS-1$
-            System.setProperty(JMETER_LOGFILE_SYSTEM_PROPERTY, "jmeter.log");// $NON-NLS-1$ $NON-NLS-2$
+            System.setProperty(JMETER_LOGFILE_SYSTEM_PROPERTY, "breaktest.log");// $NON-NLS-1$ $NON-NLS-2$
         }
 
         String jmLogConf = getCommandLineArgument(args, 'i', "jmeterlogconf");// $NON-NLS-1$ $NON-NLS-2$

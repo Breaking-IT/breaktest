@@ -1231,7 +1231,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     }
 
     public void showLoggerPanel() {
-        addBottomLogTab("jmeter.log", logPanel);
+        addBottomLogTab("breaktest.log", logPanel);
         logPanel.setVisible(true);
         bottomLogTabs.setSelectedComponent(logPanel);
         GuiPackage.getInstance().getMenuItemLoggerPanel().getModel().setSelected(true);

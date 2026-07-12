@@ -29,6 +29,8 @@ done
 
 PRGDIR=`dirname "$PRG"`
 
+# BREAKTEST_HOME takes precedence over the legacy JMETER_HOME name
+[ -n "$BREAKTEST_HOME" ] && JMETER_HOME="$BREAKTEST_HOME"
 [ -z "$JMETER_HOME" ] && JMETER_HOME=`cd "$PRGDIR/.." >/dev/null; pwd`
 
 if [ -r "${JMETER_HOME}/bin/setenv.sh" ]; then

@@ -129,7 +129,7 @@ public class JMeter implements JMeterPlugin {
     private static final int OPTIONS_OPT        = '?';// $NON-NLS-1$
     // logging configuration file
     private static final int JMLOGCONF_OPT      = 'i';// $NON-NLS-1$
-    // jmeter.log
+    // breaktest.log
     private static final int JMLOGFILE_OPT      = 'j';// $NON-NLS-1$
     // sample result log file
     private static final int LOGFILE_OPT        = 'l';// $NON-NLS-1$
@@ -195,7 +195,7 @@ public class JMeter implements JMeterPlugin {
                     "jmeter logging configuration file (log4j2.xml)");
     private static final CLOptionDescriptor D_JMLOGFILE_OPT =
             new CLOptionDescriptor("jmeterlogfile", CLOptionDescriptor.ARGUMENT_REQUIRED, JMLOGFILE_OPT,
-                    "jmeter run log file (jmeter.log)");
+                    "BreakTest run log file (breaktest.log)");
     private static final CLOptionDescriptor D_NONGUI_OPT =
             new CLOptionDescriptor("nongui", CLOptionDescriptor.ARGUMENT_DISALLOWED, NONGUI_OPT,
                     "run BreakTest in nongui mode");
