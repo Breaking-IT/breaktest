@@ -129,6 +129,15 @@ validate it, repair it, and show changes in the GUI.
   <li>CSV preview shows first sample variable assignments.</li>
 </ul>
 
+<h2>Native UDP</h2>
+<ul>
+  <li>UDP Request sends datagrams with optional response waiting, response timeout, local address and port binding, and socket reuse.</li>
+  <li>UDP Receiver can read a later datagram from a named socket created by UDP Request.</li>
+  <li>A friendly payload-format selector provides UTF-8 text, hexadecimal, and single-byte text; advanced custom codecs can implement the native <code>UDPTrafficCodec</code> interface.</li>
+  <li>The implementation uses the Java networking API directly and does not require the JMeter Plugins common I/O or common JMeter libraries.</li>
+</ul>
+<p>See <a href="udp-request.html">Native UDP Request And Receiver</a> for configuration details.</p>
+
 <h2>Removed Or Changed Compatibility Areas</h2>
 <ul>
   <li>RMI Remote Server style distributed execution is removed. Use BreakTest Enterprise or another controlled orchestration layer for distributed runs.</li>

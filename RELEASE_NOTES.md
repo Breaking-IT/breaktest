@@ -40,6 +40,25 @@ execution, and makes automated GUI repair safer and recoverable.
 - Hardens AI Repair with conflict-aware native Regex Extractor planning,
   atomic rollback, safe live-tree deletion, backup restoration, and explicit
   blocked completion reporting.
+- Adds native UDP Request and UDP Receiver samplers with hex/raw codecs,
+  response timeouts, local binding, and named socket reuse, without external
+  JMeter Plugins common libraries.
+
+### Native UDP
+
+- UDP Request supports request/response and fire-and-forget datagrams, local
+  address and port binding, configurable timeouts, socket reuse, and optional
+  handling of unreachable destinations.
+- UDP Receiver reads later datagrams from named sockets and can treat receive
+  timeouts as successful no-content samples or failures.
+- A payload-format selector provides UTF-8 text, hexadecimal, and single-byte
+  text without exposing implementation classnames; custom implementations can
+  still use the native `UDPTrafficCodec` extension point.
+- The module uses JDK datagram sockets directly and adds no JMeter Plugins
+  common I/O or common JMeter dependencies.
+- Large datagrams are validated before sending, reduced receive limits detect
+  truncation, receive buffers are reused, and named sockets are isolated per
+  virtual user to prevent cross-user response mix-ups.
 
 ### Compressed JMX Archives And Recordings
 

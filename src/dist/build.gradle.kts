@@ -50,7 +50,8 @@ var jars = arrayOf(
     ":src:protocol:ldap",
     ":src:protocol:mail",
     ":src:protocol:native",
-    ":src:protocol:tcp"
+    ":src:protocol:tcp",
+    ":src:protocol:udp"
 )
 
 // https://github.com/gradle/gradle/pull/16627

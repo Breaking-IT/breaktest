@@ -88,6 +88,7 @@ include(
     "src:protocol:mail",
     "src:protocol:native",
     "src:protocol:tcp",
+    "src:protocol:udp",
     "src:release",
     "src:testkit",
     "src:testkit-wiremock",
