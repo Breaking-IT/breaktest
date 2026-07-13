@@ -15,7 +15,63 @@ specific language governing permissions and limitations under the License.
 
 # BreakTest Release Notes
 
-## Upcoming Release
+## BreakTest 2026.07.13 — Initial Community Release
+
+BreakTest 2026.07.13 is the first release under the BreakTest Community Source
+License 1.0. It combines the complete BreakTest feature set with a native
+browser recorder, broader BreakTest branding, and native UDP testing.
+
+Releases published before 2026.07.13 were made available under the Apache
+License, Version 2.0. Their notes are retained below as historical release
+notes; those earlier licenses and rights are not changed retroactively.
+
+### Highlights
+
+- Introduces the BreakTest Community Source License 1.0 for BreakTest-specific
+  materials. Community use is limited to testing systems operated by your own
+  organization; service-provider, platform, hosted, redistribution, and other
+  excluded commercial uses require written permission from Breaking IT.
+- Adds local Chrome, Edge, and Firefox browser recorder extensions that export
+  HAR recordings with user-defined transaction names for guided BreakTest
+  import.
+- Uses BreakTest names throughout the visible product and runtime, including
+  `BREAKTEST_*` environment variables, `breaktest.*` properties, and the
+  `breaktest.jar` launcher, while retaining compatibility paths where needed.
+- Publishes BreakTest-owned artifacts under the `nl.breakingit.breaktest` Maven
+  group and uses stable top-level directories in distribution archives.
+- Adds native UDP Request and UDP Receiver samplers with text, hexadecimal, and
+  raw payload codecs, local binding, timeouts, and named per-user socket reuse.
+
+### Licensing
+
+- BreakTest-specific materials are licensed under the BreakTest Community
+  Source License 1.0 beginning with this release.
+- Apache JMeter-derived and other third-party materials retain their applicable
+  licenses and attribution.
+- Commercial licensing and permission requests may be sent to
+  `info@breakingit.nl`.
+
+### Browser Recording
+
+- Adds local recorder extensions for Chromium browsers and Firefox.
+- Recording can begin in a prepared blank or private browser context so the
+  first navigation and its resources are captured.
+- Test authors can assign transaction names during recording; BreakTest uses
+  those names when importing the exported HAR file.
+- The recorder can disable browser caching for cold-cache captures and reports
+  requests whose response bodies are unavailable from the browser.
+
+### BreakTest Branding And Distribution
+
+- Replaces user-visible JMeter product names with BreakTest while preserving
+  technical compatibility names where existing plans and plugins depend on
+  them.
+- Adds `BREAKTEST_HOME`, `BREAKTEST_OPTS`, and `BREAKTEST_LANGUAGE` as the
+  preferred runtime environment variables.
+- Renames the primary launcher to `breaktest.jar` and keeps the legacy launcher
+  name temporarily for compatibility.
+- Moves BreakTest-owned Maven publications to the
+  `nl.breakingit.breaktest` group.
 
 ### Native UDP
 
@@ -33,6 +89,14 @@ specific language governing permissions and limitations under the License.
 - Large datagrams are validated before sending, reduced receive limits detect
   truncation, receive buffers are reused, and named sockets are isolated per
   virtual user across sequential, parallel ForEach, and Fork execution.
+
+### Compatibility Notes
+
+- Java 21 or later is required.
+- Existing JMeter-compatible JMX files remain supported where practical.
+- The browser recorder extensions are installed locally from the source tree;
+  they are not browser-store installations.
+- This release uses the direct Git tag `2026.07.13`.
 
 ## BreakTest 2026.07.11
 

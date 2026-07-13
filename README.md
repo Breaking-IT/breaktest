@@ -49,9 +49,9 @@ commercially licensed use and running it seriously at scale.
 ## What Is New Compared With JMeter 5.6.3
 
 BreakTest is based on the JMeter workflow, but it makes deliberate changes where
-that helps day-to-day performance engineering. The first public release is not
-just a rename: it includes protocol, runtime, GUI, AI scripting, debugging, and
-migration work that has landed across the BreakTest PR series.
+that helps day-to-day performance engineering. The initial community-licensed
+release is not just a rename: it includes protocol, runtime, GUI, AI scripting,
+debugging, and migration work that has landed across the BreakTest PR series.
 
 ### Modern HTTP Runtime
 
@@ -217,7 +217,7 @@ preservation of every old edge case.
 Unpack the binary distribution, then start BreakTest from `bin`:
 
 ```sh
-cd breaktest-2026.07.11/bin
+cd breaktest/bin
 ./breaktest
 ```
 
@@ -282,7 +282,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.07.11
+breaktest.version=2026.07.13
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix
