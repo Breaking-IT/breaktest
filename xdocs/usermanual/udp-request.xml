@@ -55,6 +55,11 @@ A non-empty <b>Socket ID</b> shares one connected socket within the current
 virtual user. Different virtual users always get separate sockets, even when
 they use the same Socket ID. This prevents responses from being consumed by
 the wrong user.
+The first UDP Request for an ID must provide the remote endpoint and optional
+local bind settings. Later UDP Requests can provide only the same Socket ID;
+they use the endpoint and binding of the already-open socket. Repeating the
+endpoint fields remains useful when a sampler should also be able to create
+the socket, and BreakTest verifies that repeated settings match.
 Use the same ID in UDP Receiver to collect a later or unsolicited datagram.
 Operations on a named socket are serialized. Reusing an ID with different
 remote or local bind settings fails explicitly, and named sockets close when

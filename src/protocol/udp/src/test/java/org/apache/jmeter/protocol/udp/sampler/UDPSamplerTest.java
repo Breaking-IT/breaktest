@@ -193,6 +193,72 @@ class UDPSamplerTest {
     }
 
     @Test
+    void reusesNamedSocketWithoutRepeatingEndpoint() throws Exception {
+        try (UdpServer server = UdpServer.echo(2)) {
+            UDPSampler firstRequest = textSamplerFor(server.port(), "first");
+            firstRequest.setSocketID("conversation");
+            UDPSampler nextRequest = textSamplerFor(server.port(), "second");
+            nextRequest.setSocketID("conversation");
+            nextRequest.setHostName("");
+            nextRequest.setPort("");
+            firstRequest.threadStarted();
+            nextRequest.threadStarted();
+            try {
+                SampleResult firstResult = firstRequest.sample(null);
+                SampleResult nextResult = nextRequest.sample(null);
+
+                assertTrue(firstResult.isSuccessful(), firstResult::getResponseMessage);
+                assertEquals("first", firstResult.getResponseDataAsString());
+                assertTrue(nextResult.isSuccessful(), nextResult::getResponseMessage);
+                assertEquals("second", nextResult.getResponseDataAsString());
+            } finally {
+                nextRequest.threadFinished();
+                firstRequest.threadFinished();
+            }
+        }
+    }
+
+    @Test
+    void requiresEndpointWhenNamedSocketDoesNotExist() {
+        UDPSampler sampler = new UDPSampler();
+        sampler.setName("UDP request");
+        sampler.setSocketID("missing");
+        sampler.setRequestData("payload");
+
+        SampleResult result = sampler.sample(null);
+
+        assertFalse(result.isSuccessful());
+        assertTrue(result.getResponseMessage().contains("No open UDP socket found for Socket ID 'missing'"));
+        assertTrue(result.getResponseMessage().contains("required to create it"));
+    }
+
+    @Test
+    void rejectsBindSettingsWhenReusingNamedSocketWithoutEndpoint() throws Exception {
+        try (UdpServer server = UdpServer.echo()) {
+            UDPSampler firstRequest = textSamplerFor(server.port(), "first");
+            firstRequest.setSocketID("conversation");
+            UDPSampler nextRequest = textSamplerFor(server.port(), "second");
+            nextRequest.setSocketID("conversation");
+            nextRequest.setHostName("");
+            nextRequest.setPort("");
+            nextRequest.setBindPort("12345");
+            firstRequest.threadStarted();
+            nextRequest.threadStarted();
+            try {
+                assertTrue(firstRequest.sample(null).isSuccessful());
+
+                SampleResult nextResult = nextRequest.sample(null);
+
+                assertFalse(nextResult.isSuccessful());
+                assertTrue(nextResult.getResponseMessage().contains("local bind settings cannot be changed"));
+            } finally {
+                nextRequest.threadFinished();
+                firstRequest.threadFinished();
+            }
+        }
+    }
+
+    @Test
     void isolatesNamedSocketsBetweenVirtualUsers() throws Exception {
         try (UdpServer server = UdpServer.echo()) {
             UDPSampler firstUser = samplerFor(server.port());

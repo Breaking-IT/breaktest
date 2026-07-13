@@ -179,12 +179,28 @@ public class UDPSampler extends AbstractUDPSampler {
 
     private UDPSocketManager.SocketHandle getSocketHandle() throws Exception {
         String host = getHostName().trim();
+        String portValue = getPort().trim();
+        String bindAddress = getBindAddress().trim();
+        String bindPortValue = getBindPort().trim();
+
+        if (hasSharedSocket() && host.isEmpty() && portValue.isEmpty()) {
+            UDPSocketManager.SocketHandle existing = UDPSocketManager.get(getSocketKey());
+            if (existing == null) {
+                throw new IllegalStateException("No open UDP socket found for Socket ID '" + getSocketID()
+                        + "'; hostname/IP and destination port are required to create it");
+            }
+            if (!bindAddress.isEmpty() || !bindPortValue.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "UDP local bind settings cannot be changed when reusing an existing socket without an endpoint");
+            }
+            return existing;
+        }
+
         if (host.isEmpty()) {
             throw new IllegalArgumentException("UDP hostname/IP is empty");
         }
-        int port = parsePort(getPort(), "UDP destination port", false);
-        int bindPort = parsePort(getBindPort(), "UDP local bind port", true);
-        String bindAddress = getBindAddress().trim();
+        int port = parsePort(portValue, "UDP destination port", false);
+        int bindPort = parsePort(bindPortValue, "UDP local bind port", true);
         String configuration = host + ':' + port + '|' + bindAddress + ':' + bindPort;
 
         if (hasSharedSocket()) {
