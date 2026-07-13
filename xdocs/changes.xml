@@ -86,7 +86,7 @@ notes; those earlier licenses and rights are not changed retroactively.
 <ul>
   <li>Java 21 or later is required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li>The browser recorder extensions are installed locally from the source tree; they are not browser-store installations.</li>
+  <li>The browser recorder extensions are included in the binary and source distributions for local installation; they are not browser-store installations.</li>
   <li>This release uses the direct Git tag <code>2026.07.13</code>.</li>
 </ul>
 
