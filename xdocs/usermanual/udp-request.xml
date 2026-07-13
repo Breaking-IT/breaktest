@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to you under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~ http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+
+<document>
+<properties>
+  <title>Native UDP Request And Receiver</title>
+</properties>
+<body>
+<section name="Native UDP Request And Receiver">
+<p>
+BreakTest includes UDP support in its standard distribution. No JMeter Plugins
+common I/O or common JMeter library is required. Add <b>UDP Request</b> or
+<b>UDP Receiver</b> from a test-plan node's <b>Sampler</b> menu.
+</p>
+
+<h2>UDP Request</h2>
+<ul>
+  <li><b>Hostname or IP address</b> and <b>Destination port</b> select the remote endpoint.</li>
+  <li><b>Response timeout</b> is the maximum receive wait in milliseconds. Zero waits indefinitely.</li>
+  <li><b>Wait for response</b> receives one datagram after sending. The operating system reassembles IP fragments before BreakTest receives it, but separate UDP datagrams are not combined. Clear the option for fire-and-forget traffic.</li>
+  <li><b>Local bind address</b> and <b>Local bind port</b> control the source interface and port. A blank port uses an ephemeral port.</li>
+  <li><b>Close socket after request</b> closes an unnamed socket after each sample. Named sockets stay open for reuse.</li>
+  <li><b>Allow unexpected disconnect</b> treats an ICMP port-unreachable result as a successful sample.</li>
+</ul>
+
+<h2>Payload Codecs</h2>
+<p>
+Choose a friendly <b>Payload format</b> from the sampler. The default
+<b>Text (UTF-8)</b> option accepts normal text. <b>Hexadecimal bytes</b> accepts
+pairs of hexadecimal digits and exposes responses as lowercase hexadecimal.
+<b>Single-byte text (ISO-8859-1)</b> maps each request character directly to
+one byte for legacy protocols. The <b>Custom codec class</b> option accepts a
+public no-argument class that implements
+<code>org.apache.jmeter.protocol.udp.sampler.UDPTrafficCodec</code>.
+</p>
+
+<h2>Named Sockets And UDP Receiver</h2>
+<p>
+A non-empty <b>Socket ID</b> shares one connected socket within the current
+virtual user. Different virtual users always get separate sockets, even when
+they use the same Socket ID. This prevents responses from being consumed by
+the wrong user.
+The first UDP Request for an ID must provide the remote endpoint and optional
+local bind settings. Later UDP Requests can provide only the same Socket ID;
+they use the endpoint and binding of the already-open socket. Repeating the
+endpoint fields remains useful when a sampler should also be able to create
+the socket, and BreakTest verifies that repeated settings match.
+Use the same ID in UDP Receiver to collect a later or unsolicited datagram.
+Operations on a named socket are serialized. Reusing an ID with different
+remote or local bind settings fails explicitly, and named sockets close when
+the virtual user finishes.
+</p>
+<p>
+UDP Receiver can treat a timeout as either a successful no-content sample or a
+failed request. The receive buffer is reused between samples and defaults to
+the maximum UDP payload size. It can be reduced with the
+<code>udp.receive_buffer_size</code> property. A response exceeding a reduced
+limit fails with response code <code>413</code> instead of being silently
+truncated.
+</p>
+
+<h2>Payload Size And Fragmentation</h2>
+<p>
+BreakTest rejects payloads larger than the protocol maximum before sending
+them: 65,507 bytes over IPv4 or 65,527 bytes over IPv6. Requests larger than a
+typical Ethernet UDP payload produce a one-time log warning because IP
+fragmentation makes loss more likely. Change the warning threshold with
+<code>udp.fragmentation_warning_size</code>, or set it to zero to disable the
+warning.
+</p>
+<p>
+IP fragmentation is transparent to the sampler: the operating system either
+delivers one fully reassembled UDP datagram or discards it when reassembly
+fails, in which case the sampler times out. Multiple application-level UDP
+datagrams are independent messages and require protocol-specific sequence or
+length fields; BreakTest does not concatenate them automatically.
+</p>
+</section>
+</body>
+</document>
