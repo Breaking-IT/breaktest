@@ -42,7 +42,9 @@ if (gradle.startParameter.writeDependencyVerifications.isNotEmpty()) {
 }
 
 allprojects {
-    group = "org.apache.jmeter"
+    // Fork artifacts must not be published under Apache's Maven namespace;
+    // Java package names stay org.apache.jmeter for plugin compatibility.
+    group = "nl.breakingit.breaktest"
     version = rootProject.version
 }
 

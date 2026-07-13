@@ -26,21 +26,21 @@
         <fileName>/bin/templates/recording.jmx</fileName>
         <description><![CDATA[
         <h1>Template showing how to record</h1>
-        <h2>JMeter Configuration</h2>
+        <h2>BreakTest Configuration</h2>
             <ul>
-                <li>JMeter Server Proxy port is set to 8888, you may want to change this</li>
+                <li>BreakTest Server Proxy port is set to 8888, you may want to change this</li>
             </ul>
         <h2>Browser Configuration</h2>
-        <p>Configure your browser so that it uses the JMeter proxy, set:
+        <p>Configure your browser so that it uses the BreakTest proxy, set:
             <ul>
-                <li>the host of the machine that runs JMeter</li>
-                <li>the port you setup in JMeter Server Proxy</li>
+                <li>the host of the machine that runs BreakTest</li>
+                <li>the port you setup in BreakTest Server Proxy</li>
             </ul>
         </p>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf" >https://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
             </ul>
         ]]></description>
         <parameters>
@@ -54,21 +54,21 @@
         <fileName>/bin/templates/recording-with-think-time.jmx</fileName>
         <description><![CDATA[
         <h1>Template showing how to record with think time</h1>
-        <h2>JMeter Configuration</h2>
+        <h2>BreakTest Configuration</h2>
             <ul>
-                <li>JMeter Server Proxy port is set to 8888, you may want to change this</li>
+                <li>BreakTest Server Proxy port is set to 8888, you may want to change this</li>
             </ul>
         <h2>Browser Configuration</h2>
-        <p>Configure your browser so that it uses the JMeter proxy, set:
+        <p>Configure your browser so that it uses the BreakTest proxy, set:
             <ul>
-                <li>the host of the machine that runs JMeter</li>
-                <li>the port you setup in JMeter Server Proxy</li>
+                <li>the host of the machine that runs BreakTest</li>
+                <li>the port you setup in BreakTest Server Proxy</li>
             </ul>
         </p>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf" >http://jmeter.apache.org/usermanual/breaktest_proxy_step_by_step.pdf</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf" >https://jmeter.apache.org/usermanual/jmeter_proxy_step_by_step.pdf</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server" >https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Proxy_Server</a></li>
             </ul>
         ]]></description>
     </template>
@@ -77,7 +77,7 @@
         <fileName>jdbc.jmx</fileName>
         <description>
         <![CDATA[<h1>Template showing how to Load Test an SQL query on Database</h1>
-        <h2>JMeter Configuration</h2>
+        <h2>BreakTest Configuration</h2>
             <ul>
                 <li>Add the database driver to jmeter/lib folder</li>
                 <li>Configure the host, port, username and password in JDBC Configuration</li>
@@ -85,7 +85,7 @@
             </ul>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-db-test-plan.html" >http://jmeter.apache.org/usermanual/build-db-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-db-test-plan.html" >https://jmeter.apache.org/usermanual/build-db-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -100,7 +100,7 @@
         Please select a suitable location in the tree before merging.
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#JSR223_Sampler" >JSR223 Sampler</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#JSR223_Sampler" >JSR223 Sampler</a></li>
                 <li><a href="http://groovy-lang.org/documentation.html" >Apache Groovy</a></li>
             </ul>
         ]]></description>
@@ -112,7 +112,7 @@
         <h1>Test plan from Building a Web Test Plan section in user's manual</h1>
         <h2>Useful link</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-web-test-plan.html" >http://jmeter.apache.org/usermanual/build-web-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-web-test-plan.html" >https://jmeter.apache.org/usermanual/build-web-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -121,8 +121,8 @@
         <fileName>/bin/templates/functional-testing-01-test-plan.jmx</fileName>
         <description><![CDATA[
         <h1>Building a Functional Testing Test Plan [01]</h1>
-        <p>You can use JMeter to automate API Testing</p>
-        <p>This template of Test Plan contains first step when starting creating JMeter script</p>
+        <p>You can use BreakTest to automate API Testing</p>
+        <p>This template of Test Plan contains first step when starting creating a BreakTest script</p>
         <h2>Useful links</h2>
             <ul>
                 <li><a href="https://jmeter.apache.org/usermanual/test_plan.html" >https://jmeter.apache.org/usermanual/test_plan.html</a></li>
@@ -138,14 +138,14 @@
         <description><![CDATA[
         <h1>Test plan from Building an advanced Web Test Plan section in user's manual</h1>
         <h2>Configuration</h2>
-        <p>In order to run the login sample inside plan, create a CSV file following description in <b>loginData</b> sample and put it in a folder of your choice then test running JMeter with:<br/>
+        <p>In order to run the login sample inside plan, create a CSV file following description in <b>loginData</b> sample and put it in a folder of your choice then test running BreakTest with:<br/>
             <ul>
-                <li><b>jmeter -Jresources_folder=FOLDER TO CHANGE</b></li>
+                <li><b>breaktest -Jresources_folder=FOLDER TO CHANGE</b></li>
             </ul>
         </p>
         <h2>Useful link</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-adv-web-test-plan.html" >http://jmeter.apache.org/usermanual/build-adv-web-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-adv-web-test-plan.html" >https://jmeter.apache.org/usermanual/build-adv-web-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -156,11 +156,11 @@
         <h1>Test plan showing how to create a SOAP Webservice Test Plan </h1>
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#User_Defined_Variables" >User Defined Variables</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Request_Defaults" >User Defined Variables</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Request" >HTTP Request</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#Response_Assertion">Response Assertion</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#HTTP_Header_Manager">HTTP Header Manager</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#User_Defined_Variables" >User Defined Variables</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Request_Defaults" >HTTP Request Defaults</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Request" >HTTP Request</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#Response_Assertion">Response Assertion</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#HTTP_Header_Manager">HTTP Header Manager</a></li>
             </ul>
         ]]></description>
     </template>
@@ -171,7 +171,7 @@
         <h1>Test plan from Building an FTP Test Plan section in user's manual</h1>
         <h2>Useful link</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-ftp-test-plan.html" >http://jmeter.apache.org/usermanual/build-ftp-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-ftp-test-plan.html" >https://jmeter.apache.org/usermanual/build-ftp-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -182,7 +182,7 @@
         <h1>Test plan from Building an LDAP Test Plan section in user's manual</h1>
         <h2>Useful link</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-ldap-test-plan.html" >http://jmeter.apache.org/usermanual/build-ldap-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-ldap-test-plan.html" >https://jmeter.apache.org/usermanual/build-ldap-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -193,7 +193,7 @@
         <h1>Test plan from Building an Extended LDAP Test Plan section in user's manual</h1>
         <h2>Useful link</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/build-ldapext-test-plan.html" >http://jmeter.apache.org/usermanual/build-ldapext-test-plan.html</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/build-ldapext-test-plan.html" >https://jmeter.apache.org/usermanual/build-ldapext-test-plan.html</a></li>
             </ul>
         ]]></description>
     </template>
@@ -208,8 +208,8 @@
         Please select a suitable location in the tree - e.g. Thread Group or Controller - before merging.
         <h2>Useful links</h2>
             <ul>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#Test_Action" >Test Action</a></li>
-                <li><a href="http://jmeter.apache.org/usermanual/component_reference.html#Uniform_Random_Timer" >Uniform Random Timer</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#Test_Action" >Test Action</a></li>
+                <li><a href="https://jmeter.apache.org/usermanual/component_reference.html#Uniform_Random_Timer" >Uniform Random Timer</a></li>
             </ul>
         ]]></description>
     </template>
@@ -218,7 +218,7 @@
         <fileName>/bin/templates/simple-http-request-test-plan.jmx</fileName>
         <description><![CDATA[
         <h1>Template for simple HTTP request</h1>
-        <h2>JMeter Configuration</h2>
+        <h2>BreakTest Configuration</h2>
         <p>Configure your HTTP request, set:
             <ul>
                 <li>Full URL</li>

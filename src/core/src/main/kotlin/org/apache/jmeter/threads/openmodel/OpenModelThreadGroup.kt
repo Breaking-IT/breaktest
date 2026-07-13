@@ -64,7 +64,10 @@ public class OpenModelThreadGroup :
 
         /** Whether to use Java 21 Virtual Threads */
         private val VIRTUAL_THREADS_ENABLED =
-            JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true)
+            JMeterUtils.getPropDefault(
+                "breaktest.threads.virtual.enabled",
+                JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true),
+            )
 
         /** Counter for naming virtual threads */
         private val virtualThreadCounter = AtomicLong(0)

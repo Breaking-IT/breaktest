@@ -41,14 +41,18 @@
 ##                    used when BreakTest is started.
 ##                    Defaults to "-Xms256m -Xmx2g -XX:MaxMetaspaceSize=256m"
 ##
-##   JMETER_HOME      (Optional) May point to your BreakTest install dir. If empty
+##   BREAKTEST_HOME   (Optional) May point to your BreakTest install dir. If empty
 ##                    it will be set relativ to this script.
+##                    The legacy name JMETER_HOME is still honored when
+##                    BREAKTEST_HOME is not set.
 ##
-##   JMETER_LANGUAGE  (Optional) Java runtime options to specify used language
+##   BREAKTEST_LANGUAGE (Optional) Java runtime options to specify used language
 ##                    Defaults to "-Duser.language=en -Duser.region=EN"
+##                    The legacy name JMETER_LANGUAGE is still honored.
 ##
-##   JMETER_OPTS      (Optional) Java runtime options used when BreakTest is started.
+##   BREAKTEST_OPTS   (Optional) Java runtime options used when BreakTest is started.
 ##                    Special options for operating systems might be added by BreakTest.
+##                    The legacy name JMETER_OPTS is still honored.
 ##
 ##   ==============================================
 
@@ -68,12 +72,20 @@ done
 
 PRGDIR=`dirname "$PRG"`
 
+# BREAKTEST_HOME takes precedence over the legacy JMETER_HOME name
+[ -n "$BREAKTEST_HOME" ] && JMETER_HOME="$BREAKTEST_HOME"
+
 # Only set JMETER_HOME if not already set
 [ -z "$JMETER_HOME" ] && JMETER_HOME=`cd "$PRGDIR/.." >/dev/null; pwd`
 
 if [ -r "${JMETER_HOME}/bin/setenv.sh" ]; then
   . "${JMETER_HOME}/bin/setenv.sh"
 fi
+
+# BREAKTEST_* variables (from the environment or setenv.sh) take precedence
+# over the legacy JMETER_* names
+[ -n "$BREAKTEST_OPTS" ] && JMETER_OPTS="$BREAKTEST_OPTS"
+[ -n "$BREAKTEST_LANGUAGE" ] && JMETER_LANGUAGE="$BREAKTEST_LANGUAGE"
 
 # Make sure prerequisite environment variables are set
 if [ -z "$JAVA_HOME" -a -z "$JRE_HOME" ]; then
@@ -201,4 +213,4 @@ else
     ARGS=""
 fi
 
-"$JAVA_HOME/bin/java" $ARGS $JVM_ARGS $JMETER_OPTS -jar "$PRGDIR/ApacheJMeter.jar" "$@"
+"$JAVA_HOME/bin/java" $ARGS $JVM_ARGS $JMETER_OPTS -jar "$PRGDIR/breaktest.jar" "$@"

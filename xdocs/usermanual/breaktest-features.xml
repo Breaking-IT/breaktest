@@ -103,7 +103,7 @@ validate it, repair it, and show changes in the GUI.
   <li>Cleaner light/dark GUI styling.</li>
   <li>Undo and redo for semantic tree edits including add, delete, update, move, and search/replace operations.</li>
   <li>Background JMX loading with a loading overlay.</li>
-  <li>Optional fast GUI loading through <code>jmeter.gui.load.fast=true</code>.</li>
+  <li>Optional fast GUI loading through <code>breaktest.gui.load.fast=true</code>.</li>
   <li>Missing plugin elements load as disabled placeholders instead of failing the whole file.</li>
   <li>Search Tree can flag pre-processors, post-processors, assertions, timers, and config elements.</li>
   <li>Search results can be removed selectively with confirmation.</li>

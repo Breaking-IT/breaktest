@@ -82,7 +82,8 @@ public class ResourcesDownloader {
 
     /** Whether to use Java 21 Virtual Threads for resource downloads */
     private static final boolean VIRTUAL_THREADS_ENABLED =
-            JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true); // $NON-NLS-1$
+            JMeterUtils.getPropDefault("breaktest.threads.virtual.enabled", // $NON-NLS-1$
+                    JMeterUtils.getPropDefault("jmeter.threads.virtual.enabled", true)); // $NON-NLS-1$
 
     /** Counter for naming virtual threads */
     private static final AtomicLong VIRTUAL_THREAD_COUNTER = new AtomicLong(0);

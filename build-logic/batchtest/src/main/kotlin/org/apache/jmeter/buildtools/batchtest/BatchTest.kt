@@ -112,7 +112,7 @@ abstract class BatchTest @Inject constructor(objects: ObjectFactory) : JavaExec(
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     val jmeterJar
-        get() = project.rootProject.layout.projectDirectory.dir("bin").file("ApacheJMeter.jar")
+        get() = project.rootProject.layout.projectDirectory.dir("bin").file("breaktest.jar")
 
     @Internal
     val serverWorkingDir = objects.directoryProperty()

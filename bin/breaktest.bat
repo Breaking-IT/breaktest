@@ -30,7 +30,11 @@ rem
 rem   JMETER_COMPLETE_ARGS - if set indicates that JVM_ARGS is to be used exclusively instead
 rem                 of adding other options like HEAP or GC_ALGO
 rem
-rem   JMETER_HOME - installation directory. Will be guessed from location of breaktest.bat
+rem   BREAKTEST_HOME - installation directory. Will be guessed from location of breaktest.bat
+rem                 The legacy name JMETER_HOME is still honored when BREAKTEST_HOME is not set.
+rem
+rem   BREAKTEST_LANGUAGE - (Optional) Java options to specify the used language
+rem                 The legacy name JMETER_LANGUAGE is still honored.
 rem
 rem   JM_LAUNCH   - java.exe (default) or javaw.exe
 rem
@@ -50,6 +54,9 @@ rem   =====================================================
 
 setlocal
 
+rem BREAKTEST_HOME takes precedence over the legacy JMETER_HOME name
+if not "%BREAKTEST_HOME%" == "" set "JMETER_HOME=%BREAKTEST_HOME%"
+
 rem Guess JMETER_HOME if not defined
 set "CURRENT_DIR=%cd%"
 if not "%JMETER_HOME%" == "" goto gotHome
@@ -63,13 +70,17 @@ set "JMETER_HOME=%~dp0\.."
 :gotHome
 
 if exist "%JMETER_HOME%\bin\breaktest.bat" goto okHome
-echo The JMETER_HOME environment variable is not defined correctly
+echo The BREAKTEST_HOME environment variable is not defined correctly
 echo This environment variable is needed to run this program
 goto end
 :okHome
 
 rem Get standard environment variables
 if exist "%JMETER_HOME%\bin\setenv.bat" call "%JMETER_HOME%\bin\setenv.bat"
+
+rem BREAKTEST_LANGUAGE (from the environment or setenv.bat) takes precedence
+rem over the legacy JMETER_LANGUAGE name
+if defined BREAKTEST_LANGUAGE set JMETER_LANGUAGE=%BREAKTEST_LANGUAGE%
 
 if not defined JMETER_LANGUAGE (
     rem Set language
@@ -186,7 +197,7 @@ if "%JM_START%" == "start" (
     set JM_START=start "BreakTest"
 )
 
-%JM_START% "%JM_LAUNCH%" %ARGS% %JVM_ARGS% -jar "%JMETER_BIN%ApacheJMeter.jar" %JMETER_CMD_LINE_ARGS%
+%JM_START% "%JM_LAUNCH%" %ARGS% %JVM_ARGS% -jar "%JMETER_BIN%breaktest.jar" %JMETER_CMD_LINE_ARGS%
 
 rem If the errorlevel is not zero, then display it and pause
 

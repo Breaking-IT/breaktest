@@ -31,6 +31,7 @@ public final class JMeterVersion {
     }
 
     public static String getCopyRight() {
-        return "Copyright (c) 1998-@YEAR@ The Apache Software Foundation";
+        return "Copyright (c) 2024-@YEAR@ Breaking IT and BreakTest contributors."
+                + " Portions Copyright (c) 1998-2024 The Apache Software Foundation";
     }
 }

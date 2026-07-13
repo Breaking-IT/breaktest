@@ -45,16 +45,16 @@ public class OpenLinkAction extends AbstractAction {
         commands.add(ActionNames.LINK_BUG_TRACKER);
         commands.add(ActionNames.LINK_COMP_REF);
         commands.add(ActionNames.LINK_FUNC_REF);
-        commands.add(ActionNames.LINK_NIGHTLY_BUILD);
         commands.add(ActionNames.LINK_RELEASE_NOTES);
     }
 
     private static final Map<String, String> initLinkMap() {
-        Map<String, String> map = new HashMap<>(5);
-        map.put(ActionNames.LINK_BUG_TRACKER, "https://jmeter.apache.org/issues.html");
+        Map<String, String> map = new HashMap<>(4);
+        map.put(ActionNames.LINK_BUG_TRACKER, "https://github.com/Breaking-IT/breaktest/issues");
+        // The reference manuals are not hosted on breaktest.io; the functionality matches
+        // Apache JMeter, so the upstream manual remains the best documentation link.
         map.put(ActionNames.LINK_COMP_REF, "https://jmeter.apache.org/usermanual/component_reference.html");
         map.put(ActionNames.LINK_FUNC_REF, "https://jmeter.apache.org/usermanual/functions.html");
-        map.put(ActionNames.LINK_NIGHTLY_BUILD, "https://jmeter.apache.org/nightly.html");
         map.put(ActionNames.LINK_RELEASE_NOTES, "https://github.com/Breaking-IT/breaktest/releases/latest");
         return map;
     }

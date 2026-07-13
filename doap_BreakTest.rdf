@@ -22,15 +22,15 @@
 -->
   <Project rdf:about="https://github.com/Breaking-IT/breaktest">
     <created>2026-06-16</created>
-    <license rdf:resource="http://spdx.org/licenses/Apache-2.0" />
+    <license rdf:resource="https://github.com/Breaking-IT/breaktest/blob/main/LICENSE" />
+    <license rdf:resource="https://spdx.org/licenses/Apache-2.0" />
     <name>BreakTest</name>
-    <homepage rdf:resource="https://github.com/Breaking-IT/breaktest" />
-    <shortdesc>Forked continuation of Apache JMeter for leaner load and performance testing</shortdesc>
-    <description>BreakTest is a forked continuation of Apache JMeter for load and performance testing. The project continues the performance test tool with a focus on making it leaner and less resource intensive while preserving compatibility with existing JMeter test plans and integrations where practical. This continuation has already reduced memory usage by about 50%, with CPU usage reductions of roughly 20-50% depending on workload and runtime conditions.</description>
+    <homepage rdf:resource="https://breaktest.io/" />
+    <shortdesc>Source-available continuation of Apache JMeter for leaner load and performance testing</shortdesc>
+    <description>BreakTest is a source-available continuation of Apache JMeter for load and performance testing. BreakTest-specific materials use the BreakTest Community Source License, while inherited JMeter and third-party materials retain their applicable licenses.</description>
     <bug-database rdf:resource="https://github.com/Breaking-IT/breaktest/issues" />
     <download-page rdf:resource="https://github.com/Breaking-IT/breaktest/releases" />
     <programming-language>Java</programming-language>
-    <category rdf:resource="http://projects.apache.org/category/testing" />
     <repository>
       <GitRepository>
         <location rdf:resource="https://github.com/Breaking-IT/breaktest.git" />

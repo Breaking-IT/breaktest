@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-BreakTest is an open source project. We want project spaces to be useful,
+BreakTest is a source-available project. We want project spaces to be useful,
 respectful, and welcoming for people using, discussing, testing, and improving
 BreakTest.
 

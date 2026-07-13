@@ -21,7 +21,7 @@
   <Appenders>
     <!-- Uncomment to set rotating logs up to 5 files of 100 MB-->
     <!--
-    <RollingFile name="jmeter-log" fileName="${sys:jmeter.logfile:-jmeter.log}" append="false"
+    <RollingFile name="jmeter-log" fileName="${sys:jmeter.logfile:-breaktest.log}" append="false"
         filePattern="jmeter-%d{yyyyMMdd}-%i.log.gz">
         <PatternLayout>
             <pattern>%d %p %c{1.}: %m%n</pattern>
@@ -32,7 +32,7 @@
         <DefaultRolloverStrategy max="5" />
     </RollingFile>
     -->
-    <File name="jmeter-log" fileName="${sys:jmeter.logfile:-jmeter.log}" append="false">
+    <File name="jmeter-log" fileName="${sys:jmeter.logfile:-breaktest.log}" append="false">
         <PatternLayout>
             <pattern>%d %p %c{1.}: %m%n</pattern>
         </PatternLayout>
