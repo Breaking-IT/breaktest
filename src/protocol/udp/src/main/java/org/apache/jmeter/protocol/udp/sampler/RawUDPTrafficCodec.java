@@ -31,4 +31,9 @@ public class RawUDPTrafficCodec implements UDPTrafficCodec {
     public byte[] decode(byte[] data) {
         return data;
     }
+
+    @Override
+    public String responseEncoding() {
+        return StandardCharsets.ISO_8859_1.name();
+    }
 }

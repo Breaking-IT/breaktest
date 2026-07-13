@@ -36,4 +36,9 @@ public class HexStringUDPTrafficCodec implements UDPTrafficCodec {
     public byte[] decode(byte[] data) {
         return HexFormat.of().formatHex(data).getBytes(StandardCharsets.US_ASCII);
     }
+
+    @Override
+    public String responseEncoding() {
+        return StandardCharsets.US_ASCII.name();
+    }
 }

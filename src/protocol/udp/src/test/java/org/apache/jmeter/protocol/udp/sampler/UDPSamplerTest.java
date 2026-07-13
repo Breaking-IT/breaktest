@@ -30,19 +30,55 @@ import java.lang.reflect.Field;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.apache.jmeter.control.ForeachController;
+import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.AbstractTestElement;
+import org.apache.jmeter.threads.JMeterContext;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
+import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ListenerNotifier;
+import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
-class UDPSamplerTest {
+class UDPSamplerTest extends JMeterTestCase {
 
     private static final int LARGE_DATAGRAM_SIZE = 60_000;
+
+    @BeforeEach
+    void useIsolatedSamplerContext() {
+        JMeterContext context = JMeterContextService.getContext();
+        context.clear();
+        context.setVariables(new JMeterVariables());
+        new UDPSampler().setThreadContext(context);
+    }
+
+    @AfterEach
+    void cleanUpSamplerContext() {
+        UDPSocketManager.releaseScope(Thread.currentThread());
+        JMeterContextService.getContext().clear();
+    }
 
     @Test
     void defaultsToUtf8TextPayloads() {
@@ -58,6 +94,7 @@ class UDPSamplerTest {
 
             assertTrue(result.isSuccessful(), result::getResponseMessage);
             assertEquals("74657374", result.getResponseDataAsString());
+            assertEquals(StandardCharsets.US_ASCII.name(), result.getDataEncodingNoDefault());
             assertEquals(4, result.getSentBytes());
             assertEquals(4, result.getBytesAsLong());
         }
@@ -97,8 +134,9 @@ class UDPSamplerTest {
     @Test
     @ResourceLock(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY)
     void detectsResponseAboveConfiguredReceiveLimit() throws Exception {
-        String previousValue = System.getProperty(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY);
-        System.setProperty(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY, "8");
+        Properties properties = JMeterUtils.getJMeterProperties();
+        String previousValue = properties.getProperty(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY);
+        properties.setProperty(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY, "8");
         try (UdpServer server = UdpServer.echo()) {
             UDPSampler sampler = textSamplerFor(server.port(), "ten-bytes!");
 
@@ -108,7 +146,21 @@ class UDPSamplerTest {
             assertEquals("413", result.getResponseCode());
             assertTrue(result.getResponseMessage().contains("receive limit of 8 bytes"));
         } finally {
-            restoreProperty(AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY, previousValue);
+            restoreProperty(properties, AbstractUDPSampler.RECEIVE_BUFFER_SIZE_PROPERTY, previousValue);
+        }
+    }
+
+    @Test
+    void exposesUtf8ResponseEncoding() throws Exception {
+        String payload = "Héllo, 世界";
+        try (UdpServer server = UdpServer.echo()) {
+            UDPSampler sampler = textSamplerFor(server.port(), payload);
+
+            SampleResult result = sampler.sample(null);
+
+            assertTrue(result.isSuccessful(), result::getResponseMessage);
+            assertEquals(StandardCharsets.UTF_8.name(), result.getDataEncodingNoDefault());
+            assertEquals(payload, result.getResponseDataAsString());
         }
     }
 
@@ -167,7 +219,7 @@ class UDPSamplerTest {
         try (UdpServer server = UdpServer.echo()) {
             UDPSampler request = samplerFor(server.port());
             request.setThreadName("UDP users-1");
-            request.setSocketID("conversation");
+            request.setSocketID(" conversation ");
             request.setWaitResponse(false);
             request.threadStarted();
 
@@ -186,6 +238,81 @@ class UDPSamplerTest {
                 assertTrue(result.isSuccessful(), result::getResponseMessage);
                 assertEquals("74657374", result.getResponseDataAsString());
             } finally {
+                receiver.threadFinished();
+                request.threadFinished();
+            }
+        }
+    }
+
+    @Test
+    void receiverTimeoutCanBeSuccessfulOrFailing() throws Exception {
+        try (UdpServer server = UdpServer.withoutResponse()) {
+            UDPSampler request = textSamplerFor(server.port(), "request");
+            request.setSocketID("conversation");
+            request.setWaitResponse(false);
+            UDPReceiverSampler receiver = receiverFor("conversation");
+            receiver.setTimeout("30");
+            request.threadStarted();
+            receiver.threadStarted();
+            try {
+                assertTrue(request.sample(null).isSuccessful());
+
+                receiver.setFailOnTimeout(false);
+                SampleResult successfulTimeout = receiver.sample(null);
+                receiver.setFailOnTimeout(true);
+                SampleResult failingTimeout = receiver.sample(null);
+
+                assertTrue(successfulTimeout.isSuccessful());
+                assertEquals("204", successfulTimeout.getResponseCode());
+                assertEquals(0, successfulTimeout.getResponseData().length);
+                assertFalse(failingTimeout.isSuccessful());
+                assertEquals("408", failingTimeout.getResponseCode());
+                assertEquals(0, failingTimeout.getResponseData().length);
+            } finally {
+                receiver.threadFinished();
+                request.threadFinished();
+            }
+        }
+    }
+
+    @Test
+    void receiverInterruptClosesActiveNamedSocket() throws Exception {
+        try (UdpServer server = UdpServer.withoutResponse()) {
+            HashTree identityTree = new ListedHashTree();
+            identityTree.add(singleIterationLoop());
+            JMeterThread virtualUser = new JMeterThread(identityTree, null, new ListenerNotifier());
+            JMeterContext mainContext = contextFor(virtualUser);
+            new UDPSampler().setThreadContext(mainContext);
+
+            UDPSampler request = textSamplerFor(server.port(), "request");
+            request.setSocketID("conversation");
+            request.setWaitResponse(false);
+            UDPReceiverSampler receiver = receiverFor("conversation");
+            receiver.setTimeout("10000");
+            request.threadStarted();
+            receiver.threadStarted();
+            AtomicReference<SampleResult> result = new AtomicReference<>();
+            Thread worker = null;
+            try {
+                assertTrue(request.sample(null).isSuccessful());
+                worker = Thread.ofVirtual().name("udp-receiver-worker").start(() -> {
+                    JMeterContext workerContext = contextFor(virtualUser);
+                    receiver.setThreadContext(workerContext);
+                    result.set(receiver.sample(null));
+                });
+
+                assertTrue(interruptEventually(receiver, Duration.ofSeconds(2)));
+                worker.join(Duration.ofSeconds(2));
+
+                assertFalse(worker.isAlive());
+                assertNotNull(result.get());
+                assertFalse(result.get().isSuccessful());
+                assertEquals(0, UDPSocketManager.openSocketCount());
+            } finally {
+                if (worker != null && worker.isAlive()) {
+                    receiver.interrupt();
+                    worker.join(Duration.ofSeconds(2));
+                }
                 receiver.threadFinished();
                 request.threadFinished();
             }
@@ -293,6 +420,77 @@ class UDPSamplerTest {
     }
 
     @Test
+    void reusesAndClosesNamedSocketAcrossParallelForEachWorkers() throws Exception {
+        try (UdpServer server = UdpServer.echo(5)) {
+            UDPSampler openSocket = namedTextSamplerFor(server.port(), "open", "conversation");
+            UDPSampler reuseWithoutEndpoint = namedTextSamplerFor(server.port(), "reuse", "conversation");
+            reuseWithoutEndpoint.setHostName("");
+            reuseWithoutEndpoint.setPort("");
+            UDPSampler validateRepeatedEndpoint =
+                    namedTextSamplerFor(server.port(), "validate", "conversation");
+
+            ForeachController foreach = parallelForEachController();
+            ResultRecordingListener listener = new ResultRecordingListener();
+            HashTree testTree = new ListedHashTree();
+            LoopController loop = singleIterationLoop();
+            testTree.add(loop);
+            testTree.add(loop, openSocket);
+            testTree.add(openSocket, listener);
+            testTree.add(loop, foreach);
+            testTree.add(foreach, reuseWithoutEndpoint);
+            testTree.add(reuseWithoutEndpoint, listener);
+            testTree.add(foreach, validateRepeatedEndpoint);
+            testTree.add(validateRepeatedEndpoint, listener);
+
+            JMeterVariables variables = new JMeterVariables();
+            variables.putObject("input_1", "one");
+            variables.putObject("input_2", "two");
+            runTestPlan(testTree, variables, "udp-parallel-foreach");
+
+            assertTrue(server.awaitRequests(Duration.ofSeconds(2)),
+                    "The main flow and both parallel branches should send through the named socket");
+            assertSuccessfulSamples(listener.results(), 5);
+            assertEquals(0, UDPSocketManager.openSocketCount(),
+                    "Virtual-user shutdown must close sockets used by parallel workers");
+        }
+    }
+
+    @Test
+    void reusesAndClosesNamedSocketAcrossForkWorker() throws Exception {
+        try (UdpServer server = UdpServer.echo(3)) {
+            UDPSampler openSocket = namedTextSamplerFor(server.port(), "open", "conversation");
+            UDPSampler reuseWithoutEndpoint = namedTextSamplerFor(server.port(), "reuse", "conversation");
+            reuseWithoutEndpoint.setHostName("");
+            reuseWithoutEndpoint.setPort("");
+            UDPSampler validateRepeatedEndpoint =
+                    namedTextSamplerFor(server.port(), "validate", "conversation");
+
+            ForkController fork = new ForkController();
+            fork.setName("UDP fork");
+            fork.setEnabled(true);
+            ResultRecordingListener listener = new ResultRecordingListener();
+            HashTree testTree = new ListedHashTree();
+            LoopController loop = singleIterationLoop();
+            testTree.add(loop);
+            testTree.add(loop, openSocket);
+            testTree.add(openSocket, listener);
+            testTree.add(loop, fork);
+            testTree.add(fork, reuseWithoutEndpoint);
+            testTree.add(reuseWithoutEndpoint, listener);
+            testTree.add(fork, validateRepeatedEndpoint);
+            testTree.add(validateRepeatedEndpoint, listener);
+
+            runTestPlan(testTree, new JMeterVariables(), "udp-fork");
+
+            assertTrue(server.awaitRequests(Duration.ofSeconds(2)),
+                    "The main flow and Fork worker should send through the named socket");
+            assertSuccessfulSamples(listener.results(), 3);
+            assertEquals(0, UDPSocketManager.openSocketCount(),
+                    "Virtual-user shutdown must close sockets used by Fork workers");
+        }
+    }
+
+    @Test
     void interruptClosesActiveReceiveFromAnotherThread() throws Exception {
         try (UdpServer server = UdpServer.withoutResponse()) {
             UDPSampler sampler = textSamplerFor(server.port(), "request");
@@ -330,17 +528,99 @@ class UDPSamplerTest {
         return sampler;
     }
 
+    private static UDPSampler namedTextSamplerFor(int port, String payload, String socketId) {
+        UDPSampler sampler = textSamplerFor(port, payload);
+        sampler.setName(payload);
+        sampler.setSocketID(socketId);
+        return sampler;
+    }
+
+    private static ForeachController parallelForEachController() {
+        ForeachController controller = new ForeachController();
+        controller.setName("parallel UDP requests");
+        controller.setInputVal("input");
+        controller.setReturnVal("item");
+        controller.setUseSeparator(true);
+        controller.setParallel(true);
+        controller.setMaxParallel(2);
+        controller.setEnabled(true);
+        return controller;
+    }
+
+    private static LoopController singleIterationLoop() {
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        return loop;
+    }
+
+    private static void runTestPlan(HashTree testTree, JMeterVariables variables, String threadName)
+            throws InterruptedException {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("UDP users");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread virtualUser = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        virtualUser.setThreadName(threadName);
+        virtualUser.setThreadGroup(threadGroup);
+        virtualUser.putVariables(variables);
+        Thread runner = new Thread(virtualUser, threadName);
+        runner.start();
+        runner.join(TimeUnit.SECONDS.toMillis(30));
+        assertFalse(runner.isAlive(), "UDP test plan should complete");
+    }
+
+    private static void assertSuccessfulSamples(List<SampleResult> results, int expectedCount) {
+        assertEquals(expectedCount, results.size(), () -> "Unexpected UDP samples: " + results.stream()
+                .map(result -> result.getSampleLabel() + '=' + result.getResponseMessage())
+                .toList());
+        assertTrue(results.stream().allMatch(SampleResult::isSuccessful), () -> "Failed UDP samples: "
+                + results.stream()
+                        .filter(result -> !result.isSuccessful())
+                        .map(result -> result.getSampleLabel() + '=' + result.getResponseMessage())
+                        .toList());
+    }
+
+    private static UDPReceiverSampler receiverFor(String socketId) {
+        UDPReceiverSampler receiver = new UDPReceiverSampler();
+        receiver.setName("UDP receiver");
+        receiver.setSocketID(socketId);
+        receiver.setEncoderClass(UTF8StringUDPTrafficCodec.class.getName());
+        return receiver;
+    }
+
+    private static JMeterContext contextFor(JMeterThread virtualUser) {
+        JMeterContext context = JMeterContextService.getContext();
+        context.clear();
+        context.setThread(virtualUser);
+        context.setVariables(new JMeterVariables());
+        return context;
+    }
+
+    private static boolean interruptEventually(UDPReceiverSampler receiver, Duration timeout)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (receiver.interrupt()) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
+    }
+
     private static Object receiveBufferOf(UDPSampler sampler) throws Exception {
         Field field = AbstractUDPSampler.class.getDeclaredField("receiveBuffer");
         field.setAccessible(true);
         return field.get(sampler);
     }
 
-    private static void restoreProperty(String name, String value) {
+    private static void restoreProperty(Properties properties, String name, String value) {
         if (value == null) {
-            System.clearProperty(name);
+            properties.remove(name);
         } else {
-            System.setProperty(name, value);
+            properties.setProperty(name, value);
         }
     }
 
@@ -377,17 +657,41 @@ class UDPSamplerTest {
         });
     }
 
+    private static final class ResultRecordingListener extends AbstractTestElement implements SampleListener {
+        private static final long serialVersionUID = 1L;
+
+        private final List<SampleResult> results = new CopyOnWriteArrayList<>();
+
+        List<SampleResult> results() {
+            return results;
+        }
+
+        @Override
+        public void sampleOccurred(SampleEvent event) {
+            results.add(event.getResult());
+        }
+
+        @Override
+        public void sampleStarted(SampleEvent event) {
+        }
+
+        @Override
+        public void sampleStopped(SampleEvent event) {
+        }
+    }
+
     private static final class UdpServer implements AutoCloseable {
         private final DatagramSocket socket;
         private final ResponseMode responseMode;
         private final int requestCount;
-        private final CountDownLatch requestReceived = new CountDownLatch(1);
+        private final CountDownLatch requestsReceived;
         private final AtomicReference<Throwable> failure = new AtomicReference<>();
         private final Thread thread;
 
         private UdpServer(ResponseMode responseMode, int requestCount) throws Exception {
             this.responseMode = responseMode;
             this.requestCount = requestCount;
+            requestsReceived = new CountDownLatch(requestCount);
             socket = new DatagramSocket(0, InetAddress.getLoopbackAddress());
             thread = Thread.ofVirtual().name("udp-test-server").start(this::serve);
         }
@@ -413,7 +717,12 @@ class UDPSamplerTest {
         }
 
         boolean awaitRequest(Duration timeout) throws InterruptedException {
-            return requestReceived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return requestsReceived.getCount() < requestCount
+                    || requestsReceived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        boolean awaitRequests(Duration timeout) throws InterruptedException {
+            return requestsReceived.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
         }
 
         private void serve() {
@@ -422,7 +731,7 @@ class UDPSamplerTest {
                     byte[] data = new byte[65_507];
                     DatagramPacket request = new DatagramPacket(data, data.length);
                     socket.receive(request);
-                    requestReceived.countDown();
+                    requestsReceived.countDown();
                     byte[] received = Arrays.copyOfRange(
                             request.getData(), request.getOffset(), request.getOffset() + request.getLength());
                     if (responseMode == ResponseMode.ECHO) {

@@ -58,7 +58,24 @@ public final class UDPDataCodecPanel extends JPanel {
 
     String getCodecClass() {
         CodecOption selected = (CodecOption) payloadFormat.getSelectedItem();
-        return CUSTOM.equals(selected) ? customClass.getText().trim() : selected.className();
+        if (!CUSTOM.equals(selected)) {
+            return selected.className();
+        }
+        String className = customClass.getText().trim();
+        if (className.isEmpty()) {
+            throw new IllegalStateException(JMeterUtils.getResString("udp_custom_codec_required"));
+        }
+        return className;
+    }
+
+    String getCodecClassOrReportError() {
+        try {
+            return getCodecClass();
+        } catch (IllegalStateException ex) {
+            JMeterUtils.reportErrorToUser(ex.getMessage());
+            customClass.requestFocusInWindow();
+            return null;
+        }
     }
 
     void setCodecClass(String className) {

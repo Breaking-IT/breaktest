@@ -26,4 +26,12 @@ public interface UDPTrafficCodec {
     byte[] encode(String data);
 
     byte[] decode(byte[] data);
+
+    /**
+     * Returns the character encoding of the bytes produced by {@link #decode(byte[])}, or
+     * {@code null} when the decoded response has no character representation.
+     */
+    default String responseEncoding() {
+        return null;
+    }
 }

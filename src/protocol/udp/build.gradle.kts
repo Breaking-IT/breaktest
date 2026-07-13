@@ -22,5 +22,6 @@ plugins {
 dependencies {
     api(projects.src.core)
 
+    testImplementation(projects.src.components)
     testImplementation(testFixtures(projects.src.core))
 }

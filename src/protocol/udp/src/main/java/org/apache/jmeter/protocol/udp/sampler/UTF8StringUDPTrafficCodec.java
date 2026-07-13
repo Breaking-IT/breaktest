@@ -31,4 +31,9 @@ public class UTF8StringUDPTrafficCodec implements UDPTrafficCodec {
     public byte[] decode(byte[] data) {
         return new String(data, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8);
     }
+
+    @Override
+    public String responseEncoding() {
+        return StandardCharsets.UTF_8.name();
+    }
 }

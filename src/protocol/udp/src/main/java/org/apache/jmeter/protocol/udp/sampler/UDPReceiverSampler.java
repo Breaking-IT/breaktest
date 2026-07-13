@@ -50,13 +50,13 @@ public class UDPReceiverSampler extends AbstractUDPSampler {
         result.sampleStart();
 
         try {
-            if (getSocketID().isBlank()) {
+            if (!hasSharedSocket()) {
                 throw new IllegalArgumentException("UDP Receiver requires a Socket ID");
             }
             UDPSocketManager.SocketKey socketKey = getSocketKey();
             UDPSocketManager.SocketHandle handle = UDPSocketManager.get(socketKey);
             if (handle == null) {
-                throw new IllegalStateException("No open UDP socket found for Socket ID '" + getSocketID() + '\'');
+                throw new IllegalStateException("No open UDP socket found for Socket ID '" + socketKey.socketId() + '\'');
             }
             activeSocketKey = socketKey;
             activeHandle = handle;
@@ -64,7 +64,7 @@ public class UDPReceiverSampler extends AbstractUDPSampler {
             lock.lockInterruptibly();
             try {
                 byte[] response = receive(handle.socket(), result);
-                result.setResponseData(getCodec().decode(response));
+                setDecodedResponse(result, response);
                 result.setBodySize((long) response.length);
                 result.setSuccessful(true);
                 result.setResponseCodeOK();
@@ -99,13 +99,6 @@ public class UDPReceiverSampler extends AbstractUDPSampler {
         socket.setSoTimeout(getTimeoutAsInt());
         result.connectEnd();
         return receiveDatagram(socket, result);
-    }
-
-    private static void fail(SampleResult result, String code, String message, Exception ex) {
-        result.setSuccessful(false);
-        result.setResponseCode(code);
-        result.setResponseMessage(message == null ? ex.toString() : message);
-        result.setResponseData(ex.toString(), null);
     }
 
     @Override

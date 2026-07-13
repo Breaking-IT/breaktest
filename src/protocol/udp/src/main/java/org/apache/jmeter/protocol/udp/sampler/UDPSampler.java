@@ -145,7 +145,7 @@ public class UDPSampler extends AbstractUDPSampler {
                 result.setSentBytes(request.length);
 
                 byte[] response = isWaitResponse() ? receiveDatagram(socket, result) : new byte[0];
-                result.setResponseData(getCodec().decode(response));
+                setDecodedResponse(result, response);
                 result.setBodySize((long) response.length);
                 result.setSuccessful(true);
                 result.setResponseCodeOK();
@@ -186,7 +186,7 @@ public class UDPSampler extends AbstractUDPSampler {
         if (hasSharedSocket() && host.isEmpty() && portValue.isEmpty()) {
             UDPSocketManager.SocketHandle existing = UDPSocketManager.get(getSocketKey());
             if (existing == null) {
-                throw new IllegalStateException("No open UDP socket found for Socket ID '" + getSocketID()
+                throw new IllegalStateException("No open UDP socket found for Socket ID '" + getSocketKey().socketId()
                         + "'; hostname/IP and destination port are required to create it");
             }
             if (!bindAddress.isEmpty() || !bindPortValue.isEmpty()) {
@@ -276,13 +276,6 @@ public class UDPSampler extends AbstractUDPSampler {
         if (!allowed) {
             log.warn("UDP destination is unreachable", ex);
         }
-    }
-
-    private static void fail(SampleResult result, String code, String message, Exception ex) {
-        result.setSuccessful(false);
-        result.setResponseCode(code);
-        result.setResponseMessage(message == null ? ex.toString() : message);
-        result.setResponseData(ex.toString(), null);
     }
 
     private void closeActiveHandle() {

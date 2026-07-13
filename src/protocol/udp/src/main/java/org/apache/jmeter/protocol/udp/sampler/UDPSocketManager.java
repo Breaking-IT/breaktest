@@ -20,13 +20,41 @@ package org.apache.jmeter.protocol.udp.sampler;
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 final class UDPSocketManager {
 
-    record SocketKey(long threadScope, String socketId) {
+    static final class SocketKey {
+        private final ScopeKey scope;
+        private final String socketId;
+
+        SocketKey(Object virtualUser, String socketId) {
+            this.scope = new ScopeKey(virtualUser);
+            this.socketId = socketId;
+        }
+
+        String socketId() {
+            return socketId;
+        }
+
+        ScopeKey scope() {
+            return scope;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            return object instanceof SocketKey other
+                    && scope.equals(other.scope)
+                    && socketId.equals(other.socketId);
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * scope.hashCode() + socketId.hashCode();
+        }
     }
 
     static final class SocketHandle {
@@ -52,56 +80,134 @@ final class UDPSocketManager {
         }
     }
 
-    private static final Map<SocketKey, SocketHandle> SHARED_SOCKETS = new ConcurrentHashMap<>();
-    private static final Set<Long> ACTIVE_THREADS = ConcurrentHashMap.newKeySet();
+    private static final Map<ScopeKey, SocketRegistry> REGISTRIES = new ConcurrentHashMap<>();
 
     private UDPSocketManager() {
     }
 
-    static synchronized SocketHandle getOrCreate(SocketKey key, String configuration, SocketFactory factory)
+    static SocketHandle getOrCreate(SocketKey key, String configuration, SocketFactory factory)
             throws IOException {
-        SocketHandle existing = SHARED_SOCKETS.get(key);
-        if (existing != null && !existing.socket().isClosed()) {
-            if (!existing.matches(configuration)) {
-                throw new IOException("UDP socket ID '" + key.socketId()
-                        + "' is already in use with different endpoint or bind settings");
-            }
-            return existing;
-        }
-        SocketHandle created = new SocketHandle(factory.create(), configuration);
-        SHARED_SOCKETS.put(key, created);
-        return created;
+        SocketRegistry registry = REGISTRIES.computeIfAbsent(key.scope(), ignored -> new SocketRegistry());
+        return registry.getOrCreate(key.socketId(), configuration, factory);
     }
 
     static SocketHandle get(SocketKey key) {
-        SocketHandle handle = SHARED_SOCKETS.get(key);
-        return handle == null || handle.socket().isClosed() ? null : handle;
+        SocketRegistry registry = REGISTRIES.get(key.scope());
+        return registry == null ? null : registry.get(key.socketId());
     }
 
     static void remove(SocketKey key, SocketHandle expected) {
-        if (SHARED_SOCKETS.remove(key, expected)) {
-            expected.socket().close();
+        SocketRegistry registry = REGISTRIES.get(key.scope());
+        if (registry != null) {
+            registry.remove(key.socketId(), expected);
         }
     }
 
-    static synchronized void registerThread(long threadScope) {
-        if (ACTIVE_THREADS.add(threadScope)) {
-            releaseThread(threadScope);
+    static void registerScope(Object virtualUser) {
+        REGISTRIES.computeIfAbsent(new ScopeKey(virtualUser), ignored -> new SocketRegistry());
+    }
+
+    static void releaseScope(Object virtualUser) {
+        SocketRegistry registry = REGISTRIES.remove(new ScopeKey(virtualUser));
+        if (registry != null) {
+            registry.close();
         }
     }
 
-    static synchronized void unregisterThread(long threadScope) {
-        if (ACTIVE_THREADS.remove(threadScope)) {
-            releaseThread(threadScope);
-        }
+    static int openSocketCount() {
+        return REGISTRIES.values().stream().mapToInt(SocketRegistry::openSocketCount).sum();
     }
 
-    static void releaseThread(long threadScope) {
-        SHARED_SOCKETS.forEach((key, handle) -> {
-            if (key.threadScope() == threadScope && SHARED_SOCKETS.remove(key, handle)) {
-                handle.socket().close();
+    private static final class SocketRegistry {
+        private final Map<String, SocketHandle> sockets = new ConcurrentHashMap<>();
+        private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+        private boolean closed;
+
+        SocketHandle getOrCreate(String socketId, String configuration, SocketFactory factory)
+                throws IOException {
+            lifecycleLock.readLock().lock();
+            try {
+                if (closed) {
+                    throw new IOException("UDP socket registry is closed");
+                }
+                AtomicReference<IOException> failure = new AtomicReference<>();
+                SocketHandle handle = sockets.compute(socketId, (ignored, existing) -> {
+                    if (existing != null && !existing.socket().isClosed()) {
+                        if (!existing.matches(configuration)) {
+                            failure.set(new IOException("UDP socket ID '" + socketId
+                                    + "' is already in use with different endpoint or bind settings"));
+                        }
+                        return existing;
+                    }
+                    try {
+                        return new SocketHandle(factory.create(), configuration);
+                    } catch (IOException ex) {
+                        failure.set(ex);
+                        return null;
+                    }
+                });
+                if (failure.get() != null) {
+                    throw failure.get();
+                }
+                return handle;
+            } finally {
+                lifecycleLock.readLock().unlock();
             }
-        });
+        }
+
+        SocketHandle get(String socketId) {
+            lifecycleLock.readLock().lock();
+            try {
+                SocketHandle handle = sockets.get(socketId);
+                return handle == null || handle.socket().isClosed() ? null : handle;
+            } finally {
+                lifecycleLock.readLock().unlock();
+            }
+        }
+
+        void remove(String socketId, SocketHandle expected) {
+            lifecycleLock.readLock().lock();
+            try {
+                if (sockets.remove(socketId, expected)) {
+                    expected.socket().close();
+                }
+            } finally {
+                lifecycleLock.readLock().unlock();
+            }
+        }
+
+        int openSocketCount() {
+            return (int) sockets.values().stream().filter(handle -> !handle.socket().isClosed()).count();
+        }
+
+        void close() {
+            lifecycleLock.writeLock().lock();
+            try {
+                closed = true;
+                sockets.values().forEach(handle -> handle.socket().close());
+                sockets.clear();
+            } finally {
+                lifecycleLock.writeLock().unlock();
+            }
+        }
+    }
+
+    private static final class ScopeKey {
+        private final Object virtualUser;
+
+        ScopeKey(Object virtualUser) {
+            this.virtualUser = virtualUser;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            return object instanceof ScopeKey other && virtualUser == other.virtualUser;
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(virtualUser);
+        }
     }
 
     @FunctionalInterface

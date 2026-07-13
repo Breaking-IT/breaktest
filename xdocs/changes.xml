@@ -29,6 +29,17 @@ under the BreakTest Community Source License 1.0. Apache JMeter-derived and
 other third-party materials retain their applicable licenses.
 </note>
 
+<h1>Upcoming Release</h1>
+
+<ch_section>Native UDP</ch_section>
+<ul>
+  <li>Adds native UDP Request and UDP Receiver samplers without external JMeter Plugins common libraries.</li>
+  <li>UDP Request supports request/response and fire-and-forget datagrams, response timeouts, local binding, and named socket reuse.</li>
+  <li>UDP Receiver reads later datagrams from named sockets and supports successful or failing timeout behavior.</li>
+  <li>A payload-format selector provides UTF-8 text, hexadecimal, and single-byte text without exposing implementation classnames, while retaining a native codec interface for advanced custom encoders.</li>
+  <li>Large datagrams are validated before sending, reduced receive limits detect truncation, receive buffers are reused, and named sockets remain scoped to one virtual user across sequential, parallel ForEach, and Fork execution.</li>
+</ul>
+
 <h1>Version 2026.07.11</h1>
 <p>
 BreakTest 2026.07.11 is a test-plan portability, parallel-runtime stability,
@@ -47,16 +58,6 @@ execution, and makes automated GUI repair safer and recoverable.
   <li>Isolates mutable sampler and engine state between parallel ForEach and Fork workers, eliminating timing-dependent configuration and status races.</li>
   <li>Fixes GUI update checks so they run immediately at startup, repeat every six hours by default, and tolerate unrelated release assets.</li>
   <li>Hardens AI Repair with conflict-aware native Regex Extractor planning, atomic rollback, safe live-tree deletion, backup restoration, and explicit blocked completion reporting.</li>
-  <li>Adds native UDP Request and UDP Receiver samplers without external JMeter Plugins common libraries.</li>
-</ul>
-
-<ch_section>Native UDP</ch_section>
-<ul>
-  <li>UDP Request supports request/response and fire-and-forget datagrams, response timeouts, local binding, and named socket reuse.</li>
-  <li>UDP Receiver reads later datagrams from named sockets and supports successful or failing timeout behavior.</li>
-  <li>A payload-format selector provides UTF-8 text, hexadecimal, and single-byte text without exposing implementation classnames, while retaining a native codec interface for advanced custom encoders.</li>
-  <li>The implementation uses JDK datagram sockets directly and requires no JMeter Plugins common I/O or common JMeter dependency.</li>
-  <li>Large datagrams are validated before sending, reduced receive limits detect truncation, receive buffers are reused, and named sockets are isolated per virtual user.</li>
 </ul>
 
 <ch_section>Compressed JMX Archives and Recordings</ch_section>

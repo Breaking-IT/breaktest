@@ -22,12 +22,12 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.util.Arrays;
-import java.util.Properties;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.ThreadListener;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.util.JMeterUtils;
 
 abstract class AbstractUDPSampler extends AbstractSampler implements Interruptible, ThreadListener {
@@ -44,6 +44,7 @@ abstract class AbstractUDPSampler extends AbstractSampler implements Interruptib
     private transient RuntimeException codecFailure;
     private transient byte[] receiveBuffer;
     private transient DatagramPacket receivePacket;
+    private transient Object lifecycleSocketScope;
 
     public String getTimeout() {
         return getPropertyAsString(TIMEOUT, "1000");
@@ -89,28 +90,35 @@ abstract class AbstractUDPSampler extends AbstractSampler implements Interruptib
         return codec;
     }
 
-    final long getSocketScope() {
-        return Thread.currentThread().threadId();
+    final Object getSocketScope() {
+        JMeterThread virtualUser = getThreadContext().getThread();
+        if (virtualUser != null) {
+            return virtualUser;
+        }
+        return lifecycleSocketScope == null ? Thread.currentThread() : lifecycleSocketScope;
     }
 
     final UDPSocketManager.SocketKey getSocketKey() {
-        return new UDPSocketManager.SocketKey(getSocketScope(), getSocketID());
+        return new UDPSocketManager.SocketKey(getSocketScope(), getNormalizedSocketID());
     }
 
     final boolean hasSharedSocket() {
-        return !getSocketID().isBlank();
+        return !getNormalizedSocketID().isEmpty();
     }
 
     @Override
     public void threadStarted() {
         initializeCodec();
-        UDPSocketManager.registerThread(getSocketScope());
+        lifecycleSocketScope = getSocketScope();
+        UDPSocketManager.registerScope(lifecycleSocketScope);
     }
 
     @Override
     public void threadFinished() {
         closeOwnedSocket();
-        UDPSocketManager.unregisterThread(getSocketScope());
+        Object socketScope = lifecycleSocketScope == null ? getSocketScope() : lifecycleSocketScope;
+        UDPSocketManager.releaseScope(socketScope);
+        lifecycleSocketScope = null;
     }
 
     abstract void closeOwnedSocket();
@@ -148,11 +156,27 @@ abstract class AbstractUDPSampler extends AbstractSampler implements Interruptib
     }
 
     static int getUdpProperty(String name, int defaultValue) {
-        Properties properties = JMeterUtils.getJMeterProperties();
-        if (properties == null) {
-            return Integer.getInteger(name, defaultValue);
-        }
         return JMeterUtils.getPropDefault(name, defaultValue);
+    }
+
+    static void fail(SampleResult result, String code, String message, Exception ex) {
+        result.setSuccessful(false);
+        result.setResponseCode(code);
+        result.setResponseMessage(message == null ? ex.toString() : message);
+        result.setResponseData(ex.toString(), null);
+    }
+
+    final void setDecodedResponse(SampleResult result, byte[] datagram) {
+        UDPTrafficCodec trafficCodec = getCodec();
+        result.setResponseData(trafficCodec.decode(datagram));
+        String responseEncoding = trafficCodec.responseEncoding();
+        if (responseEncoding != null && !responseEncoding.isBlank()) {
+            result.setDataEncoding(responseEncoding);
+        }
+    }
+
+    private String getNormalizedSocketID() {
+        return getSocketID().trim();
     }
 
     private void initializeCodec() {

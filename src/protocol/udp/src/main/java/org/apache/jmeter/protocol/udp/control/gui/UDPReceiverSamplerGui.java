@@ -73,10 +73,14 @@ public class UDPReceiverSamplerGui extends AbstractSamplerGui {
 
     @Override
     public void modifyTestElement(TestElement element) {
+        String codecClass = codecPanel.getCodecClassOrReportError();
+        if (codecClass == null) {
+            return;
+        }
         UDPReceiverSampler sampler = (UDPReceiverSampler) element;
         sampler.clear();
         sampler.setTimeout(timeout.getText());
-        sampler.setEncoderClass(codecPanel.getCodecClass());
+        sampler.setEncoderClass(codecClass);
         sampler.setSocketID(socketId.getText());
         sampler.setFailOnTimeout(failOnTimeout.isSelected());
         super.configureTestElement(sampler);

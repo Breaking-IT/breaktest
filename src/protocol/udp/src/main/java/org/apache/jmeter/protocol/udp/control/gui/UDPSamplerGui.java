@@ -92,12 +92,16 @@ public class UDPSamplerGui extends AbstractSamplerGui {
 
     @Override
     public void modifyTestElement(TestElement element) {
+        String codecClass = codecPanel.getCodecClassOrReportError();
+        if (codecClass == null) {
+            return;
+        }
         UDPSampler sampler = (UDPSampler) element;
         sampler.clear();
         sampler.setHostName(hostName.getText());
         sampler.setPort(port.getText());
         sampler.setTimeout(timeout.getText());
-        sampler.setEncoderClass(codecPanel.getCodecClass());
+        sampler.setEncoderClass(codecClass);
         sampler.setSocketID(socketId.getText());
         sampler.setBindAddress(bindAddress.getText());
         sampler.setBindPort(bindPort.getText());

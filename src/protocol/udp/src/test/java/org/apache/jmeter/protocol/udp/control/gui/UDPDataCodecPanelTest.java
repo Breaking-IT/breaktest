@@ -18,13 +18,18 @@
 package org.apache.jmeter.protocol.udp.control.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import javax.swing.JTextField;
+
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.udp.sampler.HexStringUDPTrafficCodec;
 import org.apache.jmeter.protocol.udp.sampler.RawUDPTrafficCodec;
 import org.apache.jmeter.protocol.udp.sampler.UTF8StringUDPTrafficCodec;
 import org.junit.jupiter.api.Test;
 
-class UDPDataCodecPanelTest {
+class UDPDataCodecPanelTest extends JMeterTestCase {
 
     private final UDPDataCodecPanel panel = new UDPDataCodecPanel();
 
@@ -47,6 +52,17 @@ class UDPDataCodecPanelTest {
         panel.setCodecClass("example.protocol.CustomCodec");
 
         assertEquals("example.protocol.CustomCodec", panel.getCodecClass());
+    }
+
+    @Test
+    void rejectsBlankCustomCodecClass() {
+        panel.setCodecClass("example.protocol.CustomCodec");
+        JTextField customClass = assertInstanceOf(JTextField.class, panel.getComponent(4));
+        customClass.setText("   ");
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, panel::getCodecClass);
+
+        assertEquals("Enter a custom UDP codec classname.", failure.getMessage());
     }
 
     @Test
