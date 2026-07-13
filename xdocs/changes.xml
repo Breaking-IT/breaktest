@@ -35,11 +35,6 @@ BreakTest 2026.07.13 is the first release under the BreakTest Community Source
 License 1.0. It combines the complete BreakTest feature set with a native
 browser recorder, broader BreakTest branding, and native UDP testing.
 </p>
-<p>
-Releases published before 2026.07.13 were made available under the Apache
-License, Version 2.0. Their notes are retained below as historical release
-notes; those earlier licenses and rights are not changed retroactively.
-</p>
 
 <ch_section>Highlights</ch_section>
 <ul>
@@ -82,24 +77,15 @@ notes; those earlier licenses and rights are not changed retroactively.
   <li>Large datagrams are validated before sending, reduced receive limits detect truncation, receive buffers are reused, and named sockets remain scoped to one virtual user across sequential, parallel ForEach, and Fork execution.</li>
 </ul>
 
-<ch_section>Compatibility Notes</ch_section>
+<ch_section>Release and Installation Compatibility</ch_section>
 <ul>
   <li>Java 21 or later is required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li>The browser recorder extensions are installed locally from the source tree; they are not browser-store installations.</li>
+  <li>The browser recorder extensions are included in the binary and source distributions for local installation; they are not browser-store installations.</li>
   <li>This release uses the direct Git tag <code>2026.07.13</code>.</li>
 </ul>
 
-<h1>Version 2026.07.11</h1>
-<p>
-BreakTest 2026.07.11 is a test-plan portability, parallel-runtime stability,
-and AI Repair reliability release built from the changes since BreakTest
-2026.07.10. It introduces compressed JMX archives that can carry recorded
-request and response evidence, fixes concurrency hazards in parallel and forked
-execution, and makes automated GUI repair safer and recoverable.
-</p>
-
-<ch_section>Highlights</ch_section>
+<ch_section>Test-Plan Portability and Reliability</ch_section>
 <ul>
   <li>Saves <code>.jmx</code> plans as compressed ZIP archives while continuing to load legacy XML JMX files.</li>
   <li>Embeds filtered HAR or replay recordings with the test plan so recorded evidence remains available after the plan is moved or reopened.</li>
@@ -166,23 +152,14 @@ execution, and makes automated GUI repair safer and recoverable.
   <li>Added AI Repair regression tests for conflicting literals, quoted-token regexes, rollback status, safe deletion, orphan extractors, stale tree state, and null-safe refresh.</li>
 </ul>
 
-<ch_section>Compatibility Notes</ch_section>
+<ch_section>Archive Compatibility</ch_section>
 <ul>
   <li>Java 21 or later is still required.</li>
   <li>Legacy plain-XML JMX plans continue to load, but newly saved compressed JMX archives require a BreakTest version that understands the archive format.</li>
   <li>Existing JMeter-compatible test-plan elements remain supported where practical; embedded recordings are a BreakTest extension.</li>
-  <li>This release uses the direct Git tag <code>2026.07.11</code>.</li>
 </ul>
 
-<h1>Version 2026.07.10</h1>
-<p>
-BreakTest 2026.07.10 is a workflow, visualization, and scalability release
-built from the changes since BreakTest 2026.07.08. It adds direct HAR import,
-parallel ForEach execution, GUI-assisted updates, a richer View Results
-listener, and targeted runtime and desktop performance improvements.
-</p>
-
-<ch_section>Highlights</ch_section>
+<ch_section>HAR Import, Parallel ForEach, Results, and Updates</ch_section>
 <ul>
   <li>Added a guided HAR import wizard for uncompressed <code>.har</code> recordings, with hostname filtering, request grouping, delay options, and automatic test-plan generation.</li>
   <li>Added optional parallel execution to the ForEach Controller, with configurable maximum concurrency and lazy branch creation for very large collections.</li>
@@ -241,24 +218,15 @@ listener, and targeted runtime and desktop performance improvements.
   <li>Expanded HAR conversion tests across grouping, headers, request bodies, delay modes, hostname filtering, and generated configuration elements.</li>
 </ul>
 
-<ch_section>Compatibility Notes</ch_section>
+<ch_section>HAR, Parallel, and Update Compatibility</ch_section>
 <ul>
   <li>Java 21 or later is still required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
   <li>Parallel ForEach execution is opt-in; existing ForEach Controllers remain sequential unless explicitly enabled.</li>
   <li>Automatic update checks run only in the GUI; command-line and non-GUI test execution do not contact the update service.</li>
-  <li>This release uses the direct Git tag <code>2026.07.10</code> rather than a <code>rel/...</code> prefix.</li>
 </ul>
 
-<h1>Version 2026.07.08</h1>
-<p>
-BreakTest 2026.07.08 is a focused stability and GUI-assistance release built
-from the changes since BreakTest 2026.07.07. It keeps the same Java 21+
-baseline while improving fork and parallel execution, AI-assisted GUI repair
-actions, and day-to-day desktop ergonomics.
-</p>
-
-<ch_section>Highlights</ch_section>
+<ch_section>Fork, Parallel, and AI-Assisted Repair</ch_section>
 <ul>
   <li>Fixed Fork Controller lifecycle cleanup so completed forks are removed while the parent virtual user keeps running.</li>
   <li>Added <code>ctx.getThread().stopForks()</code> and <code>ctx.getThread().stopForksNow()</code> for Groovy/JSR223 scripts that need to end active fork branches from the main thread.</li>
@@ -296,28 +264,20 @@ actions, and day-to-day desktop ergonomics.
   <li>Extractor and post-processor icons in the test-plan tree were aligned more closely with the Add menu iconography.</li>
 </ul>
 
-<ch_section>Benchmarks and Tests</ch_section>
+<ch_section>Fork and Parallel Benchmarks and Tests</ch_section>
 <ul>
   <li>Added a JMH benchmark for Fork Controller capacity, including lightweight and more representative fork branch scenarios.</li>
   <li>Added regression tests for fork cleanup, fork stopping, fork error handling, nested parallel loop indexes, and tree icon rendering.</li>
 </ul>
 
-<ch_section>Compatibility Notes</ch_section>
+<ch_section>Fork and Parallel Compatibility</ch_section>
 <ul>
   <li>Java 21 or later is still required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
   <li><code>stopForks()</code> and <code>stopForksNow()</code> are BreakTest extensions intended for scripts that explicitly need to manage asynchronous fork branches.</li>
 </ul>
 
-<h1>Version 2026.07.07</h1>
-<p>
-BreakTest 2026.07.07 is a focused desktop and reporting update built from the
-changes since BreakTest 2026.07.03. It keeps the same Java 21+ baseline and
-JMeter-compatible test-plan model while improving the GUI workflow, settings
-management, validation, and live performance reporting.
-</p>
-
-<ch_section>Highlights</ch_section>
+<ch_section>Reporting, Settings, and Desktop Workflow</ch_section>
 <ul>
   <li>Added a configurable Performance Report listener with percentile, throughput, bandwidth, error, and connect-time columns.</li>
   <li>Added a Settings dialog backed by the full JMeter properties catalog, with search, default/modified indicators, reset controls, and safe persistence to local override property files.</li>
@@ -360,7 +320,7 @@ management, validation, and live performance reporting.
   <li>Added tests around tree-listener behavior.</li>
 </ul>
 
-<ch_section>Compatibility Notes</ch_section>
+<ch_section>Desktop Compatibility</ch_section>
 <ul>
   <li>Java 21 or later is still required.</li>
   <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
@@ -368,14 +328,14 @@ management, validation, and live performance reporting.
   <li>Most Settings changes are written as local overrides and take effect after restarting BreakTest.</li>
 </ul>
 
-<h1>Version 2026.07.03</h1>
+<ch_section>Core Platform</ch_section>
 <p>
-BreakTest 2026.07.03 is an independent, JMeter-compatible continuation focused
-on a leaner runtime, modern HTTP support, better debugging, AI-assisted script
-repair workflows, and a smoother path from local scripts to scaled execution.
+BreakTest keeps the useful JMeter test-plan model and JMX workflow while moving
+the engine toward Java 21+, HTTP/2, lower resource usage, visual diagnostics,
+AI-assisted repair workflows, and BreakTest Enterprise scale.
 </p>
 
-<ch_section>Highlights</ch_section>
+<ch_section>Core Platform Highlights</ch_section>
 <ul>
   <li>Modern HTTP runtime based on Apache HttpClient 5, including first-class HTTP/2 support.</li>
   <li>Java 21+ baseline with virtual-thread support.</li>

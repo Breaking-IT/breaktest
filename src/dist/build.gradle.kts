@@ -533,6 +533,7 @@ fun CrLfSpec.binaryLayout() = copySpec {
             include("lib/ext/**")
             include("lib/junit/**")
             include("extras/**")
+            include("browser-extension/**")
             include("README.md")
             include("LICENSE")
             include("NOTICE")
