@@ -29,7 +29,49 @@ under the BreakTest Community Source License 1.0. Apache JMeter-derived and
 other third-party materials retain their applicable licenses.
 </note>
 
-<h1>Upcoming Release</h1>
+<h1>Version 2026.07.13 - Initial Community Release</h1>
+<p>
+BreakTest 2026.07.13 is the first release under the BreakTest Community Source
+License 1.0. It combines the complete BreakTest feature set with a native
+browser recorder, broader BreakTest branding, and native UDP testing.
+</p>
+<p>
+Releases published before 2026.07.13 were made available under the Apache
+License, Version 2.0. Their notes are retained below as historical release
+notes; those earlier licenses and rights are not changed retroactively.
+</p>
+
+<ch_section>Highlights</ch_section>
+<ul>
+  <li>Introduces the BreakTest Community Source License 1.0 for BreakTest-specific materials. Community use is limited to testing systems operated by your own organization; excluded commercial uses require written permission from Breaking IT.</li>
+  <li>Adds local Chrome, Edge, and Firefox browser recorder extensions that export HAR recordings with user-defined transaction names for guided BreakTest import.</li>
+  <li>Uses BreakTest names throughout the visible product and runtime, including <code>BREAKTEST_*</code> environment variables, <code>breaktest.*</code> properties, and the <code>breaktest.jar</code> launcher, while retaining compatibility paths where needed.</li>
+  <li>Publishes BreakTest-owned artifacts under the <code>nl.breakingit.breaktest</code> Maven group and uses stable top-level directories in distribution archives.</li>
+  <li>Adds native UDP Request and UDP Receiver samplers with text, hexadecimal, and raw payload codecs, local binding, timeouts, and named per-user socket reuse.</li>
+</ul>
+
+<ch_section>Licensing</ch_section>
+<ul>
+  <li>BreakTest-specific materials are licensed under the BreakTest Community Source License 1.0 beginning with this release.</li>
+  <li>Apache JMeter-derived and other third-party materials retain their applicable licenses and attribution.</li>
+  <li>Commercial licensing and permission requests may be sent to <code>info@breakingit.nl</code>.</li>
+</ul>
+
+<ch_section>Browser Recording</ch_section>
+<ul>
+  <li>Adds local recorder extensions for Chromium browsers and Firefox.</li>
+  <li>Recording can begin in a prepared blank or private browser context so the first navigation and its resources are captured.</li>
+  <li>Test authors can assign transaction names during recording; BreakTest uses those names when importing the exported HAR file.</li>
+  <li>The recorder can disable browser caching for cold-cache captures and reports requests whose response bodies are unavailable from the browser.</li>
+</ul>
+
+<ch_section>BreakTest Branding and Distribution</ch_section>
+<ul>
+  <li>Replaces user-visible JMeter product names with BreakTest while preserving technical compatibility names where existing plans and plugins depend on them.</li>
+  <li>Adds <code>BREAKTEST_HOME</code>, <code>BREAKTEST_OPTS</code>, and <code>BREAKTEST_LANGUAGE</code> as the preferred runtime environment variables.</li>
+  <li>Renames the primary launcher to <code>breaktest.jar</code> and keeps the legacy launcher name temporarily for compatibility.</li>
+  <li>Moves BreakTest-owned Maven publications to the <code>nl.breakingit.breaktest</code> group.</li>
+</ul>
 
 <ch_section>Native UDP</ch_section>
 <ul>
@@ -38,6 +80,14 @@ other third-party materials retain their applicable licenses.
   <li>UDP Receiver reads later datagrams from named sockets and supports successful or failing timeout behavior.</li>
   <li>A payload-format selector provides UTF-8 text, hexadecimal, and single-byte text without exposing implementation classnames, while retaining a native codec interface for advanced custom encoders.</li>
   <li>Large datagrams are validated before sending, reduced receive limits detect truncation, receive buffers are reused, and named sockets remain scoped to one virtual user across sequential, parallel ForEach, and Fork execution.</li>
+</ul>
+
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+  <li>Java 21 or later is required.</li>
+  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
+  <li>The browser recorder extensions are installed locally from the source tree; they are not browser-store installations.</li>
+  <li>This release uses the direct Git tag <code>2026.07.13</code>.</li>
 </ul>
 
 <h1>Version 2026.07.11</h1>
