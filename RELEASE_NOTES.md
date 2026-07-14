@@ -25,33 +25,37 @@ desktop and command-line distribution.
 ## Highlights
 
 - A redesigned desktop experience with modern themes, richer HTTP editing,
-  undo and redo, searchable settings, enhanced results, and live performance
-  reporting.
-- Lower runtime overhead through lazy decompression, configurable response
-  retention, lightweight cloning, lazy diagnostics, and reduced hot-path
-  allocation leading to about 50-80% less memory and 50% less cpu consumption depending on the test plan
-- Native HTTP/2 support using Apache HttpClient 5.
-- Parallel Controller, parallel ForEach for simulating browsers much more realistic compared to old sequential processing of JMeter
-- Fork Controller for improved support of polling and other functionality
-- Unified open and closed workload models for realistic concurrency and traffic shaping, including pacing on thread level
-- Local Chrome, Edge, and Firefox browser recorders that export transaction-aware
+  searchable settings, enhanced results, and live performance reporting.
+- A leaner runtime with lazy decompression, configurable response retention,
+  lightweight cloning, lazy diagnostics, and fewer hot-path allocations.
+  Measured scenarios show roughly 50–80% lower memory use and up to 50% lower
+  CPU use, depending on the test plan and workload.
+- First-class HTTP/2 support powered by Apache HttpClient 5.
+- Parallel Controller and parallel ForEach model browser-style concurrency
+  instead of processing every embedded request sequentially.
+- Fork Controller supports asynchronous polling and background flows while the
+  main virtual-user journey continues.
+- Unified open and closed workload models provide realistic concurrency,
+  flexible scheduling, traffic shaping, and thread-level pacing.
+- Local Chrome, Edge, and Firefox browser recorders export transaction-aware
   HAR files for guided import into BreakTest.
-- Diff feature of replayed and recorded request / response to improve your scripting
-- Improved search/replace and flagging of elements
-- Working undo/redo functionality
-- AI-assisted scripting and repair through Codex, Claude Code, and
-  MCP-based workflows, with transactional application and recovery safeguards.
-- Portable compressed `.jmx` plans that can embed HAR or replay evidence,
+- Recorded-versus-replayed request and response comparisons make scripting,
+  debugging, and correlation faster.
+- Improved tree flagging, search-and-replace, and semantic undo and redo make
+  large test plans safer to edit.
+- AI-assisted scripting and repair through Codex, Claude Code, and MCP-based
+  workflows apply changes transactionally and provide recovery safeguards.
+- Portable compressed `.jmx` plans can embed HAR or replay evidence,
   attachments, request bodies, response bodies, and checksums.
-- Native UDP Request and UDP Receiver samplers with configurable codecs,
+- Native UDP Request and UDP Receiver samplers provide configurable codecs,
   timeouts, local binding, and reusable per-user sockets.
-- Pause/resume schedule of running test
-- Set think times on transaction controllers
-- Samplers can now fail when extractors don't match
-- Verified in-application updates with rollback, restart, and preservation of
+- Running schedules can be paused and resumed, and Transaction Controllers
+  support built-in think time and pacing.
+- Extractors can fail a sampler when an expected correlation value is missing.
+- Verified in-application updates support rollback and restart while preserving
   user configuration, plugins, and driver libraries.
-- BreakTest-specific materials released under the BreakTest Community Source
-  License 1.0.
+- BreakTest-specific materials are released under the BreakTest Community
+  Source License 1.0.
 
 ## Browser Recording And HAR Import
 

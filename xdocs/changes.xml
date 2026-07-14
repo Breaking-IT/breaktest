@@ -35,15 +35,22 @@ test evidence, richer diagnostics, and AI-assisted scripting.
 
 <ch_section>Highlights</ch_section>
 <ul>
-  <li>Modern Apache HttpClient 5 runtime with first-class HTTP/2, negotiated fallback, NTLM authentication, and Brotli and Zstandard decoding.</li>
-  <li>Local Chrome, Edge, and Firefox browser recorders with transaction-aware HAR export and guided import.</li>
-  <li>Portable compressed <code>.jmx</code> plans that can embed recordings, replay evidence, attachments, bodies, and checksums.</li>
-  <li>Parallel Controller, parallel ForEach, Fork Controller, and unified open and closed workload models.</li>
-  <li>Native UDP Request and UDP Receiver samplers with configurable codecs, timeouts, local binding, and reusable sockets.</li>
-  <li>AI-assisted scripting and repair through Codex, Claude Code, opencode, and MCP-compatible workflows.</li>
-  <li>Modern desktop themes, richer HTTP editing, undo and redo, searchable settings, enhanced results, and live performance reporting.</li>
-  <li>Lower runtime overhead through lazy decompression, response retention modes, lightweight cloning, lazy diagnostics, and allocation reductions.</li>
-  <li>Verified in-application updates with rollback, restart, and preservation of user configuration and extensions.</li>
+  <li>A redesigned desktop experience with modern themes, richer HTTP editing, searchable settings, enhanced results, and live performance reporting.</li>
+  <li>A leaner runtime with lazy decompression, configurable response retention, lightweight cloning, lazy diagnostics, and fewer hot-path allocations. Measured scenarios show roughly 50–80% lower memory use and up to 50% lower CPU use, depending on the test plan and workload.</li>
+  <li>First-class HTTP/2 support powered by Apache HttpClient 5.</li>
+  <li>Parallel Controller and parallel ForEach model browser-style concurrency instead of processing every embedded request sequentially.</li>
+  <li>Fork Controller supports asynchronous polling and background flows while the main virtual-user journey continues.</li>
+  <li>Unified open and closed workload models provide realistic concurrency, flexible scheduling, traffic shaping, and thread-level pacing.</li>
+  <li>Local Chrome, Edge, and Firefox browser recorders export transaction-aware HAR files for guided import into BreakTest.</li>
+  <li>Recorded-versus-replayed request and response comparisons make scripting, debugging, and correlation faster.</li>
+  <li>Improved tree flagging, search-and-replace, and semantic undo and redo make large test plans safer to edit.</li>
+  <li>AI-assisted scripting and repair through Codex, Claude Code, and MCP-based workflows apply changes transactionally and provide recovery safeguards.</li>
+  <li>Portable compressed <code>.jmx</code> plans can embed HAR or replay evidence, attachments, request bodies, response bodies, and checksums.</li>
+  <li>Native UDP Request and UDP Receiver samplers provide configurable codecs, timeouts, local binding, and reusable per-user sockets.</li>
+  <li>Running schedules can be paused and resumed, and Transaction Controllers support built-in think time and pacing.</li>
+  <li>Extractors can fail a sampler when an expected correlation value is missing.</li>
+  <li>Verified in-application updates support rollback and restart while preserving user configuration, plugins, and driver libraries.</li>
+  <li>BreakTest-specific materials are released under the BreakTest Community Source License 1.0.</li>
 </ul>
 
 <ch_section>Browser Recording and HAR Import</ch_section>
