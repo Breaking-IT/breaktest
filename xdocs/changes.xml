@@ -23,405 +23,177 @@
 </properties>
 <body>
 <section name="Release Notes">
-<note>
-BreakTest requires Java 21 or later. BreakTest-specific materials are licensed
-under the BreakTest Community Source License 1.0. Apache JMeter-derived and
-other third-party materials retain their applicable licenses.
-</note>
 
-<h1>Version 2026.07.13 - Initial Community Release</h1>
+<h1>BreakTest 2026.07.13 - Initial Community Release</h1>
 <p>
-BreakTest 2026.07.13 is the first release under the BreakTest Community Source
-License 1.0. It combines the complete BreakTest feature set with a native
-browser recorder, broader BreakTest branding, and native UDP testing.
+BreakTest is a modern, JMeter-compatible performance testing tool for building,
+debugging, validating, and running test plans against systems operated by your
+own organization. This initial Community release combines a faster runtime,
+modern protocols, advanced workload modelling, browser recording, portable
+test evidence, richer diagnostics, and AI-assisted scripting.
 </p>
 
 <ch_section>Highlights</ch_section>
 <ul>
-  <li>Introduces the BreakTest Community Source License 1.0 for BreakTest-specific materials. Community use is limited to testing systems operated by your own organization; excluded commercial uses require written permission from Breaking IT.</li>
-  <li>Adds local Chrome, Edge, and Firefox browser recorder extensions that export HAR recordings with user-defined transaction names for guided BreakTest import.</li>
-  <li>Uses BreakTest names throughout the visible product and runtime, including <code>BREAKTEST_*</code> environment variables, <code>breaktest.*</code> properties, and the <code>breaktest.jar</code> launcher, while retaining compatibility paths where needed.</li>
-  <li>Publishes BreakTest-owned artifacts under the <code>nl.breakingit.breaktest</code> Maven group and uses stable top-level directories in distribution archives.</li>
-  <li>Adds native UDP Request and UDP Receiver samplers with text, hexadecimal, and raw payload codecs, local binding, timeouts, and named per-user socket reuse.</li>
+  <li>Modern Apache HttpClient 5 runtime with first-class HTTP/2, negotiated fallback, NTLM authentication, and Brotli and Zstandard decoding.</li>
+  <li>Local Chrome, Edge, and Firefox browser recorders with transaction-aware HAR export and guided import.</li>
+  <li>Portable compressed <code>.jmx</code> plans that can embed recordings, replay evidence, attachments, bodies, and checksums.</li>
+  <li>Parallel Controller, parallel ForEach, Fork Controller, and unified open and closed workload models.</li>
+  <li>Native UDP Request and UDP Receiver samplers with configurable codecs, timeouts, local binding, and reusable sockets.</li>
+  <li>AI-assisted scripting and repair through Codex, Claude Code, opencode, and MCP-compatible workflows.</li>
+  <li>Modern desktop themes, richer HTTP editing, undo and redo, searchable settings, enhanced results, and live performance reporting.</li>
+  <li>Lower runtime overhead through lazy decompression, response retention modes, lightweight cloning, lazy diagnostics, and allocation reductions.</li>
+  <li>Verified in-application updates with rollback, restart, and preservation of user configuration and extensions.</li>
 </ul>
 
-<ch_section>Licensing</ch_section>
+<ch_section>Browser Recording and HAR Import</ch_section>
 <ul>
-  <li>BreakTest-specific materials are licensed under the BreakTest Community Source License 1.0 beginning with this release.</li>
-  <li>Apache JMeter-derived and other third-party materials retain their applicable licenses and attribution.</li>
-  <li>Commercial licensing and permission requests may be sent to <code>info@breakingit.nl</code>.</li>
+  <li>Browser recorder extensions for Chrome, Chromium-based Edge, and Firefox ship under <code>browser-extension/</code> in binary and source distributions.</li>
+  <li>Recording can begin in a prepared blank tab or private context so the first navigation and dependent resources are captured.</li>
+  <li>Transaction names assigned during recording become Transaction Controllers during import.</li>
+  <li>Optional cache disabling supports cold-cache recordings, and unavailable browser response bodies are reported clearly.</li>
+  <li>The guided <b>File &gt; Import HAR...</b> workflow supports hostname selection, request grouping, error handling, request indexes, dynamic URLs, headers, and configurable transaction delays.</li>
+  <li>Generated plans can include Transaction Controllers, Parallel Controllers, HTTP Request Defaults, Cookie Managers, assertions, and preserved recording metadata.</li>
 </ul>
 
-<ch_section>Browser Recording</ch_section>
+<ch_section>Portable Test Plans and Recorded Evidence</ch_section>
 <ul>
-  <li>Adds local recorder extensions for Chromium browsers and Firefox.</li>
-  <li>Recording can begin in a prepared blank or private browser context so the first navigation and its resources are captured.</li>
-  <li>Test authors can assign transaction names during recording; BreakTest uses those names when importing the exported HAR file.</li>
-  <li>The recorder can disable browser caching for cold-cache captures and reports requests whose response bodies are unavailable from the browser.</li>
+  <li>New <code>.jmx</code> files use a compressed archive while retaining the familiar extension; legacy plain-XML JMX files continue to load.</li>
+  <li>Plans can carry referenced attachments and filtered HAR or replay evidence without extracting content to the filesystem.</li>
+  <li>Recording retention can keep all traffic, omit static bodies, omit static resources, or exclude recording evidence.</li>
+  <li>Request and response bodies are deduplicated and linked through validated references and checksums.</li>
+  <li><b>Store Replay</b> captures the latest replayed traffic as the plan's current evidence bundle.</li>
+  <li>Recorded and replayed evidence remains available after reopening for sampler inspection, result analysis, and comparison.</li>
+  <li>Archive paths, linked content, required dependencies, and checksums are validated before use.</li>
 </ul>
 
-<ch_section>BreakTest Branding and Distribution</ch_section>
+<ch_section>Modern HTTP and Native UDP</ch_section>
 <ul>
-  <li>Replaces user-visible JMeter product names with BreakTest while preserving technical compatibility names where existing plans and plugins depend on them.</li>
-  <li>Adds <code>BREAKTEST_HOME</code>, <code>BREAKTEST_OPTS</code>, and <code>BREAKTEST_LANGUAGE</code> as the preferred runtime environment variables.</li>
-  <li>Renames the primary launcher to <code>breaktest.jar</code> and keeps the legacy launcher name temporarily for compatibility.</li>
-  <li>Moves BreakTest-owned Maven publications to the <code>nl.breakingit.breaktest</code> group.</li>
+  <li>Apache HttpClient 5 powers the built-in HTTP/1.1 and asynchronous HTTP/2 sampler paths.</li>
+  <li>HTTP/2 supports explicit and preferred selection, negotiated fallback, connect timing, upload lengths, safer replay, and conservative closed-session retry.</li>
+  <li>HTTP clients and reactor threads are reused where safe to reduce connection churn and resource consumption.</li>
+  <li>NTLM authentication resolves variables before asynchronous challenge callbacks.</li>
+  <li>Responses support gzip, deflate, Brotli, and Zstandard, with lazy decompression when content is not inspected.</li>
+  <li>HttpClient 4 libraries remain bundled for legacy plugin compatibility while built-in HTTP Requests use HttpClient 5.</li>
+  <li>UDP Request supports request/response and fire-and-forget datagrams, timeouts, local binding, unreachable-destination handling, and named socket reuse.</li>
+  <li>UDP Receiver consumes later datagrams from named sockets and supports successful or failing timeout behaviour.</li>
+  <li>UDP payloads support UTF-8, hexadecimal, and single-byte text plus the native <code>UDPTrafficCodec</code> extension point.</li>
+  <li>Datagram size, truncation, buffer reuse, and per-user socket isolation are handled across sequential, parallel, and forked execution.</li>
 </ul>
 
-<ch_section>Native UDP</ch_section>
+<ch_section>Workload Modelling, Scheduling, and Concurrency</ch_section>
 <ul>
-  <li>Adds native UDP Request and UDP Receiver samplers without external JMeter Plugins common libraries.</li>
-  <li>UDP Request supports request/response and fire-and-forget datagrams, response timeouts, local binding, and named socket reuse.</li>
-  <li>UDP Receiver reads later datagrams from named sockets and supports successful or failing timeout behavior.</li>
-  <li>A payload-format selector provides UTF-8 text, hexadecimal, and single-byte text without exposing implementation classnames, while retaining a native codec interface for advanced custom encoders.</li>
-  <li>Large datagrams are validated before sending, reduced receive limits detect truncation, receive buffers are reused, and named sockets remain scoped to one virtual user across sequential, parallel ForEach, and Fork execution.</li>
+  <li>Parallel Controller executes bounded concurrent branches with HTTP state safeguards.</li>
+  <li>ForEach Controller supports configurable parallel execution and lazily creates branches for very large collections.</li>
+  <li>Fork Controller starts asynchronous child flows that share virtual-user context and finish before thread teardown.</li>
+  <li>Groovy and JSR223 scripts can call <code>stopForks()</code> or <code>stopForksNow()</code> without stopping the main virtual user.</li>
+  <li>Parallel and fork workers isolate mutable sampler, loop, status, transaction, and compiler state while preserving intentional shared variables.</li>
+  <li>Nested parallel sections and parent-mode transactions retain deterministic source mappings, status, and listener behaviour.</li>
+  <li>The standard Thread Group supports closed and open models, phases, even arrivals, maximum active threads, graph previews, and safe schedule parsing.</li>
+  <li>Pacing and transaction delay modes support fixed, random, Gaussian, recorded, or disabled delays.</li>
+  <li>Pause and Resume work through the GUI and command port, and shutdown wakes timers while allowing in-flight responses to finish.</li>
 </ul>
 
-<ch_section>Release and Installation Compatibility</ch_section>
+<ch_section>AI-Assisted Scripting and Repair</ch_section>
 <ul>
-  <li>Java 21 or later is required.</li>
-  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li>The browser recorder extensions are included in the binary and source distributions for local installation; they are not browser-store installations.</li>
-  <li>This release uses the direct Git tag <code>2026.07.13</code>.</li>
+  <li>BreakTest integrates with Codex, Claude Code, opencode, and MCP-compatible agents for guided plan inspection and repair.</li>
+  <li>GUI-backed tools find, clone, move, edit, and safely delete live nodes while preserving complete subtrees.</li>
+  <li>Repair planning detects conflicting dynamic values and proposes native Regex Extractors only when recording evidence supports a safe pattern.</li>
+  <li>Quoted values, duplicate replacements, stale identifiers, and orphaned extractor scenarios are handled explicitly.</li>
+  <li>Repair batches are transactional, with GUI undo and backup restoration when integrity cannot be preserved.</li>
+  <li>Protected-container checks, exact match counts, stable path fallback, null-safe refresh, and full diagnostics reduce unsafe edits.</li>
+  <li>Incomplete repair runs report a blocked status instead of appearing successful.</li>
 </ul>
 
-<ch_section>Test-Plan Portability and Reliability</ch_section>
+<ch_section>Desktop Authoring Experience</ch_section>
 <ul>
-  <li>Saves <code>.jmx</code> plans as compressed ZIP archives while continuing to load legacy XML JMX files.</li>
-  <li>Embeds filtered HAR or replay recordings with the test plan so recorded evidence remains available after the plan is moved or reopened.</li>
-  <li>Adds recording-retention choices for all traffic, omitted static bodies, omitted static resources, or no embedded recording.</li>
-  <li>Adds <b>Store Replay</b> to View Results so the latest replayed requests and responses can become the plan's current recording evidence.</li>
-  <li>Isolates mutable sampler and engine state between parallel ForEach and Fork workers, eliminating timing-dependent configuration and status races.</li>
-  <li>Fixes GUI update checks so they run immediately at startup, repeat every six hours by default, and tolerate unrelated release assets.</li>
-  <li>Hardens AI Repair with conflict-aware native Regex Extractor planning, atomic rollback, safe live-tree deletion, backup restoration, and explicit blocked completion reporting.</li>
+  <li>A refreshed FlatLaf interface provides consistent light and dark themes, updated icons, cleaner trees, and improved menus.</li>
+  <li>The HTTP Request editor provides a compact URL bar and Params, Headers, Body, Files, and Advanced tabs with value counts.</li>
+  <li>Sampler-specific HTTP headers live on the HTTP Request; legacy child Header Managers migrate automatically and scoped managers remain supported.</li>
+  <li>Semantic undo and redo covers add, delete, update, move, and search and replace operations.</li>
+  <li>Large plans load in the background, optional fast loading reduces normalisation cost, and missing plugins become disabled placeholders.</li>
+  <li>Search Tree recognises processors, assertions, timers, and configuration elements, with safeguarded selective removal.</li>
+  <li>Tree nodes show child counts, transactions show delay summaries, and request tabs expose hidden data counts.</li>
+  <li>View Results can detach and dock, validation can target selected thread groups, and the log and AI panel is easier to resize.</li>
+  <li>A searchable Settings screen provides typed editors, defaults, modified indicators, reset controls, and local override persistence.</li>
 </ul>
 
-<ch_section>Compressed JMX Archives and Recordings</ch_section>
+<ch_section>Results, Diagnostics, and Performance Reporting</ch_section>
 <ul>
-  <li>Newly saved JMX plans contain the XML test plan and referenced attachments in one compressed archive while retaining the <code>.jmx</code> filename extension.</li>
-  <li>Loading detects ZIP-backed plans automatically and retains support for existing plain-XML JMX files.</li>
-  <li>Imported HAR recordings are filtered to generated samplers and stored in a native manifest with request and response bodies externalized as deduplicated archive entries.</li>
-  <li>Recording references and checksums are retained on HTTP samplers, including after GUI edits and save and load round trips.</li>
-  <li>Archive entry names, linked content, and required recording dependencies are validated without extracting files to the filesystem.</li>
-  <li>Test validation no longer rewrites the open archive, and GUI saves show an activity overlay while the archive is assembled.</li>
+  <li>View Results provides Tree and Table layouts with timing, latency, connection, size, thread, label, URL, and status data.</li>
+  <li>Selectable sortable columns, filters, tooltips, and stable live scrolling make large result sets easier to inspect.</li>
+  <li>Diagnostics include endpoint, HTTP, TLS, cookie, variable, binary/text, and source-element information.</li>
+  <li>HAR-backed tabs compare recorded and replayed traffic, normalize HTTP/2 differences, and retain navigation through folded transactions.</li>
+  <li>The Performance Report listener provides throughput, bandwidth, error, connect-time, median, P75, P90, P95, and P99 metrics.</li>
+  <li>Error response times can be excluded from timing calculations, with clear guidance about percentile retention cost.</li>
 </ul>
 
-<ch_section>Replay and Recorded Evidence</ch_section>
+<ch_section>Runtime Efficiency and Reliability</ch_section>
 <ul>
-  <li>View Results can store the latest replayed sample for every resolved sampler as a replacement recording bundle.</li>
-  <li>Replay storage supports the same four retention levels as HAR import.</li>
-  <li>Recorded request and response data remains available to Sampler Result and recorded-HAR comparison views after reopening a plan.</li>
-  <li>Sampler lookup now resolves nodes consistently across ordinary controllers and Test Fragments when replay results are associated with the plan tree.</li>
-</ul>
-
-<ch_section>Parallel and Fork Runtime Stability</ch_section>
-<ul>
-  <li>Parallel ForEach branches clone child samplers as well as controllers, preventing siblings from racing while merged configuration is applied and recovered.</li>
-  <li>Compiled sample packages resolve cloned samplers back to their source across nested parallel sections, including clone-of-clone cases.</li>
-  <li>Worker-local variables isolate <code>LAST_SAMPLE_OK</code> and transaction package state while other virtual-user variables remain shared for intentional branch communication.</li>
-  <li>The parent worker receives a deterministic all-branches success result instead of whichever branch wrote its status last.</li>
-  <li>Fork workers no longer overwrite the main virtual user's transaction state or notify the wrong transaction listeners.</li>
-  <li>Parent-mode Transaction Controllers in parallel or forked branches retain a source-controller chain, preventing swallowed package-reset errors when sibling or nested clones interleave.</li>
-</ul>
-
-<ch_section>GUI Update Reliability</ch_section>
-<ul>
-  <li>Automatic update checks run immediately at GUI startup and then repeat at <code>breaktest.update.interval_hours</code>, whose default is now six hours.</li>
-  <li>Persisted check timestamps only deduplicate concurrently running instances instead of suppressing expected periodic checks.</li>
-  <li>Numeric qualifier segments compare correctly, so for example <code>rc10</code> sorts after <code>rc2</code>.</li>
-  <li>Release parsing strictly validates the expected binary ZIP and checksum but ignores unrelated or malformed extra assets.</li>
-  <li>Corrected the documented settings to <code>breaktest.update.enabled</code> and <code>breaktest.update.interval_hours</code>.</li>
-</ul>
-
-<ch_section>AI Repair Safety and Recovery</ch_section>
-<ul>
-  <li>Repair planning deduplicates conflicting dynamic literals, including encoded variants, and emits native Regex Extractor actions only when recorded evidence supports a safe pattern.</li>
-  <li>Regex planning handles quoted token values without producing unsupported extractor forms or duplicate replacements.</li>
-  <li>Applying a repair batch is transactional: failed actions are rolled back through GUI undo, with the pre-run backup used when tree integrity cannot be preserved.</li>
-  <li>Added <code>restore_open_plan_from_backup</code> for explicit recovery after a reported live-tree integrity failure.</li>
-  <li>Live node deletion validates exact membership and match counts, rejects protected container deletion, and suppresses unsafe selection side effects.</li>
-  <li>Stale node IDs fall back to stable paths after undo or reload, avoiding edits against invalid GUI tree references.</li>
-  <li>GUI refresh is null-safe, bridge failures retain full stack diagnostics, and incomplete repair runs report <code>Status: blocked</code>.</li>
-</ul>
-
-<ch_section>Tests</ch_section>
-<ul>
-  <li>Added archive save and load, attachment, recording-filter, replay, sampler-resolution, and GUI lifecycle regression coverage.</li>
-  <li>Added parallel sampler-isolation, worker-local status, Fork transaction state, nested clone resolution, and parent-transaction reset coverage.</li>
-  <li>Added update scheduling, qualifier comparison, and extra-asset parsing coverage.</li>
-  <li>Added AI Repair regression tests for conflicting literals, quoted-token regexes, rollback status, safe deletion, orphan extractors, stale tree state, and null-safe refresh.</li>
-</ul>
-
-<ch_section>Archive Compatibility</ch_section>
-<ul>
-  <li>Java 21 or later is still required.</li>
-  <li>Legacy plain-XML JMX plans continue to load, but newly saved compressed JMX archives require a BreakTest version that understands the archive format.</li>
-  <li>Existing JMeter-compatible test-plan elements remain supported where practical; embedded recordings are a BreakTest extension.</li>
-</ul>
-
-<ch_section>HAR Import, Parallel ForEach, Results, and Updates</ch_section>
-<ul>
-  <li>Added a guided HAR import wizard for uncompressed <code>.har</code> recordings, with hostname filtering, request grouping, delay options, and automatic test-plan generation.</li>
-  <li>Added optional parallel execution to the ForEach Controller, with configurable maximum concurrency and lazy branch creation for very large collections.</li>
-  <li>Expanded View Results with a table layout, selectable columns, response-time data, request and response sizes, URLs, filtering, and improved status icons.</li>
-  <li>Reduced repeated test-tree traversal by caching parent-controller paths used by loop control actions.</li>
-  <li>Added the HTTP request URL to the Sampler Result text view and made the initial test-plan pane width configurable.</li>
-  <li>Added GUI-only automatic and manual checks for stable BreakTest releases, with verified download, post-exit installation, rollback, and restart.</li>
-</ul>
-
-<ch_section>HAR Import</ch_section>
-<ul>
-  <li>Added <b>File &gt; Import HAR...</b> and a matching HAR toolbar action.</li>
-  <li>Added guided steps for selecting a HAR file, choosing hostnames, and configuring import behavior.</li>
-  <li>Added support for ignoring recorded error responses, continuing on error, adding request indexes, detecting dynamic URLs, and splitting transactions using recorded idle gaps.</li>
-  <li>Added recorded, fixed, random, Gaussian, and disabled transaction-delay modes.</li>
-  <li>Generated plans can include Transaction Controllers, Parallel Controllers for concurrent requests, HTTP Request Defaults, Cookie Managers, assertions, shared headers, and request-local headers.</li>
-  <li>Preserved BreakTest HAR metadata so imported requests remain compatible with recorded-HAR inspection and repair workflows.</li>
-  <li>Fixed reference and variable handling in imported requests.</li>
-</ul>
-
-<ch_section>Parallel ForEach and Runtime Performance</ch_section>
-<ul>
-  <li>Added <b>Parallel execution</b> and <b>Maximum parallel executions</b> options to the ForEach Controller.</li>
-  <li>Branches are created only when a concurrency slot becomes available, so very large collections do not prebuild every controller branch.</li>
-  <li>Transaction-controller source mappings are scoped to each active branch and released with that branch, keeping retained execution state proportional to configured parallelism rather than total item count.</li>
-  <li>Preserved branch-local ForEach output values while sharing the surrounding virtual-user context and honoring existing same-user iteration behavior.</li>
-  <li>Added parent-path caching for loop actions that previously traversed the test tree repeatedly after errors or logical loop transitions.</li>
-</ul>
-
-<ch_section>Results and Desktop Experience</ch_section>
-<ul>
-  <li>Added Tree and Table modes to View Results, with table results above the detail pane and the existing tree and detail split retained in Tree mode.</li>
-  <li>Added timestamp, time, latency, connect time, request size, response size, thread group, thread name, label, and URL columns with configurable visibility.</li>
-  <li>Added filtering by thread group, thread name, and sampler label, including a table context-menu action for filtering to a selected thread.</li>
-  <li>Fixed automatic scrolling and filter controls during live table refreshes.</li>
-  <li>Added full-value tooltips for truncated table cells and numeric sorting for timing and size columns.</li>
-  <li>Modernized success and failure icons and added HTTP URLs to the Sampler Result text tab.</li>
-  <li>Set a stable startup width for the test-plan pane, configurable through <code>jmeter.gui.testplan.width</code>.</li>
-</ul>
-
-<ch_section>GUI Updates</ch_section>
-<ul>
-  <li>Added automatic stable-release checks in GUI mode, limited to once every 24 hours by default, plus a manual <b>Help &gt; Check for Updates</b> action.</li>
-  <li>Added update notifications with links to the matching GitHub release notes.</li>
-  <li>Downloads the expected binary ZIP and verifies its published SHA-512 checksum and GitHub SHA-256 asset digest before installation.</li>
-  <li>Installs through a post-exit helper so active JAR files are not replaced, rolls back failed replacements, and restarts BreakTest after success.</li>
-  <li>Preserves user and system properties, third-party <code>lib/ext</code> plugins, and user-installed driver JARs during updates.</li>
-  <li>Refuses source checkouts and malformed distributions, and confines archive extraction and installation paths to prevent traversal or symlink escapes.</li>
-  <li>Update checks are disabled outside the GUI and can be configured through <code>breaktest.update.enabled</code> and <code>breaktest.update.interval_hours</code>.</li>
-</ul>
-
-<ch_section>Benchmarks and Tests</ch_section>
-<ul>
-  <li>Added high-capacity ForEach benchmarks covering active-window memory, representative sample payloads, and parent-mode Transaction Controllers.</li>
-  <li>Added regression tests for lazy branch creation, bounded transaction mapping, branch-local variables, parent transactions, table sorting, filtering, automatic scrolling, URL display, and visualizer layout behavior.</li>
-  <li>Expanded HAR conversion tests across grouping, headers, request bodies, delay modes, hostname filtering, and generated configuration elements.</li>
-</ul>
-
-<ch_section>HAR, Parallel, and Update Compatibility</ch_section>
-<ul>
-  <li>Java 21 or later is still required.</li>
-  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li>Parallel ForEach execution is opt-in; existing ForEach Controllers remain sequential unless explicitly enabled.</li>
-  <li>Automatic update checks run only in the GUI; command-line and non-GUI test execution do not contact the update service.</li>
-</ul>
-
-<ch_section>Fork, Parallel, and AI-Assisted Repair</ch_section>
-<ul>
-  <li>Fixed Fork Controller lifecycle cleanup so completed forks are removed while the parent virtual user keeps running.</li>
-  <li>Added <code>ctx.getThread().stopForks()</code> and <code>ctx.getThread().stopForksNow()</code> for Groovy/JSR223 scripts that need to end active fork branches from the main thread.</li>
-  <li>Improved fork shutdown so timers, pacing waits, active fork samplers, and virtual-thread fork workers are woken promptly.</li>
-  <li>Fixed fork branch behavior for "Start Next Thread Loop on error" so failed fork samples stop the fork branch locally instead of continuing to later requests.</li>
-  <li>Hardened Parallel Controller execution so nested loop branches keep their own loop indexes and sampler package configuration is synchronized safely across concurrent branches.</li>
-  <li>Added a GUI-backed <code>clone_node_open_plan</code> MCP tool so AI-assisted repair can copy full controller/sampler subtrees, including Transaction Controller pacing settings, without falling back to raw JMX reconstruction.</li>
-  <li>Improved AI Helper and log-panel usability with Shift+Enter newlines in the JSR223 AI Helper prompt and a visible bottom-log resize boundary.</li>
-  <li>Reduced noisy delay-interruption warnings during intentional fork and test stops.</li>
-</ul>
-
-<ch_section>Fork and Parallel Controller Stability</ch_section>
-<ul>
-  <li>Completed fork tasks, executors, and active-controller mappings are now cleaned up promptly instead of waiting for thread teardown.</li>
-  <li>Fork workers now track current timers, samplers, and worker threads so graceful and forced fork stops can wake the correct in-flight operation.</li>
-  <li><code>stopForks()</code> requests graceful fork completion and wakes fork timers without stopping the main virtual user.</li>
-  <li><code>stopForksNow()</code> cancels active fork tasks, shuts down fork executors, and stops fork samplers that implement <code>StoppableSampler</code>.</li>
-  <li>Intentional fork-stop interruptions no longer emit WARN-level "Loss of delay" timer messages.</li>
-  <li>Fork timer/sampler bookkeeping now removes active entries by identity so equally configured sibling branches cannot remove the wrong entry.</li>
-  <li>Fork branches now consume local logical error actions and reset <code>LAST_SAMPLE_OK</code> so fork control-flow decisions do not leak into the main virtual-user path.</li>
-  <li>Parallel branch sampler configuration is protected from concurrent compiler state corruption.</li>
-</ul>
-
-<ch_section>AI-Assisted GUI Repair</ch_section>
-<ul>
-  <li>Added <code>clone_node_open_plan</code> to the BreakTest MCP bridge for cloning a node and its complete child subtree in the live GUI plan.</li>
-  <li>The clone tool supports stable <code>nodeId</code> selectors from <code>find_open_plan_nodes</code> and path/index fallbacks, matching the existing move/delete structural tools.</li>
-  <li>The clone operation uses the same full subtree copy path as the GUI Duplicate action, preserving element properties and children rather than rebuilding controllers from partial fields.</li>
-</ul>
-
-<ch_section>Desktop Polish</ch_section>
-<ul>
-  <li>The docked Logs / AI Auto Scripting panel now has a visible top divider and a wider split-pane drag target, making the resize area discoverable without hovering.</li>
-  <li>The JSR223 AI Helper request text area now treats Shift+Enter as an explicit newline.</li>
-  <li>Extractor and post-processor icons in the test-plan tree were aligned more closely with the Add menu iconography.</li>
-</ul>
-
-<ch_section>Fork and Parallel Benchmarks and Tests</ch_section>
-<ul>
-  <li>Added a JMH benchmark for Fork Controller capacity, including lightweight and more representative fork branch scenarios.</li>
-  <li>Added regression tests for fork cleanup, fork stopping, fork error handling, nested parallel loop indexes, and tree icon rendering.</li>
-</ul>
-
-<ch_section>Fork and Parallel Compatibility</ch_section>
-<ul>
-  <li>Java 21 or later is still required.</li>
-  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li><code>stopForks()</code> and <code>stopForksNow()</code> are BreakTest extensions intended for scripts that explicitly need to manage asynchronous fork branches.</li>
-</ul>
-
-<ch_section>Reporting, Settings, and Desktop Workflow</ch_section>
-<ul>
-  <li>Added a configurable Performance Report listener with percentile, throughput, bandwidth, error, and connect-time columns.</li>
-  <li>Added a Settings dialog backed by the full JMeter properties catalog, with search, default/modified indicators, reset controls, and safe persistence to local override property files.</li>
-  <li>Modernized the BreakTest desktop UI with a refreshed application icon, modern toolbar icons, cleaner tree rendering, improved menu organization, and better light/dark FlatLaf styling.</li>
-  <li>Improved View Results Tree and validation ergonomics with detach/dock support, validation targeting, auto-detach controls, collapsible search/file panels, and comment visibility controls.</li>
-  <li>Moved sampler-scoped HTTP headers into the HTTP Request sampler with automatic migration from child HTTP Header Manager elements.</li>
-  <li>Fixed saved test plans with the new Performance Report listener so they reload correctly.</li>
-  <li>Added child-count badges in the test-plan tree and compact Transaction Controller delay summaries beside transaction names.</li>
-  <li>Added counts to HTTP Request Params, Headers, Body, and Files tabs so hidden request data is visible at a glance.</li>
-</ul>
-
-<ch_section>Performance Reporting</ch_section>
-<ul>
-  <li>Added a dedicated Performance Report visualizer for configurable live aggregate metrics.</li>
-  <li>Added optional percentile columns including median, P75, P90, P95, and P99.</li>
-  <li>Added controls to ignore error response times in response-time metrics.</li>
-  <li>Added resource-use guidance for percentile columns, since they retain richer response-time distribution data while enabled.</li>
-  <li>Added tests for column configuration, percentile tracking, error handling, and report reset behavior.</li>
-</ul>
-
-<ch_section>Settings Management</ch_section>
-<ul>
-  <li>Added a Settings page available from the GUI menu and toolbar.</li>
-  <li>Added typed setting definitions, editors, grouping, search, default-value display, modified badges, and reset/save actions.</li>
-  <li>Added a full settings catalog resource for JMeter and BreakTest properties.</li>
-  <li>Persisted changes to local user/system override properties rather than modifying the bundled <code>jmeter.properties</code> file.</li>
-  <li>Added tests for catalog loading, property storage, and model behavior.</li>
-</ul>
-
-<ch_section>Desktop UI and Validation</ch_section>
-<ul>
-  <li>Refreshed the main frame, toolbar, menu factory, tree renderer, logger panel, target-rate chart, and scripting log presentation.</li>
-  <li>Added modern SVG toolbar assets and updated icon mappings for common actions.</li>
-  <li>Improved validation controls so selected thread groups can be targeted more directly.</li>
-  <li>Added View Results Tree detach/dock workflows and clearer validation result viewing.</li>
-  <li>Added native HTTP Request headers so sampler-specific headers live on the request itself, while higher-level Header Managers still apply by scope.</li>
-  <li>Updated the Transaction Controller icon so it reads as a transaction span rather than a small generic controller/action glyph.</li>
-  <li>Added direct-child count badges to tree nodes and compact delay summaries for Transaction Controllers with built-in delay.</li>
-  <li>Added value counts to HTTP Request data tabs for Params, Headers, Body, and Files.</li>
-  <li>Added tests around tree-listener behavior.</li>
-</ul>
-
-<ch_section>Desktop Compatibility</ch_section>
-<ul>
-  <li>Java 21 or later is still required.</li>
-  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
-  <li>Percentile columns in the Performance Report intentionally keep additional response-time history only while those columns are selected.</li>
-  <li>Most Settings changes are written as local overrides and take effect after restarting BreakTest.</li>
-</ul>
-
-<ch_section>Core Platform</ch_section>
-<p>
-BreakTest keeps the useful JMeter test-plan model and JMX workflow while moving
-the engine toward Java 21+, HTTP/2, lower resource usage, visual diagnostics,
-AI-assisted repair workflows, and BreakTest Enterprise scale.
-</p>
-
-<ch_section>Core Platform Highlights</ch_section>
-<ul>
-  <li>Modern HTTP runtime based on Apache HttpClient 5, including first-class HTTP/2 support.</li>
-  <li>Java 21+ baseline with virtual-thread support.</li>
-  <li>Lower memory and CPU pressure through lazy decompression, response retention modes, lightweight cloning, lazy diagnostics, and allocation reductions.</li>
-  <li>Unified Thread Group scheduling with closed/open workload models, phases, open-model helpers, pacing, and pause/resume support.</li>
-  <li>Parallel Controller and Fork Controller for realistic concurrency and independent branches of work.</li>
-  <li>Undo/redo support for common GUI test-plan edits.</li>
-  <li>Background JMX loading, fast GUI loading options, and safer placeholders for missing plugin elements.</li>
-  <li>Richer View Results Tree diagnostics, source navigation, and HAR-backed recorded-vs-replayed request/response diff views.</li>
-  <li>Easier If/While controller conditions, transaction timing controls, random CSV ordering, CSV preview, and extractor fail-on-no-match options.</li>
-  <li>AI-assisted scripting support through the BreakTest MCP workflow, including visible GUI change highlighting when scripts are repaired automatically.</li>
-</ul>
-
-<ch_section>Modern HTTP Runtime</ch_section>
-<ul>
-  <li>Added Apache HttpClient 5 sampler support for HTTP/1.1.</li>
-  <li>Added an async HttpClient 5 HTTP/2 sampler path with HTTP/2 and HTTP/2-preferred protocol selection.</li>
-  <li>Added negotiated fallback, connect-time reporting, HTTP/2 upload content length handling, and safer HTTP/2 replay behavior.</li>
-  <li>Reduced HTTP/2 resource usage by limiting reactor threads by default and avoiding unnecessary async client/reactor rebuilds between same-user iterations.</li>
-  <li>Added conservative HTTP/2 closed-session retry handling for common connection-closure failures.</li>
-  <li>Fixed NTLM authentication on the HttpClient 5 path, including variable resolution before async authentication callbacks.</li>
-  <li>Kept HttpClient 4 runtime jars available for legacy plugin compatibility while keeping the built-in HTTP Request sampler on HttpClient 5.</li>
-  <li>Added Brotli and Zstandard response decoding alongside gzip and deflate.</li>
-</ul>
-
-<ch_section>Controllers, Scheduling, and Flow Control</ch_section>
-<ul>
-  <li>Added native Parallel Controller execution with bounded parallel sampler scheduling and HTTP state safeguards.</li>
-  <li>Added Fork Controller for asynchronous child branches that share virtual-user context and complete before thread teardown.</li>
-  <li>Added unified Thread Group scheduling controls with closed/open model selection.</li>
-  <li>Added closed-model phases so a schedule can combine different ramp-up speeds, hold periods, and thread targets.</li>
-  <li>Added open-model schedule helpers, even-arrival scheduling, max active thread limits, safe schedule parsing, and graph preview support.</li>
-  <li>Added Thread Group pacing controls.</li>
-  <li>Cleared runtime user variables on new iterations when same-user mode is disabled, while preserving initial variables.</li>
-  <li>Added Pause and Resume in the GUI and on the UDP command port, with <code>bin/pause.*</code> and <code>bin/resume.*</code> wrappers.</li>
-  <li>Improved shutdown so it no longer waits for timers to complete and only waits for in-flight server responses to finish cleanly.</li>
-</ul>
-
-<ch_section>GUI and Test-Plan Editing</ch_section>
-<ul>
-  <li>Modernized the GUI with a cleaner light/dark look and more compact tree/editing layouts.</li>
-  <li>Added undo and redo for semantic tree edits including add, delete, update, move, and search/replace operations.</li>
-  <li>Added background JMX loading with a loading overlay.</li>
-  <li>Added opt-in fast GUI loading through <code>jmeter.gui.load.fast=true</code>.</li>
-  <li>JMX files with missing plugin elements now load with disabled placeholders instead of failing the whole file.</li>
-  <li>Improved Search Tree flagging for pre-processors, post-processors, assertions, timers, and config elements.</li>
-  <li>Added selective removal of matching search results with confirmation so bulk cleanup can avoid accidental parent-node deletion.</li>
+  <li>Response retention can keep compressed bytes, discard successes, retain only failures, or store checksums instead of bodies.</li>
+  <li>Lightweight cloning and shared safe property state reduce per-thread object churn.</li>
+  <li>Rich sample metadata is listener-driven and allocated only when diagnostics require it.</li>
+  <li>Header merging, temporary properties, response buffers, parent paths, and controller traversal are optimized for hot paths.</li>
+  <li>Fork tasks, executors, timers, samplers, and controller mappings are cleaned up promptly and by identity.</li>
+  <li>Parallel ForEach retains state proportional to active parallelism rather than total collection size.</li>
+  <li>Archives, concurrency, updater rollback, HAR conversion, GUI lifecycle, and high-capacity controllers have regression and benchmark coverage.</li>
 </ul>
 
 <ch_section>Scripting, Data, and Correlation</ch_section>
 <ul>
-  <li>Added structured If and While Controller condition rows with all/any matching, while preserving legacy condition expressions.</li>
-  <li>Added loop/while index behavior options and exported index variable display.</li>
-  <li>Added Transaction Controller measurement modes plus built-in delay and pacing controls.</li>
-  <li>Added extractor fail-on-no-match options for Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors.</li>
-  <li>Added random-order reading for CSV Data Set records.</li>
-  <li>Added CSV preview of the first sample variable assignments.</li>
-  <li>Focused scripting on JSR223/Groovy by removing legacy BeanShell, BSF/JEXL2, Rhino JavaScript, and LogKit paths.</li>
+  <li>If and While Controllers support structured all or any condition rows while retaining legacy expressions.</li>
+  <li>Loop and While Controllers expose configurable index behaviour and exported index variables.</li>
+  <li>Transaction Controllers provide measurement, delay, and pacing controls.</li>
+  <li>Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors can fail samples when no match is found.</li>
+  <li>CSV Data Set supports random record order and previews initial variable assignments.</li>
+  <li>Scripting focuses on JSR223 and Groovy; legacy BeanShell, BSF/JEXL2, Rhino JavaScript, and LogKit paths are removed.</li>
 </ul>
 
-<ch_section>Visual Debugging and HAR Migration</ch_section>
+<ch_section>Distribution and Updates</ch_section>
 <ul>
-  <li>View Results Tree now shows richer request/response diagnostics, endpoint details, HTTP/TLS metadata, cookies, variables, binary/text detection, and jump-to-source.</li>
-  <li>BreakTest JMX metadata preserves origin and source-path information for debugging tools.</li>
-  <li>HAR-backed recorded request/response tabs appear in View Results Tree and HTTP sampler editors when matching BreakTest HAR metadata is available.</li>
-  <li>Recorded-vs-replayed diffs make HAR migration and HTTP/2 replay debugging easier.</li>
-  <li>Transaction child samples preserve source test-element paths so folded transaction results can still navigate to the correct source element.</li>
-  <li>HTTP/2 replay removes unsupported hop-by-hop headers and normalizes request/status lines for cleaner diffs.</li>
-  <li>Host-only cookie matching is stricter so cookies do not leak to unrelated hosts or subdomains.</li>
+  <li>Distributions use a stable <code>breaktest/</code> directory and ship browser recorder extensions alongside the runtime.</li>
+  <li><code>breaktest.jar</code>, <code>BREAKTEST_HOME</code>, <code>BREAKTEST_OPTS</code>, and <code>BREAKTEST_LANGUAGE</code> are the preferred runtime names.</li>
+  <li>BreakTest-owned Maven artifacts use the <code>nl.breakingit.breaktest</code> group.</li>
+  <li>GUI update checks run at startup and periodically and are also available through <b>Help &gt; Check for Updates</b>.</li>
+  <li>Downloads require the expected binary ZIP, SHA-512 checksum, and matching GitHub SHA-256 digest.</li>
+  <li>Installation runs after exit, rolls back failed replacement, restarts after success, and preserves properties, plugins, and driver libraries.</li>
+  <li>Extraction and installation paths reject traversal and symlink escapes, and source checkouts are never modified.</li>
 </ul>
 
 <ch_section>Compatibility Notes</ch_section>
 <ul>
-  <li>Existing JMeter JMX files remain supported where practical.</li>
-  <li>Many package names, property names, command internals, and Maven coordinates intentionally still use <code>jmeter</code> or <code>org.apache.jmeter</code> for compatibility.</li>
-  <li>BreakTest-specific JMX metadata may not round-trip into older JMeter versions.</li>
-  <li>Plugins that depend on removed internals may need migration.</li>
-  <li>RMI Remote Server style distributed execution is removed. Use BreakTest Enterprise or another controlled orchestration layer for distributed tests.</li>
+  <li>Java 21 or later is required.</li>
+  <li>Existing JMeter-compatible JMX files remain supported where practical.</li>
+  <li>Compressed JMX archives require a compatible BreakTest version, and embedded recordings are a BreakTest extension.</li>
+  <li>Many package names, properties, command internals, and compatibility coordinates retain <code>jmeter</code> or <code>org.apache.jmeter</code> names.</li>
+  <li>Plugins that depend on removed internals may require migration.</li>
+  <li>Parallel ForEach is opt-in; existing controllers remain sequential unless explicitly enabled.</li>
+  <li>RMI Remote Server-style execution is not included. Use BreakTest Enterprise or another controlled orchestration layer for distributed tests.</li>
 </ul>
 
-<ch_section>Legal and Attribution</ch_section>
+<ch_section>Security Model</ch_section>
 <p>
-BreakTest is a derivative work of Apache JMeter. Apache JMeter copyright and
-attribution notices are retained in the source tree and distribution notices.
-BreakTest is independent from The Apache Software Foundation and is not
-affiliated with, endorsed by, or sponsored by The Apache Software Foundation.
+BreakTest follows the trusted-test-plan model. Treat JMX files as executable
+input: a test plan can run scripts, load classes, read files, make network
+requests, and interact with systems reachable from the runner. Only open or
+execute plans you trust, or isolate them first. See SECURITY.md and
+THREAT_MODEL.md for details.
+</p>
+
+<ch_section>License and Attribution</ch_section>
+<p>
+BreakTest-specific materials are licensed under the BreakTest Community Source
+License 1.0. Community use is limited to testing systems operated by your own
+organization. Excluded commercial uses require prior written permission or a
+commercial license from Breaking IT. Requests may be sent to
+<code>info@breakingit.nl</code>.
+</p>
+<p>
+BreakTest is a derivative work of Apache JMeter. Applicable copyright, license,
+and attribution notices for Apache JMeter and other third-party materials are
+retained in the source tree and distribution. BreakTest is independent from
+The Apache Software Foundation and is not affiliated with, endorsed by, or
+sponsored by The Apache Software Foundation.
 </p>
 
 </section>
