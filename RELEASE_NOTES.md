@@ -24,24 +24,30 @@ desktop and command-line distribution.
 
 ## Highlights
 
-- Modern HTTP runtime built on Apache HttpClient 5, with first-class HTTP/2,
-  negotiated fallback, NTLM authentication, and Brotli and Zstandard decoding.
-- Local Chrome, Edge, and Firefox browser recorders that export transaction-aware
-  HAR files for guided import into BreakTest.
-- Portable compressed `.jmx` plans that can embed HAR or replay evidence,
-  attachments, request bodies, response bodies, and checksums.
-- Parallel Controller, parallel ForEach, Fork Controller, and unified open and
-  closed workload models for realistic concurrency and traffic shaping.
-- Native UDP Request and UDP Receiver samplers with configurable codecs,
-  timeouts, local binding, and reusable per-user sockets.
-- AI-assisted scripting and repair through Codex, Claude Code, opencode, and
-  MCP-based workflows, with transactional application and recovery safeguards.
 - A redesigned desktop experience with modern themes, richer HTTP editing,
   undo and redo, searchable settings, enhanced results, and live performance
   reporting.
 - Lower runtime overhead through lazy decompression, configurable response
   retention, lightweight cloning, lazy diagnostics, and reduced hot-path
-  allocation.
+  allocation leading to about 50-80% less memory and 50% less cpu consumption depending on the test plan
+- Native HTTP/2 support using Apache HttpClient 5.
+- Parallel Controller, parallel ForEach for simulating browsers much more realistic compared to old sequential processing of JMeter
+- Fork Controller for improved support of polling and other functionality
+- Unified open and closed workload models for realistic concurrency and traffic shaping, including pacing on thread level
+- Local Chrome, Edge, and Firefox browser recorders that export transaction-aware
+  HAR files for guided import into BreakTest.
+- Diff feature of replayed and recorded request / response to improve your scripting
+- Improved search/replace and flagging of elements
+- Working undo/redo functionality
+- AI-assisted scripting and repair through Codex, Claude Code, and
+  MCP-based workflows, with transactional application and recovery safeguards.
+- Portable compressed `.jmx` plans that can embed HAR or replay evidence,
+  attachments, request bodies, response bodies, and checksums.
+- Native UDP Request and UDP Receiver samplers with configurable codecs,
+  timeouts, local binding, and reusable per-user sockets.
+- Pause/resume schedule of running test
+- Set think times on transaction controllers
+- Samplers can now fail when extractors don't match
 - Verified in-application updates with rollback, restart, and preservation of
   user configuration, plugins, and driver libraries.
 - BreakTest-specific materials released under the BreakTest Community Source
