@@ -60,6 +60,7 @@ desktop and command-line distribution.
 ## Browser Recording And HAR Import
 
 - Browser recorder extensions for Chrome, Chromium-based Edge, and Firefox are
+  maintained in the separate `breaktest-browser-extension` repository and are
   included under `browser-extension/` in both binary and source distributions.
 - Recording can start in a prepared blank tab or private browser context so the
   first navigation and all dependent resources are captured.
