@@ -1,0 +1,3 @@
+[submodule "browser-extension"]
+	path = browser-extension
+	url = https://github.com/Breaking-IT/breaktest-browser-extension.git
