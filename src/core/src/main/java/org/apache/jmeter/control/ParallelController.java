@@ -23,6 +23,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 
 import org.apache.jmeter.engine.TreeCloner;
+import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.samplers.Sampler;
@@ -33,7 +34,7 @@ import org.apache.jmeter.testelement.schema.PropertiesAccessor;
  * Executes all samplers below this controller concurrently within the current
  * virtual user.
  */
-public class ParallelController extends GenericController implements Serializable {
+public class ParallelController extends GenericController implements Serializable, LoopIterationListener {
     private static final long serialVersionUID = 240L;
 
     private transient boolean samplerReturned;
@@ -52,6 +53,17 @@ public class ParallelController extends GenericController implements Serializabl
     public void initialize() {
         samplerReturned = false;
         super.initialize();
+    }
+
+    @Override
+    public void triggerEndOfLoop() {
+        samplerReturned = false;
+        super.triggerEndOfLoop();
+    }
+
+    @Override
+    public void iterationStart(LoopIterationEvent iterEvent) {
+        samplerReturned = false;
     }
 
     @Override

@@ -40,6 +40,12 @@ public class ForkController extends GenericController implements Serializable {
     }
 
     @Override
+    public void triggerEndOfLoop() {
+        samplerReturned = false;
+        super.triggerEndOfLoop();
+    }
+
+    @Override
     public Sampler next() {
         if (samplerReturned) {
             samplerReturned = false;

@@ -80,6 +80,40 @@ class TestForeachController extends JMeterTestCase {
     }
 
     @Test
+    void parallelForEachRunsAfterPreviousPassWasAborted() {
+        ForeachController controller = parallelForEachController();
+        controller.addTestElement(new RecordingSampler("child"));
+        JMeterVariables variables = new JMeterVariables();
+        variables.putObject("input_1", "one");
+        setVariables(controller, variables);
+        controller.setRunningVersion(true);
+        controller.initialize();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+
+        controller.triggerEndOfLoop();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+    }
+
+    @Test
+    void parallelForEachRunsAfterCurrentLoopWasRestarted() {
+        ForeachController controller = parallelForEachController();
+        controller.addTestElement(new RecordingSampler("child"));
+        JMeterVariables variables = new JMeterVariables();
+        variables.putObject("input_1", "one");
+        setVariables(controller, variables);
+        controller.setRunningVersion(true);
+        controller.initialize();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+
+        controller.startNextLoop();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+    }
+
+    @Test
     void parallelForEachCountsOnlyAvailableItemsWithinEndIndex() {
         ForeachController controller = parallelForEachController();
         controller.setEndIndex("3");
