@@ -25,12 +25,15 @@ import java.io.UnsupportedEncodingException;
 import java.net.ConnectException;
 import java.net.MalformedURLException;
 import java.net.NoRouteToHostException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -48,6 +51,7 @@ import java.util.function.Predicate;
 import java.util.regex.PatternSyntaxException;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
+import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
@@ -1362,38 +1366,25 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         ConnectTimeoutException connectTimeout = findConnectTimeout(e);
         if (connectTimeout != null) {
             String message = formatConnectTimeout(connectTimeout, res);
-            res.setSampleLabel(res.getSampleLabel());
-            res.setDataType(SampleResult.TEXT);
-            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
-            res.setDataEncoding(StandardCharsets.UTF_8.name());
-            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + connectTimeout.getClass().getName());
-            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
-            res.setSuccessful(false);
-            return res;
+            return normalizedErrorResult(res, "Connect timeout", message, message);
         }
         InterruptedIOException responseTimeout = findResponseTimeout(e);
         if (responseTimeout != null) {
+            if (isConnectionPhaseTimeout(responseTimeout)) {
+                String message = formatConnectionTimeout(responseTimeout, res);
+                return normalizedErrorResult(res, "Connect timeout", message, message);
+            }
             String message = formatResponseTimeout(responseTimeout, res);
-            res.setSampleLabel(res.getSampleLabel());
-            res.setDataType(SampleResult.TEXT);
-            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
-            res.setDataEncoding(StandardCharsets.UTF_8.name());
-            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + responseTimeout.getClass().getName());
-            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
-            res.setSuccessful(false);
-            return res;
+            return normalizedErrorResult(res, "Response timeout", message, message);
         }
         IOException connectionFailure = findConnectionFailure(e);
         if (connectionFailure != null) {
-            String message = formatConnectionFailure(connectionFailure, res);
-            res.setSampleLabel(res.getSampleLabel());
-            res.setDataType(SampleResult.TEXT);
-            res.setResponseData(message.getBytes(StandardCharsets.UTF_8));
-            res.setDataEncoding(StandardCharsets.UTF_8.name());
-            res.setResponseCode(NON_HTTP_RESPONSE_CODE + ": " + connectionFailure.getClass().getName());
-            res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE + ": " + message);
-            res.setSuccessful(false);
-            return res;
+            String detail = connectionFailureDetail(connectionFailure);
+            return normalizedErrorResult(
+                    res,
+                    connectionFailureCode(connectionFailure),
+                    formatConnectionFailureMessage(connectionFailure, detail, res),
+                    formatConnectionFailure(detail, res));
         }
         res.setSampleLabel(res.getSampleLabel());
         res.setDataType(SampleResult.TEXT);
@@ -1401,6 +1392,18 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         res.setDataEncoding(StandardCharsets.UTF_8.name());
         res.setResponseCode(NON_HTTP_RESPONSE_CODE+": " + e.getClass().getName());
         res.setResponseMessage(NON_HTTP_RESPONSE_MESSAGE+": " + e.getMessage());
+        res.setSuccessful(false);
+        return res;
+    }
+
+    private static HTTPSampleResult normalizedErrorResult(
+            HTTPSampleResult res, String responseCode, String responseMessage, String responseBody) {
+        res.setSampleLabel(res.getSampleLabel());
+        res.setDataType(SampleResult.TEXT);
+        res.setResponseData(responseBody.getBytes(StandardCharsets.UTF_8));
+        res.setDataEncoding(StandardCharsets.UTF_8.name());
+        res.setResponseCode(responseCode);
+        res.setResponseMessage(responseMessage);
         res.setSuccessful(false);
         return res;
     }
@@ -1425,7 +1428,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         while (current != null) {
             if (current instanceof NoRouteToHostException
                     || current instanceof ConnectException
-                    || current instanceof UnknownHostException) {
+                    || current instanceof UnknownHostException
+                    || isConnectionReset(current)) {
                 return (IOException) current;
             }
             current = current.getCause();
@@ -1433,17 +1437,38 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return null;
     }
 
+    private static boolean isConnectionReset(Throwable throwable) {
+        return throwable instanceof SocketException
+                && containsIgnoreCase(throwable.getMessage(), "connection reset");
+    }
+
+    private static boolean containsIgnoreCase(@Nullable String value, String expected) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(expected);
+    }
+
     private static @Nullable InterruptedIOException findResponseTimeout(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
             if (current instanceof InterruptedIOException interruptedIOException
                     && !(current instanceof ConnectTimeoutException)
-                    && isTimeoutMessage(current.getMessage())) {
+                    && (current instanceof SocketTimeoutException || isTimeoutMessage(current.getMessage()))) {
                 return interruptedIOException;
             }
             current = current.getCause();
         }
         return null;
+    }
+
+    private boolean isConnectionPhaseTimeout(InterruptedIOException timeout) {
+        if (!(timeout instanceof SocketTimeoutException)) {
+            return false;
+        }
+        long timeoutMillis = timeoutMillis(timeout.getMessage());
+        int connectTimeout = getConnectTimeout();
+        int responseTimeout = getResponseTimeout();
+        return connectTimeout > 0
+                && timeoutMillis == connectTimeout
+                && (responseTimeout <= 0 || timeoutMillis != responseTimeout);
     }
 
     private static boolean isTimeoutMessage(@Nullable String message) {
@@ -1459,23 +1484,69 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                 + " for " + formatTimeoutEndpoint(e, res);
     }
 
+    private static String formatConnectionTimeout(InterruptedIOException e, HTTPSampleResult res) {
+        return "Connection timeout after " + formatTimeout(e.getMessage())
+                + " for " + formatHostAndDestination(res);
+    }
+
     private static String formatResponseTimeout(InterruptedIOException e, HTTPSampleResult res) {
         return "Response timeout after " + formatTimeout(e.getMessage())
-                + " waiting for response: " + formatLocalIp(res)
-                + " -> " + formatResultDestination(res);
+                + " waiting for response: " + formatNetworkPath(res);
     }
 
-    private static String formatConnectionFailure(IOException e, HTTPSampleResult res) {
-        String detail = StringUtilities.isEmpty(e.getMessage()) ? e.getClass().getSimpleName() : e.getMessage();
-        return "Connection error: " + detail
-                + ": " + formatLocalIp(res)
-                + " -> " + formatResultDestination(res);
+    private static String connectionFailureCode(IOException e) {
+        if (isConnectionReset(e)) {
+            return "Connection reset";
+        }
+        if (e instanceof NoRouteToHostException) {
+            return "No route to host";
+        }
+        if (e instanceof UnknownHostException) {
+            return "Unknown host";
+        }
+        if (e instanceof ConnectException && containsIgnoreCase(e.getMessage(), "connection refused")) {
+            return "Connection refused";
+        }
+        return "Connection error";
     }
 
-    private static String formatLocalIp(HTTPSampleResult res) {
-        return StringUtilities.isEmpty(res.getLocalEndpoint())
-                ? "local IP unavailable"
-                : stripPort(res.getLocalEndpoint());
+    private static String connectionFailureDetail(IOException e) {
+        return StringUtilities.isEmpty(e.getMessage()) ? connectionFailureCode(e) : e.getMessage();
+    }
+
+    private static String formatConnectionFailureMessage(
+            IOException connectionFailure, String detail, HTTPSampleResult res) {
+        if (!isConnectionReset(connectionFailure)) {
+            return detail;
+        }
+        return detail + " for " + formatHostAndDestination(res);
+    }
+
+    private static String formatConnectionFailure(String detail, HTTPSampleResult res) {
+        return "Connection error: " + detail + ": " + formatNetworkPath(res);
+    }
+
+    private static String formatHostAndDestination(HTTPSampleResult res) {
+        URL url = res.getURL();
+        String host = url == null ? "" : url.getHost();
+        String destinationEndpoint = StringUtilities.isEmpty(res.getDestinationEndpoint())
+                ? formatEndpoint(host, portFrom(url))
+                : res.getDestinationEndpoint();
+        if (StringUtilities.isEmpty(host)
+                || destinationEndpoint.equals(host)
+                || destinationEndpoint.startsWith(host + ":")
+                || destinationEndpoint.startsWith(host + "/")) {
+            return destinationEndpoint;
+        }
+        return host + "/" + destinationEndpoint;
+    }
+
+    private static String formatNetworkPath(HTTPSampleResult res) {
+        String destination = formatResultDestination(res);
+        if (StringUtilities.isEmpty(res.getLocalEndpoint())) {
+            return destination;
+        }
+        return stripPort(res.getLocalEndpoint()) + " -> " + destination;
     }
 
     private static String formatTimeoutEndpoint(ConnectTimeoutException e, HTTPSampleResult res) {
@@ -1587,6 +1658,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         String timeout = timeoutStart >= 0
                 ? message.substring(timeoutStart + " failed: ".length()).trim()
                 : timeoutBetweenLastParentheses(message);
+        if (timeout.isEmpty() && timeoutMillis(message) >= 0) {
+            timeout = message.trim();
+        }
         if (timeout.isEmpty()) {
             return "unknown";
         }
@@ -1596,6 +1670,17 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                 .replace(" MINUTES", " min")
                 .replace(" HOURS", " h")
                 .toLowerCase(Locale.ROOT);
+    }
+
+    private static long timeoutMillis(@Nullable String message) {
+        if (message == null) {
+            return -1;
+        }
+        try {
+            return Timeout.parse(message.trim()).toMilliseconds();
+        } catch (ParseException | RuntimeException e) {
+            return -1;
+        }
     }
 
     private static String timeoutBetweenLastParentheses(String message) {
