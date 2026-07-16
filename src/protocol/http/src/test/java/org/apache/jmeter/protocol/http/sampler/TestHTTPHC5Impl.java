@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayInputStream;
 import java.io.InterruptedIOException;
 import java.net.NoRouteToHostException;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -246,10 +248,8 @@ public class TestHTTPHC5Impl {
         sampler.errorResult(new TransportException(connectTimeout("example.test", 999)), result);
 
         String expected = "Connection timeout after 10000 ms for 192.168.4.203:999";
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
-                + ConnectTimeoutException.class.getName(), result.getResponseCode());
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
-                result.getResponseMessage());
+        assertEquals("Connect timeout", result.getResponseCode());
+        assertEquals(expected, result.getResponseMessage());
         assertEquals(expected, result.getResponseDataAsString());
         assertFalse(result.getResponseDataAsString().contains("\tat "));
         assertFalse(result.isSuccessful());
@@ -281,10 +281,8 @@ public class TestHTTPHC5Impl {
 
         String expected = "Response timeout after 15 ms waiting for response: "
                 + "10.0.0.5 -> http://192.168.4.203:999 (example.test)";
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
-                + InterruptedIOException.class.getName(), result.getResponseCode());
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
-                result.getResponseMessage());
+        assertEquals("Response timeout", result.getResponseCode());
+        assertEquals(expected, result.getResponseMessage());
         assertEquals(expected, result.getResponseDataAsString());
         assertFalse(result.getResponseDataAsString().contains("\tat "));
         assertFalse(result.isSuccessful());
@@ -298,11 +296,47 @@ public class TestHTTPHC5Impl {
 
         sampler.errorResult(responseTimeout(), result);
 
-        assertEquals("Response timeout after 15 ms waiting for response: "
-                + "local IP unavailable -> http://192.168.4.203:999",
+        assertEquals("Response timeout after 15 ms waiting for response: http://192.168.4.203:999",
                 result.getResponseDataAsString());
+        assertFalse(result.getResponseMessage().contains("unavailable"));
         assertFalse(result.getResponseDataAsString().contains(InterruptedIOException.class.getName()));
         assertFalse(result.getResponseDataAsString().contains("\tat "));
+    }
+
+    @Test
+    public void socketTimeoutMatchingConnectSettingUsesConnectTimeoutResult() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setConnectTimeout("10000");
+        sampler.setResponseTimeout("60000");
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("https://example.test/path").toURL());
+        result.setDestinationEndpoint("192.168.4.203:443");
+
+        sampler.errorResult(new TransportException(new SocketTimeoutException("10000 MILLISECONDS")), result);
+
+        String expected = "Connection timeout after 10000 ms for example.test/192.168.4.203:443";
+        assertEquals("Connect timeout", result.getResponseCode());
+        assertEquals(expected, result.getResponseMessage());
+        assertEquals(expected, result.getResponseDataAsString());
+    }
+
+    @Test
+    public void socketTimeoutMatchingResponseSettingUsesResponseTimeoutResult() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setConnectTimeout("10000");
+        sampler.setResponseTimeout("60000");
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("https://example.test/path").toURL());
+        result.setLocalEndpoint("10.0.0.5:54000");
+        result.setDestinationEndpoint("192.168.4.203:443");
+
+        sampler.errorResult(new TransportException(new SocketTimeoutException("60000 MILLISECONDS")), result);
+
+        String expected = "Response timeout after 60000 ms waiting for response: "
+                + "10.0.0.5 -> https://192.168.4.203:443 (example.test)";
+        assertEquals("Response timeout", result.getResponseCode());
+        assertEquals(expected, result.getResponseMessage());
+        assertEquals(expected, result.getResponseDataAsString());
     }
 
     @Test
@@ -313,14 +347,32 @@ public class TestHTTPHC5Impl {
 
         sampler.errorResult(new TransportException(new NoRouteToHostException("No route to host")), result);
 
-        String expected = "Connection error: No route to host: "
-                + "local IP unavailable -> http://whitehouse.gov:80";
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_CODE + ": "
-                + NoRouteToHostException.class.getName(), result.getResponseCode());
-        assertEquals(HTTPSamplerBase.NON_HTTP_RESPONSE_MESSAGE + ": " + expected,
-                result.getResponseMessage());
+        String expected = "Connection error: No route to host: http://whitehouse.gov:80";
+        assertEquals("No route to host", result.getResponseCode());
+        assertEquals("No route to host", result.getResponseMessage());
         assertEquals(expected, result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains("unavailable"));
         assertFalse(result.getResponseDataAsString().contains("ClassicToAsyncResponseConsumer"));
+        assertFalse(result.getResponseDataAsString().contains("\tat "));
+    }
+
+    @Test
+    public void connectionResetErrorResultUsesConciseCodeAndMessage() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(URI.create("https://example.test/path").toURL());
+        result.setLocalEndpoint("10.0.0.5:54000");
+        result.setDestinationEndpoint("192.168.4.203:443");
+
+        sampler.errorResult(new TransportException(new SocketException("Connection reset by peer")), result);
+
+        assertEquals("Connection reset", result.getResponseCode());
+        assertEquals("Connection reset by peer for example.test/192.168.4.203:443", result.getResponseMessage());
+        assertEquals("Connection error: Connection reset by peer: "
+                + "10.0.0.5 -> https://192.168.4.203:443 (example.test)",
+                result.getResponseDataAsString());
+        assertFalse(result.getResponseDataAsString().contains(TransportException.class.getName()));
+        assertFalse(result.getResponseDataAsString().contains(SocketException.class.getName()));
         assertFalse(result.getResponseDataAsString().contains("\tat "));
     }
 
