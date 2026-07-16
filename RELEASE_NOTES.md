@@ -13,6 +13,71 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.07.16 — Load Profiles and Network Diagnostics
+
+BreakTest 2026.07.16 adds clearer closed-model load profiles, hardens parallel
+controller restarts, and makes common HTTP network failures easier to identify
+from results and reports.
+
+## Highlights
+
+- Adds a **Load Profile** selector for closed-model Thread Groups. Standard mode
+  retains the familiar thread settings, while Custom mode exposes phase-based
+  scheduling without leaving inactive controls in the way.
+- Interprets `threadsPhase(targetThreads, durationSeconds)` durations relative
+  to the preceding phase, so each value describes the length of that phase.
+- Keeps pacing, same-user behaviour, and delayed thread creation available for
+  Custom profiles, while phase entries can express an initial delay directly.
+- Fixes stale marker handshakes in Parallel, Fork, and parallel ForEach
+  controllers after loop restarts, preventing work from being skipped in the
+  next iteration.
+- Replaces verbose Java exception class names for recognized HTTP failures with
+  concise codes such as `Connect timeout`, `Response timeout`, and
+  `Connection reset`.
+- Adds useful duration and host/IP context to timeout and reset messages while
+  omitting synthetic values such as `local IP unavailable`.
+- Keeps the Chrome, Edge, and Firefox recorder in the binary and source
+  distributions through its pinned standalone repository checkout.
+
+## Closed-Model Load Profiles
+
+- Standard and Custom profiles now show only the controls that apply to the
+  selected mode, keeping the load graph close to the active settings.
+- Custom phases support ramp-up, steady load, ramp-down, and initial delay by
+  defining a target thread count and the duration of each successive phase.
+- Phase graphs and runtime scheduling use the same cumulative timeline.
+- Custom profiles retain pacing configuration alongside the shared same-user
+  and delayed-thread-creation options.
+
+## Controller Restart Reliability
+
+- Parallel Controller clears an in-flight marker handshake when a thread loop
+  is restarted after an error or flow-control action.
+- Fork Controller and parallel ForEach apply the same reset invariant so future
+  iterations cannot consume stale marker state.
+- Regression coverage exercises restart paths for all three controllers.
+
+## HTTP Network Diagnostics
+
+- Connect, response, reset, refused, unknown-host, and no-route failures use
+  short response codes and readable messages instead of implementation class
+  names.
+- Wrapped HttpClient 5 socket timeouts are classified using the configured
+  connect and response timeout values, including TLS-handshake timeout shapes.
+- Connection-reset messages include the hostname and resolved endpoint when
+  available.
+- Result bodies remain compact and omit stack traces for recognized network
+  failures.
+
+## Distribution And Compatibility
+
+- Browser recorder sources are maintained in the standalone
+  `breaktest-browser-extension` repository and remain included under
+  `browser-extension/` in release archives.
+- Java 21 or later is required.
+- Existing JMeter-compatible JMX files remain supported where practical.
+- This release uses the direct Git tag `2026.07.16`.
+
 # BreakTest 2026.07.13 — Initial Community Release
 
 BreakTest is a modern, JMeter-compatible performance testing tool for building,
