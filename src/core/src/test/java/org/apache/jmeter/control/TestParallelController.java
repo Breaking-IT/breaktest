@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.junit.stubs.TestSampler;
 import org.apache.jmeter.samplers.Sampler;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,38 @@ class TestParallelController {
             assertNull(controller.next());
             assertFalse(controller.isDone());
         }
+    }
+
+    @Test
+    void controllerRunsAfterPreviousPassWasAborted() {
+        ParallelController controller = new ParallelController();
+        controller.setName("parallel");
+        controller.addTestElement(new TestSampler("one"));
+        controller.initialize();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+
+        // Start Next Thread Loop unwinds active parent controllers without asking
+        // this controller for the normal end-of-pass null marker.
+        controller.triggerEndOfLoop();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+    }
+
+    @Test
+    void controllerRunsWhenParentStartsNextIterationBeforeItWasUnwound() {
+        ParallelController controller = new ParallelController();
+        controller.setName("parallel");
+        controller.addTestElement(new TestSampler("one"));
+        controller.initialize();
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
+
+        // A failure earlier in the next pass can prevent this controller from
+        // being reached and unwound, leaving its previous marker outstanding.
+        controller.iterationStart(new LoopIterationEvent(controller, 1));
+
+        assertInstanceOf(ParallelControllerSampler.class, controller.next());
     }
 
     @Test

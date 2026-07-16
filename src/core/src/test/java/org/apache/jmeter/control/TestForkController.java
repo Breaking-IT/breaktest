@@ -105,6 +105,20 @@ class TestForkController {
     }
 
     @Test
+    void controllerRunsAfterPreviousPassWasAborted() {
+        ForkController controller = new ForkController();
+        controller.setName("fork");
+        controller.addTestElement(new TestSampler("child"));
+        controller.initialize();
+
+        assertInstanceOf(ForkControllerSampler.class, controller.next());
+
+        controller.triggerEndOfLoop();
+
+        assertInstanceOf(ForkControllerSampler.class, controller.next());
+    }
+
+    @Test
     void nextDoesNotDrainInfiniteChildLoop() {
         ForkController controller = new ForkController();
         controller.setName("fork");

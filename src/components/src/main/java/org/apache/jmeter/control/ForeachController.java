@@ -405,6 +405,7 @@ public class ForeachController extends GenericController implements Serializable
      */
     @Override
     public void triggerEndOfLoop() {
+        parallelSamplerReturned = false;
         super.triggerEndOfLoop();
         resetLoopCount();
     }
@@ -422,6 +423,7 @@ public class ForeachController extends GenericController implements Serializable
 
     @Override
     public void startNextLoop() {
+        parallelSamplerReturned = false;
         reInitialize();
     }
 

@@ -42,9 +42,9 @@ class ClosedModelThreadGroupScheduleTest {
 
         assertEquals(2, phases.size());
         assertEquals(10, phases.get(0).targetThreads());
-        assertEquals(10, phases.get(0).timeSeconds());
+        assertEquals(10, phases.get(0).durationSeconds());
         assertEquals(25, phases.get(1).targetThreads());
-        assertEquals(30, phases.get(1).timeSeconds());
+        assertEquals(30, phases.get(1).durationSeconds());
     }
 
     @Test
@@ -54,12 +54,17 @@ class ClosedModelThreadGroupScheduleTest {
     }
 
     @Test
-    void rejectsDecreasingClosedModelScheduleTimes() {
-        assertThrows(IllegalArgumentException.class,
-                () -> ThreadGroup.parseClosedModelSchedule("""
-                        threadsPhase(10, 20)
-                        threadsPhase(25, 10)
-                        """));
+    void acceptsEachClosedModelPhaseTimeAsAnIndependentDuration() {
+        List<ThreadGroup.ClosedModelPhase> phases = ThreadGroup.parseClosedModelSchedule("""
+                threadsPhase(10, 100)
+                threadsPhase(10, 50)
+                threadsPhase(80, 300)
+                """);
+
+        assertEquals(3, phases.size());
+        assertEquals(100, phases.get(0).durationSeconds());
+        assertEquals(50, phases.get(1).durationSeconds());
+        assertEquals(300, phases.get(2).durationSeconds());
     }
 
     @Test
@@ -72,6 +77,26 @@ class ClosedModelThreadGroupScheduleTest {
                 """);
 
         assertEquals(25, threadGroup.getNumThreads());
+    }
+
+    @Test
+    void legacyClosedModelScheduleWithoutExplicitModeUsesCustomPhases() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setNumThreads(5);
+        threadGroup.setClosedModelSchedule("threadsPhase(25, 30)");
+
+        assertEquals(ThreadGroup.CLOSED_MODEL_MODE_CUSTOM, threadGroup.getClosedModelMode());
+        assertEquals(25, threadGroup.getNumThreads());
+    }
+
+    @Test
+    void standardModeIgnoresAStoredCustomSchedule() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setNumThreads(5);
+        threadGroup.setClosedModelSchedule("threadsPhase(25, 30)");
+        threadGroup.setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
+
+        assertEquals(5, threadGroup.getNumThreads());
     }
 
     @Test
@@ -112,6 +137,23 @@ class ClosedModelThreadGroupScheduleTest {
         assertTrue(threadGroup.threadStarted.await(2, TimeUnit.SECONDS));
         assertTrue(threadGroup.threadStopped.await(2, TimeUnit.SECONDS));
         assertEquals(0, threadGroup.numberOfActiveThreads());
+    }
+
+    @Test
+    @Timeout(5)
+    void customClosedModelDoesNotWaitForStandardStartupDelay() throws Exception {
+        FailingClosedModelThreadGroup threadGroup = new FailingClosedModelThreadGroup();
+        threadGroup.setName("custom closed model");
+        threadGroup.setDelay(30);
+        threadGroup.setClosedModelSchedule("threadsPhase(1, 0)");
+
+        try {
+            threadGroup.start(1, new ListenerNotifier(), new ListedHashTree(), new StandardJMeterEngine());
+
+            assertTrue(threadGroup.threadStarted.await(1, TimeUnit.SECONDS));
+        } finally {
+            threadGroup.tellThreadsToStop();
+        }
     }
 
     private static final class FailingClosedModelThreadGroup extends ThreadGroup {

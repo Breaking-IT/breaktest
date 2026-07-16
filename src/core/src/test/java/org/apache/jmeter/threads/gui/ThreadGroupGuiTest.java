@@ -17,9 +17,20 @@
 
 package org.apache.jmeter.threads.gui;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.awt.Component;
+import java.awt.Container;
+import java.util.List;
+
+import javax.swing.JComboBox;
+import javax.swing.JPanel;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -123,6 +134,118 @@ class ThreadGroupGuiTest {
         assertEquals(3, mainController(threadGroup).getLoops());
     }
 
+    @Test
+    void closedModelOffersStandardAndCustomThreadModes() {
+        ThreadGroupGui gui = new ThreadGroupGui();
+
+        JComboBox<?> threadMode = findNamedComponent(gui, JComboBox.class, "closedModelThreadMode");
+        assertNotNull(threadMode);
+        assertEquals(2, threadMode.getItemCount());
+        assertEquals(0, threadMode.getSelectedIndex());
+        JPanel standardSettings = findNamedComponent(gui, JPanel.class, "standardThreadSettings");
+        JPanel customSettings = findNamedComponent(gui, JPanel.class, "customThreadSettings");
+        assertNotNull(standardSettings);
+        assertNotNull(customSettings);
+        assertTrue(standardSettings.isVisible());
+        assertFalse(customSettings.isVisible());
+
+        threadMode.setSelectedIndex(1);
+
+        assertFalse(standardSettings.isVisible());
+        assertTrue(customSettings.isVisible());
+    }
+
+    @Test
+    void customProfilePlacesSharedControlsBeforePhasesAndExcludesStartupDelay() {
+        ThreadGroupGui gui = new ThreadGroupGui();
+        JComboBox<?> loadProfile = findNamedComponent(gui, JComboBox.class, "closedModelThreadMode");
+        assertNotNull(loadProfile);
+        loadProfile.setSelectedIndex(1);
+
+        JPanel closedModelSettings = findNamedComponent(gui, JPanel.class, "closedModelSettings");
+        JPanel standardSettings = findNamedComponent(gui, JPanel.class, "standardThreadSettings");
+        JPanel profileSettings = findNamedComponent(gui, JPanel.class, "loadProfileSettings");
+        JPanel sameUserControls = findNamedComponent(gui, JPanel.class, "sameUserControls");
+        Component delayedThreadCreation = findNamedComponent(gui, Component.class, "delayedThreadCreation");
+        JPanel pacingControls = findNamedComponent(gui, JPanel.class, "pacingControls");
+        JTextField startupDelay = findNamedComponent(gui, JTextField.class, "startupDelay");
+        assertNotNull(closedModelSettings);
+        assertNotNull(standardSettings);
+        assertNotNull(profileSettings);
+        assertNotNull(sameUserControls);
+        assertNotNull(delayedThreadCreation);
+        assertNotNull(pacingControls);
+        assertNotNull(startupDelay);
+
+        assertTrue(SwingUtilities.isDescendingFrom(startupDelay, standardSettings));
+        assertComesBefore(closedModelSettings, sameUserControls, profileSettings);
+        assertComesBefore(closedModelSettings, delayedThreadCreation, profileSettings);
+        assertComesBefore(closedModelSettings, pacingControls, profileSettings);
+
+        startupDelay.setText("30");
+        ThreadGroup threadGroup = (ThreadGroup) gui.createTestElement();
+        assertEquals(0, threadGroup.getDelay());
+    }
+
+    @Test
+    void customThreadModeIsSavedOnTheThreadGroup() {
+        ThreadGroupGui gui = new ThreadGroupGui();
+        JComboBox<?> threadMode = findNamedComponent(gui, JComboBox.class, "closedModelThreadMode");
+        assertNotNull(threadMode);
+        threadMode.setSelectedIndex(1);
+
+        ThreadGroup threadGroup = (ThreadGroup) gui.createTestElement();
+        gui.modifyTestElement(threadGroup);
+
+        assertEquals("Custom", threadGroup.getPropertyAsString("ThreadGroup.closed_mode"));
+    }
+
+    @Test
+    void legacyThreadGroupWithPhasesOpensInCustomMode() {
+        ThreadGroup threadGroup = threadGroupWithLoops(1);
+        threadGroup.removeProperty(ThreadGroup.CLOSED_MODEL_MODE);
+        threadGroup.setClosedModelSchedule("threadsPhase(10, 100)");
+        ThreadGroupGui gui = new ThreadGroupGui();
+
+        gui.configure(threadGroup);
+
+        JComboBox<?> threadMode = findNamedComponent(gui, JComboBox.class, "closedModelThreadMode");
+        assertNotNull(threadMode);
+        assertEquals(1, threadMode.getSelectedIndex());
+    }
+
+    @Test
+    void customPhasePreviewUsesCumulativeDurations() {
+        List<ThreadGroup.ClosedModelPhase> phases = ThreadGroup.parseClosedModelSchedule("""
+                threadsPhase(10, 100)
+                threadsPhase(10, 150)
+                threadsPhase(80, 300)
+                """);
+
+        assertArrayEquals(
+                new double[] {100, 250, 550},
+                ThreadGroupGui.closedModelPhaseEndTimes(phases, 0));
+    }
+
+    @Test
+    void openModelSettingsUseOnlyTheirOwnPreferredHeight() {
+        ThreadGroup threadGroup = threadGroupWithLoops(1);
+        threadGroup.setThreadGroupModel(ThreadGroup.MODEL_OPEN);
+        ThreadGroupGui gui = new ThreadGroupGui();
+
+        gui.configure(threadGroup);
+
+        JPanel modelSettings = findNamedComponent(gui, JPanel.class, "threadGroupModelSettings");
+        JPanel closedModelSettings = findNamedComponent(gui, JPanel.class, "closedModelSettings");
+        JPanel openModelSettings = findNamedComponent(gui, JPanel.class, "openModelSettings");
+        assertNotNull(modelSettings);
+        assertNotNull(closedModelSettings);
+        assertNotNull(openModelSettings);
+        assertFalse(closedModelSettings.isVisible());
+        assertTrue(openModelSettings.isVisible());
+        assertEquals(openModelSettings.getPreferredSize().height, modelSettings.getPreferredSize().height);
+    }
+
     private static ThreadGroup threadGroupWithLoops(int loops) {
         ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
         LoopController loopController = new LoopController();
@@ -133,5 +256,34 @@ class ThreadGroupGuiTest {
 
     private static LoopController mainController(ThreadGroup threadGroup) {
         return (LoopController) threadGroup.getSamplerController();
+    }
+
+    private static void assertComesBefore(Container parent, Component first, Component second) {
+        assertTrue(parent.getComponentZOrder(directChild(parent, first))
+                < parent.getComponentZOrder(directChild(parent, second)));
+    }
+
+    private static Component directChild(Container parent, Component descendant) {
+        Component child = descendant;
+        while (child.getParent() != parent) {
+            child = child.getParent();
+            assertNotNull(child);
+        }
+        return child;
+    }
+
+    private static <T extends Component> T findNamedComponent(Container root, Class<T> type, String name) {
+        for (Component component : root.getComponents()) {
+            if (type.isInstance(component) && name.equals(component.getName())) {
+                return type.cast(component);
+            }
+            if (component instanceof Container child) {
+                T result = findNamedComponent(child, type, name);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
     }
 }

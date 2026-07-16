@@ -108,6 +108,15 @@ public class ThreadGroup extends AbstractThreadGroup {
     /** Closed model phase schedule expression */
     public static final String CLOSED_MODEL_SCHEDULE = "ThreadGroup.closed_schedule";
 
+    /** Closed model thread configuration mode */
+    public static final String CLOSED_MODEL_MODE = "ThreadGroup.closed_mode";
+
+    /** Standard closed model thread configuration */
+    public static final String CLOSED_MODEL_MODE_STANDARD = "Standard";
+
+    /** Custom closed model phase configuration */
+    public static final String CLOSED_MODEL_MODE_CUSTOM = "Custom";
+
     /** Open model schedule expression */
     public static final String OPEN_MODEL_SCHEDULE = "OpenModelThreadGroup.schedule";
 
@@ -213,10 +222,37 @@ public class ThreadGroup extends AbstractThreadGroup {
         return MODEL_OPEN.equals(getThreadGroupModel());
     }
 
+    public void setClosedModelMode(String mode) {
+        setProperty(CLOSED_MODEL_MODE,
+                CLOSED_MODEL_MODE_CUSTOM.equals(mode) ? CLOSED_MODEL_MODE_CUSTOM : CLOSED_MODEL_MODE_STANDARD);
+    }
+
+    public String getClosedModelMode() {
+        String mode = getPropertyAsString(CLOSED_MODEL_MODE);
+        if (CLOSED_MODEL_MODE_CUSTOM.equals(mode)) {
+            return CLOSED_MODEL_MODE_CUSTOM;
+        }
+        if (CLOSED_MODEL_MODE_STANDARD.equals(mode)) {
+            return CLOSED_MODEL_MODE_STANDARD;
+        }
+        // Plans created before the explicit mode selector used a non-empty schedule
+        // as the signal that custom closed-model phases were enabled.
+        return getClosedModelSchedule().trim().isEmpty()
+                ? CLOSED_MODEL_MODE_STANDARD
+                : CLOSED_MODEL_MODE_CUSTOM;
+    }
+
+    public boolean isCustomClosedModel() {
+        return CLOSED_MODEL_MODE_CUSTOM.equals(getClosedModelMode());
+    }
+
     @Override
     public int getNumThreads() {
         if (isOpenModel()) {
             return 0;
+        }
+        if (!isCustomClosedModel()) {
+            return super.getNumThreads();
         }
         ClosedModelScheduleCache schedule = getClosedModelScheduleCache();
         List<ClosedModelPhase> phases = schedule.phases();
@@ -295,19 +331,14 @@ public class ThreadGroup extends AbstractThreadGroup {
         }
         Matcher matcher = CLOSED_MODEL_PHASE_PATTERN.matcher(schedule);
         int position = 0;
-        long previousTimeSeconds = 0;
         while (matcher.find()) {
             String betweenPhases = schedule.substring(position, matcher.start()).trim();
             if (!betweenPhases.isEmpty()) {
                 throw new IllegalArgumentException("Invalid closed model schedule near: " + betweenPhases);
             }
             long targetThreads = Long.parseLong(matcher.group(1));
-            long timeSeconds = Long.parseLong(matcher.group(2));
-            if (!phases.isEmpty() && timeSeconds < previousTimeSeconds) {
-                throw new IllegalArgumentException("Closed model phase times must not decrease");
-            }
-            phases.add(new ClosedModelPhase(targetThreads, timeSeconds));
-            previousTimeSeconds = timeSeconds;
+            long durationSeconds = Long.parseLong(matcher.group(2));
+            phases.add(new ClosedModelPhase(targetThreads, durationSeconds));
             position = matcher.end();
         }
         String trailingText = schedule.substring(position).trim();
@@ -458,7 +489,9 @@ public class ThreadGroup extends AbstractThreadGroup {
             startOpenModel(groupNum, notifier, threadGroupTree, engine);
             return;
         }
-        List<ClosedModelPhase> phases = getClosedModelScheduleCache().phases();
+        List<ClosedModelPhase> phases = isCustomClosedModel()
+                ? getClosedModelScheduleCache().phases()
+                : List.of();
         if (!phases.isEmpty()) {
             startClosedModel(groupNum, notifier, threadGroupTree, engine, phases);
             return;
@@ -586,24 +619,33 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     public static final class ClosedModelPhase {
         private final long targetThreads;
-        private final long timeSeconds;
+        private final long durationSeconds;
 
-        public ClosedModelPhase(long targetThreads, long timeSeconds) {
+        public ClosedModelPhase(long targetThreads, long durationSeconds) {
             this.targetThreads = targetThreads;
-            this.timeSeconds = timeSeconds;
+            this.durationSeconds = durationSeconds;
         }
 
         public long targetThreads() {
             return targetThreads;
         }
 
+        public long durationSeconds() {
+            return durationSeconds;
+        }
+
+        /**
+         * @return the duration of this phase in seconds
+         * @deprecated use {@link #durationSeconds()} to make the relative duration semantics explicit
+         */
+        @Deprecated
         public long timeSeconds() {
-            return timeSeconds;
+            return durationSeconds;
         }
 
         @Override
         public String toString() {
-            return "threadsPhase(" + targetThreads + ", " + timeSeconds + ")";
+            return "threadsPhase(" + targetThreads + ", " + durationSeconds + ")";
         }
     }
 
@@ -632,20 +674,13 @@ public class ThreadGroup extends AbstractThreadGroup {
         public void run() {
             try {
                 JMeterContextService.getContext().setVariables(variables);
-                long startupDelay = getStartupDelayInMillis();
-                if (startupDelay > 0 && sleepUntil(System.currentTimeMillis() + startupDelay, engine) < 0) {
-                    return;
-                }
-
                 long previousTargetThreads = 0;
-                long previousTimeSeconds = 0;
                 for (ClosedModelPhase phase : phases) {
                     if (!running || Thread.currentThread().isInterrupted()) {
                         return;
                     }
-                    runPhase(previousTargetThreads, previousTimeSeconds, phase);
+                    runPhase(previousTargetThreads, phase);
                     previousTargetThreads = phase.targetThreads();
-                    previousTimeSeconds = phase.timeSeconds();
                 }
                 finishClosedModelScheduling();
             } catch (Exception ex) {
@@ -659,9 +694,9 @@ public class ThreadGroup extends AbstractThreadGroup {
             stopActiveThreads(allThreads.size(), false);
         }
 
-        private void runPhase(long previousTargetThreads, long previousTimeSeconds, ClosedModelPhase phase) {
+        private void runPhase(long previousTargetThreads, ClosedModelPhase phase) {
             long targetThreads = phase.targetThreads();
-            long phaseMillis = secondsToMillis(Math.max(0, phase.timeSeconds() - previousTimeSeconds));
+            long phaseMillis = secondsToMillis(phase.durationSeconds());
             long phaseStart = System.currentTimeMillis();
             long phaseEnd = phaseStart + phaseMillis;
 

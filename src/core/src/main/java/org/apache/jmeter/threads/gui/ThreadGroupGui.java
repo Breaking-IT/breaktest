@@ -74,10 +74,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private static final String RAMP_NAME = "Ramp Up Field";
 
-    private static final String CLOSED_MODEL_CARD = "closed"; // $NON-NLS-1$
-
-    private static final String OPEN_MODEL_CARD = "open"; // $NON-NLS-1$
-
     private static final String PREVIEW_CLOSED_CARD = "previewClosed"; // $NON-NLS-1$
 
     private static final String PREVIEW_OPEN_CARD = "previewOpen"; // $NON-NLS-1$
@@ -119,7 +115,22 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private final JComboBox<String> threadGroupModel = new JComboBox<>(
             new String[] { closedModelLabel(), openModelLabel() });
 
-    private final JPanel modelCards = new JPanel(new CardLayout());
+    private final JComboBox<String> closedModelThreadMode = new JComboBox<>(
+            new String[] { standardThreadModeLabel(), customThreadModeLabel() });
+
+    private final JPanel modelCards =
+            new JPanel(new MigLayout("insets 0, fillx, wrap 1, hidemode 3", "[fill,grow]"));
+
+    private JPanel closedModelSettings;
+
+    private JPanel openModelSettings;
+
+    private final JPanel closedModelThreadModeCards =
+            new JPanel(new MigLayout("insets 0, fillx, wrap 1, hidemode 3", "[fill,grow]"));
+
+    private JPanel closedModelStandardSettings;
+
+    private JPanel closedModelCustomSettings;
 
     private final JPanel previewCards = new JPanel(new CardLayout());
 
@@ -287,6 +298,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         }
         if (element instanceof ThreadGroup threadGroup) {
             threadGroup.setThreadGroupModel(ThreadGroup.MODEL_CLOSED);
+            threadGroup.setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
             threadGroup.setClosedModelSchedule(""); // $NON-NLS-1$
         }
         element.set(ThreadGroupSchema.INSTANCE.getNumThreads(), 1);
@@ -328,7 +340,11 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         super.modifyTestElement(tg);
         if (tg instanceof ThreadGroup threadGroup) {
             threadGroup.setThreadGroupModel(openModel ? ThreadGroup.MODEL_OPEN : ThreadGroup.MODEL_CLOSED);
+            threadGroup.setClosedModelMode(selectedClosedModelThreadMode());
             threadGroup.setClosedModelSchedule(closedModelSchedule.getText());
+            if (!openModel && isCustomClosedModelSelected()) {
+                threadGroup.setDelay(0);
+            }
             if (openModel) {
                 threadGroup.setOpenModelSchedule(openModelSchedule.getText());
                 threadGroup.setOpenModelRandomSeedString(openModelRandomSeed.getText());
@@ -391,6 +407,14 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         return JMeterUtils.getResString("thread_group_model_open"); // $NON-NLS-1$
     }
 
+    private static String standardThreadModeLabel() {
+        return JMeterUtils.getResString("thread_group_thread_mode_standard"); // $NON-NLS-1$
+    }
+
+    private static String customThreadModeLabel() {
+        return JMeterUtils.getResString("thread_group_thread_mode_custom"); // $NON-NLS-1$
+    }
+
     private static String durationPolicyNoLimitLabel() {
         return JMeterUtils.getResString("thread_group_duration_policy_no_limit"); // $NON-NLS-1$
     }
@@ -413,6 +437,22 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private boolean isOpenModelSelected() {
         return openModelLabel().equals(threadGroupModel.getSelectedItem());
+    }
+
+    private boolean isCustomClosedModelSelected() {
+        return customThreadModeLabel().equals(closedModelThreadMode.getSelectedItem());
+    }
+
+    private String selectedClosedModelThreadMode() {
+        return isCustomClosedModelSelected()
+                ? ThreadGroup.CLOSED_MODEL_MODE_CUSTOM
+                : ThreadGroup.CLOSED_MODEL_MODE_STANDARD;
+    }
+
+    private void setSelectedClosedModelThreadMode(String mode) {
+        closedModelThreadMode.setSelectedItem(ThreadGroup.CLOSED_MODEL_MODE_CUSTOM.equals(mode)
+                ? customThreadModeLabel()
+                : standardThreadModeLabel());
     }
 
     private boolean isNoLimitPolicySelected() {
@@ -460,7 +500,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         delay.setEnabled(true);
         delayLabel.setVisible(true);
         delayLabel.setEnabled(true);
-        updateClosedModelLegacyFieldState();
     }
 
     private void applyDurationPolicyToFields() {
@@ -509,8 +548,10 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private void configureClosedModelFields(TestElement tg) {
         if (tg instanceof ThreadGroup threadGroup) {
             closedModelSchedule.setText(threadGroup.getClosedModelSchedule());
+            setSelectedClosedModelThreadMode(threadGroup.getClosedModelMode());
         } else {
             closedModelSchedule.setText(""); // $NON-NLS-1$
+            setSelectedClosedModelThreadMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
         }
     }
 
@@ -557,6 +598,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private void initGui(){
         loopPanel.clearGui();
         setSelectedThreadGroupModel(ThreadGroup.MODEL_CLOSED);
+        setSelectedClosedModelThreadMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
         closedModelSchedule.setText(""); // $NON-NLS-1$
         openModelSchedule.setText(""); // $NON-NLS-1$
         openModelRandomSeed.setText("0"); // $NON-NLS-1$
@@ -578,8 +620,13 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         contentPanel.add(threadGroupModel, "w pref!, growx 0");
         threadGroupModel.addActionListener(e -> updateModelFields());
 
-        modelCards.add(createClosedModelPanel(), CLOSED_MODEL_CARD);
-        modelCards.add(createOpenModelPanel(), OPEN_MODEL_CARD);
+        closedModelSettings = createClosedModelPanel();
+        closedModelSettings.setName("closedModelSettings"); // $NON-NLS-1$
+        openModelSettings = createOpenModelPanel();
+        openModelSettings.setName("openModelSettings"); // $NON-NLS-1$
+        modelCards.setName("threadGroupModelSettings"); // $NON-NLS-1$
+        modelCards.add(closedModelSettings, "growx");
+        modelCards.add(openModelSettings, "growx");
         contentPanel.add(modelCards, "span 2, growx");
         previewCards.add(closedModelPreview, PREVIEW_CLOSED_CARD);
         previewCards.add(openModelPreview, PREVIEW_OPEN_CARD);
@@ -594,10 +641,41 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private JPanel createClosedModelPanel() {
-        // THREAD PROPERTIES
-        JPanel threadPropsPanel = new JPanel(new MigLayout("fillx, wrap 2, hidemode 3", "[][fill,grow]"));
-        threadPropsPanel.setBorder(BorderFactory.createTitledBorder(
+        JPanel closedModelPanel = new JPanel(new MigLayout("fillx, wrap 2, hidemode 3", "[][fill,grow]"));
+        closedModelPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("thread_properties"))); // $NON-NLS-1$
+        closedModelPanel.add(new JLabel(JMeterUtils.getResString("thread_group_thread_mode")));
+        closedModelThreadMode.setName("closedModelThreadMode"); // $NON-NLS-1$
+        closedModelPanel.add(closedModelThreadMode, "w pref!, growx 0");
+
+        // These settings apply to both standard and custom closed-model loads.
+        closedModelPanel.add(createSameUserPanel(), "span 2");
+        if (showDelayedStart) {
+            delayedStart = new JBooleanPropertyEditor(
+                    ThreadGroupSchema.INSTANCE.getDelayedStart(),
+                    "delayed_start",
+                    JMeterUtils::getResString); // $NON-NLS-1$
+            delayedStart.setName("delayedThreadCreation"); // $NON-NLS-1$
+            closedModelPanel.add(delayedStart, "span 2");
+        }
+        addPacingControls(closedModelPanel);
+
+        closedModelStandardSettings = createStandardClosedModelPanel();
+        closedModelStandardSettings.setName("standardThreadSettings"); // $NON-NLS-1$
+        closedModelCustomSettings = createCustomClosedModelPanel();
+        closedModelCustomSettings.setName("customThreadSettings"); // $NON-NLS-1$
+        closedModelThreadModeCards.setName("loadProfileSettings"); // $NON-NLS-1$
+        closedModelThreadModeCards.add(closedModelStandardSettings, "growx");
+        closedModelThreadModeCards.add(closedModelCustomSettings, "growx");
+        closedModelPanel.add(closedModelThreadModeCards, "span 2, growx");
+
+        closedModelThreadMode.addActionListener(e -> updateClosedModelThreadModeFields());
+        updateClosedModelThreadModeFields();
+        return closedModelPanel;
+    }
+
+    private JPanel createStandardClosedModelPanel() {
+        JPanel threadPropsPanel = new JPanel(new MigLayout("insets 0, fillx, wrap 2, hidemode 3", "[][fill,grow]"));
 
         // NUMBER OF THREADS
         threadPropsPanel.add(threadInputLabel);
@@ -625,19 +703,16 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         threadPropsPanel.add(durationLabel);
         threadPropsPanel.add(duration);
         threadPropsPanel.add(delayLabel);
+        delay.setName("startupDelay"); // $NON-NLS-1$
         threadPropsPanel.add(delay);
-        threadPropsPanel.add(createSameUserPanel(), "span 2");
-        if (showDelayedStart) {
-            delayedStart = new JBooleanPropertyEditor(
-                    ThreadGroupSchema.INSTANCE.getDelayedStart(),
-                    "delayed_start",
-                    JMeterUtils::getResString); // $NON-NLS-1$
-            threadPropsPanel.add(delayedStart, "span 2");
-        }
-        addPacingControls(threadPropsPanel);
-        threadPropsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_phases")));
-        threadPropsPanel.add(createClosedModelPhasePanel(), "growx");
         return threadPropsPanel;
+    }
+
+    private JPanel createCustomClosedModelPanel() {
+        JPanel panel = new JPanel(new MigLayout("insets 0, fillx, wrap 2", "[][fill,grow]"));
+        panel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_phases")));
+        panel.add(createClosedModelPhasePanel(), "growx");
+        return panel;
     }
 
     private JPanel createClosedModelPhasePanel() {
@@ -646,7 +721,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_add_phase")));
         actionsPanel.add(closedModelPhaseThreads, "w 48!, growx 0");
         actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_threads")));
-        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_at")));
+        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_for")));
         actionsPanel.add(closedModelPhaseTime, "w 48!, growx 0");
         actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_seconds_lower")));
         JButton addPhaseButton = new JButton("+"); // $NON-NLS-1$
@@ -810,10 +885,20 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private void updateModelFields() {
-        CardLayout layout = (CardLayout) modelCards.getLayout();
-        layout.show(modelCards, isOpenModelSelected() ? OPEN_MODEL_CARD : CLOSED_MODEL_CARD);
+        boolean openModel = isOpenModelSelected();
+        closedModelSettings.setVisible(!openModel);
+        openModelSettings.setVisible(openModel);
         CardLayout previewLayout = (CardLayout) previewCards.getLayout();
-        previewLayout.show(previewCards, isOpenModelSelected() ? PREVIEW_OPEN_CARD : PREVIEW_CLOSED_CARD);
+        previewLayout.show(previewCards, openModel ? PREVIEW_OPEN_CARD : PREVIEW_CLOSED_CARD);
+        updatePreviewGraph();
+        revalidate();
+        repaint();
+    }
+
+    private void updateClosedModelThreadModeFields() {
+        boolean custom = isCustomClosedModelSelected();
+        closedModelStandardSettings.setVisible(!custom);
+        closedModelCustomSettings.setVisible(custom);
         updatePreviewGraph();
         revalidate();
         repaint();
@@ -836,17 +921,15 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private void updateClosedModelPreview() {
-        updateClosedModelLegacyFieldState();
-        String schedule = closedModelSchedule.getText();
-        if (!schedule.trim().isEmpty()) {
-            Long delaySeconds = delay.getText().trim().isEmpty() ? Long.valueOf(0) : parsePositiveLong(delay.getText());
-            if (delaySeconds == null || delaySeconds < 0) {
+        if (isCustomClosedModelSelected()) {
+            String schedule = closedModelSchedule.getText();
+            if (schedule.trim().isEmpty()) {
                 closedModelPreview.showMessage(JMeterUtils.getResString("thread_group_preview_unavailable"));
                 return;
             }
             try {
                 ClosedModelPreviewData previewData = createClosedModelPreviewData(
-                        ThreadGroup.parseClosedModelSchedule(schedule), delaySeconds);
+                        ThreadGroup.parseClosedModelSchedule(schedule), 0);
                 closedModelPreview.updateData(
                         previewData.timeSeconds,
                         previewData.threads,
@@ -916,24 +999,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
                 title);
     }
 
-    private void updateClosedModelLegacyFieldState() {
-        boolean enabled = closedModelSchedule.getText().trim().isEmpty();
-        threadInputLabel.setEnabled(enabled);
-        threadInput.setEnabled(enabled);
-        rampInputLabel.setEnabled(enabled);
-        rampInput.setEnabled(enabled);
-        durationPolicyLabel.setEnabled(enabled);
-        durationPolicy.setEnabled(enabled);
-
-        boolean loopCountEnabled = enabled && isLoopCountPolicySelected();
-        loopPanel.getLoopsLabel().setEnabled(loopCountEnabled);
-        loopPanel.getLoops().setEnabled(loopCountEnabled);
-
-        boolean durationEnabled = enabled && isDurationPolicySelected();
-        durationLabel.setEnabled(durationEnabled);
-        duration.setEnabled(durationEnabled);
-    }
-
     private static ClosedModelPreviewData createClosedModelPreviewData(
             List<ThreadGroup.ClosedModelPhase> phases, long delaySeconds) {
         if (phases.isEmpty()) {
@@ -948,10 +1013,10 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             threads.add(0d);
         }
 
-        for (ThreadGroup.ClosedModelPhase phase : phases) {
-            double time = delaySeconds + phase.timeSeconds();
-            timeSeconds.add(time);
-            threads.add((double) phase.targetThreads());
+        double[] phaseEndTimes = closedModelPhaseEndTimes(phases, delaySeconds);
+        for (int i = 0; i < phases.size(); i++) {
+            timeSeconds.add(phaseEndTimes[i]);
+            threads.add((double) phases.get(i).targetThreads());
         }
 
         return new ClosedModelPreviewData(
@@ -959,6 +1024,17 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
                 toDoubleArray(threads),
                 JMeterUtils.getResString("thread_group_preview_closed_title_phases"),
                 false);
+    }
+
+    static double[] closedModelPhaseEndTimes(
+            List<ThreadGroup.ClosedModelPhase> phases, long delaySeconds) {
+        double[] phaseEndTimes = new double[phases.size()];
+        double phaseEndSeconds = delaySeconds;
+        for (int i = 0; i < phases.size(); i++) {
+            phaseEndSeconds += phases.get(i).durationSeconds();
+            phaseEndTimes[i] = phaseEndSeconds;
+        }
+        return phaseEndTimes;
     }
 
     private String buildClosedModelPhaseExpression() {
@@ -1000,6 +1076,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private JPanel createSameUserPanel() {
         JPanel sameUserPanel = new JPanel(new MigLayout("insets 0", "[][6][]"));
+        sameUserPanel.setName("sameUserControls"); // $NON-NLS-1$
         sameUserPanel.add(sameUserBox);
         sameUserPanel.add(sameUserInfo);
         return sameUserPanel;
@@ -1007,6 +1084,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private void addPacingControls(JPanel threadPropsPanel) {
         JPanel pacingOptionPanel = new JPanel(new MigLayout("insets 0, fillx", "[][10][][6][]push"));
+        pacingOptionPanel.setName("pacingControls"); // $NON-NLS-1$
         pacingOptionPanel.add(pacingMode, "w pref!, growx 0");
         pacingOptionPanel.add(pacingRate);
         pacingOptionPanel.add(pacingInfo);
