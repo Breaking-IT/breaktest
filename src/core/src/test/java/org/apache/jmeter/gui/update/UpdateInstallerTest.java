@@ -24,8 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,6 +39,45 @@ import org.junit.jupiter.api.io.TempDir;
 class UpdateInstallerTest {
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void standaloneHelperInstallsAndRestartsWithOnlyJdkClasspath() throws Exception {
+        Path home = temporaryDirectory.resolve("installed-standalone");
+        write(home, "bin/ApacheJMeter.jar", "old launcher");
+        write(home, "lib/ext/ApacheJMeter_core.jar", "old core");
+
+        Path workspace = temporaryDirectory.resolve("workspace");
+        Path staged = workspace.resolve("extracted/breaktest");
+        write(staged, "bin/breaktest.jar", "new launcher");
+        write(staged, "lib/ext/ApacheJMeter_core.jar", "new core");
+
+        Path helperJar = temporaryDirectory.resolve("standalone-updater.jar");
+        createStandaloneUpdaterJar(helperJar);
+        Path restartMarker = temporaryDirectory.resolve("restarted");
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        List<String> command = List.of(
+                java, "-cp", helperJar.toString(), UpdateInstaller.class.getName(),
+                "--wait-pid", Long.toString(Long.MAX_VALUE),
+                "--home", home.toString(),
+                "--staged", staged.toString(),
+                "--workspace", workspace.toString(),
+                "--work-dir", temporaryDirectory.toString(),
+                "--", java, "-cp", helperJar.toString(),
+                UpdateInstallerRestartProbe.class.getName(), restartMarker.toString());
+
+        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+        assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Standalone updater did not exit");
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.exitValue(), output);
+        assertEquals("new launcher", Files.readString(home.resolve("bin/breaktest.jar")));
+        assertEquals("new core", Files.readString(home.resolve("lib/ext/ApacheJMeter_core.jar")));
+
+        long restartDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!Files.exists(restartMarker) && System.nanoTime() < restartDeadline) {
+            Thread.sleep(25);
+        }
+        assertTrue(Files.exists(restartMarker), "Standalone updater did not launch the restart command");
+    }
 
     @Test
     void replacesRuntimeWhilePreservingSettingsAndPlugins() throws Exception {
@@ -139,5 +184,27 @@ class UpdateInstallerTest {
         Path file = root.resolve(relative);
         Files.createDirectories(file.getParent());
         Files.writeString(file, content);
+    }
+
+    private static void createStandaloneUpdaterJar(Path jar) throws IOException {
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
+            addClass(output, UpdateInstaller.class);
+            for (Class<?> nested : UpdateInstaller.class.getDeclaredClasses()) {
+                addClass(output, nested);
+            }
+            addClass(output, UpdateInstallerRestartProbe.class);
+        }
+    }
+
+    private static void addClass(JarOutputStream output, Class<?> type) throws IOException {
+        String resource = type.getName().replace('.', '/') + ".class";
+        try (InputStream input = type.getClassLoader().getResourceAsStream(resource)) {
+            if (input == null) {
+                throw new IOException("Could not load test class resource " + resource);
+            }
+            output.putNextEntry(new JarEntry(resource));
+            input.transferTo(output);
+            output.closeEntry();
+        }
     }
 }

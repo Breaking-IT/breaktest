@@ -164,13 +164,19 @@ public final class UpdateInstaller {
         if (Files.exists(home.resolve(".git"))) {
             throw new IOException("Refusing to self-update a source checkout");
         }
-        if (!UpdateService.hasLauncherJar(staged)
+        if (!hasLauncherJar(staged)
                 || !Files.isRegularFile(staged.resolve("lib/ext/ApacheJMeter_core.jar"))) {
             throw new IOException("The staged update is not a BreakTest binary distribution");
         }
         if (!Files.isDirectory(home) || !Files.isWritable(home)) {
             throw new IOException("The BreakTest installation directory is not writable");
         }
+    }
+
+    // Keep this check JDK-only: the detached installer runs with the core JAR as its entire classpath.
+    private static boolean hasLauncherJar(Path root) {
+        return Files.isRegularFile(root.resolve("bin/breaktest.jar"))
+                || Files.isRegularFile(root.resolve("bin/ApacheJMeter.jar"));
     }
 
     private static boolean shouldPreserve(Path relative, Path destination) {

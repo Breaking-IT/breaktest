@@ -17,7 +17,8 @@ specific language governing permissions and limitations under the License.
 
 BreakTest 2026.07.16 adds clearer closed-model load profiles, hardens parallel
 controller restarts, and makes common HTTP network failures easier to identify
-from results and reports.
+from results and reports. It also restores reliable installation and relaunch
+for updates prepared from the GUI.
 
 ## Highlights
 
@@ -38,6 +39,8 @@ from results and reports.
   omitting synthetic values such as `local IP unavailable`.
 - Keeps the Chrome, Edge, and Firefox recorder in the binary and source
   distributions through its pinned standalone repository checkout.
+- Fixes the detached updater's standalone classpath so a prepared update can
+  install after the GUI exits and then relaunch BreakTest.
 
 ## Closed-Model Load Profiles
 
@@ -74,6 +77,8 @@ from results and reports.
 - Browser recorder sources are maintained in the standalone
   `breaktest-browser-extension` repository and remain included under
   `browser-extension/` in release archives.
+- The updater installer is validated in a separate JVM using only its packaged
+  runtime, including successful installation and relaunch coverage.
 - Java 21 or later is required.
 - Existing JMeter-compatible JMX files remain supported where practical.
 - This release uses the direct Git tag `2026.07.16`.
