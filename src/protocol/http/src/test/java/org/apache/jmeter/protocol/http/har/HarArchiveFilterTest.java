@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
@@ -145,6 +146,20 @@ class HarArchiveFilterTest extends JMeterTestCase {
         assertEquals("", threadGroup.getPropertyAsString(RecordedHarExchangeResolver.HAR_MD5));
         assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
         assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+    }
+
+    @Test
+    void estimatesCompressedStoredSizeForEveryStorageMode() throws Exception {
+        byte[] originalHar = harContent();
+        Map<RecordingStorageMode, Long> estimates = HarArchiveFilter.estimateStoredSizes(
+                originalHar, convert(originalHar), "source.har");
+
+        assertTrue(estimates.get(RecordingStorageMode.ALL) > 0);
+        assertTrue(estimates.get(RecordingStorageMode.OMIT_STATIC_BODIES)
+                <= estimates.get(RecordingStorageMode.ALL));
+        assertTrue(estimates.get(RecordingStorageMode.OMIT_STATICS)
+                <= estimates.get(RecordingStorageMode.OMIT_STATIC_BODIES));
+        assertEquals(0L, estimates.get(RecordingStorageMode.NONE));
     }
 
     private static JsonNode exchange(RecordedExchangeStore.Archive archive, int index) throws Exception {

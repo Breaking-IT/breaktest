@@ -32,6 +32,8 @@ public class HarImportOptions {
     public static final String FIXED_DELAY_VARIABLE = "ThinkTime";
     public static final String MIN_DELAY_VARIABLE = "ThinkTimeMin";
     public static final String MAX_DELAY_VARIABLE = "ThinkTimeMax";
+    static final String DEFAULT_DELAY_MIN = "5000";
+    static final String DEFAULT_DELAY_MAX = "25000";
 
     private static final Pattern DELAY_VALUE = Pattern.compile("(?:0|[1-9]\\d*)|(?:\\$\\{[^{}\\s]+})");
 
@@ -49,7 +51,6 @@ public class HarImportOptions {
         NONE
     }
 
-    private boolean continueOnError = false;
     private boolean ignoreErrors = true;
     private boolean addIndex = false;
     private boolean detectDynamicUrls = true;
@@ -64,9 +65,9 @@ public class HarImportOptions {
     /** Fixed delay in milliseconds (FIXED mode). */
     private String fixedDelay = "1000";
     /** Minimum delay in milliseconds (RANDOM / GAUSSIAN modes). */
-    private String delayMin = "500";
+    private String delayMin = DEFAULT_DELAY_MIN;
     /** Maximum delay in milliseconds (RANDOM / GAUSSIAN modes). */
-    private String delayMax = "2000";
+    private String delayMax = DEFAULT_DELAY_MAX;
     /** Store configured think times once on the Test Plan and reference them from transactions. */
     private boolean useDelayVariables;
 
@@ -78,14 +79,6 @@ public class HarImportOptions {
     private boolean includeViewResultsTree = true;
     private boolean includeCookieManager = true;
     private boolean includeHttpDefaults = true;
-
-    public boolean isContinueOnError() {
-        return continueOnError;
-    }
-
-    public void setContinueOnError(boolean continueOnError) {
-        this.continueOnError = continueOnError;
-    }
 
     public boolean isIgnoreErrors() {
         return ignoreErrors;

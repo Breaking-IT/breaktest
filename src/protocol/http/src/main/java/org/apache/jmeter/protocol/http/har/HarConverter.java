@@ -247,9 +247,7 @@ public final class HarConverter {
     }
 
     private List<Transaction> groupIntoTransactions(List<HarEntry> kept) {
-        boolean hasExplicitTransactions = kept.stream()
-                .anyMatch(entry -> !entry.getTransactionId().isBlank());
-        if (hasExplicitTransactions) {
+        if (hasExplicitTransactions(kept)) {
             return groupByExplicitTransactions(kept);
         }
 
@@ -282,6 +280,11 @@ public final class HarConverter {
             transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
         }
         return transactions;
+    }
+
+    static boolean hasExplicitTransactions(List<HarEntry> entries) {
+        return entries != null && entries.stream()
+                .anyMatch(entry -> !entry.getTransactionId().isBlank());
     }
 
     private static List<Transaction> groupByExplicitTransactions(List<HarEntry> kept) {
@@ -642,10 +645,7 @@ public final class HarConverter {
         ThreadGroup threadGroup = new ThreadGroup();
         threadGroup.setProperty(TestElement.GUI_CLASS, ThreadGroupGui.class.getName());
         threadGroup.setName("Thread Group");
-        threadGroup.setProperty(ThreadGroup.ON_SAMPLE_ERROR,
-                options.isContinueOnError()
-                        ? ThreadGroup.ON_SAMPLE_ERROR_CONTINUE
-                        : ThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP);
+        threadGroup.setProperty(ThreadGroup.ON_SAMPLE_ERROR, ThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP);
         threadGroup.setProperty(ThreadGroup.DELAYED_START, true);
         threadGroup.setNumThreads(1);
         threadGroup.setRampUp(1);
