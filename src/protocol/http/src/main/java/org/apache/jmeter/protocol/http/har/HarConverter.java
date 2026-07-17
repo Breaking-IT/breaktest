@@ -540,6 +540,7 @@ public final class HarConverter {
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         sampler.setProperty(TestElement.GUI_CLASS, HttpTestSampleGui.class.getName());
+        sampler.setProperty(TestElement.TEST_CLASS, HTTPSamplerProxy.class.getName());
         sampler.setName(name);
         if (options.isDetectDynamicUrls()) {
             String comment = detectDynamicReferences(entry, url);
