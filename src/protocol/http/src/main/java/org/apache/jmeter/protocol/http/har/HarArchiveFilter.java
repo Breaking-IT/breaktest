@@ -18,6 +18,8 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,6 +28,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.recording.RecordedExchangeStore;
@@ -60,6 +64,40 @@ final class HarArchiveFilter {
             return Optional.empty();
         }
 
+        FilteredHar filtered = filterHar(originalHar, referencedIndexes, storageMode);
+        if (filtered.content() == null) {
+            relink(convertedTree, filtered.remappedIndexes(), null);
+            return Optional.empty();
+        }
+        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(filtered.content(), originalName);
+        relink(convertedTree, filtered.remappedIndexes(), archive);
+        return Optional.of(archive);
+    }
+
+    static Map<RecordingStorageMode, Long> estimateStoredSizes(
+            byte[] originalHar, HashTree convertedTree, String originalName) throws IOException {
+        Set<Integer> referencedIndexes = new LinkedHashSet<>();
+        collectReferencedIndexes(convertedTree, referencedIndexes);
+        Map<RecordingStorageMode, Long> estimates = new EnumMap<>(RecordingStorageMode.class);
+        for (RecordingStorageMode mode : RecordingStorageMode.values()) {
+            if (mode == RecordingStorageMode.NONE) {
+                estimates.put(mode, 0L);
+                continue;
+            }
+            FilteredHar filtered = filterHar(originalHar, referencedIndexes, mode);
+            if (filtered.content() == null) {
+                estimates.put(mode, 0L);
+                continue;
+            }
+            RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
+                    filtered.content(), originalName);
+            estimates.put(mode, compressedSize(archive));
+        }
+        return estimates;
+    }
+
+    private static FilteredHar filterHar(
+            byte[] originalHar, Set<Integer> referencedIndexes, RecordingStorageMode storageMode) throws IOException {
         JsonNode parsed = JSON.readTree(originalHar);
         if (!(parsed instanceof ObjectNode root) || !(root.path("log") instanceof ObjectNode log)) { // $NON-NLS-1$
             throw new IOException("Not a valid HAR file: missing log object"); // $NON-NLS-1$
@@ -81,27 +119,72 @@ final class HarArchiveFilter {
         Map<Integer, Integer> remappedIndexes = new LinkedHashMap<>();
         ArrayNode filteredEntries = JSON.createArrayNode();
         for (int originalIndex = 0; originalIndex < entries.size(); originalIndex++) {
-            if (referencedIndexes.contains(originalIndex)) {
-                JsonNode entry = entries.get(originalIndex);
-                boolean staticResource = isStaticResource(entry);
-                if (storageMode == RecordingStorageMode.OMIT_STATICS && staticResource) {
-                    continue;
-                }
-                remappedIndexes.put(originalIndex, filteredEntries.size());
-                filteredEntries.add(storageMode == RecordingStorageMode.OMIT_STATIC_BODIES
-                        && staticResource ? withoutBodies(entry) : entry);
+            if (!referencedIndexes.contains(originalIndex)) {
+                continue;
             }
+            JsonNode entry = entries.get(originalIndex);
+            boolean staticResource = isStaticResource(entry);
+            if (storageMode == RecordingStorageMode.OMIT_STATICS && staticResource) {
+                continue;
+            }
+            remappedIndexes.put(originalIndex, filteredEntries.size());
+            filteredEntries.add(storageMode == RecordingStorageMode.OMIT_STATIC_BODIES
+                    && staticResource ? withoutBodies(entry) : entry);
         }
 
         if (filteredEntries.isEmpty()) {
-            relink(convertedTree, remappedIndexes, null);
-            return Optional.empty();
+            return new FilteredHar(null, remappedIndexes);
         }
         log.set("entries", filteredEntries); // $NON-NLS-1$
-        byte[] filteredContent = JSON.writeValueAsBytes(root);
-        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(filteredContent, originalName);
-        relink(convertedTree, remappedIndexes, archive);
-        return Optional.of(archive);
+        return new FilteredHar(JSON.writeValueAsBytes(root), remappedIndexes);
+    }
+
+    private static long compressedSize(RecordedExchangeStore.Archive archive) throws IOException {
+        CountingOutputStream output = new CountingOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            for (Map.Entry<String, byte[]> entry : archive.entries().entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue());
+                zip.closeEntry();
+            }
+        }
+        return output.count();
+    }
+
+    private static final class FilteredHar {
+        private final byte[] content;
+        private final Map<Integer, Integer> remappedIndexes;
+
+        private FilteredHar(byte[] content, Map<Integer, Integer> remappedIndexes) {
+            this.content = content;
+            this.remappedIndexes = remappedIndexes;
+        }
+
+        private byte[] content() {
+            return content;
+        }
+
+        private Map<Integer, Integer> remappedIndexes() {
+            return remappedIndexes;
+        }
+    }
+
+    private static final class CountingOutputStream extends OutputStream {
+        private long count;
+
+        @Override
+        public void write(int value) {
+            count++;
+        }
+
+        @Override
+        public void write(byte[] value, int offset, int length) {
+            count += length;
+        }
+
+        private long count() {
+            return count;
+        }
     }
 
     private static void collectReferencedIndexes(HashTree tree, Set<Integer> indexes) throws IOException {

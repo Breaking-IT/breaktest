@@ -264,14 +264,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         recordedResponsePane = createRecordedDataPanel(false);
 
         if (urlConfigGui.isModernLayout()) {
-            // URL bar + tab strip + side column; Advanced joins the shared tab strip
-            // and the Timeouts box joins the side column.
+            // URL bar + tab strip + side column; Advanced joins the shared tab strip.
             configTabbedPane = urlConfigGui.getContentTabbedPane();
             urlConfigGui.addContentTab(JMeterUtils
-                    .getResString("web_request_tab_advanced"), createAdvancedConfigPanel(false)); // $NON-NLS-1$
-            if (!isAJP) {
-                urlConfigGui.addSidePanel(getTimeOutPanel());
-            }
+                    .getResString("web_request_tab_advanced"), createAdvancedConfigPanel(true)); // $NON-NLS-1$
             configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 5));
@@ -414,7 +410,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     }
 
     private JPanel createAdvancedConfigPanel(boolean includeTimeouts) {
-        // HTTP request options; in the modern layout the Timeouts box lives in the side column
+        // HTTP request options, including timeouts when this sampler supports them.
         JPanel httpOptions = new HorizontalPanel();
         httpOptions.add(getProtocolPanel());
         if (includeTimeouts) {
@@ -426,6 +422,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         advancedPanel.setBorder(makeBorder());
         if (!isAJP) {
             advancedPanel.add(httpOptions);
+            if (urlConfigGui.isModernLayout()) {
+                advancedPanel.add(urlConfigGui.getRequestOptionsPanel());
+            }
         }
         advancedPanel.add(createEmbeddedRsrcPanel());
         if (!isAJP) {

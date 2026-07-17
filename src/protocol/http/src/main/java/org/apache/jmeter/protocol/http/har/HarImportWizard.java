@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.har;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.BorderFactory;
@@ -59,6 +61,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.collections.HashTree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -124,6 +127,15 @@ public class HarImportWizard extends JDialog {
     private static final int STEP_HOSTS = 1;
     private static final int STEP_OPTIONS = 2;
 
+    private static final String[] STORAGE_MODE_KEYS = {
+            "har_import_recording_storage_all", // $NON-NLS-1$
+            "har_import_recording_storage_without_static_bodies", // $NON-NLS-1$
+            "har_import_recording_storage_none"}; // $NON-NLS-1$
+    private static final RecordingStorageMode[] STORAGE_MODES = {
+            RecordingStorageMode.ALL,
+            RecordingStorageMode.OMIT_STATIC_BODIES,
+            RecordingStorageMode.NONE};
+
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
     private final MainFrame mainFrame;
@@ -152,17 +164,14 @@ public class HarImportWizard extends JDialog {
     private boolean allSelected = true;
 
     // Step 3 controls
-    private final JCheckBox continueOnError = new JCheckBox(JMeterUtils.getResString("har_import_continue_on_error"));
     private final JCheckBox ignoreErrors = new JCheckBox(JMeterUtils.getResString("har_import_ignore_errors"), true);
     private final JCheckBox addIndex = new JCheckBox(JMeterUtils.getResString("har_import_add_index"));
     private final JCheckBox detectDynamicUrls =
             new JCheckBox(JMeterUtils.getResString("har_import_detect_dynamic_urls"), true);
     private final JSpinner idleTime = new JSpinner(new SpinnerNumberModel(4, 0, 3600, 1));
-    private final JComboBox<String> recordingStorageMode = new JComboBox<>(new String[] {
-            JMeterUtils.getResString("har_import_recording_storage_all"),
-            JMeterUtils.getResString("har_import_recording_storage_without_static_bodies"),
-            JMeterUtils.getResString("har_import_recording_storage_without_statics"),
-            JMeterUtils.getResString("har_import_recording_storage_none")});
+    private final JLabel idleTimeLabel = new JLabel(JMeterUtils.getResString("har_import_idle_time"));
+    private final JComboBox<String> recordingStorageMode = new JComboBox<>();
+    private SwingWorker<Map<RecordingStorageMode, Long>, Void> storageEstimateWorker;
 
     private final JComboBox<String> delayMode = new JComboBox<>(new String[] {
             JMeterUtils.getResString("har_import_delay_as_recorded"),
@@ -172,8 +181,8 @@ public class HarImportWizard extends JDialog {
             JMeterUtils.getResString("har_import_delay_none")});
     private final JSpinner recordedRandom = new JSpinner(new SpinnerNumberModel(50, 0, 100, 1));
     private final JTextField fixedDelay = new JTextField("1000", 12);
-    private final JTextField delayMin = new JTextField("500", 12);
-    private final JTextField delayMax = new JTextField("2000", 12);
+    private final JTextField delayMin = new JTextField(HarImportOptions.DEFAULT_DELAY_MIN, 12);
+    private final JTextField delayMax = new JTextField(HarImportOptions.DEFAULT_DELAY_MAX, 12);
     private final JLabel recordedRandomLabel = new JLabel(JMeterUtils.getResString("har_import_random_spread"));
     private final JLabel fixedDelayLabel = new JLabel(JMeterUtils.getResString("har_import_delay_fixed_ms"));
     private final JLabel delayMinLabel = new JLabel(JMeterUtils.getResString("har_import_delay_min_ms"));
@@ -187,7 +196,8 @@ public class HarImportWizard extends JDialog {
         super(owner, JMeterUtils.getResString("har_import_title"), true);
         this.mainFrame = owner instanceof MainFrame frame ? frame : null;
         buildUi();
-        setSize(640, 560);
+        setMinimumSize(new Dimension(620, 360));
+        setSize(700, 420);
         setLocationRelativeTo(owner);
     }
 
@@ -470,8 +480,9 @@ public class HarImportWizard extends JDialog {
     // ---------------------------------------------------------------------
 
     private JPanel buildOptionsCard() {
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        JPanel panel = new JPanel(new BorderLayout());
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(3, 3, 3, 3);
         gbc.anchor = GridBagConstraints.WEST;
@@ -479,29 +490,29 @@ public class HarImportWizard extends JDialog {
         gbc.gridy = 0;
         gbc.gridwidth = 2;
 
-        panel.add(ignoreErrors, gbc);
+        form.add(ignoreErrors, gbc);
         gbc.gridy++;
-        panel.add(continueOnError, gbc);
+        form.add(addIndex, gbc);
         gbc.gridy++;
-        panel.add(addIndex, gbc);
-        gbc.gridy++;
-        panel.add(detectDynamicUrls, gbc);
+        form.add(detectDynamicUrls, gbc);
 
         gbc.gridwidth = 1;
-        addLabeledRow(panel, gbc, "har_import_recording_storage", recordingStorageMode);
-        addLabeledRow(panel, gbc, "har_import_idle_time", idleTime);
-        addLabeledRow(panel, gbc, "har_import_delay", delayMode);
+        setStorageChoiceLabels(null, false);
+        addLabeledRow(form, gbc, "har_import_recording_storage", recordingStorageMode);
+        addLabeledRow(form, gbc, idleTimeLabel, idleTime);
+        addLabeledRow(form, gbc, "har_import_delay", delayMode);
 
-        addLabeledRow(panel, gbc, recordedRandomLabel, recordedRandom);
-        addLabeledRow(panel, gbc, fixedDelayLabel, fixedDelay);
-        addLabeledRow(panel, gbc, delayMinLabel, delayMin);
-        addLabeledRow(panel, gbc, delayMaxLabel, delayMax);
+        addLabeledRow(form, gbc, recordedRandomLabel, recordedRandom);
+        addLabeledRow(form, gbc, fixedDelayLabel, fixedDelay);
+        addLabeledRow(form, gbc, delayMinLabel, delayMin);
+        addLabeledRow(form, gbc, delayMaxLabel, delayMax);
         gbc.gridx = 1;
         gbc.gridy++;
-        panel.add(useDelayVariables, gbc);
+        form.add(useDelayVariables, gbc);
 
         delayMode.addActionListener(e -> updateDelayFields());
         updateDelayFields();
+        panel.add(form, BorderLayout.NORTH);
         return panel;
     }
 
@@ -512,6 +523,90 @@ public class HarImportWizard extends JDialog {
         setRowVisible(delayMinLabel, delayMin, selected == 2 || selected == 3);
         setRowVisible(delayMaxLabel, delayMax, selected == 2 || selected == 3);
         useDelayVariables.setVisible(selected >= 1 && selected <= 3);
+    }
+
+    private void updateIdleTimeVisibility() {
+        Set<String> selectedHosts = selectedHostnames();
+        List<HarEntry> selectedEntries = entries == null ? List.of() : entries.stream()
+                .filter(entry -> selectedHosts.contains(HarConverter.hostnameOf(entry.getUrl())))
+                .toList();
+        setRowVisible(idleTimeLabel, idleTime, !HarConverter.hasExplicitTransactions(selectedEntries));
+    }
+
+    private void updateStorageEstimates() {
+        if (entries == null || harContent == null) {
+            return;
+        }
+        if (storageEstimateWorker != null) {
+            storageEstimateWorker.cancel(true);
+        }
+        Set<String> selectedHosts = Set.copyOf(selectedHostnames());
+        List<HarEntry> parsedEntries = List.copyOf(entries);
+        byte[] content = harContent;
+        String sourceName = harName;
+        String sourceMd5 = harMd5;
+        setStorageChoiceLabels(null, true);
+        storageEstimateWorker = new SwingWorker<>() {
+            @Override
+            protected Map<RecordingStorageMode, Long> doInBackground() throws IOException {
+                HarImportOptions estimateOptions = new HarImportOptions();
+                HashTree convertedTree = new HarConverter(
+                        parsedEntries, estimateOptions, sourceName, sourceMd5).convert(selectedHosts);
+                return HarArchiveFilter.estimateStoredSizes(content, convertedTree, sourceName);
+            }
+
+            @Override
+            protected void done() {
+                if (storageEstimateWorker != this) {
+                    return;
+                }
+                try {
+                    setStorageChoiceLabels(get(), false);
+                } catch (CancellationException e) {
+                    // A newer estimate is already running.
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    LOG.debug("Unable to estimate HAR recording sizes", e.getCause());
+                    setStorageChoiceLabels(null, false);
+                }
+            }
+        };
+        storageEstimateWorker.execute();
+    }
+
+    private void setStorageChoiceLabels(Map<RecordingStorageMode, Long> estimates, boolean calculating) {
+        int selectedIndex = Math.max(recordingStorageMode.getSelectedIndex(), 0);
+        recordingStorageMode.removeAllItems();
+        for (int i = 0; i < STORAGE_MODES.length; i++) {
+            String label = JMeterUtils.getResString(STORAGE_MODE_KEYS[i]);
+            if (calculating) {
+                label = MessageFormat.format(
+                        JMeterUtils.getResString("har_import_recording_storage_calculating"), label);
+            } else if (estimates != null && estimates.containsKey(STORAGE_MODES[i])) {
+                String estimateKey = STORAGE_MODES[i] == RecordingStorageMode.NONE
+                        ? "har_import_recording_storage_exact" // $NON-NLS-1$
+                        : "har_import_recording_storage_estimate"; // $NON-NLS-1$
+                label = MessageFormat.format(
+                        JMeterUtils.getResString(estimateKey),
+                        label, formatStoredSize(estimates.get(STORAGE_MODES[i])));
+            }
+            recordingStorageMode.addItem(label);
+        }
+        recordingStorageMode.setSelectedIndex(Math.min(selectedIndex, STORAGE_MODES.length - 1));
+    }
+
+    static String formatStoredSize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B"; // $NON-NLS-1$
+        }
+        if (bytes < 1024L * 1024) {
+            return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0); // $NON-NLS-1$
+        }
+        if (bytes < 1024L * 1024 * 1024) {
+            return String.format(Locale.ROOT, "%.1f MB", bytes / 1024.0 / 1024.0); // $NON-NLS-1$
+        }
+        return String.format(Locale.ROOT, "%.1f GB", bytes / 1024.0 / 1024.0 / 1024.0); // $NON-NLS-1$
     }
 
     private static void addLabeledRow(JPanel panel, GridBagConstraints gbc, String labelKey, Component field) {
@@ -552,7 +647,11 @@ public class HarImportWizard extends JDialog {
     private void showStep() {
         switch (step) {
             case STEP_HOSTS -> cardLayout.show(cards, "hosts");
-            case STEP_OPTIONS -> cardLayout.show(cards, "options");
+            case STEP_OPTIONS -> {
+                updateIdleTimeVisibility();
+                updateStorageEstimates();
+                cardLayout.show(cards, "options");
+            }
             default -> cardLayout.show(cards, "file");
         }
         updateButtons();
@@ -578,14 +677,12 @@ public class HarImportWizard extends JDialog {
             return;
         }
         HarImportOptions options = new HarImportOptions();
-        options.setContinueOnError(continueOnError.isSelected());
         options.setIgnoreErrors(ignoreErrors.isSelected());
         options.setAddIndex(addIndex.isSelected());
         options.setDetectDynamicUrls(detectDynamicUrls.isSelected());
         options.setRecordingStorageMode(switch (recordingStorageMode.getSelectedIndex()) {
             case 1 -> RecordingStorageMode.OMIT_STATIC_BODIES;
-            case 2 -> RecordingStorageMode.OMIT_STATICS;
-            case 3 -> RecordingStorageMode.NONE;
+            case 2 -> RecordingStorageMode.NONE;
             default -> RecordingStorageMode.ALL;
         });
         options.setIdleTimeSeconds((Integer) idleTime.getValue());

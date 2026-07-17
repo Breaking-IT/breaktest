@@ -24,11 +24,9 @@ import java.util.Arrays;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
-import javax.swing.JCheckBox;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
@@ -36,7 +34,6 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.BindingGroup;
 import org.apache.jmeter.gui.JBooleanPropertyEditor;
-import org.apache.jmeter.gui.JCheckBoxBinding;
 import org.apache.jmeter.gui.JLabeledFieldBinding;
 import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
@@ -68,7 +65,7 @@ import net.miginfocom.swing.MigLayout;
  * <li>redirects and keepalive</li>
  * </ul>
  */
-public class UrlConfigGui extends JPanel implements ChangeListener {
+public class UrlConfigGui extends JPanel {
 
     private static final long serialVersionUID = 240L;
 
@@ -96,8 +93,10 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
     private HeaderTablePanel headersPanel;
 
-    // Column of option boxes shown right of the tabs in the modern layout
+    // Optional extension column shown right of the tabs in the modern layout
     private JPanel sidePanel;
+
+    private JPanel requestOptionsPanel;
 
     private JLabeledTextField domain;
 
@@ -114,9 +113,9 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
 
     private JLabeledTextField path;
 
-    private JCheckBox followRedirects;
+    private JLabel redirectHandlingLabel;
 
-    private JCheckBox autoRedirects;
+    private RedirectHandlingSelector redirectHandling;
 
     private JBooleanPropertyEditor useKeepAlive;
 
@@ -189,7 +188,8 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
      * @param modernLayout
      *            when true, lay the editor out REST-client style: a URL bar row
      *            (method, protocol, server, path), a tab strip with a native Headers tab,
-     *            and a side column with request options; when false, keep the classic layout
+     *            and request options available to the parent sampler's Advanced tab;
+     *            when false, keep the classic layout
      */
     public UrlConfigGui(boolean showSamplerFields, boolean showRawBodyPane, boolean showFileUploadPane,
             boolean modernLayout) {
@@ -211,8 +211,6 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         if (notConfigOnly) {
             bindingGroup.addAll(
                     Arrays.asList(
-                            new JCheckBoxBinding(followRedirects, schema.getFollowRedirects()),
-                            new JCheckBoxBinding(autoRedirects, schema.getAutoRedirects()),
                             new JLabeledFieldBinding(method, schema.getMethod()),
                             useKeepAlive,
                             useMultipart,
@@ -254,6 +252,11 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
      */
     public void modifyTestElement(TestElement element) {
         bindingGroup.updateElement(element);
+        if (notConfigOnly) {
+            HTTPSamplerBaseSchema schema = HTTPSamplerBaseSchema.INSTANCE;
+            element.set(schema.getFollowRedirects(), redirectHandling.isFollowRedirects() ? true : null);
+            element.set(schema.getAutoRedirects(), redirectHandling.isAutomaticRedirects() ? true : null);
+        }
         boolean useRaw = showRawBodyPane && !postBodyContent.getText().isEmpty();
         Arguments args;
         if(useRaw) {
@@ -336,6 +339,11 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
             updatingUiFromElement = false;
         }
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
+        if (notConfigOnly) {
+            redirectHandling.setRedirects(
+                    el.get(httpSchema.getFollowRedirects()),
+                    el.get(httpSchema.getAutoRedirects()));
+        }
         Arguments arguments = el.get(httpSchema.getArguments());
 
         if (showRawBodyPane) {
@@ -388,8 +396,7 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     }
 
     /**
-     * REST-client style layout: URL bar on top, tab strip in the middle,
-     * option boxes in a column on the right.
+     * REST-client style layout: URL bar on top and tab strip in the middle.
      */
     private void initModern() {
         // Create the shared field components; the returned classic panels are discarded
@@ -400,7 +407,10 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         setLayout(new BorderLayout(5, 5));
         add(createUrlBarPanel(), BorderLayout.NORTH);
         add(getParameterPanel(), BorderLayout.CENTER);
-        add(createSidePanel(), BorderLayout.EAST);
+        requestOptionsPanel = notConfigOnly ? createRequestOptionsPanel() : new JPanel();
+        sidePanel = createSidePanel();
+        sidePanel.setVisible(false);
+        add(sidePanel, BorderLayout.EAST);
     }
 
     private JPanel createUrlBarPanel() {
@@ -416,21 +426,22 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         return urlBar;
     }
 
-    private JPanel createSidePanel() {
-        sidePanel = new JPanel(new MigLayout("insets 0, wrap 1, fillx, hidemode 3", "[240:280:340,fill]")); // $NON-NLS-1$
-        if (notConfigOnly) {
-            JPanel requestOptions = new JPanel(new MigLayout("insets 4, wrap 1, fillx")); // $NON-NLS-1$
-            requestOptions.setBorder(BorderFactory.createTitledBorder(
-                    JMeterUtils.getResString("web_request_options"))); // $NON-NLS-1$
-            requestOptions.add(followRedirects);
-            requestOptions.add(autoRedirects);
-            requestOptions.add(useKeepAlive);
-            requestOptions.add(useMultipart);
-            requestOptions.add(useBrowserCompatibleMultipartMode);
-            requestOptions.add(contentEncoding, "growx"); // $NON-NLS-1$
-            sidePanel.add(requestOptions, "growx"); // $NON-NLS-1$
-        }
-        return sidePanel;
+    private static JPanel createSidePanel() {
+        return new JPanel(new MigLayout("insets 0, wrap 1, fillx, hidemode 3", "[240:280:340,fill]")); // $NON-NLS-1$
+    }
+
+    private JPanel createRequestOptionsPanel() {
+        JPanel requestOptions = new JPanel(new MigLayout(
+                "insets 4, fillx, hidemode 3", "[][][][][][grow,fill]")); // $NON-NLS-1$ //$NON-NLS-2$
+        requestOptions.setBorder(BorderFactory.createTitledBorder(
+                JMeterUtils.getResString("web_request_options"))); // $NON-NLS-1$
+        requestOptions.add(redirectHandlingLabel);
+        requestOptions.add(redirectHandling);
+        requestOptions.add(useKeepAlive);
+        requestOptions.add(useMultipart);
+        requestOptions.add(useBrowserCompatibleMultipartMode);
+        requestOptions.add(contentEncoding, "growx, pushx"); // $NON-NLS-1$
+        return requestOptions;
     }
 
     /**
@@ -461,12 +472,20 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
     }
 
     /**
+     * @return the sampler request options panel for placement on the Advanced tab
+     */
+    public JPanel getRequestOptionsPanel() {
+        return requestOptionsPanel;
+    }
+
+    /**
      * Append an option box to the side column (modern layout only).
      *
      * @param component the box to add
      */
     public void addSidePanel(Component component) {
         sidePanel.add(component, "growx"); // $NON-NLS-1$
+        sidePanel.setVisible(true);
     }
 
     /**
@@ -539,19 +558,16 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         if (notConfigOnly){
             method = new JLabeledChoice(JMeterUtils.getResString("method"), // $NON-NLS-1$
                     getUrlConfigDefaults().getValidMethods(), true, false);
-            method.addChangeListener(this);
         }
 
         if (notConfigOnly){
-            followRedirects = new JCheckBox(JMeterUtils.getResString("follow_redirects")); // $NON-NLS-1$
-            JFactory.small(followRedirects);
-            followRedirects.addChangeListener(this);
-            followRedirects.setVisible(getUrlConfigDefaults().isFollowRedirectsVisible());
-
-            autoRedirects = new JCheckBox(JMeterUtils.getResString("follow_redirects_auto")); //$NON-NLS-1$
-            JFactory.small(autoRedirects);
-            autoRedirects.addChangeListener(this);
-            autoRedirects.setVisible(getUrlConfigDefaults().isAutoRedirectsVisible());
+            boolean showFollowRedirects = getUrlConfigDefaults().isFollowRedirectsVisible();
+            boolean showAutomaticRedirects = getUrlConfigDefaults().isAutoRedirectsVisible();
+            redirectHandlingLabel = new JLabel(JMeterUtils.getResString("redirect_handling")); // $NON-NLS-1$
+            redirectHandling = new RedirectHandlingSelector(showFollowRedirects, showAutomaticRedirects);
+            redirectHandlingLabel.setLabelFor(redirectHandling);
+            redirectHandlingLabel.setVisible(showFollowRedirects || showAutomaticRedirects);
+            redirectHandling.setVisible(showFollowRedirects || showAutomaticRedirects);
 
             useKeepAlive = new JBooleanPropertyEditor(
                     HTTPSamplerBaseSchema.INSTANCE.getUseKeepalive(),
@@ -586,8 +602,8 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
         panel.add(pathPanel);
         if (notConfigOnly){
             JPanel optionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            optionPanel.add(autoRedirects);
-            optionPanel.add(followRedirects);
+            optionPanel.add(redirectHandlingLabel);
+            optionPanel.add(redirectHandling);
             optionPanel.add(useKeepAlive);
             optionPanel.add(useMultipart);
             optionPanel.add(useBrowserCompatibleMultipartMode);
@@ -735,19 +751,6 @@ public class UrlConfigGui extends JPanel implements ChangeListener {
             return !showRawBodyPane || postBodyContent.getText().isEmpty();
         }
     }
-
-    // autoRedirects and followRedirects cannot both be selected
-    @Override
-    public void stateChanged(ChangeEvent e) {
-        Object source = e.getSource();
-        if (source == autoRedirects && autoRedirects.isSelected()) {
-            followRedirects.setSelected(false);
-        }
-        else if (source == followRedirects && followRedirects.isSelected()) {
-            autoRedirects.setSelected(false);
-        }
-    }
-
 
     /**
      * Convert Parameters to Raw Body

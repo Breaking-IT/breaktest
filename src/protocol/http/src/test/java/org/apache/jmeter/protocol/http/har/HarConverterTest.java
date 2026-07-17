@@ -152,6 +152,7 @@ public class HarConverterTest {
     @Test
     void homeSamplerHasArgumentsMetadataAndNativeHeaderOnly() {
         HTTPSamplerProxy home = sampler("/home");
+        assertEquals(HTTPSamplerProxy.class.getName(), home.getPropertyAsString(TestElement.TEST_CLASS));
         assertEquals("api.example.com", home.getDomain());
         assertEquals("GET", home.getMethod());
         assertEquals(false, home.getFollowRedirects());
