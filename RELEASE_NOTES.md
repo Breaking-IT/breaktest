@@ -13,6 +13,62 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.07.17 — HAR Import and HTTP Request Controls
+
+BreakTest 2026.07.17 streamlines transaction-aware HAR imports, clarifies
+redirect handling, and keeps generated HTTP samplers compatible with native
+JMeter JMX metadata.
+
+## Highlights
+
+- Makes the HAR importer more compact and hides idle-based transaction
+  splitting when the recording already contains explicit transactions.
+- Shows estimated compressed storage sizes for each request and response
+  retention choice before importing a recording.
+- Removes redundant importer choices and increases the default randomized
+  transaction delay range to 5–25 seconds.
+- Moves request options and timeouts to the Advanced tab in a compact layout.
+- Replaces two mutually exclusive redirect checkboxes with one clear
+  three-state selector: do not follow, follow and retain each response, or
+  follow and retain only the final response.
+- Preserves the native JMeter redirect properties when loading and saving JMX
+  files.
+- Writes native HTTP sampler `testclass` metadata during HAR conversion so
+  compact JMX output retains sampler identity and transaction attribution.
+
+## HAR Import Workflow
+
+- Dedicated BreakTest HAR recordings with explicit transaction markers no
+  longer show the inapplicable idle transaction threshold.
+- Storage choices report their estimated compressed size using the current HAR
+  data, making the impact of retaining bodies and static resources visible.
+- The importer removes the continue-on-error control and the redundant
+  all-except-static-resources retention mode.
+- Request indexing, dynamic URL detection, transaction delay, and storage
+  choices remain available in a smaller dialog without excess empty space.
+
+## HTTP Request Controls
+
+- Follow Redirects and Redirect Automatically are represented by a single
+  mutually exclusive selector in both HTTP Request and recorder settings.
+- Existing `HTTPSampler.follow_redirects` and `HTTPSampler.auto_redirects`
+  values map to the new selector without changing native JMX compatibility.
+- Follow redirects while keeping each response retains intermediate redirect
+  sub-results; final-response-only mode delegates redirect handling to the HTTP
+  client.
+- Advanced request options use a horizontal layout to reduce scrolling and
+  keep the primary request fields focused.
+
+## Compatibility
+
+- HAR-generated HTTP samplers include both `guiclass` and `testclass`
+  metadata, matching native JMeter elements and supporting downstream listener
+  transaction matching.
+- Existing JMeter-compatible JMX files retain their redirect behavior when
+  opened and saved.
+- Java 21 or later is required.
+- This release uses the direct Git tag `2026.07.17`.
+
 # BreakTest 2026.07.16 — Load Profiles and Network Diagnostics
 
 BreakTest 2026.07.16 adds clearer closed-model load profiles, hardens parallel
