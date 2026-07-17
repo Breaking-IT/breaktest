@@ -79,6 +79,7 @@ import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.PowerTableModel;
 import org.apache.jmeter.gui.util.VerticalPanel;
+import org.apache.jmeter.protocol.http.config.gui.RedirectHandlingSelector;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.proxy.Proxy;
 import org.apache.jmeter.protocol.http.proxy.ProxyControl;
@@ -165,14 +166,11 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     private JComboBox<String> samplerTypeName;
 
     /**
-     * Set/clear the Redirect automatically box on the samplers (default is false)
+     * Redirect handling to configure on recorded samplers.
      */
-    private JCheckBox samplerRedirectAutomatically;
+    private RedirectHandlingSelector samplerRedirectHandling;
 
-    /**
-     * Set/clear the Follow-redirects box on the samplers (default is true)
-     */
-    private JCheckBox samplerFollowRedirects;
+    private boolean updatingRedirectHandling;
 
     /**
      * Set/clear the Download images box on the samplers (default is false)
@@ -327,8 +325,8 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             model.setGroupingMode(groupingMode.getSelectedIndex());
             model.setAssertions(addAssertions.isSelected());
             model.setSamplerTypeName(USE_DEFAULT_HTTP_IMPL);
-            model.setSamplerRedirectAutomatically(samplerRedirectAutomatically.isSelected());
-            model.setSamplerFollowRedirects(samplerFollowRedirects.isSelected());
+            model.setSamplerRedirectAutomatically(samplerRedirectHandling.isAutomaticRedirects());
+            model.setSamplerFollowRedirects(samplerRedirectHandling.isFollowRedirects());
             model.setUseKeepAlive(useKeepAlive.isSelected());
             model.setDetectGraphQLRequest(detectGraphQLRequest.isSelected());
             model.setSamplerDownloadImages(samplerDownloadImages.isSelected());
@@ -395,8 +393,13 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         groupingMode.setSelectedIndex(model.getGroupingMode());
         addAssertions.setSelected(model.getAssertions());
         samplerTypeName.setSelectedItem(model.getSamplerTypeName());
-        samplerRedirectAutomatically.setSelected(model.getSamplerRedirectAutomatically());
-        samplerFollowRedirects.setSelected(model.getSamplerFollowRedirects());
+        updatingRedirectHandling = true;
+        try {
+            samplerRedirectHandling.setRedirects(
+                    model.getSamplerFollowRedirects(), model.getSamplerRedirectAutomatically());
+        } finally {
+            updatingRedirectHandling = false;
+        }
         useKeepAlive.setSelected(model.getUseKeepalive());
         detectGraphQLRequest.setSelected(model.getDetectGraphQLRequest());
         samplerDownloadImages.setSelected(model.getSamplerDownloadImages());
@@ -448,14 +451,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     @Override
     public void actionPerformed(ActionEvent action) {
         String command = action.getActionCommand();
-
-        // Prevent both redirect types from being selected
-        final Object source = action.getSource();
-        if (source.equals(samplerFollowRedirects) && samplerFollowRedirects.isSelected()) {
-            samplerRedirectAutomatically.setSelected(false);
-        } else if (source.equals(samplerRedirectAutomatically) && samplerRedirectAutomatically.isSelected()) {
-            samplerFollowRedirects.setSelected(false);
-        }
 
         if (command.equals(ACTION_STOP)) {
             stopRecorder();
@@ -926,15 +921,13 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         JLabel labelSamplerType = new JLabel(JMeterUtils.getResString("proxy_sampler_type")); // $NON-NLS-1$
         labelSamplerType.setLabelFor(samplerTypeName);
 
-        samplerRedirectAutomatically = new JCheckBox(JMeterUtils.getResString("follow_redirects_auto")); // $NON-NLS-1$
-        samplerRedirectAutomatically.setSelected(false);
-        samplerRedirectAutomatically.addActionListener(this);
-        samplerRedirectAutomatically.setActionCommand(ENABLE_RESTART);
-
-        samplerFollowRedirects = new JCheckBox(JMeterUtils.getResString("follow_redirects")); // $NON-NLS-1$
-        samplerFollowRedirects.setSelected(true);
-        samplerFollowRedirects.addActionListener(this);
-        samplerFollowRedirects.setActionCommand(ENABLE_RESTART);
+        samplerRedirectHandling = new RedirectHandlingSelector();
+        samplerRedirectHandling.setRedirects(true, false);
+        samplerRedirectHandling.addActionListener(event -> {
+            if (!updatingRedirectHandling) {
+                enableRestart();
+            }
+        });
 
         useKeepAlive = new JCheckBox(JMeterUtils.getResString("use_keepalive")); // $NON-NLS-1$
         useKeepAlive.setSelected(true);
@@ -1006,10 +999,13 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         panel.add(labelDefaultEncoding);
         panel.add(defaultEncoding, "growx, span");
 
+        JLabel redirectHandlingLabel = new JLabel(JMeterUtils.getResString("redirect_handling")); // $NON-NLS-1$
+        redirectHandlingLabel.setLabelFor(samplerRedirectHandling);
+        panel.add(redirectHandlingLabel);
+        panel.add(samplerRedirectHandling, "growx, span");
+
         panel.add(samplerDownloadImages);
-        panel.add(samplerRedirectAutomatically);
-        panel.add(samplerFollowRedirects);
-        panel.add(useKeepAlive, "wrap");
+        panel.add(useKeepAlive, "span");
 
         panel.add(labelSamplerType);
         panel.add(samplerTypeName, "growx, span");

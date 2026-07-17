@@ -23,6 +23,8 @@ import java.nio.file.Path;
 
 import javax.swing.JComboBox;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
@@ -30,6 +32,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
+import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
@@ -182,6 +185,31 @@ public class TestHttpTestSampleGui {
         }
     }
 
+    @Test
+    public void testTimeoutsAreOnAdvancedTab() throws Exception {
+        JTabbedPane tabs = configTabbedPane();
+        Component advanced = tabs.getComponentAt(tabs.indexOfTab(
+                JMeterUtils.getResString("web_request_tab_advanced")));
+
+        Assertions.assertTrue(SwingUtilities.isDescendingFrom(connectTimeOut(), advanced));
+        Assertions.assertTrue(SwingUtilities.isDescendingFrom(responseTimeOut(), advanced));
+    }
+
+    @Test
+    public void testRequestOptionsAreOnAdvancedTab() throws Exception {
+        JTabbedPane tabs = configTabbedPane();
+        Component advanced = tabs.getComponentAt(tabs.indexOfTab(
+                JMeterUtils.getResString("web_request_tab_advanced")));
+
+        for (String fieldName : new String[] {
+                "redirectHandling", "useKeepAlive", "useMultipart",
+                "useBrowserCompatibleMultipartMode", "contentEncoding"}) {
+            Assertions.assertTrue(
+                    SwingUtilities.isDescendingFrom(urlConfigComponent(fieldName), advanced),
+                    fieldName + " should be on the Advanced tab");
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private JEnumPropertyEditor<ResponseProcessingMode> responseProcessingModeEditor() throws Exception {
         Field field = HttpTestSampleGui.class.getDeclaredField("responseProcessingMode");
@@ -212,6 +240,27 @@ public class TestHttpTestSampleGui {
         Field field = HttpTestSampleGui.class.getDeclaredField("recordedResponseData");
         field.setAccessible(true);
         return (JSyntaxTextArea) field.get(gui);
+    }
+
+    private JTextField connectTimeOut() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("connectTimeOut");
+        field.setAccessible(true);
+        return (JTextField) field.get(gui);
+    }
+
+    private JTextField responseTimeOut() throws Exception {
+        Field field = HttpTestSampleGui.class.getDeclaredField("responseTimeOut");
+        field.setAccessible(true);
+        return (JTextField) field.get(gui);
+    }
+
+    private Component urlConfigComponent(String fieldName) throws Exception {
+        Field urlConfigField = HttpTestSampleGui.class.getDeclaredField("urlConfigGui");
+        urlConfigField.setAccessible(true);
+        UrlConfigGui urlConfigGui = (UrlConfigGui) urlConfigField.get(gui);
+        Field componentField = UrlConfigGui.class.getDeclaredField(fieldName);
+        componentField.setAccessible(true);
+        return (Component) componentField.get(urlConfigGui);
     }
 
     private static void setTestPlanFile(Path testPlanFile) throws Exception {
