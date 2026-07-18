@@ -221,7 +221,9 @@ if [ "off" != "$BREAKTEST_CDS" ] && [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VER
       *)
         mkdir -p "$CDS_DIR" 2>/dev/null
         if [ -w "$CDS_DIR" ]; then
-            CDS="-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=${CDS_DIR}/appcds-java${CURRENT_VERSION}.jsa"
+            # -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
+            # that newer JVMs print at error level on the first run
+            CDS="-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=${CDS_DIR}/appcds-java${CURRENT_VERSION}.jsa -Xlog:cds*=off"
         fi
         ;;
     esac

@@ -195,7 +195,9 @@ set CDS=
 if /i not "%BREAKTEST_CDS%" == "off" (
     if %current_major% GEQ 19 (
         if not exist "%USERPROFILE%\.breaktest" mkdir "%USERPROFILE%\.breaktest" 2>nul
-        set CDS="-XX:+AutoCreateSharedArchive" "-XX:SharedArchiveFile=%USERPROFILE%\.breaktest\appcds-java%current_major%.jsa"
+        rem -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
+        rem that newer JVMs print at error level on the first run
+        set CDS="-XX:+AutoCreateSharedArchive" "-XX:SharedArchiveFile=%USERPROFILE%\.breaktest\appcds-java%current_major%.jsa" "-Xlog:cds*=off"
     )
 )
 
