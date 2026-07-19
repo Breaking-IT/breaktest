@@ -97,7 +97,11 @@ public class SettingsDialog extends EscapeDialog {
         });
 
         settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
-        settingsScroll = new JScrollPane(settingsPanel,
+        // Anchor the rows to the top of the viewport: without this wrapper the viewport
+        // stretches the panel to its own height and the rows inflate to fill the gap
+        JPanel settingsAnchor = new JPanel(new BorderLayout());
+        settingsAnchor.add(settingsPanel, BorderLayout.NORTH);
+        settingsScroll = new JScrollPane(settingsAnchor,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         settingsScroll.getVerticalScrollBar().setUnitIncrement(16);

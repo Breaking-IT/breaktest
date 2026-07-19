@@ -99,6 +99,9 @@ class SettingEditor {
         row.setBorder(javax.swing.BorderFactory.createEmptyBorder(8, 10, 8, 10));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
+        JComponent control = buildControl();
+        boolean controlOnHeaderLine = setting.getType() == SettingType.BOOLEAN;
+
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -113,6 +116,11 @@ class SettingEditor {
         resetButton.setFont(resetButton.getFont().deriveFont(resetButton.getFont().getSize2D() - 1f));
         resetButton.setToolTipText(JMeterUtils.getResString("settings_reset_tooltip"));
         resetButton.addActionListener(e -> reset());
+        if (controlOnHeaderLine) {
+            // Compact controls (checkbox) sit on the key line; the description goes below
+            header.add(control);
+            header.add(Box.createHorizontalStrut(8));
+        }
         header.add(resetButton);
         row.add(header);
 
@@ -131,18 +139,19 @@ class SettingEditor {
             row.add(description);
         }
 
-        JComponent control = buildControl();
-        JPanel controlWrapper = new JPanel(new BorderLayout());
-        controlWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
-        controlWrapper.add(control, BorderLayout.CENTER);
-        if (setting.getType() == SettingType.FILE || setting.getType() == SettingType.DIRECTORY) {
-            JButton browse = new JButton("…");
-            browse.addActionListener(e -> browse());
-            controlWrapper.add(browse, BorderLayout.EAST);
+        if (!controlOnHeaderLine) {
+            JPanel controlWrapper = new JPanel(new BorderLayout());
+            controlWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
+            controlWrapper.add(control, BorderLayout.CENTER);
+            if (setting.getType() == SettingType.FILE || setting.getType() == SettingType.DIRECTORY) {
+                JButton browse = new JButton("…");
+                browse.addActionListener(e -> browse());
+                controlWrapper.add(browse, BorderLayout.EAST);
+            }
+            controlWrapper.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE,
+                    control.getPreferredSize().height + 4));
+            row.add(controlWrapper);
         }
-        controlWrapper.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE,
-                control.getPreferredSize().height + 4));
-        row.add(controlWrapper);
         return row;
     }
 

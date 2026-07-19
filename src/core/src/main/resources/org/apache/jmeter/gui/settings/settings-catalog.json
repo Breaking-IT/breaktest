@@ -229,7 +229,7 @@
       "title": "HTTP Samplers",
       "description": "Shared configuration of the HTTP request samplers.",
       "settings": [
-        {"key": "jmeter.httpsampler", "type": "text", "description": "Default HTTP sampler implementation. Blank uses HttpClient5 with HTTP/2 preferred. Legacy implementation names are accepted when loading old test plans but are executed by the HttpClient5 sampler."},
+        {"key": "jmeter.httpsampler", "type": "text", "description": "Default HTTP sampler implementation. Blank uses HttpClient5 with HTTP/2 preferred. Selecting HTTP/3 as the protocol on a sampler uses the JDK java.net.http client instead (requires Java 26+). Legacy implementation names are accepted when loading old test plans but are executed by the HttpClient5 sampler."},
         {"key": "http.post_add_content_type_if_missing", "type": "boolean", "default": "false", "description": "Add a Content-Type: application/x-www-form-urlencoded header to POST requests when the header is missing."},
         {"key": "httpsampler.max_redirects", "type": "integer", "default": "20", "description": "Maximum number of redirects to follow."},
         {"key": "httpsampler.max_frame_depth", "type": "integer", "default": "5", "description": "Maximum depth of nested frames followed when downloading embedded resources."},
@@ -242,6 +242,8 @@
         {"key": "httpsampler.redirect.removeslashdotdot", "type": "boolean", "default": "true", "description": "Normalize redirect URLs by removing /../ segments."},
         {"key": "httpsampler.separate.container", "type": "boolean", "default": "true", "description": "Store embedded resource results in a separate container sample."},
         {"key": "httpsampler.lightweight_header_merge", "type": "boolean", "default": "true", "description": "Use the lightweight header merging optimization when combining Header Managers."},
+        {"key": "httpsampler.http3.force_http3", "type": "boolean", "default": "true", "description": "Beta: HTTP/3 sampling is a beta feature. Send requests on HTTP/3 samplers HTTP/3-only, failing when the server does not answer over HTTP/3. When false HTTP/3 is attempted directly with fallback to HTTP/2 or HTTP/1.1 over TCP. HTTP/3 sampling requires Java 26+; older runtimes log a warning once and fall back to the HTTP/2 implementation."},
+        {"key": "httpsampler.http3.prefer_for_default", "type": "boolean", "default": "false", "description": "Beta: HTTP/3 sampling is a beta feature. Prefer HTTP/3 for samplers with a blank/default protocol when the runtime supports it (Java 26+). Uses the JDK client with Alt-Svc discovery: the first request to an origin uses HTTP/2 or HTTP/1.1 and later requests upgrade to HTTP/3, like a browser. Samplers using multipart uploads or proxies keep using HttpClient5."},
         {"key": "httpclient.timeout", "type": "integer", "default": "0", "description": "Socket timeout in milliseconds for the AJP sampler implementation. 0 means no timeout."},
         {"key": "httpclient.version", "type": "text", "default": "1.1", "description": "HTTP version used by the AJP sampler implementation."},
         {"key": "httpclient.socket.http.cps", "type": "integer", "default": "0", "description": "Characters per second to emulate a slow HTTP connection. 0 disables the emulation."},
