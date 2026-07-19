@@ -21,7 +21,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -86,6 +88,8 @@ import org.slf4j.LoggerFactory;
  * keystore client certificates and lenient certificate trust then do not apply</li>
  * <li>connect time is not reported separately; sent/received byte counts are
  * application-layer estimates, not QUIC wire bytes</li>
+ * <li>the destination endpoint is the resolved target address (the JDK client does not
+ * expose the UDP socket endpoints); the local endpoint is not populated</li>
  * <li>keep-alive flags are ignored (connection reuse is inherent to HTTP/3)</li>
  * </ul>
  */
@@ -161,6 +165,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         HttpClient client;
         HttpRequest request;
         long requestBodyBytes;
+        String destinationEndpoint = null;
         try {
             checkUnsupportedConfiguration(url);
             client = setupClient();
@@ -168,6 +173,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             request = requestData.request();
             requestBodyBytes = requestData.bodyBytes();
             res.setRequestHeaders(formatRequestHeaders(request));
+            destinationEndpoint = resolveDestinationEndpoint(url);
         } catch (Exception e) {
             res.sampleStart();
             res.sampleEnd();
@@ -180,7 +186,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                     client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
             currentCall = call;
             HttpResponse<InputStream> response = call.get();
-            fillSampleResult(res, request, response, requestBodyBytes);
+            fillSampleResult(res, request, response, requestBodyBytes, destinationEndpoint);
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (Exception e) {
             Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
@@ -195,9 +201,32 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             if (res.getEndTime() == 0) {
                 res.sampleEnd();
             }
+            // Failures always record the destination so timeout/connection messages
+            // include the resolved target, matching the HttpClient5 implementations
+            if (destinationEndpoint != null && StringUtilities.isEmpty(res.getDestinationEndpoint())) {
+                res.setDestinationEndpoint(destinationEndpoint);
+            }
             return errorResult(cause, res);
         } finally {
             currentCall = null;
+        }
+    }
+
+    /**
+     * Resolves the sampled host to the address the JDK client will connect to.
+     * <p>
+     * The JDK client does not expose the endpoints of the underlying UDP socket, so
+     * this is the resolved target address rather than one read back from the wire
+     * (with multiple DNS records the client could in principle pick another one).
+     * The local UDP endpoint is not available at all.
+     */
+    static @Nullable String resolveDestinationEndpoint(URL url) {
+        try {
+            InetAddress address = InetAddress.getByName(url.getHost());
+            int port = url.getPort() > 0 ? url.getPort() : url.getDefaultPort();
+            return HTTPHC5Impl.formatEndpoint(new InetSocketAddress(address, port));
+        } catch (UnknownHostException e) {
+            return null; // the request itself will surface the resolution failure
         }
     }
 
@@ -455,8 +484,16 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     }
 
     private void fillSampleResult(HTTPSampleResult res, HttpRequest request,
-            HttpResponse<InputStream> response, long requestBodyBytes) throws IOException {
+            HttpResponse<InputStream> response, long requestBodyBytes,
+            @Nullable String destinationEndpoint) throws IOException {
         int statusCode = response.statusCode();
+        boolean successful = isSuccessCode(statusCode);
+        if (HTTPHC5Impl.shouldRecordNetworkEndpoints(successful)) {
+            if (destinationEndpoint != null) {
+                res.setDestinationEndpoint(destinationEndpoint);
+            }
+            response.sslSession().ifPresent(session -> res.setTlsVersion(session.getProtocol()));
+        }
         String protocolVersion = formatVersion(response.version());
         res.setResponseCode(Integer.toString(statusCode));
         // HTTP/2 and HTTP/3 have no reason phrase in the status line
@@ -490,7 +527,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
         }
         res.sampleEnd();
-        res.setSuccessful(isSuccessCode(statusCode));
+        res.setSuccessful(successful);
         String responseHeadersText = formatResponseHeaders(protocolVersion, statusCode, responseHeaders);
         res.setResponseHeaders(responseHeadersText);
         res.setHeadersSize(responseHeadersText.length());

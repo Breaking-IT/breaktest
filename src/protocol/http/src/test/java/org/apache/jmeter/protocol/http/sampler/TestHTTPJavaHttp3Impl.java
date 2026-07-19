@@ -157,6 +157,20 @@ public class TestHTTPJavaHttp3Impl {
     }
 
     @Test
+    public void destinationEndpointResolvesToAddressAndPort() throws Exception {
+        String endpoint = HTTPJavaHttp3Impl.resolveDestinationEndpoint(
+                new URI("https://localhost/").toURL());
+
+        assertTrue(endpoint != null && endpoint.endsWith(":443"),
+                () -> "Expected resolved ip:443 for localhost, got: " + endpoint);
+        assertFalse(endpoint.startsWith("localhost"),
+                () -> "Expected a resolved address, not the host name, got: " + endpoint);
+
+        assertEquals("192.0.2.7:8443", HTTPJavaHttp3Impl.resolveDestinationEndpoint(
+                new URI("https://192.0.2.7:8443/").toURL()));
+    }
+
+    @Test
     public void capabilityDetectionMatchesRuntimeFeatureVersion() {
         // HTTP/3 arrived in the JDK HttpClient with Java 26 (JEP 517); capability
         // detection must agree with the running JVM on any test toolchain.
@@ -295,6 +309,10 @@ public class TestHTTPJavaHttp3Impl {
                             + " / " + result.getResponseMessage());
             assertTrue(elapsedMs < 10_000,
                     () -> "Connect timeout should fire near the configured 1000 ms, took " + elapsedMs + " ms");
+            assertEquals("127.0.0.1:4433", result.getDestinationEndpoint(),
+                    "Failures should record the resolved destination endpoint");
+            assertTrue(result.getResponseMessage().contains("127.0.0.1:4433"),
+                    () -> "Timeout message should name the destination, got: " + result.getResponseMessage());
         } finally {
             impl.threadFinished();
         }
@@ -357,5 +375,9 @@ public class TestHTTPJavaHttp3Impl {
         assertTrue(result.isSuccessful(), result.getResponseMessage());
         assertTrue(result.getResponseHeaders().startsWith("HTTP/3"),
                 () -> "Expected HTTP/3 response, got: " + result.getResponseHeaders());
+        assertEquals("TLSv1.3", result.getTlsVersion(),
+                "HTTP/3 responses should report the negotiated TLS version");
+        assertTrue(result.getDestinationEndpoint().endsWith(":443"),
+                () -> "Expected resolved destination ip:443, got: " + result.getDestinationEndpoint());
     }
 }
