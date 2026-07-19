@@ -24,6 +24,56 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.07.19 - HTTP/3 over QUIC Beta</h1>
+<p>
+BreakTest 2026.07.19 introduces beta HTTP/3 sampling over QUIC on Java 26,
+while retaining Java 21 compatibility for the rest of BreakTest. It also makes
+non-GUI startup faster, keeps validation independent of workload scheduling,
+and improves settings and modern-JDK compatibility.
+</p>
+
+<ch_section>HTTP/3 over QUIC Beta</ch_section>
+<ul>
+  <li>Adds HTTP/3 as an explicit HTTP Request protocol, powered by the Java 26 <code>java.net.http</code> QUIC implementation.</li>
+  <li>Supports HTTP/3-only requests, direct HTTP/3 with TCP fallback, and optional browser-like Alt-Svc discovery for default-protocol samplers.</li>
+  <li>Set <code>httpsampler.http3.prefer_for_default=true</code> to upgrade compatible default samplers after a server advertises Alt-Svc.</li>
+  <li>Records the negotiated HTTP version, destination endpoint, and TLS version in sample results.</li>
+  <li>Reuses clients per thread, supports interruption and lifecycle cleanup, and maps QUIC failures to concise network error codes.</li>
+  <li>On Java 21-25, selecting HTTP/3 logs one warning and falls back to negotiated HTTP/2 or HTTP/1.1.</li>
+</ul>
+<p>
+HTTP/3 support is beta. Explicit HTTP/3 samplers currently reject proxies and
+multipart uploads. Default samplers using those features remain on HttpClient 5.
+The JDK QUIC stack requires its built-in trust manager, so JMeter
+client-certificate keystores and lenient certificate trust do not apply to
+HTTP/3 requests.
+</p>
+
+<ch_section>Faster Startup and Modern Java</ch_section>
+<ul>
+  <li>Caches classpath scan results and invalidates them when the runtime JAR set changes.</li>
+  <li>Creates and reuses a per-Java-version AppCDS archive for non-GUI launches; set <code>BREAKTEST_CDS=off</code> to disable it.</li>
+  <li>Avoids legacy XStream Unsafe and final-field mutation probes by using the pure-Java reflection provider.</li>
+  <li>Enables native access for packaged launches to avoid FlatLaf warnings on recent JDKs.</li>
+  <li>Keeps the Gradle daemon on Java 21 for reproducible builds while packaged BreakTest supports Java 21 and newer.</li>
+</ul>
+
+<ch_section>Validation, Archives, and Settings</ch_section>
+<ul>
+  <li>Runs validation as one closed-model thread and one iteration regardless of the source Thread Group model.</li>
+  <li>Stops validation when that iteration completes instead of waiting for an open-model schedule.</li>
+  <li>Identifies compressed JMX archives before normal-file load events, preventing plugin analysis from parsing ZIP data as XML.</li>
+  <li>Uses compact Settings rows with visible defaults and adds an Overrides tab for user, system, and command-line values.</li>
+</ul>
+
+<ch_section>Compatibility</ch_section>
+<ul>
+  <li>Existing JMeter-compatible JMX plans continue to load and save normally.</li>
+  <li>HTTP/3-specific JMX values can be opened on Java 21-25 and use the documented HTTP/2 or HTTP/1.1 fallback.</li>
+  <li>Java 21 or later is required; Java 26 or later is required for HTTP/3 over QUIC.</li>
+  <li>This release uses the direct Git tag <code>2026.07.19</code>.</li>
+</ul>
+
 <h1>BreakTest 2026.07.17 - HAR Import and HTTP Request Controls</h1>
 <p>
 BreakTest 2026.07.17 streamlines transaction-aware HAR imports, clarifies

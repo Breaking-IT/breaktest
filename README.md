@@ -58,6 +58,8 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Apache HttpClient 5 is the active HTTP sampler path.
 - HTTP/2 is first-class, including negotiated fallback, HTTP/2 preferred
   selection, async execution, connect-time reporting, and file upload fixes.
+- HTTP/3 over QUIC is available as a beta on Java 26+, with explicit HTTP/3
+  selection and optional browser-like Alt-Svc upgrades for default samplers.
 - HTTP/2 resource usage is lower: reactor threads are limited by default, client
   rebuilds are avoided when the same user continues, and parallel samplers reuse
   HTTP state deterministically.
@@ -282,7 +284,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.07.17
+breaktest.version=2026.07.19
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix
