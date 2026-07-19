@@ -93,6 +93,7 @@ include(
     "src:testkit",
     "src:testkit-wiremock",
     "src:test-services",
+    "src:xstream-compat",
     "src:dist",
     "src:dist-check"
 )

@@ -16,27 +16,13 @@
  */
 
 plugins {
-    id("build-logic.jvm-published-library")
+    id("build-logic.jvm-library")
 }
 
-val lastEditYear: String by rootProject.extra
-
-tasks.withType<ProcessResources>().configureEach {
-    val version = rootProject.version.toString()
-    inputs.property("@VERSION@", version)
-    inputs.property("@YEAR@", lastEditYear)
-    filter { x: String ->
-        x.replace("@VERSION@", version)
-            .replace("@YEAR@", lastEditYear)
-    }
+base {
+    archivesName.set("breaktest-xstream-compat")
 }
 
-tasks.named<Jar>(JavaPlugin.JAR_TASK_NAME) {
-    manifest {
-        attributes["Main-Class"] = "org.apache.jmeter.NewDriver"
-        // FlatLaf uses native libraries for operating-system integration. Java 24+
-        // warns unless classpath code has native access; older supported JDKs safely
-        // ignore this manifest attribute.
-        attributes["Enable-Native-Access"] = "ALL-UNNAMED"
-    }
+dependencies {
+    compileOnly("com.thoughtworks.xstream:xstream")
 }

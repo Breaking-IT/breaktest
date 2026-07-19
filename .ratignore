@@ -1,4 +1,5 @@
 gradle/wrapper/gradle-wrapper.jar
+gradle/gradle-daemon-jvm.properties
 gradle/verification-keyring.keys
 gradle/verification-metadata.xml
 **/.*

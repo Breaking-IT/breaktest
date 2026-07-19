@@ -31,6 +31,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -42,6 +44,10 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -82,10 +88,13 @@ class SaveServiceArchiveTest extends JMeterTestCase {
             zip.closeEntry();
         }
 
-        HashTree loaded = SaveService.loadTree(file.toFile());
+        List<String> messages = new ArrayList<>();
+        HashTree loaded = loadTreeCapturingMessages(file, messages);
 
         assertNotNull(loaded);
         assertTrue(loaded.isEmpty());
+        assertTrue(messages.stream().anyMatch(message -> message.startsWith("Loading JMX archive: ")));
+        assertFalse(messages.stream().anyMatch(message -> message.startsWith("Loading file: ")));
     }
 
     @Test
@@ -93,10 +102,13 @@ class SaveServiceArchiveTest extends JMeterTestCase {
         Path file = tempDir.resolve("legacy.jmx");
         Files.write(file, savedTestPlanXml());
 
-        HashTree loaded = SaveService.loadTree(file.toFile());
+        List<String> messages = new ArrayList<>();
+        HashTree loaded = loadTreeCapturingMessages(file, messages);
 
         assertNotNull(loaded);
         assertTrue(loaded.isEmpty());
+        assertTrue(messages.stream().anyMatch(message -> message.startsWith("Loading file: ")));
+        assertFalse(messages.stream().anyMatch(message -> message.startsWith("Loading JMX archive: ")));
     }
 
     @Test
@@ -247,6 +259,26 @@ class SaveServiceArchiveTest extends JMeterTestCase {
             }
         }
         return count;
+    }
+
+    private static HashTree loadTreeCapturingMessages(Path file, List<String> messages) throws IOException {
+        AbstractAppender appender = new AbstractAppender(
+                "test-save-service-load-messages", null, null, false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                messages.add(event.getMessage().getFormattedMessage());
+            }
+        };
+        appender.start();
+        org.apache.logging.log4j.core.Logger logger =
+                (org.apache.logging.log4j.core.Logger) LogManager.getLogger(SaveService.class);
+        logger.addAppender(appender);
+        try {
+            return SaveService.loadTree(file.toFile());
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
     }
 
     private static byte[] savedTestPlanXml() throws Exception {

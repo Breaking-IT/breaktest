@@ -207,8 +207,30 @@ DUMP="-XX:+HeapDumpOnOutOfMemoryError"
 SYSTEM_PROPS="-Djava.security.egd=file:/dev/urandom"
 SERVER="-server"
 
+# Application Class-Data Sharing (Java 19+): caches loaded-class metadata in a
+# per-user archive so subsequent startups skip most classfile parsing.
+# The archive is created automatically on first exit and regenerated whenever the
+# jars change; if it cannot be mapped the JVM silently falls back to normal loading.
+# Set BREAKTEST_CDS=off to disable.
+: "${BREAKTEST_CDS:="on"}"
+CDS=""
+if [ "off" != "$BREAKTEST_CDS" ] && [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" -ge 19 ] 2>/dev/null; then
+    CDS_DIR="${HOME}/.breaktest"
+    case "$CDS_DIR" in
+      *" "*) ;; # ARGS is word-split when passed to java, so skip paths containing spaces
+      *)
+        mkdir -p "$CDS_DIR" 2>/dev/null
+        if [ -w "$CDS_DIR" ]; then
+            # -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
+            # that newer JVMs print at error level on the first run
+            CDS="-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=${CDS_DIR}/appcds-java${CURRENT_VERSION}.jsa -Xlog:cds*=off"
+        fi
+        ;;
+    esac
+fi
+
 if [ -z "${JMETER_COMPLETE_ARGS}" ]; then
-    ARGS="$JAVA_OPTS $SERVER $DUMP $HEAP $VERBOSE_GC $GC_ALGO $SYSTEM_PROPS $JMETER_LANGUAGE $RUN_IN_DOCKER"
+    ARGS="$JAVA_OPTS $SERVER $DUMP $HEAP $VERBOSE_GC $GC_ALGO $SYSTEM_PROPS $JMETER_LANGUAGE $RUN_IN_DOCKER $CDS"
 else
     ARGS=""
 fi

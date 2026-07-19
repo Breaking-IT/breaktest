@@ -349,7 +349,7 @@ public class JMeterUtils implements UnitTestManager {
 
         List<String> classesFromJars;
         try (ClassFinder.Closeable ignored = ClassFinder.skipJarsWithJmeterSkipClassScanningAttribute()) {
-            classesFromJars = findClassesThatExtend(service);
+            classesFromJars = ClassScanCache.findClassesThatExtend(service);
         } catch (IOException e) {
             log.warn("Unable to lookup {} with ClassFinder.findClassesThatExtend. " +
                     "Will use only results from ServiceLoader ({} items found)", service, services.size(), e);
