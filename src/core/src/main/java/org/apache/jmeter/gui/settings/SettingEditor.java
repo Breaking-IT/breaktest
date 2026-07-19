@@ -19,6 +19,7 @@ package org.apache.jmeter.gui.settings;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.util.Locale;
 
@@ -52,6 +53,7 @@ class SettingEditor {
 
     private final JPanel panel;
     private final JLabel badge = new JLabel();
+    private final JLabel defaultLabel = new JLabel();
     private final JButton resetButton = new JButton(JMeterUtils.getResString("settings_reset"));
 
     private JCheckBox checkBox;
@@ -94,38 +96,73 @@ class SettingEditor {
     }
 
     private JPanel buildPanel() {
-        JPanel row = new JPanel();
+        JPanel row = new JPanel() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension preferred = getPreferredSize();
+                return new Dimension(Integer.MAX_VALUE, preferred.height);
+            }
+        };
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
         row.setBorder(javax.swing.BorderFactory.createEmptyBorder(8, 10, 8, 10));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        JComponent control = buildControl();
-        boolean controlOnHeaderLine = setting.getType() == SettingType.BOOLEAN;
-
-        JPanel header = new JPanel();
-        header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        JPanel header = new JPanel(new BorderLayout(8, 0));
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel title = new JPanel();
+        title.setLayout(new BoxLayout(title, BoxLayout.X_AXIS));
+        title.setOpaque(false);
         JLabel keyLabel = new JLabel(setting.getKey());
         keyLabel.setFont(keyLabel.getFont().deriveFont(Font.BOLD));
-        header.add(keyLabel);
-        header.add(Box.createHorizontalStrut(8));
+        keyLabel.setToolTipText(setting.getKey());
+        title.add(keyLabel);
+        title.add(Box.createHorizontalStrut(8));
         badge.setFont(badge.getFont().deriveFont(badge.getFont().getSize2D() - 1f));
         badge.setForeground(UIManager.getColor("Label.disabledForeground"));
-        header.add(badge);
-        header.add(Box.createHorizontalGlue());
+        title.add(badge);
+        title.add(Box.createHorizontalStrut(8));
+        defaultLabel.setFont(defaultLabel.getFont().deriveFont(defaultLabel.getFont().getSize2D() - 1f));
+        defaultLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        defaultLabel.setText(formatDefaultValue(inherited));
+        defaultLabel.setToolTipText(inherited);
+        title.add(defaultLabel);
+        header.add(title, BorderLayout.CENTER);
+
+        JComponent control = buildControl();
+        JPanel controlWrapper = new JPanel(new BorderLayout());
+        controlWrapper.setOpaque(false);
+        controlWrapper.add(control, BorderLayout.CENTER);
+        if (setting.getType() == SettingType.FILE || setting.getType() == SettingType.DIRECTORY) {
+            JButton browse = new JButton("…");
+            browse.addActionListener(e -> browse());
+            controlWrapper.add(browse, BorderLayout.EAST);
+        }
+        int controlWidth = setting.getType() == SettingType.FILE || setting.getType() == SettingType.DIRECTORY
+                ? 360 : 240;
+        if (setting.getType() != SettingType.BOOLEAN) {
+            Dimension controlSize = new Dimension(controlWidth, control.getPreferredSize().height + 4);
+            controlWrapper.setPreferredSize(controlSize);
+            controlWrapper.setMaximumSize(controlSize);
+        }
+
         resetButton.setFont(resetButton.getFont().deriveFont(resetButton.getFont().getSize2D() - 1f));
         resetButton.setToolTipText(JMeterUtils.getResString("settings_reset_tooltip"));
         resetButton.addActionListener(e -> reset());
-        if (controlOnHeaderLine) {
-            // Compact controls (checkbox) sit on the key line; the description goes below
-            header.add(control);
-            header.add(Box.createHorizontalStrut(8));
-        }
-        header.add(resetButton);
+        JPanel actions = new JPanel();
+        actions.setOpaque(false);
+        actions.setLayout(new BoxLayout(actions, BoxLayout.X_AXIS));
+        actions.add(controlWrapper);
+        actions.add(Box.createHorizontalStrut(8));
+        actions.add(resetButton);
+        header.add(actions, BorderLayout.EAST);
+        header.setMaximumSize(new Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
         row.add(header);
 
         if (!setting.getDescription().isEmpty()) {
-            JTextArea description = new JTextArea(setting.getDescription());
+            JTextArea description = new WrappingTextArea(setting.getDescription());
             description.setEditable(false);
             description.setFocusable(false);
             description.setLineWrap(true);
@@ -136,23 +173,43 @@ class SettingEditor {
                     .deriveFont(UIManager.getFont("Label.font").getSize2D() - 1f));
             description.setForeground(UIManager.getColor("Label.disabledForeground"));
             description.setAlignmentX(Component.LEFT_ALIGNMENT);
+            description.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
             row.add(description);
         }
-
-        if (!controlOnHeaderLine) {
-            JPanel controlWrapper = new JPanel(new BorderLayout());
-            controlWrapper.setAlignmentX(Component.LEFT_ALIGNMENT);
-            controlWrapper.add(control, BorderLayout.CENTER);
-            if (setting.getType() == SettingType.FILE || setting.getType() == SettingType.DIRECTORY) {
-                JButton browse = new JButton("…");
-                browse.addActionListener(e -> browse());
-                controlWrapper.add(browse, BorderLayout.EAST);
-            }
-            controlWrapper.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE,
-                    control.getPreferredSize().height + 4));
-            row.add(controlWrapper);
-        }
         return row;
+    }
+
+    private static String formatDefaultValue(String value) {
+        String displayValue = value.length() > 40 ? value.substring(0, 37) + "…" : value;
+        return JMeterUtils.getResString("settings_default_prefix") + " " + displayValue;
+    }
+
+    /**
+     * A text area whose preferred height follows the width available in the
+     * settings viewport instead of the length of the unwrapped description.
+     */
+    private static final class WrappingTextArea extends JTextArea {
+
+        private static final long serialVersionUID = 1L;
+        private static final int FALLBACK_WIDTH = 600;
+
+        private WrappingTextArea(String text) {
+            super(text);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            int width = FALLBACK_WIDTH;
+            if (getParent() != null && getParent().getWidth() > 0) {
+                width = getParent().getWidth()
+                        - getParent().getInsets().left - getParent().getInsets().right;
+            }
+            width = Math.max(1, width);
+            setSize(width, Short.MAX_VALUE);
+            Dimension preferred = super.getPreferredSize();
+            preferred.width = width;
+            return preferred;
+        }
     }
 
     private JComponent buildControl() {
@@ -290,6 +347,8 @@ class SettingEditor {
             updating = false;
         }
         updateBadge();
+        defaultLabel.setText(formatDefaultValue(inherited));
+        defaultLabel.setToolTipText(inherited);
     }
 
     private void updateBadge() {

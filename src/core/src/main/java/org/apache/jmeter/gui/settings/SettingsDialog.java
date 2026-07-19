@@ -21,12 +21,14 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -43,12 +45,16 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
+import javax.swing.Scrollable;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableModel;
 
 import org.apache.jmeter.gui.util.EscapeDialog;
 import org.apache.jmeter.util.JMeterUtils;
@@ -75,8 +81,23 @@ public class SettingsDialog extends EscapeDialog {
 
     private final JTextField searchField = new JTextField();
     private final JList<SettingsGroup> groupList;
-    private final JPanel settingsPanel = new JPanel();
+    private final JPanel settingsPanel = new ViewportWidthPanel();
     private final JScrollPane settingsScroll;
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final DefaultTableModel overridesModel = new DefaultTableModel(
+            new String[] {
+                    JMeterUtils.getResString("settings_column_setting"),
+                    JMeterUtils.getResString("settings_column_value"),
+                    JMeterUtils.getResString("settings_column_default"),
+                    JMeterUtils.getResString("settings_column_source")
+            }, 0) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public boolean isCellEditable(int row, int column) {
+            return false;
+        }
+    };
     private final JLabel modifiedLabel = new JLabel(" ");
     private final JButton saveButton = new JButton(JMeterUtils.getResString("settings_save"));
 
@@ -97,11 +118,10 @@ public class SettingsDialog extends EscapeDialog {
         });
 
         settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
-        // Anchor the rows to the top of the viewport: without this wrapper the viewport
-        // stretches the panel to its own height and the rows inflate to fill the gap
-        JPanel settingsAnchor = new JPanel(new BorderLayout());
-        settingsAnchor.add(settingsPanel, BorderLayout.NORTH);
-        settingsScroll = new JScrollPane(settingsAnchor,
+        // ViewportWidthPanel tracks the viewport width (for description wrapping) but not
+        // its height, so rows keep their natural height instead of stretching; it must be
+        // the scroll pane's direct view for its Scrollable contract to apply
+        settingsScroll = new JScrollPane(settingsPanel,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         settingsScroll.getVerticalScrollBar().setUnitIncrement(16);
@@ -143,13 +163,25 @@ public class SettingsDialog extends EscapeDialog {
         return top;
     }
 
-    private JSplitPane buildCenterPanel() {
+    private JTabbedPane buildCenterPanel() {
         JScrollPane groupScroll = new JScrollPane(groupList);
         groupScroll.setMinimumSize(new Dimension(220, 100));
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, groupScroll, settingsScroll);
         split.setDividerLocation(260);
         split.setContinuousLayout(true);
-        return split;
+
+        JTable overridesTable = new JTable(overridesModel);
+        overridesTable.setAutoCreateRowSorter(true);
+        overridesTable.setFillsViewportHeight(true);
+        overridesTable.getColumnModel().getColumn(0).setPreferredWidth(360);
+        overridesTable.getColumnModel().getColumn(1).setPreferredWidth(180);
+        overridesTable.getColumnModel().getColumn(2).setPreferredWidth(180);
+        overridesTable.getColumnModel().getColumn(3).setPreferredWidth(130);
+
+        tabs.addTab(JMeterUtils.getResString("settings_all_tab"), split);
+        tabs.addTab(JMeterUtils.getResString("settings_overrides_tab"), new JScrollPane(overridesTable));
+        tabs.addChangeListener(e -> refreshView());
+        return tabs;
     }
 
     private JPanel buildBottomPanel() {
@@ -191,10 +223,40 @@ public class SettingsDialog extends EscapeDialog {
 
     private void refreshView() {
         String query = searchField.getText().trim();
+        if (tabs.getSelectedIndex() == 1) {
+            showOverrides(query);
+            return;
+        }
         if (query.isEmpty()) {
             showSelectedGroup();
         } else {
             showSearchResults(query);
+        }
+    }
+
+    private void showOverrides(String query) {
+        String normalizedQuery = query.toLowerCase(Locale.ROOT);
+        overridesModel.setRowCount(0);
+        for (SettingsGroup group : groups) {
+            for (SettingDefinition setting : group.getSettings()) {
+                if (model.getSource(group, setting) != SettingsModel.ValueSource.OVERRIDE) {
+                    continue;
+                }
+                String value = model.getValue(group, setting);
+                String inherited = model.getInheritedValue(group, setting);
+                if (value.equals(inherited)) {
+                    continue;
+                }
+                String source = group.getTarget() == SettingsGroup.Target.SYSTEM
+                        ? model.getSystemFile().getName() : model.getUserFile().getName();
+                if (!normalizedQuery.isEmpty()
+                        && !setting.getKey().toLowerCase(Locale.ROOT).contains(normalizedQuery)
+                        && !group.getTitle().toLowerCase(Locale.ROOT).contains(normalizedQuery)
+                        && !value.toLowerCase(Locale.ROOT).contains(normalizedQuery)) {
+                    continue;
+                }
+                overridesModel.addRow(new Object[] {setting.getKey(), value, inherited, source});
+            }
         }
     }
 
@@ -299,9 +361,41 @@ public class SettingsDialog extends EscapeDialog {
             editor.rebase();
         }
         updateModifiedState();
+        refreshView();
         JOptionPane.showMessageDialog(this,
                 JMeterUtils.getResString("settings_saved_message"),
                 JMeterUtils.getResString("settings_title"),
                 JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /** Keeps setting rows constrained to the visible viewport width. */
+    private static final class ViewportWidthPanel extends JPanel implements Scrollable {
+
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return Math.max(16, visibleRect.height - 16);
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 }
