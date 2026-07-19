@@ -86,7 +86,8 @@ public class TestHTTPHC5Impl {
         assertArrayEquals(new String[] {
                 HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT,
                 HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1,
-                HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2
+                HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2,
+                HTTPSamplerBase.HTTP_PROTOCOL_HTTP_3
         }, HTTPSamplerBase.getHttpProtocolList());
 
         HTTPSamplerProxy defaultProtocol = new HTTPSamplerProxy();

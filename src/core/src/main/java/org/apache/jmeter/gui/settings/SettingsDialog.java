@@ -118,6 +118,9 @@ public class SettingsDialog extends EscapeDialog {
         });
 
         settingsPanel.setLayout(new BoxLayout(settingsPanel, BoxLayout.Y_AXIS));
+        // ViewportWidthPanel tracks the viewport width (for description wrapping) but not
+        // its height, so rows keep their natural height instead of stretching; it must be
+        // the scroll pane's direct view for its Scrollable contract to apply
         settingsScroll = new JScrollPane(settingsPanel,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);

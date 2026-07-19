@@ -218,7 +218,7 @@ public final class HarConverter {
             HashTree samplerParent = transactionHt;
             if (group.size() > 1) {
                 parallelCounter++;
-                int maxParallel = allHttp2(group) ? 100 : 6;
+                int maxParallel = allMultiplexedProtocol(group) ? 100 : 6;
                 ParallelController parallel =
                         buildParallelController("Parallel Requests " + parallelCounter, maxParallel);
                 samplerParent = transactionHt.add(parallel);
@@ -450,13 +450,14 @@ public final class HarConverter {
         return tokens;
     }
 
-    private static boolean allHttp2(List<HarEntry> group) {
+    private static boolean allMultiplexedProtocol(List<HarEntry> group) {
         if (group.isEmpty()) {
             return false;
         }
         for (HarEntry entry : group) {
             String protocol = entry.getProtocol();
-            if (!protocol.contains("h2") && !protocol.contains("http/2")) {
+            if (!protocol.contains("h2") && !protocol.contains("http/2")
+                    && !protocol.contains("h3") && !protocol.contains("http/3")) {
                 return false;
             }
         }
