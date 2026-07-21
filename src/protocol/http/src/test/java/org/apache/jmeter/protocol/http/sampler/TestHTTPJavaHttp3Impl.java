@@ -229,6 +229,35 @@ public class TestHTTPJavaHttp3Impl {
     }
 
     @Test
+    public void http3ConnectTimeoutIdentifiesQuicTransport() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setConnectTimeout("3000");
+        HTTPJavaHttp3Impl impl = new HTTPJavaHttp3Impl(sampler);
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(new URI("https://example.test/").toURL());
+
+        impl.errorResult(new java.net.http.HttpConnectTimeoutException("quic connect timeout"), result);
+
+        assertEquals("Connect timeout", result.getResponseCode());
+        assertEquals("HTTP/3 over QUIC: Connection timeout after 3000 ms for example.test:443",
+                result.getResponseMessage());
+        assertEquals(result.getResponseMessage(), result.getResponseDataAsString());
+    }
+
+    @Test
+    public void http3UnclassifiedErrorIdentifiesQuicTransport() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        HTTPJavaHttp3Impl impl = new HTTPJavaHttp3Impl(sampler);
+        HTTPSampleResult result = new HTTPSampleResult();
+        result.setURL(new URI("https://example.test/").toURL());
+
+        impl.errorResult(new IllegalStateException("unexpected failure"), result);
+
+        assertTrue(result.getResponseMessage().startsWith("HTTP/3 over QUIC: "));
+        assertTrue(result.getResponseDataAsString().startsWith("HTTP/3 over QUIC: "));
+    }
+
+    @Test
     public void jdkConnectTimeoutBoundedByResponseTimeoutReportsThatTimeout() throws Exception {
         // With no connect timeout configured, the JDK request timeout bounds the QUIC
         // handshake; the reported duration falls back to the response timeout

@@ -97,6 +97,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     private static final Logger log = LoggerFactory.getLogger(HTTPJavaHttp3Impl.class);
 
+    private static final String HTTP3_ERROR_PREFIX = "HTTP/3 over QUIC: ";
+
     /**
      * When true (default), explicit HTTP/3 samplers send requests HTTP/3-only and fail if
      * the server does not answer over HTTP/3. When false, HTTP/3 is attempted directly
@@ -151,6 +153,16 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     HTTPJavaHttp3Impl(HTTPSamplerBase testElement, Http3Discovery discovery) {
         super(testElement);
         this.discovery = discovery;
+    }
+
+    @Override
+    protected HTTPSampleResult errorResult(Throwable error, HTTPSampleResult result) {
+        HTTPSampleResult errorResult = super.errorResult(error, result);
+        errorResult.setResponseMessage(HTTP3_ERROR_PREFIX + errorResult.getResponseMessage());
+        errorResult.setResponseData(
+                HTTP3_ERROR_PREFIX + errorResult.getResponseDataAsString(),
+                errorResult.getDataEncodingWithDefault());
+        return errorResult;
     }
 
     @Override
