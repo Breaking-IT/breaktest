@@ -13,6 +13,58 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.07.21 — HTTP Replay Fidelity and Response Comparison
+
+BreakTest 2026.07.21 makes modern HTTP recordings more faithful during replay
+and adds opt-in response comparison metrics to the Results Tree table. It also
+updates the browser recorder to 1.1.0 and refines several high-density GUI
+controls.
+
+## Results Tree Response Metrics
+
+- Adds **Received bytes** and compact **Encoding** columns to the Results Tree
+  table. Encoding identifies `gzip`, `deflate`, `br`, and `zstd` response
+  compression, including stacked encodings.
+- Adds an optional **Diff %** column that compares recorded and replayed
+  response bodies when both are available.
+- Keeps response comparison disabled by default behind a **Calculate diff**
+  toggle because large bodies can be CPU intensive.
+- Calculates multi-line differences by changed lines after normalizing line
+  endings, so a one-line change in a large document remains proportionally
+  small. Single-line bodies use a character-based comparison.
+- Leaves the percentage blank for binary or unavailable response bodies and
+  displays tiny non-zero differences as `<0.1%`.
+
+## Modern HTTP Replay Fidelity
+
+- Sends the exact HTTP/2 `content-length` whenever the request body length is
+  known, including `content-length: 0` for an empty POST, following RFC 9110.
+- Shows HTTP/2 and HTTP/3 pseudo-headers consistently in recorded and replayed
+  request details and normalizes modern-protocol header names, including
+  `cookie`, to lowercase.
+- Identifies HTTP/3 over QUIC explicitly in connection timeout and other
+  HTTP/3 error details.
+- Recognizes unmarked Chromium memory-cache reuses during HAR import and omits
+  the non-network reuse without replacing the original request's complete
+  headers with sparse contextual headers.
+
+## Browser Recorder and GUI
+
+- Updates the bundled browser extension to 1.1.0 with browser-local IndexedDB
+  staging for large HAR exports and transaction rename, removal, and
+  reassignment controls.
+- Preserves complete Chrome wire request headers, sent-cookie metadata, and
+  HTTP protocol when CDP extra-info events arrive out of order.
+- Vertically centers the duration, virtual-user, warning, and AI Log controls
+  in the command bar.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans continue to load and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.07.21`.
+
 # BreakTest 2026.07.19 — HTTP/3 over QUIC Beta
 
 BreakTest 2026.07.19 introduces beta HTTP/3 sampling over QUIC on Java 26,
