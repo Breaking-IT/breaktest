@@ -529,7 +529,10 @@ public final class RecordedHarExchangeResolver {
     }
 
     private static RecordedExchange toRecordedExchange(JsonNode entry) {
-        return new RecordedExchange(formatRequest(entry.path("request")), formatResponse(entry.path("response"))); // $NON-NLS-1$ //$NON-NLS-2$
+        JsonNode response = entry.path("response"); // $NON-NLS-1$
+        String responseBody = responseBody(response.path("content")); // $NON-NLS-1$
+        return new RecordedExchange(
+                formatRequest(entry.path("request")), formatResponse(response, responseBody), responseBody); // $NON-NLS-1$
     }
 
     private static String formatRequest(JsonNode request) {
@@ -544,7 +547,7 @@ public final class RecordedHarExchangeResolver {
         return builder.toString();
     }
 
-    private static String formatResponse(JsonNode response) {
+    private static String formatResponse(JsonNode response, String responseBody) {
         StringBuilder builder = new StringBuilder();
         String httpVersion = response.path("httpVersion").asText(); // $NON-NLS-1$
         appendLine(builder,
@@ -552,7 +555,7 @@ public final class RecordedHarExchangeResolver {
                 response.path("status").isMissingNode() ? "" : response.path("status").asText(), // $NON-NLS-1$ //$NON-NLS-2$
                 isHttp2(httpVersion) ? "" : response.path("statusText").asText()); // $NON-NLS-1$ //$NON-NLS-2$
         appendHeaders(builder, response.path("headers"), false); // $NON-NLS-1$
-        appendBody(builder, responseBody(response.path("content"))); // $NON-NLS-1$
+        appendBody(builder, responseBody);
         return builder.toString();
     }
 
@@ -784,10 +787,12 @@ public final class RecordedHarExchangeResolver {
     public static final class RecordedExchange {
         private final String request;
         private final String response;
+        private final String responseBody;
 
-        RecordedExchange(String request, String response) {
+        RecordedExchange(String request, String response, String responseBody) {
             this.request = request;
             this.response = response;
+            this.responseBody = responseBody;
         }
 
         public String request() {
@@ -796,6 +801,10 @@ public final class RecordedHarExchangeResolver {
 
         public String response() {
             return response;
+        }
+
+        public String responseBody() {
+            return responseBody;
         }
     }
 

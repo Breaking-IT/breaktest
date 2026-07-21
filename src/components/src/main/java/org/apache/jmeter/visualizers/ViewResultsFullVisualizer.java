@@ -200,6 +200,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private JPanel resultFilterPanel;
     private JToggleButton resultFilterToggle;
     private JButton resultColumnsButton;
+    private JCheckBox calculateResponseDiffCB;
     private Component leftSide;
     private JTabbedPane rightSide;
     private JComboBox<ResultRenderer> selectRenderPanel;
@@ -1005,6 +1006,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         resultTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultTable.setAutoCreateRowSorter(true);
         resultTable.setDefaultRenderer(Icon.class, new StatusIconTableCellRenderer());
+        resultTable.setDefaultRenderer(Double.class, new DiffPercentTableCellRenderer());
         resultTable.getSelectionModel().addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
                 selectTableResult();
@@ -1056,10 +1058,15 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         resultFilterToggle.addActionListener(event -> updateResultFilterPanelVisibility());
         resultColumnsButton = new JButton(JMeterUtils.getResString("view_results_columns")); // $NON-NLS-1$
         resultColumnsButton.addActionListener(event -> showResultTableColumnsMenu(resultColumnsButton));
+        calculateResponseDiffCB = new JCheckBox(JMeterUtils.getResString("view_results_diff_enable")); // $NON-NLS-1$
+        calculateResponseDiffCB.setToolTipText(JMeterUtils.getResString("view_results_diff_tooltip")); // $NON-NLS-1$
+        calculateResponseDiffCB.addActionListener(event ->
+                resultTableModel.setResponseBodyDiffEnabled(calculateResponseDiffCB.isSelected()));
         JPanel controlsPanel = new JPanel(new MigLayout("fillx, insets 0, hidemode 3", // $NON-NLS-1$
-                "[fill,grow][right][right]")); // $NON-NLS-1$
+                "[fill,grow][right][right][right]")); // $NON-NLS-1$
         controlsPanel.add(createComboRender(), "growx"); // $NON-NLS-1$
         controlsPanel.add(resultFilterToggle, "gapleft 6"); // $NON-NLS-1$
+        controlsPanel.add(calculateResponseDiffCB, "gapleft 6"); // $NON-NLS-1$
         controlsPanel.add(resultColumnsButton, "gapleft 6"); // $NON-NLS-1$
 
         JPanel topPanel = new JPanel(new MigLayout("fillx, wrap 1, insets 0, hidemode 3", "[fill,grow]")); // $NON-NLS-1$ //$NON-NLS-2$
@@ -1089,7 +1096,13 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         columns.getColumn(ResultTableModel.LATENCY).setPreferredWidth(70);
         columns.getColumn(ResultTableModel.CONNECT_TIME).setPreferredWidth(80);
         columns.getColumn(ResultTableModel.REQUEST_SIZE).setPreferredWidth(85);
-        columns.getColumn(ResultTableModel.RESPONSE_SIZE).setPreferredWidth(85);
+        columns.getColumn(ResultTableModel.RECEIVED_BYTES).setPreferredWidth(90);
+        columns.getColumn(ResultTableModel.COMPRESSION).setMinWidth(58);
+        columns.getColumn(ResultTableModel.COMPRESSION).setPreferredWidth(64);
+        columns.getColumn(ResultTableModel.COMPRESSION).setMaxWidth(76);
+        columns.getColumn(ResultTableModel.DIFF_PERCENT).setMinWidth(52);
+        columns.getColumn(ResultTableModel.DIFF_PERCENT).setPreferredWidth(58);
+        columns.getColumn(ResultTableModel.DIFF_PERCENT).setMaxWidth(72);
         columns.getColumn(ResultTableModel.URL).setPreferredWidth(240);
     }
 
@@ -1187,6 +1200,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         if (resultColumnsButton != null) {
             resultColumnsButton.setVisible(isTableMode());
             resultColumnsButton.getParent().revalidate();
+        }
+        if (calculateResponseDiffCB != null) {
+            calculateResponseDiffCB.setVisible(isTableMode());
         }
         if (divider > 0) {
             mainSplit.setDividerLocation(divider);
@@ -1905,6 +1921,29 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             label.setHorizontalAlignment(SwingConstants.CENTER);
             label.setIcon(value instanceof Icon icon ? icon : null);
             return label;
+        }
+    }
+
+    private static class DiffPercentTableCellRenderer extends DefaultTableCellRenderer {
+        private static final long serialVersionUID = -3979405095985883119L;
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                boolean hasFocus, int row, int column) {
+            String text = value instanceof Number number
+                    ? formatDiffPercentage(number.doubleValue())
+                    : ""; // $NON-NLS-1$
+            JLabel label = (JLabel) super.getTableCellRendererComponent(
+                    table, text, isSelected, hasFocus, row, column);
+            label.setHorizontalAlignment(SwingConstants.RIGHT);
+            return label;
+        }
+
+        private static String formatDiffPercentage(double value) {
+            if (value > 0D && value < 0.1D) {
+                return "<0.1%"; // $NON-NLS-1$
+            }
+            return String.format(Locale.ROOT, "%.1f%%", value); // $NON-NLS-1$
         }
     }
 

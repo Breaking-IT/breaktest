@@ -72,6 +72,7 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase {
                 + "Content-Type: application/json\n"
                 + "\n"
                 + "{\"source\":\"entry-index\"}", exchange.orElseThrow().response());
+        assertEquals("{\"source\":\"entry-index\"}", exchange.orElseThrow().responseBody());
     }
 
     @Test
@@ -171,6 +172,7 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase {
         assertTrue(exchange.response().contains("Content-Type: image/png"));
         assertFalse(exchange.response().contains("PNG"));
         assertFalse(exchange.response().contains("IHDR"));
+        assertEquals("", exchange.responseBody());
     }
 
     @Test

@@ -24,6 +24,47 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.07.21 - HTTP Replay Fidelity and Response Comparison</h1>
+<p>
+BreakTest 2026.07.21 makes modern HTTP recordings more faithful during replay
+and adds opt-in response comparison metrics to the Results Tree table. It also
+updates the browser recorder to 1.1.0 and refines several high-density GUI
+controls.
+</p>
+
+<ch_section>Results Tree Response Metrics</ch_section>
+<ul>
+  <li>Adds <b>Received bytes</b> and compact <b>Encoding</b> columns to the Results Tree table.</li>
+  <li>Identifies <code>gzip</code>, <code>deflate</code>, <code>br</code>, and <code>zstd</code> response compression, including stacked encodings.</li>
+  <li>Adds an optional <b>Diff %</b> column that compares recorded and replayed response bodies when both are available.</li>
+  <li>Keeps response comparison disabled by default behind a <b>Calculate diff</b> toggle because large bodies can be CPU intensive.</li>
+  <li>Uses changed-line percentages for multi-line text after normalizing line endings and character-based comparison for single-line bodies.</li>
+  <li>Leaves the percentage blank for binary or unavailable bodies and displays tiny non-zero differences as <code>&lt;0.1%</code>.</li>
+</ul>
+
+<ch_section>Modern HTTP Replay Fidelity</ch_section>
+<ul>
+  <li>HTTP/2 requests send the exact <code>content-length</code> whenever the request content length is known, including <code>content-length: 0</code> for an empty POST, as recommended by RFC 9110.</li>
+  <li>Shows HTTP/2 and HTTP/3 pseudo-headers consistently in recorded and replayed request details.</li>
+  <li>Normalizes modern-protocol header names, including <code>cookie</code>, to lowercase.</li>
+  <li>Identifies HTTP/3 over QUIC explicitly in connection timeout and other HTTP/3 error details.</li>
+  <li>HAR imports recognize unmarked Chromium memory-cache reuses and omit the non-network reuse without replacing the original request's complete headers with sparse contextual headers.</li>
+</ul>
+
+<ch_section>Browser Recorder and GUI</ch_section>
+<ul>
+  <li>Updates the bundled browser extension to 1.1.0 with browser-local IndexedDB staging for large HAR exports and transaction rename, removal, and reassignment controls.</li>
+  <li>Preserves complete Chrome wire request headers, sent-cookie metadata, and HTTP protocol when CDP extra-info events arrive out of order.</li>
+  <li>Vertically centers the duration, virtual-user, warning, and AI Log controls in the command bar.</li>
+</ul>
+
+<ch_section>Compatibility</ch_section>
+<ul>
+  <li>Existing JMeter-compatible JMX plans continue to load and save normally.</li>
+  <li>Java 21 or later is required; Java 26 or later is required for HTTP/3 over QUIC.</li>
+  <li>This release uses the direct Git tag <code>2026.07.21</code>.</li>
+</ul>
+
 <h1>BreakTest 2026.07.19 - HTTP/3 over QUIC Beta</h1>
 <p>
 BreakTest 2026.07.19 introduces beta HTTP/3 sampling over QUIC on Java 26,
@@ -39,7 +80,6 @@ and improves settings and modern-JDK compatibility.
   <li>Set <code>httpsampler.http3.prefer_for_default=true</code> to upgrade compatible default samplers after a server advertises Alt-Svc.</li>
   <li>Records the negotiated HTTP version, destination endpoint, and TLS version in sample results.</li>
   <li>Reuses clients per thread, supports interruption and lifecycle cleanup, and maps QUIC failures to concise network error codes.</li>
-  <li>Identifies HTTP/3 over QUIC explicitly in timeout and other HTTP/3 error details.</li>
   <li>On Java 21-25, selecting HTTP/3 logs one warning and falls back to negotiated HTTP/2 or HTTP/1.1.</li>
 </ul>
 <p>
@@ -49,12 +89,6 @@ The JDK QUIC stack requires its built-in trust manager, so JMeter
 client-certificate keystores and lenient certificate trust do not apply to
 HTTP/3 requests.
 </p>
-
-<ch_section>HTTP Request Compatibility</ch_section>
-<ul>
-  <li>HTTP/2 requests send the exact <code>content-length</code> whenever the request content length is known, including <code>content-length: 0</code> for an empty POST, as recommended by RFC 9110.</li>
-  <li>HAR imports recognize unmarked Chromium memory-cache reuses and omit them from replay without letting their sparse contextual headers replace the original network request headers.</li>
-</ul>
 
 <ch_section>Faster Startup and Modern Java</ch_section>
 <ul>
