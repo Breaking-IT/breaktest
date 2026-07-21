@@ -39,6 +39,7 @@ and improves settings and modern-JDK compatibility.
   <li>Set <code>httpsampler.http3.prefer_for_default=true</code> to upgrade compatible default samplers after a server advertises Alt-Svc.</li>
   <li>Records the negotiated HTTP version, destination endpoint, and TLS version in sample results.</li>
   <li>Reuses clients per thread, supports interruption and lifecycle cleanup, and maps QUIC failures to concise network error codes.</li>
+  <li>Identifies HTTP/3 over QUIC explicitly in timeout and other HTTP/3 error details.</li>
   <li>On Java 21-25, selecting HTTP/3 logs one warning and falls back to negotiated HTTP/2 or HTTP/1.1.</li>
 </ul>
 <p>
@@ -48,6 +49,12 @@ The JDK QUIC stack requires its built-in trust manager, so JMeter
 client-certificate keystores and lenient certificate trust do not apply to
 HTTP/3 requests.
 </p>
+
+<ch_section>HTTP Request Compatibility</ch_section>
+<ul>
+  <li>HTTP/2 requests send the exact <code>content-length</code> whenever the request content length is known, including <code>content-length: 0</code> for an empty POST, as recommended by RFC 9110.</li>
+  <li>HAR imports recognize unmarked Chromium memory-cache reuses and omit them from replay without letting their sparse contextual headers replace the original network request headers.</li>
+</ul>
 
 <ch_section>Faster Startup and Modern Java</ch_section>
 <ul>
