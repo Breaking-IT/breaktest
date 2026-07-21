@@ -92,9 +92,9 @@ import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
-import org.apache.hc.core5.http.ClassicHttpRequest;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.ConnectionClosedException;
+import org.apache.hc.core5.http.EntityDetails;
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpEntity;
 import org.apache.hc.core5.http.HttpHost;
@@ -106,7 +106,6 @@ import org.apache.hc.core5.http.RequestNotExecutedException;
 import org.apache.hc.core5.http.URIScheme;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.RegistryBuilder;
-import org.apache.hc.core5.http.io.entity.FileEntity;
 import org.apache.hc.core5.http.message.BufferedHeader;
 import org.apache.hc.core5.http.message.StatusLine;
 import org.apache.hc.core5.http.nio.ssl.TlsStrategy;
@@ -234,8 +233,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             try {
                 currentRequest = httpRequest;
                 handleMethod(method, res, httpRequest, clientContext);
-                setContentLengthForKnownEntity(httpRequest,
-                        HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol()));
                 removeHeadersUnsupportedByHttp2(httpRequest);
                 clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
                 clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
@@ -438,6 +435,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setRoutePlanner(new H2RoutePlanner(proxy))
                 .setDefaultCredentialsProvider(credentialsProvider)
                 .setDefaultAuthSchemeRegistry(authSchemeRegistry)
+                .addRequestInterceptorLast(HTTPHC5H2Impl::setContentLengthForHttp2)
                 .disableContentCompression();
         if (DEBUG_CONNECTION_CLOSURE) {
             builder.setIOSessionListener(new H2ConnectionClosureDebugSessionListener(key.toString()));
@@ -1224,21 +1222,37 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         return result;
     }
 
-    static void setContentLengthForKnownEntity(ClassicHttpRequest request, boolean secureRequest) {
-        HttpEntity entity = request.getEntity();
-        if (entity == null || request.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH)) {
+    /**
+     * Adds the optional HTTP semantic length after protocol negotiation. HttpCore's
+     * HTTP/2 processor intentionally omits it because DATA frames provide framing,
+     * while RFC 9110 recommends a known length for content-bearing methods.
+     */
+    static void setContentLengthForHttp2(
+            HttpRequest request, EntityDetails entity, HttpContext context) {
+        ProtocolVersion protocolVersion = context.getProtocolVersion();
+        if (protocolVersion == null || protocolVersion.getMajor() < 2) {
             return;
         }
-        if (!secureRequest) {
-            return;
-        }
-        if (!(entity instanceof FileEntity)) {
+        if (entity == null) {
+            if (methodAnticipatesContent(request.getMethod())) {
+                request.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, "0");
+            } else {
+                request.removeHeaders(HTTPConstants.HEADER_CONTENT_LENGTH);
+            }
             return;
         }
         long contentLength = entity.getContentLength();
-        if (contentLength > 0) {
+        if (contentLength >= 0) {
             request.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, Long.toString(contentLength));
+        } else {
+            request.removeHeaders(HTTPConstants.HEADER_CONTENT_LENGTH);
         }
+    }
+
+    private static boolean methodAnticipatesContent(String method) {
+        return HTTPConstants.POST.equalsIgnoreCase(method)
+                || HTTPConstants.PUT.equalsIgnoreCase(method)
+                || HTTPConstants.PATCH.equalsIgnoreCase(method);
     }
 
     static void removeHeadersUnsupportedByHttp2(HttpRequest request) {

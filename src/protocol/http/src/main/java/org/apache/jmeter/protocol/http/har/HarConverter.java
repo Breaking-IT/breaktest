@@ -165,7 +165,7 @@ public final class HarConverter {
         List<HarEntry> kept = new ArrayList<>();
         for (HarEntry entry : entries) {
             String host = hostnameOf(entry.getUrl());
-            if (host != null && selectedHostnames.contains(host)) {
+            if (host != null && selectedHostnames.contains(host) && !shouldSkip(entry)) {
                 kept.add(entry);
             }
         }
@@ -470,7 +470,7 @@ public final class HarConverter {
 
     private static boolean shouldSkip(HarEntry entry) {
         String fromCache = entry.getFromCache();
-        if ("memory".equals(fromCache) || "disk".equals(fromCache)) {
+        if (fromCache != null && !fromCache.isBlank()) {
             return true;
         }
         if (entry.getServerIpAddress() != null && !entry.getServerIpAddress().isEmpty()) {

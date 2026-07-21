@@ -31,6 +31,8 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.Image;
 import java.awt.Insets;
 import java.awt.KeyboardFocusManager;
@@ -712,19 +714,29 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         warnIndicator.setText("0");
         commandBar.add(toolPanel, BorderLayout.CENTER);
 
-        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        JPanel statusPanel = new JPanel(new GridBagLayout());
         statusPanel.setOpaque(false);
         styleStatusLabel(testTimeDuration);
         styleStatusLabel(activeAndTotalThreads);
         styleStatusButton(warnIndicator);
-        statusPanel.add(testTimeDuration);
-        statusPanel.add(activeAndTotalThreads);
-        statusPanel.add(warnIndicator);
         JButton aiLogButton = new JButton("AI Log");
         aiLogButton.setToolTipText("Show or hide the AI Auto Scripting (Beta) log");
         aiLogButton.addActionListener(event -> AiAutoScriptingLogWindow.toggleVisibility());
         styleStatusButton(aiLogButton);
-        statusPanel.add(aiLogButton);
+
+        GridBagConstraints chipConstraints = new GridBagConstraints();
+        chipConstraints.gridx = 0;
+        chipConstraints.gridy = 0;
+        chipConstraints.anchor = GridBagConstraints.CENTER;
+        chipConstraints.insets = new Insets(0, 0, 0, 6);
+        statusPanel.add(testTimeDuration, chipConstraints);
+        chipConstraints.gridx++;
+        statusPanel.add(activeAndTotalThreads, chipConstraints);
+        chipConstraints.gridx++;
+        statusPanel.add(warnIndicator, chipConstraints);
+        chipConstraints.gridx++;
+        chipConstraints.insets = new Insets(0, 0, 0, 0);
+        statusPanel.add(aiLogButton, chipConstraints);
         commandBar.add(statusPanel, BorderLayout.EAST);
         return commandBar;
     }
@@ -921,10 +933,10 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         button.setOpaque(true);
         button.setContentAreaFilled(true);
         button.setBorderPainted(true);
-        button.setMargin(new Insets(4, 9, 4, 9));
+        button.setMargin(new Insets(0, 0, 0, 0));
         button.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(statusChipBorder()),
-                BorderFactory.createEmptyBorder(3, 8, 3, 8)));
+                BorderFactory.createEmptyBorder(4, 9, 4, 9)));
         button.setBackground(statusChipBackground());
         button.setForeground(statusChipForeground());
     }

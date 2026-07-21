@@ -24,6 +24,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 
 import javax.swing.JPanel;
@@ -111,9 +112,11 @@ public class RequestViewRaw implements RequestView {
         // Don't display Request headers label if rh is null or empty
         String rh = sampleResult.getRequestHeaders();
         String cookies = getCookies(sampleResult);
-        String requestHeaders = buildRequestHeaders(rh, cookies);
+        String protocol = getHttpProtocolVersion(sampleResult);
+        boolean usesPseudoHeaders = usesPseudoHeaders(protocol);
+        String requestHeaders = buildRequestHeaders(rh, cookies, sampleResult, usesPseudoHeaders);
         String body = getRequestBody(sampleResult);
-        return buildRequestData(buildRequestLine(sampleResult), requestHeaders, body);
+        return buildRequestData(buildRequestLine(sampleResult, protocol), requestHeaders, body);
     }
 
     private static String buildRequestData(String requestLine, String requestHeaders, String requestBody) {
@@ -136,22 +139,25 @@ public class RequestViewRaw implements RequestView {
         return requestDataBuilder.toString();
     }
 
-    private static String buildRequestHeaders(String requestHeaders, String cookies) {
+    private static String buildRequestHeaders(
+            String requestHeaders, String cookies, SampleResult sampleResult, boolean usesPseudoHeaders) {
         StringBuilder requestHeadersBuilder = new StringBuilder();
+        if (usesPseudoHeaders) {
+            appendPseudoHeaders(requestHeadersBuilder, sampleResult);
+        }
         if (StringUtilities.isNotEmpty(requestHeaders)) {
             requestHeadersBuilder.append(requestHeaders);
         }
-        appendCookieHeader(requestHeadersBuilder, cookies);
-        return sortedHeaderLines(requestHeadersBuilder.toString());
+        appendCookieHeader(requestHeadersBuilder, cookies, usesPseudoHeaders);
+        return sortedHeaderLines(requestHeadersBuilder.toString(), usesPseudoHeaders);
     }
 
-    private static String buildRequestLine(SampleResult sampleResult) {
+    private static String buildRequestLine(SampleResult sampleResult, String protocol) {
         String method = invokeStringMethod(sampleResult, "getHTTPMethod"); //$NON-NLS-1$
         URL url = sampleResult.getURL();
         if (StringUtilities.isEmpty(method) || url == null) {
             return ""; //$NON-NLS-1$
         }
-        String protocol = getHttpProtocolVersion(sampleResult);
         if (StringUtilities.isEmpty(protocol)) {
             return method + " " + url; //$NON-NLS-1$
         }
@@ -159,27 +165,70 @@ public class RequestViewRaw implements RequestView {
     }
 
     private static String getHttpProtocolVersion(SampleResult sampleResult) {
+        String protocolVersion = normalizedHttpProtocolVersion(sampleResult.getProtocolVersion());
+        if (StringUtilities.isNotEmpty(protocolVersion)) {
+            return protocolVersion;
+        }
         String responseHeaders = sampleResult.getResponseHeaders();
         if (StringUtilities.isEmpty(responseHeaders)) {
             return ""; //$NON-NLS-1$
         }
-        if (responseHeaders.startsWith("HTTP/2")) { //$NON-NLS-1$
-            return "HTTP/2"; //$NON-NLS-1$
-        }
-        if (responseHeaders.startsWith("HTTP/1.1")) { //$NON-NLS-1$
-            return "HTTP/1.1"; //$NON-NLS-1$
-        }
-        return ""; //$NON-NLS-1$
+        int separator = responseHeaders.indexOf(' ');
+        String responseProtocol = separator < 0 ? responseHeaders : responseHeaders.substring(0, separator);
+        return normalizedHttpProtocolVersion(responseProtocol);
     }
 
-    private static void appendCookieHeader(StringBuilder requestDataBuilder, String cookies) {
+    private static String normalizedHttpProtocolVersion(String protocolVersion) {
+        if (StringUtilities.isEmpty(protocolVersion)) {
+            return ""; //$NON-NLS-1$
+        }
+        if (protocolVersion.equalsIgnoreCase("HTTP/2") || protocolVersion.equalsIgnoreCase("HTTP/2.0")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "HTTP/2"; //$NON-NLS-1$
+        }
+        if (protocolVersion.equalsIgnoreCase("HTTP/3") || protocolVersion.equalsIgnoreCase("HTTP/3.0")) { //$NON-NLS-1$ //$NON-NLS-2$
+            return "HTTP/3"; //$NON-NLS-1$
+        }
+        return protocolVersion;
+    }
+
+    private static boolean usesPseudoHeaders(String protocol) {
+        return "HTTP/2".equalsIgnoreCase(protocol) || "HTTP/3".equalsIgnoreCase(protocol); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static void appendPseudoHeaders(StringBuilder requestHeaders, SampleResult sampleResult) {
+        URL url = sampleResult.getURL();
+        String method = invokeStringMethod(sampleResult, "getHTTPMethod"); //$NON-NLS-1$
+        if (url == null || StringUtilities.isEmpty(method)) {
+            return;
+        }
+        String host = url.getHost();
+        if (host.indexOf(':') >= 0 && !host.startsWith("[")) { //$NON-NLS-1$
+            host = '[' + host + ']';
+        }
+        String authority = url.getPort() < 0 ? host : host + ':' + url.getPort();
+        String path = StringUtilities.isEmpty(url.getPath()) ? "/" : url.getPath(); //$NON-NLS-1$
+        if (StringUtilities.isNotEmpty(url.getQuery())) {
+            path += '?' + url.getQuery();
+        }
+        appendHeader(requestHeaders, ":authority", authority); //$NON-NLS-1$
+        appendHeader(requestHeaders, ":method", method); //$NON-NLS-1$
+        appendHeader(requestHeaders, ":path", path); //$NON-NLS-1$
+        appendHeader(requestHeaders, ":scheme", url.getProtocol()); //$NON-NLS-1$
+    }
+
+    private static void appendCookieHeader(
+            StringBuilder requestDataBuilder, String cookies, boolean lowercaseHeaderNames) {
         if (StringUtilities.isEmpty(cookies) || hasCookieHeader(requestDataBuilder)) {
             return;
         }
-        if (!requestDataBuilder.isEmpty() && requestDataBuilder.charAt(requestDataBuilder.length() - 1) != '\n') {
-            requestDataBuilder.append('\n');
+        appendHeader(requestDataBuilder, lowercaseHeaderNames ? "cookie" : "Cookie", cookies); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    private static void appendHeader(StringBuilder requestHeaders, String name, String value) {
+        if (!requestHeaders.isEmpty() && requestHeaders.charAt(requestHeaders.length() - 1) != '\n') {
+            requestHeaders.append('\n');
         }
-        requestDataBuilder.append("Cookie: ").append(cookies).append('\n'); //$NON-NLS-1$
+        requestHeaders.append(name).append(": ").append(value).append('\n'); //$NON-NLS-1$
     }
 
     private static boolean hasCookieHeader(StringBuilder requestDataBuilder) {
@@ -187,13 +236,14 @@ public class RequestViewRaw implements RequestView {
                 .anyMatch(line -> line.regionMatches(true, 0, "Cookie:", 0, "Cookie:".length())); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
-    private static String sortedHeaderLines(String requestHeaders) {
+    private static String sortedHeaderLines(String requestHeaders, boolean lowercaseHeaderNames) {
         if (StringUtilities.isEmpty(requestHeaders)) {
             return ""; //$NON-NLS-1$
         }
         List<String> lines = new ArrayList<>();
         requestHeaders.lines()
                 .filter(StringUtilities::isNotEmpty)
+                .map(line -> lowercaseHeaderNames ? lowercaseHeaderName(line) : line)
                 .forEach(lines::add);
         lines.sort(Comparator
                 .comparing(RequestViewRaw::headerName, String.CASE_INSENSITIVE_ORDER)
@@ -206,8 +256,20 @@ public class RequestViewRaw implements RequestView {
     }
 
     private static String headerName(String headerLine) {
-        int separator = headerLine.indexOf(':');
+        int separator = headerSeparatorIndex(headerLine);
         return separator < 0 ? headerLine : headerLine.substring(0, separator);
+    }
+
+    private static String lowercaseHeaderName(String headerLine) {
+        int separator = headerSeparatorIndex(headerLine);
+        if (separator < 0) {
+            return headerLine;
+        }
+        return headerLine.substring(0, separator).toLowerCase(Locale.ROOT) + headerLine.substring(separator);
+    }
+
+    private static int headerSeparatorIndex(String headerLine) {
+        return headerLine.startsWith(":") ? headerLine.indexOf(':', 1) : headerLine.indexOf(':'); //$NON-NLS-1$
     }
 
     private static String getRequestBody(SampleResult sampleResult) {

@@ -150,6 +150,37 @@ public class HarConverterTest {
     }
 
     @Test
+    void unmarkedChromiumMemoryCacheReuseIsSkippedWithoutLosingOriginalHeaders() throws Exception {
+        String url = "https://www.fedex.com/content/dam/fedex-com/common/sprite-placeholder.png";
+        String fullHeaders = "[{\"name\":\"accept\",\"value\":\"image/*\"},"
+                + "{\"name\":\"user-agent\",\"value\":\"Browser\"},"
+                + "{\"name\":\"sec-fetch-dest\",\"value\":\"image\"}]";
+        String sparseCacheHeaders = "[{\"name\":\"Referer\","
+                + "\"value\":\"https://www.fedex.com/en-us/home.html\"}]";
+        String har = "{\"log\":{\"entries\":["
+                + entry("2026-07-21T04:45:00.000Z", 180, "GET", url, "[]",
+                        fullHeaders, null, 200) + ","
+                + unmarkedMemoryCacheEntry("2026-07-21T04:45:28.000Z", url, sparseCacheHeaders)
+                + "]}}";
+
+        List<HarEntry> parsed = HarParser.parse(har.getBytes(StandardCharsets.UTF_8));
+        assertNull(parsed.get(0).getFromCache());
+        assertEquals("memory", parsed.get(1).getFromCache());
+
+        HashTree converted = new HarConverter(
+                parsed, new HarImportOptions(), "fedex.har", "abc123")
+                .convert(Set.of("www.fedex.com"));
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(converted, HTTPSamplerProxy.class, samplers);
+        assertEquals(1, samplers.size());
+        assertEquals("0", samplers.get(0).getPropertyAsString("BreakTest.har.entryIndex"));
+
+        HeaderManager common = (HeaderManager) findByName(converted, "Common Headers");
+        assertNotNull(common);
+        assertEquals(3, common.getHeaders().size(), "full network request headers remain available");
+    }
+
+    @Test
     void homeSamplerHasArgumentsMetadataAndNativeHeaderOnly() {
         HTTPSamplerProxy home = sampler("/home");
         assertEquals(HTTPSamplerProxy.class.getName(), home.getPropertyAsString(TestElement.TEST_CLASS));
@@ -567,5 +598,15 @@ public class HarConverterTest {
                 + "\"request\":{\"method\":\"" + method + "\",\"url\":\"" + url
                 + "\",\"httpVersion\":\"h2\",\"queryString\":[],\"headers\":" + commonHeadersOnly() + "},"
                 + "\"response\":{\"status\":200,\"headers\":[],\"content\":{\"text\":\"\"}}}";
+    }
+
+    private static String unmarkedMemoryCacheEntry(String started, String url, String headers) {
+        return "{\"_protocol\":\"h2\",\"serverIPAddress\":\"1.2.3.4\","
+                + "\"startedDateTime\":\"" + started + "\",\"time\":0.02,"
+                + "\"timings\":{\"send\":0,\"wait\":10,\"receive\":0},"
+                + "\"request\":{\"method\":\"GET\",\"url\":\"" + url + "\","
+                + "\"httpVersion\":\"h2\",\"queryString\":[],\"headers\":" + headers + "},"
+                + "\"response\":{\"status\":200,\"headers\":[],\"bodySize\":0,"
+                + "\"content\":{\"size\":8189,\"text\":\"cached body\"}}}";
     }
 }

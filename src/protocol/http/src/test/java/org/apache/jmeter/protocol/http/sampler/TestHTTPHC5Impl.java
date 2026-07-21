@@ -41,6 +41,7 @@ import org.apache.hc.client5.http.auth.StandardAuthScheme;
 import org.apache.hc.client5.http.auth.UsernamePasswordCredentials;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
+import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.HttpVersion;
@@ -50,6 +51,7 @@ import org.apache.hc.core5.http.io.entity.InputStreamEntity;
 import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.hc.core5.http.message.BasicHttpResponse;
 import org.apache.hc.core5.http.nio.support.classic.TransportException;
+import org.apache.hc.core5.http.protocol.HttpCoreContext;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.IOReactorConfig;
@@ -173,60 +175,84 @@ public class TestHTTPHC5Impl {
         HttpPost request = new HttpPost(new URI("https://example.test/resource"));
         request.setEntity(new FileEntity(file.toFile(), ContentType.TEXT_PLAIN));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(request, true);
+        setHttp2ContentLength(request);
 
         assertEquals("4", request.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
     }
 
     @Test
-    public void http2DoesNotAddContentLengthForPlainHttpFileEntity() throws Exception {
+    public void contentLengthInterceptorLeavesHttp1FramingToDefaultProcessor() throws Exception {
         Path file = Files.createTempFile("jmeter-http-content-length", ".txt");
         Files.writeString(file, "body", StandardCharsets.UTF_8);
         HttpPost request = new HttpPost(new URI("http://example.test/resource"));
         request.setEntity(new FileEntity(file.toFile(), ContentType.TEXT_PLAIN));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(request, false);
+        HttpCoreContext context = HttpCoreContext.create();
+        context.setProtocolVersion(HttpVersion.HTTP_1_1);
+        HTTPHC5H2Impl.setContentLengthForHttp2(request, request.getEntity(), context);
 
         assertFalse(request.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH));
     }
 
     @Test
-    public void http2DoesNotReplaceExistingContentLength() throws Exception {
+    public void http2ReplacesMismatchedContentLengthWithActualLength() throws Exception {
         HttpPost request = new HttpPost(new URI("https://example.test/resource"));
         request.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, "123");
         request.setEntity(new ByteArrayEntity("body".getBytes(StandardCharsets.UTF_8), ContentType.TEXT_PLAIN));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(request, true);
+        setHttp2ContentLength(request);
 
-        assertEquals("123", request.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
+        assertEquals("4", request.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
     }
 
     @Test
-    public void http2DoesNotAddContentLengthForStringEntity() throws Exception {
+    public void http2AddsContentLengthForKnownStringEntity() throws Exception {
         HttpPost request = new HttpPost(new URI("https://example.test/resource"));
         request.setEntity(new StringEntity("body", ContentType.TEXT_PLAIN));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(request, true);
+        setHttp2ContentLength(request);
 
-        assertFalse(request.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH));
+        assertEquals("4", request.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
     }
 
     @Test
-    public void http2DoesNotAddContentLengthForZeroOrUnknownEntity() throws Exception {
+    public void http2AddsZeroContentLengthAndOmitsUnknownLength() throws Exception {
         HttpPost emptyRequest = new HttpPost(new URI("https://example.test/empty"));
         emptyRequest.setEntity(new ByteArrayEntity(new byte[0], ContentType.APPLICATION_OCTET_STREAM));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(emptyRequest, true);
+        setHttp2ContentLength(emptyRequest);
 
-        assertFalse(emptyRequest.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH));
+        assertEquals("0", emptyRequest.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
 
         HttpPost streamingRequest = new HttpPost(new URI("https://example.test/stream"));
         streamingRequest.setEntity(new InputStreamEntity(new ByteArrayInputStream(new byte[] {1}), -1,
                 ContentType.APPLICATION_OCTET_STREAM));
 
-        HTTPHC5H2Impl.setContentLengthForKnownEntity(streamingRequest, true);
+        streamingRequest.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, "1");
+
+        setHttp2ContentLength(streamingRequest);
 
         assertFalse(streamingRequest.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH));
+    }
+
+    @Test
+    public void http2AddsZeroContentLengthForEmptyPostButNotEmptyGet() throws Exception {
+        HttpPost post = new HttpPost(new URI("https://example.test/post"));
+        setHttp2ContentLength(post);
+
+        assertEquals("0", post.getFirstHeader(HTTPConstants.HEADER_CONTENT_LENGTH).getValue());
+
+        HttpGet get = new HttpGet(new URI("https://example.test/get"));
+        get.setHeader(HTTPConstants.HEADER_CONTENT_LENGTH, "0");
+        setHttp2ContentLength(get);
+
+        assertFalse(get.containsHeader(HTTPConstants.HEADER_CONTENT_LENGTH));
+    }
+
+    private static void setHttp2ContentLength(HttpUriRequestBase request) {
+        HttpCoreContext context = HttpCoreContext.create();
+        context.setProtocolVersion(HttpVersion.HTTP_2);
+        HTTPHC5H2Impl.setContentLengthForHttp2(request, request.getEntity(), context);
     }
 
     @Test
