@@ -30,6 +30,7 @@ import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -167,6 +168,47 @@ class BreakTestAgentGuiServiceTest {
             .getDeclaredMethod("preferredLiteralOccurrence", String::class.java, List::class.java)
         method.isAccessible = true
         return method.invoke(BreakTestAgentGuiService, response, variants) as Pair<*, *>?
+    }
+
+    private fun boundaryDerivedRegex(response: String, literal: String): String? {
+        val method = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "boundaryDerivedRegex", String::class.java, String::class.java, Int::class.javaPrimitiveType,
+        )
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, literal, response.indexOf(literal)) as String?
+    }
+
+    @Test
+    fun `derived regex captures the value and not the json key`() {
+        val response = """{"clientID":"l7xxab12cd34ef56","clientSecret":"s3cr3t"}"""
+        val regex = boundaryDerivedRegex(response, "l7xxab12cd34ef56")
+
+        // The previous quote..quote fallback emitted "([^"]+)", which matches the
+        // object but captures clientID, so the extractor resolved to the key name.
+        assertNotEquals(""""([^"]+)"""", regex)
+        assertEquals(
+            "l7xxab12cd34ef56",
+            AgentRegexSupport.oroFirstCapture(requireNotNull(regex), response),
+            "derived regex captured the wrong value: $regex",
+        )
+    }
+
+    @Test
+    fun `derived regex handles a repeated value shape`() {
+        val response = """{"a":{"id":"tok-111"},"b":{"id":"tok-222"}}"""
+        val regex = boundaryDerivedRegex(response, "tok-222")
+        assertEquals(
+            "tok-222",
+            AgentRegexSupport.oroFirstCapture(requireNotNull(regex), response),
+            "derived regex captured the wrong occurrence: $regex",
+        )
+    }
+
+    @Test
+    fun `no regex is derived when none can capture the literal`() {
+        // Nothing usable precedes the literal, so planning must decline rather than
+        // emit a pattern that captures something else.
+        assertNull(boundaryDerivedRegex("tok-999", "tok-999"))
     }
 
     @Test

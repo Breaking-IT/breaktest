@@ -4093,10 +4093,7 @@ public object BreakTestAgentGuiService {
 
                 val (sourceExchange, literalIndex, matchedLiteral) = source
                 val regex = regexForHarCandidate(sourceExchange.response, requestCandidate, matchedLiteral, literalIndex)
-                    ?.takeIf {
-                        AgentRegexSupport.oroProblem(it) == null &&
-                            AgentRegexSupport.oroMatches(it, sourceExchange.response)
-                    }
+                    ?.takeIf { capturesLiteral(it, sourceExchange.response, matchedLiteral) }
                     // Never fall back to a Boundary Extractor action: derive an
                     // ORO-safe regex from the literal's boundaries instead.
                     ?: boundaryDerivedRegex(sourceExchange.response, matchedLiteral, literalIndex)
@@ -4386,30 +4383,52 @@ public object BreakTestAgentGuiService {
      * when no structured field regex applies, so planner actions never need the
      * disallowed Boundary Extractor form.
      */
+    /**
+     * True when [regex] not only matches [responseText] but captures exactly
+     * [literal] in group 1.
+     *
+     * Matching alone is not evidence of a usable correlation. `"([^"]+)"` matches
+     * any JSON object and captures its first key, so a planner action built from it
+     * produced extractors that quietly resolved to the key name instead of the
+     * value and only surfaced as a 401 several steps later.
+     */
+    private fun capturesLiteral(regex: String, responseText: String, literal: String): Boolean =
+        AgentRegexSupport.oroProblem(regex) == null &&
+            AgentRegexSupport.oroFirstCapture(regex, responseText) == literal
+
     private fun boundaryDerivedRegex(responseText: String, literal: String, literalIndex: Int): String? {
         val before = responseText.getOrNull(literalIndex - 1)
         val after = responseText.getOrNull(literalIndex + literal.length)
+        val candidates = mutableListOf<String>()
         if (before != null && before == after && before in setOf('\'', '"')) {
             val quote = AgentRegexSupport.oroEscape(before.toString())
-            val regex = if (before == '"') {
-                "$quote([^\"]+)$quote"
-            } else {
-                "$quote([^']+)$quote"
+            val body = if (before == '"') "([^\"]+)" else "([^']+)"
+            // Anchor on what precedes the opening quote. The bare quote..quote form
+            // matches the first quoted run in the response, which for JSON is the
+            // first key rather than this literal's value.
+            val leadIn = responseText
+                .substring((literalIndex - 1 - 40).coerceAtLeast(0), literalIndex - 1)
+                .substringAfterLast('\n')
+                .substringAfterLast('\r')
+            for (anchorLength in intArrayOf(24, 12, 6)) {
+                val anchor = leadIn.takeLast(anchorLength)
+                if (anchor.length >= 3) {
+                    candidates += AgentRegexSupport.oroEscape(anchor) + body + quote
+                }
             }
-            return regex.takeIf {
-                AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
-            }
+            // Last resort, and only if it captures this literal: when the value is
+            // the sole quoted run in the response the bare form is exactly right,
+            // but in a JSON object it would capture the first key instead.
+            candidates += quote + body + quote
         }
         val (left, right) = boundariesAroundLiteral(responseText, literal, literalIndex)
         val leftAnchor = left.substringAfterLast('\n').substringAfterLast('\r').takeLast(24)
         val rightAnchor = right.takeWhile { it != '\n' && it != '\r' }.take(6)
-        if (leftAnchor.length < 3 || rightAnchor.isEmpty()) {
-            return null
+        if (leftAnchor.length >= 3 && rightAnchor.isNotEmpty()) {
+            candidates += AgentRegexSupport.oroEscape(leftAnchor) + "(.+?)" + AgentRegexSupport.oroEscape(rightAnchor)
         }
-        val regex = AgentRegexSupport.oroEscape(leftAnchor) + "(.+?)" + AgentRegexSupport.oroEscape(rightAnchor)
-        return regex.takeIf {
-            AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
-        }
+        // Only a pattern that actually captures this literal is worth planning.
+        return candidates.firstOrNull { capturesLiteral(it, responseText, literal) }
     }
 
     private fun extractorUseFieldFor(responseText: String, literalIndex: Int): String {
