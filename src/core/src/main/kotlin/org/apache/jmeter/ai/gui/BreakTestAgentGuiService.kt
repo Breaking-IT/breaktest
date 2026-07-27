@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentDynamicValueAnalyzer
+import org.apache.jmeter.ai.AgentLiteralIndex
 import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
@@ -3964,40 +3965,42 @@ public object BreakTestAgentGuiService {
         val plannedLiterals = mutableSetOf<String>()
         val scopeNodePath = threadGroupName
             ?.let { runCatching { nodePath(selectThreadGroup(gui, it)) }.getOrNull() }
-        // Scanning every prior response for every candidate of every request is
+        // Looking each candidate up with one indexOf per earlier response is
         // quadratic in the exchange count and linear in the response size, which
-        // reaches tens of seconds on a recording with large responses. The search
-        // below keeps the same result but avoids repeating work: it walks the
-        // prior exchanges newest-first so the nearest source ends the scan, and it
-        // remembers each (response, literal) verdict because the same literal is
-        // usually a candidate in many later requests.
-        val occurrenceCache = HashMap<String, HashMap<Int, Pair<Int, String>?>>()
+        // reaches tens of seconds on a recording with large responses. Instead every
+        // literal the planner will ever ask about is collected first, and each
+        // response is then read exactly once by a multi-pattern search.
+        val candidatesByExchange = exchanges.associate { it.index to harRequestCandidates(it.request) }
+        // The recorded request often carries the URL/HTML-encoded form of a value
+        // that the issuing response contains raw (or vice versa), so source matching
+        // tries the encoding variants of the literal too.
+        val variantsByLiteral = HashMap<String, List<String>>()
+        for (candidates in candidatesByExchange.values) {
+            for (candidate in candidates) {
+                variantsByLiteral.getOrPut(candidate.literal) { literalVariants(candidate.literal) }
+            }
+        }
+        val literalIndex = AgentLiteralIndex.build(variantsByLiteral.values.flatten().toSet())
+        val occurrencesByExchange = exchanges.associate { it.index to literalIndex.firstOccurrences(it.response) }
+        val headerEndByExchange = exchanges.associate { it.index to harHeaderBlockEnd(it.response) }
         for (target in exchanges) {
-            // Newest first: .lastOrNull() over ascending exchanges picks the same
-            // source as the first hit walking backwards, but this way a found
-            // source ends the scan instead of reading every prior response.
+            // Newest first: the previous .lastOrNull() over ascending exchanges picks
+            // the same source as the first hit walking backwards.
             val priorExchangesNewestFirst = exchanges.filter { it.index < target.index }.asReversed()
-            for (requestCandidate in harRequestCandidates(target.request)) {
+            for (requestCandidate in candidatesByExchange.getValue(target.index)) {
                 val seenKey = "${target.globalIndex}:${requestCandidate.literal}"
                 if (!seen.add(seenKey)) {
                     continue
                 }
-                // The recorded request often carries the URL/HTML-encoded form of a
-                // value that the issuing response contains raw (or vice versa), so
-                // source matching tries the encoding variants of the literal too.
-                // Header-block occurrences win over body occurrences: recorded
-                // redirect bodies frequently differ from what JMeter replays, while
-                // Location/Set-Cookie headers are stable at runtime.
-                val literalCache = occurrenceCache.getOrPut(requestCandidate.literal) { HashMap() }
-                val variants = literalVariants(requestCandidate.literal)
+                val variants = variantsByLiteral.getValue(requestCandidate.literal)
                 val source = priorExchangesNewestFirst
                     .asSequence()
                     .mapNotNull { sourceExchange ->
-                        literalCache
-                            .getOrPut(sourceExchange.index) {
-                                preferredLiteralOccurrence(sourceExchange.response, variants)
-                            }
-                            ?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
+                        indexedLiteralOccurrence(
+                            occurrencesByExchange.getValue(sourceExchange.index),
+                            headerEndByExchange.getValue(sourceExchange.index),
+                            variants,
+                        )?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
                     }
                     .firstOrNull()
                 if (source == null) {
@@ -4257,6 +4260,29 @@ public object BreakTestAgentGuiService {
      */
     private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? =
         preferredLiteralOccurrence(responseText, literalVariants(literal))
+
+    /**
+     * [preferredLiteralOccurrence] answered from a prebuilt occurrence map instead
+     * of by scanning the response again.
+     *
+     * The header block is a prefix of the response, so a first occurrence below
+     * [headerEnd] is exactly the case where `indexOf` would have landed in the
+     * header block.
+     */
+    private fun indexedLiteralOccurrence(
+        occurrences: Map<String, Int>,
+        headerEnd: Int?,
+        variants: List<String>,
+    ): Pair<Int, String>? {
+        if (headerEnd != null) {
+            variants.firstNotNullOfOrNull { variant ->
+                occurrences[variant]?.takeIf { it < headerEnd }?.let { it to variant }
+            }?.let { return it }
+        }
+        return variants.firstNotNullOfOrNull { variant ->
+            occurrences[variant]?.let { it to variant }
+        }
+    }
 
     /**
      * Variant-list overload for callers that scan many responses for the same
