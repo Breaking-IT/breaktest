@@ -77,6 +77,17 @@ public final class RecordedHarExchangeResolver {
      * HAR-backed tool call. Dropped whenever the underlying HAR is re-read.
      */
     private static final Map<String, Map<JsonNode, RecordedExchange>> EXCHANGE_CACHE = new ConcurrentHashMap<>();
+    /**
+     * Verified recording-store manifests and the exchanges already built from them.
+     * Without this, every sampler resolve re-opens the JMX archive, re-hashes the
+     * manifest and re-reads the exchange entry, so a caller that resolves the whole
+     * plan pays all of that once per sampler on every call. The key carries the
+     * checksum recorded in the JMX, so a re-recorded plan gets fresh entries; a plan
+     * that records no checksum is never cached because nothing would detect a change.
+     */
+    private static final Map<String, byte[]> RECORDING_MANIFEST_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, Map<String, RecordedExchange>> RECORDING_EXCHANGE_CACHE =
+            new ConcurrentHashMap<>();
     private static final Set<String> TEXTUAL_MIME_TYPES = Set.of(
             "application/ecmascript", // $NON-NLS-1$
             "application/graphql", // $NON-NLS-1$
@@ -267,14 +278,25 @@ public final class RecordedHarExchangeResolver {
         String manifestEntryName = recordingSource.getPropertyAsString(RECORDING_MANIFEST);
         String expectedChecksum = recordingSource.getPropertyAsString(RECORDING_CHECKSUM);
         Path expectedLocation = archiveEntryLocation(testPlanFile, manifestEntryName);
+        String recordingKey = recordingCacheKey(testPlanFile, manifestEntryName, expectedChecksum);
+        RecordedExchange alreadyBuilt = recordingKey == null ? null
+                : RECORDING_EXCHANGE_CACHE.getOrDefault(recordingKey, Map.of()).get(exchangeId);
+        if (alreadyBuilt != null) {
+            return Resolution.found(alreadyBuilt);
+        }
         try {
-            Optional<byte[]> manifest = findRecordingEntry(
-                    testPlanFile, manifestEntryName, expectedChecksum, manifestEntryName);
+            byte[] verifiedManifest = recordingKey == null ? null : RECORDING_MANIFEST_CACHE.get(recordingKey);
+            Optional<byte[]> manifest = verifiedManifest != null
+                    ? Optional.of(verifiedManifest)
+                    : findRecordingEntry(testPlanFile, manifestEntryName, expectedChecksum, manifestEntryName);
             if (manifest.isEmpty()) {
                 return Resolution.diagnostic(Status.HAR_FILE_NOT_FOUND,
                         "Linked recording manifest was not found.\n\nTried archive entry:\n" + expectedLocation); // $NON-NLS-1$
             }
-            String actualChecksum = RecordedExchangeStore.sha256Hex(manifest.orElseThrow());
+            // Re-hashing the manifest is pointless once this exact key has verified.
+            String actualChecksum = verifiedManifest != null
+                    ? expectedChecksum
+                    : RecordedExchangeStore.sha256Hex(manifest.orElseThrow());
             if (StringUtilities.isNotEmpty(expectedChecksum)
                     && !expectedChecksum.equalsIgnoreCase(actualChecksum)) {
                 return Resolution.diagnostic(Status.MD5_MISMATCH,
@@ -291,7 +313,14 @@ public final class RecordedHarExchangeResolver {
                 return Resolution.diagnostic(Status.ENTRY_NOT_FOUND,
                         "The recording store was found, but no exchange matched this sampler."); // $NON-NLS-1$
             }
-            return Resolution.found(toRecordedExchange(entry.orElseThrow()));
+            RecordedExchange recorded = toRecordedExchange(entry.orElseThrow());
+            if (recordingKey != null) {
+                RECORDING_MANIFEST_CACHE.putIfAbsent(recordingKey, manifest.orElseThrow());
+                RECORDING_EXCHANGE_CACHE
+                        .computeIfAbsent(recordingKey, key -> new ConcurrentHashMap<>())
+                        .put(exchangeId, recorded);
+            }
+            return Resolution.found(recorded);
         } catch (IOException | RuntimeException ex) {
             LOG.debug("Unable to load recording store {}", expectedLocation, ex);
             return Resolution.diagnostic(Status.IO_ERROR,
@@ -396,6 +425,18 @@ public final class RecordedHarExchangeResolver {
             node = current.getParent();
         }
         return null;
+    }
+
+    /**
+     * Cache key for a recording store, or {@code null} when the JMX records no
+     * checksum and a stale entry could therefore not be detected.
+     */
+    private static String recordingCacheKey(Path testPlanFile, String manifestEntryName, String expectedChecksum) {
+        if (StringUtilities.isEmpty(expectedChecksum) || StringUtilities.isEmpty(manifestEntryName)) {
+            return null;
+        }
+        return (testPlanFile == null ? "unsaved" : testPlanFile.toAbsolutePath().normalize().toString())
+                + "!/" + manifestEntryName + ':' + expectedChecksum; // $NON-NLS-1$
     }
 
     private static Optional<byte[]> findRecordingEntry(Path testPlanFile, String manifestEntryName,
