@@ -26,8 +26,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +69,14 @@ public final class RecordedHarExchangeResolver {
     private static final Logger LOG = LoggerFactory.getLogger(RecordedHarExchangeResolver.class);
     private static final ObjectMapper JSON = JsonMapper.builder().build();
     private static final Map<String, CachedHar> HAR_CACHE = new ConcurrentHashMap<>();
+    /**
+     * Request/response text built from a HAR entry, keyed by HAR cache key and then
+     * by entry identity. Building it decodes and reassembles the whole exchange, and
+     * callers such as the AI repair planner resolve every sampler in the plan on each
+     * call, so without this the same recording is reformatted from scratch on every
+     * HAR-backed tool call. Dropped whenever the underlying HAR is re-read.
+     */
+    private static final Map<String, Map<JsonNode, RecordedExchange>> EXCHANGE_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> TEXTUAL_MIME_TYPES = Set.of(
             "application/ecmascript", // $NON-NLS-1$
             "application/graphql", // $NON-NLS-1$
@@ -223,7 +233,7 @@ public final class RecordedHarExchangeResolver {
                 return Resolution.diagnostic(Status.ENTRY_NOT_FOUND,
                         "The linked HAR was found and matched, but no HAR entry matched this sampler."); // $NON-NLS-1$
             }
-            return Resolution.found(toRecordedExchange(entry.orElseThrow()));
+            return Resolution.found(cachedExchange(harSourceContent.cacheKey(), entry.orElseThrow()));
         } catch (IOException | RuntimeException ex) {
             LOG.debug("Unable to load linked HAR {}", expectedLocation, ex);
             return Resolution.diagnostic(Status.IO_ERROR,
@@ -478,7 +488,20 @@ public final class RecordedHarExchangeResolver {
     private static CachedHar cacheHar(String cacheKey, long lastModified, long size, byte[] harBytes) {
         CachedHar har = new CachedHar(lastModified, size, md5Hex(harBytes), harBytes, null);
         HAR_CACHE.put(cacheKey, har);
+        // The formatted exchanges belong to the HAR content that was just replaced.
+        EXCHANGE_CACHE.remove(cacheKey);
         return har;
+    }
+
+    /**
+     * Formats a HAR entry once per cached HAR. Entry nodes are compared by identity
+     * because they come from the cached parse tree, and {@code JsonNode.equals} is a
+     * deep comparison over the entire exchange.
+     */
+    private static RecordedExchange cachedExchange(String cacheKey, JsonNode entry) {
+        return EXCHANGE_CACHE
+                .computeIfAbsent(cacheKey, key -> Collections.synchronizedMap(new IdentityHashMap<>()))
+                .computeIfAbsent(entry, RecordedHarExchangeResolver::toRecordedExchange);
     }
 
     private static JsonNode parseHarEntries(String cacheKey, byte[] harBytes) throws IOException {
