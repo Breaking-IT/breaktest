@@ -1,0 +1,35 @@
+Use $breaktest-jmeter-repair.
+
+Complete a specific targeted task against the currently open BreakTest/JMeter GUI plan.
+
+Requirements:
+- This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Keep calling tools until the task is complete; only the final report may be a plain reply.
+- First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
+- A GUI backup is created before this run starts. Use it only as a rollback safety net.
+- Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
+- Before the first edit, call `{{BRIDGE}} tools` to inspect exact bridge tool schemas. Read only the schemas needed for the next action, and do not echo the full tool output back into progress or final text. Do not search the filesystem for a different bridge unless this exact command fails.
+- Scope the work to exactly one Thread Group path: `{{THREAD_GROUP_PATH}}`.
+- Do only the user-requested task, with the fewest tool calls that complete it correctly. Do not start a full script repair, full correlation pass, assertion pass, dynamic audit, or validation loop unless the request explicitly asks for it. Do not call plan_repair_actions_open_plan, audit_dynamic_request_values_open_plan, or broad inspect_open_plan for a targeted task: locate nodes with find_open_plan_nodes and evidence with search_open_plan_values / search_validated_response_open_plan / search_recorded_har_open_plan.
+- Keep the open BreakTest test plan as the live edit surface so changes are visible in the GUI.
+- Use GUI-backed edit tools where available, including replace_literal_open_plan, replace_literal_in_names_open_plan, search_open_plan_values, list_http_arguments_open_plan, set_http_argument_value_open_plan, add_response_assertion_open_plan, update_response_assertion_open_plan, add_jsr223_open_plan, set_redirect_mode_open_plan, move_node_open_plan, delete_node_open_plan, and move_think_times_to_transactions_open_plan.
+- When the specific request is to move separate ThinkTime timers to transaction level, call move_think_times_to_transactions_open_plan with the selected threadGroupName. Do not inspect code internals or try broad literal replacement for TransactionController delay fields.
+- For request data, variables use `${variable}`. For sampler/controller/transaction names, never use `${...}`; use a display-safe `{variable}` placeholder or another static name.
+- The only valid inline UUID function form in this BreakTest/JMeter build is `${__UUID}`. Never use `${__UUID()}` or `${__UUID(name)}`. For a one-off client-generated UUID in a request field, prefer inline `${__UUID}`; use JSR223/setup only when the same generated UUID must be reused across multiple request fields or transformed before use.
+- When adding response assertions or correlation extractors, provide evidenceSource and evidence. Do not add assertions/extractors for responses that were not reached unless a recorded response or confirmed AI Knowledge entry proves the marker.
+- Prefer native extractors for simple response/header/body captures: Regex by default, JSONPath for robust JSON field/array extraction, CSS selectors for HTML when CSS selection is more robust, and XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not add a JSR223 PostProcessor that reads prev.getResponseDataAsString() or prev.getResponseHeaders() when a native Regex/JSONPath/CSS/XPath extractor can capture the value. JSR223 PreProcessors, PostProcessors, and Assertions must be attached to a specific sampler, never directly under a Test Plan, Thread Group, or transaction/controller. Use a JSR223 Sampler for setup logic that should run once in sequence.
+- JMeter Regex Extractors use the ORO/Perl5 engine, not java.util.regex. Do not use \Q...\E, lookbehind, named groups, or Java-only constructs. Escape literal metacharacters with single backslashes and make the regex match the exact evidence snippet you provide; for JSON, first verify whether the field is a quoted string, number, array, escaped value, or absent. If the bridge rejects the regex/evidence pair, fix the regex or fetch the correct body/header evidence instead of bypassing with allowUnmatchedEvidence.
+- For credential parameterization, preserve the original username/password literal, replace request data with `${variable}` first, then set the User Defined Variable to the original literal. When using broad replace/search for credentials, pass excludeUserDefinedVariables=true so the Test Plan variables table is not self-replaced.
+- When renaming stale UUIDs or IDs in element names after request data has been parameterized, use replace_literal_in_names_open_plan so request data is not changed to `{variable}` by mistake.
+- When using replace_literal_open_plan, replace_literal_in_names_open_plan, apply_regex_correlation_open_plan without a target sampler, or search_open_plan_values, pass threadGroupName or scopeNodePath for the selected Thread Group. Use allowWholePlan=true only when the user explicitly requested a global edit.
+- Do NOT run validate_open_plan or validate_jmx unless the user's instructions explicitly ask to validate, test, or run the script. Edit tool results are self-verifying (they report the resolved nodes, replacements, and extractor placement), and regex/assertion edits are checked against evidence at apply time — for a typical targeted change, confirm via the edit results plus one search_open_plan_values check and finish. If validation is explicitly requested, run one bounded compact validate_open_plan with scopeNodePath set to the selected Thread Group path, stopOnFirstFailure, and includeDsl=false.
+- Update BreakTest AI Knowledge only when the task produced a clearly reusable project pattern, using one small appendLearnings call; skip it otherwise.
+- Keep progress concise. Do not echo prompts, code, full XML, or long tool payloads.
+- Before finishing, call list_agent_changes_open_plan and summarize only the changes made for this specific request.
+- Use plain text only in the final response. Do not use markdown tables because the BreakTest AI log is a plain Swing text area.
+
+Context:
+- Open plan file: {{TEST_PLAN_FILE}}
+- Backup before live edits: {{BACKUP_PATH}}
+- Selected Thread Group: {{THREAD_GROUP_NAME}}
+- Selected Thread Group path: {{THREAD_GROUP_PATH}}
+{{USER_INSTRUCTIONS}}
