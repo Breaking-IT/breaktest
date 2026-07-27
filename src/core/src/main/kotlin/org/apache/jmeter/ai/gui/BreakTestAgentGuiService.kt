@@ -92,6 +92,8 @@ import kotlin.concurrent.thread
 public object BreakTestAgentGuiService {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
     private const val MAX_REPAIR_ACTION_SNAPSHOTS = 8
+    /** Above this many changed nodes a scoped replacement stays a single summary row. */
+    private const val MAX_ITEMISED_REPLACEMENT_NODES = 3
     private const val MAX_ACTIVE_FILE_REFRESHES_PER_RUN = 1
     private const val TEST_PLAN_USER_DEFINED_VARIABLES = "TestPlan.user_defined_variables"
     private val backupTimeFormat = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
@@ -1555,7 +1557,12 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editor = TestPlanEditor()
+                // A scoped replacement records one change row against the scope, which
+                // says nothing about where the edits landed. Collect the elements that
+                // actually changed so a small edit can be listed node by node.
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    changedElements.clear()
                     if (target == null) {
                         editor.replaceLiteralInTree(
                             scopedEditTree(gui, scope),
@@ -1563,6 +1570,7 @@ public object BreakTestAgentGuiService {
                             request.replacement,
                             request.includeNames,
                             request.excludeUserDefinedVariables,
+                            changedElements,
                         )
                     } else {
                         val targetSubTree = currentPlanTree().findSubTree(target.testElement)
@@ -1574,6 +1582,7 @@ public object BreakTestAgentGuiService {
                             request.replacement,
                             request.includeNames,
                             request.excludeUserDefinedVariables,
+                            changedElements,
                         )
                     }
                 }
@@ -1590,11 +1599,14 @@ public object BreakTestAgentGuiService {
                     "Applied live literal replacement",
                     details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
-                recordChange(
-                    if (target == null) "Updated plan" else "Updated sampler",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     changedNode,
-                    "Replaced literal with ${request.replacement}",
-                    "Replacements: $replacements",
+                    scopedType = if (target == null) "Updated plan" else "Updated sampler",
+                    perNodeType = "Updated sampler",
+                    summary = "Replaced literal with ${request.replacement}",
+                    scopedDetails = "Replacements: $replacements",
                 )
                 mapOf(
                     "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
@@ -1624,11 +1636,14 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editTree = if (target == null) scopedEditTree(gui, scope) else scopedEditTree(gui, target)
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    changedElements.clear()
                     TestPlanEditor().replaceLiteralInNamesInTree(
                         editTree,
                         variant,
                         request.replacement,
+                        changedElements,
                     )
                 }
                 require(replacements > 0) {
@@ -1644,11 +1659,14 @@ public object BreakTestAgentGuiService {
                     "Applied live name replacement",
                     details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
-                recordChange(
-                    if (target == null) "Renamed elements" else "Renamed sampler elements",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     changedNode,
-                    "Replaced name literal with ${request.replacement}",
-                    "Name replacements: $replacements",
+                    scopedType = if (target == null) "Renamed elements" else "Renamed sampler elements",
+                    perNodeType = "Renamed element",
+                    summary = "Replaced name literal with ${request.replacement}",
+                    scopedDetails = "Name replacements: $replacements",
                 )
                 mapOf(
                     "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
@@ -3359,6 +3377,36 @@ public object BreakTestAgentGuiService {
         gui.treeListener.setSelectionPathWithoutEdit(TreePath(selectNode.path))
         gui.refreshCurrentGui()
         gui.mainFrame.repaint()
+    }
+
+    /**
+     * A scoped search/replace previously recorded a single row against the scope, so
+     * the changes table said "Thread Group ... Replacements: 3" and gave no way to
+     * reach the elements that changed. Up to [MAX_ITEMISED_REPLACEMENT_NODES] changed
+     * tree nodes are listed individually so each row can be jumped to; beyond that the
+     * list would swamp the table, so the scoped summary row is kept instead.
+     */
+    private fun recordReplacementChanges(
+        gui: GuiPackage,
+        changedElements: Collection<TestElement>,
+        scopeNode: JMeterTreeNode,
+        scopedType: String,
+        perNodeType: String,
+        summary: String,
+        scopedDetails: String,
+    ) {
+        // Elements nested inside properties (header rows, argument entries) are not
+        // tree nodes and cannot be jumped to, so only real nodes are itemised.
+        val changedNodes = changedElements
+            .mapNotNull { runCatching { gui.treeModel.getNodeOf(it) }.getOrNull() }
+            .distinct()
+        if (changedNodes.isEmpty() || changedNodes.size > MAX_ITEMISED_REPLACEMENT_NODES) {
+            recordChange(scopedType, scopeNode, summary, scopedDetails)
+            return
+        }
+        for (node in changedNodes) {
+            recordChange(perNodeType, node, summary, nodePath(node))
+        }
     }
 
     private fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
