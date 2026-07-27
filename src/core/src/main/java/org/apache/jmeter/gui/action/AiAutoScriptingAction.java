@@ -309,6 +309,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case CODEX -> codexCommand(request, workingDirectory);
             case OPENCODE -> opencodeCommand(request, workingDirectory);
             case CLAUDE -> claudeCommand(request);
+            case COPILOT -> copilotCommand(request, workingDirectory);
         };
     }
 
@@ -381,6 +382,40 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (maxTurns != null && !maxTurns.isBlank()) {
             command.add("--max-turns");
             command.add(maxTurns);
+        }
+
+        command.add("-p");
+        command.add(prompt(request));
+        return command;
+    }
+
+    private static List<String> copilotCommand(AiRunRequest request, File workingDirectory) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.copilot.command", "copilot"));
+        // Copilot CLI has no --cd flag; it uses the process working directory,
+        // which the launcher already sets on the ProcessBuilder. --add-dir keeps
+        // that directory trusted even when it sits outside the current repository.
+        command.add("--add-dir");
+        command.add(workingDirectory.getPath());
+        command.add("--allow-all-tools");
+        command.add("--allow-all-paths");
+        command.add("--no-ask-user");
+        if (!SHOW_RAW_OUTPUT) {
+            // Suppress stats and decoration so the activity log sees plain agent
+            // text. Live progress still arrives through the BreakTest bridge.
+            command.add("-s");
+        }
+
+        String model = modelProperty("breaktest.copilot");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        String agent = JMeterUtils.getProperty("breaktest.copilot.agent");
+        if (agent != null && !agent.isBlank()) {
+            command.add("--agent");
+            command.add(agent);
         }
 
         command.add("-p");
@@ -967,7 +1002,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. OpenCode is available for experimentation.
+                Codex and Claude Code are the preferred harnesses. OpenCode and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1305,7 +1340,8 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
-        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd");
+        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
+        COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
 
         private final String id;
         private final String displayName;
@@ -1336,7 +1372,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE };
+        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE, AiTool.COPILOT };
     }
 
     private static final class AiRunRequest {
@@ -1501,7 +1537,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         AiOutputFilter(AiTool tool) {
             this.tool = tool;
-            this.finalResponseStarted = tool == AiTool.OPENCODE || tool == AiTool.CLAUDE;
+            // Codex marks its final response with a "codex" sentinel line; every
+            // other CLI streams plain agent text from the first line onwards.
+            this.finalResponseStarted = tool != AiTool.CODEX;
         }
 
         String displayLine(String rawLine) {

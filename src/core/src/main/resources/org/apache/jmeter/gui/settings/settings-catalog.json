@@ -114,7 +114,7 @@
       "title": "AI Auto Scripting",
       "description": "BreakTest AI Auto Scripting (Beta): local AI tool integration for repairing and editing test plans.",
       "settings": [
-        {"key": "breaktest.ai.tool", "type": "enum", "options": ["codex", "opencode", "claude"], "default": "codex", "description": "Local AI tool selected by default in the AI Auto Scripting start dialog."},
+        {"key": "breaktest.ai.tool", "type": "enum", "options": ["codex", "opencode", "claude", "copilot"], "default": "codex", "description": "Local AI tool selected by default in the AI Auto Scripting start dialog."},
         {"key": "breaktest.ai.edit_surface", "type": "enum", "options": ["gui", "non-gui"], "default": "gui", "description": "Edit surface selected by default: gui uses live GUI edit tools; non-gui repairs a copied JMX and offers to merge the repaired Thread Group back afterward."},
         {"key": "breaktest.ai.cwd", "type": "directory", "description": "Optional shared working directory for local AI tools. Tool-specific cwd settings take precedence. Defaults to the open test plan directory, then JMETER_HOME."},
         {"key": "breaktest.ai.show_raw_output", "type": "boolean", "default": "false", "description": "Show raw prompt and tool text of the local AI CLI instead of concise progress. Only intended for debugging the AI CLI itself."},
@@ -134,7 +134,11 @@
         {"key": "breaktest.claude.model", "type": "text", "description": "Optional model override for Claude Code, for example sonnet, opus, haiku, or a full model ID."},
         {"key": "breaktest.claude.agent", "type": "text", "description": "Optional Claude Code agent name."},
         {"key": "breaktest.claude.max_turns", "type": "integer", "description": "Optional maximum number of turns for Claude Code print mode."},
-        {"key": "breaktest.claude.cwd", "type": "directory", "description": "Working directory for Claude Code. Defaults to breaktest.codex.cwd, breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."}
+        {"key": "breaktest.claude.cwd", "type": "directory", "description": "Working directory for Claude Code. Defaults to breaktest.codex.cwd, breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."},
+        {"key": "breaktest.copilot.command", "type": "text", "default": "copilot", "description": "Command used to launch local GitHub Copilot CLI."},
+        {"key": "breaktest.copilot.model", "type": "text", "description": "Optional model override for Copilot CLI, for example claude-sonnet-4.6 or gpt-5.2."},
+        {"key": "breaktest.copilot.agent", "type": "text", "description": "Optional Copilot CLI custom agent name."},
+        {"key": "breaktest.copilot.cwd", "type": "directory", "description": "Working directory for Copilot CLI. Defaults to breaktest.codex.cwd, breaktest.ai.cwd, then the open test plan directory, then JMETER_HOME."}
       ]
     },
     {

@@ -76,7 +76,7 @@ threads finish naturally.
 <h2>AI-Assisted Scripting Tools</h2>
 <p>
 BreakTest includes local agent entry points used by tools such as Codex,
-Claude Code, and opencode:
+Claude Code, opencode, and Copilot CLI:
 </p>
 <source>
 bin/breaktest-agent-mcp
