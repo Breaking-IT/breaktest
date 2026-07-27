@@ -1259,8 +1259,16 @@ public object BreakTestAgentGuiService {
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
                     ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
-                    editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                    changedElements.clear()
+                    editor.replaceLiteral(
+                        targetElement,
+                        targetSubTree,
+                        variant,
+                        variableReference,
+                        changedElements = changedElements,
+                    )
                 }
                 require(replacements > 0) {
                     "Literal '${request.literal}' was not found under target sampler '${targetElement.name}' " +
@@ -1284,11 +1292,14 @@ public object BreakTestAgentGuiService {
                     "${source.testElement.name} -> ${targetElement.name}; failOnNoMatch=${request.failOnNoMatch}; " +
                         "evidence=${evidence.summary}",
                 )
-                recordChange(
-                    "Updated sampler",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     target,
-                    "Replaced literal with $variableReference",
-                    "Replacements: $replacements",
+                    scopedType = "Updated sampler",
+                    perNodeType = "Updated sampler",
+                    summary = "Replaced literal with $variableReference",
+                    scopedDetails = "Replacements: $replacements",
                 )
                 mapOf(
                     "action" to "created_extractor",
@@ -1357,17 +1368,32 @@ public object BreakTestAgentGuiService {
                 val variableReference = "\${${request.variableName}}"
                 val literal = request.literal?.takeIf { it.isNotBlank() }
                 val scope = if (literal != null && target == null) selectedBroadEditScope(gui, arguments) else null
+                // Collected so a small scoped replacement can be listed node by node
+                // instead of as one row against the Thread Group.
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = if (literal == null) {
                     null to 0
                 } else {
                     replaceWithVariants(literal) { variant ->
+                        changedElements.clear()
                         if (target == null) {
-                            editor.replaceLiteralInTree(scopedEditTree(gui, scope), variant, variableReference)
+                            editor.replaceLiteralInTree(
+                                scopedEditTree(gui, scope),
+                                variant,
+                                variableReference,
+                                changedElements = changedElements,
+                            )
                         } else {
                             val targetElement = target.testElement
                             val targetSubTree = currentPlanTree().findSubTree(targetElement)
                                 ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
-                            editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                            editor.replaceLiteral(
+                                targetElement,
+                                targetSubTree,
+                                variant,
+                                variableReference,
+                                changedElements = changedElements,
+                            )
                         }
                     }
                 }
@@ -1419,11 +1445,14 @@ public object BreakTestAgentGuiService {
                     )
                 }
                 if (literal != null) {
-                    recordChange(
-                        if (target == null) "Updated plan" else "Updated sampler",
+                    recordReplacementChanges(
+                        gui,
+                        changedElements,
                         changedNode,
-                        "Replaced literal with $variableReference",
-                        "Replacements: $replacements",
+                        scopedType = if (target == null) "Updated plan" else "Updated sampler",
+                        perNodeType = "Updated sampler",
+                        summary = "Replaced literal with $variableReference",
+                        scopedDetails = "Replacements: $replacements",
                     )
                 }
                 val siblingExtractors = regexExtractorNodes(source, variableName = null, requireFound = false)
