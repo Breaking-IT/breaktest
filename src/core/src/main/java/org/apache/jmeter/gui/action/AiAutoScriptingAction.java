@@ -155,9 +155,10 @@ public class AiAutoScriptingAction extends AbstractAction {
         Instant started = Instant.now();
         AiRunOutput output = new AiRunOutput();
         AtomicBoolean timedOut = new AtomicBoolean(false);
+        List<String> command = new ArrayList<>();
         try {
             File workingDirectory = aiWorkingDirectory(request.tool());
-            List<String> command = aiCommand(request, workingDirectory);
+            command = aiCommand(request, workingDirectory);
             BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
@@ -239,7 +240,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 AiAutoScriptingLogWindow.finishRun("Stopped");
             } else {
                 log.warn("AI Auto Scripting failed", ex);
-                postActivity("AI Auto Scripting failed: " + ex.getMessage());
+                postActivity("AI Auto Scripting failed: " + launchFailureMessage(request, command, ex));
                 AiAutoScriptingLogWindow.finishRun("Failed");
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
@@ -421,6 +422,25 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("-p");
         command.add(prompt(request));
         return command;
+    }
+
+    /**
+     * A missing CLI surfaces as a raw "Cannot run program ... error=2" from the JDK,
+     * which does not say which tool is missing or how to point BreakTest at it.
+     */
+    private static String launchFailureMessage(AiRunRequest request, List<String> command, Exception ex) {
+        String raw = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+        if (!(ex instanceof IOException) || command.isEmpty()) {
+            return raw;
+        }
+        String executable = command.get(0);
+        if (!raw.contains("No such file or directory") && !raw.contains("error=2")
+                && !raw.contains("CreateProcess error=2")) {
+            return raw;
+        }
+        return request.tool().displayName() + " could not be started: '" + executable
+                + "' was not found on PATH. Install the CLI, or set breaktest."
+                + request.tool().id() + ".command to its full path. (" + raw + ")";
     }
 
     private static String modelProperty(String prefix) {
