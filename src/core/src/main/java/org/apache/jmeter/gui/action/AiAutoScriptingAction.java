@@ -401,11 +401,10 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("--allow-all-tools");
         command.add("--allow-all-paths");
         command.add("--no-ask-user");
-        if (!SHOW_RAW_OUTPUT) {
-            // Suppress stats and decoration so the activity log sees plain agent
-            // text. Live progress still arrives through the BreakTest bridge.
-            command.add("-s");
-        }
+        // Deliberately not passing -s. It suppresses "stats and decoration", but the
+        // stats block is where Copilot reports model and token usage, so -s left the
+        // run summary showing "not reported" for both. AiOutputFilter already keeps
+        // the activity log readable for plain-text agents.
 
         String model = modelProperty("breaktest.copilot");
         if (model != null && !model.isBlank()) {
