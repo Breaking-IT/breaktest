@@ -1012,6 +1012,14 @@ public object BreakTestAgentMcpServer {
             "move_think_times_to_transactions_open_plan",
         )
 
+    /**
+     * Shown next to every MCP-routed tool call in the AI log. The server is not
+     * Codex-specific: Codex, Claude Code, opencode and Copilot CLI all reach it
+     * through the same stdio bridge, so labelling it "Codex MCP" mislabels three
+     * of the four harnesses.
+     */
+    private val MCP_ACTIVITY_SOURCE = "BreakTest MCP"
+
     private fun postGuiActivityIfAvailable(level: String, message: String, details: String? = null) {
         runCatching {
             callGuiTool(
@@ -1019,7 +1027,7 @@ public object BreakTestAgentMcpServer {
                 mapper.createObjectNode().apply {
                     put("level", level)
                     put("message", message)
-                    put("source", "Codex MCP")
+                    put("source", MCP_ACTIVITY_SOURCE)
                     if (!details.isNullOrBlank()) {
                         put("details", details)
                     }
