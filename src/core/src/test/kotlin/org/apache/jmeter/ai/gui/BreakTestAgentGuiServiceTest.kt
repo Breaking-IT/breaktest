@@ -148,4 +148,52 @@ class BreakTestAgentGuiServiceTest {
         method.isAccessible = true
         return method.invoke(BreakTestAgentGuiService, *arguments)
     }
+
+    // The repair planner hoists literalVariants() out of its per-response scan and
+    // calls the variant-list overload, so the two overloads have to agree.
+    private fun preferredOccurrenceByLiteral(response: String, literal: String): Pair<*, *>? {
+        val method = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("preferredLiteralOccurrence", String::class.java, String::class.java)
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, literal) as Pair<*, *>?
+    }
+
+    private fun preferredOccurrenceByVariants(response: String, literal: String): Pair<*, *>? {
+        val variants = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("literalVariants", String::class.java)
+            .apply { isAccessible = true }
+            .invoke(BreakTestAgentGuiService, literal)
+        val method = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("preferredLiteralOccurrence", String::class.java, List::class.java)
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, variants) as Pair<*, *>?
+    }
+
+    @Test
+    fun `both preferred-occurrence overloads select the same match`() {
+        val body = "{\"pageId\":\"abc-123\",\"mail\":\"user%40example.com\"}"
+        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\nLocation: /next\r\n\r\n$body"
+        val cases = listOf(
+            "abc-123",                 // present in both the header block and the body
+            "user@example.com",        // only present in its URL-encoded form
+            "user%40example.com",      // only present in its raw form
+            "/next",                   // header-only
+            "not-in-this-response",    // absent
+        )
+        for (literal in cases) {
+            assertEquals(
+                preferredOccurrenceByLiteral(response, literal),
+                preferredOccurrenceByVariants(response, literal),
+                "overloads disagree for '$literal'",
+            )
+        }
+    }
+
+    @Test
+    fun `header block wins over a later body occurrence`() {
+        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\n\r\n{\"pageId\":\"abc-123\"}"
+        val occurrence = preferredOccurrenceByVariants(response, "abc-123")
+        val index = occurrence?.first as Int
+        assertTrue(index < response.indexOf("\r\n\r\n"), "expected the header-block match, got index $index")
+    }
 }

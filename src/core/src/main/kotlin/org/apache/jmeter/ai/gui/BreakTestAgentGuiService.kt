@@ -3964,7 +3964,19 @@ public object BreakTestAgentGuiService {
         val plannedLiterals = mutableSetOf<String>()
         val scopeNodePath = threadGroupName
             ?.let { runCatching { nodePath(selectThreadGroup(gui, it)) }.getOrNull() }
+        // Scanning every prior response for every candidate of every request is
+        // quadratic in the exchange count and linear in the response size, which
+        // reaches tens of seconds on a recording with large responses. The search
+        // below keeps the same result but avoids repeating work: it walks the
+        // prior exchanges newest-first so the nearest source ends the scan, and it
+        // remembers each (response, literal) verdict because the same literal is
+        // usually a candidate in many later requests.
+        val occurrenceCache = HashMap<String, HashMap<Int, Pair<Int, String>?>>()
         for (target in exchanges) {
+            // Newest first: .lastOrNull() over ascending exchanges picks the same
+            // source as the first hit walking backwards, but this way a found
+            // source ends the scan instead of reading every prior response.
+            val priorExchangesNewestFirst = exchanges.filter { it.index < target.index }.asReversed()
             for (requestCandidate in harRequestCandidates(target.request)) {
                 val seenKey = "${target.globalIndex}:${requestCandidate.literal}"
                 if (!seen.add(seenKey)) {
@@ -3976,14 +3988,18 @@ public object BreakTestAgentGuiService {
                 // Header-block occurrences win over body occurrences: recorded
                 // redirect bodies frequently differ from what JMeter replays, while
                 // Location/Set-Cookie headers are stable at runtime.
-                val source = exchanges
+                val literalCache = occurrenceCache.getOrPut(requestCandidate.literal) { HashMap() }
+                val variants = literalVariants(requestCandidate.literal)
+                val source = priorExchangesNewestFirst
                     .asSequence()
-                    .filter { it.index < target.index }
                     .mapNotNull { sourceExchange ->
-                        preferredLiteralOccurrence(sourceExchange.response, requestCandidate.literal)
+                        literalCache
+                            .getOrPut(sourceExchange.index) {
+                                preferredLiteralOccurrence(sourceExchange.response, variants)
+                            }
                             ?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
                     }
-                    .lastOrNull()
+                    .firstOrNull()
                 if (source == null) {
                     if (requestCandidate.priority >= 80 && unresolved.size < maxUnresolved) {
                         unresolved += unresolvedRepairCandidate(target, requestCandidate)
@@ -4239,8 +4255,14 @@ public object BreakTestAgentGuiService {
      * Finds the occurrence of any encoding variant of the literal, preferring a
      * match inside the response header block over one in the body.
      */
-    private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? {
-        val variants = literalVariants(literal)
+    private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? =
+        preferredLiteralOccurrence(responseText, literalVariants(literal))
+
+    /**
+     * Variant-list overload for callers that scan many responses for the same
+     * literal; [literalVariants] then runs once instead of once per response.
+     */
+    private fun preferredLiteralOccurrence(responseText: String, variants: List<String>): Pair<Int, String>? {
         val headerEnd = harHeaderBlockEnd(responseText)
         if (headerEnd != null) {
             variants.firstNotNullOfOrNull { variant ->
