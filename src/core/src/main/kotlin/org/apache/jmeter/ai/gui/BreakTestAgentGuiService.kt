@@ -248,10 +248,13 @@ public object BreakTestAgentGuiService {
             }
             tool = node.path("tool").asText()
             val startedAt = System.nanoTime()
-            if (tool != "agent_activity") {
-                postActivity("started", "MCP tool `$tool` started")
-            }
             val arguments = node.path("arguments")
+            // A short digest of the arguments makes a repeated identical call
+            // distinguishable from a genuine retry with different parameters.
+            val argumentDigest = argumentFingerprint(arguments)
+            if (tool != "agent_activity") {
+                postActivity("started", "MCP tool `$tool` started", details = "args#$argumentDigest")
+            }
             val argumentBytes = jsonByteSize(arguments)
             val result = handleTool(tool, arguments)
             val resultBytes = jsonByteSize(result)
@@ -260,7 +263,8 @@ public object BreakTestAgentGuiService {
                 postActivity(
                     "completed",
                     "MCP tool `$tool` completed in ${elapsedMs}ms",
-                    details = "payload: args=${argumentBytes.toHumanBytes()}, result=${resultBytes.toHumanBytes()}",
+                    details = "payload: args=${argumentBytes.toHumanBytes()} (#$argumentDigest), " +
+                        "result=${resultBytes.toHumanBytes()}",
                 )
             }
             mapOf("ok" to true, "result" to result)
@@ -4523,6 +4527,15 @@ public object BreakTestAgentGuiService {
         } else {
             this
         }
+
+    /** First four bytes of a SHA-256 over the request arguments, for log correlation. */
+    private fun argumentFingerprint(arguments: JsonNode): String =
+        runCatching {
+            MessageDigest.getInstance("SHA-256")
+                .digest(mapper.writeValueAsBytes(arguments))
+                .take(4)
+                .joinToString("") { "%02x".format(it) }
+        }.getOrDefault("unknown")
 
     private fun jsonByteSize(value: Any?): Int =
         runCatching { mapper.writeValueAsBytes(value).size }
