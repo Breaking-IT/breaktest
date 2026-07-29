@@ -110,6 +110,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (gui != null) {
             gui.updateCurrentNode();
         }
+        if (!ensurePlanIsSavedForRecordingAccess(gui, e)) {
+            return;
+        }
         AiRunRequest request = showStartDialog(gui);
         if (request == null) {
             return;
@@ -144,6 +147,57 @@ public class AiAutoScriptingAction extends AbstractAction {
             postActivity("AI Auto Scripting failed to start: " + ex.getMessage());
             AiAutoScriptingLogWindow.finishRun("Failed to start");
         }
+    }
+
+    /**
+     * A linked recording lives in the plan's own archive, so the agent's recorded-
+     * exchange tools read it back from the saved JMX. Every one of them gives up when
+     * the plan has no file yet, which is why importing a recording and starting the
+     * repair straight away reported "No linked recording" even though every sampler
+     * was linked. Unsaved edits are the same problem: the recording the agent can
+     * reach is the one on disk.
+     *
+     * @return true when the run may proceed
+     */
+    private static boolean ensurePlanIsSavedForRecordingAccess(GuiPackage gui, ActionEvent event) {
+        if (gui == null) {
+            return true;
+        }
+        String testPlanFile = gui.getTestPlanFile();
+        boolean neverSaved = testPlanFile == null || testPlanFile.isBlank();
+        if (!neverSaved && !gui.hasUnsavedChanges()) {
+            return true;
+        }
+        String question = neverSaved
+                ? "This plan has not been saved yet, so AI Auto Scripting cannot read any recording "
+                        + "linked to its samplers.\n\nSave the plan now and continue?"
+                : "This plan has unsaved changes. AI Auto Scripting reads the recording from the saved "
+                        + "file, so anything not written to disk stays invisible to the agent."
+                        + "\n\nSave the plan now and continue?";
+        int choice = JOptionPane.showConfirmDialog(
+                gui.getMainFrame(),
+                question,
+                "AI Auto Scripting",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (choice == JOptionPane.CANCEL_OPTION || choice == JOptionPane.CLOSED_OPTION) {
+            return false;
+        }
+        if (choice == JOptionPane.NO_OPTION) {
+            // Running without the recording is legitimate: the agent falls back to
+            // bounded validation evidence. Say so, so the log explains the gap.
+            postActivity("Starting without saving. The agent cannot read a linked recording from an "
+                    + "unsaved plan and will work from validation evidence only.");
+            return true;
+        }
+        ActionRouter.getInstance().doActionNow(
+                new ActionEvent(event.getSource(), event.getID(), ActionNames.SAVE));
+        String savedFile = gui.getTestPlanFile();
+        if (savedFile == null || savedFile.isBlank()) {
+            postActivity("AI Auto Scripting cancelled: the plan was not saved.");
+            return false;
+        }
+        return true;
     }
 
     @Override
