@@ -547,9 +547,17 @@ public object BreakTestAgentGuiService {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: return@guiCall mapOf(
-                    "linkedHarAvailable" to false,
+                    "linkedRecordingAvailable" to false,
                     "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
-                    "diagnostic" to "The open plan must be saved before its linked recording can be resolved.",
+                    // Distinguish "this plan has no recording" from "the recording
+                    // cannot be read yet": samplers may well be linked, but a
+                    // recording is stored in the plan's archive and is only readable
+                    // once the plan has been written to disk.
+                    "diagnostic" to "The open plan has never been saved, so a linked recording cannot be " +
+                        "read from it yet. Samplers may still be linked to recorded exchanges. Report this " +
+                        "as an unsaved plan rather than as a plan without a recording, and work from " +
+                        "bounded validation evidence instead.",
+                    "recordingUnreadableReason" to "plan_not_saved",
                     "exchanges" to emptyList<Map<String, Any?>>(),
                 )
             val bodyLimit = arguments.path("bodyLimit").asInt(600).coerceAtLeast(0)
@@ -576,7 +584,7 @@ public object BreakTestAgentGuiService {
                 }
                 .take(maxEntries)
             mapOf(
-                "linkedHarAvailable" to exchanges.any { it["hasExchange"] == true },
+                "linkedRecordingAvailable" to exchanges.any { it["hasExchange"] == true },
                 "testPlanFile" to testPlanFile,
                 "threadGroupName" to arguments.path("threadGroupName").optionalText(),
                 "exchangeCount" to exchanges.size,
@@ -765,7 +773,7 @@ public object BreakTestAgentGuiService {
                 )
                 .take(maxCandidates)
             mapOf(
-                "linkedHarAvailable" to exchanges.isNotEmpty(),
+                "linkedRecordingAvailable" to exchanges.isNotEmpty(),
                 "threadGroupName" to arguments.path("threadGroupName").optionalText(),
                 "exchangeCount" to exchanges.size,
                 "candidateCount" to sortedCandidates.size,
