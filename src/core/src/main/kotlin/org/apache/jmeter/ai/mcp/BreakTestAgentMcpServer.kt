@@ -278,8 +278,8 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
-                    "list_recorded_har_exchanges_open_plan",
-                    "List compact recorded HAR request/response evidence linked to samplers in the open BreakTest GUI plan. Use this before the first validation run when a linked HAR is available, so correlations can be inferred from recorded responses without reading the full HAR. Static browser assets are skipped by default.",
+                    "list_recorded_exchanges_open_plan",
+                    "List compact recorded request/response evidence linked to samplers in the open BreakTest GUI plan. Use this before the first validation run when the plan has a linked recording, so correlations can be inferred from recorded responses without reading every exchange in full. Static browser assets are skipped by default.",
                     mapOf(
                         "threadGroupName" to "string",
                         "maxEntries" to "number",
@@ -291,8 +291,8 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
-                    "get_recorded_har_exchange_open_plan",
-                    "Fetch the recorded HAR request/response text linked to one sampler in the open BreakTest GUI plan. Use this as recorded_response evidence before adding extractors or assertions.",
+                    "get_recorded_exchange_open_plan",
+                    "Fetch the recorded request/response text linked to one sampler in the open BreakTest GUI plan. Use this as recorded_response evidence before adding extractors or assertions.",
                     mapOf(
                         "threadGroupName" to "string",
                         "targetSamplerIndex" to "number",
@@ -304,8 +304,8 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
-                    "search_recorded_har_open_plan",
-                    "Search linked recorded HAR requests and responses for a literal or regex. Use this to find where recorded UUIDs, state/code/nonce, CSRF tokens, draw IDs, basket/order IDs, timestamps, or credentials were issued before running validation.",
+                    "search_recorded_exchanges_open_plan",
+                    "Search the linked recorded requests and responses for a literal or regex. Use this to find where recorded UUIDs, state/code/nonce, CSRF tokens, draw IDs, basket/order IDs, timestamps, or credentials were issued before running validation.",
                     mapOf(
                         "threadGroupName" to "string",
                         "query" to "string",
@@ -319,8 +319,8 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
-                    "audit_recorded_har_correlations_open_plan",
-                    "Scan linked HAR recorded requests for high-correlation-potential values, then search earlier recorded HAR responses for matching source evidence. Use this before the first validation run to get ranked source/target extractor candidates for IDs, UUIDs, client_id, nonce, state/code, CSRF/request-verification tokens, bearer/access tokens, draw/product/basket/ticket/order IDs, timestamps, and long opaque values without spending tokens on many one-off searches.",
+                    "audit_recorded_correlations_open_plan",
+                    "Scan the linked recorded requests for high-correlation-potential values, then search earlier recorded responses for matching source evidence. Use this before the first validation run to get ranked source/target extractor candidates for IDs, UUIDs, client_id, nonce, state/code, CSRF/request-verification tokens, bearer/access tokens, draw/product/basket/ticket/order IDs, timestamps, and long opaque values without spending tokens on many one-off searches.",
                     mapOf(
                         "threadGroupName" to "string",
                         "maxCandidates" to "number",
@@ -333,7 +333,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "plan_repair_actions_open_plan",
-                    "Create a compact local repair action plan for the selected open GUI Thread Group. This combines linked HAR source-response matching and request-value audits into ranked action IDs so agents can review/apply likely correlations and credential parameterization without reading large HAR or validation payloads. By default apply arguments are stored behind a snapshotId; fetch selected action details with get_repair_actions_open_plan, or one action with get_repair_action_open_plan.",
+                    "Create a compact local repair action plan for the selected open GUI Thread Group. This combines recorded source-response matching and request-value audits into ranked action IDs so agents can review/apply likely correlations and credential parameterization without reading large recording or validation payloads. By default apply arguments are stored behind a snapshotId; fetch selected action details with get_repair_actions_open_plan, or one action with get_repair_action_open_plan.",
                     mapOf(
                         "threadGroupName" to "string",
                         "maxActions" to "number",
@@ -348,7 +348,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "get_repair_action_open_plan",
-                    "Fetch the full apply arguments and verification steps for one action returned by plan_repair_actions_open_plan. Use this instead of asking for large HAR snippets or broad dynamic audits when a compact action is enough.",
+                    "Fetch the full apply arguments and verification steps for one action returned by plan_repair_actions_open_plan. Use this instead of asking for large recorded snippets or broad dynamic audits when a compact action is enough.",
                     mapOf(
                         "snapshotId" to "string",
                         "actionId" to "string",
@@ -894,10 +894,10 @@ public object BreakTestAgentMcpServer {
                 "list_agent_changes_open_plan" -> callGuiTool("list_agent_changes_open_plan", arguments)
                 "find_open_plan_nodes" -> callGuiTool("find_open_plan_nodes", arguments)
                 "agent_activity" -> callGuiTool("agent_activity", arguments)
-                "list_recorded_har_exchanges_open_plan" -> callGuiTool("list_recorded_har_exchanges_open_plan", arguments)
-                "get_recorded_har_exchange_open_plan" -> callGuiTool("get_recorded_har_exchange_open_plan", arguments)
-                "search_recorded_har_open_plan" -> callGuiTool("search_recorded_har_open_plan", arguments)
-                "audit_recorded_har_correlations_open_plan" -> callGuiTool("audit_recorded_har_correlations_open_plan", arguments)
+                "list_recorded_exchanges_open_plan" -> callGuiTool("list_recorded_exchanges_open_plan", arguments)
+                "get_recorded_exchange_open_plan" -> callGuiTool("get_recorded_exchange_open_plan", arguments)
+                "search_recorded_exchanges_open_plan" -> callGuiTool("search_recorded_exchanges_open_plan", arguments)
+                "audit_recorded_correlations_open_plan" -> callGuiTool("audit_recorded_correlations_open_plan", arguments)
                 "plan_repair_actions_open_plan" -> callGuiTool("plan_repair_actions_open_plan", arguments)
                 "get_repair_action_open_plan" -> callGuiTool("get_repair_action_open_plan", arguments)
                 "get_repair_actions_open_plan" -> callGuiTool("get_repair_actions_open_plan", arguments)
@@ -982,10 +982,10 @@ public object BreakTestAgentMcpServer {
             "update_ai_knowledge_open_plan",
             "list_agent_changes_open_plan",
             "agent_activity",
-            "list_recorded_har_exchanges_open_plan",
-            "get_recorded_har_exchange_open_plan",
-            "search_recorded_har_open_plan",
-            "audit_recorded_har_correlations_open_plan",
+            "list_recorded_exchanges_open_plan",
+            "get_recorded_exchange_open_plan",
+            "search_recorded_exchanges_open_plan",
+            "audit_recorded_correlations_open_plan",
             "plan_repair_actions_open_plan",
             "get_repair_action_open_plan",
             "get_repair_actions_open_plan",

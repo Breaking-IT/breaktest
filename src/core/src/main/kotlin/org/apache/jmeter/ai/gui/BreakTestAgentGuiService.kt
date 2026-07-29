@@ -305,9 +305,17 @@ public object BreakTestAgentGuiService {
             "list_agent_changes_open_plan" -> AiAutoScriptingLogWindow.changes()
             "find_open_plan_nodes" -> findOpenPlanNodes(arguments)
             "agent_activity" -> handleAgentActivity(arguments)
+            // A recording is linked as request/response exchanges, not as a HAR file;
+            // HAR is only one import format. The *_har_* spellings stay accepted so
+            // AI Knowledge written by earlier runs, and any hand-written MCP config,
+            // keep working, but only the names without them are advertised.
+            "list_recorded_exchanges_open_plan",
             "list_recorded_har_exchanges_open_plan" -> listRecordedHarExchangesOpenPlan(arguments)
+            "get_recorded_exchange_open_plan",
             "get_recorded_har_exchange_open_plan" -> getRecordedHarExchangeOpenPlan(arguments)
+            "search_recorded_exchanges_open_plan",
             "search_recorded_har_open_plan" -> searchRecordedHarOpenPlan(arguments)
+            "audit_recorded_correlations_open_plan",
             "audit_recorded_har_correlations_open_plan" -> auditRecordedHarCorrelationsOpenPlan(arguments)
             "plan_repair_actions_open_plan" -> planRepairActionsOpenPlan(arguments)
             "get_repair_action_open_plan" -> getRepairActionOpenPlan(arguments)
@@ -541,7 +549,7 @@ public object BreakTestAgentGuiService {
                 ?: return@guiCall mapOf(
                     "linkedHarAvailable" to false,
                     "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
-                    "diagnostic" to "The open plan must be saved before linked HAR paths can be resolved.",
+                    "diagnostic" to "The open plan must be saved before its linked recording can be resolved.",
                     "exchanges" to emptyList<Map<String, Any?>>(),
                 )
             val bodyLimit = arguments.path("bodyLimit").asInt(600).coerceAtLeast(0)
@@ -581,7 +589,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
             val sampler = selectSampler(
                 scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText()),
@@ -606,7 +614,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val query = arguments.path("query").optionalText()
             val regexText = arguments.path("regex").optionalText()
             require(query != null || regexText != null) {
@@ -665,7 +673,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val maxCandidates = arguments.path("maxCandidates").asInt(120).coerceAtLeast(1)
             val contextChars = arguments.path("contextChars").asInt(180).coerceAtLeast(0)
@@ -724,7 +732,7 @@ public object BreakTestAgentGuiService {
                                 literalIndex + requestCandidate.literal.length,
                                 contextChars,
                             ),
-                            "reason" to "Suspicious request value appears in an earlier linked HAR recorded response.",
+                            "reason" to "Suspicious request value appears in an earlier recorded response.",
                         )
                     } else if (requestCandidate.priority >= 80 && unresolved.size < maxCandidates) {
                         unresolved += mapOf(
@@ -739,7 +747,7 @@ public object BreakTestAgentGuiService {
                             "targetNodePath" to nodePath(target.sampler),
                             "targetRequestLine" to firstNonBlankLine(target.request),
                             "targetSurface" to requestCandidate.surface,
-                            "reason" to "Suspicious request value was not found in earlier linked HAR recorded responses.",
+                            "reason" to "Suspicious request value was not found in earlier recorded responses.",
                         )
                     }
                     if (candidates.size >= maxCandidates) {
