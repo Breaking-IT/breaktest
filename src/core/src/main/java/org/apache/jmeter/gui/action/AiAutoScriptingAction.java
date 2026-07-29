@@ -1383,6 +1383,14 @@ public class AiAutoScriptingAction extends AbstractAction {
                 output.captureTokenLine(trimmed);
                 if (SHOW_RAW_OUTPUT) {
                     display = line;
+                } else if (isAgentDecorationLine(trimmed)) {
+                    // Copilot CLI draws each tool call as a box: a bullet header, the
+                    // arguments indented behind a vertical bar, then a rule with a
+                    // line count. The bridge already logs every tool call with its
+                    // timing, so this is noise in the activity log. Token capture
+                    // above still sees the line, which is why the stats are not
+                    // suppressed at the CLI with -s.
+                    return null;
                 } else if (shouldStartDiffSuppression(trimmed)) {
                     suppressDiffOutput = true;
                 } else if (suppressDiffOutput && !shouldEndDiffSuppression(trimmed)) {
@@ -1427,6 +1435,23 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private static String stripAnsi(String line) {
             return line.replaceAll("\u001B\\[[0-9;]*[A-Za-z]", "").replace("\u001B", "");
+        }
+
+        /**
+         * Glyphs an agent CLI uses to draw its own tool-call boxes: bullets, spinners
+         * and box-drawing rules. Copilot renders each call as a bullet header, the
+         * arguments behind vertical bars, then a footer with a line count.
+         */
+        private static final String AGENT_DECORATION_GLYPHS =
+                "\u25CF\u25CB\u25D0\u2502\u2514\u251C\u250C\u2510\u2518\u2500\u256D\u2570\u2571";
+
+        /**
+         * True for a line that belongs to an agent CLI's tool-call rendering rather
+         * than to agent text. Matching on the leading glyph keeps this independent of
+         * the wording, which differs per tool and per version.
+         */
+        private static boolean isAgentDecorationLine(String trimmed) {
+            return !trimmed.isEmpty() && AGENT_DECORATION_GLYPHS.indexOf(trimmed.charAt(0)) >= 0;
         }
 
         private static boolean looksLikeToolEcho(String line) {
