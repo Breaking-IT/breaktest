@@ -74,14 +74,16 @@ class RecordedExchangeToolNamingTest {
 
     @Test
     fun `prompt templates mention neither HAR nor the legacy tool names`() {
-        for (template in listOf(
-            "ai-prompt-live-gui-repair.txt",
-            "ai-prompt-specific-request.txt",
-            "ai-prompt-file-backed-repair.txt",
-            "ai-prompt-user-instructions.txt",
-            "ai-prompt-run-options.txt",
-            "ai-prompt-fragments.properties",
-        )) {
+        for (
+            template in listOf(
+                "ai-prompt-live-gui-repair.txt",
+                "ai-prompt-specific-request.txt",
+                "ai-prompt-file-backed-repair.txt",
+                "ai-prompt-user-instructions.txt",
+                "ai-prompt-run-options.txt",
+                "ai-prompt-fragments.properties",
+            )
+        ) {
             val text = requireNotNull(
                 Class.forName("org.apache.jmeter.gui.action.AiPrompts")
                     .getResourceAsStream(template),

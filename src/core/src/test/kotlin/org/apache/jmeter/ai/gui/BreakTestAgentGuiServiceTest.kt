@@ -216,11 +216,11 @@ class BreakTestAgentGuiServiceTest {
         val body = "{\"pageId\":\"abc-123\",\"mail\":\"user%40example.com\"}"
         val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\nLocation: /next\r\n\r\n$body"
         val cases = listOf(
-            "abc-123",                 // present in both the header block and the body
-            "user@example.com",        // only present in its URL-encoded form
-            "user%40example.com",      // only present in its raw form
-            "/next",                   // header-only
-            "not-in-this-response",    // absent
+            "abc-123", // present in both the header block and the body
+            "user@example.com", // only present in its URL-encoded form
+            "user%40example.com", // only present in its raw form
+            "/next", // header-only
+            "not-in-this-response", // absent
         )
         for (literal in cases) {
             assertEquals(
