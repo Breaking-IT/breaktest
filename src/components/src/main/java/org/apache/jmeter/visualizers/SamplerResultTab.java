@@ -1133,6 +1133,12 @@ public abstract class SamplerResultTab implements ResultRenderer {
         results.setDocument(document);
     }
 
+    protected void setRawResponseText(String data) {
+        if (sampleResult != null) {
+            setResponseDataText(sampleResult.getResponseHeaders(), data);
+        }
+    }
+
     private void setResponseDataText(String responseHeaders, String responseBody) {
         if (responseBody != null) {
             rawResponseBody = responseBody;
@@ -1142,24 +1148,26 @@ public abstract class SamplerResultTab implements ResultRenderer {
         if (loadBodyButton != null) {
             loadBodyButton.setEnabled(withholdBody);
         }
+        responseData.setSyntaxEditingStyle(sampleResult == null || withholdBody
+                ? SyntaxConstants.SYNTAX_STYLE_NONE
+                : syntaxStyle(sampleResult));
         responseData.setText(buildResponseData(responseHeaders, withholdBody
                 ? withheldBodyMessage(bodyToShow)
                 : bodyToShow));
-        responseData.setSyntaxEditingStyle(sampleResult == null
-                ? SyntaxConstants.SYNTAX_STYLE_NONE
-                : syntaxStyle(sampleResult));
         responseData.setCaretPosition(0);
     }
 
-    private void loadResponseBody() {
+    void loadResponseBody() {
         if (sampleResult == null) {
             return;
         }
         if (loadBodyButton != null) {
             loadBodyButton.setEnabled(false);
         }
-        responseData.setText(buildResponseData(sampleResult.getResponseHeaders(), rawResponseBody));
-        responseData.setSyntaxEditingStyle(syntaxStyle(sampleResult));
+        responseData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        responseData.setText(buildResponseData(
+                sampleResult.getResponseHeaders(),
+                wrapLongLinesForDisplay(rawResponseBody, MAX_SINGLE_LINE_BODY_SIZE)));
         responseData.setCaretPosition(0);
     }
 
@@ -1318,6 +1326,37 @@ public abstract class SamplerResultTab implements ResultRenderer {
             }
         }
         return false;
+    }
+
+    static String wrapLongLinesForDisplay(String text, int maxLineLength) {
+        if (maxLineLength <= 0 || !hasLineLongerThan(text, maxLineLength)) {
+            return text;
+        }
+        StringBuilder wrapped = new StringBuilder(text.length() + text.length() / maxLineLength);
+        int currentLineLength = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\n' || ch == '\r') {
+                currentLineLength = 0;
+            } else if (currentLineLength >= maxLineLength
+                    && !(Character.isLowSurrogate(ch) && Character.isHighSurrogate(text.charAt(i - 1)))) {
+                wrapped.append('\n');
+                currentLineLength = 0;
+            }
+            wrapped.append(ch);
+            if (ch != '\n' && ch != '\r') {
+                currentLineLength++;
+            }
+        }
+        return wrapped.toString();
+    }
+
+    String responseDataText() {
+        return responseData == null ? "" : responseData.getText(); // $NON-NLS-1$
+    }
+
+    String responseDataSyntaxStyle() {
+        return responseData == null ? SyntaxConstants.SYNTAX_STYLE_NONE : responseData.getSyntaxEditingStyle();
     }
 
     private static String withheldBodyMessage(String responseBody) {
