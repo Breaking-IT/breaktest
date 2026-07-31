@@ -24,6 +24,51 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.07.31 - AI Scripting, JMX Migration, and Results Tree Responsiveness</h1>
+<p>
+BreakTest 2026.07.31 expands AI Auto Scripting with GitHub Copilot CLI,
+improves correlation planning performance and correctness, adds a safe guided
+upgrade from standard JMeter JMX files, and keeps the Results Tree responsive
+when inspecting very large response bodies.
+</p>
+
+<ch_section>AI Auto Scripting</ch_section>
+<ul>
+  <li>Adds GitHub Copilot CLI as an experimental AI Auto Scripting harness alongside Codex, Claude Code, opencode, and MCP workflows.</li>
+  <li>Reads model and token statistics without showing Copilot's tool-call boxes in the activity log and reports clear setup guidance when a configured CLI is missing.</li>
+  <li>Speeds up correlation planning by indexing candidate literals in one pass per recorded response and caching the native recording store.</li>
+  <li>Validates that a proposed regular expression captures the intended dynamic value with the same Perl5 engine used by the Regex Extractor.</li>
+  <li>Leaves invalid correlation candidates unresolved instead of producing a misleading extraction.</li>
+  <li>Prompts to save an unsaved plan before reading its linked recording and distinguishes an unreadable recording from a plan that has none.</li>
+  <li>Lists the individual nodes changed by small search-and-replace operations so each can be reached from the AI activity log.</li>
+  <li>Uses recording-oriented tool names while retaining the previous HAR-oriented spellings as compatibility aliases.</li>
+  <li>Moves repair prompts into named resource templates and improves bridge diagnostics without changing the rendered prompt variants.</li>
+</ul>
+
+<ch_section>Standard JMX Upgrade</ch_section>
+<ul>
+  <li>Detects standard XML JMeter JMX files when they are opened and asks for explicit confirmation before converting them to BreakTest's native archive format.</li>
+  <li>Keeps an exact, collision-safe JMeter-compatible backup next to the source and replaces the source through a temporary file, atomically when supported.</li>
+  <li>Leaves the source untouched when conversion is declined or fails and skips the prompt for plans already stored in native BreakTest format.</li>
+  <li>Uses the normal Save tree preparation before serialization, preventing XStream conversion failures caused by GUI tree nodes.</li>
+</ul>
+
+<ch_section>Results Tree and Desktop Reliability</ch_section>
+<ul>
+  <li>Adds the existing <b>Jump to</b> action to the Results Tree table-view context menu.</li>
+  <li>Avoids inserting a large Text-renderer response into a hidden Swing document before showing the long-line warning.</li>
+  <li>Loads oversized single-line bodies as plain text with display-only safety line breaks, avoiding expensive syntax highlighting while preserving the original response for Pretty Print and response comparison.</li>
+  <li>Allows packaged launches from installation paths containing spaces, including macOS dock icons and Class-Data Sharing paths.</li>
+</ul>
+
+<ch_section>Compatibility</ch_section>
+<ul>
+  <li>Existing JMeter-compatible JMX plans can still be opened without conversion by declining the upgrade prompt.</li>
+  <li>Previous AI recording tool names remain accepted as aliases.</li>
+  <li>Java 21 or later is required; Java 26 or later is required for HTTP/3 over QUIC.</li>
+  <li>This release uses the direct Git tag <code>2026.07.31</code>.</li>
+</ul>
+
 <h1>BreakTest 2026.07.21 - HTTP Replay Fidelity and Response Comparison</h1>
 <p>
 BreakTest 2026.07.21 makes modern HTTP recordings more faithful during replay
