@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.JFileChooser;
+import javax.swing.JOptionPane;
 import javax.swing.JTree;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
@@ -227,6 +228,42 @@ public class Load extends AbstractActionWithNoRunningTest {
             // above?
             guiPackage.setTestPlanFile(f.getAbsolutePath());
             scheduleBreakTestHarPreflight(f);
+            offerBreakTestJmxUpgrade(f, guiPackage.getTreeModel().getTestPlan());
+        }
+    }
+
+    private static void offerBreakTestJmxUpgrade(File file, HashTree tree) {
+        Path source = file.toPath().toAbsolutePath();
+        try {
+            if (BreakTestJmxUpgrade.isNativeBreakTestJmx(source)) {
+                return;
+            }
+        } catch (IOException ex) {
+            log.warn("Could not determine whether JMX is a BreakTest archive: {}", source, ex);
+            return;
+        }
+
+        Path backup = BreakTestJmxUpgrade.nextBackupPath(source);
+        int choice = JOptionPane.showConfirmDialog(
+                GuiPackage.getInstance().getMainFrame(),
+                "This is a standard JMeter JMX. Convert it to BreakTest's native JMX format?\n\n"
+                        + "BreakTest will preserve the original as a JMeter-compatible backup:\n"
+                        + backup.getFileName(),
+                "Convert JMX to BreakTest format",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        try {
+            Path createdBackup = BreakTestJmxUpgrade.upgradeIfConfirmed(choice, source, tree);
+            if (createdBackup == null) {
+                return;
+            }
+            log.info("Converted JMX to BreakTest archive format: {}; original saved as {}", source, createdBackup);
+        } catch (IOException ex) {
+            log.error("Could not convert JMX to BreakTest archive format: {}", source, ex);
+            JMeterUtils.reportErrorToUser(
+                    "The JMX was not converted. Its original file was left in place; "
+                            + "any backup created before the save is retained at the same location.",
+                    "Could not convert JMX");
         }
     }
 
