@@ -73,7 +73,10 @@ final class BreakTestJmxUpgrade {
      * The caller must obtain explicit user confirmation before invoking this method.
      */
     static Path upgrade(Path source, HashTree tree) throws IOException {
-        return upgrade(source, output -> SaveService.saveTree(tree, output));
+        return upgrade(source, output -> {
+            Save.convertSubTree(tree);
+            SaveService.saveTree(tree, output);
+        });
     }
 
     static Path upgradeIfConfirmed(int dialogChoice, Path source, HashTree tree) throws IOException {

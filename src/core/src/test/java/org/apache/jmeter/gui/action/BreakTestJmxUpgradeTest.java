@@ -32,12 +32,18 @@ import java.util.zip.ZipInputStream;
 
 import javax.swing.JOptionPane;
 
+import org.apache.jmeter.control.gui.TestPlanGui;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class BreakTestJmxUpgradeTest {
+class BreakTestJmxUpgradeTest extends JMeterTestCase {
     @TempDir
     Path tempDir;
 
@@ -65,7 +71,8 @@ class BreakTestJmxUpgradeTest {
         byte[] original = legacyXml();
         Files.write(source, original);
 
-        assertNull(BreakTestJmxUpgrade.upgradeIfConfirmed(JOptionPane.NO_OPTION, source, new HashTree()));
+        assertNull(BreakTestJmxUpgrade.upgradeIfConfirmed(
+                JOptionPane.NO_OPTION, source, guiTree()));
 
         assertArrayEquals(original, Files.readAllBytes(source));
         assertFalse(Files.exists(tempDir.resolve("plan.jmeter-backup-001.jmx")));
@@ -77,14 +84,14 @@ class BreakTestJmxUpgradeTest {
         byte[] original = legacyXml();
         Files.write(source, original);
 
-        Path backup = BreakTestJmxUpgrade.upgrade(source, new HashTree());
+        Path backup = BreakTestJmxUpgrade.upgrade(source, guiTree());
 
         assertEquals(tempDir.resolve("plan.jmeter-backup-001.jmx"), backup);
         assertArrayEquals(original, Files.readAllBytes(backup));
         assertFalse(BreakTestJmxUpgrade.isNativeBreakTestJmx(backup));
         assertTrue(BreakTestJmxUpgrade.isNativeBreakTestJmx(source));
-        assertTrue(SaveService.loadTree(backup.toFile()).isEmpty());
-        assertTrue(SaveService.loadTree(source.toFile()).isEmpty());
+        assertEquals(1, SaveService.loadTree(backup.toFile()).size());
+        assertEquals(1, SaveService.loadTree(source.toFile()).size());
     }
 
     @Test
@@ -93,7 +100,7 @@ class BreakTestJmxUpgradeTest {
         Files.write(source, legacyXml());
         Files.writeString(tempDir.resolve("plan.jmeter-backup-001.jmx"), "first");
 
-        Path backup = BreakTestJmxUpgrade.upgrade(source, new HashTree());
+        Path backup = BreakTestJmxUpgrade.upgrade(source, guiTree());
 
         assertEquals(tempDir.resolve("plan.jmeter-backup-002.jmx"), backup);
         assertEquals("first", Files.readString(tempDir.resolve("plan.jmeter-backup-001.jmx")));
@@ -113,10 +120,37 @@ class BreakTestJmxUpgradeTest {
         assertArrayEquals(original, Files.readAllBytes(tempDir.resolve("plan.jmeter-backup-001.jmx")));
     }
 
+    @Test
+    void convertsGuiTreeNodesBeforeWritingArchive() throws Exception {
+        Path source = tempDir.resolve("plan.jmx");
+        Files.write(source, legacyXml());
+
+        BreakTestJmxUpgrade.upgrade(source, guiTree());
+
+        HashTree loaded = SaveService.loadTree(source.toFile());
+        assertEquals(1, loaded.size());
+        assertTrue(loaded.list().iterator().next() instanceof TestPlan);
+    }
+
     private static byte[] nativeArchive() throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        SaveService.saveTree(new HashTree(), output);
+        SaveService.saveTree(testPlanTree(), output);
         return output.toByteArray();
+    }
+
+    private static HashTree guiTree() {
+        return new ListedHashTree(new JMeterTreeNode(testPlan("GUI test plan"), null));
+    }
+
+    private static HashTree testPlanTree() {
+        return new ListedHashTree(testPlan("Test plan"));
+    }
+
+    private static TestPlan testPlan(String name) {
+        TestPlan testPlan = new TestPlan(name);
+        testPlan.setProperty(TestElement.GUI_CLASS, TestPlanGui.class.getName());
+        testPlan.setProperty(TestElement.TEST_CLASS, TestPlan.class.getName());
+        return testPlan;
     }
 
     private static byte[] legacyXml() throws IOException {
