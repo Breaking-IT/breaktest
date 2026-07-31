@@ -1,0 +1,11 @@
+
+User-provided start dialog instructions:
+- AI Tool: {{TOOL}}
+- Mode: {{MODE}}
+- Edit surface: {{EDIT_SURFACE}}
+- Add assertions: {{ADD_ASSERTIONS}}
+- Maximum runtime seconds: {{MAX_RUNTIME_SECONDS}}
+- Similar retry limit: {{MAX_SIMILAR_RETRIES}}
+- Thread Group: {{THREAD_GROUP_NAME}}
+- Extra instructions:
+{{EXTRA_INSTRUCTIONS}}

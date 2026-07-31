@@ -277,6 +277,7 @@ public class TestPlanEditor {
         replacement: String,
         includeNames: Boolean = false,
         excludeUserDefinedVariables: Boolean = false,
+        changedElements: MutableCollection<TestElement>? = null,
     ): Int {
         val visitedElements = IdentityHashMap<TestElement, Boolean>()
         val visitedProperties = IdentityHashMap<JMeterProperty, Boolean>()
@@ -288,6 +289,7 @@ public class TestPlanEditor {
             excludeUserDefinedVariables,
             visitedElements,
             visitedProperties,
+            changedElements,
         )
         for (child in subTree.list()) {
             if (child is TestElement) {
@@ -300,6 +302,7 @@ public class TestPlanEditor {
                     excludeUserDefinedVariables,
                     visitedElements,
                     visitedProperties,
+                    changedElements,
                 )
             }
         }
@@ -312,6 +315,7 @@ public class TestPlanEditor {
         replacement: String,
         includeNames: Boolean = false,
         excludeUserDefinedVariables: Boolean = false,
+        changedElements: MutableCollection<TestElement>? = null,
     ): Int {
         val visitedElements = IdentityHashMap<TestElement, Boolean>()
         val visitedProperties = IdentityHashMap<JMeterProperty, Boolean>()
@@ -323,6 +327,7 @@ public class TestPlanEditor {
             excludeUserDefinedVariables,
             visitedElements,
             visitedProperties,
+            changedElements,
         )
     }
 
@@ -330,6 +335,7 @@ public class TestPlanEditor {
         tree: HashTree,
         literal: String,
         replacement: String,
+        changedElements: MutableCollection<TestElement>? = null,
     ): Int {
         val visitedElements = IdentityHashMap<TestElement, Boolean>()
         fun visit(currentTree: HashTree): Int {
@@ -340,6 +346,7 @@ public class TestPlanEditor {
                     if (currentName.contains(literal)) {
                         node.name = currentName.replace(literal, replacement)
                         replacements++
+                        changedElements?.add(node)
                     }
                 }
                 replacements += visit(currentTree.getTree(node))
@@ -358,6 +365,7 @@ public class TestPlanEditor {
         excludeUserDefinedVariables: Boolean,
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
+        changedElements: MutableCollection<TestElement>?,
     ): Int {
         var replacements = replaceLiteralInElement(
             element,
@@ -367,6 +375,7 @@ public class TestPlanEditor {
             excludeUserDefinedVariables,
             visitedElements,
             visitedProperties,
+            changedElements,
         )
         for (child in subTree.list()) {
             if (child is TestElement) {
@@ -379,6 +388,7 @@ public class TestPlanEditor {
                     excludeUserDefinedVariables,
                     visitedElements,
                     visitedProperties,
+                    changedElements,
                 )
             }
         }
@@ -393,6 +403,7 @@ public class TestPlanEditor {
         excludeUserDefinedVariables: Boolean,
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
+        changedElements: MutableCollection<TestElement>?,
     ): Int {
         var replacements = 0
         for (node in tree.list()) {
@@ -406,6 +417,7 @@ public class TestPlanEditor {
                     excludeUserDefinedVariables,
                     visitedElements,
                     visitedProperties,
+                    changedElements,
                 )
             } else {
                 replacements += replaceLiteralInTree(
@@ -416,6 +428,7 @@ public class TestPlanEditor {
                     excludeUserDefinedVariables,
                     visitedElements,
                     visitedProperties,
+                    changedElements,
                 )
             }
         }
@@ -430,6 +443,7 @@ public class TestPlanEditor {
         excludeUserDefinedVariables: Boolean,
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
+        changedElements: MutableCollection<TestElement>?,
     ): Int {
         if (visitedElements.put(element, true) != null) {
             return 0
@@ -449,7 +463,14 @@ public class TestPlanEditor {
                 excludeUserDefinedVariables,
                 visitedElements,
                 visitedProperties,
+                changedElements,
             )
+        }
+        // Only this element's own properties are counted here; children of the tree
+        // are visited by separate calls and record themselves, so a caller collecting
+        // changed elements gets one entry per element that actually changed.
+        if (replacements > 0) {
+            changedElements?.add(element)
         }
         return replacements
     }
@@ -462,6 +483,7 @@ public class TestPlanEditor {
         excludeUserDefinedVariables: Boolean,
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
+        changedElements: MutableCollection<TestElement>?,
     ): Int {
         if (visitedProperties.put(property, true) != null) {
             return 0
@@ -492,6 +514,7 @@ public class TestPlanEditor {
                 excludeUserDefinedVariables,
                 visitedElements,
                 visitedProperties,
+                changedElements,
             )
         } else if (property is CollectionProperty || property is MultiProperty) {
             for (child in property as MultiProperty) {
@@ -503,6 +526,7 @@ public class TestPlanEditor {
                     excludeUserDefinedVariables,
                     visitedElements,
                     visitedProperties,
+                    changedElements,
                 )
             }
         }
