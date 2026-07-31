@@ -1255,11 +1255,13 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         resultTable.setRowSelectionInterval(viewRow, viewRow);
         int modelRow = resultTable.convertRowIndexToModel(viewRow);
         SampleResult sample = resultTableModel.sampleAt(modelRow);
-        if (sample == null || StringUtilities.isEmpty(sample.getThreadName())) {
+        if (sample == null) {
             return;
         }
 
+        JMenuItem jumpTo = createJumpToMenuItem(sample);
         JMenuItem filterThread = new JMenuItem(JMeterUtils.getResString("view_results_filter_thread_name")); // $NON-NLS-1$
+        filterThread.setEnabled(!StringUtilities.isEmpty(sample.getThreadName()));
         filterThread.addActionListener(action -> filterByThreadName(sample.getThreadName()));
         JMenuItem clearThreadFilter = new JMenuItem(
                 JMeterUtils.getResString("view_results_clear_thread_name_filter")); // $NON-NLS-1$
@@ -1272,6 +1274,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         clearLabelFilter.addActionListener(action -> filterByLabel(null));
 
         JPopupMenu popup = new JPopupMenu();
+        popup.add(jumpTo);
+        popup.addSeparator();
         popup.add(filterThread);
         popup.add(clearThreadFilter);
         popup.addSeparator();
@@ -1508,10 +1512,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.setSelectionPath(resultPath);
 
         SampleResult sampleResult = getSampleResult(resultPath);
+        JMenuItem jumpTo = createJumpToMenuItem(sampleResult);
         JMeterTreeNode testPlanNode = findTestPlanNode(sampleResult);
-        JMenuItem jumpTo = new JMenuItem("Jump to");
-        jumpTo.setEnabled(testPlanNode != null);
-        jumpTo.addActionListener(e -> jumpToTestPlanElement(testPlanNode));
 
         JMenuItem storeReplay = new JMenuItem(
                 JMeterUtils.getResString("view_results_store_replay_recording")); // $NON-NLS-1$
@@ -1523,6 +1525,14 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         popup.addSeparator();
         popup.add(storeReplay);
         popup.show(jTree, event.getX(), event.getY());
+    }
+
+    static JMenuItem createJumpToMenuItem(SampleResult sampleResult) {
+        JMeterTreeNode testPlanNode = findTestPlanNode(sampleResult);
+        JMenuItem jumpTo = new JMenuItem("Jump to");
+        jumpTo.setEnabled(testPlanNode != null);
+        jumpTo.addActionListener(e -> jumpToTestPlanElement(testPlanNode));
+        return jumpTo;
     }
 
     private static boolean canStoreReplay(SampleResult sampleResult, JMeterTreeNode testPlanNode) {
