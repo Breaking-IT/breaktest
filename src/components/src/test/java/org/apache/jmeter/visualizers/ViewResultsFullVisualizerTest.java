@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import javax.swing.JMenuItem;
+
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
@@ -129,6 +131,9 @@ public class ViewResultsFullVisualizerTest {
         ViewResultsFullVisualizer.collectReplayableSamples(lastLoop, replayedSamples);
 
         assertSame(samplerNode, ViewResultsFullVisualizer.findTestPlanNode(lastLoop));
+        JMenuItem jumpTo = ViewResultsFullVisualizer.createJumpToMenuItem(lastLoop);
+        assertEquals("Jump to", jumpTo.getText());
+        assertTrue(jumpTo.isEnabled());
         assertEquals(1, replayedSamples.size());
         assertSame(lastLoop, replayedSamples.get(samplerNode));
 

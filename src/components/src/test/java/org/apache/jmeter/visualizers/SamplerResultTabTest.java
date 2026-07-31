@@ -30,6 +30,7 @@ import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.Test;
 
 public class SamplerResultTabTest {
@@ -101,6 +102,43 @@ public class SamplerResultTabTest {
     }
 
     @Test
+    public void textRendererDoesNotPopulateHiddenRenderedDocument() {
+        RenderAsText renderer = initializedRenderer();
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n", "hello");
+
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        selectResponseTab(renderer);
+        renderer.renderResult(result);
+
+        assertEquals(0, renderer.results.getDocument().getLength());
+        assertEquals("HTTP/1.1 200 OK\n\nhello", renderer.responseDataText());
+    }
+
+    @Test
+    public void loadingWithheldBodyUsesPlainTextAndAddsSafeLineBreaks() {
+        RenderAsText renderer = initializedRenderer();
+        String body = "{\"value\":\"" + "x".repeat(10_000_001) + "\"}";
+        SampleResult result = sampleResult(SampleResult.TEXT, "HTTP/1.1 200 OK\n", body);
+        result.setContentType("application/json");
+
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        selectResponseTab(renderer);
+        renderer.renderResult(result);
+
+        assertTrue(
+                renderer.responseDataText().contains("view_results_body_too_long_single_line"),
+                renderer::responseDataText);
+        renderer.loadResponseBody();
+
+        assertEquals(SyntaxConstants.SYNTAX_STYLE_NONE, renderer.responseDataSyntaxStyle());
+        assertFalse(hasLineLongerThan(renderer.responseDataText(), 100_000));
+        String displayedBody = renderer.responseDataText().substring("HTTP/1.1 200 OK\n\n".length());
+        assertEquals(body, displayedBody.replace("\n", ""));
+    }
+
+    @Test
     public void initCanBeCalledTwiceWithoutDuplicatingTabs() {
         RenderAsText renderer = new RenderAsText();
         JTabbedPane rightSide = new JTabbedPane();
@@ -161,6 +199,11 @@ public class SamplerResultTabTest {
     private static boolean hasKerningDocumentListener(SamplerResultTab.WrappingTableCellRenderer renderer) {
         return Arrays.stream(renderer.getPropertyChangeListeners("document"))
                 .anyMatch(listener -> listener.getClass().getSimpleName().equals("DisableKerningForLargeTexts"));
+    }
+
+    private static boolean hasLineLongerThan(String text, int maxLineLength) {
+        return Arrays.stream(text.split("\\R", -1))
+                .anyMatch(line -> line.length() > maxLineLength);
     }
 
     private static RenderAsText initializedRenderer() {
