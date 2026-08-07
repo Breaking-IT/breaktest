@@ -676,9 +676,9 @@ val runGui by tasks.registering(JavaExec::class) {
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
     classpath("$rootDir/bin/breaktest.jar")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
 
     val osName = System.getProperty("os.name")
     if (osName.contains(Regex("mac os x|darwin|osx", RegexOption.IGNORE_CASE))) {
@@ -731,8 +731,8 @@ val runGuiWithAgent by tasks.registering(JavaExec::class) {
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
     classpath("$rootDir/bin/breaktest.jar")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Dbreaktest.agent.enabled=true")
 }

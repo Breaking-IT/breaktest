@@ -367,6 +367,15 @@ public object BreakTestAgentGuiService {
             backupFile.path
         }
 
+    /** Reloads the active JMX after file-backed AI repair has finished. */
+    @JvmStatic
+    public fun reloadOpenPlanAfterFileRepair(path: String): Map<String, Any?> {
+        val arguments = mapper.createObjectNode()
+            .put("path", path)
+            .put("force", true)
+        return refreshOpenPlanFromFile(arguments)
+    }
+
     @JvmStatic
     public fun createRepairCloneForOpenPlan(): String? =
         guiCall {

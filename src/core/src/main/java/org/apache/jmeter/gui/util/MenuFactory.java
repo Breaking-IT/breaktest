@@ -370,11 +370,7 @@ public final class MenuFactory {
         String addAction = ActionNames.ADD;
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
         addMenu.setIcon(ModernMenuIcon.of(ModernMenuIcon.Kind.ADD));
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.SAMPLERS, addAction));
-        addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.CONTROLLERS, addAction));
-        addMenu.addSeparator();
-        pop.add(addDefaultAddMenuToMenu(addMenu, addAction));
+        pop.add(addCategoriesToMenu(addMenu, addAction, Collections.emptySet(), AddMenuOrder.CONTROLLER_GROUPS));
         pop.add(MenuFactory.makeMenuItemRes("add_think_times",// $NON-NLS-1$
                 ActionNames.ADD_THINK_TIME_BETWEEN_EACH_STEP));
 
@@ -402,24 +398,20 @@ public final class MenuFactory {
         String addAction = ActionNames.ADD;
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
         addMenu.setIcon(ModernMenuIcon.of(ModernMenuIcon.Kind.ADD));
-        addDefaultAddMenuToMenu(addMenu, addAction, excludedGuiClasses);
+        addCategoriesToMenu(addMenu, addAction, excludedGuiClasses, AddMenuOrder.DEFAULT_GROUPS);
         return addMenu;
     }
 
-    private static JMenu addDefaultAddMenuToMenu(JMenu addMenu, String addAction) {
-        return addDefaultAddMenuToMenu(addMenu, addAction, Collections.emptySet());
-    }
-
-    private static JMenu addDefaultAddMenuToMenu(JMenu addMenu, String addAction, Set<String> excludedGuiClasses) {
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.ASSERTIONS, addAction, excludedGuiClasses));
-        addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.TIMERS, addAction, excludedGuiClasses));
-        addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.PRE_PROCESSORS, addAction, excludedGuiClasses));
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.POST_PROCESSORS, addAction, excludedGuiClasses));
-        addMenu.addSeparator();
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.CONFIG_ELEMENTS, addAction, excludedGuiClasses));
-        addMenu.add(MenuFactory.makeMenu(MenuFactory.LISTENERS, addAction, excludedGuiClasses));
+    private static JMenu addCategoriesToMenu(
+            JMenu addMenu, String addAction, Set<String> excludedGuiClasses, List<List<String>> categoryGroups) {
+        for (List<String> group : categoryGroups) {
+            if (addMenu.getItemCount() > 0) {
+                addMenu.addSeparator();
+            }
+            group.stream()
+                    .map(category -> makeMenu(category, addAction, excludedGuiClasses))
+                    .forEach(addMenu::add);
+        }
         return addMenu;
     }
 
@@ -517,6 +509,7 @@ public final class MenuFactory {
             Set<String> excludedGuiClasses) {
 
         JMenu menu = new JMenu(menuName);
+        menu.setName(category);
         menu.setIcon(ModernMenuIcon.fromCategory(category));
         menuInfo.stream()
                 .filter(info -> !excludedGuiClasses.contains(info.getClassName()))
@@ -705,7 +698,28 @@ public final class MenuFactory {
         return false;
     }
 
-    private static final class ModernMenuIcon implements Icon {
+    @VisibleForTesting
+    static final class AddMenuOrder {
+        static final List<List<String>> CONTROLLER_GROUPS = List.of(
+                List.of(SAMPLERS),
+                List.of(CONTROLLERS),
+                List.of(ASSERTIONS),
+                List.of(TIMERS),
+                List.of(PRE_PROCESSORS, POST_PROCESSORS),
+                List.of(CONFIG_ELEMENTS, LISTENERS));
+
+        static final List<List<String>> DEFAULT_GROUPS = CONTROLLER_GROUPS.subList(2, CONTROLLER_GROUPS.size());
+
+        static final List<String> CONTROLLER = CONTROLLER_GROUPS.stream().flatMap(List::stream).toList();
+
+        static final List<String> DEFAULT = DEFAULT_GROUPS.stream().flatMap(List::stream).toList();
+
+        private AddMenuOrder() {
+        }
+    }
+
+    @VisibleForTesting
+    static final class ModernMenuIcon implements Icon {
         private static final int SIZE = 16;
 
         private final Kind kind;
@@ -742,6 +756,11 @@ public final class MenuFactory {
         // more specific tokens (e.g. RandomOrderController) before the general ones.
         private static final List<Map.Entry<Kind, String[]>> PRIMARY_KINDS = List.of(
                 Map.entry(Kind.COOKIE, new String[] {"Cookie"}), // $NON-NLS-1$
+                Map.entry(Kind.CSV_DATA_SET, new String[] {"CSVDataSet", "CSV Data Set"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.USER_DEFINED_VARIABLES,
+                        new String[] {"ArgumentsPanel", "User Defined Variables"}), // $NON-NLS-1$ $NON-NLS-2$
+                Map.entry(Kind.HTTP_HEADERS,
+                        new String[] {"HeaderManager", "HeaderPanel", "HTTP Header Manager"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
                 Map.entry(Kind.THREADS, new String[] {"ThreadGroup"}), // $NON-NLS-1$
                 Map.entry(Kind.REPORT, new String[] {"Visualizer", "Listener", "ResultCollector", "Report"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
                 Map.entry(Kind.REQUEST, new String[] {"Sampler"})); // $NON-NLS-1$
@@ -779,7 +798,8 @@ public final class MenuFactory {
             return of(kindFor(category, descriptor));
         }
 
-        private static Kind kindFor(String category, String descriptor) {
+        @VisibleForTesting
+        static Kind kindFor(String category, String descriptor) {
             Kind byCategory = LISTENERS.equals(category) ? Kind.REPORT
                     : PRE_PROCESSORS.equals(category) ? Kind.PRE_PROCESSOR
                     : POST_PROCESSORS.equals(category) ? Kind.POST_PROCESSOR
@@ -838,7 +858,7 @@ public final class MenuFactory {
             return c == null || c.getForeground() == null ? new Color(0x4B5563) : c.getForeground();
         }
 
-        private enum Kind {
+        enum Kind {
             ADD(new Color(0x2563EB)) {
                 @Override
                 void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
@@ -980,6 +1000,66 @@ public final class MenuFactory {
                     g.setColor(accent);
                     g.drawOval(x + 3, y + 4, 2, 2);
                     g.drawOval(x + 10, y + 10, 2, 2);
+                }
+            },
+            CSV_DATA_SET(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 2, x + 10, y + 2);
+                    g.drawLine(x + 10, y + 2, x + 13, y + 5);
+                    g.drawLine(x + 13, y + 5, x + 13, y + 14);
+                    g.drawLine(x + 13, y + 14, x + 4, y + 14);
+                    g.drawLine(x + 4, y + 14, x + 4, y + 2);
+                    g.drawLine(x + 10, y + 2, x + 10, y + 5);
+                    g.drawLine(x + 10, y + 5, x + 13, y + 5);
+                    g.setColor(accent);
+                    g.drawRect(x + 6, y + 7, 5, 5);
+                    g.drawLine(x + 8, y + 7, x + 8, y + 12);
+                    g.drawLine(x + 6, y + 9, x + 11, y + 9);
+                }
+            },
+            USER_DEFINED_VARIABLES(new Color(0x8B5CF6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 2, x + 3, y + 2);
+                    g.drawLine(x + 3, y + 2, x + 2, y + 4);
+                    g.drawLine(x + 2, y + 4, x + 2, y + 6);
+                    g.drawLine(x + 2, y + 6, x + 4, y + 8);
+                    g.drawLine(x + 4, y + 8, x + 2, y + 10);
+                    g.drawLine(x + 2, y + 10, x + 2, y + 12);
+                    g.drawLine(x + 2, y + 12, x + 3, y + 14);
+                    g.drawLine(x + 3, y + 14, x + 5, y + 14);
+                    g.drawLine(x + 11, y + 2, x + 13, y + 2);
+                    g.drawLine(x + 13, y + 2, x + 14, y + 4);
+                    g.drawLine(x + 14, y + 4, x + 14, y + 6);
+                    g.drawLine(x + 14, y + 6, x + 12, y + 8);
+                    g.drawLine(x + 12, y + 8, x + 14, y + 10);
+                    g.drawLine(x + 14, y + 10, x + 14, y + 12);
+                    g.drawLine(x + 14, y + 12, x + 13, y + 14);
+                    g.drawLine(x + 13, y + 14, x + 11, y + 14);
+                    g.setColor(stroke);
+                    g.fillOval(x + 6, y + 5, 2, 2);
+                    g.fillOval(x + 6, y + 9, 2, 2);
+                    g.drawLine(x + 9, y + 6, x + 11, y + 6);
+                    g.drawLine(x + 9, y + 10, x + 11, y + 10);
+                }
+            },
+            HTTP_HEADERS(new Color(0x0EA5E9)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 2, y + 4, x + 6, y + 4);
+                    g.drawLine(x + 2, y + 8, x + 6, y + 8);
+                    g.drawLine(x + 2, y + 12, x + 6, y + 12);
+                    g.fillOval(x + 7, y + 3, 2, 2);
+                    g.fillOval(x + 7, y + 7, 2, 2);
+                    g.fillOval(x + 7, y + 11, 2, 2);
+                    g.setColor(stroke);
+                    g.drawLine(x + 10, y + 4, x + 14, y + 4);
+                    g.drawLine(x + 10, y + 8, x + 14, y + 8);
+                    g.drawLine(x + 10, y + 12, x + 14, y + 12);
                 }
             },
             CONTROLLER(new Color(0x64748B)) {

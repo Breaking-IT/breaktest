@@ -58,6 +58,36 @@ class JMeterCellRendererTest {
     }
 
     @Test
+    void csvDataSetUsesCsvIcon() {
+        JMeterTreeNode node = new JMeterTreeNode(new CSVDataSetStub(), null);
+
+        assertEquals(
+                JMeterCellRenderer.ModernTreeIcon.Kind.CSV_DATA_SET,
+                JMeterCellRenderer.ModernTreeIcon.kindFor(node));
+    }
+
+    @Test
+    void argumentsPanelUsesUserDefinedVariablesIcon() {
+        Arguments arguments = new Arguments();
+        JMeterTreeNode node = new JMeterTreeNode(arguments, null);
+
+        assertEquals(
+                JMeterCellRenderer.ModernTreeIcon.Kind.USER_DEFINED_VARIABLES,
+                JMeterCellRenderer.ModernTreeIcon.kindFor(node));
+    }
+
+    @Test
+    void headerManagerUsesHttpHeadersIcon() {
+        DummyTestElement element = new DummyTestElement();
+        element.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.protocol.http.gui.HeaderPanel");
+        JMeterTreeNode node = new JMeterTreeNode(element, null);
+
+        assertEquals(
+                JMeterCellRenderer.ModernTreeIcon.Kind.HTTP_HEADERS,
+                JMeterCellRenderer.ModernTreeIcon.kindFor(node));
+    }
+
+    @Test
     void randomDelaySummaryResolvesTestPlanVariables() {
         TestPlan plan = new TestPlan("Test Plan");
         plan.getArguments().addArgument("ThinkTimeMin", "1000");
@@ -149,6 +179,10 @@ class JMeterCellRendererTest {
     }
 
     private static class DummyTestElement extends AbstractTestElement {
+        private static final long serialVersionUID = 1L;
+    }
+
+    private static class CSVDataSetStub extends AbstractTestElement {
         private static final long serialVersionUID = 1L;
     }
 }

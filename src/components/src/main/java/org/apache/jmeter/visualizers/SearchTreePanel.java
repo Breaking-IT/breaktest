@@ -22,6 +22,7 @@ import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.function.BooleanSupplier;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
@@ -32,6 +33,8 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
+import javax.swing.RowFilter;
+import javax.swing.table.TableRowSorter;
 import javax.swing.tree.DefaultMutableTreeNode;
 
 import org.apache.jmeter.gui.Searchable;
@@ -47,7 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Panel used by {@link ViewResultsFullVisualizer} to search for data within the Tree
+ * Panel used by {@link ViewResultsFullVisualizer} to search its tree and table result lists.
  * @since 3.0
  */
 public class SearchTreePanel extends JPanel implements ActionListener {
@@ -70,10 +73,24 @@ public class SearchTreePanel extends JPanel implements ActionListener {
 
     private DefaultMutableTreeNode defaultMutableTreeNode;
 
+    private ResultTableModel resultTableModel;
+
+    private TableRowSorter<ResultTableModel> resultTableSorter;
+
+    private BooleanSupplier tableMode;
+
     public SearchTreePanel(DefaultMutableTreeNode defaultMutableTreeNode) {
+        this(defaultMutableTreeNode, null, null, () -> false);
+    }
+
+    SearchTreePanel(DefaultMutableTreeNode defaultMutableTreeNode, ResultTableModel resultTableModel,
+            TableRowSorter<ResultTableModel> resultTableSorter, BooleanSupplier tableMode) {
         super();
         init();
         this.defaultMutableTreeNode = defaultMutableTreeNode;
+        this.resultTableModel = resultTableModel;
+        this.resultTableSorter = resultTableSorter;
+        this.tableMode = tableMode;
     }
 
     /**
@@ -87,15 +104,7 @@ public class SearchTreePanel extends JPanel implements ActionListener {
         private static final long serialVersionUID = 2L;
         @Override
         public void actionPerformed(ActionEvent ev) {
-            boolean found = doSearch();
-            if(found) {
-                searchTF.setBackground(Color.WHITE);
-                searchTF.setForeground(Color.BLACK);
-            }
-            else {
-                searchTF.setBackground(Colors.LIGHT_RED);
-                searchTF.setForeground(Color.WHITE);
-            }
+            updateSearchFeedback(doSearch());
         }
     }
 
@@ -142,10 +151,39 @@ public class SearchTreePanel extends JPanel implements ActionListener {
     @Override
     public void actionPerformed(ActionEvent e) {
         if(e.getSource() == searchButton) {
-            doSearch();
+            updateSearchFeedback(doSearch());
         } else if (e.getSource() == resetButton) {
-            doResetSearch((SearchableTreeNode)defaultMutableTreeNode);
+            resetSearch();
         }
+    }
+
+    private void updateSearchFeedback(boolean found) {
+        searchTF.setBackground(found ? Color.WHITE : Colors.LIGHT_RED);
+        searchTF.setForeground(found ? Color.BLACK : Color.WHITE);
+    }
+
+    void resetSearch() {
+        doResetSearch((SearchableTreeNode) defaultMutableTreeNode);
+        if (resultTableSorter != null) {
+            resultTableSorter.setRowFilter(null);
+        }
+        searchTF.setBackground(Color.WHITE);
+        searchTF.setForeground(Color.BLACK);
+    }
+
+    void updateSearchTarget() {
+        if (StringUtilities.isNotEmpty(searchTF.getText())) {
+            updateSearchFeedback(doSearch());
+        }
+    }
+
+    boolean search(String text, boolean caseSensitive, boolean regexp) {
+        searchTF.setText(text);
+        isCaseSensitiveCB.setSelected(caseSensitive);
+        isRegexpCB.setSelected(regexp);
+        boolean found = doSearch();
+        updateSearchFeedback(found);
+        return found;
     }
 
     /**
@@ -171,7 +209,26 @@ public class SearchTreePanel extends JPanel implements ActionListener {
         Searcher searcher = isRegexpCB.isSelected() ?
             new RegexpSearcher(isCaseSensitiveCB.isSelected(), searchTF.getText()) :
             new RawTextSearcher(isCaseSensitiveCB.isSelected(), searchTF.getText());
+        if (tableMode != null && tableMode.getAsBoolean() && resultTableSorter != null) {
+            return searchTable(searcher);
+        }
         return searchInNode(searcher, (SearchableTreeNode)defaultMutableTreeNode);
+    }
+
+    private boolean searchTable(Searcher searcher) {
+        RowFilter<ResultTableModel, Integer> filter = new RowFilter<>() {
+            @Override
+            public boolean include(Entry<? extends ResultTableModel, ? extends Integer> entry) {
+                try {
+                    return searcher.search(resultTableModel.sampleAt(entry.getIdentifier()).getSearchableTokens());
+                } catch (Exception e) {
+                    log.error("Error extracting data from table row using searcher:{}", searcher, e);
+                    return false;
+                }
+            }
+        };
+        resultTableSorter.setRowFilter(filter);
+        return resultTableSorter.getViewRowCount() > 0;
     }
 
     /**
@@ -194,7 +251,6 @@ public class SearchTreePanel extends JPanel implements ActionListener {
             }
             boolean foundInChildren = false;
             for (int i = 0; i < node.getChildCount(); i++) {
-                searchInNode(searcher, (SearchableTreeNode)node.getChildAt(i));
                 foundInChildren =
                         searchInNode(searcher, (SearchableTreeNode)node.getChildAt(i))
                         || foundInChildren; // Must be the last in condition

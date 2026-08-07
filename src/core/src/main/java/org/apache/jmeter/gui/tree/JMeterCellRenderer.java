@@ -258,6 +258,9 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                 Map.entry(Kind.THREADS, new String[] {"ThreadGroup"}), // $NON-NLS-1$
                 Map.entry(Kind.REPORT, new String[] {"Visualizer", "Listener", "ResultCollector", "Report"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
                 Map.entry(Kind.COOKIE, new String[] {"Cookie"}), // $NON-NLS-1$
+                Map.entry(Kind.CSV_DATA_SET, new String[] {"CSVDataSet"}), // $NON-NLS-1$
+                Map.entry(Kind.USER_DEFINED_VARIABLES, new String[] {"ArgumentsPanel"}), // $NON-NLS-1$
+                Map.entry(Kind.HTTP_HEADERS, new String[] {"HeaderManager", "HeaderPanel"}), // $NON-NLS-1$ $NON-NLS-2$
                 Map.entry(Kind.CONFIG, new String[] {"Config", "BreakTestAiKnowledge", "BreakTest AI Knowledge"}), // $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$
                 Map.entry(Kind.REQUEST, new String[] {"Sampler"})); // $NON-NLS-1$
 
@@ -296,6 +299,9 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             TestElement element = node.getTestElement();
             if (element == null) {
                 return Kind.NODE;
+            }
+            if (element instanceof Arguments) {
+                return Kind.USER_DEFINED_VARIABLES;
             }
             String guiClass = element.getPropertyAsString(TestElement.GUI_CLASS);
             String name = (guiClass == null ? "" : guiClass) + " " + element.getClass().getName(); // $NON-NLS-1$ // $NON-NLS-2$
@@ -512,6 +518,66 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                     g.setColor(accent);
                     g.drawOval(x + 3, y + 4, 2, 2);
                     g.drawOval(x + 10, y + 10, 2, 2);
+                }
+            },
+            CSV_DATA_SET(new Color(0x14B8A6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 4, y + 2, x + 10, y + 2);
+                    g.drawLine(x + 10, y + 2, x + 13, y + 5);
+                    g.drawLine(x + 13, y + 5, x + 13, y + 14);
+                    g.drawLine(x + 13, y + 14, x + 4, y + 14);
+                    g.drawLine(x + 4, y + 14, x + 4, y + 2);
+                    g.drawLine(x + 10, y + 2, x + 10, y + 5);
+                    g.drawLine(x + 10, y + 5, x + 13, y + 5);
+                    g.setColor(accent);
+                    g.drawRect(x + 6, y + 7, 5, 5);
+                    g.drawLine(x + 8, y + 7, x + 8, y + 12);
+                    g.drawLine(x + 6, y + 9, x + 11, y + 9);
+                }
+            },
+            USER_DEFINED_VARIABLES(new Color(0x8B5CF6)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 5, y + 2, x + 3, y + 2);
+                    g.drawLine(x + 3, y + 2, x + 2, y + 4);
+                    g.drawLine(x + 2, y + 4, x + 2, y + 6);
+                    g.drawLine(x + 2, y + 6, x + 4, y + 8);
+                    g.drawLine(x + 4, y + 8, x + 2, y + 10);
+                    g.drawLine(x + 2, y + 10, x + 2, y + 12);
+                    g.drawLine(x + 2, y + 12, x + 3, y + 14);
+                    g.drawLine(x + 3, y + 14, x + 5, y + 14);
+                    g.drawLine(x + 11, y + 2, x + 13, y + 2);
+                    g.drawLine(x + 13, y + 2, x + 14, y + 4);
+                    g.drawLine(x + 14, y + 4, x + 14, y + 6);
+                    g.drawLine(x + 14, y + 6, x + 12, y + 8);
+                    g.drawLine(x + 12, y + 8, x + 14, y + 10);
+                    g.drawLine(x + 14, y + 10, x + 14, y + 12);
+                    g.drawLine(x + 14, y + 12, x + 13, y + 14);
+                    g.drawLine(x + 13, y + 14, x + 11, y + 14);
+                    g.setColor(stroke);
+                    g.fillOval(x + 6, y + 5, 2, 2);
+                    g.fillOval(x + 6, y + 9, 2, 2);
+                    g.drawLine(x + 9, y + 6, x + 11, y + 6);
+                    g.drawLine(x + 9, y + 10, x + 11, y + 10);
+                }
+            },
+            HTTP_HEADERS(new Color(0x0EA5E9)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawLine(x + 2, y + 4, x + 6, y + 4);
+                    g.drawLine(x + 2, y + 8, x + 6, y + 8);
+                    g.drawLine(x + 2, y + 12, x + 6, y + 12);
+                    g.fillOval(x + 7, y + 3, 2, 2);
+                    g.fillOval(x + 7, y + 7, 2, 2);
+                    g.fillOval(x + 7, y + 11, 2, 2);
+                    g.setColor(stroke);
+                    g.drawLine(x + 10, y + 4, x + 14, y + 4);
+                    g.drawLine(x + 10, y + 8, x + 14, y + 8);
+                    g.drawLine(x + 10, y + 12, x + 14, y + 12);
                 }
             },
             CONTROLLER(new Color(0x64748B)) {

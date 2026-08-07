@@ -101,6 +101,13 @@ class AiAutoScriptingActionTest {
         assertFalse(hasRepairBlocker("Status: completed", "Final validation is green."));
     }
 
+    @Test
+    void fileBackedRepairTargetsActivePlanInsteadOfBackupOrClone() {
+        assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
+        assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
+                AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
+    }
+
     private static boolean hasRepairBlocker(String... lines) throws Exception {
         Class<?> outputClass = Class.forName(AiAutoScriptingAction.class.getName() + "$AiRunOutput");
         Constructor<?> constructor = outputClass.getDeclaredConstructor();

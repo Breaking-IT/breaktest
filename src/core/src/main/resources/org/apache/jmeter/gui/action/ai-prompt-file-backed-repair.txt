@@ -4,9 +4,9 @@ Use $breaktest-jmeter-repair.
 
 Requirements:
 - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
-- This is the native BreakTest non-GUI repair workflow. The open GUI plan is first saved as a separate repair JMX that includes the current in-memory GUI state, including unsaved edits. The GUI remains unchanged while the AI edits the repair copy.
-- Edit only this repair copy: `{{REPAIR_TARGET}}`. Do not edit or reload the currently open GUI plan.
-- Keep the backup file unchanged. The original open GUI plan remains unchanged during non-GUI repair.
+- This is the native BreakTest JMX file repair workflow. BreakTest saved the current GUI state, created an immutable backup, and selected the active saved JMX as the repair target. The launcher reloads that active JMX after the agent finishes.
+- Edit only the active JMX: `{{REPAIR_TARGET}}`. Never edit the backup file.
+- Keep the backup file unchanged. All repairs belong in the active JMX repair target.
 - Do not use sibling backup/repaired/exported JMX files as repair evidence or as a source to transplant nodes unless the user explicitly asks to compare or reuse another file. Treat only the selected repair target, linked recording evidence, validation evidence, and AI Knowledge as authoritative.
 - Use direct JMX/XML or structured file editing on the repair target when needed. Prefer robust XML/property-aware edits over brittle text-only changes.
 - Use the supported BreakTest agent bridge command for compact evidence and validation: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
@@ -38,17 +38,15 @@ Requirements:
 - If a response assertion fails, update or remove only that failing assertion. Do not remove all AI-created assertions just because one marker was too strict. If a required extractor has failOnNoMatch=true, do not add another assertion merely to prove the extractor matched.
 - Keep static browser assets enabled and runnable, but keep them out of model-facing analysis by default. Use includeStaticAssets=true only when a stylesheet, JavaScript, image, font, favicon, or source-map response is directly relevant to a failure or suspected correlation source.
 - After replacing hard-coded values with extracted variables, re-check Parallel Controllers. Token/API/XHR samplers that depend on extracted data should run sequentially before their dependents; keep only independent static browser assets in parallel.
-- Validate in bounded runs against the repair target with validate_jmx using path exactly `{{REPAIR_SUMMARY_PATH}}`, compact=true, maxSamples, stopOnFirstFailure, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500, and tight responseBodyLimit/requestBodyLimit values. Never call validate_jmx without the path argument. Increase scope only after blockers are understood. Do not rerun validation merely to reshape, filter, or summarize the same evidence; save the validation JSON locally or use local jq/scripts on the previous output instead.
+- Validate in bounded runs against the repair target with validate_jmx using path exactly `{{REPAIR_TARGET}}`, compact=true, maxSamples, stopOnFirstFailure, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500, and tight responseBodyLimit/requestBodyLimit values. Never call validate_jmx without the path argument. Increase scope only after blockers are understood. Do not rerun validation merely to reshape, filter, or summarize the same evidence; save the validation JSON locally or use local jq/scripts on the previous output instead.
 - If the next blocker is a static browser asset such as css/js/mjs/map/image/font returning 404 and no current HTML/response evidence references that exact asset URL, keep the sampler enabled but rerun functional validation with ignoreStaticAssetFailures=true so repair can continue to the next non-static request. Report ignoredStaticFailureCount and do not declare the script repaired only because static failures were ignored.
 - Before declaring a login/callback/payment/basket/order failure blocked, use validate_jmx `preFailureDynamicCandidates`, `preFailureRequestCandidates`, `validation.evidenceSamples`, and the successful samples before `analysis.firstFailure` to audit every enabled non-static request up to and including the failing sampler. Check path, query, POST/form/raw body, headers, cookies, redirect `Location`, hidden fields, `state`, `code`, nonce/correlation cookies, csrf/request-verification values, credentials, and missing extractor reuse.
 - Do not disable samplers merely to make validation green.
 - Keep progress concise. Do not echo prompts, code, full XML, patch diffs, JSON sidecar diffs, raw summary JSON, or long tool payloads.
-{{REPAIR_TARGET}}
-
 Before finishing:
 - Save all edits to the repair target path.
-- Write a machine-readable repair summary JSON to `- Provide the repaired JMX copy path. The BreakTest launcher will ask the user whether to load it after the run.
-`. Use this shape: {"status":"green|blocked","validation":{"green":true|false,"transactions":["..."],"blockers":["..."]},"changes":[{"type":"Added extractor","node":"sampler or node path","summary":"short change","details":"short evidence/result"}],"audit":[{"transaction":"...","assertionStatus":"...","dynamicValuesReviewed":"...","correlationsAdded":"...","remainingBlockers":"..."}],"followUps":["..."]}. Keep values short; do not include secrets beyond variable names or long raw response bodies.
+- Write a machine-readable repair summary JSON to `{{REPAIR_SUMMARY_PATH}}`. Use this shape: {"status":"green|blocked","validation":{"green":true|false,"transactions":["..."],"blockers":["..."]},"changes":[{"type":"Added extractor","node":"sampler or node path","summary":"short change","details":"short evidence/result"}],"audit":[{"transaction":"...","assertionStatus":"...","dynamicValuesReviewed":"...","correlationsAdded":"...","remainingBlockers":"..."}],"followUps":["..."]}. Keep values short; do not include secrets beyond variable names or long raw response bodies.
+- Provide the active repaired JMX path. BreakTest will reload that same file after the run.
 {{RUN_OPTIONS}}
 - Provide a plain-text audit list with transaction name, assertion status, dynamic values reviewed, correlations added, and remaining blockers.
 - Provide a concise change list of added/updated variables, extractors, assertions, samplers, headers, bodies, paths, and names.
