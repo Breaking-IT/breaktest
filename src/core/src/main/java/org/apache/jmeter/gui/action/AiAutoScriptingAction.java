@@ -114,6 +114,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request == null) {
             return;
         }
+        if (request.editSurface().fileBacked() && !saveActivePlanBeforeFileRepair(gui, e)) {
+            return;
+        }
         selectThreadGroup(gui, request.threadGroupNode());
         if (!RUNNING.compareAndSet(false, true)) {
             postActivity("AI Auto Scripting is already running.");
@@ -126,10 +129,8 @@ public class AiAutoScriptingAction extends AbstractAction {
             AiAutoScriptingLogWindow.startRun();
             BreakTestAgentGuiService.start();
             String backupPath = BreakTestAgentGuiService.createBackupForOpenPlan();
-            String repairTargetPath = switch (request.editSurface()) {
-                case NON_GUI -> BreakTestAgentGuiService.createRepairCloneForOpenPlan();
-                case LIVE_GUI -> "";
-            };
+            String activePlanPath = gui == null ? "" : gui.getTestPlanFile();
+            String repairTargetPath = repairTargetPath(request.editSurface().fileBacked(), activePlanPath);
             AiRunRequest runRequest = request.withPaths(backupPath, repairTargetPath);
 
             Thread worker = new Thread(() -> runAiAutoScripting(runRequest), "BreakTest AI Auto Scripting");
@@ -149,6 +150,38 @@ public class AiAutoScriptingAction extends AbstractAction {
     @Override
     public Set<String> getActionNames() {
         return COMMANDS;
+    }
+
+    /**
+     * File-backed repair edits the active JMX itself. Save pending GUI state first
+     * so the immutable AI backup and the active repair target start identically.
+     */
+    private static boolean saveActivePlanBeforeFileRepair(GuiPackage gui, ActionEvent event) {
+        if (gui == null) {
+            postActivity("AI Auto Scripting cancelled: no active GUI plan is available for file repair.");
+            return false;
+        }
+        gui.updateCurrentNode();
+        if (gui.getTestPlanFile() == null || gui.getTestPlanFile().isBlank() || gui.hasUnsavedChanges()) {
+            ActionRouter.getInstance().doActionNow(
+                    new ActionEvent(event.getSource(), event.getID(), ActionNames.SAVE));
+            gui.updateCurrentNode();
+        }
+        if (gui.getTestPlanFile() == null || gui.getTestPlanFile().isBlank() || gui.hasUnsavedChanges()) {
+            postActivity("AI Auto Scripting cancelled: save the active plan before using JMX file mode.");
+            return false;
+        }
+        return true;
+    }
+
+    static String repairTargetPath(boolean fileBacked, String activePlanPath) {
+        if (!fileBacked) {
+            return "";
+        }
+        if (activePlanPath == null || activePlanPath.isBlank()) {
+            throw new IllegalStateException("The active plan must be saved before JMX file repair can start");
+        }
+        return new File(activePlanPath).getAbsolutePath();
     }
 
     private static void runAiAutoScripting(AiRunRequest request) {
@@ -227,9 +260,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 importRepairSummary(request);
             }
             postCompletionSummary(request, exitCode, Duration.between(started, Instant.now()), output);
-            if (!stopped && !timedOut.get()) {
-                offerToLoadRepairClone(request, exitCode);
-            }
+            reloadActiveFileRepair(request, exitCode);
         } catch (Exception ex) {
             if (timedOut.get()) {
                 postActivity("AI Auto Scripting stopped after reaching the maximum runtime.");
@@ -599,11 +630,11 @@ public class AiAutoScriptingAction extends AbstractAction {
                 ? "Complete only the specific user-requested task against the repair target file."
                 : "Repair and harden the selected Thread Group in the repair target file.";
         String workflowDescription = """
-                This is the native BreakTest non-GUI repair workflow. The open GUI plan is first saved as a \
-                separate repair JMX that includes the current in-memory GUI state, including unsaved edits. \
-                The GUI remains unchanged while the AI edits the repair copy.""";
-        String targetDescription = "Edit only this repair copy: `%s`. Do not edit or reload the currently open GUI plan.";
-        String finishInstruction = "- Provide the repaired JMX copy path. The BreakTest launcher will ask the user whether to load it after the run.\n";
+                This is the native BreakTest JMX file repair workflow. BreakTest saved the current GUI state, \
+                created an immutable backup, and selected the active saved JMX as the repair target. \
+                The launcher reloads that active JMX after the agent finishes.""";
+        String targetDescription = "Edit only the active JMX: `%s`. Never edit the backup file.";
+        String finishInstruction = "- Provide the active repaired JMX path. BreakTest will reload that same file after the run.\n";
         return """
                 Use $breaktest-jmeter-repair.
 
@@ -613,7 +644,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
                 - %s
                 - %s
-                - Keep the backup file unchanged. The original open GUI plan remains unchanged during non-GUI repair.
+                - Keep the backup file unchanged. All repairs belong in the active JMX repair target.
                 - Do not use sibling backup/repaired/exported JMX files as repair evidence or as a source to transplant nodes unless the user explicitly asks to compare or reuse another file. Treat only the selected repair target, linked HAR evidence, validation evidence, and AI Knowledge as authoritative.
                 - Use direct JMX/XML or structured file editing on the repair target when needed. Prefer robust XML/property-aware edits over brittle text-only changes.
                 - Use the supported BreakTest agent bridge command for compact evidence and validation: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
@@ -767,7 +798,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         modePanel.add(modeChoices, BorderLayout.CENTER);
 
         JRadioButton liveGui = new JRadioButton("GUI mode", defaultEditSurface() == AiEditSurface.LIVE_GUI);
-        JRadioButton nonGui = new JRadioButton("Non-GUI mode", defaultEditSurface() == AiEditSurface.NON_GUI);
+        JRadioButton nonGui = new JRadioButton("JMX file mode", defaultEditSurface() == AiEditSurface.NON_GUI);
         ButtonGroup surfaceGroup = new ButtonGroup();
         surfaceGroup.add(liveGui);
         surfaceGroup.add(nonGui);
@@ -1174,7 +1205,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             int importedChanges = 0;
             if (changes.isArray()) {
                 for (JsonNode change : changes) {
-                    String type = textOrDefault(change, "type", "Updated clone");
+                    String type = textOrDefault(change, "type", "Updated JMX");
                     String node = firstText(change, "node", "nodeName", "nodePath");
                     if (node.isBlank()) {
                         node = "Repair target";
@@ -1218,36 +1249,35 @@ public class AiAutoScriptingAction extends AbstractAction {
         return "";
     }
 
-    private static void offerToLoadRepairClone(AiRunRequest request, int exitCode) {
+    private static void reloadActiveFileRepair(AiRunRequest request, int exitCode) {
         if (request.editSurface() != AiEditSurface.NON_GUI || request.repairTargetPath().isBlank()) {
             return;
         }
-        File repairClone = new File(request.repairTargetPath());
-        if (!repairClone.isFile()) {
-            postActivity("Repair clone was not found after the run: " + repairClone.getPath());
+        File repairTarget = new File(request.repairTargetPath());
+        if (!repairTarget.isFile()) {
+            postActivity("Active repair target was not found after the run: " + repairTarget.getPath());
             return;
         }
         if (exitCode != 0) {
-            postActivity("AI run exited with code " + exitCode
-                    + "; repaired clone left on disk (not merged): " + repairClone.getPath());
-            return;
+            postActivity("AI run exited with code " + exitCode + "; reloading the active JMX so any partial "
+                    + "file edits remain visible: " + repairTarget.getPath());
         }
-        // Merge automatically: the repaired Thread Group is added as *_AI_Generated
-        // next to the original, so the user reviews the result in the tree instead
-        // of answering a modal dialog after every non-GUI run.
         SwingUtilities.invokeLater(() -> {
             try {
-                postActivity("Merging repaired Thread Group into open plan: " + repairClone.getPath());
-                Map<String, Object> result = BreakTestAgentGuiService.mergeRepairCloneIntoOpenPlan(
-                        repairClone.getPath(),
-                        request.threadGroupPath()
-                );
-                postActivity("Merged repaired Thread Group: " + result.getOrDefault("threadGroupNodePath", "")
-                        + " (original Thread Group unchanged; clone remains at " + repairClone.getPath() + ")");
+                postActivity("Reloading repaired active JMX: " + repairTarget.getPath());
+                Map<String, Object> result = BreakTestAgentGuiService.reloadOpenPlanAfterFileRepair(
+                        repairTarget.getPath());
+                if (Boolean.TRUE.equals(result.get("refreshed"))) {
+                    postActivity("Reloaded repaired active JMX; the pre-run backup remains unchanged: "
+                            + request.backupPath());
+                } else {
+                    postActivity("The repaired active JMX could not be reloaded automatically: "
+                            + result.getOrDefault("reason", "unknown reason") + ". File: " + repairTarget.getPath());
+                }
             } catch (Exception ex) {
-                log.warn("Could not merge AI repaired clone {}", repairClone, ex);
-                postActivity("Could not merge repaired Thread Group: " + ex.getMessage()
-                        + ". Clone left on disk: " + repairClone.getPath());
+                log.warn("Could not reload AI repaired active JMX {}", repairTarget, ex);
+                postActivity("Could not reload the repaired active JMX: " + ex.getMessage()
+                        + ". The repaired file remains on disk: " + repairTarget.getPath());
             }
         });
     }
@@ -1279,7 +1309,7 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private enum AiEditSurface {
         LIVE_GUI("gui", "GUI mode"),
-        NON_GUI("non-gui", "Non-GUI mode");
+        NON_GUI("non-gui", "JMX file mode");
 
         private final String id;
         private final String displayName;

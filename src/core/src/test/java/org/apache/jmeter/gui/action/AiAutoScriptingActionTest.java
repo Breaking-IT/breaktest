@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.gui.action;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,6 +43,13 @@ class AiAutoScriptingActionTest {
     @Test
     void completedGreenStatusIsNotARepairBlocker() throws Exception {
         assertFalse(hasRepairBlocker("Status: completed", "Final validation is green."));
+    }
+
+    @Test
+    void fileBackedRepairTargetsActivePlanInsteadOfBackupOrClone() {
+        assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
+        assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
+                AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
     }
 
     private static boolean hasRepairBlocker(String... lines) throws Exception {

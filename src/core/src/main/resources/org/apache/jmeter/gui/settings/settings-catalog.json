@@ -115,7 +115,7 @@
       "description": "BreakTest AI Auto Scripting (Beta): local AI tool integration for repairing and editing test plans.",
       "settings": [
         {"key": "breaktest.ai.tool", "type": "enum", "options": ["codex", "opencode", "claude"], "default": "codex", "description": "Local AI tool selected by default in the AI Auto Scripting start dialog."},
-        {"key": "breaktest.ai.edit_surface", "type": "enum", "options": ["gui", "non-gui"], "default": "gui", "description": "Edit surface selected by default: gui uses live GUI edit tools; non-gui repairs a copied JMX and offers to merge the repaired Thread Group back afterward."},
+        {"key": "breaktest.ai.edit_surface", "type": "enum", "options": ["gui", "non-gui"], "default": "gui", "description": "Edit surface selected by default: gui uses live GUI edit tools; non-gui (JMX file mode) keeps an immutable backup and repairs the active saved JMX."},
         {"key": "breaktest.ai.cwd", "type": "directory", "description": "Optional shared working directory for local AI tools. Tool-specific cwd settings take precedence. Defaults to the open test plan directory, then JMETER_HOME."},
         {"key": "breaktest.ai.show_raw_output", "type": "boolean", "default": "false", "description": "Show raw prompt and tool text of the local AI CLI instead of concise progress. Only intended for debugging the AI CLI itself."},
         {"key": "breaktest.codex.show_raw_output", "type": "boolean", "default": "false", "description": "Deprecated alias for breaktest.ai.show_raw_output."},
