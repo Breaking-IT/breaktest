@@ -22,6 +22,7 @@ import java.io.File;
 import java.util.Arrays;
 
 import javax.swing.JFileChooser;
+import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileFilter;
 
 import org.apache.jmeter.gui.GuiPackage;
@@ -179,6 +180,7 @@ public final class FileDialoger {
     *         finished using it - null if no file was chosen
     */
     public static JFileChooser promptToOpenFile(Component parentComponent, String[] exts, String existingFileName, boolean onlyDirectories) {
+       updateUI(jfc);
        if (onlyDirectories) {
            jfc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
        } else {
@@ -258,6 +260,7 @@ public final class FileDialoger {
             }
             lastJFCDirectory = jfc.getCurrentDirectory().getAbsolutePath();
         }
+        updateUI(jfc);
         String ext = ".jmx";//$NON-NLS-1$
         if (filename != null) {
             jfc.setDialogTitle(filename);
@@ -283,6 +286,15 @@ public final class FileDialoger {
             return jfc;
         }
         return null;
+    }
+
+    /**
+     * Refreshes a retained chooser after the application look and feel changes.
+     * JFileChooser creates most of its controls eagerly, so reusing it without
+     * updating the component tree leaves those controls in the previous theme.
+     */
+    static void updateUI(JFileChooser chooser) {
+        SwingUtilities.updateComponentTreeUI(chooser);
     }
 
     /**
