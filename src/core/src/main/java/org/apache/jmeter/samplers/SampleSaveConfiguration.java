@@ -467,10 +467,10 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
 
     private boolean idleTime = IDLE_TIME;
 
-    // Does not appear to be used (yet)
-    // it is
-    @SuppressWarnings("FieldCanBeStatic")
-    private final int assertionsResultsToSave = ASSERTIONS_RESULT_TO_SAVE;
+    // This is serialized as instance state and restored by XStream.
+    // It must remain mutable so deserialization does not require final-field mutation access.
+    @SuppressWarnings("FieldCanBeFinal")
+    private int assertionsResultsToSave = ASSERTIONS_RESULT_TO_SAVE;
 
     // Don't save this, as it is derived from the time format
     private boolean printMilliseconds = PRINT_MILLISECONDS;

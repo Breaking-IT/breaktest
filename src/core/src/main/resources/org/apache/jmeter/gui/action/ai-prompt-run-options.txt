@@ -1,0 +1,3 @@
+- Start-dialog run budget: finish or report blockers before {{MAX_RUNTIME_SECONDS}} seconds. Do not repeat a similar failed validation/edit loop more than {{MAX_SIMILAR_RETRIES}} times; if the same task fails again, summarize the blocker and move to other safe candidates or stop.
+{{ASSERTION_INSTRUCTION}}
+- When a required extractor has failOnNoMatch=true, do not add a separate Response Assertion solely to prove that extractor matched.

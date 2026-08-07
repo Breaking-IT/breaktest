@@ -27,9 +27,9 @@ import org.junit.jupiter.api.Test;
 public class RequestViewRawTest {
 
     @Test
-    public void formatsHttp2RequestLineAndSortsHeaders() throws Exception {
+    public void formatsHttp2RequestWithPseudoHeadersAndLowercaseHeaderNames() throws Exception {
         HttpLikeSampleResult result = new HttpLikeSampleResult();
-        result.setURL(URI.create("https://example.invalid/http2").toURL());
+        result.setURL(URI.create("https://example.invalid:8443/http2?q=a%20b").toURL());
         result.setResponseHeaders("HTTP/2.0 200 OK\nContent-Type: text/plain\n");
         result.setRequestHeaders("""
                 User-Agent: Test
@@ -38,10 +38,29 @@ public class RequestViewRawTest {
         result.cookies = "session=abc";
 
         assertEquals("""
-                GET https://example.invalid/http2 HTTP/2
+                GET https://example.invalid:8443/http2?q=a%20b HTTP/2
+                :authority: example.invalid:8443
+                :method: GET
+                :path: /http2?q=a%20b
+                :scheme: https
+                accept: text/plain
+                cookie: session=abc
+                user-agent: Test
+                """, RequestViewRaw.formatRequest(result));
+    }
+
+    @Test
+    public void preservesConventionalHeaderCasingWithoutHttp2() throws Exception {
+        HttpLikeSampleResult result = new HttpLikeSampleResult();
+        result.setURL(URI.create("https://example.invalid/http1").toURL());
+        result.setResponseHeaders("HTTP/1.1 200 OK\nContent-Type: text/plain\n");
+        result.setRequestHeaders("Accept: text/plain\n");
+        result.cookies = "session=abc";
+
+        assertEquals("""
+                GET https://example.invalid/http1 HTTP/1.1
                 Accept: text/plain
                 Cookie: session=abc
-                User-Agent: Test
                 """, RequestViewRaw.formatRequest(result));
     }
 

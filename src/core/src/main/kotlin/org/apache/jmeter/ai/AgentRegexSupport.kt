@@ -65,4 +65,25 @@ public object AgentRegexSupport {
         } catch (e: MalformedPatternException) {
             false
         }
+
+    /**
+     * Returns what group 1 of [regex] captures from [text], or null when the regex
+     * does not match, does not compile, or has no capturing group.
+     *
+     * Checking that a pattern *matches* is not enough to know a correlation is
+     * right: `"([^"]+)"` matches any JSON object but captures the first key, so an
+     * extractor built from it silently yields the wrong value. Callers should
+     * compare this against the literal they meant to capture.
+     */
+    public fun oroFirstCapture(regex: String, text: String): String? =
+        try {
+            val matcher = Perl5Matcher()
+            if (matcher.contains(text, Perl5Compiler().compile(regex))) {
+                matcher.match.takeIf { it.groups() > 1 }?.group(1)
+            } else {
+                null
+            }
+        } catch (e: MalformedPatternException) {
+            null
+        }
 }

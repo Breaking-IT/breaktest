@@ -494,15 +494,16 @@ public class SaveService {
      * @throws IOException if there is a problem reading the file or processing it
      */
     public static HashTree loadTree(File file) throws IOException {
-        log.info("Loading file: {}", file);
         try (InputStream inputStream = new FileInputStream(file);
             BufferedInputStream bufferedInputStream =
                     new BufferedInputStream(inputStream)){
             if (hasZipSignature(bufferedInputStream)) {
+                log.info("Loading JMX archive: {}", file);
                 HashTree tree = readTreeFromZip(file);
                 cacheReferencedArchiveEntries(tree, file, true);
                 return tree;
             }
+            log.info("Loading file: {}", file);
             HashTree tree = readTree(bufferedInputStream, file);
             cacheReferencedArchiveEntries(tree, file, false);
             return tree;

@@ -51,7 +51,8 @@ var jars = arrayOf(
     ":src:protocol:mail",
     ":src:protocol:native",
     ":src:protocol:tcp",
-    ":src:protocol:udp"
+    ":src:protocol:udp",
+    ":src:xstream-compat"
 )
 
 // https://github.com/gradle/gradle/pull/16627
@@ -164,6 +165,7 @@ val populateLibs by tasks.registering {
         // This ensures project exists, if project is renamed, names should be corrected here as wells
         val launcherProject = projects.src.launcher.path
         val jorphanProject = projects.src.jorphan.path
+        val xstreamCompatProject = projects.src.xstreamCompat.path
         listOf(libs, libsExt, binLibs).forEach {
             it.filePermissions {
                 unix("rw-r--r--")
@@ -194,7 +196,7 @@ val populateLibs by tasks.registering {
                 continue
             }
             when (compId.projectPath) {
-                jorphanProject -> libs
+                jorphanProject, xstreamCompatProject -> libs
                 else -> libsExt
             }.from(dep.file) {
                 // Remove version from the file name

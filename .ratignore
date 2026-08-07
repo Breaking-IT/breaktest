@@ -1,4 +1,5 @@
 gradle/wrapper/gradle-wrapper.jar
+gradle/gradle-daemon-jvm.properties
 gradle/verification-keyring.keys
 gradle/verification-metadata.xml
 **/.*
@@ -34,6 +35,9 @@ src/licenses/licenses/*/CC0-1.0.txt
 #reports/**
 src/launcher/src/main/resources/org/apache/jmeter/jmeter_as_ascii_art.txt
 src/core/src/main/resources/org/apache/jmeter/help.txt
+# AI Auto Scripting prompt templates are sent to the agent verbatim, so they
+# cannot carry a comment header.
+src/core/src/main/resources/org/apache/jmeter/gui/action/ai-prompt-*.txt
 src/dist/src/dist/expected_release_jars.csv
 test/resources/**
 **/test/resources/**

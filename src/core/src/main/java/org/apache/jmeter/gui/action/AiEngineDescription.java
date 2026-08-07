@@ -60,6 +60,12 @@ final class AiEngineDescription {
                     fastMode = settings.get("fastMode").asBoolean() ? "yes" : "no";
                 }
             }
+        } else if ("copilot".equals(normalizedToolId)) {
+            JsonNode config = readJsonFile(new File(copilotHome(home), "config.json"));
+            if (modelSource == null && config != null && config.hasNonNull("model")) {
+                model = config.get("model").asText();
+                modelSource = "~/.copilot/config.json";
+            }
         } else if ("opencode".equals(normalizedToolId)) {
             String agent = JMeterUtils.getProperty("breaktest.opencode.agent");
             modelSource = readOpenCodeModel(home, agent, modelSource);
@@ -69,6 +75,14 @@ final class AiEngineDescription {
             }
         }
         return description(displayName, model, modelSource, reasoning, fastMode);
+    }
+
+    private static File copilotHome(File home) {
+        String configured = System.getenv("COPILOT_HOME");
+        if (configured != null && !configured.isBlank()) {
+            return new File(configured);
+        }
+        return new File(home, ".copilot");
     }
 
     private static String readOpenCodeModel(File home, String agent, String existingSource) {

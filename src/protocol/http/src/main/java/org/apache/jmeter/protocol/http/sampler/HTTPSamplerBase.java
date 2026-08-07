@@ -30,6 +30,9 @@ import java.net.SocketTimeoutException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.nio.channels.UnresolvedAddressException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -191,6 +194,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     private static final String HTTP_PROTOCOL_HTTP_2_DOT_LEGACY = "HTTP/2.0"; // $NON-NLS-1$
 
     private static final String HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY = "HTTP/2 preferred"; // $NON-NLS-1$
+
+    public static final String HTTP_PROTOCOL_HTTP_3 = "HTTP/3"; // $NON-NLS-1$
+
+    private static final String HTTP_PROTOCOL_HTTP_3_SPACE_LEGACY = "HTTP 3.0"; // $NON-NLS-1$
+
+    private static final String HTTP_PROTOCOL_HTTP_3_DOT_LEGACY = "HTTP/3.0"; // $NON-NLS-1$
+
+    /** Protocol id used by browsers and HAR files. */
+    private static final String HTTP_PROTOCOL_HTTP_3_H3_ALIAS = "h3"; // $NON-NLS-1$
 
     public static final String PATH = "HTTPSampler.path"; // $NON-NLS-1$
 
@@ -426,7 +438,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public static String[] getHttpProtocolList() {
-        return new String[] {HTTP_PROTOCOL_DEFAULT, HTTP_PROTOCOL_HTTP_1_1, HTTP_PROTOCOL_HTTP_2};
+        return new String[] {HTTP_PROTOCOL_DEFAULT, HTTP_PROTOCOL_HTTP_1_1, HTTP_PROTOCOL_HTTP_2, HTTP_PROTOCOL_HTTP_3};
     }
 
     /**
@@ -764,11 +776,20 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return HTTP_PROTOCOL_HTTP_1_1.equals(getHttpProtocol());
     }
 
+    public boolean isHttp3Protocol() {
+        return HTTP_PROTOCOL_HTTP_3.equals(getHttpProtocol());
+    }
+
     public static String normalizeHttpProtocol(String httpProtocol) {
         if (HTTP_PROTOCOL_HTTP_2_SPACE_LEGACY.equals(httpProtocol)
                 || HTTP_PROTOCOL_HTTP_2_DOT_LEGACY.equals(httpProtocol)
                 || HTTP_PROTOCOL_HTTP_2_PREFERRED_LEGACY.equals(httpProtocol)) {
             return HTTP_PROTOCOL_HTTP_2;
+        }
+        if (HTTP_PROTOCOL_HTTP_3_SPACE_LEGACY.equals(httpProtocol)
+                || HTTP_PROTOCOL_HTTP_3_DOT_LEGACY.equals(httpProtocol)
+                || HTTP_PROTOCOL_HTTP_3_H3_ALIAS.equals(httpProtocol)) {
+            return HTTP_PROTOCOL_HTTP_3;
         }
         return httpProtocol;
     }
@@ -1377,6 +1398,21 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             String message = formatResponseTimeout(responseTimeout, res);
             return normalizedErrorResult(res, "Response timeout", message, message);
         }
+        // The JDK java.net.http client (HTTP/3 sampling) reports timeouts through its own
+        // exception hierarchy; classify them like their HttpClient5 counterparts. This must
+        // run before the connection-failure check: some of these carry a ConnectException cause.
+        HttpTimeoutException httpTimeout = findHttpTimeout(e);
+        if (httpTimeout != null) {
+            if (httpTimeout instanceof HttpConnectTimeoutException) {
+                String message = "Connection timeout after "
+                        + formatConfiguredTimeout(getConnectTimeout() > 0 ? getConnectTimeout() : getResponseTimeout())
+                        + " for " + formatHostAndDestination(res);
+                return normalizedErrorResult(res, "Connect timeout", message, message);
+            }
+            String message = "Response timeout after " + formatConfiguredTimeout(getResponseTimeout())
+                    + " waiting for response: " + formatNetworkPath(res);
+            return normalizedErrorResult(res, "Response timeout", message, message);
+        }
         IOException connectionFailure = findConnectionFailure(e);
         if (connectionFailure != null) {
             String detail = connectionFailureDetail(connectionFailure);
@@ -1420,7 +1456,24 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     static boolean isExpectedTimeout(Throwable throwable) {
-        return findConnectTimeout(throwable) != null || findResponseTimeout(throwable) != null;
+        return findConnectTimeout(throwable) != null
+                || findResponseTimeout(throwable) != null
+                || findHttpTimeout(throwable) != null;
+    }
+
+    private static @Nullable HttpTimeoutException findHttpTimeout(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof HttpTimeoutException httpTimeoutException) {
+                return httpTimeoutException;
+            }
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private static String formatConfiguredTimeout(int millis) {
+        return millis > 0 ? millis + " ms" : "configured timeout";
     }
 
     private static @Nullable IOException findConnectionFailure(Throwable throwable) {
@@ -1504,10 +1557,26 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         if (e instanceof UnknownHostException) {
             return "Unknown host";
         }
-        if (e instanceof ConnectException && containsIgnoreCase(e.getMessage(), "connection refused")) {
-            return "Connection refused";
+        if (e instanceof ConnectException) {
+            if (containsIgnoreCase(e.getMessage(), "connection refused")) {
+                return "Connection refused";
+            }
+            // The JDK java.net.http client reports resolution failures as a message-less
+            // ConnectException caused by UnresolvedAddressException
+            if (hasCause(e, UnresolvedAddressException.class)) {
+                return "Unknown host";
+            }
         }
         return "Connection error";
+    }
+
+    private static boolean hasCause(Throwable throwable, Class<? extends Throwable> type) {
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String connectionFailureDetail(IOException e) {

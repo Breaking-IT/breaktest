@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentDynamicValueAnalyzer
+import org.apache.jmeter.ai.AgentLiteralIndex
 import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
@@ -91,6 +92,8 @@ import kotlin.concurrent.thread
 public object BreakTestAgentGuiService {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
     private const val MAX_REPAIR_ACTION_SNAPSHOTS = 8
+    /** Above this many changed nodes a scoped replacement stays a single summary row. */
+    private const val MAX_ITEMISED_REPLACEMENT_NODES = 3
     private const val MAX_ACTIVE_FILE_REFRESHES_PER_RUN = 1
     private const val TEST_PLAN_USER_DEFINED_VARIABLES = "TestPlan.user_defined_variables"
     private val backupTimeFormat = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
@@ -247,10 +250,13 @@ public object BreakTestAgentGuiService {
             }
             tool = node.path("tool").asText()
             val startedAt = System.nanoTime()
-            if (tool != "agent_activity") {
-                postActivity("started", "MCP tool `$tool` started")
-            }
             val arguments = node.path("arguments")
+            // A short digest of the arguments makes a repeated identical call
+            // distinguishable from a genuine retry with different parameters.
+            val argumentDigest = argumentFingerprint(arguments)
+            if (tool != "agent_activity") {
+                postActivity("started", "MCP tool `$tool` started", details = "args#$argumentDigest")
+            }
             val argumentBytes = jsonByteSize(arguments)
             val result = handleTool(tool, arguments)
             val resultBytes = jsonByteSize(result)
@@ -259,7 +265,8 @@ public object BreakTestAgentGuiService {
                 postActivity(
                     "completed",
                     "MCP tool `$tool` completed in ${elapsedMs}ms",
-                    details = "payload: args=${argumentBytes.toHumanBytes()}, result=${resultBytes.toHumanBytes()}",
+                    details = "payload: args=${argumentBytes.toHumanBytes()} (#$argumentDigest), " +
+                        "result=${resultBytes.toHumanBytes()}",
                 )
             }
             mapOf("ok" to true, "result" to result)
@@ -298,9 +305,17 @@ public object BreakTestAgentGuiService {
             "list_agent_changes_open_plan" -> AiAutoScriptingLogWindow.changes()
             "find_open_plan_nodes" -> findOpenPlanNodes(arguments)
             "agent_activity" -> handleAgentActivity(arguments)
+            // A recording is linked as request/response exchanges, not as a HAR file;
+            // HAR is only one import format. The *_har_* spellings stay accepted so
+            // AI Knowledge written by earlier runs, and any hand-written MCP config,
+            // keep working, but only the names without them are advertised.
+            "list_recorded_exchanges_open_plan",
             "list_recorded_har_exchanges_open_plan" -> listRecordedHarExchangesOpenPlan(arguments)
+            "get_recorded_exchange_open_plan",
             "get_recorded_har_exchange_open_plan" -> getRecordedHarExchangeOpenPlan(arguments)
+            "search_recorded_exchanges_open_plan",
             "search_recorded_har_open_plan" -> searchRecordedHarOpenPlan(arguments)
+            "audit_recorded_correlations_open_plan",
             "audit_recorded_har_correlations_open_plan" -> auditRecordedHarCorrelationsOpenPlan(arguments)
             "plan_repair_actions_open_plan" -> planRepairActionsOpenPlan(arguments)
             "get_repair_action_open_plan" -> getRepairActionOpenPlan(arguments)
@@ -541,9 +556,17 @@ public object BreakTestAgentGuiService {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: return@guiCall mapOf(
-                    "linkedHarAvailable" to false,
+                    "linkedRecordingAvailable" to false,
                     "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
-                    "diagnostic" to "The open plan must be saved before linked HAR paths can be resolved.",
+                    // Distinguish "this plan has no recording" from "the recording
+                    // cannot be read yet": samplers may well be linked, but a
+                    // recording is stored in the plan's archive and is only readable
+                    // once the plan has been written to disk.
+                    "diagnostic" to "The open plan has never been saved, so a linked recording cannot be " +
+                        "read from it yet. Samplers may still be linked to recorded exchanges. Report this " +
+                        "as an unsaved plan rather than as a plan without a recording, and work from " +
+                        "bounded validation evidence instead.",
+                    "recordingUnreadableReason" to "plan_not_saved",
                     "exchanges" to emptyList<Map<String, Any?>>(),
                 )
             val bodyLimit = arguments.path("bodyLimit").asInt(600).coerceAtLeast(0)
@@ -570,7 +593,7 @@ public object BreakTestAgentGuiService {
                 }
                 .take(maxEntries)
             mapOf(
-                "linkedHarAvailable" to exchanges.any { it["hasExchange"] == true },
+                "linkedRecordingAvailable" to exchanges.any { it["hasExchange"] == true },
                 "testPlanFile" to testPlanFile,
                 "threadGroupName" to arguments.path("threadGroupName").optionalText(),
                 "exchangeCount" to exchanges.size,
@@ -583,7 +606,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
             val sampler = selectSampler(
                 scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText()),
@@ -608,7 +631,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val query = arguments.path("query").optionalText()
             val regexText = arguments.path("regex").optionalText()
             require(query != null || regexText != null) {
@@ -667,7 +690,7 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before linked HAR paths can be resolved")
+                ?: error("The open plan must be saved before its linked recording can be resolved")
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val maxCandidates = arguments.path("maxCandidates").asInt(120).coerceAtLeast(1)
             val contextChars = arguments.path("contextChars").asInt(180).coerceAtLeast(0)
@@ -726,7 +749,7 @@ public object BreakTestAgentGuiService {
                                 literalIndex + requestCandidate.literal.length,
                                 contextChars,
                             ),
-                            "reason" to "Suspicious request value appears in an earlier linked HAR recorded response.",
+                            "reason" to "Suspicious request value appears in an earlier recorded response.",
                         )
                     } else if (requestCandidate.priority >= 80 && unresolved.size < maxCandidates) {
                         unresolved += mapOf(
@@ -741,7 +764,7 @@ public object BreakTestAgentGuiService {
                             "targetNodePath" to nodePath(target.sampler),
                             "targetRequestLine" to firstNonBlankLine(target.request),
                             "targetSurface" to requestCandidate.surface,
-                            "reason" to "Suspicious request value was not found in earlier linked HAR recorded responses.",
+                            "reason" to "Suspicious request value was not found in earlier recorded responses.",
                         )
                     }
                     if (candidates.size >= maxCandidates) {
@@ -759,7 +782,7 @@ public object BreakTestAgentGuiService {
                 )
                 .take(maxCandidates)
             mapOf(
-                "linkedHarAvailable" to exchanges.isNotEmpty(),
+                "linkedRecordingAvailable" to exchanges.isNotEmpty(),
                 "threadGroupName" to arguments.path("threadGroupName").optionalText(),
                 "exchangeCount" to exchanges.size,
                 "candidateCount" to sortedCandidates.size,
@@ -1261,8 +1284,16 @@ public object BreakTestAgentGuiService {
                 val targetElement = target.testElement
                 val targetSubTree = currentPlanTree().findSubTree(targetElement)
                     ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
-                    editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                    changedElements.clear()
+                    editor.replaceLiteral(
+                        targetElement,
+                        targetSubTree,
+                        variant,
+                        variableReference,
+                        changedElements = changedElements,
+                    )
                 }
                 require(replacements > 0) {
                     "Literal '${request.literal}' was not found under target sampler '${targetElement.name}' " +
@@ -1286,11 +1317,14 @@ public object BreakTestAgentGuiService {
                     "${source.testElement.name} -> ${targetElement.name}; failOnNoMatch=${request.failOnNoMatch}; " +
                         "evidence=${evidence.summary}",
                 )
-                recordChange(
-                    "Updated sampler",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     target,
-                    "Replaced literal with $variableReference",
-                    "Replacements: $replacements",
+                    scopedType = "Updated sampler",
+                    perNodeType = "Updated sampler",
+                    summary = "Replaced literal with $variableReference",
+                    scopedDetails = "Replacements: $replacements",
                 )
                 mapOf(
                     "action" to "created_extractor",
@@ -1359,17 +1393,32 @@ public object BreakTestAgentGuiService {
                 val variableReference = "\${${request.variableName}}"
                 val literal = request.literal?.takeIf { it.isNotBlank() }
                 val scope = if (literal != null && target == null) selectedBroadEditScope(gui, arguments) else null
+                // Collected so a small scoped replacement can be listed node by node
+                // instead of as one row against the Thread Group.
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = if (literal == null) {
                     null to 0
                 } else {
                     replaceWithVariants(literal) { variant ->
+                        changedElements.clear()
                         if (target == null) {
-                            editor.replaceLiteralInTree(scopedEditTree(gui, scope), variant, variableReference)
+                            editor.replaceLiteralInTree(
+                                scopedEditTree(gui, scope),
+                                variant,
+                                variableReference,
+                                changedElements = changedElements,
+                            )
                         } else {
                             val targetElement = target.testElement
                             val targetSubTree = currentPlanTree().findSubTree(targetElement)
                                 ?: throw IllegalStateException("Could not locate target sampler subtree '${targetElement.name}'")
-                            editor.replaceLiteral(targetElement, targetSubTree, variant, variableReference)
+                            editor.replaceLiteral(
+                                targetElement,
+                                targetSubTree,
+                                variant,
+                                variableReference,
+                                changedElements = changedElements,
+                            )
                         }
                     }
                 }
@@ -1421,11 +1470,14 @@ public object BreakTestAgentGuiService {
                     )
                 }
                 if (literal != null) {
-                    recordChange(
-                        if (target == null) "Updated plan" else "Updated sampler",
+                    recordReplacementChanges(
+                        gui,
+                        changedElements,
                         changedNode,
-                        "Replaced literal with $variableReference",
-                        "Replacements: $replacements",
+                        scopedType = if (target == null) "Updated plan" else "Updated sampler",
+                        perNodeType = "Updated sampler",
+                        summary = "Replaced literal with $variableReference",
+                        scopedDetails = "Replacements: $replacements",
                     )
                 }
                 val siblingExtractors = regexExtractorNodes(source, variableName = null, requireFound = false)
@@ -1559,7 +1611,12 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editor = TestPlanEditor()
+                // A scoped replacement records one change row against the scope, which
+                // says nothing about where the edits landed. Collect the elements that
+                // actually changed so a small edit can be listed node by node.
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    changedElements.clear()
                     if (target == null) {
                         editor.replaceLiteralInTree(
                             scopedEditTree(gui, scope),
@@ -1567,6 +1624,7 @@ public object BreakTestAgentGuiService {
                             request.replacement,
                             request.includeNames,
                             request.excludeUserDefinedVariables,
+                            changedElements,
                         )
                     } else {
                         val targetSubTree = currentPlanTree().findSubTree(target.testElement)
@@ -1578,6 +1636,7 @@ public object BreakTestAgentGuiService {
                             request.replacement,
                             request.includeNames,
                             request.excludeUserDefinedVariables,
+                            changedElements,
                         )
                     }
                 }
@@ -1594,11 +1653,14 @@ public object BreakTestAgentGuiService {
                     "Applied live literal replacement",
                     details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
-                recordChange(
-                    if (target == null) "Updated plan" else "Updated sampler",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     changedNode,
-                    "Replaced literal with ${request.replacement}",
-                    "Replacements: $replacements",
+                    scopedType = if (target == null) "Updated plan" else "Updated sampler",
+                    perNodeType = "Updated sampler",
+                    summary = "Replaced literal with ${request.replacement}",
+                    scopedDetails = "Replacements: $replacements",
                 )
                 mapOf(
                     "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
@@ -1628,11 +1690,14 @@ public object BreakTestAgentGuiService {
                 val target = selectedReplacementTarget(gui, request)
                 val scope = selectedReplacementScope(gui, request, target)
                 val editTree = if (target == null) scopedEditTree(gui, scope) else scopedEditTree(gui, target)
+                val changedElements = mutableListOf<TestElement>()
                 val (matchedLiteral, replacements) = replaceWithVariants(request.literal) { variant ->
+                    changedElements.clear()
                     TestPlanEditor().replaceLiteralInNamesInTree(
                         editTree,
                         variant,
                         request.replacement,
+                        changedElements,
                     )
                 }
                 require(replacements > 0) {
@@ -1648,11 +1713,14 @@ public object BreakTestAgentGuiService {
                     "Applied live name replacement",
                     details = "${target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"}: $matchedLiteral -> ${request.replacement}",
                 )
-                recordChange(
-                    if (target == null) "Renamed elements" else "Renamed sampler elements",
+                recordReplacementChanges(
+                    gui,
+                    changedElements,
                     changedNode,
-                    "Replaced name literal with ${request.replacement}",
-                    "Name replacements: $replacements",
+                    scopedType = if (target == null) "Renamed elements" else "Renamed sampler elements",
+                    perNodeType = "Renamed element",
+                    summary = "Replaced name literal with ${request.replacement}",
+                    scopedDetails = "Name replacements: $replacements",
                 )
                 mapOf(
                     "targetSamplerLabel" to (target?.testElement?.name ?: scope?.let { nodePath(it) } ?: "open plan"),
@@ -3365,6 +3433,36 @@ public object BreakTestAgentGuiService {
         gui.mainFrame.repaint()
     }
 
+    /**
+     * A scoped search/replace previously recorded a single row against the scope, so
+     * the changes table said "Thread Group ... Replacements: 3" and gave no way to
+     * reach the elements that changed. Up to [MAX_ITEMISED_REPLACEMENT_NODES] changed
+     * tree nodes are listed individually so each row can be jumped to; beyond that the
+     * list would swamp the table, so the scoped summary row is kept instead.
+     */
+    private fun recordReplacementChanges(
+        gui: GuiPackage,
+        changedElements: Collection<TestElement>,
+        scopeNode: JMeterTreeNode,
+        scopedType: String,
+        perNodeType: String,
+        summary: String,
+        scopedDetails: String,
+    ) {
+        // Elements nested inside properties (header rows, argument entries) are not
+        // tree nodes and cannot be jumped to, so only real nodes are itemised.
+        val changedNodes = changedElements
+            .mapNotNull { runCatching { gui.treeModel.getNodeOf(it) }.getOrNull() }
+            .distinct()
+        if (changedNodes.isEmpty() || changedNodes.size > MAX_ITEMISED_REPLACEMENT_NODES) {
+            recordChange(scopedType, scopeNode, summary, scopedDetails)
+            return
+        }
+        for (node in changedNodes) {
+            recordChange(perNodeType, node, summary, nodePath(node))
+        }
+    }
+
     private fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
         AiAutoScriptingLogWindow.recordChange(
             type,
@@ -3973,26 +4071,44 @@ public object BreakTestAgentGuiService {
         val plannedLiterals = mutableSetOf<String>()
         val scopeNodePath = threadGroupName
             ?.let { runCatching { nodePath(selectThreadGroup(gui, it)) }.getOrNull() }
+        // Looking each candidate up with one indexOf per earlier response is
+        // quadratic in the exchange count and linear in the response size, which
+        // reaches tens of seconds on a recording with large responses. Instead every
+        // literal the planner will ever ask about is collected first, and each
+        // response is then read exactly once by a multi-pattern search.
+        val candidatesByExchange = exchanges.associate { it.index to harRequestCandidates(it.request) }
+        // The recorded request often carries the URL/HTML-encoded form of a value
+        // that the issuing response contains raw (or vice versa), so source matching
+        // tries the encoding variants of the literal too.
+        val variantsByLiteral = HashMap<String, List<String>>()
+        for (candidates in candidatesByExchange.values) {
+            for (candidate in candidates) {
+                variantsByLiteral.getOrPut(candidate.literal) { literalVariants(candidate.literal) }
+            }
+        }
+        val literalIndex = AgentLiteralIndex.build(variantsByLiteral.values.flatten().toSet())
+        val occurrencesByExchange = exchanges.associate { it.index to literalIndex.firstOccurrences(it.response) }
+        val headerEndByExchange = exchanges.associate { it.index to harHeaderBlockEnd(it.response) }
         for (target in exchanges) {
-            for (requestCandidate in harRequestCandidates(target.request)) {
+            // Newest first: the previous .lastOrNull() over ascending exchanges picks
+            // the same source as the first hit walking backwards.
+            val priorExchangesNewestFirst = exchanges.filter { it.index < target.index }.asReversed()
+            for (requestCandidate in candidatesByExchange.getValue(target.index)) {
                 val seenKey = "${target.globalIndex}:${requestCandidate.literal}"
                 if (!seen.add(seenKey)) {
                     continue
                 }
-                // The recorded request often carries the URL/HTML-encoded form of a
-                // value that the issuing response contains raw (or vice versa), so
-                // source matching tries the encoding variants of the literal too.
-                // Header-block occurrences win over body occurrences: recorded
-                // redirect bodies frequently differ from what JMeter replays, while
-                // Location/Set-Cookie headers are stable at runtime.
-                val source = exchanges
+                val variants = variantsByLiteral.getValue(requestCandidate.literal)
+                val source = priorExchangesNewestFirst
                     .asSequence()
-                    .filter { it.index < target.index }
                     .mapNotNull { sourceExchange ->
-                        preferredLiteralOccurrence(sourceExchange.response, requestCandidate.literal)
-                            ?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
+                        indexedLiteralOccurrence(
+                            occurrencesByExchange.getValue(sourceExchange.index),
+                            headerEndByExchange.getValue(sourceExchange.index),
+                            variants,
+                        )?.let { (index, variant) -> Triple(sourceExchange, index, variant) }
                     }
-                    .lastOrNull()
+                    .firstOrNull()
                 if (source == null) {
                     if (requestCandidate.priority >= 80 && unresolved.size < maxUnresolved) {
                         unresolved += unresolvedRepairCandidate(target, requestCandidate)
@@ -4002,10 +4118,7 @@ public object BreakTestAgentGuiService {
 
                 val (sourceExchange, literalIndex, matchedLiteral) = source
                 val regex = regexForHarCandidate(sourceExchange.response, requestCandidate, matchedLiteral, literalIndex)
-                    ?.takeIf {
-                        AgentRegexSupport.oroProblem(it) == null &&
-                            AgentRegexSupport.oroMatches(it, sourceExchange.response)
-                    }
+                    ?.takeIf { capturesLiteral(it, sourceExchange.response, matchedLiteral) }
                     // Never fall back to a Boundary Extractor action: derive an
                     // ORO-safe regex from the literal's boundaries instead.
                     ?: boundaryDerivedRegex(sourceExchange.response, matchedLiteral, literalIndex)
@@ -4248,8 +4361,37 @@ public object BreakTestAgentGuiService {
      * Finds the occurrence of any encoding variant of the literal, preferring a
      * match inside the response header block over one in the body.
      */
-    private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? {
-        val variants = literalVariants(literal)
+    private fun preferredLiteralOccurrence(responseText: String, literal: String): Pair<Int, String>? =
+        preferredLiteralOccurrence(responseText, literalVariants(literal))
+
+    /**
+     * [preferredLiteralOccurrence] answered from a prebuilt occurrence map instead
+     * of by scanning the response again.
+     *
+     * The header block is a prefix of the response, so a first occurrence below
+     * [headerEnd] is exactly the case where `indexOf` would have landed in the
+     * header block.
+     */
+    private fun indexedLiteralOccurrence(
+        occurrences: Map<String, Int>,
+        headerEnd: Int?,
+        variants: List<String>,
+    ): Pair<Int, String>? {
+        if (headerEnd != null) {
+            variants.firstNotNullOfOrNull { variant ->
+                occurrences[variant]?.takeIf { it < headerEnd }?.let { it to variant }
+            }?.let { return it }
+        }
+        return variants.firstNotNullOfOrNull { variant ->
+            occurrences[variant]?.let { it to variant }
+        }
+    }
+
+    /**
+     * Variant-list overload for callers that scan many responses for the same
+     * literal; [literalVariants] then runs once instead of once per response.
+     */
+    private fun preferredLiteralOccurrence(responseText: String, variants: List<String>): Pair<Int, String>? {
         val headerEnd = harHeaderBlockEnd(responseText)
         if (headerEnd != null) {
             variants.firstNotNullOfOrNull { variant ->
@@ -4266,30 +4408,52 @@ public object BreakTestAgentGuiService {
      * when no structured field regex applies, so planner actions never need the
      * disallowed Boundary Extractor form.
      */
+    /**
+     * True when [regex] not only matches [responseText] but captures exactly
+     * [literal] in group 1.
+     *
+     * Matching alone is not evidence of a usable correlation. `"([^"]+)"` matches
+     * any JSON object and captures its first key, so a planner action built from it
+     * produced extractors that quietly resolved to the key name instead of the
+     * value and only surfaced as a 401 several steps later.
+     */
+    private fun capturesLiteral(regex: String, responseText: String, literal: String): Boolean =
+        AgentRegexSupport.oroProblem(regex) == null &&
+            AgentRegexSupport.oroFirstCapture(regex, responseText) == literal
+
     private fun boundaryDerivedRegex(responseText: String, literal: String, literalIndex: Int): String? {
         val before = responseText.getOrNull(literalIndex - 1)
         val after = responseText.getOrNull(literalIndex + literal.length)
+        val candidates = mutableListOf<String>()
         if (before != null && before == after && before in setOf('\'', '"')) {
             val quote = AgentRegexSupport.oroEscape(before.toString())
-            val regex = if (before == '"') {
-                "$quote([^\"]+)$quote"
-            } else {
-                "$quote([^']+)$quote"
+            val body = if (before == '"') "([^\"]+)" else "([^']+)"
+            // Anchor on what precedes the opening quote. The bare quote..quote form
+            // matches the first quoted run in the response, which for JSON is the
+            // first key rather than this literal's value.
+            val leadIn = responseText
+                .substring((literalIndex - 1 - 40).coerceAtLeast(0), literalIndex - 1)
+                .substringAfterLast('\n')
+                .substringAfterLast('\r')
+            for (anchorLength in intArrayOf(24, 12, 6)) {
+                val anchor = leadIn.takeLast(anchorLength)
+                if (anchor.length >= 3) {
+                    candidates += AgentRegexSupport.oroEscape(anchor) + body + quote
+                }
             }
-            return regex.takeIf {
-                AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
-            }
+            // Last resort, and only if it captures this literal: when the value is
+            // the sole quoted run in the response the bare form is exactly right,
+            // but in a JSON object it would capture the first key instead.
+            candidates += quote + body + quote
         }
         val (left, right) = boundariesAroundLiteral(responseText, literal, literalIndex)
         val leftAnchor = left.substringAfterLast('\n').substringAfterLast('\r').takeLast(24)
         val rightAnchor = right.takeWhile { it != '\n' && it != '\r' }.take(6)
-        if (leftAnchor.length < 3 || rightAnchor.isEmpty()) {
-            return null
+        if (leftAnchor.length >= 3 && rightAnchor.isNotEmpty()) {
+            candidates += AgentRegexSupport.oroEscape(leftAnchor) + "(.+?)" + AgentRegexSupport.oroEscape(rightAnchor)
         }
-        val regex = AgentRegexSupport.oroEscape(leftAnchor) + "(.+?)" + AgentRegexSupport.oroEscape(rightAnchor)
-        return regex.takeIf {
-            AgentRegexSupport.oroProblem(it) == null && AgentRegexSupport.oroMatches(it, responseText)
-        }
+        // Only a pattern that actually captures this literal is worth planning.
+        return candidates.firstOrNull { capturesLiteral(it, responseText, literal) }
     }
 
     private fun extractorUseFieldFor(responseText: String, literalIndex: Int): String {
@@ -4484,6 +4648,15 @@ public object BreakTestAgentGuiService {
         } else {
             this
         }
+
+    /** First four bytes of a SHA-256 over the request arguments, for log correlation. */
+    private fun argumentFingerprint(arguments: JsonNode): String =
+        runCatching {
+            MessageDigest.getInstance("SHA-256")
+                .digest(mapper.writeValueAsBytes(arguments))
+                .take(4)
+                .joinToString("") { "%02x".format(it) }
+        }.getOrDefault("unknown")
 
     private fun jsonByteSize(value: Any?): Int =
         runCatching { mapper.writeValueAsBytes(value).size }

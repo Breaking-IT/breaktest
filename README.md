@@ -23,7 +23,7 @@ BreakTest keeps that useful model and moves the runtime forward:
 - a more modern GUI with simple light/dark themes
 - better GUI feedback while building, debugging, and repairing scripts
 - safer loading of old plans and plugin-heavy JMX files
-- AI-assisted scripting with Codex, Claude Code, opencode, and MCP workflows
+- AI-assisted scripting with Codex, Claude Code, opencode, Copilot CLI, and MCP workflows
 - a source-available Community edition that can be scaled by BreakTest Enterprise when one
   machine is no longer enough
 
@@ -58,6 +58,8 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Apache HttpClient 5 is the active HTTP sampler path.
 - HTTP/2 is first-class, including negotiated fallback, HTTP/2 preferred
   selection, async execution, connect-time reporting, and file upload fixes.
+- HTTP/3 over QUIC is available as a beta on Java 26+, with explicit HTTP/3
+  selection and optional browser-like Alt-Svc upgrades for default samplers.
 - HTTP/2 resource usage is lower: reactor threads are limited by default, client
   rebuilds are avoided when the same user continues, and parallel samplers reuse
   HTTP state deterministically.
@@ -132,7 +134,7 @@ debugging, and migration work that has landed across the BreakTest PR series.
 
 - BreakTest can run AI-assisted script repair from the GUI or through local
   agent tooling.
-- The agent workflow works with tools such as Codex, Claude Code, and opencode
+- The agent workflow works with tools such as Codex, Claude Code, opencode, and Copilot CLI
   through BreakTest's MCP server and command-line helpers.
 - AI repair can inspect a failing or incomplete test plan, run bounded
   validation, and apply concrete JMX edits instead of only suggesting changes.
@@ -282,7 +284,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.07.17
+breaktest.version=2026.07.31
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix

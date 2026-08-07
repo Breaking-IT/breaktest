@@ -23,8 +23,10 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
@@ -61,12 +63,50 @@ public final class HarParser {
             throw new IOException("Not a valid HAR file: missing log.entries array");
         }
         List<HarEntry> entries = new ArrayList<>(entriesNode.size());
+        Set<String> observedNetworkRequests = new HashSet<>();
         int index = 0;
         for (JsonNode entryNode : entriesNode) {
-            entries.add(parseEntry(entryNode, index));
+            HarEntry entry = parseEntry(entryNode, index);
+            String requestKey = entry.getMethod() + '\n' + entry.getUrl();
+            if (entry.getFromCache() == null
+                    && observedNetworkRequests.contains(requestKey)
+                    && looksLikeUnmarkedMemoryCacheReuse(entryNode, entry)) {
+                entry.setFromCache("memory");
+            } else if (entry.getFromCache() == null) {
+                observedNetworkRequests.add(requestKey);
+            }
+            entries.add(entry);
             index++;
         }
         return entries;
+    }
+
+    /**
+     * Older Chromium recorder builds missed Network.requestServedFromCache. In
+     * that case CDP reports a reused GET with only contextual headers, no
+     * transferred body bytes, and the previously cached decoded content size.
+     */
+    private static boolean looksLikeUnmarkedMemoryCacheReuse(JsonNode entryNode, HarEntry entry) {
+        if (!"GET".equals(entry.getMethod()) || entry.getResponseStatus() != 200) {
+            return false;
+        }
+        JsonNode response = entryNode.path("response");
+        if (!response.has("bodySize")
+                || response.path("bodySize").asLong(-1) != 0
+                || response.path("content").path("size").asLong(-1) <= 0) {
+            return false;
+        }
+        List<NameValue> headers = entry.getRequestHeaders();
+        if (headers.size() > 2) {
+            return false;
+        }
+        for (NameValue header : headers) {
+            String name = header.getName();
+            if (!"referer".equalsIgnoreCase(name) && !"origin".equalsIgnoreCase(name)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void ensureRawHarContent(byte[] content) throws IOException {

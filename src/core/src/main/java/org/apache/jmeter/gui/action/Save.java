@@ -368,7 +368,7 @@ public class Save extends AbstractAction {
         }
     }
 
-    private void prepareSubTreeForSave(HashTree subTree) {
+    private static void prepareSubTreeForSave(HashTree subTree) {
         try {
             convertSubTree(subTree);
         } catch (Exception err) {
@@ -581,8 +581,8 @@ public class Save extends AbstractAction {
                 .noneMatch(o -> o instanceof AbstractThreadGroup || o instanceof TestPlan);
     }
 
-    // package protected to allow access from test code
-    void convertSubTree(HashTree tree) {
+    // package protected so other save workflows can apply the same GUI-node conversion
+    static void convertSubTree(HashTree tree) {
         for (Object o : new ArrayList<>(tree.list())) {
             JMeterTreeNode item = (JMeterTreeNode) o;
             convertSubTree(tree.getTree(item));

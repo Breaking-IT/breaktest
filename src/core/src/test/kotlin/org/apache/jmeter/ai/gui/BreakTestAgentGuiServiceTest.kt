@@ -30,6 +30,7 @@ import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -147,5 +148,94 @@ class BreakTestAgentGuiServiceTest {
         val method = BreakTestAgentGuiService::class.java.getDeclaredMethod(name, *parameterTypes)
         method.isAccessible = true
         return method.invoke(BreakTestAgentGuiService, *arguments)
+    }
+
+    // The repair planner hoists literalVariants() out of its per-response scan and
+    // calls the variant-list overload, so the two overloads have to agree.
+    private fun preferredOccurrenceByLiteral(response: String, literal: String): Pair<*, *>? {
+        val method = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("preferredLiteralOccurrence", String::class.java, String::class.java)
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, literal) as Pair<*, *>?
+    }
+
+    private fun preferredOccurrenceByVariants(response: String, literal: String): Pair<*, *>? {
+        val variants = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("literalVariants", String::class.java)
+            .apply { isAccessible = true }
+            .invoke(BreakTestAgentGuiService, literal)
+        val method = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("preferredLiteralOccurrence", String::class.java, List::class.java)
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, variants) as Pair<*, *>?
+    }
+
+    private fun boundaryDerivedRegex(response: String, literal: String): String? {
+        val method = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "boundaryDerivedRegex", String::class.java, String::class.java, Int::class.javaPrimitiveType,
+        )
+        method.isAccessible = true
+        return method.invoke(BreakTestAgentGuiService, response, literal, response.indexOf(literal)) as String?
+    }
+
+    @Test
+    fun `derived regex captures the value and not the json key`() {
+        val response = """{"clientID":"l7xxab12cd34ef56","clientSecret":"s3cr3t"}"""
+        val regex = boundaryDerivedRegex(response, "l7xxab12cd34ef56")
+
+        // The previous quote..quote fallback emitted "([^"]+)", which matches the
+        // object but captures clientID, so the extractor resolved to the key name.
+        assertNotEquals(""""([^"]+)"""", regex)
+        assertEquals(
+            "l7xxab12cd34ef56",
+            AgentRegexSupport.oroFirstCapture(requireNotNull(regex), response),
+            "derived regex captured the wrong value: $regex",
+        )
+    }
+
+    @Test
+    fun `derived regex handles a repeated value shape`() {
+        val response = """{"a":{"id":"tok-111"},"b":{"id":"tok-222"}}"""
+        val regex = boundaryDerivedRegex(response, "tok-222")
+        assertEquals(
+            "tok-222",
+            AgentRegexSupport.oroFirstCapture(requireNotNull(regex), response),
+            "derived regex captured the wrong occurrence: $regex",
+        )
+    }
+
+    @Test
+    fun `no regex is derived when none can capture the literal`() {
+        // Nothing usable precedes the literal, so planning must decline rather than
+        // emit a pattern that captures something else.
+        assertNull(boundaryDerivedRegex("tok-999", "tok-999"))
+    }
+
+    @Test
+    fun `both preferred-occurrence overloads select the same match`() {
+        val body = "{\"pageId\":\"abc-123\",\"mail\":\"user%40example.com\"}"
+        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\nLocation: /next\r\n\r\n$body"
+        val cases = listOf(
+            "abc-123", // present in both the header block and the body
+            "user@example.com", // only present in its URL-encoded form
+            "user%40example.com", // only present in its raw form
+            "/next", // header-only
+            "not-in-this-response", // absent
+        )
+        for (literal in cases) {
+            assertEquals(
+                preferredOccurrenceByLiteral(response, literal),
+                preferredOccurrenceByVariants(response, literal),
+                "overloads disagree for '$literal'",
+            )
+        }
+    }
+
+    @Test
+    fun `header block wins over a later body occurrence`() {
+        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\n\r\n{\"pageId\":\"abc-123\"}"
+        val occurrence = preferredOccurrenceByVariants(response, "abc-123")
+        val index = occurrence?.first as Int
+        assertTrue(index < response.indexOf("\r\n\r\n"), "expected the header-block match, got index $index")
     }
 }

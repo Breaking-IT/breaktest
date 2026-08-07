@@ -186,9 +186,24 @@ if not defined DDRAW (
     rem set DDRAW=%DDRAW% -Dsun.java2d.ddscale=true
 )
 
+rem Application Class-Data Sharing (Java 19+): caches loaded-class metadata in a
+rem per-user archive so subsequent startups skip most classfile parsing.
+rem The archive is created automatically on first exit and regenerated whenever the
+rem jars change; if it cannot be mapped the JVM silently falls back to normal loading.
+rem Set BREAKTEST_CDS=off to disable.
+set CDS=
+if /i not "%BREAKTEST_CDS%" == "off" (
+    if %current_major% GEQ 19 (
+        if not exist "%USERPROFILE%\.breaktest" mkdir "%USERPROFILE%\.breaktest" 2>nul
+        rem -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
+        rem that newer JVMs print at error level on the first run
+        set CDS="-XX:+AutoCreateSharedArchive" "-XX:SharedArchiveFile=%USERPROFILE%\.breaktest\appcds-java%current_major%.jsa" "-Xlog:cds*=off"
+    )
+)
+
 rem Collect the settings defined above
 if not defined JMETER_COMPLETE_ARGS (
-    set ARGS=%JAVA_OPTS% %DUMP% %HEAP% %VERBOSE_GC% %GC_ALGO% %DDRAW% %SYSTEM_PROPS% %JMETER_LANGUAGE% %RUN_IN_DOCKER%
+    set ARGS=%JAVA_OPTS% %DUMP% %HEAP% %VERBOSE_GC% %GC_ALGO% %DDRAW% %SYSTEM_PROPS% %JMETER_LANGUAGE% %RUN_IN_DOCKER% %CDS%
 ) else (
     set ARGS=
 )

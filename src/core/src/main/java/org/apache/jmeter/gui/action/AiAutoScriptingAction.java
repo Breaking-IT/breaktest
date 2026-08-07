@@ -110,6 +110,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (gui != null) {
             gui.updateCurrentNode();
         }
+        if (!ensurePlanIsSavedForRecordingAccess(gui, e)) {
+            return;
+        }
         AiRunRequest request = showStartDialog(gui);
         if (request == null) {
             return;
@@ -145,6 +148,57 @@ public class AiAutoScriptingAction extends AbstractAction {
             postActivity("AI Auto Scripting failed to start: " + ex.getMessage());
             AiAutoScriptingLogWindow.finishRun("Failed to start");
         }
+    }
+
+    /**
+     * A linked recording lives in the plan's own archive, so the agent's recorded-
+     * exchange tools read it back from the saved JMX. Every one of them gives up when
+     * the plan has no file yet, which is why importing a recording and starting the
+     * repair straight away reported "No linked recording" even though every sampler
+     * was linked. Unsaved edits are the same problem: the recording the agent can
+     * reach is the one on disk.
+     *
+     * @return true when the run may proceed
+     */
+    private static boolean ensurePlanIsSavedForRecordingAccess(GuiPackage gui, ActionEvent event) {
+        if (gui == null) {
+            return true;
+        }
+        String testPlanFile = gui.getTestPlanFile();
+        boolean neverSaved = testPlanFile == null || testPlanFile.isBlank();
+        if (!neverSaved && !gui.hasUnsavedChanges()) {
+            return true;
+        }
+        String question = neverSaved
+                ? "This plan has not been saved yet, so AI Auto Scripting cannot read any recording "
+                        + "linked to its samplers.\n\nSave the plan now and continue?"
+                : "This plan has unsaved changes. AI Auto Scripting reads the recording from the saved "
+                        + "file, so anything not written to disk stays invisible to the agent."
+                        + "\n\nSave the plan now and continue?";
+        int choice = JOptionPane.showConfirmDialog(
+                gui.getMainFrame(),
+                question,
+                "AI Auto Scripting",
+                JOptionPane.YES_NO_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+        if (choice == JOptionPane.CANCEL_OPTION || choice == JOptionPane.CLOSED_OPTION) {
+            return false;
+        }
+        if (choice == JOptionPane.NO_OPTION) {
+            // Running without the recording is legitimate: the agent falls back to
+            // bounded validation evidence. Say so, so the log explains the gap.
+            postActivity("Starting without saving. The agent cannot read a linked recording from an "
+                    + "unsaved plan and will work from validation evidence only.");
+            return true;
+        }
+        ActionRouter.getInstance().doActionNow(
+                new ActionEvent(event.getSource(), event.getID(), ActionNames.SAVE));
+        String savedFile = gui.getTestPlanFile();
+        if (savedFile == null || savedFile.isBlank()) {
+            postActivity("AI Auto Scripting cancelled: the plan was not saved.");
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -188,9 +242,10 @@ public class AiAutoScriptingAction extends AbstractAction {
         Instant started = Instant.now();
         AiRunOutput output = new AiRunOutput();
         AtomicBoolean timedOut = new AtomicBoolean(false);
+        List<String> command = new ArrayList<>();
         try {
             File workingDirectory = aiWorkingDirectory(request.tool());
-            List<String> command = aiCommand(request, workingDirectory);
+            command = aiCommand(request, workingDirectory);
             BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
@@ -270,7 +325,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 AiAutoScriptingLogWindow.finishRun("Stopped");
             } else {
                 log.warn("AI Auto Scripting failed", ex);
-                postActivity("AI Auto Scripting failed: " + ex.getMessage());
+                postActivity("AI Auto Scripting failed: " + launchFailureMessage(request, command, ex));
                 AiAutoScriptingLogWindow.finishRun("Failed");
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
@@ -340,6 +395,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case CODEX -> codexCommand(request, workingDirectory);
             case OPENCODE -> opencodeCommand(request, workingDirectory);
             case CLAUDE -> claudeCommand(request);
+            case COPILOT -> copilotCommand(request, workingDirectory);
         };
     }
 
@@ -417,6 +473,58 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("-p");
         command.add(prompt(request));
         return command;
+    }
+
+    private static List<String> copilotCommand(AiRunRequest request, File workingDirectory) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.copilot.command", "copilot"));
+        // Copilot CLI has no --cd flag; it uses the process working directory,
+        // which the launcher already sets on the ProcessBuilder. --add-dir keeps
+        // that directory trusted even when it sits outside the current repository.
+        command.add("--add-dir");
+        command.add(workingDirectory.getPath());
+        command.add("--allow-all-tools");
+        command.add("--allow-all-paths");
+        command.add("--no-ask-user");
+        // Deliberately not passing -s. It suppresses "stats and decoration", but the
+        // stats block is where Copilot reports model and token usage, so -s left the
+        // run summary showing "not reported" for both. AiOutputFilter already keeps
+        // the activity log readable for plain-text agents.
+
+        String model = modelProperty("breaktest.copilot");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        String agent = JMeterUtils.getProperty("breaktest.copilot.agent");
+        if (agent != null && !agent.isBlank()) {
+            command.add("--agent");
+            command.add(agent);
+        }
+
+        command.add("-p");
+        command.add(prompt(request));
+        return command;
+    }
+
+    /**
+     * A missing CLI surfaces as a raw "Cannot run program ... error=2" from the JDK,
+     * which does not say which tool is missing or how to point BreakTest at it.
+     */
+    private static String launchFailureMessage(AiRunRequest request, List<String> command, Exception ex) {
+        String raw = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+        if (!(ex instanceof IOException) || command.isEmpty()) {
+            return raw;
+        }
+        String executable = command.get(0);
+        if (!raw.contains("No such file or directory") && !raw.contains("error=2")
+                && !raw.contains("CreateProcess error=2")) {
+            return raw;
+        }
+        return request.tool().displayName() + " could not be started: '" + executable
+                + "' was not found on PATH. Install the CLI, or set breaktest."
+                + request.tool().id() + ".command to its full path. (" + raw + ")";
     }
 
     private static String modelProperty(String prefix) {
@@ -505,262 +613,76 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request.mode() == AiRunMode.SPECIFIC_REQUEST) {
             return specificRequestPrompt(request, testPlanFile);
         }
-        return """
-                Use $breaktest-jmeter-repair.
-
-                Repair and harden the currently open BreakTest/JMeter GUI plan through the BreakTest MCP server.
-
-                Setup:
-                - This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Never pause to think aloud or summarize between steps — post progress via agent_activity and keep calling tools until the work is complete. Only the final report may be a plain reply.
-                - First call `{{BRIDGE}} agent_activity '{"level":"info","message":"Starting AI Auto Scripting"}'` so progress is visible in the BreakTest AI Auto Scripting window, and keep posting concise progress (validations, edits, blockers, audits). Do not echo prompts, code, full XML, or long tool payloads into progress or final text.
-                - A GUI backup was created before this run; use it only as a rollback safety net. Keep the open plan as the live edit surface so changes stay visible in the GUI. Do not start a separate MCP server; when native MCP tools are unavailable use the supported bridge command: `{{BRIDGE}} <tool-name> '<json-arguments>'`. Call `{{BRIDGE}} tools` once before the first edit and read only the schemas you need; do not probe tools with dummy or missing-argument calls, and do not search the filesystem for a different bridge unless this exact command fails.
-                - Scope every step to exactly one Thread Group path: `%s`. Pass threadGroupName or scopeNodePath on validation, search, replace, correlation, and audit calls so identically named transactions/samplers in other Thread Groups are never touched. Do not repair, validate, or edit other Thread Groups unless the selected one depends on a shared test-plan-level config element.
-                - If a live edit tool fails, read its rollback fields before continuing. Failed planner actions are rolled back automatically. If an integrity failure says the pre-run backup was restored, stop using stale node IDs, re-inspect once, and continue only when the selected Thread Group is present. Use restore_open_plan_from_backup only when the bridge reports a live-tree integrity failure that was not already restored automatically; never use it as an ordinary retry mechanism.
-
-                Targeting (prevents wrong-node edits):
-                - Prefer stable node IDs. find_open_plan_nodes and every edit result return nodeId values that keep pointing at the same GUI node even after add/move/delete edits; pass sourceNodeId/targetNodeId to edit tools whenever available. Node paths are the fallback; flat sampler indexes drift after structural edits, so never reuse an index captured before an add/move/delete.
-                - Edit results are self-verifying: they report where the node actually landed (extractorNodePath/extractorNodeId, assertionNodePath, targetAssertions, sourceExtractors, replacements, scopeNodePath). Read the result instead of calling find_open_plan_nodes to confirm each edit; re-locate nodes only when a result looks wrong.
-                - Use find_open_plan_nodes (not broad inspect_open_plan) to locate nodes, duplicates, extractor/assertion metadata, and sampler/controller positions. If an edit produced a duplicate or misplaced node, delete only that node with delete_node_open_plan (deleteAllMatches=true only for intentional duplicate cleanup); never compensate with JSR223 scripts or broad literal replacement.
-
-                Knowledge first:
-                - Peek BreakTest AI Knowledge with get_ai_knowledge_open_plan createIfMissing=false. If non-default knowledge exists, post a concise agent_activity with nodePath, knowledgeNodeCount, and isDefaultKnowledge, then treat it as mandatory context: reuse confirmed correlations, variables, timestamps, and dependencies, and never repeat an approach it records as a confirmed limitation. If knowledge is missing/default, continue from runtime evidence and create it only at the end.
-
-                Evidence and planning:
-                - If linked HAR evidence is available, aim to one-shot the repair before the first validation: call plan_repair_actions_open_plan with threadGroupName="%s", includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, includeApplyArguments=false. The planner already resolves each value's source (response body vs headers), request order, encoding variants, and conflicting literals; it emits only native Regex Extractor correlations. Apply the selected high-confidence actions in one apply_repair_actions_open_plan(snapshotId, actionIds) call, inspect any skipped_conflict/rolledBack results, then run a single bounded validation to confirm. Fall back to get_repair_actions_open_plan plus manual edits only when an action needs changes before applying. If no HAR is linked, run one bounded compact validation first and work from its analysis instead.
-                - Validate with validate_open_plan using scopeNodePath set to the selected Thread Group path, compact=true, stopOnFirstFailure, maxSamples, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500. Compact results carry full request/response evidence only for the first failure and the samples just before it; samples whose outcome is unchanged from the previous run collapse to one-line unchanged entries, and green runs return light responseBodyPreview entries. For any snippet you need afterwards (assertion markers, correlation sources), use search_validated_response_open_plan against the cached last run instead of re-validating; do not rerun validation just to reshape evidence, and do not call inspect_open_plan repeatedly for the same failure. Use search_recorded_har_open_plan / get_recorded_har_exchange_open_plan / audit_recorded_har_correlations_open_plan only for targeted follow-up evidence.
-                - Encoding: validation request evidence shows URL/HTML-encoded data (@ appears as %%40) while the plan stores raw field values. Replace and search tools automatically try encoded/decoded variants and report matchedLiteral/matchedEncodingVariant, so pass the literal you saw and read the result. For credentials and User Defined Variables, take the raw value from list_http_arguments_open_plan (or the plan property), not from encoded request data, and store the raw form in the variable; set alwaysEncode on the argument when the extracted raw value must be re-encoded at runtime.
-                - If linked HAR response bodies are blank or omitted, do not pretend the HAR proved a source: use bounded validation evidence, keep the value as a User Defined Variable, or report it unresolved. Never add speculative extractors that overwrite scenario variables with NOT_FOUND.
-
-                Repair loop (repeat until the selected flow is green or a real external blocker remains):
-                - Work top to bottom. A failing login/callback/basket/payment/order request is often a symptom of earlier static data: before declaring it blocked, audit every reached non-static request up to and including the failure for dynamic path/query/body/cookie/header values, credentials, OAuth/OpenID state/code/nonce, csrf/request-verification and anti-forgery tokens, hidden form fields, redirect Location values, and missing extractor reuse. Treat custom headers (Authorization, X-CSRF-Token, x-* IDs/tokens/timestamps) as request data. Do not treat an upstream access_denied/401/403/500 as unfixable until that pre-failure audit is done.
-                - Correlate from response evidence only. apply_regex_correlation_open_plan requires evidenceSource and evidence: validated_response when validate_open_plan returned the marker, recorded_response when a HAR tool returned it, ai_knowledge for a confirmed project pattern. Choose useField at creation time — headers immediately when the marker is in response headers, Location, or Set-Cookie. The tool updates an existing same-variable extractor under the source instead of duplicating (allowDuplicateExtractor=true only deliberately).
-                - Prefer native extractors: Regex by default; JSONPath for JSON, CSS for HTML, XPath for XML/HTML when clearly more robust; never Boundary Extractors. JSR223 only when no native extractor, JMeter function, variable, or simple replacement can express the value — never for a single field capture, and never attached to the Test Plan, Thread Group, or a controller: Pre/PostProcessors belong on their exact sampler, sequenced setup logic in a JSR223 Sampler. To change an existing extractor use update_regex_extractor_open_plan (extractorMatchIndex/updateAllMatches for duplicates); to change an existing assertion use update_response_assertion_open_plan; never edit element internals via literal replacement, and never rebuild a native extractor as JSR223 just because it was misplaced — move or update it.
-                - Set failOnNoMatch=true on extractors whose variable later requests need, so missing correlations fail loudly; leave it false only for optional extractors with a proven fallback. Use one capture group; avoid templates that can render `null`.
-                - JMeter's Regex Extractor uses the ORO/Perl5 engine, not java.util.regex: \\Q...\\E quoting and lookbehind never match. Escape literal metacharacters with single backslashes. Build regexes against the exact evidence snippet you pass to the tool, including whether JSON uses quoted strings, numbers, arrays, or escaped/encoded text. Example for a quoted JSON field: `"pageId"\\s*:\\s*"([^"]+)"` only works when the evidence snippet literally contains `"pageId":"..."`; if the value is numeric, encoded, absent, or in headers, change the regex/evidence/useField instead. The apply/update tools validate every regex against that engine and require it to match the provided evidence snippet; when a call is rejected for this, fix the regex or fetch the correct evidence — do not retry with allowUnmatchedEvidence unless the evidence is intentionally partial.
-                - After adding a correlation, replace every dependent occurrence of the stale literal (path, query, POST/form/raw body, headers, cookies, referers, callback args) with replace_literal_open_plan scopeNodePath="%s"; use a target sampler only when the literal is local to it. Element names are ignored by default (includeNames=true only if the user asked for renaming); clean stale IDs in names separately with replace_literal_in_names_open_plan scopeNodePath="%s" and a static `{variable}` placeholder. Never put `${...}` in element names.
-                - Credentials (username/password/email in preFailureRequestCandidates): parameterize immediately — replace the request literal with `${variable}` using excludeUserDefinedVariables=true, set the top-level User Defined Variable to the original literal, verify with search_open_plan_values excludeUserDefinedVariables=true. For POST form credentials use list_http_arguments_open_plan first, then set_http_argument_value_open_plan with argumentIndex (alwaysEncode=false where needed).
-                - UUIDs, IDs, tokens, drawId/expiry-style fields, hex hashes, opaque URL path segments, and epoch-millisecond timestamps default to correlation from earlier response evidence, not runtime generation — even when validation is green. A random-looking segment inside a request path is server-issued until proven otherwise: search validated and recorded responses for it before anything else. Generate at runtime only after response evidence is exhausted and client-side generation is proven (validated JS, AI Knowledge, or a reached clearly client-owned field). If a generated value causes 4xx, stop generating it and seed a UDV with the recorded value or mark it unresolved.
-                - For runtime generation, prefer native JMeter functions over scripting: inline ${__UUID} for a UUID used in one field (the only valid form — never ${__UUID()} ), ${__time(,)} for epoch milliseconds, ${__Random(,,)} / ${__RandomString(,,)} for random data. Use a JSR223 setup sampler only when one generated value must be identical across several fields or requests (compile caching is enabled automatically); never use JSR223 for something a function or extractor can do.
-                - Execution order: if a dependent request sends an unresolved variable while its extractor is correct, move the source sampler into deterministic order with move_node_open_plan (to leave a Parallel Controller, position before/after the controller node). Dependent API/XHR calls run sequentially; only independent static assets stay parallel.
-                - Redirect modes can alter auth/payment behavior: use set_redirect_mode_open_plan only as a diagnostic after inspection proves a source value is hidden by redirect handling, post the reason, revalidate immediately, and revert before finishing if it produced no usable evidence.
-                - Keep static browser assets enabled but out of analysis (includeStaticAssets=false everywhere unless an asset response is directly relevant). If the next blocker is a 404 on a css/js/mjs/map/image/font asset that nothing references, rerun with ignoreStaticAssetFailures=true, report ignoredStaticFailureCount, and never declare success only because static failures were ignored.
-                - Do not stop at the first unresolvable failure: continue applying safe evidence-backed correlations, credential variables, and replacements elsewhere, and report unresolved candidates in the audit. Do not disable samplers to make the test green. Randomize scenario data from prior responses where practical.
-
-                After the first green run:
-                - Run audit_dynamic_request_values_open_plan with threadGroupName="%s". A green run only proves the current data happened to work: correlate, parameterize, generate, or explicitly document every high-confidence leftover (UUIDs, opaque IDs, tokens, hashes, nonces, timestamps). Verify replaced literals are gone with search_open_plan_values scopeNodePath="%s" (allowWholePlan=true only for an explicit global audit).
-                %s
-                - When adding assertions: pick each transaction's marker from its own sampler's validated response via search_validated_response_open_plan(samplerLabel=...), then add all assertions in a single add_response_assertions_open_plan call with targetNodeId/targetNodePath per item, then run one validation to verify. The add/update tools verify validated_response patterns against the target sampler's cached latest response and reject markers that only occur on a different sampler (the error names where it was found) — fix the target or the marker, never bypass with allowUnverifiedPattern. Pass evidenceSource/evidence per assertion; static inference needs allowStaticInference=true. Prefer significant phrases, HTML/JSON fragments, or post-login/confirmation text over weak single words; if a pattern is rejected as weak, find a stronger marker instead of using allowWeakPattern. Do not assert on samplers that validation never reached unless a recorded response or AI Knowledge proves the marker — document the gap instead. If one assertion fails, fix or remove only that one.
-
-                Finish (mandatory even if validation never became fully green):
-                - The first final-report line must be exactly `Status: completed` when the selected flow is fully validated, or `Status: blocked` when any validation, GUI, recovery, credential, permission, or unresolved-correlation blocker remains.
-                - Update AI Knowledge with update_ai_knowledge_open_plan appendLearnings: pass only the new entries per array field (projectHints, correlationPatterns, variableMappings, knownDynamicFields, timestampRules, transactionDependencies, learnedFromThreadGroups) — confirmed fixes, confirmed limitations, and unresolved high-confidence patterns with the Thread Group and transaction/request where each was observed. The GUI merges them server-side, so do not fetch and resend the whole document. If there were no reusable learnings, still append a learnedFromThreadGroups entry with "noReusableLearnings": true.
-                - Call list_agent_changes_open_plan, then report in plain text only (the BreakTest AI log is a plain Swing text area, no markdown tables): a per-transaction audit list (assertion status, dynamic values reviewed, correlations added, remaining blockers), a concise change list matching the BreakTest table, and the AI Knowledge update summary.
-
-                Context:
-                - Open plan file: %s
-                - Backup before live edits: %s
-                - Selected Thread Group: %s
-                - Selected Thread Group path: %s
-                %s
-                """.replace("{{BRIDGE}}", bridgeCommand()).formatted(
-                request.threadGroupPath(),
-                request.threadGroupName(),
-                request.threadGroupPath(),
-                request.threadGroupPath(),
-                request.threadGroupName(),
-                request.threadGroupPath(),
-                runOptionsInstruction(request),
-                testPlanFile == null ? "(unknown)" : testPlanFile,
-                request.backupPath().isBlank() ? "(unknown)" : request.backupPath(),
-                request.threadGroupName(),
-                request.threadGroupPath(),
-                userInstructionBlock(request)
-        );
+        return AiPrompts.render(AiPrompts.LIVE_GUI_REPAIR, Map.ofEntries(
+                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
+                Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
+                Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
+                Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
+                Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
+                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
+        ));
     }
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
-        return """
-                Use $breaktest-jmeter-repair.
-
-                Complete a specific targeted task against the currently open BreakTest/JMeter GUI plan.
-
-                Requirements:
-                - This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Keep calling tools until the task is complete; only the final report may be a plain reply.
-                - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
-                - A GUI backup is created before this run starts. Use it only as a rollback safety net.
-                - Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
-                - Before the first edit, call `{{BRIDGE}} tools` to inspect exact bridge tool schemas. Read only the schemas needed for the next action, and do not echo the full tool output back into progress or final text. Do not search the filesystem for a different bridge unless this exact command fails.
-                - Scope the work to exactly one Thread Group path: `%s`.
-                - Do only the user-requested task, with the fewest tool calls that complete it correctly. Do not start a full script repair, full correlation pass, assertion pass, dynamic audit, or validation loop unless the request explicitly asks for it. Do not call plan_repair_actions_open_plan, audit_dynamic_request_values_open_plan, or broad inspect_open_plan for a targeted task: locate nodes with find_open_plan_nodes and evidence with search_open_plan_values / search_validated_response_open_plan / search_recorded_har_open_plan.
-                - Keep the open BreakTest test plan as the live edit surface so changes are visible in the GUI.
-                - Use GUI-backed edit tools where available, including replace_literal_open_plan, replace_literal_in_names_open_plan, search_open_plan_values, list_http_arguments_open_plan, set_http_argument_value_open_plan, add_response_assertion_open_plan, update_response_assertion_open_plan, add_jsr223_open_plan, set_redirect_mode_open_plan, move_node_open_plan, delete_node_open_plan, and move_think_times_to_transactions_open_plan.
-                - When the specific request is to move separate ThinkTime timers to transaction level, call move_think_times_to_transactions_open_plan with the selected threadGroupName. Do not inspect code internals or try broad literal replacement for TransactionController delay fields.
-                - For request data, variables use `${variable}`. For sampler/controller/transaction names, never use `${...}`; use a display-safe `{variable}` placeholder or another static name.
-                - The only valid inline UUID function form in this BreakTest/JMeter build is `${__UUID}`. Never use `${__UUID()}` or `${__UUID(name)}`. For a one-off client-generated UUID in a request field, prefer inline `${__UUID}`; use JSR223/setup only when the same generated UUID must be reused across multiple request fields or transformed before use.
-                - When adding response assertions or correlation extractors, provide evidenceSource and evidence. Do not add assertions/extractors for responses that were not reached unless a recorded response or confirmed AI Knowledge entry proves the marker.
-                - Prefer native extractors for simple response/header/body captures: Regex by default, JSONPath for robust JSON field/array extraction, CSS selectors for HTML when CSS selection is more robust, and XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not add a JSR223 PostProcessor that reads prev.getResponseDataAsString() or prev.getResponseHeaders() when a native Regex/JSONPath/CSS/XPath extractor can capture the value. JSR223 PreProcessors, PostProcessors, and Assertions must be attached to a specific sampler, never directly under a Test Plan, Thread Group, or transaction/controller. Use a JSR223 Sampler for setup logic that should run once in sequence.
-                - JMeter Regex Extractors use the ORO/Perl5 engine, not java.util.regex. Do not use \\Q...\\E, lookbehind, named groups, or Java-only constructs. Escape literal metacharacters with single backslashes and make the regex match the exact evidence snippet you provide; for JSON, first verify whether the field is a quoted string, number, array, escaped value, or absent. If the bridge rejects the regex/evidence pair, fix the regex or fetch the correct body/header evidence instead of bypassing with allowUnmatchedEvidence.
-                - For credential parameterization, preserve the original username/password literal, replace request data with `${variable}` first, then set the User Defined Variable to the original literal. When using broad replace/search for credentials, pass excludeUserDefinedVariables=true so the Test Plan variables table is not self-replaced.
-                - When renaming stale UUIDs or IDs in element names after request data has been parameterized, use replace_literal_in_names_open_plan so request data is not changed to `{variable}` by mistake.
-                - When using replace_literal_open_plan, replace_literal_in_names_open_plan, apply_regex_correlation_open_plan without a target sampler, or search_open_plan_values, pass threadGroupName or scopeNodePath for the selected Thread Group. Use allowWholePlan=true only when the user explicitly requested a global edit.
-                - Do NOT run validate_open_plan or validate_jmx unless the user's instructions explicitly ask to validate, test, or run the script. Edit tool results are self-verifying (they report the resolved nodes, replacements, and extractor placement), and regex/assertion edits are checked against evidence at apply time — for a typical targeted change, confirm via the edit results plus one search_open_plan_values check and finish. If validation is explicitly requested, run one bounded compact validate_open_plan with scopeNodePath set to the selected Thread Group path, stopOnFirstFailure, and includeDsl=false.
-                - Update BreakTest AI Knowledge only when the task produced a clearly reusable project pattern, using one small appendLearnings call; skip it otherwise.
-                - Keep progress concise. Do not echo prompts, code, full XML, or long tool payloads.
-                - Before finishing, call list_agent_changes_open_plan and summarize only the changes made for this specific request.
-                - Use plain text only in the final response. Do not use markdown tables because the BreakTest AI log is a plain Swing text area.
-
-                Context:
-                - Open plan file: %s
-                - Backup before live edits: %s
-                - Selected Thread Group: %s
-                - Selected Thread Group path: %s
-                %s
-                """.replace("{{BRIDGE}}", bridgeCommand()).formatted(
-                request.threadGroupPath(),
-                testPlanFile == null ? "(unknown)" : testPlanFile,
-                request.backupPath().isBlank() ? "(unknown)" : request.backupPath(),
-                request.threadGroupName(),
-                request.threadGroupPath(),
-                userInstructionBlock(request)
-        );
+        return AiPrompts.render(AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
+                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
+                Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
+                Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
+                Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
+                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
+        ));
     }
 
     private static String fileBackedRepairPrompt(AiRunRequest request, String testPlanFile) {
-        String taskScope = request.mode() == AiRunMode.SPECIFIC_REQUEST
-                ? "Complete only the specific user-requested task against the repair target file."
-                : "Repair and harden the selected Thread Group in the repair target file.";
-        String workflowDescription = """
-                This is the native BreakTest JMX file repair workflow. BreakTest saved the current GUI state, \
-                created an immutable backup, and selected the active saved JMX as the repair target. \
-                The launcher reloads that active JMX after the agent finishes.""";
-        String targetDescription = "Edit only the active JMX: `%s`. Never edit the backup file.";
-        String finishInstruction = "- Provide the active repaired JMX path. BreakTest will reload that same file after the run.\n";
-        return """
-                Use $breaktest-jmeter-repair.
-
-                %s
-
-                Requirements:
-                - First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
-                - %s
-                - %s
-                - Keep the backup file unchanged. All repairs belong in the active JMX repair target.
-                - Do not use sibling backup/repaired/exported JMX files as repair evidence or as a source to transplant nodes unless the user explicitly asks to compare or reuse another file. Treat only the selected repair target, linked HAR evidence, validation evidence, and AI Knowledge as authoritative.
-                - Use direct JMX/XML or structured file editing on the repair target when needed. Prefer robust XML/property-aware edits over brittle text-only changes.
-                - Use the supported BreakTest agent bridge command for compact evidence and validation: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
-                - Before the first edit, call `{{BRIDGE}} tools` and read only the schemas needed for file inspection, linked HAR evidence, validation, and progress. Do not echo the full tools output.
-                - You may use inspect_jmx and validate_jmx against the repair target. Use includeDsl=false and includeStaticAssets=false by default; request raw DSL or static assets only for a specific local edit/correlation question and keep limits small.
-                - You may use read-only open-plan context tools against the original GUI plan, especially get_ai_knowledge_open_plan with createIfMissing=false, plan_repair_actions_open_plan, get_repair_actions_open_plan, get_repair_action_open_plan, list_recorded_har_exchanges_open_plan, get_recorded_har_exchange_open_plan, search_recorded_har_open_plan, audit_recorded_har_correlations_open_plan, and agent_activity.
-                - Do not use open-plan edit tools such as replace_literal_open_plan, apply_regex_correlation_open_plan, add_response_assertion_open_plan, set_user_defined_variable_open_plan, move_node_open_plan, or delete_node_open_plan because those would edit the live GUI plan outside the file-backed repair flow. Translate any useful open-plan action evidence into structured edits on the repair target file.
-                - Broad search/replace must be scoped to the selected Thread Group subtree. The only allowed edits outside that subtree are top-level User Defined Variables, shared config elements that the selected Thread Group directly uses, BreakTest AI Knowledge, and the optional summary sidecar. Do not perform whole-JMX replacement of credentials, UUIDs, IDs, tokens, paths, headers, or names.
-                - Scope the repair to exactly one Thread Group path from the original GUI selection: `%s`.
-                - Validate only the selected Thread Group scope. If validate_jmx supports a threadGroupName or threadGroupPath argument, pass it. If it does not, create a temporary validation-only copy of the target with other enabled Thread Groups disabled, validate that copy, and keep all real edits in the repair target. Do not chase failures from backup, duplicate, or out-of-scope Thread Groups.
-                - If the target file contains BreakTest AI Knowledge, read and update it in the target file with reusable learnings from this run.
-                - For full script repair, work top-to-bottom through the selected Thread Group. Audit paths, query strings, POST/form/raw bodies, cookies, and custom headers for UUIDs, IDs, random strings, timestamps, credentials, CSRF/request-verification tokens, bearer/access tokens, nonce/state, draw IDs, date/time fields, and long opaque values.
-                - If linked HAR evidence is available, use it before the first validation run. Call plan_repair_actions_open_plan for the selected Thread Group once with includeStaticAssets=false, maxActions around 40, maxUnresolved around 25, contextChars around 80, and includeApplyArguments=false. Fetch details only for high-confidence actions you intend to apply; use get_repair_actions_open_plan for multiple selected action IDs instead of many one-action calls. Do not rerun the planner unless the first result is stale or incomplete. Batch proven credential variables, token/state/code/nonce/csrf/request-verification correlations, path/body/header replacements, and static name cleanup into the target file before the first validate_jmx.
-                - If linked HAR response bodies are omitted or blank, do not treat matching recorded request values as extractor evidence. Keep scenario values as named User Defined Variables, wait for validation response evidence, or record the candidate as unresolved. Do not add speculative extractors that overwrite variables with NOT_FOUND.
-                - If no useful linked HAR evidence is available, run exactly one bounded compact validate_jmx before repair. Then analyze request/response evidence up to the first failure, ignore static assets, identify high-correlation-potential path/query/body/header/cookie values, search earlier validation responses by field name and literal, and batch all evidence-backed correlations/parameterizations before rerunning.
-                - The repair loop is: inspect JMX plus HAR/AI Knowledge evidence; batch high-confidence static/HAR edits; validate the target once; analyze the compact first-failure evidence; batch the next set of evidence-backed edits; rerun; repeat until the selected Thread Group validates through the flow or a real external blocker remains. Do not rerun validation merely to reshape, filter, or summarize the same evidence.
-                - For a specific request, do only that request and avoid a broad repair pass unless the user explicitly asked for it.
-                - Prefer native extractors for correlations. Use Regex Extractors by default; use JSONPath when the source is JSON and JSON-path extraction is more robust than regex; use CSS selectors for HTML when CSS selection is more robust; use XPath for XML/HTML when path selection is more robust. Do not use Boundary Extractors. Do not use a JSR223 PostProcessor that reads `prev.getResponseDataAsString()` or `prev.getResponseHeaders()` for a value that a native Regex/JSONPath/CSS/XPath extractor can capture.
-                - Only add extractors from evidence: validated response, recorded response, or existing AI Knowledge. If a response was not reached and no recorded response/knowledge proves the marker, document the gap instead of inventing a node.
-                - Choose the extractor field at creation time from the evidence location. If the marker is in response headers, Location, Set-Cookie, or another response header, create/update the extractor with useField=headers immediately instead of first trying body.
-                - Before adding a Regex Extractor, inspect the intended source sampler for an existing extractor with the same variableName. If it exists, update it instead of adding a duplicate unless the duplicate is deliberate and explained in the change summary.
-                - The only valid inline UUID function form in this BreakTest/JMeter build is `${__UUID}`. Never use `${__UUID()}` or `${__UUID(name)}`. UUIDs should be correlated first. Generate a UUID only after earlier response/header evidence is exhausted and validated HTML/JavaScript, AI Knowledge, or reached request semantics prove it is client-generated. For a one-off client-generated UUID in a request field, prefer inline `${__UUID}`; use JSR223/setup only when the same generated UUID must be reused across multiple request fields or transformed before use. Do not generate UUIDs for unreached later requests just because they look client-like.
-                - JavaScript evidence such as `crypto.randomUUID()` proves the browser can generate UUIDs, not that a server endpoint accepts any random UUID. If a generated UUID causes a 404/400, stop generating it; keep the value as a named User Defined Variable seeded with the recorded literal or mark it unresolved until a source response is proven.
-                - Never put `${...}` variable references in sampler/controller/transaction/assertion/extractor names. Use static display placeholders such as `{ticket_id}` in names.
-                - Preserve original credential literal values in User Defined Variables and replace request data with variable references. Do not self-replace the variable values.
-                - When a regex extractor supports multiple response shapes, design it with one capture group or a template that cannot emit `null`. Avoid `$1$$2$` style templates unless this BreakTest/JMeter runtime is known not to render unmatched groups as `null`. Do not replace a simple native Regex/JSONPath extractor with JSR223 just because the first attempt had the wrong field, sampler parent, regex, or JSON path; correct, move, or re-add the native extractor by stable sourceNodePath first.
-                - JMeter Regex Extractors use the ORO/Perl5 engine, not java.util.regex. Do not use \\Q...\\E, lookbehind, named groups, or Java-only constructs. Escape literal metacharacters with single backslashes and make the regex match the exact validated/recorded response snippet you used as evidence. For JSON fields, verify whether the field is a quoted string, number, array, escaped value, encoded value, or absent before choosing a regex; use JSONPath instead when that is more robust. If a bridge tool rejects a regex/evidence pair, fix the regex or fetch the correct body/header evidence instead of bypassing with allowUnmatchedEvidence.
-                - Do not add new response assertions during the repair/correlation phase while validation is still blocked. If the assertion phase is enabled, immediately after the first green flow, do one compact dynamic request audit. If that audit finds evidence-backed leftovers, apply those hardening edits and add one meaningful assertion per transaction in the same edit batch, then run one final validate_jmx. Do not run a separate validation between post-green hardening and assertion insertion unless the hardening changes credentials/auth, redirect behavior, sampler execution order, or the source evidence is uncertain. Use assertion snippets from the latest green validation response evidence whenever possible; do not rerun validation only to collect snippets unless that evidence lacks safe markers. Assertions must be meaningful and unique to the expected response; avoid weak single words and generic strings that could match an error page.
-                - If a response assertion fails, update or remove only that failing assertion. Do not remove all AI-created assertions just because one marker was too strict. If a required extractor has failOnNoMatch=true, do not add another assertion merely to prove the extractor matched.
-                - Keep static browser assets enabled and runnable, but keep them out of model-facing analysis by default. Use includeStaticAssets=true only when a stylesheet, JavaScript, image, font, favicon, or source-map response is directly relevant to a failure or suspected correlation source.
-                - After replacing hard-coded values with extracted variables, re-check Parallel Controllers. Token/API/XHR samplers that depend on extracted data should run sequentially before their dependents; keep only independent static browser assets in parallel.
-                - Validate in bounded runs against the repair target with validate_jmx using path exactly `%s`, compact=true, maxSamples, stopOnFirstFailure, includeDsl=false, compactSampleLimit around 20, compactBodyLimit around 1500, and tight responseBodyLimit/requestBodyLimit values. Never call validate_jmx without the path argument. Increase scope only after blockers are understood. Do not rerun validation merely to reshape, filter, or summarize the same evidence; save the validation JSON locally or use local jq/scripts on the previous output instead.
-                - If the next blocker is a static browser asset such as css/js/mjs/map/image/font returning 404 and no current HTML/response evidence references that exact asset URL, keep the sampler enabled but rerun functional validation with ignoreStaticAssetFailures=true so repair can continue to the next non-static request. Report ignoredStaticFailureCount and do not declare the script repaired only because static failures were ignored.
-                - Before declaring a login/callback/payment/basket/order failure blocked, use validate_jmx `preFailureDynamicCandidates`, `preFailureRequestCandidates`, `validation.evidenceSamples`, and the successful samples before `analysis.firstFailure` to audit every enabled non-static request up to and including the failing sampler. Check path, query, POST/form/raw body, headers, cookies, redirect `Location`, hidden fields, `state`, `code`, nonce/correlation cookies, csrf/request-verification values, credentials, and missing extractor reuse.
-                - Do not disable samplers merely to make validation green.
-                - Keep progress concise. Do not echo prompts, code, full XML, patch diffs, JSON sidecar diffs, raw summary JSON, or long tool payloads.
-                %s
-
-                Before finishing:
-                - Save all edits to the repair target path.
-                - Write a machine-readable repair summary JSON to `%s`. Use this shape: {"status":"green|blocked","validation":{"green":true|false,"transactions":["..."],"blockers":["..."]},"changes":[{"type":"Added extractor","node":"sampler or node path","summary":"short change","details":"short evidence/result"}],"audit":[{"transaction":"...","assertionStatus":"...","dynamicValuesReviewed":"...","correlationsAdded":"...","remainingBlockers":"..."}],"followUps":["..."]}. Keep values short; do not include secrets beyond variable names or long raw response bodies.
-                %s
-                - Provide a plain-text audit list with transaction name, assertion status, dynamic values reviewed, correlations added, and remaining blockers.
-                - Provide a concise change list of added/updated variables, extractors, assertions, samplers, headers, bodies, paths, and names.
-                - State whether bounded validation of the repair target is green or still blocked.
-                - Use plain text only in the final response. Do not use markdown tables because the BreakTest AI log is a plain Swing text area.
-
-                Context:
-                - Open plan file: %s
-                - Backup before run: %s
-                - Repair target to edit: %s
-                - Selected Thread Group: %s
-                - Selected Thread Group path: %s
-                %s
-                """.replace("{{BRIDGE}}", bridgeCommand()).formatted(
-                taskScope,
-                workflowDescription,
-                targetDescription.formatted(
-                        request.repairTargetPath().isBlank() ? "(missing repair target path)" : request.repairTargetPath()),
-                request.threadGroupPath(),
-                repairSummaryPath(request).isBlank() ? "(missing repair summary path)" : repairSummaryPath(request),
-                request.repairTargetPath().isBlank() ? "(missing repair target path)" : request.repairTargetPath(),
-                finishInstruction,
-                runOptionsInstruction(request),
-                testPlanFile == null ? "(unknown)" : testPlanFile,
-                request.backupPath().isBlank() ? "(unknown)" : request.backupPath(),
-                request.repairTargetPath().isBlank() ? "(missing repair target path)" : request.repairTargetPath(),
-                request.threadGroupName(),
-                request.threadGroupPath(),
-                userInstructionBlock(request)
-        );
+        String taskScope = AiPrompts.fragment(request.mode() == AiRunMode.SPECIFIC_REQUEST
+                ? "taskScope.specificRequest"
+                : "taskScope.fullRepair");
+        return AiPrompts.render(AiPrompts.FILE_BACKED_REPAIR, Map.ofEntries(
+                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("TASK_SCOPE", taskScope),
+                Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
+                Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
+                Map.entry("REPAIR_TARGET", orMissing(request.repairTargetPath(), "repair target path")),
+                Map.entry("REPAIR_SUMMARY_PATH", orMissing(repairSummaryPath(request), "repair summary path")),
+                Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
+                Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
+                Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
+                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
+        ));
     }
 
     private static String userInstructionBlock(AiRunRequest request) {
-        return """
-
-                User-provided start dialog instructions:
-                - AI Tool: %s
-                - Mode: %s
-                - Edit surface: %s
-                - Add assertions: %s
-                - Maximum runtime seconds: %d
-                - Similar retry limit: %d
-                - Thread Group: %s
-                - Extra instructions:
-                %s
-                """.formatted(
-                request.tool().displayName(),
-                request.mode().displayName(),
-                request.editSurface().displayName(),
-                request.addAssertions() ? "yes" : "no",
-                request.maxRuntimeSeconds(),
-                request.maxSimilarRetries(),
-                request.threadGroupName().isBlank() ? "(none selected)" : request.threadGroupName(),
-                request.instructions().isBlank() ? "(none provided)" : indent(request.instructions())
-        );
+        return AiPrompts.render(AiPrompts.USER_INSTRUCTIONS, Map.ofEntries(
+                Map.entry("TOOL", request.tool().displayName()),
+                Map.entry("MODE", request.mode().displayName()),
+                Map.entry("EDIT_SURFACE", request.editSurface().displayName()),
+                Map.entry("ADD_ASSERTIONS", request.addAssertions() ? "yes" : "no"),
+                Map.entry("MAX_RUNTIME_SECONDS", Integer.toString(request.maxRuntimeSeconds())),
+                Map.entry("MAX_SIMILAR_RETRIES", Integer.toString(request.maxSimilarRetries())),
+                Map.entry("THREAD_GROUP_NAME",
+                        request.threadGroupName().isBlank() ? "(none selected)" : request.threadGroupName()),
+                Map.entry("EXTRA_INSTRUCTIONS",
+                        request.instructions().isBlank() ? "(none provided)" : indent(request.instructions()))
+        ));
     }
 
     private static String runOptionsInstruction(AiRunRequest request) {
-        String assertionInstruction = request.addAssertions()
-                ? """
-                        - Assertion phase is enabled. Add meaningful response assertions only after the selected flow is green \
-                        and high-confidence dynamic leftovers are resolved or documented."""
-                : """
-                        - Assertion phase is disabled by the start dialog. Skip adding or updating Response Assertions unless \
-                        the user explicitly asks for assertions in the extra instructions. Keep failOnNoMatch=true for required \
-                        extractors because that is correlation failure detection, not a transaction assertion.""";
-        return """
-                - Start-dialog run budget: finish or report blockers before %d seconds. Do not repeat a similar failed validation/edit loop more than %d times; if the same task fails again, summarize the blocker and move to other safe candidates or stop.
-                %s
-                - When a required extractor has failOnNoMatch=true, do not add a separate Response Assertion solely to prove that extractor matched.
-                """.formatted(
-                request.maxRuntimeSeconds(),
-                request.maxSimilarRetries(),
-                assertionInstruction
-        );
+        return AiPrompts.render(AiPrompts.RUN_OPTIONS, Map.of(
+                "MAX_RUNTIME_SECONDS", Integer.toString(request.maxRuntimeSeconds()),
+                "MAX_SIMILAR_RETRIES", Integer.toString(request.maxSimilarRetries()),
+                "ASSERTION_INSTRUCTION",
+                AiPrompts.fragment(request.addAssertions() ? "assertions.enabled" : "assertions.disabled")
+        ));
+    }
+
+    private static String orUnknown(String value) {
+        return value == null || value.isBlank() ? "(unknown)" : value;
+    }
+
+    private static String orMissing(String value, String label) {
+        return value == null || value.isBlank() ? "(missing " + label + ")" : value;
     }
 
     private static AiRunRequest showStartDialog(GuiPackage gui) {
@@ -998,7 +920,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. OpenCode is available for experimentation.
+                Codex and Claude Code are the preferred harnesses. OpenCode and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1335,7 +1257,8 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
-        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd");
+        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
+        COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
 
         private final String id;
         private final String displayName;
@@ -1366,7 +1289,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE };
+        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE, AiTool.COPILOT };
     }
 
     private static final class AiRunRequest {
@@ -1531,7 +1454,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         AiOutputFilter(AiTool tool) {
             this.tool = tool;
-            this.finalResponseStarted = tool == AiTool.OPENCODE || tool == AiTool.CLAUDE;
+            // Codex marks its final response with a "codex" sentinel line; every
+            // other CLI streams plain agent text from the first line onwards.
+            this.finalResponseStarted = tool != AiTool.CODEX;
         }
 
         String displayLine(String rawLine) {
@@ -1542,6 +1467,14 @@ public class AiAutoScriptingAction extends AbstractAction {
                 output.captureTokenLine(trimmed);
                 if (SHOW_RAW_OUTPUT) {
                     display = line;
+                } else if (isAgentDecorationLine(trimmed)) {
+                    // Copilot CLI draws each tool call as a box: a bullet header, the
+                    // arguments indented behind a vertical bar, then a rule with a
+                    // line count. The bridge already logs every tool call with its
+                    // timing, so this is noise in the activity log. Token capture
+                    // above still sees the line, which is why the stats are not
+                    // suppressed at the CLI with -s.
+                    return null;
                 } else if (shouldStartDiffSuppression(trimmed)) {
                     suppressDiffOutput = true;
                 } else if (suppressDiffOutput && !shouldEndDiffSuppression(trimmed)) {
@@ -1586,6 +1519,23 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private static String stripAnsi(String line) {
             return line.replaceAll("\u001B\\[[0-9;]*[A-Za-z]", "").replace("\u001B", "");
+        }
+
+        /**
+         * Glyphs an agent CLI uses to draw its own tool-call boxes: bullets, spinners
+         * and box-drawing rules. Copilot renders each call as a bullet header, the
+         * arguments behind vertical bars, then a footer with a line count.
+         */
+        private static final String AGENT_DECORATION_GLYPHS =
+                "\u25CF\u25CB\u25D0\u2502\u2514\u251C\u250C\u2510\u2518\u2500\u256D\u2570\u2571";
+
+        /**
+         * True for a line that belongs to an agent CLI's tool-call rendering rather
+         * than to agent text. Matching on the leading glyph keeps this independent of
+         * the wording, which differs per tool and per version.
+         */
+        private static boolean isAgentDecorationLine(String trimmed) {
+            return !trimmed.isEmpty() && AGENT_DECORATION_GLYPHS.indexOf(trimmed.charAt(0)) >= 0;
         }
 
         private static boolean looksLikeToolEcho(String line) {

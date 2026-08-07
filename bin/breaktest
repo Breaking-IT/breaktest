@@ -143,17 +143,23 @@ if [ "$CURRENT_VERSION" -lt "$MINIMAL_VERSION" ]; then
 fi
 
 : "${JMETER_OPTS:=""}"
+# Options whose value is a path built from the install directory must never go
+# into JMETER_OPTS/ARGS: those are word-split when java is invoked, so an
+# install path containing a space (for example a second download unpacked as
+# "breaktest 2") would be torn into two arguments. Keep such options in their
+# own variable and pass it quoted.
+DOCK_ICON=""
 case `uname` in
    Darwin*)
    # Add Mac-specific properties - should be ignored elsewhere (Bug 47064)
-   if [ -f ${PRGDIR}/../xdocs/images/breaktest_square.png ]; then
-       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../xdocs/images/breaktest_square.png"
-   elif [ -f ${PRGDIR}/../docs/images/breaktest_square.png ]; then
-       JMETER_OPTS="${JMETER_OPTS} -Xdock:icon=${PRGDIR}/../docs/images/breaktest_square.png"
+   if [ -f "${PRGDIR}/../xdocs/images/breaktest_square.png" ]; then
+       DOCK_ICON="-Xdock:icon=${PRGDIR}/../xdocs/images/breaktest_square.png"
+   elif [ -f "${PRGDIR}/../docs/images/breaktest_square.png" ]; then
+       DOCK_ICON="-Xdock:icon=${PRGDIR}/../docs/images/breaktest_square.png"
    fi
    # Note: macOS still shows "java" process name (see https://bugs.openjdk.java.net/browse/JDK-8173753)
    # The workaround could be to distribute *.dmg bundle
-   JMETER_OPTS="${JMETER_OPTS} -Xdock:name=BreakTest -Xdock:icon=${PRGDIR}/../docs/images/breaktest_square.png -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
+   JMETER_OPTS="${JMETER_OPTS} -Xdock:name=BreakTest -Dapple.laf.useScreenMenuBar=true -Dapple.eawt.quitStrategy=CLOSE_ALL_WINDOWS"
    ;;
 esac
 
@@ -207,10 +213,35 @@ DUMP="-XX:+HeapDumpOnOutOfMemoryError"
 SYSTEM_PROPS="-Djava.security.egd=file:/dev/urandom"
 SERVER="-server"
 
-if [ -z "${JMETER_COMPLETE_ARGS}" ]; then
-    ARGS="$JAVA_OPTS $SERVER $DUMP $HEAP $VERBOSE_GC $GC_ALGO $SYSTEM_PROPS $JMETER_LANGUAGE $RUN_IN_DOCKER"
-else
-    ARGS=""
+# Application Class-Data Sharing (Java 19+): caches loaded-class metadata in a
+# per-user archive so subsequent startups skip most classfile parsing.
+# The archive is created automatically on first exit and regenerated whenever the
+# jars change; if it cannot be mapped the JVM silently falls back to normal loading.
+# Set BREAKTEST_CDS=off to disable.
+: "${BREAKTEST_CDS:="on"}"
+CDS=""
+CDS_ARCHIVE=""
+if [ "off" != "$BREAKTEST_CDS" ] && [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" -ge 19 ] 2>/dev/null; then
+    CDS_DIR="${HOME}/.breaktest"
+    mkdir -p "$CDS_DIR" 2>/dev/null
+    if [ -w "$CDS_DIR" ]; then
+        # -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
+        # that newer JVMs print at error level on the first run
+        CDS="-XX:+AutoCreateSharedArchive -Xlog:cds*=off"
+        # Passed separately from CDS so a home directory containing a space
+        # still gets a shared archive.
+        CDS_ARCHIVE="-XX:SharedArchiveFile=${CDS_DIR}/appcds-java${CURRENT_VERSION}.jsa"
+    fi
 fi
 
-"$JAVA_HOME/bin/java" $ARGS $JVM_ARGS $JMETER_OPTS -jar "$PRGDIR/breaktest.jar" "$@"
+if [ -z "${JMETER_COMPLETE_ARGS}" ]; then
+    ARGS="$JAVA_OPTS $SERVER $DUMP $HEAP $VERBOSE_GC $GC_ALGO $SYSTEM_PROPS $JMETER_LANGUAGE $RUN_IN_DOCKER $CDS"
+else
+    ARGS=""
+    CDS_ARCHIVE=""
+fi
+
+# ARGS, JVM_ARGS and JMETER_OPTS stay unquoted on purpose: they are flat strings
+# holding several options each. DOCK_ICON and CDS_ARCHIVE embed a filesystem
+# path, so they are expanded only when set and always as a single word.
+"$JAVA_HOME/bin/java" $ARGS $JVM_ARGS $JMETER_OPTS ${CDS_ARCHIVE:+"$CDS_ARCHIVE"} ${DOCK_ICON:+"$DOCK_ICON"} -jar "$PRGDIR/breaktest.jar" "$@"

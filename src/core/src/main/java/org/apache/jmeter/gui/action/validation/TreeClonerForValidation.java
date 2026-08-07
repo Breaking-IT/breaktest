@@ -19,6 +19,7 @@ package org.apache.jmeter.gui.action.validation;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.TreeCloner;
+import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup;
@@ -78,26 +79,35 @@ public class TreeClonerForValidation extends TreeCloner {
                 (VALIDATION_IGNORE_BACKENDS && node instanceof Backend)) {
             return node; // don't add timer or backend
         } else {
-            Object clonedNode = super.addNodeToTree(node);
+            Object nodeToClone = node instanceof OpenModelThreadGroup openModelThreadGroup
+                    ? convertToStandardThreadGroup(openModelThreadGroup)
+                    : node;
+            Object clonedNode = super.addNodeToTree(nodeToClone);
             if(clonedNode instanceof ThreadGroup tg) {
-                if (tg.isOpenModel()) {
-                    tg.setOpenModelRandomSeedString("0");
-                    // Launch all the iterations during the first second, and leave one hour for the threads to complete
-                    tg.setOpenModelSchedule("rate(" + VALIDATION_ITERATIONS + " / sec) even_arrivals(1 sec) pause(1 hour)");
-                } else {
-                    tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
-                    tg.setScheduler(false);
-                    tg.setProperty(ThreadGroup.DELAY, 0);
-                    if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
-                        ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
-                    }
+                // Validation executes the Thread Group once, independently of its configured load model.
+                // This is a clone, so normalizing it does not alter the configured test plan.
+                tg.setThreadGroupModel(ThreadGroup.MODEL_CLOSED);
+                tg.setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
+                tg.setClosedModelSchedule("");
+                tg.setOpenModelSchedule("");
+                tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
+                tg.setScheduler(false);
+                tg.setProperty(ThreadGroup.DELAY, 0);
+                if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
+                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
                 }
-            } else if (clonedNode instanceof OpenModelThreadGroup tg) {
-                tg.setRandomSeedString("0");
-                // Launch all the iterations during the first second, and leave one hour for the threads to complete
-                tg.setScheduleString("rate(" + VALIDATION_ITERATIONS + " / sec) even_arrivals(1 sec) pause(1 hour)");
             }
             return clonedNode;
         }
+    }
+
+    private static ThreadGroup convertToStandardThreadGroup(OpenModelThreadGroup source) {
+        ThreadGroup target = new ThreadGroup();
+        PropertyIterator properties = source.propertyIterator();
+        while (properties.hasNext()) {
+            target.setProperty(properties.next().clone());
+        }
+        target.setSamplerController(new LoopController());
+        return target;
     }
 }

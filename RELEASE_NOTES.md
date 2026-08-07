@@ -13,6 +13,186 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.07.31 — AI Scripting, JMX Migration, and Results Tree Responsiveness
+
+BreakTest 2026.07.31 expands AI Auto Scripting with GitHub Copilot CLI,
+improves correlation planning performance and correctness, adds a safe guided
+upgrade from standard JMeter JMX files, and keeps the Results Tree responsive
+when inspecting very large response bodies.
+
+## AI Auto Scripting
+
+- Adds GitHub Copilot CLI as an experimental AI Auto Scripting harness alongside
+  Codex, Claude Code, opencode, and MCP workflows.
+- Reads model and token statistics without showing Copilot's tool-call boxes in
+  the activity log, and reports clear setup guidance when a configured CLI is
+  missing.
+- Speeds up correlation planning by indexing candidate literals in one pass per
+  recorded response and caching the native recording store instead of reopening
+  and reformatting it for every tool call.
+- Validates that a proposed regular expression captures the intended dynamic
+  value with the same Perl5 engine used by the Regex Extractor. Invalid
+  candidates remain unresolved instead of producing a misleading correlation.
+- Prompts to save an unsaved plan before reading its linked recording and
+  distinguishes an unreadable recording from a plan that has none.
+- Lists the individual nodes changed by small search-and-replace operations so
+  each can be reached directly from the AI activity log.
+- Uses recording-oriented tool names instead of calling every linked recording
+  HAR, while retaining the previous tool spellings as compatibility aliases.
+- Moves the repair prompts into named resource templates and improves bridge
+  diagnostics without changing the rendered prompt variants.
+
+## Standard JMX Upgrade
+
+- Detects standard XML JMeter JMX files when they are opened and asks for
+  explicit confirmation before converting them to BreakTest's native archive
+  format.
+- Keeps an exact, collision-safe JMeter-compatible backup next to the source
+  file and replaces the source through a temporary file, atomically when the
+  platform supports it.
+- Leaves the source untouched when conversion is declined or fails and skips
+  the prompt for plans already stored in native BreakTest format.
+- Converts GUI tree nodes through the normal Save preparation path before
+  serialization, preventing XStream conversion failures during the upgrade.
+
+## Results Tree and Desktop Reliability
+
+- Adds the existing **Jump to** action to the Results Tree table-view context
+  menu, matching tree-view navigation.
+- Avoids inserting a large Text-renderer response into a hidden Swing document
+  before showing the long-line warning.
+- Loads oversized single-line bodies as plain text with display-only safety line
+  breaks, avoiding expensive syntax highlighting while preserving the original
+  response for Pretty Print and response comparison.
+- Allows packaged launches from installation paths containing spaces, including
+  macOS dock icons and Class-Data Sharing paths.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans can still be opened without conversion
+  by declining the upgrade prompt.
+- Previous AI recording tool names remain accepted as aliases.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.07.31`.
+
+# BreakTest 2026.07.21 — HTTP Replay Fidelity and Response Comparison
+
+BreakTest 2026.07.21 makes modern HTTP recordings more faithful during replay
+and adds opt-in response comparison metrics to the Results Tree table. It also
+updates the browser recorder to 1.1.0 and refines several high-density GUI
+controls.
+
+## Results Tree Response Metrics
+
+- Adds **Received bytes** and compact **Encoding** columns to the Results Tree
+  table. Encoding identifies `gzip`, `deflate`, `br`, and `zstd` response
+  compression, including stacked encodings.
+- Adds an optional **Diff %** column that compares recorded and replayed
+  response bodies when both are available.
+- Keeps response comparison disabled by default behind a **Calculate diff**
+  toggle because large bodies can be CPU intensive.
+- Calculates multi-line differences by changed lines after normalizing line
+  endings, so a one-line change in a large document remains proportionally
+  small. Single-line bodies use a character-based comparison.
+- Leaves the percentage blank for binary or unavailable response bodies and
+  displays tiny non-zero differences as `<0.1%`.
+
+## Modern HTTP Replay Fidelity
+
+- Sends the exact HTTP/2 `content-length` whenever the request body length is
+  known, including `content-length: 0` for an empty POST, following RFC 9110.
+- Shows HTTP/2 and HTTP/3 pseudo-headers consistently in recorded and replayed
+  request details and normalizes modern-protocol header names, including
+  `cookie`, to lowercase.
+- Identifies HTTP/3 over QUIC explicitly in connection timeout and other
+  HTTP/3 error details.
+- Recognizes unmarked Chromium memory-cache reuses during HAR import and omits
+  the non-network reuse without replacing the original request's complete
+  headers with sparse contextual headers.
+
+## Browser Recorder and GUI
+
+- Updates the bundled browser extension to 1.1.0 with browser-local IndexedDB
+  staging for large HAR exports and transaction rename, removal, and
+  reassignment controls.
+- Preserves complete Chrome wire request headers, sent-cookie metadata, and
+  HTTP protocol when CDP extra-info events arrive out of order.
+- Vertically centers the duration, virtual-user, warning, and AI Log controls
+  in the command bar.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans continue to load and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.07.21`.
+
+# BreakTest 2026.07.19 — HTTP/3 over QUIC Beta
+
+BreakTest 2026.07.19 introduces beta HTTP/3 sampling over QUIC on Java 26,
+while retaining Java 21 compatibility for the rest of BreakTest. It also makes
+non-GUI startup faster, keeps validation independent of workload scheduling,
+and improves settings and modern-JDK compatibility.
+
+## HTTP/3 over QUIC Beta
+
+- Adds HTTP/3 as an explicit HTTP Request protocol, powered by the Java 26
+  `java.net.http` QUIC implementation.
+- Supports HTTP/3-only requests, direct HTTP/3 with TCP fallback, and optional
+  browser-like Alt-Svc discovery for samplers using the default protocol.
+- Set `httpsampler.http3.prefer_for_default=true` to let compatible default
+  samplers start over HTTP/2 or HTTP/1.1 and upgrade to HTTP/3 after the server
+  advertises Alt-Svc.
+- Records the negotiated HTTP version, destination endpoint, and TLS version in
+  sample results so QUIC traffic remains visible during debugging and analysis.
+- Reuses clients per thread, supports interruption and lifecycle cleanup, and
+  maps QUIC timeouts and connectivity failures to BreakTest's concise network
+  error codes.
+- Keeps the project build and standard HTTP samplers compatible with Java 21.
+  On Java 21–25, selecting HTTP/3 logs one warning and falls back to negotiated
+  HTTP/2 or HTTP/1.1.
+
+HTTP/3 support is beta. Explicit HTTP/3 samplers currently reject proxies and
+multipart uploads rather than silently ignoring them. Default samplers using
+those features remain on HttpClient 5. The JDK QUIC stack also requires its
+built-in trust manager, so JMeter client-certificate keystores and lenient
+certificate trust do not apply to HTTP/3 requests.
+
+## Faster Startup and Modern Java
+
+- Caches classpath scan results and invalidates them automatically when the
+  runtime JAR set changes.
+- Creates and reuses a per-Java-version AppCDS archive for non-GUI launches;
+  set `BREAKTEST_CDS=off` to disable it.
+- Avoids legacy XStream Unsafe and final-field mutation probes by using the
+  pure-Java reflection provider.
+- Enables native access for packaged launches to avoid FlatLaf native-library
+  warnings on recent JDKs.
+- Keeps the Gradle daemon on Java 21 for reproducible builds while the packaged
+  application remains compatible with Java 21 and newer.
+
+## Validation, Archives, and Settings
+
+- Runs validation as exactly one closed-model thread and one iteration,
+  regardless of whether the source Thread Group uses an open or closed model.
+- Stops validation when that iteration completes instead of waiting for the
+  original open-model schedule.
+- Identifies compressed JMX archives before emitting normal-file load events,
+  preventing plugin analysis from attempting to parse ZIP data as XML.
+- Reworks the Settings dialog into compact rows that show effective defaults
+  and adds an Overrides tab for values changed by user properties, system
+  properties, or command-line arguments.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans continue to load and save normally.
+- HTTP/3-specific JMX values can be opened on Java 21–25 and use the documented
+  HTTP/2 or HTTP/1.1 fallback.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.07.19`.
+
 # BreakTest 2026.07.17 — HAR Import and HTTP Request Controls
 
 BreakTest 2026.07.17 streamlines transaction-aware HAR imports, clarifies

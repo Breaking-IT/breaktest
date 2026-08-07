@@ -27,6 +27,7 @@ plugins {
 dependencies {
     api(projects.src.launcher)
     api(projects.src.jorphan)
+    testRuntimeOnly(projects.src.xstreamCompat)
     testImplementation(testFixtures(projects.src.jorphan))
 
     api("com.fifesoft:rsyntaxtextarea") {

@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.edit
 import org.apache.jmeter.ai.ScriptRepairSampler
 import org.apache.jmeter.config.Argument
 import org.apache.jmeter.config.Arguments
+import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.property.TestElementProperty
 import org.apache.jmeter.treebuilder.dsl.testTree
@@ -69,6 +70,79 @@ class TestPlanEditorReplacementTest {
         )
 
         assertEquals(2, replacements)
+    }
+
+    @Test
+    fun `replace literal in tree reports which elements changed`() {
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler("First", requestBody = "state=OLD_STATE")
+                    +ScriptRepairSampler("Second", requestHeaders = "Referer: /resume?state=OLD_STATE")
+                    +ScriptRepairSampler("Untouched", requestBody = "nothing to see")
+                }
+            }
+        }
+
+        val changed = mutableListOf<TestElement>()
+        val replacements = TestPlanEditor().replaceLiteralInTree(
+            tree,
+            "OLD_STATE",
+            "\${auth0_login_state}",
+            changedElements = changed,
+        )
+
+        assertEquals(2, replacements)
+        // Only the elements that actually changed, and each of them once.
+        assertEquals(listOf("First", "Second"), changed.map { it.name.orEmpty() }.sorted())
+    }
+
+    @Test
+    fun `replace literal reports the element once when it changes several properties`() {
+        val sampler = ScriptRepairSampler(
+            "Login",
+            requestBody = "state=OLD_STATE",
+            requestHeaders = "Referer: /resume?state=OLD_STATE",
+        )
+
+        val changed = mutableListOf<TestElement>()
+        val replacements = TestPlanEditor().replaceLiteral(
+            sampler,
+            ListedHashTree(),
+            "OLD_STATE",
+            "\${auth0_login_state}",
+            changedElements = changed,
+        )
+
+        assertTrue(replacements >= 2, "expected both properties to change, got $replacements")
+        assertEquals(listOf("Login"), changed.map { it.name.orEmpty() })
+    }
+
+    @Test
+    fun `replace literal in names reports the renamed elements`() {
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +ScriptRepairSampler("GET /api/tickets/OLD_ID")
+                    +ScriptRepairSampler("POST /api/tickets/OLD_ID/confirm")
+                    +ScriptRepairSampler("GET /api/health")
+                }
+            }
+        }
+
+        val changed = mutableListOf<TestElement>()
+        val replacements = TestPlanEditor().replaceLiteralInNamesInTree(
+            tree,
+            "OLD_ID",
+            "{ticket_id}",
+            changedElements = changed,
+        )
+
+        assertEquals(2, replacements)
+        assertEquals(
+            listOf("GET /api/tickets/{ticket_id}", "POST /api/tickets/{ticket_id}/confirm"),
+            changed.map { it.name.orEmpty() }.sorted(),
+        )
     }
 
     @Test

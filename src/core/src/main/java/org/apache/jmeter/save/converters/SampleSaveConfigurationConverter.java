@@ -24,7 +24,6 @@ import com.thoughtworks.xstream.converters.UnmarshallingContext;
 import com.thoughtworks.xstream.converters.reflection.PureJavaReflectionProvider;
 import com.thoughtworks.xstream.converters.reflection.ReflectionConverter;
 import com.thoughtworks.xstream.converters.reflection.ReflectionProvider;
-import com.thoughtworks.xstream.core.JVM;
 import com.thoughtworks.xstream.io.HierarchicalStreamReader;
 import com.thoughtworks.xstream.io.HierarchicalStreamWriter;
 import com.thoughtworks.xstream.mapper.Mapper;
@@ -38,17 +37,7 @@ import com.thoughtworks.xstream.mapper.MapperWrapper;
  */
 public class SampleSaveConfigurationConverter  extends ReflectionConverter {
 
-    private static final ReflectionProvider rp;
-
-    static {
-        ReflectionProvider tmp;
-        try {
-            tmp = JVM.newReflectionProvider();
-        } catch (NullPointerException e) {// Bug in above method
-            tmp = new PureJavaReflectionProvider();
-        }
-        rp = tmp;
-    }
+    private static final ReflectionProvider REFLECTION_PROVIDER = new PureJavaReflectionProvider();
 
     private static final String TRUE = "true"; // $NON-NLS-1$
 
@@ -96,7 +85,7 @@ public class SampleSaveConfigurationConverter  extends ReflectionConverter {
     }
 
     public SampleSaveConfigurationConverter(Mapper arg0) {
-        super(new MyWrapper(arg0),rp);
+        super(new MyWrapper(arg0), REFLECTION_PROVIDER);
     }
 
     /**

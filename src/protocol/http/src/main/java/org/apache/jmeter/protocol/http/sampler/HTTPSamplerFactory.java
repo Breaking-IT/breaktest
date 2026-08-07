@@ -77,17 +77,63 @@ public final class HTTPSamplerFactory {
         return new String[]{IMPL_HTTP_CLIENT5};
     }
 
+    /**
+     * When true and the runtime supports HTTP/3 (Java 26+), samplers with a blank/default
+     * protocol use the JDK HTTP/3 client with Alt-Svc discovery (HTTP/3 preferred, falling
+     * back to HTTP/2 or HTTP/1.1 per request) instead of HttpClient5 negotiation.
+     * Samplers using features the HTTP/3 implementation does not support (multipart,
+     * proxies) keep using HttpClient5.
+     */
+    private static final boolean PREFER_HTTP3_FOR_DEFAULT =
+            JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", false); //$NON-NLS-1$
+
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
+        return getImplementation(impl, base, Http3RuntimeSupport.isHttp3Supported(), PREFER_HTTP3_FOR_DEFAULT);
+    }
+
+    // package-private so tests can exercise both the supported and unsupported runtime paths
+    static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base, boolean http3Supported) {
+        return getImplementation(impl, base, http3Supported, PREFER_HTTP3_FOR_DEFAULT);
+    }
+
+    // package-private so tests can exercise the prefer-HTTP/3-for-default paths
+    static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base,
+            boolean http3Supported, boolean preferHttp3ForDefault) {
         if (HTTPSamplerBase.PROTOCOL_FILE.equals(base.getProtocol())) {
             return new HTTPFileImpl(base);
         }
         if (!StringUtilities.isBlank(impl) && !isKnownImplementation(impl)) {
             throw new IllegalArgumentException("Unknown implementation type: '"+impl+"'");
         }
+        if (base.isHttp3Protocol()) {
+            if (http3Supported) {
+                return new HTTPJavaHttp3Impl(base);
+            }
+            Http3RuntimeSupport.warnHttp3FallbackOnce();
+            return new HTTPHC5H2Impl(base); // isHttp2Protocol() is false, so the impl negotiates
+        }
+        if (preferHttp3ForDefault && http3Supported
+                && StringUtilities.isBlank(base.getHttpProtocol())
+                && supportedByJavaHttp3Client(base)) {
+            // Browser-like: first request per origin over TCP, upgrade to HTTP/3 on Alt-Svc
+            return new HTTPJavaHttp3Impl(base, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
+        }
         if (!base.isHttp11Protocol()) {
             return new HTTPHC5H2Impl(base);
         }
         return new HTTPHC5Impl(base);
+    }
+
+    /**
+     * Whether a default-protocol sampler can be routed to the JDK HTTP/3 client without
+     * losing configured behavior: multipart uploads and proxies are HttpClient5-only.
+     */
+    private static boolean supportedByJavaHttp3Client(HTTPSamplerBase base) {
+        if (base.getUseMultipart()) {
+            return false;
+        }
+        boolean dynamicProxy = StringUtilities.isNotBlank(base.getProxyHost()) && base.getProxyPortInt() > 0;
+        return !dynamicProxy && !HTTPHCAbstractImpl.PROXY_DEFINED;
     }
 
     public static String normalizeImplementation(String impl) {

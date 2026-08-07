@@ -34,5 +34,9 @@ tasks.withType<ProcessResources>().configureEach {
 tasks.named<Jar>(JavaPlugin.JAR_TASK_NAME) {
     manifest {
         attributes["Main-Class"] = "org.apache.jmeter.NewDriver"
+        // FlatLaf uses native libraries for operating-system integration. Java 24+
+        // warns unless classpath code has native access; older supported JDKs safely
+        // ignore this manifest attribute.
+        attributes["Enable-Native-Access"] = "ALL-UNNAMED"
     }
 }

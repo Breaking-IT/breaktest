@@ -19,12 +19,15 @@ package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
@@ -72,6 +75,35 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase {
                 + "Content-Type: application/json\n"
                 + "\n"
                 + "{\"source\":\"entry-index\"}", exchange.orElseThrow().response());
+        assertEquals("{\"source\":\"entry-index\"}", exchange.orElseThrow().responseBody());
+    }
+
+    @Test
+    public void reusesTheFormattedExchangeUntilTheHarChanges() throws Exception {
+        Path harPath = tempDir.resolve("recording.har");
+        String har = harWithTwoEntries();
+        Files.writeString(harPath, har, StandardCharsets.UTF_8);
+        JMeterTreeNode samplerNode = samplerNodeWithOnlyEntryIndex("1", md5(har));
+        Path planFile = tempDir.resolve("plan.jmx");
+
+        RecordedHarExchangeResolver.RecordedExchange first =
+                RecordedHarExchangeResolver.findFor(samplerNode, planFile).orElseThrow();
+        RecordedHarExchangeResolver.RecordedExchange second =
+                RecordedHarExchangeResolver.findFor(samplerNode, planFile).orElseThrow();
+        // Formatting a HAR entry decodes and reassembles the whole exchange, and the
+        // AI planner resolves every sampler on each call, so the result is cached.
+        assertSame(first, second);
+
+        // Rewriting the HAR must not keep serving the previous text.
+        String changed = har.replace("entry-index", "entry-index-v2");
+        Files.writeString(harPath, changed, StandardCharsets.UTF_8);
+        Files.setLastModifiedTime(harPath, FileTime.fromMillis(System.currentTimeMillis() + 5_000));
+        JMeterTreeNode changedNode = samplerNodeWithOnlyEntryIndex("1", md5(changed));
+
+        RecordedHarExchangeResolver.RecordedExchange refreshed =
+                RecordedHarExchangeResolver.findFor(changedNode, planFile).orElseThrow();
+        assertNotSame(first, refreshed);
+        assertTrue(refreshed.response().contains("entry-index-v2"), refreshed.response());
     }
 
     @Test
@@ -171,6 +203,7 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase {
         assertTrue(exchange.response().contains("Content-Type: image/png"));
         assertFalse(exchange.response().contains("PNG"));
         assertFalse(exchange.response().contains("IHDR"));
+        assertEquals("", exchange.responseBody());
     }
 
     @Test
