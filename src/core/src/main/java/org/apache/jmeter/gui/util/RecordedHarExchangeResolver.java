@@ -762,7 +762,7 @@ public final class RecordedHarExchangeResolver {
         int controls = 0;
         for (int i = 0; i < text.length(); i++) {
             char current = text.charAt(i);
-            if (current == '\uFFFD') {
+            if (current == '�') {
                 return false;
             }
             if (Character.isISOControl(current)

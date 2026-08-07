@@ -13,6 +13,49 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.08.07 — Safer AI Repair and Desktop Polish
+
+BreakTest 2026.08.07 makes AI-assisted repairs safer by keeping backups
+untouched, brings Results Tree table mode in line with tree mode, and polishes
+desktop behavior across themes, menus, icons, and modern Java launches.
+
+## AI Repair Safety
+
+- Creates a backup of the current JMX file before AI repair, then continues the
+  repair against the active file instead of modifying the backup.
+- Keeps the backup as an unchanged recovery point while preserving the normal
+  save and reload behavior of the active test plan.
+- Updates the file-backed repair prompt and setup guidance to describe the
+  corrected backup workflow consistently.
+
+## Results Tree and Element Navigation
+
+- Adds the tree view's search and filtering controls to Results Tree table mode.
+- Shows a full-width horizontal divider between the result list and details so
+  the draggable resize boundary is easy to discover.
+- Adds distinct tree icons for CSV Data Set Config and User Defined Variables
+  elements and uses the HTTP Header Manager icon consistently in the tree and
+  Add menu.
+- Restores the original Add menu category order and separators, keeping Pre
+  Processors and Post Processors together.
+
+## Desktop and Build Reliability
+
+- Refreshes reused file chooser components before display so open and save
+  dialogs follow a theme changed while BreakTest is running.
+- Enables native access for FlatLaf in packaged launchers, removing restricted
+  native-library warnings on recent Java versions.
+- Restores `./gradlew clean compile` as an explicit aggregate compilation task
+  across all subprojects.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans and BreakTest archives continue to load
+  and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.08.07`.
+
 # BreakTest 2026.07.31 — AI Scripting, JMX Migration, and Results Tree Responsiveness
 
 BreakTest 2026.07.31 expands AI Auto Scripting with GitHub Copilot CLI,
