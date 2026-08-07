@@ -90,6 +90,15 @@ val displayVersion by extra {
 
 println("Building BreakTest $version")
 
+tasks.register("compile") {
+    group = "build"
+    description = "Compiles all main source sets."
+    dependsOn(tasks.named("classes"))
+    dependsOn(subprojects.map { subproject ->
+        subproject.tasks.matching { it.name == "classes" }
+    })
+}
+
 fun reportsForHumans() = !(System.getenv()["CI"]?.toBoolean() ?: boolProp("CI") ?: false)
 
 val lastEditYear by extra(lastEditYear().toString())

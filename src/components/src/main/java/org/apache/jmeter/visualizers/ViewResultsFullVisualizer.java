@@ -94,6 +94,7 @@ import javax.swing.event.TreeSelectionListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
+import javax.swing.table.TableRowSorter;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
@@ -185,12 +186,13 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private static final Icon imageFailure = createStatusIcon(false);
 
-    private JSplitPane mainSplit;
+    private ResultListSplitPane mainSplit;
     private DefaultMutableTreeNode root;
     private DefaultTreeModel treeModel;
     private JTree jTree;
     private JTable resultTable;
     private ResultTableModel resultTableModel;
+    private TableRowSorter<ResultTableModel> resultTableSorter;
     private TableColumn[] resultTableColumns;
     private boolean[] selectedResultTableColumns;
     private JTabbedPane resultListTabs;
@@ -517,11 +519,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         rightSide.addChangeListener(e -> renderSelectedTabIfNeeded());
 
         // Create the split pane
-        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSide, rightSide);
+        mainSplit = new ResultListSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSide, rightSide);
         mainSplit.setOneTouchExpandable(true);
         updateResultListLayout();
 
-        searchPanel = new SearchTreePanel(root);
+        searchPanel = new SearchTreePanel(root, resultTableModel, resultTableSorter, this::isTableMode);
         searchPanel.setVisible(false);
 
         JPanel resultsPanel = new JPanel(new BorderLayout());
@@ -1004,7 +1006,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
         };
         resultTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        resultTable.setAutoCreateRowSorter(true);
+        resultTableSorter = new TableRowSorter<>(resultTableModel);
+        resultTable.setRowSorter(resultTableSorter);
         resultTable.setDefaultRenderer(Icon.class, new StatusIconTableCellRenderer());
         resultTable.setDefaultRenderer(Double.class, new DiffPercentTableCellRenderer());
         resultTable.getSelectionModel().addListSelectionListener(event -> {
@@ -1197,12 +1200,16 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         mainSplit.setTopComponent(leftSide);
         mainSplit.setBottomComponent(rightSide);
         mainSplit.setResizeWeight(isTableMode() ? 0.45 : 0.25);
+        mainSplit.setTableMode(isTableMode());
         if (resultColumnsButton != null) {
             resultColumnsButton.setVisible(isTableMode());
             resultColumnsButton.getParent().revalidate();
         }
         if (calculateResponseDiffCB != null) {
             calculateResponseDiffCB.setVisible(isTableMode());
+        }
+        if (searchPanel != null) {
+            searchPanel.updateSearchTarget();
         }
         if (divider > 0) {
             mainSplit.setDividerLocation(divider);
