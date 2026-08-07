@@ -674,6 +674,7 @@ val runGui by tasks.registering(JavaExec::class) {
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
     classpath("$rootDir/bin/breaktest.jar")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
 
@@ -728,6 +729,7 @@ val runGuiWithAgent by tasks.registering(JavaExec::class) {
     workingDir = File(project.rootDir, "bin")
     mainClass.set("org.apache.jmeter.NewDriver")
     classpath("$rootDir/bin/breaktest.jar")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Xss256k")
     jvmArgs("-XX:MaxMetaspaceSize=256m")
     jvmArgs("-Dbreaktest.agent.enabled=true")
