@@ -1518,7 +1518,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
 
         private static String stripAnsi(String line) {
-            return line.replaceAll("\u001B\\[[0-9;]*[A-Za-z]", "").replace("\u001B", "");
+            return line.replaceAll("\033\\[[0-9;]*[A-Za-z]", "").replace("\033", "");
         }
 
         /**
@@ -1526,8 +1526,7 @@ public class AiAutoScriptingAction extends AbstractAction {
          * and box-drawing rules. Copilot renders each call as a bullet header, the
          * arguments behind vertical bars, then a footer with a line count.
          */
-        private static final String AGENT_DECORATION_GLYPHS =
-                "\u25CF\u25CB\u25D0\u2502\u2514\u251C\u250C\u2510\u2518\u2500\u256D\u2570\u2571";
+        private static final String AGENT_DECORATION_GLYPHS = "●○◐│└├┌┐┘─╭╰╱";
 
         /**
          * True for a line that belongs to an agent CLI's tool-call rendering rather
