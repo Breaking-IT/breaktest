@@ -146,6 +146,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final Logger log = LoggerFactory.getLogger(HTTPHC5H2Impl.class);
 
+    private static final List<String> AUTH_SCHEME_PRIORITY = List.of(
+            StandardAuthScheme.NTLM,
+            StandardAuthScheme.DIGEST,
+            StandardAuthScheme.BASIC);
+
     private static final String CONTEXT_ATTRIBUTE_LOCAL_ADDRESS = "__jmeter.L_A_H2__";
 
     private static final String CONTEXT_ATTRIBUTE_CONNECT_RECORDED = "__jmeter.C_R_H2__";
@@ -1140,6 +1145,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .register(StandardAuthScheme.DIGEST, new DigestSchemeFactory())
                 .register(StandardAuthScheme.NTLM, new NTLMSchemeFactory())
                 .build();
+    }
+
+    @Override
+    protected List<String> authSchemePriority() {
+        return AUTH_SCHEME_PRIORITY;
     }
 
     @Override

@@ -93,7 +93,6 @@ import org.apache.hc.client5.http.impl.DefaultConnectionKeepAliveStrategy;
 import org.apache.hc.client5.http.impl.DefaultHttpRequestRetryStrategy;
 import org.apache.hc.client5.http.impl.LaxRedirectStrategy;
 import org.apache.hc.client5.http.impl.auth.BasicAuthCache;
-import org.apache.hc.client5.http.impl.auth.BasicCredentialsProvider;
 import org.apache.hc.client5.http.impl.auth.BasicScheme;
 import org.apache.hc.client5.http.impl.auth.BasicSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.DigestScheme;
@@ -529,6 +528,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             StandardAuthScheme.KERBEROS,
             StandardAuthScheme.DIGEST,
             StandardAuthScheme.BASIC);
+
+    protected List<String> authSchemePriority() {
+        return AUTH_SCHEME_PRIORITY;
+    }
 
     private static final KerberosConfig KERBEROS_CONFIG = KerberosConfig.custom()
             .setStripPort(AuthManager.STRIP_PORT)
@@ -1350,22 +1353,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (key.hasProxy) {
                 proxy = new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort);
 
-                CredentialsStore credsProvider = new BasicCredentialsProvider();
                 if (!key.proxyUser.isEmpty()) {
                     proxyAuthScope = new AuthScope(key.proxyHost, key.proxyPort);
                     proxyCredentials = new NTCredentials(key.proxyUser, key.proxyPass.toCharArray(), LOCALHOST, PROXY_DOMAIN);
-                    credsProvider.setCredentials(
-                            proxyAuthScope,
-                            proxyCredentials);
                 }
-                builder.setDefaultCredentialsProvider(credsProvider);
             }
             builder.setRoutePlanner(new JMeterDefaultRoutePlanner(proxy));
             builder.disableContentCompression(); // Disable automatic decompression
+            builder.setDefaultCredentialsProvider(
+                    new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials));
             if(BASIC_AUTH_PREEMPTIVE) {
                 builder.addRequestInterceptorFirst(PREEMPTIVE_AUTH_INTERCEPTOR);
-            } else {
-                builder.setDefaultCredentialsProvider(new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials));
             }
             httpClient = builder.build();
             if (log.isDebugEnabled()) {
@@ -1491,8 +1489,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         rCB.setRedirectsEnabled(getAutoRedirects());
         rCB.setMaxRedirects(HTTPSamplerBase.MAX_REDIRECTS);
-        rCB.setTargetPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
-        rCB.setProxyPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
+        rCB.setTargetPreferredAuthSchemes(authSchemePriority());
+        rCB.setProxyPreferredAuthSchemes(authSchemePriority());
         httpRequest.setConfig(rCB.build());
         // a well-behaved browser is supposed to send 'Connection: close'
         // with the last request to an HTTP server. Instead, most browsers

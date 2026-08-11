@@ -623,6 +623,49 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
+    public void http11ChallengeAuthenticationUsesManagedCredentialsWhenPreemptiveAuthIsEnabled() {
+        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        server.start();
+        try {
+            server.stubFor(WireMock.get("/ntlm")
+                    .atPriority(1)
+                    .withHeader(HTTPConstants.HEADER_AUTHORIZATION, WireMock.matching("NTLM .+"))
+                    .willReturn(WireMock.aResponse().withStatus(200).withBody("ok")));
+            server.stubFor(WireMock.get("/ntlm")
+                    .atPriority(2)
+                    .willReturn(WireMock.aResponse()
+                            .withStatus(401)
+                            .withHeader("WWW-Authenticate", "NTLM")));
+
+            HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+            sampler.setProtocol(HTTPConstants.PROTOCOL_HTTP);
+            sampler.setDomain("localhost");
+            sampler.setPort(server.port());
+            sampler.setPath("/ntlm");
+            sampler.setMethod(HTTPConstants.GET);
+            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+            AuthManager authManager = new AuthManager();
+            authManager.set(-1,
+                    "http://localhost:" + server.port() + "/ntlm",
+                    "user",
+                    "pass",
+                    "DOMAIN",
+                    "",
+                    Mechanism.DIGEST);
+            sampler.setAuthManager(authManager);
+
+            SampleResult result = sampler.sample();
+
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertEquals("ok", result.getResponseDataAsString());
+            server.verify(WireMock.getRequestedFor(WireMock.urlEqualTo("/ntlm"))
+                    .withHeader(HTTPConstants.HEADER_AUTHORIZATION, WireMock.matching("NTLM .+")));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
     @SuppressWarnings("deprecation")
     public void requestConfigPrefersNtlmForChallengeAuthentication() throws Exception {
         HTTPHC5Impl sampler = new HTTPHC5Impl(new HTTPSamplerProxy());
@@ -635,6 +678,23 @@ public class TestHTTPHC5Impl {
                 StandardAuthScheme.NTLM,
                 StandardAuthScheme.SPNEGO,
                 StandardAuthScheme.KERBEROS,
+                StandardAuthScheme.DIGEST,
+                StandardAuthScheme.BASIC);
+        assertEquals(expected, config.getTargetPreferredAuthSchemes());
+        assertEquals(expected, config.getProxyPreferredAuthSchemes());
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void http2RequestConfigOnlyPrefersRegisteredAuthenticationSchemes() throws Exception {
+        HTTPHC5H2Impl sampler = new HTTPHC5H2Impl(new HTTPSamplerProxy());
+        HttpGet request = new HttpGet(new URI("https://example.test/secure"));
+
+        sampler.setupRequest(new URI("https://example.test/secure").toURL(), request, null);
+
+        RequestConfig config = request.getConfig();
+        List<String> expected = List.of(
+                StandardAuthScheme.NTLM,
                 StandardAuthScheme.DIGEST,
                 StandardAuthScheme.BASIC);
         assertEquals(expected, config.getTargetPreferredAuthSchemes());
