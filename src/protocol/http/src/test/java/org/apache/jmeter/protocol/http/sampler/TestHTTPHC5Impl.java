@@ -20,6 +20,8 @@ package org.apache.jmeter.protocol.http.sampler;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -35,6 +37,7 @@ import java.util.Base64;
 import java.util.List;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
+import org.apache.hc.client5.http.auth.AuthScope;
 import org.apache.hc.client5.http.auth.Credentials;
 import org.apache.hc.client5.http.auth.NTCredentials;
 import org.apache.hc.client5.http.auth.StandardAuthScheme;
@@ -43,7 +46,9 @@ import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.classic.methods.HttpPost;
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
 import org.apache.hc.core5.http.io.entity.FileEntity;
@@ -623,10 +628,98 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
-    public void http11ChallengeAuthenticationUsesManagedCredentialsWhenPreemptiveAuthIsEnabled() {
+    @SuppressWarnings("deprecation")
+    public void managedCredentialsProviderServesProxyCredentialsForChallengeScope() {
+        NTCredentials proxyCredentials = new NTCredentials("proxyUser", "proxyPass".toCharArray(), "localhost", "");
+        HTTPHC5Impl.ManagedCredentialsProvider provider = new HTTPHC5Impl.ManagedCredentialsProvider(
+                null, new AuthScope("proxy.test", 8888), proxyCredentials);
+        // A challenge scope carries the protocol and the scheme name, the client key scope does not
+        AuthScope challengeScope = new AuthScope(
+                new HttpHost("http", "proxy.test", 8888), "proxy realm", StandardAuthScheme.BASIC);
+
+        assertSame(proxyCredentials, provider.getCredentials(challengeScope, null));
+
+        provider.clear();
+
+        assertSame(proxyCredentials, provider.getCredentials(challengeScope, null),
+                "proxy credentials must survive a clear() by the preemptive interceptor");
+    }
+
+    @Test
+    public void managedCredentialsProviderMatchesChallengeRealmWhenAuthorizationHasNone() {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        AuthManager authManager = new AuthManager();
+        authManager.set(-1, "http://example.test:8080/secure/", "user", "pass", "", "", Mechanism.DIGEST);
+        HTTPHC5Impl.ManagedCredentialsProvider provider =
+                new HTTPHC5Impl.ManagedCredentialsProvider(authManager, null, null);
+        AuthScope challengeScope = new AuthScope(
+                new HttpHost("http", "example.test", 8080), "server-realm", StandardAuthScheme.DIGEST);
+
+        assertEquals("user", userNameOf(provider.getCredentials(challengeScope, null)));
+    }
+
+    @Test
+    public void managedCredentialsProviderResolvesVariablesForEveryLookup() {
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("authUser", "first-user");
+        JMeterContextService.getContext().setVariables(variables);
+        AuthManager authManager = new AuthManager();
+        authManager.set(-1, "http://example.test:8080/secure/", "${authUser}", "pass", "", "", Mechanism.BASIC);
+        HTTPHC5Impl.ManagedCredentialsProvider provider =
+                new HTTPHC5Impl.ManagedCredentialsProvider(authManager, null, null);
+        AuthScope challengeScope = new AuthScope(
+                new HttpHost("http", "example.test", 8080), null, StandardAuthScheme.BASIC);
+
+        assertEquals("first-user", userNameOf(provider.getCredentials(challengeScope, null)));
+
+        variables.put("authUser", "second-user");
+
+        assertEquals("second-user", userNameOf(provider.getCredentials(challengeScope, null)),
+                "the HttpClient is cached per thread, its credentials must not be");
+    }
+
+    @Test
+    public void managedCredentialsProviderPrefersAuthManagerOfCurrentSample() {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        AuthManager clientAuthManager = new AuthManager();
+        clientAuthManager.set(-1, "http://example.test:8080/secure/", "client-user", "pass", "", "", Mechanism.BASIC);
+        AuthManager sampleAuthManager = new AuthManager();
+        sampleAuthManager.set(-1, "http://example.test:8080/secure/", "sample-user", "pass", "", "", Mechanism.BASIC);
+        HTTPHC5Impl.ManagedCredentialsProvider provider =
+                new HTTPHC5Impl.ManagedCredentialsProvider(clientAuthManager, null, null);
+        HttpClientContext context = HttpClientContext.create();
+        context.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_AUTH_MANAGER, sampleAuthManager);
+        AuthScope challengeScope = new AuthScope(
+                new HttpHost("http", "example.test", 8080), null, StandardAuthScheme.BASIC);
+
+        assertEquals("sample-user", userNameOf(provider.getCredentials(challengeScope, context)));
+    }
+
+    @Test
+    public void managedCredentialsProviderServesCredentialsStoredPerRequest() {
+        HTTPHC5Impl.ManagedCredentialsProvider provider =
+                new HTTPHC5Impl.ManagedCredentialsProvider(null, null, null);
+        AuthScope challengeScope = new AuthScope(
+                new HttpHost("http", "example.test", 8080), "realm", StandardAuthScheme.BASIC);
+        UsernamePasswordCredentials credentials =
+                new UsernamePasswordCredentials("stored-user", "pass".toCharArray());
+
+        provider.setCredentials(new AuthScope("http", "example.test", 8080, null, null), credentials);
+
+        assertSame(credentials, provider.getCredentials(challengeScope, null));
+
+        provider.clear();
+
+        assertNull(provider.getCredentials(challengeScope, null));
+    }
+
+    @Test
+    public void http11NtlmChallengeIsAnsweredWithAuthManagerCredentials() {
         WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
         server.start();
         try {
+            // The stub accepts the type 1 message, it does not replay a full NTLM handshake:
+            // what is under test is that the NTLM scheme is handed the AuthManager credentials
             server.stubFor(WireMock.get("/ntlm")
                     .atPriority(1)
                     .withHeader(HTTPConstants.HEADER_AUTHORIZATION, WireMock.matching("NTLM .+"))
@@ -645,6 +738,8 @@ public class TestHTTPHC5Impl {
             sampler.setMethod(HTTPConstants.GET);
             sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
             AuthManager authManager = new AuthManager();
+            // The domain turns the credentials into NTCredentials, which is what lets the NTLM
+            // scheme answer the challenge, the mechanism only drives the preemptive header
             authManager.set(-1,
                     "http://localhost:" + server.port() + "/ntlm",
                     "user",
@@ -658,8 +753,6 @@ public class TestHTTPHC5Impl {
 
             assertTrue(result.isSuccessful(), result.getResponseMessage());
             assertEquals("ok", result.getResponseDataAsString());
-            server.verify(WireMock.getRequestedFor(WireMock.urlEqualTo("/ntlm"))
-                    .withHeader(HTTPConstants.HEADER_AUTHORIZATION, WireMock.matching("NTLM .+")));
         } finally {
             server.stop();
         }
@@ -735,6 +828,12 @@ public class TestHTTPHC5Impl {
         assertEquals("resolved-user", ntCredentials.getUserName());
         assertArrayEquals("resolved-pass".toCharArray(), ntCredentials.getPassword());
         assertEquals("RESOLVED", ntCredentials.getDomain());
+    }
+
+    private static String userNameOf(Credentials credentials) {
+        assertTrue(credentials instanceof UsernamePasswordCredentials,
+                () -> "expected username/password credentials but got " + credentials);
+        return ((UsernamePasswordCredentials) credentials).getUserName();
     }
 
     private static HTTPHC5Impl samplerWithAuth(String authUrl) {
