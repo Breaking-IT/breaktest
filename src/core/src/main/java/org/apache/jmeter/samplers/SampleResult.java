@@ -215,6 +215,13 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     private String threadName = ""; // Never return null
 
+    /**
+     * Name of the enclosing Parallel Controller when this sample was produced by one of its
+     * branches, otherwise empty. The controller is otherwise transparent, so this is the only
+     * way a listener can tell a concurrent child from a sequential one.
+     */
+    private String parallelGroup = ""; // Never return null
+
     private String responseMessage = "";
 
     private String responseHeaders = ""; // Never return null
@@ -430,6 +437,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         subResults = res.subResults;
         success = res.success;//OK
         threadName = res.threadName;//OK
+        parallelGroup = res.parallelGroup;//OK
         elapsedTime = res.elapsedTime;
         timeStamp = res.timeStamp;
     }
@@ -643,6 +651,34 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     public void setThreadName(String threadName) {
         this.threadName = threadName;
+    }
+
+    /**
+     * @return the name of the Parallel Controller this sample ran under, or an empty String when
+     *         the sample did not run in a parallel branch
+     * @since 2026.08
+     */
+    public String getParallelGroup() {
+        // Deserialising a result written by an older node skips field initialisers, so this can
+        // legitimately be null on a mixed-version distributed run.
+        return parallelGroup == null ? "" : parallelGroup;
+    }
+
+    /**
+     * @param parallelGroup name of the Parallel Controller this sample ran under; {@code null} is
+     *        stored as an empty String
+     * @since 2026.08
+     */
+    public void setParallelGroup(String parallelGroup) {
+        this.parallelGroup = parallelGroup == null ? "" : parallelGroup;
+    }
+
+    /**
+     * @return whether this sample was executed concurrently by a Parallel Controller
+     * @since 2026.08
+     */
+    public boolean isParallelGroupMember() {
+        return !getParallelGroup().isEmpty();
     }
 
     /**

@@ -169,6 +169,46 @@ class TestJMeterThread {
     }
 
 
+    /**
+     * Keeps the {@link SampleResult} it returned, so a test can inspect what the engine did to it
+     * after the sampler finished.
+     */
+    private static final class RecordingSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final transient List<SampleResult> results;
+        private final String subResultLabel;
+
+        private RecordingSampler(String name, List<SampleResult> results) {
+            this(name, results, null);
+        }
+
+        private RecordingSampler(String name, List<SampleResult> results, String subResultLabel) {
+            setName(name);
+            this.results = results;
+            this.subResultLabel = subResultLabel;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(true);
+            result.sampleEnd();
+            if (subResultLabel != null) {
+                SampleResult subResult = new SampleResult();
+                subResult.setSampleLabel(subResultLabel);
+                subResult.sampleStart();
+                subResult.setSuccessful(true);
+                subResult.sampleEnd();
+                result.addSubResult(subResult);
+            }
+            results.add(result);
+            return result;
+        }
+    }
+
     private static final class TrackingSampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
 
@@ -523,6 +563,11 @@ class TestJMeterThread {
         private static final long serialVersionUID = 1L;
 
         private final List<SampleEvent> events = Collections.synchronizedList(new ArrayList<>());
+        /**
+         * label=parallelGroup captured while the listener is being notified, so a test can prove
+         * the value was already set at that moment rather than filled in afterwards.
+         */
+        private final List<String> parallelGroups = Collections.synchronizedList(new ArrayList<>());
 
         private RecordingSampleListener(String name) {
             setName(name);
@@ -534,9 +579,16 @@ class TestJMeterThread {
             }
         }
 
+        List<String> parallelGroupsWhenNotified() {
+            synchronized (parallelGroups) {
+                return List.copyOf(parallelGroups);
+            }
+        }
+
         @Override
         public void sampleOccurred(SampleEvent e) {
             events.add(e);
+            parallelGroups.add(e.getResult().getSampleLabel() + "=" + e.getResult().getParallelGroup());
         }
 
         @Override
@@ -782,6 +834,103 @@ class TestJMeterThread {
                 "Parallel workers should share virtual user variables");
         assertEquals("yes", context.getVariables().get("written-by-three"),
                 "Parallel workers should share virtual user variables");
+    }
+
+    @Test
+    void testParallelGroupIsSetBeforeListenersAreNotified() throws Exception {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("page");
+        transactionController.setGenerateParentSample(false);
+        transactionController.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("assets");
+        parallelController.setMaxParallel(2);
+        parallelController.setEnabled(true);
+        RecordingSampleListener transactionListener = new RecordingSampleListener("transaction-listener");
+        RecordingSampleListener parallelListener = new RecordingSampleListener("parallel-listener");
+
+        testTree.add(loop);
+        testTree.add(loop, transactionController);
+        // A standalone child and a parallel group inside the same transaction: the shape that is
+        // indistinguishable without the tag.
+        testTree.add(transactionController, new SleepStatusSampler("solo", 0, true, null));
+        testTree.add(transactionController, transactionListener);
+        testTree.add(transactionController, parallelController);
+        testTree.add(parallelController, new SleepStatusSampler("one", 0, true, null));
+        testTree.add(parallelController, new SleepStatusSampler("two", 0, true, null));
+        testTree.add(parallelController, parallelListener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "parallel-group-tag-test");
+        runner.start();
+        runner.join(TimeUnit.SECONDS.toMillis(30));
+        assertFalse(runner.isAlive(), "Test plan should complete");
+
+        List<String> parallelTags = parallelListener.parallelGroupsWhenNotified();
+        assertTrue(parallelTags.contains("one=assets"),
+                "Parallel child 'one' should already carry its group when listeners run, got " + parallelTags);
+        assertTrue(parallelTags.contains("two=assets"),
+                "Parallel child 'two' should already carry its group when listeners run, got " + parallelTags);
+
+        List<String> transactionTags = transactionListener.parallelGroupsWhenNotified();
+        assertTrue(transactionTags.contains("solo="),
+                "The sequential sibling must stay untagged, got " + transactionTags);
+        assertTrue(transactionTags.contains("page="),
+                "The enclosing transaction itself is not a parallel group member, got " + transactionTags);
+    }
+
+    @Test
+    void testSampleResultIsNotTaggedWithoutParallelController() {
+        SampleResult result = new SampleResult();
+
+        assertEquals("", result.getParallelGroup(), "A sequential sample must not claim a parallel group");
+        assertFalse(result.isParallelGroupMember(), "A sequential sample is not a parallel group member");
+    }
+
+    @Test
+    void testParallelControllerTagsSubResults() throws Exception {
+        List<SampleResult> results = Collections.synchronizedList(new ArrayList<>());
+
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("page");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, new RecordingSampler("with-embedded", results, "embedded"));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
+
+        assertEquals(1, results.size());
+        SampleResult parent = results.get(0);
+        assertEquals("page", parent.getParallelGroup());
+        assertEquals(1, parent.getSubResults().length);
+        assertEquals("page", parent.getSubResults()[0].getParallelGroup(),
+                "Embedded resources should inherit the parallel group of their parent sample");
     }
 
     @Test

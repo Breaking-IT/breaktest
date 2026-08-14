@@ -812,10 +812,15 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private void fillThreadInformation(SampleResult result,
             int nbActiveThreadsInThreadGroup,
-            int nbTotalActiveThreads) {
+            int nbTotalActiveThreads,
+            JMeterContext threadContext) {
         result.setGroupThreads(nbActiveThreadsInThreadGroup);
         result.setAllThreads(nbTotalActiveThreads);
         result.setThreadName(threadName);
+        // A Parallel Controller is transparent otherwise: its children share the virtual user's
+        // thread name and enclosing transaction, so this is the only way a listener can tell a
+        // concurrent child from a sequential one.
+        result.setParallelGroup(threadContext.getParallelGroup());
     }
 
     /**
@@ -847,7 +852,8 @@ public class JMeterThread implements Runnable, Interruptible {
                         parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
                         transactionPack,
                         parentContext,
-                        enclosingSourceSampler));
+                        enclosingSourceSampler,
+                        parallelSampler.getName()));
                 activeBranches++;
             }
 
@@ -877,7 +883,8 @@ public class JMeterThread implements Runnable, Interruptible {
                             parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
                             transactionPack,
                             parentContext,
-                            enclosingSourceSampler));
+                            enclosingSourceSampler,
+                            parallelSampler.getName()));
                     activeBranches++;
                 }
             }
@@ -899,7 +906,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private Callable<SampleResult> parallelTask(ParallelControllerSampler.ParallelBranch parallelBranch,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext,
-            Function<? super Sampler, ? extends Sampler> enclosingSourceSampler) {
+            Function<? super Sampler, ? extends Sampler> enclosingSourceSampler,
+            String parallelGroup) {
         boolean forkWorker = isForkWorkerThread();
         Future<?> forkTask = CURRENT_FORK_TASK.get();
         // Resolves this branch's sampler clones to their source and keeps resolving through the
@@ -914,6 +922,10 @@ public class JMeterThread implements Runnable, Interruptible {
                 currentForkThreadsForInterruption.add(Thread.currentThread());
             }
             JMeterContext workerContext = createParallelContext(parentContext);
+            // Every sample this branch produces is stamped with the group in fillThreadInformation,
+            // which runs before listeners are notified. A nested controller overwrites it in its
+            // own worker context, so the innermost group wins.
+            workerContext.setParallelGroup(parallelGroup);
             if (branch instanceof ParallelContextModifier contextModifier) {
                 contextModifier.prepareParallelContext(workerContext);
             }
@@ -1052,11 +1064,11 @@ public class JMeterThread implements Runnable, Interruptible {
                 if (!result.isIgnore()) {
                     int nbActiveThreadsInThreadGroup = threadGroup.getNumberOfThreads();
                     int nbTotalActiveThreads = JMeterContextService.getNumberOfThreads();
-                    fillThreadInformation(result, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
+                    fillThreadInformation(result, nbActiveThreadsInThreadGroup, nbTotalActiveThreads, threadContext);
                     SampleResult[] subResults = result.getSubResults();
                     if (subResults != null) {
                         for (SampleResult subResult : subResults) {
-                            fillThreadInformation(subResult, nbActiveThreadsInThreadGroup, nbTotalActiveThreads);
+                            fillThreadInformation(subResult, nbActiveThreadsInThreadGroup, nbTotalActiveThreads, threadContext);
                         }
                     }
                     threadContext.setPreviousResult(result);
@@ -1224,7 +1236,8 @@ public class JMeterThread implements Runnable, Interruptible {
             boolean recoverControllers) {
         // Get the transaction sample result
         SampleResult transactionResult = transactionSampler.getTransactionResult();
-        fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
+        fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(),
+                JMeterContextService.getNumberOfThreads(), threadContext);
 
         // Check assertions for the transaction sample
         JMeterThreadAssertions.check(transactionPack.getAssertions(), transactionResult, threadContext);

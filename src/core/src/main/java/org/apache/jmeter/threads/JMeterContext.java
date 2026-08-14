@@ -53,6 +53,8 @@ public class JMeterContext {
     private TestLogicalAction testLogicalAction = TestLogicalAction.CONTINUE;
     private final ConcurrentHashMap<String, Object> samplerContext = new ConcurrentHashMap<>(5);
     private boolean recording;
+    /** Name of the Parallel Controller whose branch this context is executing, or "" for none. */
+    private String parallelGroup = "";
 
     JMeterContext() {
         clear0();
@@ -65,6 +67,25 @@ public class JMeterContext {
         clear0();
     }
 
+    /**
+     * @return name of the Parallel Controller whose branch is executing in this context, or an
+     *         empty String when the context is not inside a parallel branch
+     * @since 2026.08
+     */
+    public String getParallelGroup() {
+        return parallelGroup;
+    }
+
+    /**
+     * Internally called by JMeter, never call it directly.
+     *
+     * @param parallelGroup name of the Parallel Controller owning this branch
+     * @since 2026.08
+     */
+    public void setParallelGroup(String parallelGroup) {
+        this.parallelGroup = parallelGroup == null ? "" : parallelGroup;
+    }
+
     private void clear0() {
         variables = null;
         previousResult = null;
@@ -74,6 +95,7 @@ public class JMeterContext {
         threadNum = 0;
         thread = null;
         recording = false;
+        parallelGroup = "";
         samplerContext.clear();
     }
 

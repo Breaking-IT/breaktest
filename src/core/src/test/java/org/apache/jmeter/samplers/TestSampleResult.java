@@ -166,6 +166,25 @@ class TestSampleResult implements JMeterSerialTest {
     }
 
     @Test
+    void testParallelGroupDefaultsToEmptyAndSurvivesCopy() {
+        SampleResult res = new SampleResult();
+
+        Assertions.assertEquals("", res.getParallelGroup());
+        Assertions.assertFalse(res.isParallelGroupMember());
+
+        res.setParallelGroup("assets");
+        Assertions.assertTrue(res.isParallelGroupMember());
+
+        SampleResult copy = new SampleResult(res);
+        Assertions.assertEquals("assets", copy.getParallelGroup());
+        Assertions.assertTrue(copy.isParallelGroupMember());
+
+        res.setParallelGroup(null);
+        Assertions.assertEquals("", res.getParallelGroup());
+        Assertions.assertFalse(res.isParallelGroupMember());
+    }
+
+    @Test
     void testSubResultsTrue() throws Exception {
         testSubResults(true, 0);
     }
