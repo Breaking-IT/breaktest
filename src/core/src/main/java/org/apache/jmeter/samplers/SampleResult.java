@@ -222,6 +222,14 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     private String parallelGroup = ""; // Never return null
 
+    /**
+     * Identifies one execution of that Parallel Controller — the branches a single virtual user
+     * ran concurrently in one pass. Every sample from that pass shares the value, so a consumer
+     * can reconstruct how long the group itself took (last finish minus first start) rather than
+     * inferring it from per-sample averages.
+     */
+    private String parallelGroupExecution = ""; // Never return null
+
     private String responseMessage = "";
 
     private String responseHeaders = ""; // Never return null
@@ -438,6 +446,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         success = res.success;//OK
         threadName = res.threadName;//OK
         parallelGroup = res.parallelGroup;//OK
+        parallelGroupExecution = res.parallelGroupExecution;//OK
         elapsedTime = res.elapsedTime;
         timeStamp = res.timeStamp;
     }
@@ -679,6 +688,26 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public boolean isParallelGroupMember() {
         return !getParallelGroup().isEmpty();
+    }
+
+    /**
+     * @return an identifier shared by every sample of one concurrent pass through the Parallel
+     *         Controller, or an empty String when the sample did not run in a parallel branch
+     * @since 2026.08
+     */
+    public String getParallelGroupExecution() {
+        // Deserialising a result written by an older node skips field initialisers, so this can
+        // legitimately be null on a mixed-version distributed run.
+        return parallelGroupExecution == null ? "" : parallelGroupExecution;
+    }
+
+    /**
+     * @param parallelGroupExecution identifier of this concurrent pass; {@code null} is stored as
+     *        an empty String
+     * @since 2026.08
+     */
+    public void setParallelGroupExecution(String parallelGroupExecution) {
+        this.parallelGroupExecution = parallelGroupExecution == null ? "" : parallelGroupExecution;
     }
 
     /**

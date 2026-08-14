@@ -32,6 +32,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -568,6 +570,8 @@ class TestJMeterThread {
          * the value was already set at that moment rather than filled in afterwards.
          */
         private final List<String> parallelGroups = Collections.synchronizedList(new ArrayList<>());
+        /** label=parallelGroupExecution, captured at notification time. */
+        private final List<String> parallelExecutions = Collections.synchronizedList(new ArrayList<>());
 
         private RecordingSampleListener(String name) {
             setName(name);
@@ -585,10 +589,18 @@ class TestJMeterThread {
             }
         }
 
+        List<String> parallelExecutionsWhenNotified() {
+            synchronized (parallelExecutions) {
+                return List.copyOf(parallelExecutions);
+            }
+        }
+
         @Override
         public void sampleOccurred(SampleEvent e) {
             events.add(e);
             parallelGroups.add(e.getResult().getSampleLabel() + "=" + e.getResult().getParallelGroup());
+            parallelExecutions.add(
+                    e.getResult().getSampleLabel() + "=" + e.getResult().getParallelGroupExecution());
         }
 
         @Override
@@ -896,6 +908,52 @@ class TestJMeterThread {
 
         assertEquals("", result.getParallelGroup(), "A sequential sample must not claim a parallel group");
         assertFalse(result.isParallelGroupMember(), "A sequential sample is not a parallel group member");
+    }
+
+    @Test
+    void testParallelGroupExecutionIsSharedWithinAPassAndUniqueBetweenPasses() throws Exception {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(2); // two passes through the same controller
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("assets");
+        parallelController.setMaxParallel(2);
+        parallelController.setEnabled(true);
+        RecordingSampleListener listener = new RecordingSampleListener("listener");
+
+        testTree.add(loop);
+        testTree.add(loop, parallelController);
+        testTree.add(parallelController, new SleepStatusSampler("one", 0, true, null));
+        testTree.add(parallelController, new SleepStatusSampler("two", 0, true, null));
+        testTree.add(parallelController, listener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("exec-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "parallel-group-execution-test");
+        runner.start();
+        runner.join(TimeUnit.SECONDS.toMillis(30));
+        assertFalse(runner.isAlive(), "Test plan should complete");
+
+        List<String> execs = jMeterThread == null ? List.of() : listener.parallelExecutionsWhenNotified();
+        Set<String> ids = execs.stream()
+                .map(entry -> entry.substring(entry.indexOf('=') + 1))
+                .filter(id -> !id.isEmpty())
+                .collect(Collectors.toSet());
+
+        assertEquals(4, execs.size(), "Two passes x two samplers should report four samples, got " + execs);
+        assertEquals(2, ids.size(),
+                "Each pass needs its own id and both of its samplers must share it, got " + execs);
+        for (String id : ids) {
+            assertEquals(2, execs.stream().filter(entry -> entry.endsWith("=" + id)).count(),
+                    "Both samplers of a pass must carry the same id, got " + execs);
+        }
     }
 
     @Test

@@ -55,6 +55,8 @@ public class JMeterContext {
     private boolean recording;
     /** Name of the Parallel Controller whose branch this context is executing, or "" for none. */
     private String parallelGroup = "";
+    /** Identifies the single concurrent pass this branch belongs to, or "" outside one. */
+    private String parallelGroupExecution = "";
 
     JMeterContext() {
         clear0();
@@ -86,6 +88,24 @@ public class JMeterContext {
         this.parallelGroup = parallelGroup == null ? "" : parallelGroup;
     }
 
+    /**
+     * @return identifier of the concurrent pass this branch belongs to, or an empty String
+     * @since 2026.08
+     */
+    public String getParallelGroupExecution() {
+        return parallelGroupExecution;
+    }
+
+    /**
+     * Internally called by JMeter, never call it directly.
+     *
+     * @param parallelGroupExecution identifier of this concurrent pass
+     * @since 2026.08
+     */
+    public void setParallelGroupExecution(String parallelGroupExecution) {
+        this.parallelGroupExecution = parallelGroupExecution == null ? "" : parallelGroupExecution;
+    }
+
     private void clear0() {
         variables = null;
         previousResult = null;
@@ -96,6 +116,7 @@ public class JMeterContext {
         thread = null;
         recording = false;
         parallelGroup = "";
+        parallelGroupExecution = "";
         samplerContext.clear();
     }
 

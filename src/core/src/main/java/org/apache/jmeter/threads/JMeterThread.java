@@ -38,6 +38,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -152,6 +153,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * (to avoid adding lots of parameters, perhaps have a parameter wrapper object.
      */
     private String threadName;
+
+    /** Numbers each pass through a Parallel Controller, so passes can be told apart. */
+    private final AtomicLong parallelGroupExecutions = new AtomicLong();
 
     private int initialDelay = 0;
 
@@ -821,6 +825,7 @@ public class JMeterThread implements Runnable, Interruptible {
         // thread name and enclosing transaction, so this is the only way a listener can tell a
         // concurrent child from a sequential one.
         result.setParallelGroup(threadContext.getParallelGroup());
+        result.setParallelGroupExecution(threadContext.getParallelGroupExecution());
     }
 
     /**
@@ -838,6 +843,12 @@ public class JMeterThread implements Runnable, Interruptible {
             return;
         }
 
+        // One identifier per pass through this controller. Every sample the branches produce
+        // carries it, so a consumer can group them back together and measure how long the pass
+        // actually took, instead of inferring it from per-sample averages.
+        String parallelGroupExecution =
+                threadName + '-' + parallelSampler.getName() + '-' + parallelGroupExecutions.incrementAndGet();
+
         int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
@@ -853,7 +864,8 @@ public class JMeterThread implements Runnable, Interruptible {
                         transactionPack,
                         parentContext,
                         enclosingSourceSampler,
-                        parallelSampler.getName()));
+                        parallelSampler.getName(),
+                        parallelGroupExecution));
                 activeBranches++;
             }
 
@@ -884,7 +896,8 @@ public class JMeterThread implements Runnable, Interruptible {
                             transactionPack,
                             parentContext,
                             enclosingSourceSampler,
-                            parallelSampler.getName()));
+                            parallelSampler.getName(),
+                            parallelGroupExecution));
                     activeBranches++;
                 }
             }
@@ -907,7 +920,8 @@ public class JMeterThread implements Runnable, Interruptible {
     private Callable<SampleResult> parallelTask(ParallelControllerSampler.ParallelBranch parallelBranch,
             TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext,
             Function<? super Sampler, ? extends Sampler> enclosingSourceSampler,
-            String parallelGroup) {
+            String parallelGroup,
+            String parallelGroupExecution) {
         boolean forkWorker = isForkWorkerThread();
         Future<?> forkTask = CURRENT_FORK_TASK.get();
         // Resolves this branch's sampler clones to their source and keeps resolving through the
@@ -926,6 +940,7 @@ public class JMeterThread implements Runnable, Interruptible {
             // which runs before listeners are notified. A nested controller overwrites it in its
             // own worker context, so the innermost group wins.
             workerContext.setParallelGroup(parallelGroup);
+            workerContext.setParallelGroupExecution(parallelGroupExecution);
             if (branch instanceof ParallelContextModifier contextModifier) {
                 contextModifier.prepareParallelContext(workerContext);
             }
