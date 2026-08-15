@@ -175,11 +175,9 @@ public final class Jsr223AiHelper {
         try {
             outputFile = Files.createTempFile("breaktest-jsr223-ai-", ".txt");
             List<String> command = codexCommand(context, outputFile);
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(codexWorkingDirectory());
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
-            process.getOutputStream().close();
+            AiCliProcess processCommand = AiCliProcess.prepare(command, AiCliProcess.PromptStyle.CODEX);
+            Process process = processCommand.start(codexWorkingDirectory());
+            processCommand.writePrompt(process);
             streamShortOutput(process);
             int exitCode = process.waitFor();
             if (exitCode != 0) {

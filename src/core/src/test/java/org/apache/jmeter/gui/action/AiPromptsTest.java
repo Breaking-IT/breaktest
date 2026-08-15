@@ -33,6 +33,9 @@ class AiPromptsTest {
     /** Every token any shipped template may reference. */
     private static final Map<String, String> ALL_TOKENS = Map.ofEntries(
             Map.entry("BRIDGE", "/opt/breaktest/bin/breaktest-agent-tool"),
+            Map.entry("BRIDGE_CALL", "run the bridge with JSON arguments"),
+            Map.entry("START_ACTIVITY_INSTRUCTION", "First call agent_activity"),
+            Map.entry("AGENT_BOOTSTRAP", "Use the bundled bridge"),
             Map.entry("THREAD_GROUP_NAME", "Checkout"),
             Map.entry("THREAD_GROUP_PATH", "Test Plan > Checkout"),
             Map.entry("RUN_OPTIONS", "- run options"),

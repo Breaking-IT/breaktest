@@ -317,6 +317,87 @@ class AiAutoScriptingActionTest {
         }
     }
 
+    @Test
+    void windowsBridgeUsesShellNeutralPowerShellLauncherAndArgumentsFile(@org.junit.jupiter.api.io.TempDir Path temp)
+            throws Exception {
+        Properties properties = jmeterProperties();
+        String previousHome = JMeterUtils.getJMeterHome();
+        String previousTool = properties.getProperty("breaktest.agent.tool");
+        try {
+            Path home = temp.resolve("BreakTest Home");
+            Path launcher = home.resolve("bin").resolve("breaktest-agent-tool.ps1");
+            Files.createDirectories(launcher.getParent());
+            Files.writeString(launcher, "# test launcher\n");
+            JMeterUtils.setJMeterHome(home.toString());
+            properties.remove("breaktest.agent.tool");
+
+            String expected = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
+                    + launcher.toAbsolutePath() + "\"";
+            AgentBridgeCommand.Instructions instructions = AgentBridgeCommand.resolveInstructions(true);
+            assertEquals(expected, instructions.command());
+            assertTrue(instructions.bridgeCall().contains("--arguments-file"));
+            assertTrue(instructions.bridgeCall().contains("overwrite that file before every bridge call"));
+            assertTrue(instructions.startActivity().contains("agent_activity --arguments-file"));
+            assertTrue(instructions.startActivity().contains("Starting AI Auto Scripting"));
+        } finally {
+            JMeterUtils.setJMeterHome(previousHome);
+            if (previousTool == null) {
+                properties.remove("breaktest.agent.tool");
+            } else {
+                properties.setProperty("breaktest.agent.tool", previousTool);
+            }
+        }
+    }
+
+    @Test
+    void codexPromptUsesSkillFirstWithImmediateBridgeFallback() throws Exception {
+        withDefaultPrompt(() -> {
+            String prompt = renderedPrompt("CODEX");
+            assertTrue(prompt.contains("Use $breaktest-jmeter-repair when it is available"));
+            assertTrue(prompt.contains("use the bundled bridge below immediately"));
+        });
+    }
+
+    @Test
+    void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
+        withDefaultPrompt(() -> {
+            for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
+                String prompt = renderedPrompt(tool);
+                assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
+                assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
+                assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
+                assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+            }
+        });
+    }
+
+    private static String renderedPrompt(String toolName) throws Exception {
+        Object request = newRunRequest(toolName);
+        Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+        method.setAccessible(true);
+        return (String) method.invoke(null, request);
+    }
+
+    private static void withDefaultPrompt(ThrowingAction action) throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.codex.prompt");
+        try {
+            properties.remove("breaktest.codex.prompt");
+            action.run();
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.codex.prompt");
+            } else {
+                properties.setProperty("breaktest.codex.prompt", previous);
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingAction {
+        void run() throws Exception;
+    }
+
     private static Properties jmeterProperties() throws Exception {
         Properties properties = JMeterUtils.getJMeterProperties();
         if (properties != null) {

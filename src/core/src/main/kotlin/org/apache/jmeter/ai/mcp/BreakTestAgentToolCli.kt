@@ -18,9 +18,12 @@
 package org.apache.jmeter.ai.mcp
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 
 /**
- * CLI fallback for Codex runs where native MCP tools are not exposed.
+ * CLI fallback for coding-agent runs where native MCP tools are not exposed.
  */
 public object BreakTestAgentToolCli {
     private val mapper = ObjectMapper()
@@ -28,20 +31,48 @@ public object BreakTestAgentToolCli {
     @JvmStatic
     public fun main(args: Array<String>) {
         if (args.isEmpty() || args[0] == "--help" || args[0] == "-h") {
-            System.err.println("Usage: breaktest-agent-tool <tool-name|tools|tools/list> [json-arguments] [jmeter-home]")
+            System.err.println(
+                "Usage: breaktest-agent-tool <tool-name|tools|tools/list> " +
+                    "[json-arguments | --arguments-file <path> | @<path>] [jmeter-home]",
+            )
             kotlin.system.exitProcess(if (args.isEmpty()) 2 else 0)
         }
-        val tool = args[0]
-        val argumentsJson = args.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "{}"
-        val jmeterHome = args.getOrNull(2)
-        BreakTestAgentMcpServer.initializeForCli(jmeterHome)
-        if (tool == "tools" || tool == "tools/list") {
+        val invocation = parseInvocation(args)
+        BreakTestAgentMcpServer.initializeForCli(invocation.jmeterHome)
+        if (invocation.tool == "tools" || invocation.tool == "tools/list") {
             print(BreakTestAgentMcpServer.toolsListForCli())
             println()
             return
         }
-        val result = BreakTestAgentMcpServer.callToolForCli(tool, mapper.readTree(argumentsJson))
+        val result = BreakTestAgentMcpServer.callToolForCli(invocation.tool, mapper.readTree(invocation.argumentsJson))
         print(result)
         println()
     }
+
+    internal fun parseInvocation(args: Array<String>): Invocation {
+        require(args.isNotEmpty()) { "Missing tool name" }
+        val argument = args.getOrNull(1)
+        return when {
+            argument == "--arguments-file" -> {
+                val path = args.getOrNull(2)?.takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("--arguments-file requires a path")
+                Invocation(args[0], readArguments(path), args.getOrNull(3))
+            }
+            argument?.startsWith("@") == true -> {
+                val path = argument.substring(1).takeIf { it.isNotBlank() }
+                    ?: throw IllegalArgumentException("@ arguments require a path")
+                Invocation(args[0], readArguments(path), args.getOrNull(2))
+            }
+            else -> Invocation(args[0], argument?.takeIf { it.isNotBlank() } ?: "{}", args.getOrNull(2))
+        }
+    }
+
+    private fun readArguments(path: String): String =
+        Files.readString(Path.of(path), StandardCharsets.UTF_8)
+
+    internal data class Invocation(
+        val tool: String,
+        val argumentsJson: String,
+        val jmeterHome: String?,
+    )
 }

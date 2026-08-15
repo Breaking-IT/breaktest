@@ -1,15 +1,15 @@
-Use $breaktest-jmeter-repair.
+{{AGENT_BOOTSTRAP}}
 
 {{TASK_SCOPE}}
 
 Requirements:
-- First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
+- {{START_ACTIVITY_INSTRUCTION}} so progress is visible in the BreakTest AI Auto Scripting window.
 - This is the native BreakTest JMX file repair workflow. BreakTest saved the current GUI state, created an immutable backup, and selected the active saved JMX as the repair target. The launcher reloads that active JMX after the agent finishes.
 - Edit only the active JMX: `{{REPAIR_TARGET}}`. Never edit the backup file.
 - Keep the backup file unchanged. All repairs belong in the active JMX repair target.
 - Do not use sibling backup/repaired/exported JMX files as repair evidence or as a source to transplant nodes unless the user explicitly asks to compare or reuse another file. Treat only the selected repair target, linked recording evidence, validation evidence, and AI Knowledge as authoritative.
 - Use direct JMX/XML or structured file editing on the repair target when needed. Prefer robust XML/property-aware edits over brittle text-only changes.
-- Use the supported BreakTest agent bridge command for compact evidence and validation: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
+- Use the supported BreakTest agent bridge command for compact evidence and validation: {{BRIDGE_CALL}}.
 - Before the first edit, call `{{BRIDGE}} tools` and read only the schemas needed for file inspection, linked recording evidence, validation, and progress. Do not echo the full tools output.
 - You may use inspect_jmx and validate_jmx against the repair target. Use includeDsl=false and includeStaticAssets=false by default; request raw DSL or static assets only for a specific local edit/correlation question and keep limits small.
 - You may use read-only open-plan context tools against the original GUI plan, especially get_ai_knowledge_open_plan with createIfMissing=false, plan_repair_actions_open_plan, get_repair_actions_open_plan, get_repair_action_open_plan, list_recorded_exchanges_open_plan, get_recorded_exchange_open_plan, search_recorded_exchanges_open_plan, audit_recorded_correlations_open_plan, and agent_activity.

@@ -66,6 +66,7 @@ import javax.swing.text.DefaultEditorKit;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
+import org.apache.jmeter.ai.gui.AiCliProcess;
 import org.apache.jmeter.ai.gui.BreakTestAgentGuiService;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -246,6 +247,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         try {
             File workingDirectory = aiWorkingDirectory(request.tool());
             command = aiCommand(request, workingDirectory);
+            AiCliProcess processCommand = AiCliProcess.prepare(command, promptStyle(request.tool()));
             BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
@@ -256,7 +258,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                     + "s, similar retry limit " + request.maxSimilarRetries()
                     + ", add assertions " + (request.addAssertions() ? "yes" : "no") + ".");
             postActivity("AI telemetry: initial prompt " + payloadSize(prompt(request)));
-            postActivity("Command: " + commandSummary(command));
+            postActivity("Command: " + commandSummary(processCommand.command()));
             if (request.hasUserInput()) {
                 String instructions = request.instructions().strip();
                 if (instructions.length() > 1_500) {
@@ -270,16 +272,14 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postActivity("Working directory: " + workingDirectory.getPath());
 
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(workingDirectory);
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
+            Process process = processCommand.start(workingDirectory);
             CURRENT_PROCESS.set(process);
             startTimeoutWatchdog(process, request, timedOut);
             if (STOP_REQUESTED.get()) {
                 process.destroy();
+            } else {
+                processCommand.writePrompt(process);
             }
-            process.getOutputStream().close();
             output = streamOutput(process.getInputStream(), request.tool());
             int exitCode = process.waitFor();
             boolean stopped = STOP_REQUESTED.get();
@@ -330,6 +330,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
         } finally {
+            AgentBridgeCommand.deleteArgumentsFile();
             CURRENT_PROCESS.set(null);
             STOP_REQUESTED.set(false);
             RUNNING.set(false);
@@ -399,6 +400,15 @@ public class AiAutoScriptingAction extends AbstractAction {
             case PI -> piCommand(request);
             case GEMINI -> geminiCommand(request);
             case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory);
+        };
+    }
+
+    private static AiCliProcess.PromptStyle promptStyle(AiTool tool) {
+        return switch (tool) {
+            case CODEX -> AiCliProcess.PromptStyle.CODEX;
+            case COPILOT -> AiCliProcess.PromptStyle.COPILOT;
+            case GEMINI -> AiCliProcess.PromptStyle.GEMINI;
+            case OPENCODE, CLAUDE, PI, CURSOR -> AiCliProcess.PromptStyle.POSITIONAL;
         };
     }
 
@@ -617,9 +627,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (command.isEmpty()) {
             return "";
         }
-        List<String> summary = new ArrayList<>(command);
-        summary.set(summary.size() - 1, "[built-in prompt]");
-        return String.join(" ", summary);
+        return String.join(" ", command) + " [built-in prompt via stdin]";
     }
 
     private static File aiWorkingDirectory(AiTool tool) {
@@ -647,18 +655,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         return new File(".").getAbsoluteFile();
     }
 
-    private static String bridgeCommand() {
-        String configured = JMeterUtils.getProperty("breaktest.agent.tool");
-        if (configured != null && !configured.isBlank()) {
-            return new File(configured).getAbsolutePath();
-        }
-        File candidate = new File(JMeterUtils.getJMeterHome(), "bin/breaktest-agent-tool");
-        if (candidate.isFile()) {
-            return candidate.getAbsolutePath();
-        }
-        return "breaktest-agent-tool";
-    }
-
     private static String prompt(AiRunRequest request) {
         String configured = JMeterUtils.getProperty("breaktest.codex.prompt");
         if (configured != null && !configured.isBlank()) {
@@ -672,8 +668,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request.mode() == AiRunMode.SPECIFIC_REQUEST) {
             return specificRequestPrompt(request, testPlanFile);
         }
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.LIVE_GUI_REPAIR, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
                 Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
@@ -684,8 +684,12 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
                 Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
@@ -698,8 +702,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         String taskScope = AiPrompts.fragment(request.mode() == AiRunMode.SPECIFIC_REQUEST
                 ? "taskScope.specificRequest"
                 : "taskScope.fullRepair");
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.FILE_BACKED_REPAIR, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("TASK_SCOPE", taskScope),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
@@ -712,6 +720,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         ));
     }
 
+    private static String harnessBootstrap(AiTool tool) {
+        return AgentBridgeCommand.harnessBootstrap(tool == AiTool.CODEX, tool.displayName());
+    }
     private static String userInstructionBlock(AiRunRequest request) {
         return AiPrompts.render(AiPrompts.USER_INSTRUCTIONS, Map.ofEntries(
                 Map.entry("TOOL", request.tool().displayName()),
