@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentRegexSupport
+import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.config.ConfigTestElement
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.tree.JMeterTreeListener
@@ -96,6 +97,52 @@ class BreakTestAgentGuiServiceTest {
         assertEquals(first, duplicate)
         assertEquals(first, encodedDuplicate)
         assertNotEquals(first, otherScope)
+    }
+
+    @Test
+    fun `action snapshot restores the same dirty plan and preserves earlier edits`() {
+        val model = JMeterTreeModel(TestPlan("Root"))
+        val listener = JMeterTreeListener(model).apply { setJTree(JTree(model)) }
+        GuiPackage.initInstance(listener, model)
+        val gui = GuiPackage.getInstance()
+        val testPlan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        val threadGroup = node(ThreadGroup().apply { name = "Thread Group" }, model)
+        val earlierEdit = node(Arguments().apply { name = "Earlier successful AI edit" }, model)
+        model.insertNodeInto(threadGroup, testPlan, testPlan.childCount)
+        model.insertNodeInto(earlierEdit, threadGroup, threadGroup.childCount)
+        listener.setSelectionPathWithoutEdit(TreePath(earlierEdit.path))
+        val originalPlanPath = "C:\\Users\\tester\\Test Plan.jmx"
+        GuiPackage::class.java.getDeclaredField("testPlanFile")
+            .apply { isAccessible = true }
+            .set(gui, originalPlanPath)
+        gui.setDirty(true)
+
+        val snapshotTree = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "cloneOpenPlanTree",
+            org.apache.jorphan.collections.HashTree::class.java,
+        ).apply { isAccessible = true }
+            .invoke(BreakTestAgentGuiService, gui.treeModel.testPlan)
+        val stateClass = BreakTestAgentGuiService::class.java.declaredClasses
+            .single { it.simpleName == "RepairActionState" }
+        val capture = stateClass.declaredConstructors.single().apply { isAccessible = true }
+            .newInstance("before", 3, 1, snapshotTree, originalPlanPath, true)
+        val failedEdit = node(Arguments().apply { name = "Failed action damage" }, model)
+        model.insertNodeInto(failedEdit, threadGroup, threadGroup.childCount)
+
+        val restore = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "restoreRepairActionState",
+            capture.javaClass,
+            String::class.java,
+        ).apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val result = restore.invoke(BreakTestAgentGuiService, capture, "test rollback") as Map<String, Any?>
+
+        val restoredNames = gui.treeModel.getNodesOfType(Arguments::class.java)
+            .map { it.testElement.name }
+        assertEquals("action-snapshot", result["method"])
+        assertEquals(listOf("Earlier successful AI edit"), restoredNames)
+        assertEquals(originalPlanPath, gui.testPlanFile)
+        assertTrue(gui.isDirty)
     }
 
     @Test

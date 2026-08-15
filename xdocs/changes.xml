@@ -35,6 +35,7 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 <ul>
   <li>Adds Windows AI Repair support for npm-installed <code>.cmd</code> CLIs, pipes large repair prompts over standard input to avoid the Windows command-line limit, bundles Windows agent bridge launchers, and passes bridge JSON through an argument file that is safe from PowerShell, Command Prompt, and Git Bash.</li>
   <li>Makes AI Repair prompts harness-aware: Codex can use the bundled repair skill first, while Claude Code, Cursor Agent, Gemini CLI, Pi Code, OpenCode, and Copilot CLI use the bundled BreakTest bridge directly without requiring skill or MCP registration.</li>
+  <li>Preserves earlier successful live-GUI repair actions when a later batched action fails by restoring the action-local unsaved plan state instead of immediately reopening the pre-run backup.</li>
   <li>Sorts available AI CLI tools alphabetically ahead of unavailable tools, marks missing executables in the start dialog, and keeps them selectable for setup.</li>
   <li>Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous headless execution, model and working-directory overrides, and Cursor-owned authentication.</li>
   <li>Adds Gemini CLI as an experimental AI Auto Scripting harness with headless execution, model and working-directory overrides, and Gemini-owned API-key authentication.</li>
