@@ -21,6 +21,9 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 ## AI Repair Safety
 
+- Adds Gemini CLI as an experimental AI Auto Scripting harness with headless
+  execution, model and working-directory overrides, and Gemini-owned API-key
+  authentication.
 - Adds Pi Code as an experimental AI Auto Scripting harness, including provider,
   model, thinking-level, executable, and working-directory configuration.
 - Creates a backup of the current JMX file before AI repair, then continues the

@@ -62,7 +62,20 @@ class AiAutoScriptingActionTest {
         assertEquals("Applied 7 actions (0 rolled back).", displayLine("Applied 7 actions (0 rolled back)."));
     }
 
+    @Test
+    void geminiStartupDecorationIsKeptOutOfTheActivityLog() throws Exception {
+        assertNull(displayLine("GEMINI", "Warning: Basic terminal detected (TERM=dumb)."));
+        assertNull(displayLine("GEMINI", "Warning: True color (24-bit) support not detected."));
+        assertNull(displayLine("GEMINI", "Warning: 256-color support not detected."));
+        assertNull(displayLine("GEMINI", "YOLO mode is enabled. All tool calls will be automatically approved."));
+        assertEquals("GEMINI_HARNESS_OK", displayLine("GEMINI", "GEMINI_HARNESS_OK"));
+    }
+
     private static String displayLine(String rawLine) throws Exception {
+        return displayLine("COPILOT", rawLine);
+    }
+
+    private static String displayLine(String toolName, String rawLine) throws Exception {
         Class<?> filterClass = null;
         for (Class<?> candidate : AiAutoScriptingAction.class.getDeclaredClasses()) {
             if ("AiOutputFilter".equals(candidate.getSimpleName())) {
@@ -75,15 +88,15 @@ class AiAutoScriptingActionTest {
                 toolClass = candidate;
             }
         }
-        Object copilot = null;
+        Object selectedTool = null;
         for (Object tool : toolClass.getEnumConstants()) {
-            if ("COPILOT".equals(((Enum<?>) tool).name())) {
-                copilot = tool;
+            if (toolName.equals(((Enum<?>) tool).name())) {
+                selectedTool = tool;
             }
         }
         Constructor<?> constructor = filterClass.getDeclaredConstructor(toolClass);
         constructor.setAccessible(true);
-        Object filter = constructor.newInstance(copilot);
+        Object filter = constructor.newInstance(selectedTool);
         Method method = filterClass.getDeclaredMethod("displayLine", String.class);
         method.setAccessible(true);
         return (String) method.invoke(filter, rawLine);
@@ -115,16 +128,7 @@ class AiAutoScriptingActionTest {
 
     @Test
     void piCommandUsesNonInteractiveEphemeralModeAndConfiguredEngine() throws Exception {
-        Properties properties = JMeterUtils.getJMeterProperties();
-        if (properties == null) {
-            Path emptyProperties = Files.createTempFile("breaktest-pi-command", ".properties");
-            try {
-                JMeterUtils.loadJMeterProperties(emptyProperties.toString());
-                properties = JMeterUtils.getJMeterProperties();
-            } finally {
-                Files.deleteIfExists(emptyProperties);
-            }
-        }
+        Properties properties = jmeterProperties();
         String[] keys = {
             "breaktest.pi.command",
             "breaktest.pi.provider",
@@ -170,6 +174,93 @@ class AiAutoScriptingActionTest {
                     properties.setProperty(keys[i], previous[i]);
                 }
             }
+        }
+    }
+
+    @Test
+    void geminiCommandUsesTrustedHeadlessTextModeWithoutHandlingApiKeys() throws Exception {
+        Properties properties = jmeterProperties();
+        String[] keys = {
+            "breaktest.gemini.command",
+            "breaktest.gemini.model",
+            "breaktest.gemini.approval",
+            "breaktest.gemini.sandbox"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "gemini-test");
+            JMeterUtils.setProperty(keys[1], "gemini-test-model");
+            JMeterUtils.setProperty(keys[2], "auto_edit");
+            JMeterUtils.setProperty(keys[3], "true");
+
+            Object request = newRunRequest("GEMINI");
+            Class<?> requestClass = request.getClass();
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", requestClass);
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertEquals(List.of(
+                    "gemini-test",
+                    "--skip-trust",
+                    "--approval-mode",
+                    "auto_edit",
+                    "--sandbox=true",
+                    "--output-format",
+                    "text",
+                    "--model",
+                    "gemini-test-model",
+                    "--prompt"), command.subList(0, command.size() - 1));
+            assertTrue(command.get(command.size() - 1).contains("Gemini CLI"));
+            assertFalse(command.stream().anyMatch(value -> value.contains("GEMINI_API_KEY")));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void geminiCommandLeavesModelSelectionToCliByDefault() throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.gemini.model");
+        try {
+            properties.remove("breaktest.gemini.model");
+
+            Object request = newRunRequest("GEMINI");
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", request.getClass());
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertFalse(command.contains("--model"));
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.gemini.model");
+            } else {
+                properties.setProperty("breaktest.gemini.model", previous);
+            }
+        }
+    }
+
+    private static Properties jmeterProperties() throws Exception {
+        Properties properties = JMeterUtils.getJMeterProperties();
+        if (properties != null) {
+            return properties;
+        }
+        Path emptyProperties = Files.createTempFile("breaktest-ai-command", ".properties");
+        try {
+            JMeterUtils.loadJMeterProperties(emptyProperties.toString());
+            return JMeterUtils.getJMeterProperties();
+        } finally {
+            Files.deleteIfExists(emptyProperties);
         }
     }
 

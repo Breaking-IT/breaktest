@@ -92,8 +92,30 @@ final class AiEngineDescription {
                     && settings != null && settings.hasNonNull("defaultThinkingLevel")) {
                 reasoning = settings.get("defaultThinkingLevel").asText();
             }
+        } else if ("gemini".equals(normalizedToolId)) {
+            JsonNode settings = readJsonFile(new File(geminiHome(home), "settings.json"));
+            if (modelSource == null && settings != null) {
+                JsonNode configuredModel = settings.path("model").path("name");
+                if (configuredModel.isTextual() && !configuredModel.asText().isBlank()) {
+                    model = configuredModel.asText();
+                    modelSource = geminiSettingsSource();
+                }
+            }
         }
         return description(displayName, model, modelSource, reasoning, fastMode);
+    }
+
+    private static File geminiHome(File home) {
+        String configured = System.getenv("GEMINI_CLI_HOME");
+        File root = configured == null || configured.isBlank() ? home : new File(configured);
+        return new File(root, ".gemini");
+    }
+
+    private static String geminiSettingsSource() {
+        String configured = System.getenv("GEMINI_CLI_HOME");
+        return configured == null || configured.isBlank()
+                ? "~/.gemini/settings.json"
+                : "GEMINI_CLI_HOME/.gemini/settings.json";
     }
 
     private static File piHome(File home) {

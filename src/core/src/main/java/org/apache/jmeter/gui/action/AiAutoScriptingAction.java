@@ -397,6 +397,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case CLAUDE -> claudeCommand(request);
             case COPILOT -> copilotCommand(request, workingDirectory);
             case PI -> piCommand(request);
+            case GEMINI -> geminiCommand(request);
         };
     }
 
@@ -538,6 +539,29 @@ public class AiAutoScriptingAction extends AbstractAction {
             command.add(thinking);
         }
 
+        command.add(prompt(request));
+        return command;
+    }
+
+    private static List<String> geminiCommand(AiRunRequest request) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.gemini.command", "gemini"));
+        command.add("--skip-trust");
+        command.add("--approval-mode");
+        command.add(JMeterUtils.getPropDefault("breaktest.gemini.approval", "yolo"));
+        // The BreakTest GUI bridge uses a host-local temp socket. Keep Gemini's
+        // process sandbox off by default so shell tool calls can reach it.
+        command.add("--sandbox=" + JMeterUtils.getPropDefault("breaktest.gemini.sandbox", false));
+        command.add("--output-format");
+        command.add("text");
+
+        String model = modelProperty("breaktest.gemini");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        command.add("--prompt");
         command.add(prompt(request));
         return command;
     }
@@ -954,7 +978,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. Pi Code, OpenCode, and Copilot CLI are available for experimentation.
+                Codex and Claude Code are the preferred harnesses. Gemini CLI, Pi Code, OpenCode, and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1291,6 +1315,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
+        GEMINI("gemini", "Gemini CLI", "breaktest.gemini.cwd"),
         PI("pi", "Pi Code", "breaktest.pi.cwd"),
         OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
         COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
@@ -1324,7 +1349,9 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.PI, AiTool.OPENCODE, AiTool.COPILOT };
+        return new AiTool[] {
+            AiTool.CODEX, AiTool.CLAUDE, AiTool.GEMINI, AiTool.PI, AiTool.OPENCODE, AiTool.COPILOT
+        };
     }
 
     private static final class AiRunRequest {
@@ -1484,6 +1511,8 @@ public class AiAutoScriptingAction extends AbstractAction {
         private boolean skipNextTokenCount;
         private boolean suppressToolOutput;
         private boolean suppressDiffOutput;
+        private boolean geminiApiErrorSeen;
+        private boolean suppressGeminiErrorDetails;
         private final Set<String> displayedFinalLines = new HashSet<>();
         private final AiRunOutput output = new AiRunOutput();
 
@@ -1509,6 +1538,19 @@ public class AiAutoScriptingAction extends AbstractAction {
                     // timing, so this is noise in the activity log. Token capture
                     // above still sees the line, which is why the stats are not
                     // suppressed at the CLI with -s.
+                    return null;
+                } else if (tool == AiTool.GEMINI && isGeminiStartupLine(trimmed)) {
+                    return null;
+                } else if (tool == AiTool.GEMINI && trimmed.startsWith("Error when talking to Gemini API")) {
+                    geminiApiErrorSeen = true;
+                    display = trimmed;
+                } else if (tool == AiTool.GEMINI && geminiApiErrorSeen && trimmed.startsWith("at ")) {
+                    suppressGeminiErrorDetails = true;
+                    return null;
+                } else if (tool == AiTool.GEMINI && suppressGeminiErrorDetails) {
+                    if (trimmed.startsWith("An unexpected critical error occurred:")) {
+                        suppressGeminiErrorDetails = false;
+                    }
                     return null;
                 } else if (shouldStartDiffSuppression(trimmed)) {
                     suppressDiffOutput = true;
@@ -1570,6 +1612,13 @@ public class AiAutoScriptingAction extends AbstractAction {
          */
         private static boolean isAgentDecorationLine(String trimmed) {
             return !trimmed.isEmpty() && AGENT_DECORATION_GLYPHS.indexOf(trimmed.charAt(0)) >= 0;
+        }
+
+        private static boolean isGeminiStartupLine(String line) {
+            return line.startsWith("Warning: Basic terminal detected")
+                    || line.startsWith("Warning: True color (24-bit) support not detected")
+                    || line.startsWith("Warning: 256-color support not detected")
+                    || line.startsWith("YOLO mode is enabled.");
         }
 
         private static boolean looksLikeToolEcho(String line) {
