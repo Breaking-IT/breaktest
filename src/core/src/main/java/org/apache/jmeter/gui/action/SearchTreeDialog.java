@@ -587,10 +587,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             try {
                 Searchable searchable = (Searchable) jMeterTreeNode.getUserObject();
                 List<String> searchableTokens = new ArrayList<>(searchable.getSearchableTokens());
-                if (includeRecordedExchanges && testPlanFile != null) {
-                    searchableTokens.addAll(RecordedHarExchangeResolver.searchableTokensFor(
-                            jMeterTreeNode, testPlanFile));
-                }
+                addRecordedExchangeTokens(
+                        searchableTokens, jMeterTreeNode, testPlanFile, includeRecordedExchanges);
                 boolean result = searcher.search(searchableTokens);
                 if (result) {
                     numberOfMatches++;
@@ -604,6 +602,14 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.lastSearchResult.clear();
         this.lastSearchResult.addAll(nodes);
         return new SearchResult(numberOfMatches, nodes);
+    }
+
+    @VisibleForTesting
+    static void addRecordedExchangeTokens(List<String> searchableTokens, JMeterTreeNode node,
+            Path testPlanFile, boolean includeRecordedExchanges) {
+        if (includeRecordedExchanges) {
+            searchableTokens.addAll(RecordedHarExchangeResolver.searchableTokensFor(node, testPlanFile));
+        }
     }
 
     private static Path testPlanFile(GuiPackage guiPackage) {
