@@ -21,6 +21,8 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 ## AI Repair Safety
 
+- Sorts available AI CLI tools alphabetically ahead of unavailable tools, marks
+  missing executables in the start dialog, and keeps them selectable for setup.
 - Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous
   headless execution, model and working-directory overrides, and Cursor-owned
   authentication.
@@ -74,7 +76,7 @@ when inspecting very large response bodies.
 ## AI Auto Scripting
 
 - Adds GitHub Copilot CLI as an experimental AI Auto Scripting harness alongside
-  Codex, Claude Code, opencode, and MCP workflows.
+  Codex, Claude Code, OpenCode, and MCP workflows.
 - Reads model and token statistics without showing Copilot's tool-call boxes in
   the activity log, and reports clear setup guidance when a configured CLI is
   missing.
@@ -503,7 +505,7 @@ desktop and command-line distribution.
 
 ## AI-Assisted Scripting And Repair
 
-- BreakTest integrates with Codex, Claude Code, opencode, and MCP-compatible
+- BreakTest integrates with Codex, Claude Code, OpenCode, and MCP-compatible
   agents for guided test-plan inspection and repair.
 - GUI-backed tools can find, clone, move, edit, and safely delete live plan
   nodes while preserving complete controller and sampler subtrees.

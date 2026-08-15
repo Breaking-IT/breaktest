@@ -48,7 +48,7 @@ public object BreakTestAgentMcpServer {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
 
     // Compact JSON everywhere: tool results are consumed by a model (and echoed
-    // verbatim into transcripts by CLI agents such as opencode), so pretty-printing
+    // verbatim into transcripts by CLI agents such as OpenCode), so pretty-printing
     // only inflates tokens and log noise.
     private val mapper = ObjectMapper()
     private val wireMapper = ObjectMapper()
@@ -1015,7 +1015,7 @@ public object BreakTestAgentMcpServer {
     /**
      * Shown next to every MCP-routed tool call in the AI log. The server is not
      * Codex-specific: Codex, Claude Code, Cursor Agent, Gemini CLI, Pi Code,
-     * opencode and Copilot CLI all reach it through the same stdio bridge, so
+     * OpenCode and Copilot CLI all reach it through the same stdio bridge, so
      * labelling it "Codex MCP" mislabels the other harnesses.
      */
     private val MCP_ACTIVITY_SOURCE = "BreakTest MCP"

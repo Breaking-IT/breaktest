@@ -1319,7 +1319,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         CURSOR("cursor", "Cursor Agent", "breaktest.cursor.cwd"),
         GEMINI("gemini", "Gemini CLI", "breaktest.gemini.cwd"),
         PI("pi", "Pi Code", "breaktest.pi.cwd"),
-        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
+        OPENCODE("opencode", "OpenCode", "breaktest.opencode.cwd"),
         COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
 
         private final String id;
@@ -1346,20 +1346,12 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         @Override
         public String toString() {
-            return displayName;
+            return AiCliAvailability.displayName(id, displayName);
         }
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] {
-            AiTool.CODEX,
-            AiTool.CLAUDE,
-            AiTool.CURSOR,
-            AiTool.GEMINI,
-            AiTool.PI,
-            AiTool.OPENCODE,
-            AiTool.COPILOT
-        };
+        return AiCliAvailability.sortAvailableFirst(AiTool.values(), AiTool::id, AiTool::displayName);
     }
 
     private static final class AiRunRequest {
@@ -1582,7 +1574,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                     display = tool == AiTool.CODEX ? displayFilteredLine(trimmed) : displayPlainAgentLine(trimmed);
                 }
             }
-            // CLI agents such as opencode echo every shell command and its JSON
+            // CLI agents such as OpenCode echo every shell command and its JSON
             // result into stdout. Those lines are neither useful in the activity
             // log (the GUI bridge already logs each tool call) nor valid "final
             // response" content for summary/follow-up extraction.
