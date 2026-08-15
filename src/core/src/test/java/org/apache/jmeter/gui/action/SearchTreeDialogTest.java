@@ -20,16 +20,23 @@ package org.apache.jmeter.gui.action;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.config.ConfigTestElement;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElementSchema;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.timers.Timer;
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +60,48 @@ class SearchTreeDialogTest {
     void rejectsUnselectedNodeTypes() {
         assertFalse(SearchTreeDialog.matchesAnySelectedNodeType(
                 new DummyPreProcessor(), EnumSet.of(SearchTreeDialog.NodeType.POST_PROCESSOR)));
+    }
+
+    @Test
+    void addsRecordedExchangeTokensBeforeTestPlanIsFirstSaved() throws Exception {
+        RecordedExchangeStore.Archive recording = RecordedExchangeStore.fromHar("""
+                {
+                  "log": {
+                    "entries": [{
+                      "request": {
+                        "method": "GET",
+                        "url": "https://example.invalid/unsaved-search-value",
+                        "httpVersion": "HTTP/1.1",
+                        "headers": []
+                      },
+                      "response": {
+                        "status": 200,
+                        "statusText": "OK",
+                        "httpVersion": "HTTP/1.1",
+                        "headers": [],
+                        "content": {"text": "unsaved-response-value"}
+                      }
+                    }]
+                  }
+                }
+                """.getBytes(StandardCharsets.UTF_8), "recording.har");
+        JmxArchiveEntryStore.registerBundle(
+                recording.manifestEntryName(), recording.checksum(), recording.entries());
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, recording.manifestEntryName());
+        threadGroup.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum());
+        DummyTestElement sampler = new DummySampler();
+        sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, recording.exchangeIds().get(0));
+        JMeterTreeNode threadGroupNode = new JMeterTreeNode(threadGroup, null);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, null);
+        threadGroupNode.add(samplerNode);
+
+        List<String> searchableTokens = new ArrayList<>();
+        SearchTreeDialog.addRecordedExchangeTokens(searchableTokens, samplerNode, null, true);
+
+        assertTrue(searchableTokens.stream().anyMatch(token -> token.contains("unsaved-search-value")));
+        assertTrue(searchableTokens.stream().anyMatch(token -> token.contains("unsaved-response-value")));
     }
 
     private static class DummyPreProcessor extends DummyTestElement implements PreProcessor {
@@ -81,6 +130,9 @@ class SearchTreeDialogTest {
         public long delay() {
             return 0;
         }
+    }
+
+    private static class DummySampler extends DummyTestElement {
     }
 
     private abstract static class DummyTestElement extends AbstractTestElement {
