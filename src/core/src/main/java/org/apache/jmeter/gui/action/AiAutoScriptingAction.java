@@ -398,6 +398,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case COPILOT -> copilotCommand(request, workingDirectory);
             case PI -> piCommand(request);
             case GEMINI -> geminiCommand(request);
+            case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory);
         };
     }
 
@@ -978,7 +979,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. Gemini CLI, Pi Code, OpenCode, and Copilot CLI are available for experimentation.
+                Codex and Claude Code are the preferred harnesses. Cursor Agent, Gemini CLI, Pi Code, OpenCode, and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1315,6 +1316,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
+        CURSOR("cursor", "Cursor Agent", "breaktest.cursor.cwd"),
         GEMINI("gemini", "Gemini CLI", "breaktest.gemini.cwd"),
         PI("pi", "Pi Code", "breaktest.pi.cwd"),
         OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
@@ -1350,7 +1352,13 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static AiTool[] aiToolChoices() {
         return new AiTool[] {
-            AiTool.CODEX, AiTool.CLAUDE, AiTool.GEMINI, AiTool.PI, AiTool.OPENCODE, AiTool.COPILOT
+            AiTool.CODEX,
+            AiTool.CLAUDE,
+            AiTool.CURSOR,
+            AiTool.GEMINI,
+            AiTool.PI,
+            AiTool.OPENCODE,
+            AiTool.COPILOT
         };
     }
 

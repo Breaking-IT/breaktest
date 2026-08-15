@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
@@ -246,6 +247,72 @@ class AiAutoScriptingActionTest {
                 properties.remove("breaktest.gemini.model");
             } else {
                 properties.setProperty("breaktest.gemini.model", previous);
+            }
+        }
+    }
+
+    @Test
+    void cursorCommandUsesAutonomousHeadlessModeWithoutHandlingApiKeys() throws Exception {
+        Properties properties = jmeterProperties();
+        String[] keys = {
+            "breaktest.cursor.command",
+            "breaktest.cursor.model",
+            "breaktest.cursor.force",
+            "breaktest.cursor.sandbox"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "cursor-agent-test");
+            JMeterUtils.setProperty(keys[1], "cursor-test-model");
+            JMeterUtils.setProperty(keys[2], "true");
+            JMeterUtils.setProperty(keys[3], "disabled");
+
+            File workspace = Path.of("cursor-test-workspace").toAbsolutePath().normalize().toFile();
+            List<String> command = CursorAgentCommand.build("cursor test prompt", workspace);
+
+            assertEquals(List.of(
+                    "cursor-agent-test",
+                    "--print",
+                    "--force",
+                    "--sandbox",
+                    "disabled",
+                    "--output-format",
+                    "text",
+                    "--workspace",
+                    workspace.getPath(),
+                    "--model",
+                    "cursor-test-model"), command.subList(0, command.size() - 1));
+            assertEquals("cursor test prompt", command.get(command.size() - 1));
+            assertFalse(command.stream().anyMatch(value -> value.contains("CURSOR_API_KEY")));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void cursorCommandLeavesModelSelectionToCliByDefault() throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.cursor.model");
+        try {
+            properties.remove("breaktest.cursor.model");
+
+            List<String> command = CursorAgentCommand.build("cursor test prompt", new File("."));
+
+            assertFalse(command.contains("--model"));
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.cursor.model");
+            } else {
+                properties.setProperty("breaktest.cursor.model", previous);
             }
         }
     }

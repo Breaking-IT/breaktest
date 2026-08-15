@@ -23,7 +23,7 @@ BreakTest keeps that useful model and moves the runtime forward:
 - a more modern GUI with simple light/dark themes
 - better GUI feedback while building, debugging, and repairing scripts
 - safer loading of old plans and plugin-heavy JMX files
-- AI-assisted scripting with Codex, Claude Code, Gemini CLI, Pi Code, opencode, Copilot CLI, and MCP workflows
+- AI-assisted scripting with Codex, Claude Code, Cursor Agent, Gemini CLI, Pi Code, opencode, Copilot CLI, and MCP workflows
 - a source-available Community edition that can be scaled by BreakTest Enterprise when one
   machine is no longer enough
 
@@ -134,7 +134,7 @@ debugging, and migration work that has landed across the BreakTest PR series.
 
 - BreakTest can run AI-assisted script repair from the GUI or through local
   agent tooling.
-- The agent workflow works with tools such as Codex, Claude Code, Gemini CLI, Pi Code, opencode, and Copilot CLI
+- The agent workflow works with tools such as Codex, Claude Code, Cursor Agent, Gemini CLI, Pi Code, opencode, and Copilot CLI
   through BreakTest's MCP server and command-line helpers.
 - AI repair can inspect a failing or incomplete test plan, run bounded
   validation, and apply concrete JMX edits instead of only suggesting changes.

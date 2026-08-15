@@ -33,6 +33,7 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 <ch_section>AI Repair Safety</ch_section>
 <ul>
+  <li>Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous headless execution, model and working-directory overrides, and Cursor-owned authentication.</li>
   <li>Adds Gemini CLI as an experimental AI Auto Scripting harness with headless execution, model and working-directory overrides, and Gemini-owned API-key authentication.</li>
   <li>Adds Pi Code as an experimental AI Auto Scripting harness with provider, model, thinking-level, executable, and working-directory configuration.</li>
   <li>Creates a backup of the current JMX file before AI repair, then continues the repair against the active file instead of modifying the backup.</li>

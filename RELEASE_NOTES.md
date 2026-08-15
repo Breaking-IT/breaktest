@@ -21,6 +21,9 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 ## AI Repair Safety
 
+- Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous
+  headless execution, model and working-directory overrides, and Cursor-owned
+  authentication.
 - Adds Gemini CLI as an experimental AI Auto Scripting harness with headless
   execution, model and working-directory overrides, and Gemini-owned API-key
   authentication.
