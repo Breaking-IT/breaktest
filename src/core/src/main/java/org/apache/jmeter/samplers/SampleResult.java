@@ -217,7 +217,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     /**
      * Name of the enclosing Parallel Controller when this sample was produced by one of its
-     * branches, otherwise empty. The controller is otherwise transparent, so this is the only
+     * branches, otherwise empty. Only filled when {@code sampleresult.parent_controllers} is on. The controller is otherwise transparent, so this is the only
      * way a listener can tell a concurrent child from a sequential one.
      */
     private String parallelGroup = ""; // Never return null
@@ -679,7 +679,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     /**
      * @return the name of the Parallel Controller this sample ran under, or an empty String when
-     *         the sample did not run in a parallel branch
+     *         the sample did not run in a parallel branch or
+     *         {@code sampleresult.parent_controllers} is disabled
      * @since 2026.08
      */
     public String getParallelGroup() {
@@ -707,7 +708,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     /**
      * @return an identifier shared by every sample of one concurrent pass through the Parallel
-     *         Controller, or an empty String when the sample did not run in a parallel branch
+     *         Controller, or an empty String when the sample did not run in a parallel branch or
+     *         {@code sampleresult.parent_controllers} is disabled
      * @since 2026.08
      */
     public String getParallelGroupExecution() {

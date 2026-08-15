@@ -72,6 +72,7 @@ import org.apache.jmeter.visualizers.Visualizer;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.HashTreeTraverser;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class TestJMeterThread {
@@ -866,6 +867,7 @@ class TestJMeterThread {
 
     @Test
     void testParallelGroupIsSetBeforeListenersAreNotified() throws Exception {
+        setTaggingProperty("true");
         HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
@@ -926,52 +928,43 @@ class TestJMeterThread {
         assertFalse(result.isParallelGroupMember(), "A sequential sample is not a parallel group member");
     }
 
+    @AfterEach
+    void resetTagging() {
+        setTaggingProperty("false");
+    }
+
     @Test
     void testParentControllersCarryTheIterationTheyWereOn() throws Exception {
-        Object previous = setTaggingProperty("true");
-        try {
-            List<String> tags = runNestedLoops();
-            // The inner loop restarts its count on every outer pass, so the pair of numbers
-            // identifies one pass of the plan. Controllers count from their own base: a loop
-            // reports 1 on its first pass, a plain controller 0.
-            // 'page=' is the Transaction Controller's own result: in non-parent mode it builds and
-            // notifies that result itself, bypassing JMeterThread, so it carries no tag.
-            assertEquals(
-                    List.of("sampler=outer#1>page#0>inner#1",
-                            "sampler=outer#1>page#0>inner#2",
-                            "page=",
-                            "sampler=outer#2>page#1>inner#1",
-                            "sampler=outer#2>page#1>inner#2",
-                            "page="),
-                    tags,
-                    "Each sample should name its enclosing controllers with the pass each was on");
-        } finally {
-            restore(previous);
-        }
+        setTaggingProperty("true");
+        // The inner loop restarts its count on every outer pass, so the pair of numbers identifies
+        // one pass of the plan. Controllers count from their own base: a loop reports 1 on its
+        // first pass, a plain controller 0.
+        // 'page=' is the Transaction Controller's own result: in non-parent mode it builds and
+        // notifies that result itself, bypassing JMeterThread, so it carries no tag.
+        assertEquals(
+                List.of("sampler=outer#1>page#0>inner#1",
+                        "sampler=outer#1>page#0>inner#2",
+                        "page=",
+                        "sampler=outer#2>page#1>inner#1",
+                        "sampler=outer#2>page#1>inner#2",
+                        "page="),
+                runNestedLoops(),
+                "Each sample should name its enclosing controllers with the pass each was on");
     }
 
     @Test
-    void testParentControllersAreNotTaggedByDefault() throws Exception {
-        Object previous = setTaggingProperty("false");
-        try {
-            for (String tag : runNestedLoops()) {
-                assertTrue(tag.endsWith("="), "Tagging is opt-in, so results must stay untagged, got " + tag);
-            }
-        } finally {
-            restore(previous);
+    void testSamplesAreNotTaggedByDefault() throws Exception {
+        for (String tag : runNestedLoops()) {
+            assertTrue(tag.endsWith("="), "Tagging is opt-in, so results must stay untagged, got " + tag);
         }
     }
 
-    private static Object setTaggingProperty(String value) {
+    private static void setTaggingProperty(String value) {
         if (JMeterUtils.getJMeterProperties() == null) {
             // This class does not extend JMeterTestCase, so nothing has bootstrapped them yet.
             JMeterUtils.loadJMeterProperties(JMeterTestUtils.setupJMeterHome() + "jmeter.properties");
         }
-        return JMeterUtils.setProperty(PARENT_CONTROLLERS_PROPERTY, value);
-    }
-
-    private static void restore(Object previous) {
-        JMeterUtils.setProperty(PARENT_CONTROLLERS_PROPERTY, previous == null ? "false" : previous.toString());
+        JMeterUtils.setProperty(PARENT_CONTROLLERS_PROPERTY, value);
     }
 
     /** outer loop (2 passes) &gt; transaction &gt; inner loop (2 passes) &gt; sampler. */
@@ -1014,6 +1007,7 @@ class TestJMeterThread {
 
     @Test
     void testParallelGroupExecutionIsSharedWithinAPassAndUniqueBetweenPasses() throws Exception {
+        setTaggingProperty("true");
         HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(2); // two passes through the same controller
@@ -1060,6 +1054,25 @@ class TestJMeterThread {
 
     @Test
     void testParallelControllerTagsSubResults() throws Exception {
+        setTaggingProperty("true");
+        SampleResult parent = runParallelSamplerWithEmbeddedResource();
+
+        assertEquals("page", parent.getParallelGroup());
+        assertEquals(1, parent.getSubResults().length);
+        assertEquals("page", parent.getSubResults()[0].getParallelGroup(),
+                "Embedded resources should inherit the parallel group of their parent sample");
+    }
+
+    @Test
+    void testParallelSamplesAreNotTaggedByDefault() throws Exception {
+        SampleResult parent = runParallelSamplerWithEmbeddedResource();
+
+        assertEquals("", parent.getParallelGroup(), "One property gates every tag, and it is off");
+        assertEquals("", parent.getParallelGroupExecution(), "One property gates every tag, and it is off");
+        assertEquals("", parent.getSubResults()[0].getParallelGroup(), "Sub-results follow their parent");
+    }
+
+    private static SampleResult runParallelSamplerWithEmbeddedResource() throws Exception {
         List<SampleResult> results = Collections.synchronizedList(new ArrayList<>());
 
         HashTree testTree = new ListedHashTree();
@@ -1086,11 +1099,7 @@ class TestJMeterThread {
         processParallelSamplerDirect(testTree, parallelController, jMeterThread, threadGroup);
 
         assertEquals(1, results.size());
-        SampleResult parent = results.get(0);
-        assertEquals("page", parent.getParallelGroup());
-        assertEquals(1, parent.getSubResults().length);
-        assertEquals("page", parent.getSubResults()[0].getParallelGroup(),
-                "Embedded resources should inherit the parallel group of their parent sample");
+        return results.get(0);
     }
 
     @Test

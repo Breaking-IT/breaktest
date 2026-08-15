@@ -159,9 +159,10 @@ public class JMeterThread implements Runnable, Interruptible {
     private final AtomicLong parallelGroupExecutions = new AtomicLong();
 
     /**
-     * Whether to stamp every result with its enclosing controllers and the iteration each was on.
-     * Off by default: it allocates a small list per sample, and only a listener that groups
-     * samples by controller needs it.
+     * Whether to stamp every result with the controllers it ran under: the enclosing controllers
+     * with the iteration each was on, and the parallel group and pass when there is one. Off by
+     * default: it allocates a small list per sample, and only a listener that groups samples by
+     * controller needs it.
      */
     // ponytail: read per virtual user rather than into a static, so a test can flip the property.
     private final boolean tagParentControllers =
@@ -832,12 +833,15 @@ public class JMeterThread implements Runnable, Interruptible {
         result.setGroupThreads(nbActiveThreadsInThreadGroup);
         result.setAllThreads(nbTotalActiveThreads);
         result.setThreadName(threadName);
+        if (!tagParentControllers) {
+            return;
+        }
         // A Parallel Controller is transparent otherwise: its children share the virtual user's
         // thread name and enclosing transaction, so this is the only way a listener can tell a
         // concurrent child from a sequential one.
         result.setParallelGroup(threadContext.getParallelGroup());
         result.setParallelGroupExecution(threadContext.getParallelGroupExecution());
-        if (tagParentControllers && pack != null) {
+        if (pack != null) {
             result.setParentControllerExecutions(parentControllerExecutions(pack));
         }
     }
@@ -877,9 +881,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
         // One identifier per pass through this controller. Every sample the branches produce
         // carries it, so a consumer can group them back together and measure how long the pass
-        // actually took, instead of inferring it from per-sample averages.
-        String parallelGroupExecution =
-                threadName + '-' + parallelSampler.getName() + '-' + parallelGroupExecutions.incrementAndGet();
+        // actually took, instead of inferring it from per-sample averages. Nothing reads it when
+        // tagging is off, so it is not built then.
+        String parallelGroupExecution = tagParentControllers
+                ? threadName + '-' + parallelSampler.getName() + '-' + parallelGroupExecutions.incrementAndGet()
+                : "";
 
         int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
