@@ -87,7 +87,7 @@ common scenarios across several specialized thread groups.
 <h2>AI-Assisted Scripting</h2>
 <p>
 BreakTest includes local agent and MCP support for AI-assisted script repair.
-Tools such as Codex, Claude Code, opencode, and Copilot CLI can inspect a JMX script,
+Tools such as Codex, Claude Code, Pi Code, opencode, and Copilot CLI can inspect a JMX script,
 validate it, repair it, and show changes in the GUI.
 </p>
 <ul>

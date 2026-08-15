@@ -33,6 +33,7 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 <ch_section>AI Repair Safety</ch_section>
 <ul>
+  <li>Adds Pi Code as an experimental AI Auto Scripting harness with provider, model, thinking-level, executable, and working-directory configuration.</li>
   <li>Creates a backup of the current JMX file before AI repair, then continues the repair against the active file instead of modifying the backup.</li>
   <li>Keeps the backup as an unchanged recovery point while preserving the normal save and reload behavior of the active test plan.</li>
   <li>Updates file-backed repair guidance to describe the corrected backup workflow consistently.</li>

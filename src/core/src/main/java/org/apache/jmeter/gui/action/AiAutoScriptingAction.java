@@ -396,6 +396,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case OPENCODE -> opencodeCommand(request, workingDirectory);
             case CLAUDE -> claudeCommand(request);
             case COPILOT -> copilotCommand(request, workingDirectory);
+            case PI -> piCommand(request);
         };
     }
 
@@ -504,6 +505,39 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
 
         command.add("-p");
+        command.add(prompt(request));
+        return command;
+    }
+
+    private static List<String> piCommand(AiRunRequest request) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.pi.command", "pi"));
+        command.add("--print");
+        // Trust project-local Pi resources for this explicitly approved repair run.
+        // Pi uses the ProcessBuilder working directory, so it needs no separate cwd flag.
+        command.add("--approve");
+        command.add("--no-session");
+        command.add("--mode");
+        command.add("text");
+
+        String provider = JMeterUtils.getProperty("breaktest.pi.provider");
+        if (provider != null && !provider.isBlank()) {
+            command.add("--provider");
+            command.add(provider);
+        }
+
+        String model = modelProperty("breaktest.pi");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        String thinking = JMeterUtils.getProperty("breaktest.pi.thinking");
+        if (thinking != null && !thinking.isBlank()) {
+            command.add("--thinking");
+            command.add(thinking);
+        }
+
         command.add(prompt(request));
         return command;
     }
@@ -920,7 +954,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. OpenCode and Copilot CLI are available for experimentation.
+                Codex and Claude Code are the preferred harnesses. Pi Code, OpenCode, and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1257,6 +1291,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
+        PI("pi", "Pi Code", "breaktest.pi.cwd"),
         OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
         COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
 
@@ -1289,7 +1324,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE, AiTool.COPILOT };
+        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.PI, AiTool.OPENCODE, AiTool.COPILOT };
     }
 
     private static final class AiRunRequest {

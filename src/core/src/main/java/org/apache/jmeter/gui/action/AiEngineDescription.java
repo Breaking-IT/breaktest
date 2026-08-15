@@ -73,8 +73,42 @@ final class AiEngineDescription {
                 model = modelSource.substring(modelSource.indexOf('=') + 1);
                 modelSource = modelSource.substring(0, modelSource.indexOf('='));
             }
+        } else if ("pi".equals(normalizedToolId)) {
+            JsonNode settings = readJsonFile(new File(piHome(home), "settings.json"));
+            String provider = JMeterUtils.getProperty("breaktest.pi.provider");
+            if ((provider == null || provider.isBlank()) && settings != null && settings.hasNonNull("defaultProvider")) {
+                provider = settings.get("defaultProvider").asText();
+            }
+            if (modelSource == null && settings != null && settings.hasNonNull("defaultModel")) {
+                model = settings.get("defaultModel").asText();
+                modelSource = piSettingsSource();
+            }
+            if (model != null && !model.isBlank() && !model.contains("/")
+                    && provider != null && !provider.isBlank()) {
+                model = provider + "/" + model;
+            }
+            reasoning = JMeterUtils.getProperty("breaktest.pi.thinking");
+            if ((reasoning == null || reasoning.isBlank())
+                    && settings != null && settings.hasNonNull("defaultThinkingLevel")) {
+                reasoning = settings.get("defaultThinkingLevel").asText();
+            }
         }
         return description(displayName, model, modelSource, reasoning, fastMode);
+    }
+
+    private static File piHome(File home) {
+        String configured = System.getenv("PI_CODING_AGENT_DIR");
+        if (configured != null && !configured.isBlank()) {
+            return new File(configured);
+        }
+        return new File(home, ".pi/agent");
+    }
+
+    private static String piSettingsSource() {
+        String configured = System.getenv("PI_CODING_AGENT_DIR");
+        return configured == null || configured.isBlank()
+                ? "~/.pi/agent/settings.json"
+                : "PI_CODING_AGENT_DIR/settings.json";
     }
 
     private static File copilotHome(File home) {

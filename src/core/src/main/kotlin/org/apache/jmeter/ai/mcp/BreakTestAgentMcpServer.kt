@@ -1014,9 +1014,9 @@ public object BreakTestAgentMcpServer {
 
     /**
      * Shown next to every MCP-routed tool call in the AI log. The server is not
-     * Codex-specific: Codex, Claude Code, opencode and Copilot CLI all reach it
-     * through the same stdio bridge, so labelling it "Codex MCP" mislabels three
-     * of the four harnesses.
+     * Codex-specific: Codex, Claude Code, Pi Code, opencode and Copilot CLI all
+     * reach it through the same stdio bridge, so labelling it "Codex MCP"
+     * mislabels the other harnesses.
      */
     private val MCP_ACTIVITY_SOURCE = "BreakTest MCP"
 

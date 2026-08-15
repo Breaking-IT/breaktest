@@ -24,7 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Properties;
 
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 
 class AiAutoScriptingActionTest {
@@ -106,6 +111,112 @@ class AiAutoScriptingActionTest {
         assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
         assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
                 AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
+    }
+
+    @Test
+    void piCommandUsesNonInteractiveEphemeralModeAndConfiguredEngine() throws Exception {
+        Properties properties = JMeterUtils.getJMeterProperties();
+        if (properties == null) {
+            Path emptyProperties = Files.createTempFile("breaktest-pi-command", ".properties");
+            try {
+                JMeterUtils.loadJMeterProperties(emptyProperties.toString());
+                properties = JMeterUtils.getJMeterProperties();
+            } finally {
+                Files.deleteIfExists(emptyProperties);
+            }
+        }
+        String[] keys = {
+            "breaktest.pi.command",
+            "breaktest.pi.provider",
+            "breaktest.pi.model",
+            "breaktest.pi.thinking"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "pi-test");
+            JMeterUtils.setProperty(keys[1], "local-provider");
+            JMeterUtils.setProperty(keys[2], "local-model");
+            JMeterUtils.setProperty(keys[3], "high");
+
+            Object request = newRunRequest("PI");
+            Class<?> requestClass = request.getClass();
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("piCommand", requestClass);
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertEquals(List.of(
+                    "pi-test",
+                    "--print",
+                    "--approve",
+                    "--no-session",
+                    "--mode",
+                    "text",
+                    "--provider",
+                    "local-provider",
+                    "--model",
+                    "local-model",
+                    "--thinking",
+                    "high"), command.subList(0, command.size() - 1));
+            assertTrue(command.get(command.size() - 1).contains("Pi Code"));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    private static Object newRunRequest(String toolName) throws Exception {
+        Class<?> requestClass = nestedClass("AiRunRequest");
+        Class<?> toolClass = nestedClass("AiTool");
+        Class<?> modeClass = nestedClass("AiRunMode");
+        Class<?> editSurfaceClass = nestedClass("AiEditSurface");
+        Object tool = enumConstant(toolClass, toolName);
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : requestClass.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() == 8) {
+                constructor = candidate;
+                break;
+            }
+        }
+        if (constructor == null) {
+            throw new IllegalStateException("Missing eight-argument AiRunRequest constructor");
+        }
+        constructor.setAccessible(true);
+        return constructor.newInstance(
+                tool,
+                null,
+                modeClass.getEnumConstants()[0],
+                editSurfaceClass.getEnumConstants()[0],
+                false,
+                60,
+                0,
+                "");
+    }
+
+    private static Class<?> nestedClass(String simpleName) {
+        for (Class<?> candidate : AiAutoScriptingAction.class.getDeclaredClasses()) {
+            if (simpleName.equals(candidate.getSimpleName())) {
+                return candidate;
+            }
+        }
+        throw new IllegalArgumentException("Missing nested class " + simpleName);
+    }
+
+    private static Object enumConstant(Class<?> enumClass, String name) {
+        for (Object constant : enumClass.getEnumConstants()) {
+            if (name.equals(((Enum<?>) constant).name())) {
+                return constant;
+            }
+        }
+        throw new IllegalArgumentException("Missing enum constant " + name);
     }
 
     private static boolean hasRepairBlocker(String... lines) throws Exception {
