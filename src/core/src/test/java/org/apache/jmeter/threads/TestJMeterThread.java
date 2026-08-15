@@ -53,6 +53,7 @@ import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
+import org.apache.jmeter.junit.JMeterTestUtils;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -66,6 +67,7 @@ import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.timers.Timer;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.Visualizer;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.HashTreeTraverser;
@@ -73,6 +75,8 @@ import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
 class TestJMeterThread {
+
+    private static final String PARENT_CONTROLLERS_PROPERTY = "sampleresult.parent_controllers";
 
     private static final class DummySampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
@@ -572,6 +576,8 @@ class TestJMeterThread {
         private final List<String> parallelGroups = Collections.synchronizedList(new ArrayList<>());
         /** label=parallelGroupExecution, captured at notification time. */
         private final List<String> parallelExecutions = Collections.synchronizedList(new ArrayList<>());
+        /** label=controller#iteration&gt;controller#iteration, captured at notification time. */
+        private final List<String> parentControllers = Collections.synchronizedList(new ArrayList<>());
 
         private RecordingSampleListener(String name) {
             setName(name);
@@ -595,12 +601,22 @@ class TestJMeterThread {
             }
         }
 
+        List<String> parentControllersWhenNotified() {
+            synchronized (parentControllers) {
+                return List.copyOf(parentControllers);
+            }
+        }
+
         @Override
         public void sampleOccurred(SampleEvent e) {
             events.add(e);
             parallelGroups.add(e.getResult().getSampleLabel() + "=" + e.getResult().getParallelGroup());
             parallelExecutions.add(
                     e.getResult().getSampleLabel() + "=" + e.getResult().getParallelGroupExecution());
+            parentControllers.add(e.getResult().getSampleLabel() + "="
+                    + e.getResult().getParentControllerExecutions().stream()
+                            .map(entry -> entry.name() + "#" + entry.iteration())
+                            .collect(Collectors.joining(">")));
         }
 
         @Override
@@ -908,6 +924,92 @@ class TestJMeterThread {
 
         assertEquals("", result.getParallelGroup(), "A sequential sample must not claim a parallel group");
         assertFalse(result.isParallelGroupMember(), "A sequential sample is not a parallel group member");
+    }
+
+    @Test
+    void testParentControllersCarryTheIterationTheyWereOn() throws Exception {
+        Object previous = setTaggingProperty("true");
+        try {
+            List<String> tags = runNestedLoops();
+            // The inner loop restarts its count on every outer pass, so the pair of numbers
+            // identifies one pass of the plan. Controllers count from their own base: a loop
+            // reports 1 on its first pass, a plain controller 0.
+            // 'page=' is the Transaction Controller's own result: in non-parent mode it builds and
+            // notifies that result itself, bypassing JMeterThread, so it carries no tag.
+            assertEquals(
+                    List.of("sampler=outer#1>page#0>inner#1",
+                            "sampler=outer#1>page#0>inner#2",
+                            "page=",
+                            "sampler=outer#2>page#1>inner#1",
+                            "sampler=outer#2>page#1>inner#2",
+                            "page="),
+                    tags,
+                    "Each sample should name its enclosing controllers with the pass each was on");
+        } finally {
+            restore(previous);
+        }
+    }
+
+    @Test
+    void testParentControllersAreNotTaggedByDefault() throws Exception {
+        Object previous = setTaggingProperty("false");
+        try {
+            for (String tag : runNestedLoops()) {
+                assertTrue(tag.endsWith("="), "Tagging is opt-in, so results must stay untagged, got " + tag);
+            }
+        } finally {
+            restore(previous);
+        }
+    }
+
+    private static Object setTaggingProperty(String value) {
+        if (JMeterUtils.getJMeterProperties() == null) {
+            // This class does not extend JMeterTestCase, so nothing has bootstrapped them yet.
+            JMeterUtils.loadJMeterProperties(JMeterTestUtils.setupJMeterHome() + "jmeter.properties");
+        }
+        return JMeterUtils.setProperty(PARENT_CONTROLLERS_PROPERTY, value);
+    }
+
+    private static void restore(Object previous) {
+        JMeterUtils.setProperty(PARENT_CONTROLLERS_PROPERTY, previous == null ? "false" : previous.toString());
+    }
+
+    /** outer loop (2 passes) &gt; transaction &gt; inner loop (2 passes) &gt; sampler. */
+    private static List<String> runNestedLoops() throws InterruptedException {
+        HashTree testTree = new ListedHashTree();
+        LoopController outer = new LoopController();
+        outer.setName("outer");
+        outer.setLoops(2);
+        outer.setContinueForever(false);
+        outer.setEnabled(true);
+        TransactionController transactionController = new TransactionController();
+        transactionController.setName("page");
+        transactionController.setGenerateParentSample(false);
+        transactionController.setEnabled(true);
+        LoopController inner = new LoopController();
+        inner.setName("inner");
+        inner.setLoops(2);
+        // Nested loops keep continueForever: only a thread group's own controller stops for good.
+        inner.setEnabled(true);
+        RecordingSampleListener listener = new RecordingSampleListener("listener");
+
+        // Nest explicitly: HashTree#add(key, value) only looks the key up at the top level.
+        HashTree innerTree = testTree.add(outer).add(transactionController).add(inner);
+        innerTree.add(new SleepStatusSampler("sampler", 0, true, null));
+        innerTree.add(listener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parent-controllers-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        Thread runner = new Thread(jMeterThread, "parent-controllers-test");
+        runner.start();
+        runner.join(TimeUnit.SECONDS.toMillis(30));
+        assertFalse(runner.isAlive(), "Test plan should complete");
+        return listener.parentControllersWhenNotified();
     }
 
     @Test

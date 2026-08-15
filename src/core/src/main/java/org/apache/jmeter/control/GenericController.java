@@ -424,6 +424,17 @@ public class GenericController extends AbstractTestElement implements Controller
         return iterCount;
     }
 
+    /**
+     * The pass this controller is currently executing. Subclasses that count differently (loop,
+     * foreach, runtime) override {@link #getIterCount()}, so this reports whatever they count.
+     *
+     * @return the current iteration
+     * @since 2026.08
+     */
+    public int getIterationCount() {
+        return getIterCount();
+    }
+
     protected void incrementIterCount() {
         iterCount++;
     }

@@ -230,6 +230,9 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     private String parallelGroupExecution = ""; // Never return null
 
+    /** Enclosing controllers, outermost first; empty unless sampleresult.parent_controllers is on. */
+    private List<ParentControllerExecution> parentControllerExecutions = List.of();
+
     private String responseMessage = "";
 
     private String responseHeaders = ""; // Never return null
@@ -332,6 +335,17 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     private SampleResultMetadata metadata;
 
     public record TestElementPathEntry(String className, String name, int occurrence) implements Serializable {
+        private static final long serialVersionUID = 1L;
+    }
+
+    /**
+     * One enclosing controller of a sample, with the pass it was executing at the time, or -1 when
+     * it does not count passes. Controllers count from their own base (a Loop Controller reports 1
+     * on its first pass, a plain controller 0), so group and compare values, do not assume a start.
+     *
+     * @since 2026.08
+     */
+    public record ParentControllerExecution(String name, String className, int iteration) implements Serializable {
         private static final long serialVersionUID = 1L;
     }
 
@@ -447,6 +461,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         threadName = res.threadName;//OK
         parallelGroup = res.parallelGroup;//OK
         parallelGroupExecution = res.parallelGroupExecution;//OK
+        parentControllerExecutions = res.getParentControllerExecutions();//OK
         elapsedTime = res.elapsedTime;
         timeStamp = res.timeStamp;
     }
@@ -708,6 +723,30 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
      */
     public void setParallelGroupExecution(String parallelGroupExecution) {
         this.parallelGroupExecution = parallelGroupExecution == null ? "" : parallelGroupExecution;
+    }
+
+    /**
+     * @return the controllers this sample ran under, outermost first, each with the pass it was on;
+     *         empty when {@code sampleresult.parent_controllers} is disabled, and on the result a
+     *         Transaction Controller generates for itself in non-parent mode, which the controller
+     *         notifies directly rather than through the thread
+     * @since 2026.08
+     */
+    public List<ParentControllerExecution> getParentControllerExecutions() {
+        // Deserialising a result written by an older node skips field initialisers, so this can
+        // legitimately be null on a mixed-version distributed run.
+        return parentControllerExecutions == null ? List.of() : parentControllerExecutions;
+    }
+
+    /**
+     * @param parentControllerExecutions enclosing controllers, outermost first; {@code null} or
+     *        empty is stored as an empty list
+     * @since 2026.08
+     */
+    public void setParentControllerExecutions(List<ParentControllerExecution> parentControllerExecutions) {
+        this.parentControllerExecutions = parentControllerExecutions == null || parentControllerExecutions.isEmpty()
+                ? List.of()
+                : List.copyOf(parentControllerExecutions);
     }
 
     /**

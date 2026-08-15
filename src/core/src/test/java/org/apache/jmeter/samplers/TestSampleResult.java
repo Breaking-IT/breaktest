@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.samplers;
 
+import java.util.List;
+
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.util.Calculator;
@@ -182,6 +184,23 @@ class TestSampleResult implements JMeterSerialTest {
         res.setParallelGroup(null);
         Assertions.assertEquals("", res.getParallelGroup());
         Assertions.assertFalse(res.isParallelGroupMember());
+    }
+
+    @Test
+    void testParentControllerExecutionsDefaultToEmptyAndSurviveCopy() {
+        SampleResult res = new SampleResult();
+
+        Assertions.assertEquals(List.of(), res.getParentControllerExecutions());
+
+        SampleResult.ParentControllerExecution loop =
+                new SampleResult.ParentControllerExecution("loop", "org.apache.jmeter.control.LoopController", 2);
+        res.setParentControllerExecutions(List.of(loop));
+
+        SampleResult copy = new SampleResult(res);
+        Assertions.assertEquals(List.of(loop), copy.getParentControllerExecutions());
+
+        res.setParentControllerExecutions(null);
+        Assertions.assertEquals(List.of(), res.getParentControllerExecutions());
     }
 
     @Test
