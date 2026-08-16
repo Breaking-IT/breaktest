@@ -184,7 +184,7 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings({"removal", "deprecation"})
 public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
-    private static final String CONTEXT_ATTRIBUTE_AUTH_MANAGER = "__jmeter.A_M__";
+    static final String CONTEXT_ATTRIBUTE_AUTH_MANAGER = "__jmeter.A_M__";
 
     private static final String JMETER_VARIABLE_USER_TOKEN = "__jmeter.U_T__"; //$NON-NLS-1$
 
@@ -213,13 +213,24 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final String CONTENT_TRANSFER_ENCODING_8BIT = "8bit";
     private static final String CONTENT_TRANSFER_ENCODING_BINARY = "binary";
 
-    private static final class ManagedCredentialsProvider implements CredentialsStore {
-        private final List<AuthManagerCredential> authManagerCredentials;
+    /**
+     * Credentials store backing every HttpClient created by this implementation. It serves three
+     * sources, in this order:
+     * <ol>
+     * <li>the proxy credentials taken from the {@link HttpClientKey}, which must survive
+     * {@link #clear()}</li>
+     * <li>the credentials stored per request by {@link PreemptiveAuthRequestInterceptor}</li>
+     * <li>the {@link AuthManager} in scope for the current sample</li>
+     * </ol>
+     */
+    static final class ManagedCredentialsProvider implements CredentialsStore {
+        private final CredentialsStore requestScopedCredentials = new BasicCredentialsProvider();
+        private final AuthManager fallbackAuthManager;
         private final Credentials proxyCredentials;
         private final AuthScope proxyAuthScope;
 
-        private ManagedCredentialsProvider(AuthManager authManager, AuthScope proxyAuthScope, Credentials proxyCredentials) {
-            this.authManagerCredentials = createAuthManagerCredentials(authManager);
+        ManagedCredentialsProvider(AuthManager authManager, AuthScope proxyAuthScope, Credentials proxyCredentials) {
+            this.fallbackAuthManager = authManager;
             this.proxyAuthScope = proxyAuthScope;
             this.proxyCredentials = proxyCredentials;
         }
@@ -227,16 +238,43 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         @Override
         public void setCredentials(AuthScope authscope, Credentials credentials) {
             log.debug("Store creds {} for {}", credentials, authscope);
+            requestScopedCredentials.setCredentials(authscope, credentials);
         }
 
         @Override
         public Credentials getCredentials(AuthScope authScope, HttpContext context) {
-            log.info("Get creds for {}", authScope);
-            if (this.proxyAuthScope != null && authScope.equals(proxyAuthScope)) {
+            log.debug("Get creds for {}", authScope);
+            if (authScope == null) {
+                return null;
+            }
+            // The scope of a challenge carries the protocol and the scheme name, so it never equals
+            // the host/port only scope built from the client key: match it the way AuthScope does
+            if (this.proxyAuthScope != null && authScope.match(proxyAuthScope) >= 0) {
                 return proxyCredentials;
             }
-            AuthManagerCredential authManagerCredential = getAuthorizationForAuthScope(authScope);
+            Credentials credentials = requestScopedCredentials.getCredentials(authScope, context);
+            if (credentials != null) {
+                return credentials;
+            }
+            AuthManagerCredential authManagerCredential =
+                    getAuthorizationForAuthScope(authManagerFor(context), authScope);
             return authManagerCredential == null ? null : authManagerCredential.credentials;
+        }
+
+        /**
+         * The AuthManager is read from the context on every lookup: this provider lives inside an
+         * HttpClient cached per thread and {@link HttpClientKey}, while the AuthManager in scope -
+         * and the variables used by its credentials - may differ per sampler and per iteration.
+         *
+         * @param context context of the request being authenticated, may be {@code null}
+         * @return the AuthManager of the current sample, or the one this provider was created with
+         */
+        private AuthManager authManagerFor(HttpContext context) {
+            if (context != null
+                    && context.getAttribute(CONTEXT_ATTRIBUTE_AUTH_MANAGER) instanceof AuthManager authManager) {
+                return authManager;
+            }
+            return fallbackAuthManager;
         }
 
         /**
@@ -244,14 +282,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
          * by the URL, as we didn't get the scheme or path of the URL. Therefore we do a
          * best guess on the information we have
          *
+         * @param authManager AuthManager to take the credentials from, may be {@code null}
          * @param authScope information which destination we want to get credentials for
          * @return matching authorization information entry from the AuthManager
          */
-        private AuthManagerCredential getAuthorizationForAuthScope(AuthScope authScope) {
-            if (authScope == null) {
-                return null;
-            }
-            for (AuthManagerCredential authManagerCredential : authManagerCredentials) {
+        private static AuthManagerCredential getAuthorizationForAuthScope(AuthManager authManager, AuthScope authScope) {
+            for (AuthManagerCredential authManagerCredential : createAuthManagerCredentials(authManager)) {
                 if (authManagerCredential.matches(authScope)) {
                     return authManagerCredential;
                 }
@@ -262,6 +298,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         @Override
         public void clear() {
             log.debug("clear creds");
+            requestScopedCredentials.clear();
         }
     }
 
@@ -271,21 +308,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             HttpClientContext localContext = HttpClientContext.adapt(context);
             AuthManager authManager = (AuthManager) localContext.getAttribute(CONTEXT_ATTRIBUTE_AUTH_MANAGER);
             if (authManager == null) {
-                Credentials credentials = null;
-                HttpClientKey key = (HttpClientKey) localContext.getAttribute(CONTEXT_ATTRIBUTE_CLIENT_KEY);
-                if (key == null) {
-                    return;
-                }
-                AuthScope authScope = null;
-                CredentialsStore credentialsProvider = (CredentialsStore) localContext.getCredentialsProvider();
-                if (key.hasProxy && !(key.proxyUser == null || key.proxyUser.isEmpty())) {
-                    authScope = new AuthScope(key.proxyHost, key.proxyPort);
-                    credentials = credentialsProvider.getCredentials(authScope, context);
-                }
-                credentialsProvider.clear();
-                if (credentials != null) {
-                    credentialsProvider.setCredentials(authScope, credentials);
-                }
+                // Nothing to set up preemptively, drop the credentials left over by a previous request.
+                // The proxy credentials are held by ManagedCredentialsProvider and survive clear()
+                ((CredentialsStore) localContext.getCredentialsProvider()).clear();
                 return;
             }
             URI requestURI = null;
@@ -455,9 +480,22 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
 
         boolean matches(AuthScope authScope) {
-            return Objects.equals(realm, authScope.getRealm())
-                    && url.getHost().equals(authScope.getHost())
-                    && getPort(url) == authScope.getPort();
+            return realmMatches(authScope.getRealm())
+                    && url.getHost().equalsIgnoreCase(authScope.getHost())
+                    && portMatches(authScope.getPort());
+        }
+
+        /**
+         * The realm of an AuthScope is the one advertised by the server in its challenge, while the
+         * realm of an Authorization is optional. An unset realm on either side is therefore a
+         * wildcard, as it is in {@link AuthScope#match(AuthScope)}.
+         */
+        private boolean realmMatches(String challengeRealm) {
+            return realm == null || challengeRealm == null || realm.equals(challengeRealm);
+        }
+
+        private boolean portMatches(int challengePort) {
+            return challengePort == -1 || getPort(url) == challengePort;
         }
 
         private static int getPort(URL url) {
@@ -529,6 +567,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             StandardAuthScheme.KERBEROS,
             StandardAuthScheme.DIGEST,
             StandardAuthScheme.BASIC);
+
+    protected List<String> authSchemePriority() {
+        return AUTH_SCHEME_PRIORITY;
+    }
 
     private static final KerberosConfig KERBEROS_CONFIG = KerberosConfig.custom()
             .setStripPort(AuthManager.STRIP_PORT)
@@ -1350,22 +1392,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (key.hasProxy) {
                 proxy = new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort);
 
-                CredentialsStore credsProvider = new BasicCredentialsProvider();
                 if (!key.proxyUser.isEmpty()) {
                     proxyAuthScope = new AuthScope(key.proxyHost, key.proxyPort);
                     proxyCredentials = new NTCredentials(key.proxyUser, key.proxyPass.toCharArray(), LOCALHOST, PROXY_DOMAIN);
-                    credsProvider.setCredentials(
-                            proxyAuthScope,
-                            proxyCredentials);
                 }
-                builder.setDefaultCredentialsProvider(credsProvider);
             }
             builder.setRoutePlanner(new JMeterDefaultRoutePlanner(proxy));
             builder.disableContentCompression(); // Disable automatic decompression
+            builder.setDefaultCredentialsProvider(
+                    new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials));
             if(BASIC_AUTH_PREEMPTIVE) {
                 builder.addRequestInterceptorFirst(PREEMPTIVE_AUTH_INTERCEPTOR);
-            } else {
-                builder.setDefaultCredentialsProvider(new ManagedCredentialsProvider(getAuthManager(), proxyAuthScope, proxyCredentials));
             }
             httpClient = builder.build();
             if (log.isDebugEnabled()) {
@@ -1491,8 +1528,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         rCB.setRedirectsEnabled(getAutoRedirects());
         rCB.setMaxRedirects(HTTPSamplerBase.MAX_REDIRECTS);
-        rCB.setTargetPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
-        rCB.setProxyPreferredAuthSchemes(AUTH_SCHEME_PRIORITY);
+        rCB.setTargetPreferredAuthSchemes(authSchemePriority());
+        rCB.setProxyPreferredAuthSchemes(authSchemePriority());
         httpRequest.setConfig(rCB.build());
         // a well-behaved browser is supposed to send 'Connection: close'
         // with the last request to an HTTP server. Instead, most browsers
