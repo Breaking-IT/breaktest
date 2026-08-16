@@ -99,6 +99,13 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private static final String TRUE = Boolean.toString(true); // i.e. "true"
 
+    private static final int JMETER_VARIABLES_METADATA = 1;
+
+    private static final int SOURCE_TEST_ELEMENT_PATH_METADATA = 1 << 1;
+
+    private static final int ALL_SAMPLE_RESULT_METADATA =
+            JMETER_VARIABLES_METADATA | SOURCE_TEST_ELEMENT_PATH_METADATA;
+
     /** How often to check for shutdown during ramp-up, default 1000ms */
     private static final int RAMPUP_GRANULARITY =
             JMeterUtils.getPropDefault("jmeterthread.rampup.granularity", 1000); // $NON-NLS-1$
@@ -1065,12 +1072,12 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
-                        boolean jMeterVariablesNeeded = needsJMeterVariables(sampleListeners);
-                        if (needsSourceTestElementPath(sampleListeners)
+                        int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
+                        if (needsSourceTestElementPath(metadataRequirements)
                                 || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
                             setSourceTestElementPath(result, pack.getSourceTestElementPath());
                         }
-                        notifyListeners(sampleListeners, result, jMeterVariablesNeeded);
+                        notifyListeners(sampleListeners, result, metadataRequirements);
                     }
                     packageDone = true;
                     doneLocked(pack, recoverControllers);
@@ -1231,10 +1238,11 @@ public class JMeterThread implements Runnable, Interruptible {
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
             List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
-            if (needsSourceTestElementPath(sampleListeners)) {
+            int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
+            if (needsSourceTestElementPath(metadataRequirements)) {
                 setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
             }
-            notifyListeners(sampleListeners, transactionResult);
+            notifyListeners(sampleListeners, transactionResult, metadataRequirements);
         }
         doneLocked(transactionPack, sourceTransactionController, recoverControllers);
         return transactionResult;
@@ -1822,12 +1830,8 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        notifyListeners(listeners, result, needsJMeterVariables(listeners));
-    }
-
-    private void notifyListeners(List<SampleListener> listeners, SampleResult result, boolean jMeterVariablesNeeded) {
-        if (jMeterVariablesNeeded) {
+    private void notifyListeners(List<SampleListener> listeners, SampleResult result, int metadataRequirements) {
+        if (needsJMeterVariables(metadataRequirements)) {
             setJMeterVariables(result, snapshotVariables(threadVars));
         }
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
@@ -1838,25 +1842,31 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, TransactionSampler transactionSampler) {
         return transactionSampler != null
                 && transactionPack != null
-                && needsSourceTestElementPath(transactionPack.getSampleListeners());
+                && needsSourceTestElementPath(sampleResultMetadataRequirements(transactionPack.getSampleListeners()));
     }
 
-    private static boolean needsJMeterVariables(List<SampleListener> listeners) {
+    private static int sampleResultMetadataRequirements(List<SampleListener> listeners) {
+        int metadataRequirements = 0;
         for (SampleListener listener : listeners) {
             if (listener.needsJMeterVariables()) {
-                return true;
+                metadataRequirements |= JMETER_VARIABLES_METADATA;
+            }
+            if (listener.needsSourceTestElementPath()) {
+                metadataRequirements |= SOURCE_TEST_ELEMENT_PATH_METADATA;
+            }
+            if (metadataRequirements == ALL_SAMPLE_RESULT_METADATA) {
+                break;
             }
         }
-        return false;
+        return metadataRequirements;
     }
 
-    private static boolean needsSourceTestElementPath(List<SampleListener> listeners) {
-        for (SampleListener listener : listeners) {
-            if (listener.needsSourceTestElementPath()) {
-                return true;
-            }
-        }
-        return false;
+    private static boolean needsJMeterVariables(int metadataRequirements) {
+        return (metadataRequirements & JMETER_VARIABLES_METADATA) != 0;
+    }
+
+    private static boolean needsSourceTestElementPath(int metadataRequirements) {
+        return (metadataRequirements & SOURCE_TEST_ELEMENT_PATH_METADATA) != 0;
     }
 
     private static Map<String, String> snapshotVariables(JMeterVariables variables) {
