@@ -91,11 +91,6 @@ public final class HarConverter {
                     Pattern.CASE_INSENSITIVE);
     private static final Pattern NUMERIC_TOKEN_PATTERN =
             Pattern.compile("^[0-9]{6,}$");
-    private static final Pattern REQUEST_TOKEN_PATTERN =
-            Pattern.compile("[A-Za-z0-9._~+/=-]{8,}");
-    private static final Pattern RESPONSE_TOKEN_PATTERN =
-            Pattern.compile("[A-Za-z0-9._~+/=-]{12,}");
-
     private final List<HarEntry> entries;
     private final HarImportOptions options;
     private final String harName;
@@ -206,8 +201,7 @@ public final class HarConverter {
 
     private void populateTransaction(HashTree threadGroupHt, Transaction transaction,
             Set<String> commonHeadersLower, boolean isFirst) {
-        long idleMs = idleMillis();
-        List<List<HarEntry>> groups = splitParallelGroups(transaction.entries, idleMs);
+        List<List<HarEntry>> groups = splitParallelGroups(transaction.entries);
         boolean hasParallelControllers = groups.stream().anyMatch(group -> group.size() > 1);
 
         TransactionController controller = buildTransactionController(
@@ -341,10 +335,10 @@ public final class HarConverter {
     }
 
     // ---------------------------------------------------------------------
-    // Parallel-group splitting and dependency detection
+    // Parallel-group splitting
     // ---------------------------------------------------------------------
 
-    private static List<List<HarEntry>> splitParallelGroups(List<HarEntry> transactionEntries, long splitThresholdMs) {
+    private static List<List<HarEntry>> splitParallelGroups(List<HarEntry> transactionEntries) {
         List<List<HarEntry>> groups = new ArrayList<>();
         if (transactionEntries.isEmpty()) {
             return groups;
@@ -353,101 +347,24 @@ public final class HarConverter {
         sorted.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
 
         List<HarEntry> currentGroup = new ArrayList<>();
-        HarEntry previous = sorted.get(0);
-        // Mirror the Python quirk: the first entry seeds a standalone group, and a
-        // fresh currentGroup accumulates from the second entry onward.
-        groups.add(new ArrayList<>(List.of(sorted.get(0))));
-
-        for (int i = 1; i < sorted.size(); i++) {
-            HarEntry entry = sorted.get(i);
-            double pauseMs = entry.getStartMs() - previous.getEndMs();
-            boolean startsNewController =
-                    (pauseMs > 0 && pauseMs < splitThresholdMs) || entryReferencesAny(entry, currentGroup);
-            if (!currentGroup.isEmpty() && startsNewController) {
+        double earliestEndMs = Double.POSITIVE_INFINITY;
+        for (HarEntry entry : sorted) {
+            // A browser can only start every request in one parallel wave before
+            // the first request in that wave has completed. Once that boundary is
+            // crossed, later requests belong to a new wave even if slower requests
+            // from the previous wave are still in flight.
+            if (!currentGroup.isEmpty() && entry.getStartMs() > earliestEndMs) {
                 groups.add(currentGroup);
                 currentGroup = new ArrayList<>();
-                currentGroup.add(entry);
-            } else {
-                currentGroup.add(entry);
+                earliestEndMs = Double.POSITIVE_INFINITY;
             }
-            previous = entry;
+            currentGroup.add(entry);
+            earliestEndMs = Math.min(earliestEndMs, entry.getEndMs());
         }
         if (!currentGroup.isEmpty()) {
             groups.add(currentGroup);
         }
         return groups;
-    }
-
-    private static boolean entryReferencesAny(HarEntry entry, List<HarEntry> candidates) {
-        String requestText = entryRequestText(entry);
-        if (requestText.isEmpty()) {
-            return false;
-        }
-        for (HarEntry candidate : candidates) {
-            for (String token : referenceTokens(candidate)) {
-                if (requestText.contains(token)) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private static String entryRequestText(HarEntry entry) {
-        ParsedUrl url = parseUrl(entry.getUrl());
-        List<String> pieces = new ArrayList<>();
-        pieces.add(url.path);
-        pieces.add(url.query);
-        for (NameValue param : entry.getQueryString()) {
-            pieces.add(param.getName());
-            pieces.add(param.getValue());
-        }
-        PostData postData = entry.getPostData();
-        if (postData != null) {
-            pieces.add(postData.getText());
-            for (NameValue param : postData.getParams()) {
-                pieces.add(param.getName());
-                pieces.add(param.getValue());
-            }
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String piece : pieces) {
-            if (piece != null && !piece.isEmpty()) {
-                if (sb.length() > 0) {
-                    sb.append('\n');
-                }
-                sb.append(piece);
-            }
-        }
-        return sb.toString();
-    }
-
-    private static Set<String> referenceTokens(HarEntry entry) {
-        Set<String> tokens = new HashSet<>();
-        Matcher requestMatcher = REQUEST_TOKEN_PATTERN.matcher(entryRequestText(entry));
-        while (requestMatcher.find()) {
-            tokens.add(requestMatcher.group());
-        }
-        for (NameValue header : entry.getResponseHeaders()) {
-            Matcher m = RESPONSE_TOKEN_PATTERN.matcher(header.getValue());
-            while (m.find()) {
-                tokens.add(m.group());
-            }
-        }
-        Matcher contentMatcher = RESPONSE_TOKEN_PATTERN.matcher(entry.getResponseContentText());
-        while (contentMatcher.find()) {
-            tokens.add(contentMatcher.group());
-        }
-        String path = parseUrl(entry.getUrl()).path;
-        String lastSegment = path;
-        int slash = path.lastIndexOf('/');
-        if (slash >= 0) {
-            lastSegment = path.substring(slash + 1);
-        }
-        if (lastSegment.length() >= 8) {
-            tokens.add(lastSegment);
-        }
-        return tokens;
     }
 
     private static boolean allMultiplexedProtocol(List<HarEntry> group) {
