@@ -170,6 +170,7 @@ public final class HarParser {
 
         JsonNode response = entryNode.path("response");
         entry.setResponseStatus(response.path("status").asInt(0));
+        entry.setResponseRedirectUrl(response.path("redirectURL").asText(""));
         readNameValues(response.path("headers"), entry.getResponseHeaders());
         entry.setResponseContentText(response.path("content").path("text").asText(""));
         return entry;
