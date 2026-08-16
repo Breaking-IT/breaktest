@@ -484,66 +484,6 @@ public class HarConverterTest {
     }
 
     @Test
-    void uuidPathReferencesGetCommentFromEarlierResponse() throws Exception {
-        String uuid = "123e4567-e89b-12d3-a456-426614174000";
-        String har = "{\"log\":{\"entries\":["
-                + entry("2021-01-01T00:00:00.000Z", 50, "GET", "https://api.example.com/bootstrap", "[]",
-                        commonHeadersOnly(), null, 200, "{\\\"id\\\":\\\"" + uuid + "\\\"}") + ","
-                + entry("2021-01-01T00:00:00.100Z", 50, "GET",
-                        "https://api.example.com/api/orders/" + uuid + "/details", "[]",
-                        commonHeadersOnly(), null, 200)
-                + "]}}";
-        HashTree t = new HarConverter(
-                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)), new HarImportOptions(), "test.har", "abc123")
-                .convert(Set.of("api.example.com"));
-
-        HTTPSamplerProxy sampler =
-                (HTTPSamplerProxy) findByName(t, "/api/orders/" + uuid + "/details");
-        assertNotNull(sampler);
-        assertEquals("Reference detected in https://api.example.com/bootstrap", sampler.getComment());
-    }
-
-    @Test
-    void queryUuidReferencesGetCommentFromEarlierResponse() throws Exception {
-        String uuid = "123e4567-e89b-12d3-a456-426614174001";
-        String har = "{\"log\":{\"entries\":["
-                + entry("2021-01-01T00:00:00.000Z", 50, "GET", "https://api.example.com/bootstrap", "[]",
-                        commonHeadersOnly(), null, 200, "{\\\"requestId\\\":\\\"" + uuid + "\\\"}") + ","
-                + entry("2021-01-01T00:00:00.100Z", 50, "GET",
-                        "https://api.example.com/api/orders?requestId=" + uuid,
-                        "[{\"name\":\"requestId\",\"value\":\"" + uuid + "\"}]",
-                        commonHeadersOnly(), null, 200)
-                + "]}}";
-        HashTree t = new HarConverter(
-                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)), new HarImportOptions(), "test.har", "abc123")
-                .convert(Set.of("api.example.com"));
-
-        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByName(t, "/api/orders");
-        assertNotNull(sampler);
-        assertEquals("Reference detected in https://api.example.com/bootstrap", sampler.getComment());
-    }
-
-    @Test
-    void postBodyOpaqueReferencesGetCommentFromEarlierResponse() throws Exception {
-        String token = "run_AbC123xYz987654";
-        String har = "{\"log\":{\"entries\":["
-                + entry("2021-01-01T00:00:00.000Z", 50, "GET", "https://api.example.com/bootstrap", "[]",
-                        commonHeadersOnly(), null, 200, "{\\\"runToken\\\":\\\"" + token + "\\\"}") + ","
-                + entry("2021-01-01T00:00:00.100Z", 50, "POST", "https://api.example.com/api/run", "[]",
-                        commonHeadersOnly(),
-                        "{\"mimeType\":\"application/json\",\"text\":\"{\\\"runToken\\\":\\\"" + token + "\\\"}\"}",
-                        200)
-                + "]}}";
-        HashTree t = new HarConverter(
-                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)), new HarImportOptions(), "test.har", "abc123")
-                .convert(Set.of("api.example.com"));
-
-        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByName(t, "/api/run");
-        assertNotNull(sampler);
-        assertEquals("Reference detected in https://api.example.com/bootstrap", sampler.getComment());
-    }
-
-    @Test
     void parserRejectsCompressedHarContent() {
         assertThrows(IOException.class,
                 () -> HarParser.parse(new byte[] {(byte) 0x1f, (byte) 0x8b, 0x08, 0x00}));

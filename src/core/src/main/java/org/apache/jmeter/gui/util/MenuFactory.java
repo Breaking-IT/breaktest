@@ -462,6 +462,14 @@ public final class MenuFactory {
         return createDefaultPopupMenu();
     }
 
+    public static JPopupMenu getPredefinedCorrelationExtractorMenu() {
+        JPopupMenu pop = createDefaultPopupMenu();
+        pop.insert(new JPopupMenu.Separator(), 0);
+        pop.insert(makeMenuItemRes(
+                "add_custom_predefined_correlation", ActionNames.ADD_CUSTOM_PREDEFINED_CORRELATION), 0);
+        return pop;
+    }
+
     public static JPopupMenu getDefaultMenu() { // if type is unknown
         return createDefaultPopupMenu();
     }

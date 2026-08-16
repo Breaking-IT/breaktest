@@ -85,6 +85,7 @@ class UpdateInstallerTest {
         write(home, "bin/ApacheJMeter.jar", "old launcher");
         write(home, "bin/user.properties", "theme=custom");
         write(home, "bin/system.properties", "proxy=custom");
+        write(home, "bin/predefined-correlations.custom.json", "custom rules");
         write(home, "lib/dependency-1.0.jar", "old dependency");
         write(home, "lib/custom-jdbc-driver-4.2.jar", "custom driver");
         write(home, "lib/ext/ApacheJMeter_core.jar", "old core");
@@ -95,6 +96,7 @@ class UpdateInstallerTest {
         write(staged, "bin/ApacheJMeter.jar", "new launcher");
         write(staged, "bin/user.properties", "shipped default");
         write(staged, "bin/system.properties", "shipped default");
+        write(staged, "bin/predefined-correlations.custom.json", "empty shipped catalog");
         write(staged, "bin/breaktest.sh", "#!/bin/sh\r\necho updated\r\n");
         write(staged, "lib/dependency-2.0.jar", "new dependency");
         write(staged, "lib/ext/ApacheJMeter_core.jar", "new core");
@@ -105,6 +107,7 @@ class UpdateInstallerTest {
         assertEquals("new core", Files.readString(home.resolve("lib/ext/ApacheJMeter_core.jar")));
         assertEquals("theme=custom", Files.readString(home.resolve("bin/user.properties")));
         assertEquals("proxy=custom", Files.readString(home.resolve("bin/system.properties")));
+        assertEquals("custom rules", Files.readString(home.resolve("bin/predefined-correlations.custom.json")));
         assertEquals("plugin", Files.readString(home.resolve("lib/ext/company-plugin.jar")));
         assertFalse(Files.exists(home.resolve("lib/dependency-1.0.jar")));
         assertFalse(Files.exists(home.resolve("lib/ext/ApacheJMeter_obsolete.jar")));
@@ -124,6 +127,7 @@ class UpdateInstallerTest {
         assertEquals("custom driver", Files.readString(home.resolve("lib/custom-jdbc-driver-4.2.jar")));
         assertEquals("plugin", Files.readString(home.resolve("lib/ext/company-plugin.jar")));
         assertEquals("theme=custom", Files.readString(home.resolve("bin/user.properties")));
+        assertEquals("custom rules", Files.readString(home.resolve("bin/predefined-correlations.custom.json")));
     }
 
     @Test

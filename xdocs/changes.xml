@@ -53,6 +53,18 @@ desktop behavior across themes, menus, icons, and modern Java launches.
   <li>Restores the original Add menu category order and separators, keeping Pre Processors and Post Processors together.</li>
 </ul>
 
+<ch_section>Recorded Flow Correlation</ch_section>
+<ul>
+  <li>Enables predefined-correlation scanning by default in the HAR import wizard and removes the superseded dynamic-URL comment heuristic.</li>
+  <li>Finds grouped predefined OAuth, ASP.NET, JavaServer Faces, Django, Ruby on Rails, Spring Security, Laravel, Siebel, and Oracle NCA correlations while importing a HAR and previews every later request value that will be replaced.</li>
+  <li>Saves custom Regex and JSONPath correlation rules to both an update-safe BreakTest custom catalog and the JMX archive so the rules remain local and travel with the test plan.</li>
+  <li>Nests rules under named group objects in predefined-correlation JSON while continuing to read existing flat custom catalogs.</li>
+  <li>Adds <b>Tools &gt; Try Predefined Correlations</b> with a group/rule tree, a property view, guidance for adding custom rules, group selection, custom-rule editing, and reviewed application to an existing Thread Group with linked recorded responses.</li>
+  <li>Adds a per-rule maximum match count (default 1) as a safety ceiling, then detects the correct nth extractor match from the value used by a later request.</li>
+  <li>Moves built-in extractors to a versioned JSON catalog, supports a shared custom catalog, and stores plan-local custom rules as a separate JMX archive entry.</li>
+  <li>Adds <b>Save as Custom Predefined Correlation</b> to Regex and JSONPath Extractor context menus.</li>
+</ul>
+
 <ch_section>Desktop and Build Reliability</ch_section>
 <ul>
   <li>Refreshes reused file chooser components before display so open and save dialogs follow a theme changed while BreakTest is running.</li>
@@ -226,7 +238,7 @@ JMeter JMX metadata.
   <li>Dedicated BreakTest HAR recordings with explicit transaction markers no longer show the inapplicable idle transaction threshold.</li>
   <li>Storage choices report their estimated compressed size using the current HAR data.</li>
   <li>The importer removes the continue-on-error control and the redundant all-except-static-resources retention mode.</li>
-  <li>Request indexing, dynamic URL detection, transaction delay, and storage choices remain available in a smaller dialog.</li>
+  <li>Request indexing, transaction delay, and storage choices remain available in a smaller dialog.</li>
 </ul>
 
 <ch_section>HTTP Request Controls</ch_section>
@@ -332,7 +344,7 @@ test evidence, richer diagnostics, and AI-assisted scripting.
   <li>Recording can begin in a prepared blank tab or private context so the first navigation and dependent resources are captured.</li>
   <li>Transaction names assigned during recording become Transaction Controllers during import.</li>
   <li>Optional cache disabling supports cold-cache recordings, and unavailable browser response bodies are reported clearly.</li>
-  <li>The guided <b>File &gt; Import HAR...</b> workflow supports hostname selection, request grouping, error handling, request indexes, dynamic URLs, headers, and configurable transaction delays.</li>
+  <li>The guided <b>File &gt; Import HAR...</b> workflow supports hostname selection, request grouping, error handling, request indexes, headers, and configurable transaction delays.</li>
   <li>Generated plans can include Transaction Controllers, Parallel Controllers, HTTP Request Defaults, Cookie Managers, assertions, and preserved recording metadata.</li>
 </ul>
 
