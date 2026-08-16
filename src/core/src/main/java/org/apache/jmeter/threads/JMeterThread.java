@@ -58,7 +58,6 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
-import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -1066,11 +1065,12 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         // Do not send subsamples to listeners which receive the transaction sample
                         List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
-                        boolean metadataNeeded = needsSampleResultMetadata(sampleListeners);
-                        if (metadataNeeded || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
+                        boolean jMeterVariablesNeeded = needsJMeterVariables(sampleListeners);
+                        if (needsSourceTestElementPath(sampleListeners)
+                                || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
                             setSourceTestElementPath(result, pack.getSourceTestElementPath());
                         }
-                        notifyListeners(sampleListeners, result, metadataNeeded);
+                        notifyListeners(sampleListeners, result, jMeterVariablesNeeded);
                     }
                     packageDone = true;
                     doneLocked(pack, recoverControllers);
@@ -1231,7 +1231,7 @@ public class JMeterThread implements Runnable, Interruptible {
         // Notify listeners with the transaction sample result
         if (!(parent instanceof TransactionSampler)) {
             List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
-            if (needsSampleResultMetadata(sampleListeners)) {
+            if (needsSourceTestElementPath(sampleListeners)) {
                 setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
             }
             notifyListeners(sampleListeners, transactionResult);
@@ -1823,11 +1823,11 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result) {
-        notifyListeners(listeners, result, needsSampleResultMetadata(listeners));
+        notifyListeners(listeners, result, needsJMeterVariables(listeners));
     }
 
-    private void notifyListeners(List<SampleListener> listeners, SampleResult result, boolean metadataNeeded) {
-        if (metadataNeeded) {
+    private void notifyListeners(List<SampleListener> listeners, SampleResult result, boolean jMeterVariablesNeeded) {
+        if (jMeterVariablesNeeded) {
             setJMeterVariables(result, snapshotVariables(threadVars));
         }
         SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
@@ -1838,12 +1838,21 @@ public class JMeterThread implements Runnable, Interruptible {
             SamplePackage transactionPack, TransactionSampler transactionSampler) {
         return transactionSampler != null
                 && transactionPack != null
-                && needsSampleResultMetadata(transactionPack.getSampleListeners());
+                && needsSourceTestElementPath(transactionPack.getSampleListeners());
     }
 
-    private static boolean needsSampleResultMetadata(List<SampleListener> listeners) {
+    private static boolean needsJMeterVariables(List<SampleListener> listeners) {
         for (SampleListener listener : listeners) {
-            if (listener instanceof ResultCollector resultCollector && resultCollector.needsSampleResultMetadata()) {
+            if (listener.needsJMeterVariables()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean needsSourceTestElementPath(List<SampleListener> listeners) {
+        for (SampleListener listener : listeners) {
+            if (listener.needsSourceTestElementPath()) {
                 return true;
             }
         }
