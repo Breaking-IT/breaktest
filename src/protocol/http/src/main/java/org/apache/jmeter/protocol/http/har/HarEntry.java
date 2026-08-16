@@ -99,6 +99,7 @@ public class HarEntry {
     private PostData postData;
 
     private int responseStatus;
+    private String responseRedirectUrl = "";
     private final List<NameValue> responseHeaders = new ArrayList<>();
     private String responseContentText = "";
 
@@ -220,6 +221,14 @@ public class HarEntry {
 
     public void setResponseStatus(int responseStatus) {
         this.responseStatus = responseStatus;
+    }
+
+    public String getResponseRedirectUrl() {
+        return responseRedirectUrl;
+    }
+
+    public void setResponseRedirectUrl(String responseRedirectUrl) {
+        this.responseRedirectUrl = responseRedirectUrl == null ? "" : responseRedirectUrl;
     }
 
     public List<NameValue> getResponseHeaders() {

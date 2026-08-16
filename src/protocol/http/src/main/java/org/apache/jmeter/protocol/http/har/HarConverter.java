@@ -347,24 +347,69 @@ public final class HarConverter {
         sorted.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
 
         List<HarEntry> currentGroup = new ArrayList<>();
+        Map<String, Integer> pendingRedirectTargets = new HashMap<>();
         double earliestEndMs = Double.POSITIVE_INFINITY;
         for (HarEntry entry : sorted) {
             // A browser can only start every request in one parallel wave before
             // the first request in that wave has completed. Once that boundary is
             // crossed, later requests belong to a new wave even if slower requests
-            // from the previous wave are still in flight.
-            if (!currentGroup.isEmpty() && entry.getStartMs() > earliestEndMs) {
+            // from the previous wave are still in flight. Redirect targets always
+            // start a new wave because HAR timestamps can round their start to just
+            // before the redirect response's recorded end.
+            boolean followsRedirect = consumeRedirectTarget(pendingRedirectTargets, entry.getUrl());
+            if (!currentGroup.isEmpty() && (entry.getStartMs() > earliestEndMs || followsRedirect)) {
                 groups.add(currentGroup);
                 currentGroup = new ArrayList<>();
                 earliestEndMs = Double.POSITIVE_INFINITY;
             }
             currentGroup.add(entry);
             earliestEndMs = Math.min(earliestEndMs, entry.getEndMs());
+            String redirectTarget = redirectTargetOf(entry);
+            if (!redirectTarget.isEmpty()) {
+                pendingRedirectTargets.merge(redirectTarget, 1, Integer::sum);
+            }
         }
         if (!currentGroup.isEmpty()) {
             groups.add(currentGroup);
         }
         return groups;
+    }
+
+    private static boolean consumeRedirectTarget(Map<String, Integer> pendingTargets, String url) {
+        Integer count = pendingTargets.get(url);
+        if (count == null) {
+            return false;
+        }
+        if (count == 1) {
+            pendingTargets.remove(url);
+        } else {
+            pendingTargets.put(url, count - 1);
+        }
+        return true;
+    }
+
+    private static String redirectTargetOf(HarEntry entry) {
+        int status = entry.getResponseStatus();
+        if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
+            return "";
+        }
+        String redirect = entry.getResponseRedirectUrl();
+        if (redirect.isEmpty()) {
+            for (NameValue header : entry.getResponseHeaders()) {
+                if ("location".equalsIgnoreCase(header.getName())) {
+                    redirect = header.getValue();
+                    break;
+                }
+            }
+        }
+        if (redirect.isEmpty()) {
+            return "";
+        }
+        try {
+            return URI.create(entry.getUrl()).resolve(redirect).toString();
+        } catch (IllegalArgumentException e) {
+            return redirect;
+        }
     }
 
     private static boolean allMultiplexedProtocol(List<HarEntry> group) {

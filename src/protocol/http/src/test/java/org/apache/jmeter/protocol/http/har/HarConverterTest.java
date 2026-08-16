@@ -200,6 +200,23 @@ public class HarConverterTest {
     }
 
     @Test
+    void roundedRedirectTimingStillStartsANewWave() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + redirectEntry("2026-08-16T15:08:08.234Z", 289,
+                        "https://example.com/login", "/authorize/resume") + ","
+                + entry("2026-08-16T15:08:08.522Z", 132, "GET",
+                        "https://example.com/authorize/resume", "[]", commonHeadersOnly(), null, 200)
+                + "]}}";
+
+        HashTree converted = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "redirect.har", "abc123")
+                .convert(Set.of("example.com"));
+
+        assertNull(findByType(converted, ParallelController.class));
+    }
+
+    @Test
     void cachedEntryIsSkippedAndPreflightIsNamed() {
         List<HTTPSamplerProxy> samplers = new ArrayList<>();
         collect(tree, HTTPSamplerProxy.class, samplers);
@@ -648,6 +665,14 @@ public class HarConverterTest {
         sb.append("\"response\":{\"status\":").append(status).append(",\"headers\":[],");
         sb.append("\"content\":{\"text\":\"").append(responseText).append("\"}}}");
         return sb.toString();
+    }
+
+    private static String redirectEntry(String started, int time, String url, String redirectUrl) {
+        String result = entry(started, time, "POST", url, "[]", commonHeadersOnly(), null, 302);
+        return result.replace(
+                "\"response\":{\"status\":302,\"headers\":[]",
+                "\"response\":{\"status\":302,\"redirectURL\":\"" + redirectUrl
+                        + "\",\"headers\":[{\"name\":\"location\",\"value\":\"" + redirectUrl + "\"}]");
     }
 
     private static String cachedEntry(String started, String method, String url) {
