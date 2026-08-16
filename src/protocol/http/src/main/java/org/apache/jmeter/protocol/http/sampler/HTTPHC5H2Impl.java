@@ -121,7 +121,6 @@ import org.apache.hc.core5.reactor.IOSessionListener;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
-import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.CookieManager;
@@ -145,6 +144,11 @@ import org.slf4j.LoggerFactory;
 public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final Logger log = LoggerFactory.getLogger(HTTPHC5H2Impl.class);
+
+    private static final List<String> AUTH_SCHEME_PRIORITY = List.of(
+            StandardAuthScheme.NTLM,
+            StandardAuthScheme.DIGEST,
+            StandardAuthScheme.BASIC);
 
     private static final String CONTEXT_ATTRIBUTE_LOCAL_ADDRESS = "__jmeter.L_A_H2__";
 
@@ -205,6 +209,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         for (;;) {
             HTTPSampleResult res = createSampleResult(url, method);
             HttpClientContext clientContext = HttpClientContext.create();
+            clientContext.setAttribute(CONTEXT_ATTRIBUTE_AUTH_MANAGER, getAuthManager());
             HttpUriRequestBase httpRequest;
             HttpClientState clientState;
             try {
@@ -1143,6 +1148,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     @Override
+    protected List<String> authSchemePriority() {
+        return AUTH_SCHEME_PRIORITY;
+    }
+
+    @Override
     protected AuthenticationStrategy getProxyAuthStrategy() {
         return DefaultAuthenticationStrategy.INSTANCE;
     }
@@ -1523,46 +1533,4 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private static final class ManagedCredentialsProvider implements CredentialsStore {
-        private final List<AuthManagerCredential> authManagerCredentials;
-        private final AuthScope proxyAuthScope;
-        private final Credentials proxyCredentials;
-
-        private ManagedCredentialsProvider(AuthManager authManager, AuthScope proxyAuthScope, Credentials proxyCredentials) {
-            this.authManagerCredentials = createAuthManagerCredentials(authManager);
-            this.proxyAuthScope = proxyAuthScope;
-            this.proxyCredentials = proxyCredentials;
-        }
-
-        @Override
-        public void setCredentials(AuthScope authscope, Credentials credentials) {
-            log.debug("Store creds {} for {}", credentials, authscope);
-        }
-
-        @Override
-        public Credentials getCredentials(AuthScope authScope, HttpContext context) {
-            if (proxyAuthScope != null && authScope.equals(proxyAuthScope)) {
-                return proxyCredentials;
-            }
-            AuthManagerCredential authManagerCredential = getAuthorizationForAuthScope(authScope);
-            return authManagerCredential == null ? null : authManagerCredential.credentials;
-        }
-
-        private AuthManagerCredential getAuthorizationForAuthScope(AuthScope authScope) {
-            if (authScope == null) {
-                return null;
-            }
-            for (AuthManagerCredential authManagerCredential : authManagerCredentials) {
-                if (authManagerCredential.matches(authScope)) {
-                    return authManagerCredential;
-                }
-            }
-            return null;
-        }
-
-        @Override
-        public void clear() {
-            log.debug("Clear creds");
-        }
-    }
 }

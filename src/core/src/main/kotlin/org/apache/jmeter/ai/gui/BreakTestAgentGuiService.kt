@@ -92,6 +92,7 @@ import kotlin.concurrent.thread
 public object BreakTestAgentGuiService {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
     private const val MAX_REPAIR_ACTION_SNAPSHOTS = 8
+    private const val MAX_REPAIR_ACTION_ROLLBACK_UNDOS = 25
     /** Above this many changed nodes a scoped replacement stays a single summary row. */
     private const val MAX_ITEMISED_REPLACEMENT_NODES = 3
     private const val MAX_ACTIVE_FILE_REFRESHES_PER_RUN = 1
@@ -904,6 +905,7 @@ public object BreakTestAgentGuiService {
         var skipped = 0
         var rolledBack = 0
         var restoredFromBackup = false
+        var restoredFromActionSnapshot = false
         for (actionId in actionIds) {
             val action = snapshot[actionId]
             if (action == null) {
@@ -951,6 +953,9 @@ public object BreakTestAgentGuiService {
                     if (rollback.method == "pre-run-backup") {
                         restoredFromBackup = true
                     }
+                    if (rollback.method == "action-snapshot") {
+                        restoredFromActionSnapshot = true
+                    }
                     results += mapOf(
                         "actionId" to actionId,
                         "status" to "failed",
@@ -963,7 +968,7 @@ public object BreakTestAgentGuiService {
             if (stopOnFirstError && outcome.isFailure) {
                 break
             }
-            if (restoredFromBackup) {
+            if (restoredFromBackup || restoredFromActionSnapshot) {
                 break
             }
         }
@@ -977,7 +982,8 @@ public object BreakTestAgentGuiService {
         postActivity(
             "info",
             "Applied repair action batch",
-            details = "applied=$applied failed=$failed skipped=$skipped rolledBack=$rolledBack of ${actionIds.size} requested",
+            details = "applied=$applied failed=$failed skipped=$skipped rolledBack=$rolledBack " +
+                "preservedApplied=${if (restoredFromBackup) 0 else applied} of ${actionIds.size} requested",
         )
         return mapOf(
             "snapshotId" to snapshotId,
@@ -987,8 +993,9 @@ public object BreakTestAgentGuiService {
             "skippedCount" to skipped,
             "rolledBackCount" to rolledBack,
             "restoredFromBackup" to restoredFromBackup,
+            "restoredFromActionSnapshot" to restoredFromActionSnapshot,
             "durableAppliedCount" to if (restoredFromBackup) 0 else applied,
-            "aborted" to restoredFromBackup,
+            "aborted" to (restoredFromBackup || restoredFromActionSnapshot),
             "results" to results,
         )
     }
@@ -1017,11 +1024,21 @@ public object BreakTestAgentGuiService {
                 signature = openPlanSignature(gui),
                 elementCount = countTreeNodes(gui.treeModel.testPlan),
                 threadGroupCount = gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).size,
+                tree = cloneOpenPlanTree(gui.treeModel.testPlan),
+                originalPlanPath = gui.testPlanFile,
+                wasDirty = gui.isDirty,
             )
         }
 
     private fun rollbackFailedRepairAction(before: RepairActionState, beforeChangeCount: Int): RepairRollback {
         val current = runCatching { captureRepairActionState() }.getOrElse { captureError ->
+            val actionRestore = runCatching {
+                restoreRepairActionState(before, "unreadable plan after failed repair action")
+            }
+            if (actionRestore.isSuccess) {
+                AiAutoScriptingLogWindow.truncateChanges(beforeChangeCount)
+                return RepairRollback(true, "action-snapshot")
+            }
             val restore = runCatching {
                 guiCall { restoreLatestOpenPlanBackup(null, "unreadable plan after failed repair action") }
             }
@@ -1030,8 +1047,9 @@ public object BreakTestAgentGuiService {
                 return RepairRollback(true, "pre-run-backup")
             }
             throw IllegalStateException(
-                "The failed repair action left the open plan unreadable and backup restore failed. " +
-                    "Plan read: ${captureError.message}. Backup restore: ${restore.exceptionOrNull()?.message}",
+                "The failed repair action left the open plan unreadable and recovery failed. " +
+                    "Plan read: ${captureError.message}. Action snapshot: ${actionRestore.exceptionOrNull()?.message}. " +
+                    "Backup restore: ${restore.exceptionOrNull()?.message}",
                 captureError,
             )
         }
@@ -1040,20 +1058,33 @@ public object BreakTestAgentGuiService {
             return RepairRollback(false, null)
         }
         val undoResult = runCatching {
-            guiCall {
-                val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-                require(gui.canUndo()) { "The failed repair action changed the plan but no undo entry is available" }
-                gui.undo()
-                NodeIds.clear()
+            var undoSteps = 0
+            while (undoSteps < MAX_REPAIR_ACTION_ROLLBACK_UNDOS) {
+                guiCall {
+                    val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+                    require(gui.canUndo()) {
+                        "The failed repair action changed the plan but no matching undo state is available"
+                    }
+                    gui.undo()
+                    NodeIds.clear()
+                }
+                undoSteps++
+                if (captureRepairActionState().signature == before.signature) {
+                    return@runCatching
+                }
             }
-            val restored = captureRepairActionState()
-            require(restored.signature == before.signature) {
-                "Undo did not restore the exact pre-action plan state"
-            }
+            error("Undo did not restore the exact pre-action plan state after $undoSteps steps")
         }
         if (undoResult.isSuccess) {
             AiAutoScriptingLogWindow.truncateChanges(beforeChangeCount)
             return RepairRollback(true, "undo")
+        }
+        val actionRestoreResult = runCatching {
+            restoreRepairActionState(before, "failed repair action rollback")
+        }
+        if (actionRestoreResult.isSuccess) {
+            AiAutoScriptingLogWindow.truncateChanges(beforeChangeCount)
+            return RepairRollback(true, "action-snapshot")
         }
         val restoreResult = runCatching {
             guiCall { restoreLatestOpenPlanBackup(null, "failed repair action rollback") }
@@ -1063,12 +1094,45 @@ public object BreakTestAgentGuiService {
             return RepairRollback(true, "pre-run-backup")
         }
         val undoError = undoResult.exceptionOrNull()?.message ?: "unknown undo failure"
+        val actionRestoreError = actionRestoreResult.exceptionOrNull()?.message ?: "unknown action snapshot failure"
         val restoreError = restoreResult.exceptionOrNull()?.message ?: "unknown backup restore failure"
         throw IllegalStateException(
             "Failed repair action changed the plan and could not be rolled back. " +
-                "Undo: $undoError. Backup restore: $restoreError",
+                "Undo: $undoError. Action snapshot: $actionRestoreError. Backup restore: $restoreError",
         )
     }
+
+    private fun restoreRepairActionState(before: RepairActionState, reason: String): Map<String, Any?> =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            val restoredTree = cloneOpenPlanTree(before.tree)
+            if (gui.mainFrame == null) {
+                val testPlan = restoredTree.array.firstOrNull() as? TestPlan
+                    ?: error("The action snapshot does not contain a Test Plan")
+                gui.clearTestPlan(testPlan)
+                gui.addLoadedSubTree(restoredTree)
+            } else {
+                Load.insertLoadedTree(ActionEvent.ACTION_PERFORMED, restoredTree, false)
+            }
+            if (gui.testPlanFile != before.originalPlanPath) {
+                gui.setTestPlanFile(before.originalPlanPath)
+            }
+            gui.setDirty(before.wasDirty)
+            NodeIds.clear()
+            postActivity(
+                "warn",
+                "Restored unsaved open plan state from before failed repair action",
+                details = "activePlan=${before.originalPlanPath ?: "(never saved)"}; " +
+                    "dirty=${before.wasDirty}; reason=$reason; prior successful AI edits preserved",
+            )
+            mapOf(
+                "restored" to true,
+                "method" to "action-snapshot",
+                "originalPlanPath" to before.originalPlanPath,
+                "dirty" to before.wasDirty,
+                "reason" to reason,
+            )
+        }
 
     private fun openPlanSignature(gui: GuiPackage): String {
         val bytes = ByteArrayOutputStream().use { output ->
@@ -2707,6 +2771,9 @@ public object BreakTestAgentGuiService {
                 signature = openPlanSignature(gui),
                 elementCount = countTreeNodes(gui.treeModel.testPlan),
                 threadGroupCount = gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).size,
+                tree = cloneOpenPlanTree(gui.treeModel.testPlan),
+                originalPlanPath = gui.testPlanFile,
+                wasDirty = gui.isDirty,
             )
             val beforeChangeCount = AiAutoScriptingLogWindow.changes().size
             val beforeElementCount = beforeState.elementCount
@@ -4627,6 +4694,9 @@ public object BreakTestAgentGuiService {
         val signature: String,
         val elementCount: Int,
         val threadGroupCount: Int,
+        val tree: HashTree,
+        val originalPlanPath: String?,
+        val wasDirty: Boolean,
     )
 
     private data class RepairRollback(
@@ -5117,6 +5187,16 @@ public object BreakTestAgentGuiService {
             converted.add(key, convertTree(tree.getTree(node)))
         }
         return converted
+    }
+
+    private fun cloneOpenPlanTree(tree: HashTree): HashTree {
+        val cloned = ListedHashTree()
+        for (node in tree.list()) {
+            val element = (node as? JMeterTreeNode)?.testElement ?: node as? TestElement
+            val clonedNode = element?.clone() as? TestElement ?: node
+            cloned.add(clonedNode, cloneOpenPlanTree(tree.getTree(node)))
+        }
+        return cloned
     }
 
     private fun HashTree.findSubTree(element: TestElement): HashTree? {

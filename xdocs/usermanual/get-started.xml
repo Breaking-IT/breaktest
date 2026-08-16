@@ -76,16 +76,22 @@ threads finish naturally.
 <h2>AI-Assisted Scripting Tools</h2>
 <p>
 BreakTest includes local agent entry points used by tools such as Codex,
-Claude Code, opencode, and Copilot CLI:
+Claude Code, Cursor Agent, Gemini CLI, Pi Code, OpenCode, and Copilot CLI:
 </p>
 <source>
 bin/breaktest-agent-mcp
 bin/breaktest-agent-tool
+bin/breaktest-agent-mcp.cmd (Windows)
+bin/breaktest-agent-tool.cmd (Windows)
+bin/breaktest-agent-mcp.ps1 (Windows agent-shell adapter)
+bin/breaktest-agent-tool.ps1 (Windows agent-shell adapter)
 </source>
 <p>
 These tools allow an AI agent to inspect and repair a JMX script, add
 correlation and assertions, parameterize dynamic values, and surface changes
-back in the GUI for review.
+back in the GUI for review. On Windows, AI Auto Scripting uses the PowerShell
+adapter and an argument file for tool JSON so the same bridge calls work from
+agents that choose PowerShell, Command Prompt, or Git Bash for shell commands.
 </p>
 
 <h2>Compatibility Names</h2>

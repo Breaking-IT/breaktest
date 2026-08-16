@@ -141,6 +141,65 @@ public class HarConverterTest {
     }
 
     @Test
+    void embeddedAssetReferenceDoesNotSplitAnActiveParallelWave() throws Exception {
+        String logoPath = "/_nuxt-assets/logos/co-branded/logo-staatsloterij.svg";
+        String har = "{\"log\":{\"entries\":["
+                + entry("2026-08-16T13:50:22.000Z", 50, "GET", "https://example.com/", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.100Z", 200, "GET", "https://example.com/app.js", "[]",
+                        commonHeadersOnly(), null, 200, logoPath) + ","
+                + entry("2026-08-16T13:50:22.101Z", 200, "GET", "https://example.com/app.css", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.101Z", 200, "GET", "https://example.com" + logoPath, "[]",
+                        commonHeadersOnly(), null, 200)
+                + "]}}";
+
+        HashTree converted = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "homepage.har", "abc123")
+                .convert(Set.of("example.com"));
+        List<ParallelController> controllers = new ArrayList<>();
+        collect(converted, ParallelController.class, controllers);
+
+        assertEquals(1, controllers.size());
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(subtreeOf(converted, controllers.get(0)), HTTPSamplerProxy.class, samplers);
+
+        assertEquals(3, samplers.size());
+        assertTrue(samplers.stream().anyMatch(s -> logoPath.equals(s.getPath())));
+    }
+
+    @Test
+    void requestAfterEarliestCompletionStartsANewParallelWave() throws Exception {
+        String har = "{\"log\":{\"entries\":["
+                + entry("2026-08-16T13:50:22.000Z", 50, "GET", "https://example.com/", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.100Z", 50, "GET", "https://example.com/a.js", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.100Z", 200, "GET", "https://example.com/b.js", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.151Z", 200, "GET", "https://example.com/c.js", "[]",
+                        commonHeadersOnly(), null, 200) + ","
+                + entry("2026-08-16T13:50:22.151Z", 200, "GET", "https://example.com/d.js", "[]",
+                        commonHeadersOnly(), null, 200)
+                + "]}}";
+
+        HashTree converted = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "waves.har", "abc123")
+                .convert(Set.of("example.com"));
+        List<ParallelController> controllers = new ArrayList<>();
+        collect(converted, ParallelController.class, controllers);
+
+        assertEquals(2, controllers.size());
+        for (ParallelController controller : controllers) {
+            List<HTTPSamplerProxy> samplers = new ArrayList<>();
+            collect(subtreeOf(converted, controller), HTTPSamplerProxy.class, samplers);
+            assertEquals(2, samplers.size());
+        }
+    }
+
+    @Test
     void cachedEntryIsSkippedAndPreflightIsNamed() {
         List<HTTPSamplerProxy> samplers = new ArrayList<>();
         collect(tree, HTTPSamplerProxy.class, samplers);
