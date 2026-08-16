@@ -22,9 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Properties;
 
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 
 class AiAutoScriptingActionTest {
@@ -57,7 +63,20 @@ class AiAutoScriptingActionTest {
         assertEquals("Applied 7 actions (0 rolled back).", displayLine("Applied 7 actions (0 rolled back)."));
     }
 
+    @Test
+    void geminiStartupDecorationIsKeptOutOfTheActivityLog() throws Exception {
+        assertNull(displayLine("GEMINI", "Warning: Basic terminal detected (TERM=dumb)."));
+        assertNull(displayLine("GEMINI", "Warning: True color (24-bit) support not detected."));
+        assertNull(displayLine("GEMINI", "Warning: 256-color support not detected."));
+        assertNull(displayLine("GEMINI", "YOLO mode is enabled. All tool calls will be automatically approved."));
+        assertEquals("GEMINI_HARNESS_OK", displayLine("GEMINI", "GEMINI_HARNESS_OK"));
+    }
+
     private static String displayLine(String rawLine) throws Exception {
+        return displayLine("COPILOT", rawLine);
+    }
+
+    private static String displayLine(String toolName, String rawLine) throws Exception {
         Class<?> filterClass = null;
         for (Class<?> candidate : AiAutoScriptingAction.class.getDeclaredClasses()) {
             if ("AiOutputFilter".equals(candidate.getSimpleName())) {
@@ -70,15 +89,15 @@ class AiAutoScriptingActionTest {
                 toolClass = candidate;
             }
         }
-        Object copilot = null;
+        Object selectedTool = null;
         for (Object tool : toolClass.getEnumConstants()) {
-            if ("COPILOT".equals(((Enum<?>) tool).name())) {
-                copilot = tool;
+            if (toolName.equals(((Enum<?>) tool).name())) {
+                selectedTool = tool;
             }
         }
         Constructor<?> constructor = filterClass.getDeclaredConstructor(toolClass);
         constructor.setAccessible(true);
-        Object filter = constructor.newInstance(copilot);
+        Object filter = constructor.newInstance(selectedTool);
         Method method = filterClass.getDeclaredMethod("displayLine", String.class);
         method.setAccessible(true);
         return (String) method.invoke(filter, rawLine);
@@ -106,6 +125,337 @@ class AiAutoScriptingActionTest {
         assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
         assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
                 AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
+    }
+
+    @Test
+    void piCommandUsesNonInteractiveEphemeralModeAndConfiguredEngine() throws Exception {
+        Properties properties = jmeterProperties();
+        String[] keys = {
+            "breaktest.pi.command",
+            "breaktest.pi.provider",
+            "breaktest.pi.model",
+            "breaktest.pi.thinking"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "pi-test");
+            JMeterUtils.setProperty(keys[1], "local-provider");
+            JMeterUtils.setProperty(keys[2], "local-model");
+            JMeterUtils.setProperty(keys[3], "high");
+
+            Object request = newRunRequest("PI");
+            Class<?> requestClass = request.getClass();
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("piCommand", requestClass);
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertEquals(List.of(
+                    "pi-test",
+                    "--print",
+                    "--approve",
+                    "--no-session",
+                    "--mode",
+                    "text",
+                    "--provider",
+                    "local-provider",
+                    "--model",
+                    "local-model",
+                    "--thinking",
+                    "high"), command.subList(0, command.size() - 1));
+            assertTrue(command.get(command.size() - 1).contains("Pi Code"));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void geminiCommandUsesTrustedHeadlessTextModeWithoutHandlingApiKeys() throws Exception {
+        Properties properties = jmeterProperties();
+        String[] keys = {
+            "breaktest.gemini.command",
+            "breaktest.gemini.model",
+            "breaktest.gemini.approval",
+            "breaktest.gemini.sandbox"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "gemini-test");
+            JMeterUtils.setProperty(keys[1], "gemini-test-model");
+            JMeterUtils.setProperty(keys[2], "auto_edit");
+            JMeterUtils.setProperty(keys[3], "true");
+
+            Object request = newRunRequest("GEMINI");
+            Class<?> requestClass = request.getClass();
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", requestClass);
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertEquals(List.of(
+                    "gemini-test",
+                    "--skip-trust",
+                    "--approval-mode",
+                    "auto_edit",
+                    "--sandbox=true",
+                    "--output-format",
+                    "text",
+                    "--model",
+                    "gemini-test-model",
+                    "--prompt"), command.subList(0, command.size() - 1));
+            assertTrue(command.get(command.size() - 1).contains("Gemini CLI"));
+            assertFalse(command.stream().anyMatch(value -> value.contains("GEMINI_API_KEY")));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void geminiCommandLeavesModelSelectionToCliByDefault() throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.gemini.model");
+        try {
+            properties.remove("breaktest.gemini.model");
+
+            Object request = newRunRequest("GEMINI");
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", request.getClass());
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<String> command = (List<String>) method.invoke(null, request);
+
+            assertFalse(command.contains("--model"));
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.gemini.model");
+            } else {
+                properties.setProperty("breaktest.gemini.model", previous);
+            }
+        }
+    }
+
+    @Test
+    void cursorCommandUsesAutonomousHeadlessModeWithoutHandlingApiKeys() throws Exception {
+        Properties properties = jmeterProperties();
+        String[] keys = {
+            "breaktest.cursor.command",
+            "breaktest.cursor.model",
+            "breaktest.cursor.force",
+            "breaktest.cursor.sandbox"
+        };
+        String[] previous = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            previous[i] = properties.getProperty(keys[i]);
+        }
+        try {
+            JMeterUtils.setProperty(keys[0], "cursor-agent-test");
+            JMeterUtils.setProperty(keys[1], "cursor-test-model");
+            JMeterUtils.setProperty(keys[2], "true");
+            JMeterUtils.setProperty(keys[3], "disabled");
+
+            File workspace = Path.of("cursor-test-workspace").toAbsolutePath().normalize().toFile();
+            List<String> command = CursorAgentCommand.build("cursor test prompt", workspace);
+
+            assertEquals(List.of(
+                    "cursor-agent-test",
+                    "--print",
+                    "--force",
+                    "--sandbox",
+                    "disabled",
+                    "--output-format",
+                    "text",
+                    "--workspace",
+                    workspace.getPath(),
+                    "--model",
+                    "cursor-test-model"), command.subList(0, command.size() - 1));
+            assertEquals("cursor test prompt", command.get(command.size() - 1));
+            assertFalse(command.stream().anyMatch(value -> value.contains("CURSOR_API_KEY")));
+        } finally {
+            for (int i = 0; i < keys.length; i++) {
+                if (previous[i] == null) {
+                    properties.remove(keys[i]);
+                } else {
+                    properties.setProperty(keys[i], previous[i]);
+                }
+            }
+        }
+    }
+
+    @Test
+    void cursorCommandLeavesModelSelectionToCliByDefault() throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.cursor.model");
+        try {
+            properties.remove("breaktest.cursor.model");
+
+            List<String> command = CursorAgentCommand.build("cursor test prompt", new File("."));
+
+            assertFalse(command.contains("--model"));
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.cursor.model");
+            } else {
+                properties.setProperty("breaktest.cursor.model", previous);
+            }
+        }
+    }
+
+    @Test
+    void windowsBridgeUsesShellNeutralPowerShellLauncherAndArgumentsFile(@org.junit.jupiter.api.io.TempDir Path temp)
+            throws Exception {
+        Properties properties = jmeterProperties();
+        String previousHome = JMeterUtils.getJMeterHome();
+        String previousTool = properties.getProperty("breaktest.agent.tool");
+        try {
+            Path home = temp.resolve("BreakTest Home");
+            Path launcher = home.resolve("bin").resolve("breaktest-agent-tool.ps1");
+            Files.createDirectories(launcher.getParent());
+            Files.writeString(launcher, "# test launcher\n");
+            JMeterUtils.setJMeterHome(home.toString());
+            properties.remove("breaktest.agent.tool");
+
+            String expected = "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
+                    + launcher.toAbsolutePath() + "\"";
+            AgentBridgeCommand.Instructions instructions = AgentBridgeCommand.resolveInstructions(true);
+            assertEquals(expected, instructions.command());
+            assertTrue(instructions.bridgeCall().contains("--arguments-file"));
+            assertTrue(instructions.bridgeCall().contains("overwrite that file before every bridge call"));
+            assertTrue(instructions.startActivity().contains("agent_activity --arguments-file"));
+            assertTrue(instructions.startActivity().contains("Starting AI Auto Scripting"));
+        } finally {
+            JMeterUtils.setJMeterHome(previousHome);
+            if (previousTool == null) {
+                properties.remove("breaktest.agent.tool");
+            } else {
+                properties.setProperty("breaktest.agent.tool", previousTool);
+            }
+        }
+    }
+
+    @Test
+    void codexPromptUsesSkillFirstWithImmediateBridgeFallback() throws Exception {
+        withDefaultPrompt(() -> {
+            String prompt = renderedPrompt("CODEX");
+            assertTrue(prompt.contains("Use $breaktest-jmeter-repair when it is available"));
+            assertTrue(prompt.contains("use the bundled bridge below immediately"));
+        });
+    }
+
+    @Test
+    void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
+        withDefaultPrompt(() -> {
+            for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
+                String prompt = renderedPrompt(tool);
+                assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
+                assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
+                assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
+                assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+            }
+        });
+    }
+
+    private static String renderedPrompt(String toolName) throws Exception {
+        Object request = newRunRequest(toolName);
+        Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+        method.setAccessible(true);
+        return (String) method.invoke(null, request);
+    }
+
+    private static void withDefaultPrompt(ThrowingAction action) throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.codex.prompt");
+        try {
+            properties.remove("breaktest.codex.prompt");
+            action.run();
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.codex.prompt");
+            } else {
+                properties.setProperty("breaktest.codex.prompt", previous);
+            }
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingAction {
+        void run() throws Exception;
+    }
+
+    private static Properties jmeterProperties() throws Exception {
+        Properties properties = JMeterUtils.getJMeterProperties();
+        if (properties != null) {
+            return properties;
+        }
+        Path emptyProperties = Files.createTempFile("breaktest-ai-command", ".properties");
+        try {
+            JMeterUtils.loadJMeterProperties(emptyProperties.toString());
+            return JMeterUtils.getJMeterProperties();
+        } finally {
+            Files.deleteIfExists(emptyProperties);
+        }
+    }
+
+    private static Object newRunRequest(String toolName) throws Exception {
+        Class<?> requestClass = nestedClass("AiRunRequest");
+        Class<?> toolClass = nestedClass("AiTool");
+        Class<?> modeClass = nestedClass("AiRunMode");
+        Class<?> editSurfaceClass = nestedClass("AiEditSurface");
+        Object tool = enumConstant(toolClass, toolName);
+        Constructor<?> constructor = null;
+        for (Constructor<?> candidate : requestClass.getDeclaredConstructors()) {
+            if (candidate.getParameterCount() == 8) {
+                constructor = candidate;
+                break;
+            }
+        }
+        if (constructor == null) {
+            throw new IllegalStateException("Missing eight-argument AiRunRequest constructor");
+        }
+        constructor.setAccessible(true);
+        return constructor.newInstance(
+                tool,
+                null,
+                modeClass.getEnumConstants()[0],
+                editSurfaceClass.getEnumConstants()[0],
+                false,
+                60,
+                0,
+                "");
+    }
+
+    private static Class<?> nestedClass(String simpleName) {
+        for (Class<?> candidate : AiAutoScriptingAction.class.getDeclaredClasses()) {
+            if (simpleName.equals(candidate.getSimpleName())) {
+                return candidate;
+            }
+        }
+        throw new IllegalArgumentException("Missing nested class " + simpleName);
+    }
+
+    private static Object enumConstant(Class<?> enumClass, String name) {
+        for (Object constant : enumClass.getEnumConstants()) {
+            if (name.equals(((Enum<?>) constant).name())) {
+                return constant;
+            }
+        }
+        throw new IllegalArgumentException("Missing enum constant " + name);
     }
 
     private static boolean hasRepairBlocker(String... lines) throws Exception {

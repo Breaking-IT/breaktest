@@ -66,6 +66,7 @@ import javax.swing.text.DefaultEditorKit;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
+import org.apache.jmeter.ai.gui.AiCliProcess;
 import org.apache.jmeter.ai.gui.BreakTestAgentGuiService;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -246,6 +247,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         try {
             File workingDirectory = aiWorkingDirectory(request.tool());
             command = aiCommand(request, workingDirectory);
+            AiCliProcess processCommand = AiCliProcess.prepare(command, promptStyle(request.tool()));
             BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
@@ -256,7 +258,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                     + "s, similar retry limit " + request.maxSimilarRetries()
                     + ", add assertions " + (request.addAssertions() ? "yes" : "no") + ".");
             postActivity("AI telemetry: initial prompt " + payloadSize(prompt(request)));
-            postActivity("Command: " + commandSummary(command));
+            postActivity("Command: " + commandSummary(processCommand.command()));
             if (request.hasUserInput()) {
                 String instructions = request.instructions().strip();
                 if (instructions.length() > 1_500) {
@@ -270,16 +272,14 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postActivity("Working directory: " + workingDirectory.getPath());
 
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(workingDirectory);
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
+            Process process = processCommand.start(workingDirectory);
             CURRENT_PROCESS.set(process);
             startTimeoutWatchdog(process, request, timedOut);
             if (STOP_REQUESTED.get()) {
                 process.destroy();
+            } else {
+                processCommand.writePrompt(process);
             }
-            process.getOutputStream().close();
             output = streamOutput(process.getInputStream(), request.tool());
             int exitCode = process.waitFor();
             boolean stopped = STOP_REQUESTED.get();
@@ -330,6 +330,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
         } finally {
+            AgentBridgeCommand.deleteArgumentsFile();
             CURRENT_PROCESS.set(null);
             STOP_REQUESTED.set(false);
             RUNNING.set(false);
@@ -396,6 +397,18 @@ public class AiAutoScriptingAction extends AbstractAction {
             case OPENCODE -> opencodeCommand(request, workingDirectory);
             case CLAUDE -> claudeCommand(request);
             case COPILOT -> copilotCommand(request, workingDirectory);
+            case PI -> piCommand(request);
+            case GEMINI -> geminiCommand(request);
+            case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory);
+        };
+    }
+
+    private static AiCliProcess.PromptStyle promptStyle(AiTool tool) {
+        return switch (tool) {
+            case CODEX -> AiCliProcess.PromptStyle.CODEX;
+            case COPILOT -> AiCliProcess.PromptStyle.COPILOT;
+            case GEMINI -> AiCliProcess.PromptStyle.GEMINI;
+            case OPENCODE, CLAUDE, PI, CURSOR -> AiCliProcess.PromptStyle.POSITIONAL;
         };
     }
 
@@ -508,6 +521,62 @@ public class AiAutoScriptingAction extends AbstractAction {
         return command;
     }
 
+    private static List<String> piCommand(AiRunRequest request) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.pi.command", "pi"));
+        command.add("--print");
+        // Trust project-local Pi resources for this explicitly approved repair run.
+        // Pi uses the ProcessBuilder working directory, so it needs no separate cwd flag.
+        command.add("--approve");
+        command.add("--no-session");
+        command.add("--mode");
+        command.add("text");
+
+        String provider = JMeterUtils.getProperty("breaktest.pi.provider");
+        if (provider != null && !provider.isBlank()) {
+            command.add("--provider");
+            command.add(provider);
+        }
+
+        String model = modelProperty("breaktest.pi");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        String thinking = JMeterUtils.getProperty("breaktest.pi.thinking");
+        if (thinking != null && !thinking.isBlank()) {
+            command.add("--thinking");
+            command.add(thinking);
+        }
+
+        command.add(prompt(request));
+        return command;
+    }
+
+    private static List<String> geminiCommand(AiRunRequest request) {
+        List<String> command = new ArrayList<>();
+        command.add(JMeterUtils.getPropDefault("breaktest.gemini.command", "gemini"));
+        command.add("--skip-trust");
+        command.add("--approval-mode");
+        command.add(JMeterUtils.getPropDefault("breaktest.gemini.approval", "yolo"));
+        // The BreakTest GUI bridge uses a host-local temp socket. Keep Gemini's
+        // process sandbox off by default so shell tool calls can reach it.
+        command.add("--sandbox=" + JMeterUtils.getPropDefault("breaktest.gemini.sandbox", false));
+        command.add("--output-format");
+        command.add("text");
+
+        String model = modelProperty("breaktest.gemini");
+        if (model != null && !model.isBlank()) {
+            command.add("--model");
+            command.add(model);
+        }
+
+        command.add("--prompt");
+        command.add(prompt(request));
+        return command;
+    }
+
     /**
      * A missing CLI surfaces as a raw "Cannot run program ... error=2" from the JDK,
      * which does not say which tool is missing or how to point BreakTest at it.
@@ -558,9 +627,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (command.isEmpty()) {
             return "";
         }
-        List<String> summary = new ArrayList<>(command);
-        summary.set(summary.size() - 1, "[built-in prompt]");
-        return String.join(" ", summary);
+        return String.join(" ", command) + " [built-in prompt via stdin]";
     }
 
     private static File aiWorkingDirectory(AiTool tool) {
@@ -588,18 +655,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         return new File(".").getAbsoluteFile();
     }
 
-    private static String bridgeCommand() {
-        String configured = JMeterUtils.getProperty("breaktest.agent.tool");
-        if (configured != null && !configured.isBlank()) {
-            return new File(configured).getAbsolutePath();
-        }
-        File candidate = new File(JMeterUtils.getJMeterHome(), "bin/breaktest-agent-tool");
-        if (candidate.isFile()) {
-            return candidate.getAbsolutePath();
-        }
-        return "breaktest-agent-tool";
-    }
-
     private static String prompt(AiRunRequest request) {
         String configured = JMeterUtils.getProperty("breaktest.codex.prompt");
         if (configured != null && !configured.isBlank()) {
@@ -613,8 +668,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request.mode() == AiRunMode.SPECIFIC_REQUEST) {
             return specificRequestPrompt(request, testPlanFile);
         }
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.LIVE_GUI_REPAIR, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
                 Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
@@ -625,8 +684,12 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
                 Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
@@ -639,8 +702,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         String taskScope = AiPrompts.fragment(request.mode() == AiRunMode.SPECIFIC_REQUEST
                 ? "taskScope.specificRequest"
                 : "taskScope.fullRepair");
+        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
         return AiPrompts.render(AiPrompts.FILE_BACKED_REPAIR, Map.ofEntries(
-                Map.entry("BRIDGE", bridgeCommand()),
+                Map.entry("BRIDGE", bridge.command()),
+                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
+                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
+                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
                 Map.entry("TASK_SCOPE", taskScope),
                 Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
                 Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
@@ -653,6 +720,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         ));
     }
 
+    private static String harnessBootstrap(AiTool tool) {
+        return AgentBridgeCommand.harnessBootstrap(tool == AiTool.CODEX, tool.displayName());
+    }
     private static String userInstructionBlock(AiRunRequest request) {
         return AiPrompts.render(AiPrompts.USER_INSTRUCTIONS, Map.ofEntries(
                 Map.entry("TOOL", request.tool().displayName()),
@@ -920,7 +990,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return """
                 AI Auto Scripting (Beta)
 
-                Codex and Claude Code are the preferred harnesses. OpenCode and Copilot CLI are available for experimentation.
+                Codex and Claude Code are the preferred harnesses. Cursor Agent, Gemini CLI, Pi Code, OpenCode, and Copilot CLI are available for experimentation.
                 Configure manual Codex MCP with <BREAKTEST_HOME>/bin/breaktest-agent-mcp.
                 """;
     }
@@ -1257,7 +1327,10 @@ public class AiAutoScriptingAction extends AbstractAction {
     private enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
-        OPENCODE("opencode", "opencode", "breaktest.opencode.cwd"),
+        CURSOR("cursor", "Cursor Agent", "breaktest.cursor.cwd"),
+        GEMINI("gemini", "Gemini CLI", "breaktest.gemini.cwd"),
+        PI("pi", "Pi Code", "breaktest.pi.cwd"),
+        OPENCODE("opencode", "OpenCode", "breaktest.opencode.cwd"),
         COPILOT("copilot", "Copilot CLI", "breaktest.copilot.cwd");
 
         private final String id;
@@ -1284,12 +1357,12 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         @Override
         public String toString() {
-            return displayName;
+            return AiCliAvailability.displayName(id, displayName);
         }
     }
 
     private static AiTool[] aiToolChoices() {
-        return new AiTool[] { AiTool.CODEX, AiTool.CLAUDE, AiTool.OPENCODE, AiTool.COPILOT };
+        return AiCliAvailability.sortAvailableFirst(AiTool.values(), AiTool::id, AiTool::displayName);
     }
 
     private static final class AiRunRequest {
@@ -1449,6 +1522,8 @@ public class AiAutoScriptingAction extends AbstractAction {
         private boolean skipNextTokenCount;
         private boolean suppressToolOutput;
         private boolean suppressDiffOutput;
+        private boolean geminiApiErrorSeen;
+        private boolean suppressGeminiErrorDetails;
         private final Set<String> displayedFinalLines = new HashSet<>();
         private final AiRunOutput output = new AiRunOutput();
 
@@ -1475,6 +1550,19 @@ public class AiAutoScriptingAction extends AbstractAction {
                     // above still sees the line, which is why the stats are not
                     // suppressed at the CLI with -s.
                     return null;
+                } else if (tool == AiTool.GEMINI && isGeminiStartupLine(trimmed)) {
+                    return null;
+                } else if (tool == AiTool.GEMINI && trimmed.startsWith("Error when talking to Gemini API")) {
+                    geminiApiErrorSeen = true;
+                    display = trimmed;
+                } else if (tool == AiTool.GEMINI && geminiApiErrorSeen && trimmed.startsWith("at ")) {
+                    suppressGeminiErrorDetails = true;
+                    return null;
+                } else if (tool == AiTool.GEMINI && suppressGeminiErrorDetails) {
+                    if (trimmed.startsWith("An unexpected critical error occurred:")) {
+                        suppressGeminiErrorDetails = false;
+                    }
+                    return null;
                 } else if (shouldStartDiffSuppression(trimmed)) {
                     suppressDiffOutput = true;
                 } else if (suppressDiffOutput && !shouldEndDiffSuppression(trimmed)) {
@@ -1497,7 +1585,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                     display = tool == AiTool.CODEX ? displayFilteredLine(trimmed) : displayPlainAgentLine(trimmed);
                 }
             }
-            // CLI agents such as opencode echo every shell command and its JSON
+            // CLI agents such as OpenCode echo every shell command and its JSON
             // result into stdout. Those lines are neither useful in the activity
             // log (the GUI bridge already logs each tool call) nor valid "final
             // response" content for summary/follow-up extraction.
@@ -1535,6 +1623,13 @@ public class AiAutoScriptingAction extends AbstractAction {
          */
         private static boolean isAgentDecorationLine(String trimmed) {
             return !trimmed.isEmpty() && AGENT_DECORATION_GLYPHS.indexOf(trimmed.charAt(0)) >= 0;
+        }
+
+        private static boolean isGeminiStartupLine(String line) {
+            return line.startsWith("Warning: Basic terminal detected")
+                    || line.startsWith("Warning: True color (24-bit) support not detected")
+                    || line.startsWith("Warning: 256-color support not detected")
+                    || line.startsWith("YOLO mode is enabled.");
         }
 
         private static boolean looksLikeToolEcho(String line) {

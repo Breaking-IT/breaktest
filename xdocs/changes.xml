@@ -33,6 +33,13 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 <ch_section>AI Repair Safety</ch_section>
 <ul>
+  <li>Adds Windows AI Repair support for npm-installed <code>.cmd</code> CLIs, pipes large repair prompts over standard input to avoid the Windows command-line limit, bundles Windows agent bridge launchers, and passes bridge JSON through an argument file that is safe from PowerShell, Command Prompt, and Git Bash.</li>
+  <li>Makes AI Repair prompts harness-aware: Codex can use the bundled repair skill first, while Claude Code, Cursor Agent, Gemini CLI, Pi Code, OpenCode, and Copilot CLI use the bundled BreakTest bridge directly without requiring skill or MCP registration.</li>
+  <li>Preserves earlier successful live-GUI repair actions when a later batched action fails by restoring the action-local unsaved plan state instead of immediately reopening the pre-run backup.</li>
+  <li>Sorts available AI CLI tools alphabetically ahead of unavailable tools, marks missing executables in the start dialog, and keeps them selectable for setup.</li>
+  <li>Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous headless execution, model and working-directory overrides, and Cursor-owned authentication.</li>
+  <li>Adds Gemini CLI as an experimental AI Auto Scripting harness with headless execution, model and working-directory overrides, and Gemini-owned API-key authentication.</li>
+  <li>Adds Pi Code as an experimental AI Auto Scripting harness with provider, model, thinking-level, executable, and working-directory configuration.</li>
   <li>Creates a backup of the current JMX file before AI repair, then continues the repair against the active file instead of modifying the backup.</li>
   <li>Keeps the backup as an unchanged recovery point while preserving the normal save and reload behavior of the active test plan.</li>
   <li>Updates file-backed repair guidance to describe the corrected backup workflow consistently.</li>
@@ -70,7 +77,7 @@ when inspecting very large response bodies.
 
 <ch_section>AI Auto Scripting</ch_section>
 <ul>
-  <li>Adds GitHub Copilot CLI as an experimental AI Auto Scripting harness alongside Codex, Claude Code, opencode, and MCP workflows.</li>
+  <li>Adds GitHub Copilot CLI as an experimental AI Auto Scripting harness alongside Codex, Claude Code, OpenCode, and MCP workflows.</li>
   <li>Reads model and token statistics without showing Copilot's tool-call boxes in the activity log and reports clear setup guidance when a configured CLI is missing.</li>
   <li>Speeds up correlation planning by indexing candidate literals in one pass per recorded response and caching the native recording store.</li>
   <li>Validates that a proposed regular expression captures the intended dynamic value with the same Perl5 engine used by the Regex Extractor.</li>
@@ -369,7 +376,7 @@ test evidence, richer diagnostics, and AI-assisted scripting.
 
 <ch_section>AI-Assisted Scripting and Repair</ch_section>
 <ul>
-  <li>BreakTest integrates with Codex, Claude Code, opencode, and MCP-compatible agents for guided plan inspection and repair.</li>
+  <li>BreakTest integrates with Codex, Claude Code, OpenCode, and MCP-compatible agents for guided plan inspection and repair.</li>
   <li>GUI-backed tools find, clone, move, edit, and safely delete live nodes while preserving complete subtrees.</li>
   <li>Repair planning detects conflicting dynamic values and proposes native Regex Extractors only when recording evidence supports a safe pattern.</li>
   <li>Quoted values, duplicate replacements, stale identifiers, and orphaned extractor scenarios are handled explicitly.</li>

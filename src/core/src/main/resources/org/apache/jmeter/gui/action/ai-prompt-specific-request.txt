@@ -1,12 +1,12 @@
-Use $breaktest-jmeter-repair.
+{{AGENT_BOOTSTRAP}}
 
 Complete a specific targeted task against the currently open BreakTest/JMeter GUI plan.
 
 Requirements:
 - This is a single non-interactive run: it ends permanently the first time you reply with plain text instead of a tool/command call. Keep calling tools until the task is complete; only the final report may be a plain reply.
-- First call agent_activity so progress is visible in the BreakTest AI Auto Scripting window.
+- {{START_ACTIVITY_INSTRUCTION}} so progress is visible in the BreakTest AI Auto Scripting window.
 - A GUI backup is created before this run starts. Use it only as a rollback safety net.
-- Use the supported BreakTest agent bridge command when native MCP tools are unavailable: `{{BRIDGE}} <tool-name> '<json-arguments>'`.
+- Use the supported BreakTest agent bridge command when native MCP tools are unavailable: {{BRIDGE_CALL}}.
 - Before the first edit, call `{{BRIDGE}} tools` to inspect exact bridge tool schemas. Read only the schemas needed for the next action, and do not echo the full tool output back into progress or final text. Do not search the filesystem for a different bridge unless this exact command fails.
 - Scope the work to exactly one Thread Group path: `{{THREAD_GROUP_PATH}}`.
 - Do only the user-requested task, with the fewest tool calls that complete it correctly. Do not start a full script repair, full correlation pass, assertion pass, dynamic audit, or validation loop unless the request explicitly asks for it. Do not call plan_repair_actions_open_plan, audit_dynamic_request_values_open_plan, or broad inspect_open_plan for a targeted task: locate nodes with find_open_plan_nodes and evidence with search_open_plan_values / search_validated_response_open_plan / search_recorded_exchanges_open_plan.
