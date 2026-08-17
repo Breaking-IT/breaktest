@@ -506,7 +506,7 @@ public final class HarConverter {
         return common;
     }
 
-    private static boolean isExportableHeader(String name) {
+    static boolean isExportableHeader(String name) {
         return !IGNORED_REQUEST_HEADERS.contains(name.toLowerCase(Locale.ROOT)) && !name.startsWith(":");
     }
 
@@ -617,7 +617,7 @@ public final class HarConverter {
         String replaced = text;
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
-            String variableReference = "${" + correlation.getRule().getVariableName() + "}";
+            String variableReference = "${" + correlation.getVariableName() + "}";
             for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
                 if (replacement.getTargetEntryIndex() == entry.getOriginalIndex()
                         && acceptedLocations.contains(replacement.getLocation())) {
@@ -631,11 +631,10 @@ public final class HarConverter {
     }
 
     private void addPredefinedExtractors(HashTree samplerHt, HarEntry entry) {
-        Set<String> addedRules = new HashSet<>();
+        Set<String> addedVariables = new HashSet<>();
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
-            HarPredefinedCorrelation.Rule rule = correlation.getRule();
             if (correlation.getSourceEntryIndex() != entry.getOriginalIndex()
-                    || !addedRules.add(rule.getId())) {
+                    || !addedVariables.add(correlation.getVariableName())) {
                 continue;
             }
             samplerHt.add(HarPredefinedCorrelation.buildExtractor(correlation));

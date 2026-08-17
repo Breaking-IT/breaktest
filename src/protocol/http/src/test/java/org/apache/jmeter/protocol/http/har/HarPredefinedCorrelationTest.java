@@ -214,7 +214,9 @@ class HarPredefinedCorrelationTest {
         source.getResponseHeaders().add(new NameValue("Set-Cookie", "_sn=siebel-session-123; Path=/"));
         source.setResponseContentText("launch?ICX_TICKET=oracle-ticket-456;RESP_APP=AR");
         HarEntry target = entry(1, 100, "POST", "https://example.test/next");
-        target.getRequestHeaders().add(new NameValue("Cookie", "_sn=siebel-session-123"));
+        // Siebel repeats the session in the URL; the Cookie header itself is replayed by the
+        // Cookie Manager, so the converter never writes it and a replacement there would be lost.
+        target.getQueryString().add(new NameValue("_sn", "siebel-session-123"));
         target.getQueryString().add(new NameValue("ICX_TICKET", "oracle-ticket-456"));
 
         List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
@@ -271,6 +273,85 @@ class HarPredefinedCorrelationTest {
                 .getArguments()
                 .getArgument(0)
                 .getValue());
+    }
+
+    @Test
+    void namesEveryExtractionOfARuleSeparately() {
+        // An OAuth login hands out a new state at each hop, so one rule matches several responses
+        // with different values. Sharing one variable made every extractor overwrite the previous.
+        HarEntry first = entry(0, 0, "GET", "https://example.test/login");
+        first.getResponseHeaders().add(new NameValue("Location",
+                "https://sso.example.test/authorize?state=first-state-111"));
+        HarEntry second = entry(1, 100, "GET", "https://sso.example.test/authorize?state=first-state-111");
+        second.getQueryString().add(new NameValue("state", "first-state-111"));
+        second.getResponseHeaders().add(new NameValue("Location",
+                "https://sso.example.test/u/login?state=second-state-222"));
+        HarEntry third = entry(2, 200, "GET", "https://sso.example.test/u/login?state=second-state-222");
+        third.getQueryString().add(new NameValue("state", "second-state-222"));
+        List<HarEntry> entries = List.of(first, second, third);
+
+        List<HarPredefinedCorrelation> correlations = HarPredefinedCorrelation.find(entries);
+
+        assertEquals(List.of("oauth_state", "oauth_state_2"),
+                correlations.stream().map(HarPredefinedCorrelation::getVariableName).toList());
+
+        HarImportOptions options = new HarImportOptions();
+        options.setPredefinedCorrelations(correlations);
+        HashTree tree = new HarConverter(entries, options, "oauth.har", "md5")
+                .convert(Set.of("example.test", "sso.example.test"));
+
+        assertEquals(List.of("oauth_state", "oauth_state_2"),
+                collect(tree, RegexExtractor.class).stream().map(RegexExtractor::getRefName).toList());
+        assertEquals("${oauth_state}", queryValue(tree, "/authorize", "state"));
+        assertEquals("${oauth_state_2}", queryValue(tree, "/u/login", "state"));
+    }
+
+    @Test
+    void replacesWithTheExtractionClosestBeforeTheRequestThatUsesIt() {
+        // The same state is readable from the redirect header and from the page that embeds it.
+        // Only the last extraction before the request still holds the value when it runs.
+        HarEntry redirect = entry(0, 0, "GET", "https://sso.example.test/authorize");
+        redirect.getResponseHeaders().add(new NameValue("Location",
+                "https://sso.example.test/u/login?state=shared-state-123"));
+        HarEntry loginPage = entry(1, 100, "GET", "https://sso.example.test/u/login?state=shared-state-123");
+        loginPage.getQueryString().add(new NameValue("state", "shared-state-123"));
+        loginPage.setResponseContentText("<input name=\"state\" value=\"shared-state-123\">");
+        HarEntry submit = entry(2, 200, "POST", "https://sso.example.test/u/login");
+        submit.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("state", "shared-state-123"))));
+        List<HarEntry> entries = List.of(redirect, loginPage, submit);
+
+        List<HarPredefinedCorrelation> correlations = HarPredefinedCorrelation.find(entries);
+
+        assertEquals(List.of("oauth_state", "oauth_state_form"),
+                correlations.stream().map(HarPredefinedCorrelation::getVariableName).toList());
+        assertEquals(List.of(2), correlations.stream()
+                .filter(correlation -> "oauth_state_form".equals(correlation.getVariableName()))
+                .flatMap(correlation -> correlation.getReplacements().stream())
+                .map(HarPredefinedCorrelation.Replacement::getTargetEntryIndex)
+                .toList());
+        assertTrue(correlations.get(0).getReplacements().stream()
+                .noneMatch(replacement -> replacement.getTargetEntryIndex() == 2),
+                "the redirect header extraction no longer claims the form submit");
+    }
+
+    @Test
+    void ignoresRequestHeadersTheConverterDoesNotExport() {
+        HarEntry source = entry(0, 0, "GET", "https://sso.example.test/authorize");
+        source.getResponseHeaders().add(new NameValue("Location",
+                "https://sso.example.test/u/login?state=cookie-state-123"));
+        HarEntry target = entry(1, 100, "GET", "https://sso.example.test/u/login?state=cookie-state-123");
+        target.getQueryString().add(new NameValue("state", "cookie-state-123"));
+        target.getRequestHeaders().add(new NameValue(":path", "/u/login?state=cookie-state-123"));
+        target.getRequestHeaders().add(new NameValue("Cookie", "last_state=cookie-state-123"));
+
+        List<HarPredefinedCorrelation> correlations = HarPredefinedCorrelation.find(List.of(source, target));
+
+        assertEquals(1, correlations.size());
+        assertEquals(List.of(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER),
+                correlations.get(0).getReplacements().stream()
+                        .map(HarPredefinedCorrelation.Replacement::getLocation)
+                        .toList());
     }
 
     @Test
@@ -336,6 +417,16 @@ class HarPredefinedCorrelationTest {
         entry.setHasPositiveTiming(true);
         entry.setResponseStatus(200);
         return entry;
+    }
+
+    private static String queryValue(HashTree tree, String path, String parameter) {
+        return collect(tree, HTTPSamplerProxy.class).stream()
+                .filter(sampler -> path.equals(sampler.getPath()))
+                .findFirst()
+                .orElseThrow()
+                .getArguments()
+                .getArgumentsAsMap()
+                .get(parameter);
     }
 
     private static HashTree treeOf(HashTree tree, Class<?> type) {

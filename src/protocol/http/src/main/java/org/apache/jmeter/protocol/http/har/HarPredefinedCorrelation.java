@@ -230,15 +230,17 @@ final class HarPredefinedCorrelation {
     }
 
     private final Rule rule;
+    private final String variableName;
     private final int sourceEntryIndex;
     private final String sourceUrl;
     private final String extractedValue;
     private final int matchNumber;
     private final List<Replacement> replacements;
 
-    private HarPredefinedCorrelation(Rule rule, int sourceEntryIndex, String sourceUrl,
-            String extractedValue, int matchNumber, List<Replacement> replacements) {
+    private HarPredefinedCorrelation(Rule rule, String variableName, int sourceEntryIndex,
+            String sourceUrl, String extractedValue, int matchNumber, List<Replacement> replacements) {
         this.rule = rule;
+        this.variableName = variableName;
         this.sourceEntryIndex = sourceEntryIndex;
         this.sourceUrl = sourceUrl;
         this.extractedValue = extractedValue;
@@ -248,6 +250,16 @@ final class HarPredefinedCorrelation {
 
     Rule getRule() {
         return rule;
+    }
+
+    /**
+     * The variable this correlation writes. A rule can match several responses holding different
+     * values, and every one of those extractions needs its own variable: sharing the rule's name
+     * would make each extractor overwrite the previous one, and a request replaced with the shared
+     * name would send whichever value happened to be extracted last.
+     */
+    String getVariableName() {
+        return variableName;
     }
 
     int getSourceEntryIndex() {
@@ -295,7 +307,7 @@ final class HarPredefinedCorrelation {
                 .sorted(Comparator.comparingDouble(HarEntry::getStartMs)
                         .thenComparingInt(HarEntry::getOriginalIndex))
                 .toList();
-        List<HarPredefinedCorrelation> result = new ArrayList<>();
+        List<Candidate> candidates = new ArrayList<>();
         JSONManager jsonManager = new JSONManager();
         for (int sourcePosition = 0; sourcePosition < selected.size(); sourcePosition++) {
             HarEntry source = selected.get(sourcePosition);
@@ -311,12 +323,71 @@ final class HarPredefinedCorrelation {
                 if (matched == null) {
                     continue;
                 }
-                result.add(new HarPredefinedCorrelation(
-                        rule, source.getOriginalIndex(), source.getUrl(), matched.extractedValue().value(),
-                        matched.extractedValue().matchNumber(), matched.replacements()));
+                candidates.add(new Candidate(rule, sourcePosition, source, matched.extractedValue(),
+                        new ArrayList<>(matched.replacements())));
             }
         }
+        return build(keepNearestSource(candidates));
+    }
+
+    /**
+     * Keeps one candidate per replaced value. The same value is often extractable from several
+     * responses - a redirect header, the page that embeds it, a later page that repeats it - and
+     * replacing it more than once would leave the request pointing at whichever extractor was
+     * applied last. The extraction closest before the request that uses it wins, because it is the
+     * one guaranteed to still hold that value when the request runs.
+     */
+    private static List<Candidate> keepNearestSource(List<Candidate> candidates) {
+        Map<String, Integer> nearestCandidateByReplacement = new LinkedHashMap<>();
+        for (int i = 0; i < candidates.size(); i++) {
+            Candidate candidate = candidates.get(i);
+            for (Replacement replacement : candidate.replacements()) {
+                String key = replacementKey(replacement);
+                Integer previous = nearestCandidateByReplacement.get(key);
+                if (previous == null
+                        || candidates.get(previous).sourcePosition() < candidate.sourcePosition()) {
+                    nearestCandidateByReplacement.put(key, i);
+                }
+            }
+        }
+        List<Candidate> kept = new ArrayList<>();
+        for (int i = 0; i < candidates.size(); i++) {
+            Candidate candidate = candidates.get(i);
+            int candidateIndex = i;
+            List<Replacement> replacements = candidate.replacements().stream()
+                    .filter(replacement -> nearestCandidateByReplacement
+                            .get(replacementKey(replacement)) == candidateIndex)
+                    .toList();
+            if (!replacements.isEmpty()) {
+                kept.add(new Candidate(candidate.rule(), candidate.sourcePosition(),
+                        candidate.source(), candidate.extractedValue(), replacements));
+            }
+        }
+        return kept;
+    }
+
+    private static String replacementKey(Replacement replacement) {
+        return replacement.getTargetEntryIndex() + "\u0000" + replacement.getLocation()
+                + "\u0000" + replacement.getLocationName() + "\u0000" + replacement.getMatchedLiteral();
+    }
+
+    private static List<HarPredefinedCorrelation> build(List<Candidate> candidates) {
+        Map<String, Integer> usedVariableNames = new LinkedHashMap<>();
+        List<HarPredefinedCorrelation> result = new ArrayList<>(candidates.size());
+        for (Candidate candidate : candidates) {
+            String baseName = candidate.rule().getVariableName();
+            int occurrence = usedVariableNames.merge(baseName, 1, Integer::sum);
+            String variableName = occurrence == 1 ? baseName : baseName + "_" + occurrence;
+            result.add(new HarPredefinedCorrelation(candidate.rule(), variableName,
+                    candidate.source().getOriginalIndex(), candidate.source().getUrl(),
+                    candidate.extractedValue().value(), candidate.extractedValue().matchNumber(),
+                    candidate.replacements()));
+        }
         return List.copyOf(result);
+    }
+
+    private record Candidate(Rule rule, int sourcePosition, HarEntry source,
+            ExtractedValue extractedValue, List<Replacement> replacements) {
     }
 
     private static CandidateMatch findMatchingCandidate(
@@ -447,8 +518,12 @@ final class HarPredefinedCorrelation {
         List<Replacement> result = new ArrayList<>();
         addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue);
         for (NameValue header : entry.getRequestHeaders()) {
-            addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
-                    header.getName(), header.getValue(), extractedValue);
+            // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
+            // would be listed as replacements that silently do nothing.
+            if (HarConverter.isExportableHeader(header.getName())) {
+                addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
+                        header.getName(), header.getValue(), extractedValue);
+            }
         }
         for (NameValue parameter : entry.getQueryString()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
@@ -538,15 +613,20 @@ final class HarPredefinedCorrelation {
     }
 
     static TestElement buildExtractor(HarPredefinedCorrelation correlation) {
-        return buildExtractor(correlation.getRule(), correlation.getMatchNumber());
+        return buildExtractor(correlation.getRule(), correlation.getMatchNumber(),
+                correlation.getVariableName());
     }
 
     static TestElement buildExtractor(Rule rule, int matchNumber) {
+        return buildExtractor(rule, matchNumber, rule.getVariableName());
+    }
+
+    static TestElement buildExtractor(Rule rule, int matchNumber, String variableName) {
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
             JSONPostProcessor extractor = new JSONPostProcessor();
             extractor.setProperty(TestElement.GUI_CLASS, JSONPostProcessorGui.class.getName());
             extractor.setName("Extract " + rule.getName());
-            extractor.setRefNames(rule.getVariableName());
+            extractor.setRefNames(variableName);
             extractor.setJsonPathExpressions(rule.getExpression());
             extractor.setMatchNumbers(Integer.toString(matchNumber));
             extractor.setDefaultValues(rule.getDefaultValue());
@@ -557,7 +637,7 @@ final class HarPredefinedCorrelation {
         RegexExtractor extractor = new RegexExtractor();
         extractor.setProperty(TestElement.GUI_CLASS, RegexExtractorGui.class.getName());
         extractor.setName("Extract " + rule.getName());
-        extractor.setRefName(rule.getVariableName());
+        extractor.setRefName(variableName);
         extractor.setRegex(rule.getExpression());
         extractor.setTemplate(rule.getTemplate());
         extractor.setMatchNumber(matchNumber);

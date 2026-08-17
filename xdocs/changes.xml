@@ -69,6 +69,10 @@ desktop behavior across themes, menus, icons, and modern Java launches.
   <li>Adds built-in correlation groups for SAML, Keycloak, Microsoft Entra ID, Okta, Salesforce, Salesforce Commerce Cloud, SAP, ServiceNow, SharePoint, Drupal, WordPress, Magento, Liferay, Atlassian, PeopleSoft, Oracle ADF, SignalR, CSRF meta tags, and generic JSON and REST responses.</li>
   <li>Matches hidden form fields and meta tags whatever the order of their attributes, so frameworks that emit the value before the name are recognized.</li>
   <li>Skips correlation scanning of image, font, media, stylesheet, and other binary response bodies, which never carry correlation values.</li>
+  <li>Gives every extraction of a correlation rule its own variable. A rule that matched several responses, such as the state of each hop of an OAuth login, reused one variable name, so the extractors overwrote each other and requests were replaced with a value that no longer applied.</li>
+  <li>Replaces a recorded value with the extraction closest before the request that uses it, instead of the first response the value could be read from.</li>
+  <li>Adds an OAuth authorization code rule for the auto-submitted form used by <code>response_mode=form_post</code>.</li>
+  <li>Leaves out replacements in request headers the converter does not write, such as HTTP/2 pseudo-headers and Cookie, which were listed as matches but changed nothing.</li>
   <li>Bounds the attribute span of built-in tag expressions so a response with unterminated markup cannot make the generated Regex Extractors rescan the body from every tag, which cost seconds of load generator CPU per sample.</li>
 </ul>
 

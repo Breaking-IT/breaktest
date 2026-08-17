@@ -47,6 +47,15 @@
           "template": "$1$"
         },
         {
+          "id": "oauth-code-form",
+          "name": "OAuth authorization code (form)",
+          "variableName": "oauth_code_form",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']code[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
           "id": "oauth-state-form",
           "name": "OAuth state (form)",
           "variableName": "oauth_state_form",

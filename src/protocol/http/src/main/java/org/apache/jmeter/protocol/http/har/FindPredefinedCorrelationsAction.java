@@ -518,7 +518,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             movedRequestCount = splitParallelControllers(gui, correlations, nodesByEntryIndex);
             for (HarPredefinedCorrelation correlation : correlations) {
                 JMeterTreeNode sourceNode = nodesByEntryIndex.get(correlation.getSourceEntryIndex());
-                if (sourceNode != null && !hasExtractor(sourceNode, correlation.getRule().getVariableName())) {
+                if (sourceNode != null && !hasExtractor(sourceNode, correlation.getVariableName())) {
                     try {
                         gui.getTreeModel().addComponent(
                                 HarPredefinedCorrelation.buildExtractor(correlation), sourceNode);
@@ -552,7 +552,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     static int applyReplacement(HTTPSamplerBase sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
         int replacementCount = 0;
-        String variableReference = "${" + correlation.getRule().getVariableName() + "}";
+        String variableReference = "${" + correlation.getVariableName() + "}";
         for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
             try {
                 replacementCount += sampler.replace(Pattern.quote(variant), variableReference, true);
