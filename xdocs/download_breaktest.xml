@@ -18,7 +18,7 @@
 
 <!DOCTYPE document
 [
-<!ENTITY release '2026.07.11'>
+<!ENTITY release '2026.08.17'>
 <!ENTITY hellip   "&#x02026;" >
 ]>
 
@@ -50,12 +50,12 @@
               <th>Checksum</th>
           </tr>
           <tr>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.tgz">breaktest-&release;.tgz</a></td>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.tgz.sha512">sha512</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;.tgz">breaktest-&release;.tgz</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;.tgz.sha512">sha512</a></td>
           </tr>
           <tr>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.zip">breaktest-&release;.zip</a></td>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;.zip.sha512">sha512</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;.zip">breaktest-&release;.zip</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;.zip.sha512">sha512</a></td>
           </tr>
         </table>
       </subsection>
@@ -66,12 +66,12 @@
               <th>Checksum</th>
           </tr>
           <tr>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.tgz">breaktest-&release;_src.tgz</a></td>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.tgz.sha512">sha512</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;_src.tgz">breaktest-&release;_src.tgz</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;_src.tgz.sha512">sha512</a></td>
           </tr>
           <tr>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.zip">breaktest-&release;_src.zip</a></td>
-              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/rel/v&release;/breaktest-&release;_src.zip.sha512">sha512</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;_src.zip">breaktest-&release;_src.zip</a></td>
+              <td><a href="https://github.com/Breaking-IT/breaktest/releases/download/&release;/breaktest-&release;_src.zip.sha512">sha512</a></td>
           </tr>
         </table>
       </subsection>
