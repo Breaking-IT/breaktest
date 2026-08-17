@@ -47,12 +47,21 @@
           "template": "$1$"
         },
         {
-          "id": "oauth-state-form",
-          "name": "OAuth state (form)",
-          "variableName": "oauth_state",
+          "id": "oauth-code-form",
+          "name": "OAuth authorization code (form)",
+          "variableName": "oauth_code_form",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']state[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']code[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "oauth-state-form",
+          "name": "OAuth state (form)",
+          "variableName": "oauth_state_form",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']state[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         },
         {
@@ -61,7 +70,7 @@
           "variableName": "openid_nonce",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']nonce[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']nonce[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -75,7 +84,7 @@
           "variableName": "aspnet_viewstate",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']__VIEWSTATE[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']__VIEWSTATE[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         },
         {
@@ -84,7 +93,7 @@
           "variableName": "aspnet_viewstate_generator",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']__VIEWSTATEGENERATOR[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']__VIEWSTATEGENERATOR[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         },
         {
@@ -93,7 +102,7 @@
           "variableName": "aspnet_event_validation",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']__EVENTVALIDATION[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']__EVENTVALIDATION[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         },
         {
@@ -102,7 +111,7 @@
           "variableName": "aspnet_request_verification_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']__RequestVerificationToken[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']__RequestVerificationToken[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -116,7 +125,7 @@
           "variableName": "jsf_viewstate",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']javax\\.faces\\.ViewState[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']javax\\.faces\\.ViewState[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         },
         {
@@ -125,7 +134,16 @@
           "variableName": "jakarta_faces_viewstate",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']jakarta\\.faces\\.ViewState[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']jakarta\\.faces\\.ViewState[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "jsf-client-window",
+          "name": "JSF client window",
+          "variableName": "jsf_client_window",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"'](?:javax|jakarta)\\.faces\\.ClientWindow[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -139,7 +157,7 @@
           "variableName": "django_csrf_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']csrfmiddlewaretoken[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']csrfmiddlewaretoken[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -153,7 +171,7 @@
           "variableName": "rails_authenticity_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']authenticity_token[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']authenticity_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -167,7 +185,7 @@
           "variableName": "spring_csrf_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']_csrf[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']_csrf[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
           "template": "$1$"
         }
       ]
@@ -181,7 +199,416 @@
           "variableName": "laravel_csrf_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)name=[\"']_token[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "CSRF Meta Tags",
+      "rules": [
+        {
+          "id": "meta-csrf-token",
+          "name": "CSRF token meta tag",
+          "variableName": "meta_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<meta(?=[^>]{0,600}\\sname=[\"']csrf-token[\"'])[^>]{0,600}\\scontent=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "meta-csrf-param-token",
+          "name": "Spring Security CSRF meta tag",
+          "variableName": "meta_spring_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<meta(?=[^>]{0,600}\\sname=[\"']_csrf[\"'])[^>]{0,600}\\scontent=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "SAML",
+      "rules": [
+        {
+          "id": "saml-request",
+          "name": "SAML request",
+          "variableName": "saml_request",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']SAMLRequest[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "saml-response",
+          "name": "SAML response",
+          "variableName": "saml_response",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']SAMLResponse[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "saml-relay-state",
+          "name": "SAML relay state",
+          "variableName": "saml_relay_state",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']RelayState[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Keycloak",
+      "rules": [
+        {
+          "id": "keycloak-session-code",
+          "name": "Keycloak session code",
+          "variableName": "keycloak_session_code",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[?&](?:amp;)?session_code=([^&\"'\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "keycloak-execution",
+          "name": "Keycloak execution",
+          "variableName": "keycloak_execution",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[?&](?:amp;)?execution=([^&\"'\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "keycloak-tab-id",
+          "name": "Keycloak tab id",
+          "variableName": "keycloak_tab_id",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[?&](?:amp;)?tab_id=([^&\"'\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "keycloak-client-data",
+          "name": "Keycloak client data",
+          "variableName": "keycloak_client_data",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[?&](?:amp;)?client_data=([^&\"'\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Microsoft Entra ID",
+      "rules": [
+        {
+          "id": "entra-flow-token",
+          "name": "Entra ID flow token",
+          "variableName": "entra_flow_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"sFT\":\"([^\"]+)\"",
+          "template": "$1$"
+        },
+        {
+          "id": "entra-context",
+          "name": "Entra ID context",
+          "variableName": "entra_context",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"sCtx\":\"([^\"]+)\"",
+          "template": "$1$"
+        },
+        {
+          "id": "entra-canary",
+          "name": "Entra ID canary",
+          "variableName": "entra_canary",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"canary\":\"([^\"]+)\"",
+          "template": "$1$"
+        },
+        {
+          "id": "entra-api-canary",
+          "name": "Entra ID API canary",
+          "variableName": "entra_api_canary",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"apiCanary\":\"([^\"]+)\"",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Okta",
+      "rules": [
+        {
+          "id": "okta-state-token",
+          "name": "Okta state token",
+          "variableName": "okta_state_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"stateToken\":\"([^\"]+)\"",
+          "template": "$1$"
+        },
+        {
+          "id": "okta-state-handle",
+          "name": "Okta state handle",
+          "variableName": "okta_state_handle",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"stateHandle\":\"([^\"]+)\"",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Salesforce",
+      "rules": [
+        {
+          "id": "salesforce-viewstate",
+          "name": "Salesforce Visualforce ViewState",
+          "variableName": "salesforce_viewstate",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']com\\.salesforce\\.visualforce\\.ViewState[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "salesforce-viewstate-mac",
+          "name": "Salesforce Visualforce ViewStateMAC",
+          "variableName": "salesforce_viewstate_mac",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']com\\.salesforce\\.visualforce\\.ViewStateMAC[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "salesforce-viewstate-version",
+          "name": "Salesforce Visualforce ViewStateVersion",
+          "variableName": "salesforce_viewstate_version",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']com\\.salesforce\\.visualforce\\.ViewStateVersion[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "salesforce-confirmation-token",
+          "name": "Salesforce confirmation token",
+          "variableName": "salesforce_confirmation_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']_CONFIRMATIONTOKEN[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "SAP",
+      "rules": [
+        {
+          "id": "sap-csrf-token",
+          "name": "SAP CSRF token",
+          "variableName": "sap_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)(?:^|\\n)x-csrf-token:\\s*([^\\r\\n]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "sap-context-id",
+          "name": "SAP context id",
+          "variableName": "sap_context_id",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)(?:^|\\n)sap-contextid:\\s*([^\\r\\n;]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "sap-session-id",
+          "name": "SAP session id",
+          "variableName": "sap_session_id",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)[~]?sap-sessionid=([^;\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "ServiceNow",
+      "rules": [
+        {
+          "id": "servicenow-user-token",
+          "name": "ServiceNow user token",
+          "variableName": "servicenow_user_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[\"']?g_ck[\"']?\\s*[:=]\\s*[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "SharePoint",
+      "rules": [
+        {
+          "id": "sharepoint-request-digest",
+          "name": "SharePoint request digest",
+          "variableName": "sharepoint_request_digest",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']__REQUESTDIGEST[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "sharepoint-form-digest-value",
+          "name": "SharePoint form digest value",
+          "variableName": "sharepoint_form_digest_value",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"FormDigestValue\":\"([^\"]+)\"",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Drupal",
+      "rules": [
+        {
+          "id": "drupal-form-build-id",
+          "name": "Drupal form build id",
+          "variableName": "drupal_form_build_id",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']form_build_id[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "drupal-form-token",
+          "name": "Drupal form token",
+          "variableName": "drupal_form_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']form_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "WordPress",
+      "rules": [
+        {
+          "id": "wordpress-nonce",
+          "name": "WordPress nonce",
+          "variableName": "wordpress_nonce",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']_wpnonce[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Magento",
+      "rules": [
+        {
+          "id": "magento-form-key",
+          "name": "Magento form key",
+          "variableName": "magento_form_key",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']form_key[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Salesforce Commerce Cloud",
+      "rules": [
+        {
+          "id": "sfcc-csrf-token",
+          "name": "Commerce Cloud CSRF token",
+          "variableName": "sfcc_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']csrf_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Liferay",
+      "rules": [
+        {
+          "id": "liferay-auth-token",
+          "name": "Liferay auth token",
+          "variableName": "liferay_auth_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)[?&;](?:amp;)?p_auth=([^&\"'\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Atlassian",
+      "rules": [
+        {
+          "id": "atlassian-token",
+          "name": "Atlassian token",
+          "variableName": "atlassian_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']atl_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "PeopleSoft",
+      "rules": [
+        {
+          "id": "peoplesoft-state-number",
+          "name": "PeopleSoft ICStateNum",
+          "variableName": "peoplesoft_state_number",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']ICStateNum[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "peoplesoft-sid",
+          "name": "PeopleSoft ICSID",
+          "variableName": "peoplesoft_sid",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']ICSID[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Oracle ADF",
+      "rules": [
+        {
+          "id": "oracle-adf-control-state",
+          "name": "Oracle ADF control state",
+          "variableName": "oracle_adf_control_state",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)_adf\\.ctrl-state=([^&\"'\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "oracle-adf-window-id",
+          "name": "Oracle ADF window id",
+          "variableName": "oracle_adf_window_id",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)_afrWindowId=([^&\"'\\s]+)",
           "template": "$1$"
         }
       ]
@@ -210,6 +637,65 @@
           "extractorType": "REGEX",
           "responseField": "BODY",
           "expression": "(?i)TICKET=([^;\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "SignalR",
+      "rules": [
+        {
+          "id": "signalr-connection-token",
+          "name": "SignalR connection token",
+          "variableName": "signalr_connection_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.connectionToken"
+        },
+        {
+          "id": "signalr-connection-id",
+          "name": "SignalR connection id",
+          "variableName": "signalr_connection_id",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.connectionId"
+        }
+      ]
+    },
+    {
+      "name": "Generic JSON and REST",
+      "rules": [
+        {
+          "id": "json-token",
+          "name": "JSON token field",
+          "variableName": "json_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.token"
+        },
+        {
+          "id": "json-csrf-token",
+          "name": "JSON CSRF token field",
+          "variableName": "json_csrf_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.csrfToken"
+        },
+        {
+          "id": "json-session-id",
+          "name": "JSON session id field",
+          "variableName": "json_session_id",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.sessionId"
+        },
+        {
+          "id": "etag-header",
+          "name": "ETag (conditional request)",
+          "variableName": "etag",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)(?:^|\\n)etag:\\s*([^\\r\\n]+)",
           "template": "$1$"
         }
       ]

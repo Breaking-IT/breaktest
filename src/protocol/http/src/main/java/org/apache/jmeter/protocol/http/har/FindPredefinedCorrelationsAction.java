@@ -26,8 +26,10 @@ import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,6 +48,8 @@ import javax.swing.SwingWorker;
 import javax.swing.tree.TreeNode;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.control.ParallelController;
+import org.apache.jmeter.control.gui.ParallelControllerGui;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
@@ -230,11 +234,46 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         if (selected.isEmpty()) {
             return;
         }
+        if (!confirmParallelControllerSplits(gui, selected, scan.nodesByEntryIndex())) {
+            return;
+        }
         ApplyResult applied = apply(gui, selected, scan.nodesByEntryIndex());
-        JMeterUtils.reportInfoToUser(MessageFormat.format(
+        String message = MessageFormat.format(
                 JMeterUtils.getResString("find_predefined_correlations_applied"),
-                applied.extractorCount(), applied.replacementCount(), choice.label()),
+                applied.extractorCount(), applied.replacementCount(), choice.label());
+        if (applied.movedRequestCount() > 0) {
+            message += "\n" + MessageFormat.format(
+                    JMeterUtils.getResString("find_predefined_correlations_split_applied"),
+                    applied.movedRequestCount());
+        }
+        if (applied.skippedCount() > 0) {
+            message += "\n" + MessageFormat.format(
+                    JMeterUtils.getResString("find_predefined_correlations_split_skipped"),
+                    applied.skippedCount());
+        }
+        JMeterUtils.reportInfoToUser(message,
                 JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
+    }
+
+    /**
+     * Warns that consumers sharing a Parallel Controller with their extractor have to move into a
+     * new controller, since everything in one Parallel Controller starts at the same time.
+     */
+    private static boolean confirmParallelControllerSplits(GuiPackage gui,
+            List<HarPredefinedCorrelation> correlations, Map<Integer, JMeterTreeNode> nodesByEntryIndex) {
+        int consumerCount = plannedSplits(correlations, nodesByEntryIndex).values().stream()
+                .mapToInt(Set::size)
+                .sum();
+        if (consumerCount == 0) {
+            return true;
+        }
+        int answer = JOptionPane.showConfirmDialog(
+                gui.getMainFrame(),
+                MessageFormat.format(
+                        JMeterUtils.getResString("find_predefined_correlations_split_confirm"), consumerCount),
+                JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        return answer == JOptionPane.OK_OPTION;
     }
 
     static ScanResult scan(JMeterTreeNode threadGroupNode, Path testPlanFile) {
@@ -268,6 +307,202 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         return new ScanResult(
                 HarPredefinedCorrelation.find(entries, rules),
                 Map.copyOf(nodesByEntryIndex), unavailableCount);
+    }
+
+    /**
+     * The consumers that start in parallel with the extractor they depend on, keyed by the Parallel
+     * Controller that has to be split and expressed as the controller's own child that has to move.
+     *
+     * <p>The controller to split is the pair's lowest common ancestor when that ancestor is a
+     * Parallel Controller: its two branches are exactly what runs at the same time. A deeper
+     * controller cannot help, and a shallower one holds both of them in one branch. Nested
+     * controllers therefore need several rounds - splitting the inner one makes the outer one the
+     * common ancestor, which the next round splits.
+     */
+    static Map<JMeterTreeNode, Set<JMeterTreeNode>> plannedSplits(
+            List<HarPredefinedCorrelation> correlations, Map<Integer, JMeterTreeNode> nodesByEntryIndex) {
+        Map<JMeterTreeNode, Set<JMeterTreeNode>> movesByController = new LinkedHashMap<>();
+        for (HarPredefinedCorrelation correlation : correlations) {
+            JMeterTreeNode sourceNode = nodesByEntryIndex.get(correlation.getSourceEntryIndex());
+            for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                JMeterTreeNode targetNode = nodesByEntryIndex.get(replacement.getTargetEntryIndex());
+                JMeterTreeNode controller = concurrentAncestor(sourceNode, targetNode);
+                if (controller == null) {
+                    continue;
+                }
+                movesByController.computeIfAbsent(controller, ignored -> new LinkedHashSet<>())
+                        .add(childOf(controller, targetNode));
+            }
+        }
+        return movesByController;
+    }
+
+    /**
+     * Moves every planned consumer into a new Parallel Controller placed right after the one it
+     * shared with its extractor, repeating until nothing runs in parallel with its extractor any
+     * more. Chains need one round per link: a consumer can be the extractor of the next
+     * correlation, and both land in the same new controller.
+     *
+     * @return the consumers that could not be separated, so their replacements can be left out
+     *         rather than written into a plan where the variable is not set yet
+     */
+    static SplitResult splitParallelControllers(GuiPackage gui,
+            List<HarPredefinedCorrelation> correlations, Map<Integer, JMeterTreeNode> nodesByEntryIndex) {
+        // A node can move more than once - separating a nested controller moves it out of the
+        // inner controller first and out of the outer one next - so count nodes, not moves.
+        Set<JMeterTreeNode> movedNodes = new LinkedHashSet<>();
+        Map<JMeterTreeNode, Set<JMeterTreeNode>> splits =
+                plannedSplits(correlations, nodesByEntryIndex);
+        // A pair needs one round per Parallel Controller it is nested in, and every round makes
+        // progress, so this is a safety net rather than the real stopping condition.
+        int maxRounds = 1 + correlations.stream()
+                .flatMap(correlation -> correlation.getReplacements().stream())
+                .mapToInt(replacement -> 1 + parallelAncestorCount(
+                        nodesByEntryIndex.get(replacement.getTargetEntryIndex())))
+                .sum();
+        for (int round = 0; round < maxRounds && !splits.isEmpty(); round++) {
+            boolean progressed = false;
+            for (Map.Entry<JMeterTreeNode, Set<JMeterTreeNode>> split : splits.entrySet()) {
+                if (splitParallelController(gui, split.getKey(), split.getValue())) {
+                    movedNodes.addAll(split.getValue());
+                    progressed = true;
+                }
+            }
+            if (!progressed) {
+                // No progress, so repeating would loop forever on the same pairs.
+                break;
+            }
+            splits = plannedSplits(correlations, nodesByEntryIndex);
+        }
+        if (!splits.isEmpty()) {
+            LOG.warn("Unable to separate {} Parallel Controller(s) from the extractors they depend on",
+                    splits.size());
+        }
+        return new SplitResult(movedNodes.size(), unresolvedTargets(splits));
+    }
+
+    private static Set<JMeterTreeNode> unresolvedTargets(
+            Map<JMeterTreeNode, Set<JMeterTreeNode>> splits) {
+        Set<JMeterTreeNode> unresolved = new LinkedHashSet<>();
+        for (Map.Entry<JMeterTreeNode, Set<JMeterTreeNode>> split : splits.entrySet()) {
+            for (JMeterTreeNode movedChild : split.getValue()) {
+                Enumeration<TreeNode> nodes = movedChild.preorderEnumeration();
+                while (nodes.hasMoreElements()) {
+                    if (nodes.nextElement() instanceof JMeterTreeNode node) {
+                        unresolved.add(node);
+                    }
+                }
+            }
+        }
+        return unresolved;
+    }
+
+    private static boolean splitParallelController(
+            GuiPackage gui, JMeterTreeNode controller, Set<JMeterTreeNode> movedChildren) {
+        if (!(controller.getParent() instanceof JMeterTreeNode parent)
+                || movedChildren.isEmpty() || movedChildren.size() >= controller.getChildCount()) {
+            return false;
+        }
+        ParallelController original = (ParallelController) controller.getTestElement();
+        ParallelController followUp = new ParallelController();
+        followUp.setProperty(TestElement.GUI_CLASS, ParallelControllerGui.class.getName());
+        followUp.setName(MessageFormat.format(
+                JMeterUtils.getResString("find_predefined_correlations_split_name"), original.getName()));
+        // Keep the string form: the limit can be a variable or function, which reading it as an
+        // integer would freeze into whatever it evaluates to right now.
+        followUp.setMaxParallel(original.getMaxParallelString());
+        followUp.setEnabled(original.isEnabled());
+
+        JMeterTreeNode followUpNode = new JMeterTreeNode(followUp, gui == null ? null : gui.getTreeModel());
+        parent.insert(followUpNode, parent.getIndex(controller) + 1);
+        // Move them in the order they had in the controller: correlations are discovered per
+        // source, which says nothing about tree order, and the order decides which requests a
+        // bounded parallelism starts first.
+        List<JMeterTreeNode> orderedChildren = new ArrayList<>(movedChildren);
+        orderedChildren.sort(Comparator.comparingInt(controller::getIndex));
+        for (JMeterTreeNode movedChild : orderedChildren) {
+            controller.remove(movedChild);
+            followUpNode.add(movedChild);
+        }
+        unwrapSingleRequest(parent, followUpNode);
+        unwrapSingleRequest(parent, controller);
+        if (gui != null) {
+            gui.getTreeModel().nodeStructureChanged(parent);
+        }
+        return true;
+    }
+
+    /**
+     * Replaces a Parallel Controller that holds a single request with that request, since there is
+     * nothing left to run in parallel. A disabled controller is kept: it is what stops its request
+     * from running, and lifting the request into the enabled parent would start executing it.
+     */
+    private static void unwrapSingleRequest(JMeterTreeNode parent, JMeterTreeNode controller) {
+        if (controller.getChildCount() != 1 || !controller.isEnabled()) {
+            return;
+        }
+        JMeterTreeNode onlyChild = (JMeterTreeNode) controller.getChildAt(0);
+        int index = parent.getIndex(controller);
+        controller.remove(onlyChild);
+        parent.remove(controller);
+        parent.insert(onlyChild, index);
+    }
+
+    /**
+     * The Parallel Controller that starts both nodes at the same time, or null when one runs after
+     * the other. That is their lowest common ancestor, and only when it is a Parallel Controller:
+     * any other container runs its children in order.
+     */
+    private static JMeterTreeNode concurrentAncestor(JMeterTreeNode source, JMeterTreeNode target) {
+        if (source == null || target == null || source == target) {
+            return null;
+        }
+        List<JMeterTreeNode> sourceAncestors = ancestors(source);
+        List<JMeterTreeNode> targetAncestors = ancestors(target);
+        JMeterTreeNode lowestCommon = null;
+        for (int i = 0; i < Math.min(sourceAncestors.size(), targetAncestors.size()); i++) {
+            if (sourceAncestors.get(i) != targetAncestors.get(i)) {
+                break;
+            }
+            lowestCommon = sourceAncestors.get(i);
+        }
+        return lowestCommon != null && lowestCommon.getTestElement() instanceof ParallelController
+                ? lowestCommon : null;
+    }
+
+    private static int parallelAncestorCount(JMeterTreeNode node) {
+        int count = 0;
+        JMeterTreeNode current = node;
+        while (current != null) {
+            if (current.getTestElement() instanceof ParallelController) {
+                count++;
+            }
+            current = current.getParent() instanceof JMeterTreeNode parent ? parent : null;
+        }
+        return count;
+    }
+
+    /** The node's ancestors from the root down to the node itself. */
+    private static List<JMeterTreeNode> ancestors(JMeterTreeNode node) {
+        List<JMeterTreeNode> path = new ArrayList<>();
+        for (TreeNode pathNode : node.getPath()) {
+            if (pathNode instanceof JMeterTreeNode jmeterNode) {
+                path.add(jmeterNode);
+            }
+        }
+        return path;
+    }
+
+    /** The ancestor of the node that is a direct child of the controller, or the node itself. */
+    private static JMeterTreeNode childOf(JMeterTreeNode controller, JMeterTreeNode node) {
+        JMeterTreeNode current = node;
+        while (current != null && current.getParent() != controller) {
+            current = current.getParent() instanceof JMeterTreeNode parent ? parent : null;
+        }
+        return current;
+    }
+
+    record SplitResult(int movedRequests, Set<JMeterTreeNode> unseparableTargets) {
     }
 
     static HarEntry toHarEntry(
@@ -355,12 +590,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             Map<Integer, JMeterTreeNode> nodesByEntryIndex) {
         int extractorCount = 0;
         int replacementCount = 0;
+        int skippedCount = 0;
+        SplitResult split;
         gui.updateCurrentNode();
         gui.beginUndoTransaction();
         try {
+            split = splitParallelControllers(gui, correlations, nodesByEntryIndex);
             for (HarPredefinedCorrelation correlation : correlations) {
                 JMeterTreeNode sourceNode = nodesByEntryIndex.get(correlation.getSourceEntryIndex());
-                if (sourceNode != null && !hasExtractor(sourceNode, correlation.getRule().getVariableName())) {
+                boolean used = correlation.getReplacements().stream().anyMatch(replacement -> !split
+                        .unseparableTargets()
+                        .contains(nodesByEntryIndex.get(replacement.getTargetEntryIndex())));
+                if (used && sourceNode != null && !hasExtractor(sourceNode, correlation.getVariableName())) {
                     try {
                         gui.getTreeModel().addComponent(
                                 HarPredefinedCorrelation.buildExtractor(correlation), sourceNode);
@@ -376,6 +617,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     if (targetNode == null || !(targetNode.getTestElement() instanceof HTTPSamplerBase sampler)) {
                         continue;
                     }
+                    if (split.unseparableTargets().contains(targetNode)) {
+                        // Still starts together with its extractor, so the variable would be unset.
+                        skippedCount++;
+                        continue;
+                    }
                     int replaced = applyReplacement(sampler, correlation, replacement);
                     if (replaced > 0) {
                         replacementCount += replaced;
@@ -388,13 +634,13 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
         gui.refreshCurrentGui();
         gui.getMainFrame().repaint();
-        return new ApplyResult(extractorCount, replacementCount);
+        return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount);
     }
 
     static int applyReplacement(HTTPSamplerBase sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
         int replacementCount = 0;
-        String variableReference = "${" + correlation.getRule().getVariableName() + "}";
+        String variableReference = "${" + correlation.getVariableName() + "}";
         for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
             try {
                 replacementCount += sampler.replace(Pattern.quote(variant), variableReference, true);
@@ -528,7 +774,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             int unavailableCount) {
     }
 
-    private record ApplyResult(int extractorCount, int replacementCount) {
+    private record ApplyResult(int extractorCount, int replacementCount, int movedRequestCount,
+            int skippedCount) {
     }
 
     private record ThreadGroupChoice(JMeterTreeNode node, String label) {

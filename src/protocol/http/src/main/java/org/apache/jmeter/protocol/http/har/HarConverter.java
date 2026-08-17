@@ -21,6 +21,7 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -189,7 +190,7 @@ public final class HarConverter {
 
     private void populateTransaction(HashTree threadGroupHt, Transaction transaction,
             Set<String> commonHeadersLower, boolean isFirst) {
-        List<List<HarEntry>> groups = splitParallelGroups(transaction.entries);
+        List<List<HarEntry>> groups = splitForCorrelations(splitParallelGroups(transaction.entries));
         boolean hasParallelControllers = groups.stream().anyMatch(group -> group.size() > 1);
 
         TransactionController controller = buildTransactionController(
@@ -363,6 +364,51 @@ public final class HarConverter {
         return groups;
     }
 
+    /**
+     * Splits a wave whenever it holds both the request a correlation extracts from and a request
+     * that uses the extracted value. Requests in one Parallel Controller start together, so the
+     * consumer has to move into the next controller for the variable to be set in time.
+     */
+    private List<List<HarEntry>> splitForCorrelations(List<List<HarEntry>> groups) {
+        Map<Integer, Set<Integer>> sourcesByConsumer = correlationSourcesByConsumer();
+        if (sourcesByConsumer.isEmpty()) {
+            return groups;
+        }
+        List<List<HarEntry>> result = new ArrayList<>();
+        for (List<HarEntry> group : groups) {
+            if (group.size() < 2) {
+                result.add(group);
+                continue;
+            }
+            List<HarEntry> current = new ArrayList<>();
+            Set<Integer> extractedInCurrent = new HashSet<>();
+            for (HarEntry entry : group) {
+                Set<Integer> sources = sourcesByConsumer.getOrDefault(entry.getOriginalIndex(), Set.of());
+                if (!current.isEmpty() && !Collections.disjoint(sources, extractedInCurrent)) {
+                    result.add(current);
+                    current = new ArrayList<>();
+                    extractedInCurrent.clear();
+                }
+                current.add(entry);
+                extractedInCurrent.add(entry.getOriginalIndex());
+            }
+            result.add(current);
+        }
+        return result;
+    }
+
+    private Map<Integer, Set<Integer>> correlationSourcesByConsumer() {
+        Map<Integer, Set<Integer>> sourcesByConsumer = new HashMap<>();
+        for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
+            for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                sourcesByConsumer
+                        .computeIfAbsent(replacement.getTargetEntryIndex(), index -> new HashSet<>())
+                        .add(correlation.getSourceEntryIndex());
+            }
+        }
+        return sourcesByConsumer;
+    }
+
     private static boolean consumeRedirectTarget(Map<String, Integer> pendingTargets, String url) {
         Integer count = pendingTargets.get(url);
         if (count == null) {
@@ -460,7 +506,7 @@ public final class HarConverter {
         return common;
     }
 
-    private static boolean isExportableHeader(String name) {
+    static boolean isExportableHeader(String name) {
         return !IGNORED_REQUEST_HEADERS.contains(name.toLowerCase(Locale.ROOT)) && !name.startsWith(":");
     }
 
@@ -571,7 +617,7 @@ public final class HarConverter {
         String replaced = text;
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
-            String variableReference = "${" + correlation.getRule().getVariableName() + "}";
+            String variableReference = "${" + correlation.getVariableName() + "}";
             for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
                 if (replacement.getTargetEntryIndex() == entry.getOriginalIndex()
                         && acceptedLocations.contains(replacement.getLocation())) {
@@ -585,11 +631,10 @@ public final class HarConverter {
     }
 
     private void addPredefinedExtractors(HashTree samplerHt, HarEntry entry) {
-        Set<String> addedRules = new HashSet<>();
+        Set<String> addedVariables = new HashSet<>();
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
-            HarPredefinedCorrelation.Rule rule = correlation.getRule();
             if (correlation.getSourceEntryIndex() != entry.getOriginalIndex()
-                    || !addedRules.add(rule.getId())) {
+                    || !addedVariables.add(correlation.getVariableName())) {
                 continue;
             }
             samplerHt.add(HarPredefinedCorrelation.buildExtractor(correlation));
