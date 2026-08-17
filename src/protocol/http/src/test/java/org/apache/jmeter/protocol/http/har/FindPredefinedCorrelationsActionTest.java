@@ -24,10 +24,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HexFormat;
 import java.util.List;
 
 import javax.swing.JMenuItem;
+import javax.swing.tree.TreeNode;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.ParallelController;
@@ -193,7 +196,7 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(1, result.correlations().size(), "the correlation is kept, not dropped");
 
         int movedRequests = FindPredefinedCorrelationsAction.splitParallelControllers(
-                null, result.correlations(), result.nodesByEntryIndex());
+                null, result.correlations(), result.nodesByEntryIndex()).movedRequests();
 
         assertEquals(1, movedRequests);
         assertEquals(2, parallelNode.getChildCount(), "the extractor keeps its parallel sibling");
@@ -201,6 +204,90 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(groupNode, consumerNode.getParent(),
                 "a lone consumer is placed next to the controller instead of in one of its own");
         assertEquals(groupNode.getIndex(parallelNode) + 1, groupNode.getIndex(consumerNode));
+    }
+
+    @Test
+    void keepsADisabledControllerDisabledAndItsRequestUnwrapped() throws Exception {
+        RecordedFlow flow = recordedFlow(2);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("Parallel Requests 1");
+        parallelController.setMaxParallel("${parallelism}");
+        parallelController.setEnabled(false);
+        JMeterTreeNode parallelNode = new JMeterTreeNode(parallelController, null);
+        flow.group().add(parallelNode);
+        parallelNode.add(new JMeterTreeNode(flow.source(), null));
+        parallelNode.add(new JMeterTreeNode(flow.consumers().get(0), null));
+        parallelNode.add(new JMeterTreeNode(flow.consumers().get(1), null));
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                flow.group(), tempDir.resolve("plan.jmx"));
+        FindPredefinedCorrelationsAction.splitParallelControllers(
+                null, result.correlations(), result.nodesByEntryIndex());
+
+        List<ParallelController> controllers = new ArrayList<>();
+        Enumeration<TreeNode> nodes = flow.group().preorderEnumeration();
+        while (nodes.hasMoreElements()) {
+            if (nodes.nextElement() instanceof JMeterTreeNode node
+                    && node.getTestElement() instanceof ParallelController controller) {
+                controllers.add(controller);
+            }
+        }
+        assertEquals(2, controllers.size(), "a disabled controller is never unwrapped away");
+        assertTrue(controllers.stream().noneMatch(ParallelController::isEnabled),
+                "moved requests stay disabled instead of starting to run");
+        assertEquals(List.of("${parallelism}", "${parallelism}"),
+                controllers.stream().map(ParallelController::getMaxParallelString).toList(),
+                "the parallelism expression is kept instead of its current value");
+    }
+
+    @Test
+    void separatesChainsLongerThanAHandfulOfLinks() throws Exception {
+        // Each response hands its token to the next request, all in one controller.
+        int links = 8;
+        RecordedFlow flow = chainedFlow(links);
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                flow.group(), tempDir.resolve("plan.jmx"));
+        assertEquals(links - 1, result.correlations().size(), "every link but the last hands one on");
+        FindPredefinedCorrelationsAction.SplitResult split =
+                FindPredefinedCorrelationsAction.splitParallelControllers(
+                        null, result.correlations(), result.nodesByEntryIndex());
+
+        assertTrue(split.unseparableTargets().isEmpty(),
+                "every link of the chain is separated from the one it depends on");
+        assertTrue(FindPredefinedCorrelationsAction.plannedSplits(
+                result.correlations(), result.nodesByEntryIndex()).isEmpty());
+    }
+
+    @Test
+    void separatesSiblingsOfANestedParallelController() throws Exception {
+        RecordedFlow flow = recordedFlow(1);
+        ParallelController outer = new ParallelController();
+        outer.setName("Parallel Requests 1");
+        ParallelController inner = new ParallelController();
+        inner.setName("Parallel Requests 2");
+        JMeterTreeNode outerNode = new JMeterTreeNode(outer, null);
+        JMeterTreeNode innerNode = new JMeterTreeNode(inner, null);
+        flow.group().add(outerNode);
+        outerNode.add(innerNode);
+        outerNode.add(new JMeterTreeNode(sampler("GET", "/unrelated"), null));
+        JMeterTreeNode sourceNode = new JMeterTreeNode(flow.source(), null);
+        JMeterTreeNode consumerNode = new JMeterTreeNode(flow.consumers().get(0), null);
+        innerNode.add(sourceNode);
+        innerNode.add(consumerNode);
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                flow.group(), tempDir.resolve("plan.jmx"));
+        assertEquals(1, result.correlations().size());
+        FindPredefinedCorrelationsAction.SplitResult split =
+                FindPredefinedCorrelationsAction.splitParallelControllers(
+                        null, result.correlations(), result.nodesByEntryIndex());
+
+        assertEquals(1, split.movedRequests());
+        assertTrue(split.unseparableTargets().isEmpty());
+        assertTrue(FindPredefinedCorrelationsAction.plannedSplits(
+                        result.correlations(), result.nodesByEntryIndex()).isEmpty(),
+                "siblings inside a nested controller no longer start together");
     }
 
     @Test
@@ -219,6 +306,78 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
                 matches.get(0).getReplacements().get(0).getLocation());
         assertTrue(matches.get(0).getReplacements().get(0).getLocationName().isEmpty());
+    }
+
+    private record RecordedFlow(JMeterTreeNode group, HTTPSamplerProxy source,
+            List<HTTPSamplerProxy> consumers) {
+    }
+
+    /** A recorded response holding a token, plus the requests that send it back. */
+    private RecordedFlow recordedFlow(int consumerCount) throws Exception {
+        String har = harWithToken("linked-token-123");
+        Files.writeString(tempDir.resolve("recording.har"), har, StandardCharsets.UTF_8);
+        JMeterTreeNode group = threadGroupNode(har);
+        HTTPSamplerProxy source = sampler("GET", "/token");
+        source.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, "0");
+        List<HTTPSamplerProxy> consumers = new ArrayList<>();
+        for (int i = 0; i < consumerCount; i++) {
+            HTTPSamplerProxy consumer = sampler("POST", "/consumer-" + i);
+            consumer.setNativeHeaders(List.of(new Header("Authorization", "Bearer linked-token-123")));
+            consumers.add(consumer);
+        }
+        return new RecordedFlow(group, source, consumers);
+    }
+
+    /** links responses where each one hands its own token to the next request, all in one wave. */
+    private RecordedFlow chainedFlow(int links) throws Exception {
+        StringBuilder har = new StringBuilder("{\"log\":{\"entries\":[");
+        for (int i = 0; i < links; i++) {
+            har.append(i == 0 ? "" : ",").append("""
+                    {"startedDateTime":"2026-08-14T10:00:0%d",
+                     "request":{"method":"GET","url":"https://example.test/link-%d"},
+                     "response":{"status":200,"httpVersion":"HTTP/2","headers":[
+                       {"name":"Content-Type","value":"application/json"}],
+                       "content":{"text":"{\\"access_token\\":\\"chain-token-%d-value\\"}"}}}
+                    """.formatted(i, i, i));
+        }
+        har.append("]}}");
+        Files.writeString(tempDir.resolve("recording.har"), har.toString(), StandardCharsets.UTF_8);
+
+        JMeterTreeNode group = threadGroupNode(har.toString());
+        ParallelController controller = new ParallelController();
+        controller.setName("Parallel Requests 1");
+        JMeterTreeNode controllerNode = new JMeterTreeNode(controller, null);
+        group.add(controllerNode);
+        for (int i = 0; i < links; i++) {
+            HTTPSamplerProxy sampler = sampler("GET", "/link-" + i);
+            sampler.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, Integer.toString(i));
+            if (i > 0) {
+                sampler.setNativeHeaders(List.of(
+                        new Header("Authorization", "Bearer chain-token-" + (i - 1) + "-value")));
+            }
+            controllerNode.add(new JMeterTreeNode(sampler, null));
+        }
+        return new RecordedFlow(group, null, List.of());
+    }
+
+    private static String harWithToken(String token) {
+        return """
+                {"log":{"entries":[{
+                  "startedDateTime":"2026-08-14T10:00:00Z",
+                  "request":{"method":"GET","url":"https://example.test/token"},
+                  "response":{"status":200,"httpVersion":"HTTP/2","headers":[
+                    {"name":"Content-Type","value":"application/json"}],
+                    "content":{"text":"{\\"access_token\\":\\"%s\\"}"}}
+                }]}}
+                """.formatted(token);
+    }
+
+    private JMeterTreeNode threadGroupNode(String har) throws Exception {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Recorded flow");
+        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_FILENAME, "recording.har");
+        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_MD5, md5(har));
+        return new JMeterTreeNode(threadGroup, null);
     }
 
     private static HTTPSamplerProxy sampler(String method, String path) {

@@ -268,7 +268,7 @@
           "variableName": "keycloak_session_code",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)[?&]session_code=([^&\"'\\s]+)",
+          "expression": "(?i)[?&](?:amp;)?session_code=([^&\"'\\s]+)",
           "template": "$1$"
         },
         {
@@ -277,7 +277,7 @@
           "variableName": "keycloak_execution",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)[?&]execution=([^&\"'\\s]+)",
+          "expression": "(?i)[?&](?:amp;)?execution=([^&\"'\\s]+)",
           "template": "$1$"
         },
         {
@@ -286,7 +286,7 @@
           "variableName": "keycloak_tab_id",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)[?&]tab_id=([^&\"'\\s]+)",
+          "expression": "(?i)[?&](?:amp;)?tab_id=([^&\"'\\s]+)",
           "template": "$1$"
         },
         {
@@ -295,7 +295,7 @@
           "variableName": "keycloak_client_data",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)[?&]client_data=([^&\"'\\s]+)",
+          "expression": "(?i)[?&](?:amp;)?client_data=([^&\"'\\s]+)",
           "template": "$1$"
         }
       ]
@@ -548,7 +548,7 @@
           "variableName": "liferay_auth_token",
           "extractorType": "REGEX",
           "responseField": "BODY",
-          "expression": "(?i)[?&;]p_auth=([^&\"'\\s]+)",
+          "expression": "(?i)[?&;](?:amp;)?p_auth=([^&\"'\\s]+)",
           "template": "$1$"
         }
       ]

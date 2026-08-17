@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.gui.RegexExtractorGui;
@@ -327,7 +328,7 @@ final class HarPredefinedCorrelation {
                         new ArrayList<>(matched.replacements())));
             }
         }
-        return build(keepNearestSource(candidates));
+        return build(keepNearestSource(candidates), rules);
     }
 
     /**
@@ -371,19 +372,35 @@ final class HarPredefinedCorrelation {
                 + "\u0000" + replacement.getLocationName() + "\u0000" + replacement.getMatchedLiteral();
     }
 
-    private static List<HarPredefinedCorrelation> build(List<Candidate> candidates) {
-        Map<String, Integer> usedVariableNames = new LinkedHashMap<>();
+    private static List<HarPredefinedCorrelation> build(List<Candidate> candidates, List<Rule> rules) {
+        // Every other rule's variable is reserved: a generated suffix that happens to equal a rule
+        // name would collide with that rule's own extraction and the two would overwrite each other.
+        Set<String> reserved = rules.stream().map(Rule::getVariableName).collect(Collectors.toSet());
+        Set<String> assigned = new LinkedHashSet<>();
         List<HarPredefinedCorrelation> result = new ArrayList<>(candidates.size());
         for (Candidate candidate : candidates) {
-            String baseName = candidate.rule().getVariableName();
-            int occurrence = usedVariableNames.merge(baseName, 1, Integer::sum);
-            String variableName = occurrence == 1 ? baseName : baseName + "_" + occurrence;
+            String variableName = allocateVariableName(
+                    candidate.rule().getVariableName(), reserved, assigned);
             result.add(new HarPredefinedCorrelation(candidate.rule(), variableName,
                     candidate.source().getOriginalIndex(), candidate.source().getUrl(),
                     candidate.extractedValue().value(), candidate.extractedValue().matchNumber(),
                     candidate.replacements()));
         }
         return List.copyOf(result);
+    }
+
+    private static String allocateVariableName(
+            String baseName, Set<String> reserved, Set<String> assigned) {
+        if (assigned.add(baseName)) {
+            return baseName;
+        }
+        for (int occurrence = 2; occurrence < Integer.MAX_VALUE; occurrence++) {
+            String candidateName = baseName + "_" + occurrence;
+            if (!reserved.contains(candidateName) && assigned.add(candidateName)) {
+                return candidateName;
+            }
+        }
+        throw new IllegalStateException("Unable to allocate a variable name for " + baseName);
     }
 
     private record Candidate(Rule rule, int sourcePosition, HarEntry source,

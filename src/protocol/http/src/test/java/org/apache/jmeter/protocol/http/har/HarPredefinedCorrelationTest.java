@@ -33,6 +33,9 @@ import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
+import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
+import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
+import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.oro.text.regex.Perl5Compiler;
@@ -352,6 +355,58 @@ class HarPredefinedCorrelationTest {
                 correlations.get(0).getReplacements().stream()
                         .map(HarPredefinedCorrelation.Replacement::getLocation)
                         .toList());
+    }
+
+    @Test
+    void neverGeneratesAVariableNameAnotherRuleOwns() {
+        // A custom rule named like the generated suffix of another rule: both extractions must
+        // still get a variable of their own instead of overwriting each other.
+        Rule first = new Rule("first", "Custom", "First", "token",
+                ExtractorType.REGEX, ResponseField.BODY, "first=([^;]+)", "$1$",
+                "", false, false, true);
+        Rule collidingName = new Rule("second", "Custom", "Second", "token_2",
+                ExtractorType.REGEX, ResponseField.BODY, "second=([^;]+)", "$1$",
+                "", false, false, true);
+        HarEntry firstSource = entry(0, 0, "GET", "https://example.test/one");
+        firstSource.setResponseContentText("first=first-value-111;second=second-value-222;");
+        HarEntry secondSource = entry(1, 100, "GET", "https://example.test/two");
+        secondSource.setResponseContentText("first=third-value-333;");
+        HarEntry target = entry(2, 200, "POST", "https://example.test/use");
+        target.setPostData(new PostData("application/json",
+                "{\"a\":\"first-value-111\",\"b\":\"second-value-222\",\"c\":\"third-value-333\"}",
+                List.of()));
+
+        List<HarPredefinedCorrelation> correlations = HarPredefinedCorrelation.find(
+                List.of(firstSource, secondSource, target), List.of(first, collidingName));
+
+        List<String> variableNames = correlations.stream()
+                .map(HarPredefinedCorrelation::getVariableName)
+                .toList();
+        assertEquals(Set.copyOf(variableNames).size(), variableNames.size(),
+                "each extraction writes its own variable: " + variableNames);
+        assertTrue(variableNames.contains("token") && variableNames.contains("token_2"),
+                variableNames.toString());
+    }
+
+    @Test
+    void findsKeycloakParametersInAnEscapedFormAction() {
+        HarEntry source = entry(0, 0, "GET", "https://sso.example.test/auth");
+        source.setResponseContentText("<form id=\"kc-form-login\" method=\"post\" "
+                + "action=\"https://sso.example.test/login-actions/authenticate"
+                + "?session_code=session-code-111&amp;execution=execution-222"
+                + "&amp;client_id=account&amp;tab_id=tab-id-333&amp;client_data=client-data-444\">"
+                + "</form>");
+        HarEntry target = entry(1, 100, "POST", "https://sso.example.test/login-actions/authenticate");
+        target.getQueryString().add(new NameValue("session_code", "session-code-111"));
+        target.getQueryString().add(new NameValue("execution", "execution-222"));
+        target.getQueryString().add(new NameValue("tab_id", "tab-id-333"));
+        target.getQueryString().add(new NameValue("client_data", "client-data-444"));
+
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
+
+        assertEquals(List.of("keycloak-session-code", "keycloak-execution",
+                "keycloak-tab-id", "keycloak-client-data"),
+                matches.stream().map(match -> match.getRule().getId()).toList());
     }
 
     @Test
