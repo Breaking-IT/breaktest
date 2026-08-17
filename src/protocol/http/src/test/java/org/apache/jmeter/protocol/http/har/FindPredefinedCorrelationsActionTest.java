@@ -30,6 +30,7 @@ import java.util.List;
 import javax.swing.JMenuItem;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.plugin.MenuCreator;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -150,6 +151,56 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
                 result.correlations().stream().map(match -> match.getRule().getId()).toList());
         assertEquals(sourceNode, result.nodesByEntryIndex().get(0));
         assertEquals(targetNode, result.nodesByEntryIndex().get(1));
+    }
+
+    @Test
+    void movesConsumersOutOfTheParallelControllerThatHoldsTheirExtractor() throws Exception {
+        String har = """
+                {"log":{"entries":[{
+                  "startedDateTime":"2026-08-14T10:00:00Z",
+                  "request":{"method":"GET","url":"https://example.test/token"},
+                  "response":{"status":200,"httpVersion":"HTTP/2","headers":[
+                    {"name":"Content-Type","value":"application/json"}],
+                    "content":{"text":"{\\"access_token\\":\\"linked-token-123\\"}"}}
+                }]}}
+                """;
+        Files.writeString(tempDir.resolve("recording.har"), har, StandardCharsets.UTF_8);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Recorded flow");
+        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_FILENAME, "recording.har");
+        threadGroup.setProperty(RecordedHarExchangeResolver.HAR_MD5, md5(har));
+        HTTPSamplerProxy source = sampler("GET", "/token");
+        source.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, "0");
+        HTTPSamplerProxy unrelated = sampler("GET", "/asset.js");
+        HTTPSamplerProxy consumer = sampler("POST", "/concurrent");
+        consumer.setNativeHeaders(List.of(new Header("Authorization", "Bearer linked-token-123")));
+
+        JMeterTreeNode groupNode = new JMeterTreeNode(threadGroup, null);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("Parallel Requests 1");
+        parallelController.setMaxParallel(100);
+        JMeterTreeNode parallelNode = new JMeterTreeNode(parallelController, null);
+        groupNode.add(parallelNode);
+        JMeterTreeNode sourceNode = new JMeterTreeNode(source, null);
+        JMeterTreeNode consumerNode = new JMeterTreeNode(consumer, null);
+        parallelNode.add(sourceNode);
+        parallelNode.add(new JMeterTreeNode(unrelated, null));
+        parallelNode.add(consumerNode);
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                groupNode, tempDir.resolve("plan.jmx"));
+        assertEquals(1, result.correlations().size(), "the correlation is kept, not dropped");
+
+        int movedRequests = FindPredefinedCorrelationsAction.splitParallelControllers(
+                null, result.correlations(), result.nodesByEntryIndex());
+
+        assertEquals(1, movedRequests);
+        assertEquals(2, parallelNode.getChildCount(), "the extractor keeps its parallel sibling");
+        assertEquals(parallelNode, sourceNode.getParent());
+        assertEquals(groupNode, consumerNode.getParent(),
+                "a lone consumer is placed next to the controller instead of in one of its own");
+        assertEquals(groupNode.getIndex(parallelNode) + 1, groupNode.getIndex(consumerNode));
     }
 
     @Test

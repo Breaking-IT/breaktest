@@ -21,6 +21,7 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -189,7 +190,7 @@ public final class HarConverter {
 
     private void populateTransaction(HashTree threadGroupHt, Transaction transaction,
             Set<String> commonHeadersLower, boolean isFirst) {
-        List<List<HarEntry>> groups = splitParallelGroups(transaction.entries);
+        List<List<HarEntry>> groups = splitForCorrelations(splitParallelGroups(transaction.entries));
         boolean hasParallelControllers = groups.stream().anyMatch(group -> group.size() > 1);
 
         TransactionController controller = buildTransactionController(
@@ -361,6 +362,51 @@ public final class HarConverter {
             groups.add(currentGroup);
         }
         return groups;
+    }
+
+    /**
+     * Splits a wave whenever it holds both the request a correlation extracts from and a request
+     * that uses the extracted value. Requests in one Parallel Controller start together, so the
+     * consumer has to move into the next controller for the variable to be set in time.
+     */
+    private List<List<HarEntry>> splitForCorrelations(List<List<HarEntry>> groups) {
+        Map<Integer, Set<Integer>> sourcesByConsumer = correlationSourcesByConsumer();
+        if (sourcesByConsumer.isEmpty()) {
+            return groups;
+        }
+        List<List<HarEntry>> result = new ArrayList<>();
+        for (List<HarEntry> group : groups) {
+            if (group.size() < 2) {
+                result.add(group);
+                continue;
+            }
+            List<HarEntry> current = new ArrayList<>();
+            Set<Integer> extractedInCurrent = new HashSet<>();
+            for (HarEntry entry : group) {
+                Set<Integer> sources = sourcesByConsumer.getOrDefault(entry.getOriginalIndex(), Set.of());
+                if (!current.isEmpty() && !Collections.disjoint(sources, extractedInCurrent)) {
+                    result.add(current);
+                    current = new ArrayList<>();
+                    extractedInCurrent.clear();
+                }
+                current.add(entry);
+                extractedInCurrent.add(entry.getOriginalIndex());
+            }
+            result.add(current);
+        }
+        return result;
+    }
+
+    private Map<Integer, Set<Integer>> correlationSourcesByConsumer() {
+        Map<Integer, Set<Integer>> sourcesByConsumer = new HashMap<>();
+        for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
+            for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                sourcesByConsumer
+                        .computeIfAbsent(replacement.getTargetEntryIndex(), index -> new HashSet<>())
+                        .add(correlation.getSourceEntryIndex());
+            }
+        }
+        return sourcesByConsumer;
     }
 
     private static boolean consumeRedirectTarget(Map<String, Integer> pendingTargets, String url) {

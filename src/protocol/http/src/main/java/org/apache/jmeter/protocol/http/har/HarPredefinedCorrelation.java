@@ -49,6 +49,13 @@ import org.apache.oro.text.regex.Perl5Matcher;
 /** Predefined, evidence-backed correlations found in a recorded HTTP flow. */
 final class HarPredefinedCorrelation {
 
+    /**
+     * Shortest extracted value that is accepted as evidence. Short values match by coincidence in
+     * unrelated URLs and parameters, and replacing them mangles requests that never carried the
+     * recorded value.
+     */
+    static final int MIN_CORRELATED_VALUE_LENGTH = 6;
+
     enum ExtractorType {
         REGEX,
         JSON_PATH
@@ -306,7 +313,8 @@ final class HarPredefinedCorrelation {
             List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues) {
         Map<String, CandidateMatch> matchesByValue = new LinkedHashMap<>();
         for (ExtractedValue extractedValue : extractedValues) {
-            if (extractedValue.value() == null || extractedValue.value().isBlank()) {
+            if (extractedValue.value() == null
+                    || extractedValue.value().strip().length() < MIN_CORRELATED_VALUE_LENGTH) {
                 continue;
             }
             List<Replacement> replacements = new ArrayList<>();

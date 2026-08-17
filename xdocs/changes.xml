@@ -63,6 +63,9 @@ desktop behavior across themes, menus, icons, and modern Java launches.
   <li>Adds a per-rule maximum match count (default 1) as a safety ceiling, then detects the correct nth extractor match from the value used by a later request.</li>
   <li>Moves built-in extractors to a versioned JSON catalog, supports a shared custom catalog, and stores plan-local custom rules as a separate JMX archive entry.</li>
   <li>Adds <b>Save as Custom Predefined Correlation</b> to Regex and JSONPath Extractor context menus.</li>
+  <li>Splits a Parallel Controller when a request uses a value extracted from another request in the same controller, moving the consumer into a new Parallel Controller that runs after the extractor. <b>Tools &gt; Try Predefined Correlations</b> reports how many requests will move before applying.</li>
+  <li>Places a request directly under its parent instead of in a Parallel Controller when splitting leaves a single request behind.</li>
+  <li>Ignores correlation values shorter than six characters, which matched unrelated requests by coincidence and replaced values those requests never carried.</li>
 </ul>
 
 <ch_section>Desktop and Build Reliability</ch_section>

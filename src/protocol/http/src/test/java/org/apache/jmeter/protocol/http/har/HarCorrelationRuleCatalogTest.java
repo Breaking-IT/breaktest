@@ -227,9 +227,9 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 ExtractorType.JSON_PATH, ResponseField.BODY, "$.items[*].id", "", 1,
                 "", false, false, true);
         HarEntry source = entry(0, "GET", "https://example.test/start");
-        source.setResponseContentText("{\"items\":[{\"id\":\"first\"},{\"id\":\"second\"}]}");
+        source.setResponseContentText("{\"items\":[{\"id\":\"first-item\"},{\"id\":\"second-item\"}]}");
         HarEntry target = entry(1, "POST", "https://example.test/next");
-        target.setPostData(new PostData("application/json", "{\"item\":\"second\"}", List.of()));
+        target.setPostData(new PostData("application/json", "{\"item\":\"second-item\"}", List.of()));
 
         assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule)).isEmpty());
     }
@@ -242,15 +242,15 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 "", false, false, true);
         HarEntry source = entry(0, "GET", "https://example.test/start");
         source.setResponseContentText(
-                "{\"items\":[{\"id\":\"first\"},{\"id\":\"second\"},{\"id\":\"third\"}]}");
+                "{\"items\":[{\"id\":\"first-item\"},{\"id\":\"second-item\"},{\"id\":\"third-item\"}]}");
         HarEntry target = entry(1, "POST", "https://example.test/next");
-        target.setPostData(new PostData("application/json", "{\"item\":\"third\"}", List.of()));
+        target.setPostData(new PostData("application/json", "{\"item\":\"third-item\"}", List.of()));
 
         List<HarPredefinedCorrelation> matches =
                 HarPredefinedCorrelation.find(List.of(source, target), List.of(rule));
 
         assertEquals(1, matches.size());
-        assertEquals("third", matches.get(0).getExtractedValue());
+        assertEquals("third-item", matches.get(0).getExtractedValue());
         assertEquals(3, matches.get(0).getMatchNumber());
     }
 

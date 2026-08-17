@@ -26,6 +26,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.jmeter.control.ParallelController;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.protocol.http.control.Header;
@@ -173,6 +175,55 @@ class HarPredefinedCorrelationTest {
     }
 
     @Test
+    void splitsTheParallelControllerWhenAConsumerSharesItWithTheExtractor() {
+        HarEntry source = entry(0, 0, "GET", "https://example.test/form");
+        source.setResponseContentText("<input name=\"_csrf\" value=\"spring-token-123\">");
+        // Started before the source response finished, so both are in one recorded wave.
+        HarEntry sibling = entry(1, 10, "GET", "https://example.test/asset.js");
+        HarEntry consumer = entry(2, 20, "POST", "https://example.test/submit");
+        consumer.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("_csrf", "spring-token-123"))));
+        List<HarEntry> entries = List.of(source, sibling, consumer);
+
+        List<HarPredefinedCorrelation> correlations =
+                HarPredefinedCorrelation.find(entries, Set.of("example.test"));
+        assertEquals(1, correlations.size(), "the correlation is kept, not dropped");
+
+        HarImportOptions options = new HarImportOptions();
+        options.setPredefinedCorrelations(correlations);
+        HashTree tree = new HarConverter(entries, options, "correlations.har", "md5")
+                .convert(Set.of("example.test"));
+
+        List<ParallelController> parallelControllers = collect(tree, ParallelController.class);
+        assertEquals(1, parallelControllers.size(),
+                "the extractor and its sibling stay parallel, the consumer moves out");
+        HashTree transaction = treeOf(tree, TransactionController.class);
+        List<Object> transactionChildren = new ArrayList<>(transaction.list());
+        assertEquals(2, transactionChildren.size());
+        assertTrue(transactionChildren.get(0) instanceof ParallelController);
+        assertEquals("/submit", ((HTTPSamplerProxy) transactionChildren.get(1)).getPath(),
+                "a lone consumer is placed directly under the transaction");
+        assertEquals(1, collect(tree, RegexExtractor.class).size());
+        assertEquals("${spring_csrf_token}", collect(tree, HTTPSamplerProxy.class).stream()
+                .filter(sampler -> "/submit".equals(sampler.getPath()))
+                .findFirst()
+                .orElseThrow()
+                .getArguments()
+                .getArgument(0)
+                .getValue());
+    }
+
+    @Test
+    void ignoresExtractedValuesThatAreTooShortToBeEvidence() {
+        HarEntry source = entry(0, 0, "GET", "https://example.test/form");
+        source.setResponseContentText("<input name=\"_csrf\" value=\"nl\">");
+        HarEntry target = entry(1, 100, "GET", "https://example.test/page?lang=nl");
+        target.getQueryString().add(new NameValue("lang", "nl"));
+
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target)).isEmpty());
+    }
+
+    @Test
     void converterAddsNativeExtractorsAndReplacesOnlyLaterRequestData() {
         String viewState = "/wEPDwUKMTIzNDU2Nzg5MA==";
         HarEntry source = entry(0, 0, "GET", "https://example.test/form");
@@ -225,6 +276,19 @@ class HarPredefinedCorrelationTest {
         entry.setHasPositiveTiming(true);
         entry.setResponseStatus(200);
         return entry;
+    }
+
+    private static HashTree treeOf(HashTree tree, Class<?> type) {
+        for (Object item : tree.list()) {
+            if (type.isInstance(item)) {
+                return tree.getTree(item);
+            }
+            HashTree nested = treeOf(tree.getTree(item), type);
+            if (nested != null) {
+                return nested;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
