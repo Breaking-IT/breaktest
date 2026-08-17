@@ -58,8 +58,10 @@ import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingWorker;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.recording.RecordingStorageMode;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
 import org.slf4j.Logger;
@@ -126,6 +128,8 @@ public class HarImportWizard extends JDialog {
     private static final int STEP_FILE = 0;
     private static final int STEP_HOSTS = 1;
     private static final int STEP_OPTIONS = 2;
+    private static final int STEP_CORRELATIONS = 3;
+    static final boolean DEFAULT_FIND_PREDEFINED_CORRELATIONS = true;
 
     private static final String[] STORAGE_MODE_KEYS = {
             "har_import_recording_storage_all", // $NON-NLS-1$
@@ -166,8 +170,9 @@ public class HarImportWizard extends JDialog {
     // Step 3 controls
     private final JCheckBox ignoreErrors = new JCheckBox(JMeterUtils.getResString("har_import_ignore_errors"), true);
     private final JCheckBox addIndex = new JCheckBox(JMeterUtils.getResString("har_import_add_index"));
-    private final JCheckBox detectDynamicUrls =
-            new JCheckBox(JMeterUtils.getResString("har_import_detect_dynamic_urls"), true);
+    private final JCheckBox findPredefinedCorrelations =
+            new JCheckBox(JMeterUtils.getResString("har_import_find_predefined_correlations"),
+                    DEFAULT_FIND_PREDEFINED_CORRELATIONS);
     private final JSpinner idleTime = new JSpinner(new SpinnerNumberModel(4, 0, 3600, 1));
     private final JLabel idleTimeLabel = new JLabel(JMeterUtils.getResString("har_import_idle_time"));
     private final JComboBox<String> recordingStorageMode = new JComboBox<>();
@@ -190,6 +195,13 @@ public class HarImportWizard extends JDialog {
     private final JCheckBox useDelayVariables =
             new JCheckBox(JMeterUtils.getResString("har_import_delay_variables"));
 
+    // Step 4 state
+    private final HarCorrelationMatchesPanel correlationsPanel = new HarCorrelationMatchesPanel();
+    private final JLabel correlationsSummary = new JLabel(" ");
+    private List<HarPredefinedCorrelation> predefinedCorrelations = List.of();
+    private SwingWorker<List<HarPredefinedCorrelation>, Void> correlationWorker;
+    private boolean correlationAnalysisComplete;
+
     private Result result;
 
     public HarImportWizard(Frame owner) {
@@ -197,7 +209,7 @@ public class HarImportWizard extends JDialog {
         this.mainFrame = owner instanceof MainFrame frame ? frame : null;
         buildUi();
         setMinimumSize(new Dimension(620, 360));
-        setSize(700, 420);
+        setSize(760, 500);
         setLocationRelativeTo(owner);
     }
 
@@ -210,6 +222,7 @@ public class HarImportWizard extends JDialog {
         cards.add(buildFileCard(), "file");
         cards.add(buildHostsCard(), "hosts");
         cards.add(buildOptionsCard(), "options");
+        cards.add(buildCorrelationsCard(), "correlations");
 
         JPanel buttons = new JPanel();
         buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
@@ -219,6 +232,7 @@ public class HarImportWizard extends JDialog {
         nextButton.addActionListener(e -> goNext());
         finishButton.addActionListener(e -> finish());
         cancelButton.addActionListener(e -> {
+            cancelCorrelationAnalysis();
             result = null;
             dispose();
         });
@@ -494,7 +508,7 @@ public class HarImportWizard extends JDialog {
         gbc.gridy++;
         form.add(addIndex, gbc);
         gbc.gridy++;
-        form.add(detectDynamicUrls, gbc);
+        form.add(findPredefinedCorrelations, gbc);
 
         gbc.gridwidth = 1;
         setStorageChoiceLabels(null, false);
@@ -511,9 +525,114 @@ public class HarImportWizard extends JDialog {
         form.add(useDelayVariables, gbc);
 
         delayMode.addActionListener(e -> updateDelayFields());
+        findPredefinedCorrelations.addActionListener(e -> updateButtons());
         updateDelayFields();
         panel.add(form, BorderLayout.NORTH);
         return panel;
+    }
+
+    // ---------------------------------------------------------------------
+    // Step 4: predefined correlation review
+    // ---------------------------------------------------------------------
+
+    private JPanel buildCorrelationsCard() {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        JPanel heading = new JPanel();
+        heading.setLayout(new BoxLayout(heading, BoxLayout.Y_AXIS));
+        JLabel prompt = new JLabel(JMeterUtils.getResString("har_import_correlations_prompt"));
+        prompt.setAlignmentX(Component.LEFT_ALIGNMENT);
+        correlationsSummary.setAlignmentX(Component.LEFT_ALIGNMENT);
+        heading.add(prompt);
+        heading.add(Box.createVerticalStrut(6));
+        heading.add(correlationsSummary);
+        panel.add(heading, BorderLayout.NORTH);
+
+        JScrollPane scroll = new JScrollPane(correlationsPanel);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void analyzePredefinedCorrelations() {
+        cancelCorrelationAnalysis();
+        correlationAnalysisComplete = false;
+        predefinedCorrelations = List.of();
+        correlationsPanel.setCorrelations(List.of());
+        correlationsSummary.setText(" ");
+        correlationsPanel.removeAll();
+        correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_analyzing")));
+        updateButtons();
+
+        List<HarEntry> parsedEntries = List.copyOf(entries);
+        Set<String> selectedHosts = Set.copyOf(selectedHostnames());
+        List<HarPredefinedCorrelation.Rule> correlationRules = availableCorrelationRules();
+        correlationWorker = new SwingWorker<>() {
+            @Override
+            protected List<HarPredefinedCorrelation> doInBackground() {
+                return HarPredefinedCorrelation.find(parsedEntries, selectedHosts, correlationRules);
+            }
+
+            @Override
+            protected void done() {
+                if (correlationWorker != this) {
+                    return;
+                }
+                try {
+                    predefinedCorrelations = get();
+                    correlationAnalysisComplete = true;
+                    rebuildCorrelationsPanel();
+                } catch (CancellationException ignored) {
+                    // The user navigated back or started a newer analysis.
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ex) {
+                    LOG.warn("Unable to analyze predefined HAR correlations", ex.getCause());
+                    predefinedCorrelations = List.of();
+                    correlationAnalysisComplete = true;
+                    correlationsPanel.setCorrelations(List.of());
+                    correlationsPanel.removeAll();
+                    correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_error")));
+                    correlationsPanel.revalidate();
+                    correlationsPanel.repaint();
+                } finally {
+                    updateButtons();
+                }
+            }
+        };
+        correlationWorker.execute();
+    }
+
+    private static List<HarPredefinedCorrelation.Rule> availableCorrelationRules() {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui == null) {
+            return HarCorrelationRuleCatalog.sharedRules();
+        }
+        return gui.getTreeModel().getNodesOfType(TestPlan.class).stream()
+                .findFirst()
+                .map(node -> HarCorrelationRuleCatalog.rulesFor(node.getTestElement()))
+                .orElseGet(HarCorrelationRuleCatalog::sharedRules);
+    }
+
+    private void rebuildCorrelationsPanel() {
+        int replacementCount = predefinedCorrelations.stream()
+                .mapToInt(correlation -> correlation.getReplacements().size())
+                .sum();
+        correlationsSummary.setText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_correlations_summary"),
+                predefinedCorrelations.size(), replacementCount));
+        correlationsPanel.setCorrelations(predefinedCorrelations);
+    }
+
+    private List<HarPredefinedCorrelation> selectedPredefinedCorrelations() {
+        return correlationsPanel.getSelectedCorrelations();
+    }
+
+    private void cancelCorrelationAnalysis() {
+        if (correlationWorker != null) {
+            correlationWorker.cancel(true);
+            correlationWorker = null;
+        }
     }
 
     private void updateDelayFields() {
@@ -632,13 +751,16 @@ public class HarImportWizard extends JDialog {
 
     private void goBack() {
         if (step > STEP_FILE) {
+            if (step == STEP_CORRELATIONS) {
+                cancelCorrelationAnalysis();
+            }
             step--;
             showStep();
         }
     }
 
     private void goNext() {
-        if (step < STEP_OPTIONS) {
+        if (step < STEP_OPTIONS || step == STEP_OPTIONS && findPredefinedCorrelations.isSelected()) {
             step++;
             showStep();
         }
@@ -651,6 +773,10 @@ public class HarImportWizard extends JDialog {
                 updateIdleTimeVisibility();
                 updateStorageEstimates();
                 cardLayout.show(cards, "options");
+            }
+            case STEP_CORRELATIONS -> {
+                cardLayout.show(cards, "correlations");
+                analyzePredefinedCorrelations();
             }
             default -> cardLayout.show(cards, "file");
         }
@@ -665,10 +791,14 @@ public class HarImportWizard extends JDialog {
             nextButton.setEnabled(canLeaveFile);
         } else if (step == STEP_HOSTS) {
             nextButton.setEnabled(canLeaveHosts);
+        } else if (step == STEP_OPTIONS) {
+            nextButton.setEnabled(findPredefinedCorrelations.isSelected());
         } else {
             nextButton.setEnabled(false);
         }
-        finishButton.setEnabled(step == STEP_OPTIONS && canLeaveFile && canLeaveHosts);
+        boolean finishOnOptions = step == STEP_OPTIONS && !findPredefinedCorrelations.isSelected();
+        boolean finishOnCorrelations = step == STEP_CORRELATIONS && correlationAnalysisComplete;
+        finishButton.setEnabled((finishOnOptions || finishOnCorrelations) && canLeaveFile && canLeaveHosts);
     }
 
     private void finish() {
@@ -679,7 +809,6 @@ public class HarImportWizard extends JDialog {
         HarImportOptions options = new HarImportOptions();
         options.setIgnoreErrors(ignoreErrors.isSelected());
         options.setAddIndex(addIndex.isSelected());
-        options.setDetectDynamicUrls(detectDynamicUrls.isSelected());
         options.setRecordingStorageMode(switch (recordingStorageMode.getSelectedIndex()) {
             case 1 -> RecordingStorageMode.OMIT_STATIC_BODIES;
             case 2 -> RecordingStorageMode.NONE;
@@ -692,6 +821,9 @@ public class HarImportWizard extends JDialog {
         options.setDelayMin(delayMin.getText());
         options.setDelayMax(delayMax.getText());
         options.setUseDelayVariables(useDelayVariables.isSelected());
+        if (findPredefinedCorrelations.isSelected()) {
+            options.setPredefinedCorrelations(selectedPredefinedCorrelations());
+        }
 
         result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
         dispose();

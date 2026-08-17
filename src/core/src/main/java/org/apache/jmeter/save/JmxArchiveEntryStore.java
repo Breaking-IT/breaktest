@@ -34,6 +34,10 @@ public final class JmxArchiveEntryStore {
 
     public static final String HAR_FILENAME_PROPERTY = "BreakTest.har.filename"; // $NON-NLS-1$
     public static final String HAR_MD5_PROPERTY = "BreakTest.har.md5"; // $NON-NLS-1$
+    public static final String CORRELATION_RULES_FILENAME_PROPERTY =
+            "BreakTest.correlationRules.filename"; // $NON-NLS-1$
+    public static final String CORRELATION_RULES_CHECKSUM_PROPERTY =
+            "BreakTest.correlationRules.checksum"; // $NON-NLS-1$
 
     private static final Map<EntryKey, Map<String, byte[]>> BUNDLES = new ConcurrentHashMap<>();
 

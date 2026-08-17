@@ -639,6 +639,9 @@ public class SaveService {
                 collectArchiveReference(element, references,
                         JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, JmxArchiveEntryStore.HAR_MD5_PROPERTY);
                 collectArchiveReference(element, references,
+                        JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY,
+                        JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY);
+                collectArchiveReference(element, references,
                         RecordedExchangeStore.MANIFEST_PROPERTY, RecordedExchangeStore.CHECKSUM_PROPERTY);
             }
             collectArchiveReferences(tree.getTree(item), references);

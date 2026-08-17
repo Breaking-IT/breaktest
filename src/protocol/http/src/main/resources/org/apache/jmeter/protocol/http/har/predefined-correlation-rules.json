@@ -1,0 +1,218 @@
+{
+  "format": "breaktest-predefined-correlations-v1",
+  "groups": [
+    {
+      "name": "OAuth",
+      "rules": [
+        {
+          "id": "oauth-access-token",
+          "name": "OAuth access token",
+          "variableName": "oauth_access_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.access_token"
+        },
+        {
+          "id": "oauth-refresh-token",
+          "name": "OAuth refresh token",
+          "variableName": "oauth_refresh_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.refresh_token"
+        },
+        {
+          "id": "openid-id-token",
+          "name": "OpenID Connect ID token",
+          "variableName": "openid_id_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.id_token"
+        },
+        {
+          "id": "oauth-code-header",
+          "name": "OAuth authorization code",
+          "variableName": "oauth_code",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)[?&]code=([^&\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "oauth-state-header",
+          "name": "OAuth state (redirect)",
+          "variableName": "oauth_state",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)[?&]state=([^&\\s]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "oauth-state-form",
+          "name": "OAuth state (form)",
+          "variableName": "oauth_state",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']state[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "openid-nonce-form",
+          "name": "OpenID Connect nonce",
+          "variableName": "openid_nonce",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']nonce[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "ASP.NET",
+      "rules": [
+        {
+          "id": "aspnet-viewstate",
+          "name": "ASP.NET ViewState",
+          "variableName": "aspnet_viewstate",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']__VIEWSTATE[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "aspnet-viewstate-generator",
+          "name": "ASP.NET ViewState generator",
+          "variableName": "aspnet_viewstate_generator",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']__VIEWSTATEGENERATOR[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "aspnet-event-validation",
+          "name": "ASP.NET event validation",
+          "variableName": "aspnet_event_validation",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']__EVENTVALIDATION[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "aspnet-request-verification",
+          "name": "ASP.NET request verification token",
+          "variableName": "aspnet_request_verification_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']__RequestVerificationToken[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "JavaServer Faces",
+      "rules": [
+        {
+          "id": "jsf-viewstate",
+          "name": "JSF ViewState",
+          "variableName": "jsf_viewstate",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']javax\\.faces\\.ViewState[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        },
+        {
+          "id": "jakarta-faces-viewstate",
+          "name": "Jakarta Faces ViewState",
+          "variableName": "jakarta_faces_viewstate",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']jakarta\\.faces\\.ViewState[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Django",
+      "rules": [
+        {
+          "id": "django-csrf-token",
+          "name": "Django CSRF token",
+          "variableName": "django_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']csrfmiddlewaretoken[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Ruby on Rails",
+      "rules": [
+        {
+          "id": "rails-authenticity-token",
+          "name": "Rails authenticity token",
+          "variableName": "rails_authenticity_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']authenticity_token[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Spring Security",
+      "rules": [
+        {
+          "id": "spring-csrf-token",
+          "name": "Spring Security CSRF token",
+          "variableName": "spring_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']_csrf[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Laravel",
+      "rules": [
+        {
+          "id": "laravel-csrf-token",
+          "name": "Laravel CSRF token",
+          "variableName": "laravel_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)name=[\"']_token[\"'][^>]*value=[\"']([^\"']+)[\"']",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Siebel",
+      "rules": [
+        {
+          "id": "siebel-session-cookie",
+          "name": "Siebel session cookie",
+          "variableName": "siebel_session_cookie",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?i)_sn=([^;\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Oracle NCA",
+      "rules": [
+        {
+          "id": "oracle-nca-icx-ticket",
+          "name": "Oracle NCA ICX ticket",
+          "variableName": "oracle_nca_icx_ticket",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)TICKET=([^;\\s]+)",
+          "template": "$1$"
+        }
+      ]
+    }
+  ]
+}

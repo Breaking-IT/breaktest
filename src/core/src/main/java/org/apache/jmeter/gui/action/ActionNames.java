@@ -32,6 +32,8 @@ public final class ActionNames {
     public static final String ACTION_STOP      = "stop"; // $NON-NLS-1$
     public static final String ADD              = "Add"; // $NON-NLS-1$
     public static final String ADD_ALL          = "add_all"; // $NON-NLS-1$
+    public static final String ADD_CUSTOM_PREDEFINED_CORRELATION =
+            "add_custom_predefined_correlation"; // $NON-NLS-1$
     public static final String ADD_PARENT       = "Add Parent"; // $NON-NLS-1$
     public static final String ADD_THINK_TIME_BETWEEN_EACH_STEP    = "Add Think Time between each step"; // $NON-NLS-1$
     public static final String ANALYZE_FILE     = "Analyze File"; // $NON-NLS-1$
@@ -64,6 +66,7 @@ public final class ActionNames {
     public static final String EXIT             = "exit"; // $NON-NLS-1$
     public static final String EXPAND_ALL       = "expand all"; // $NON-NLS-1$
     public static final String FUNCTIONS        = "functions"; // $NON-NLS-1$
+    public static final String FIND_PREDEFINED_CORRELATIONS = "find_predefined_correlations"; // $NON-NLS-1$
     public static final String HELP             = "help"; // $NON-NLS-1$
     public static final String HEAP_DUMP        = "heap_dump"; // $NON-NLS-1$
     public static final String HTML_REPORT      = "html_report";

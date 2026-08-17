@@ -51,4 +51,9 @@ class HarImportWizardTest {
         assertEquals("5000", options.getDelayMin());
         assertEquals("25000", options.getDelayMax());
     }
+
+    @Test
+    void enablesPredefinedCorrelationScanByDefault() {
+        assertTrue(HarImportWizard.DEFAULT_FIND_PREDEFINED_CORRELATIONS);
+    }
 }
