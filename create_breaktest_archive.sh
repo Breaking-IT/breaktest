@@ -17,7 +17,7 @@
 #
 # Prerequisites: run ./build_breaktest.sh to populate bin/ and lib/ from a Gradle build.
 # Script to create a compressed tar archive of bin and lib directories
-# Excludes bin/examples and bin/testfiles
+# Excludes bin/examples, bin/testfiles, and the generated HTML report log
 # Archives files under breaktest/ directory
 
 # Generate datetime string in format YYYYMMDD_HHMMSS
@@ -36,9 +36,10 @@ trap "rm -rf ${TEMP_DIR}" EXIT
 # Create breaktest directory structure
 mkdir -p "${TEMP_DIR}/breaktest"
 
-# Copy bin directory excluding examples and testfiles
+# Copy bin directory excluding examples, testfiles, and the generated HTML report log
 # Using rsync for better exclusion control
 rsync -av --exclude='examples' --exclude='testfiles' \
+    --exclude='breaktest_html_report.log' \
     --exclude='.DS_Store' --exclude='._*' \
     bin/ "${TEMP_DIR}/breaktest/bin/"
 

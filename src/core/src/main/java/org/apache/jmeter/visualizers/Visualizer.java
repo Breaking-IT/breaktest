@@ -19,6 +19,7 @@ package org.apache.jmeter.visualizers;
 
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.SampleResultMetadataConsumer;
 
 /**
  * Implement this method to be a Visualizer for JMeter. This interface defines a
@@ -29,7 +30,7 @@ import org.apache.jmeter.samplers.SampleResult;
  * {@link org.apache.jmeter.visualizers.gui.AbstractVisualizer} class.
  *
  */
-public interface Visualizer {
+public interface Visualizer extends SampleResultMetadataConsumer {
     /**
      * This method is called by sampling thread to inform the visualizer about
      * the arrival of a new sample.
@@ -57,6 +58,26 @@ public interface Visualizer {
      */
     default boolean needsSampleResultMetadata() {
         return false;
+    }
+
+    /**
+     * @return true when this visualizer needs variable snapshots attached to
+     * {@link SampleResult} instances
+     * @since 2026.08
+     */
+    @Override
+    default boolean needsJMeterVariables() {
+        return needsSampleResultMetadata();
+    }
+
+    /**
+     * @return true when this visualizer needs source test-element paths attached to
+     * {@link SampleResult} instances
+     * @since 2026.08
+     */
+    @Override
+    default boolean needsSourceTestElementPath() {
+        return needsSampleResultMetadata();
     }
 
     /**

@@ -18,33 +18,29 @@
 package org.apache.jmeter.samplers;
 
 /**
- * Allows notification on events occurring during the sampling process.
- * Specifically, when sampling is started, when a specific sample is obtained,
- * and when sampling is stopped.
+ * Declares optional metadata that a sample-result consumer needs before it is notified.
+ * Consumers should request only metadata they use since preparing it adds work to the sampling
+ * thread.
  *
+ * @since 2026.08
  */
-public interface SampleListener extends SampleResultMetadataConsumer {
-    /**
-     * A sample has started and stopped.
-     *
-     * @param e
-     *            the {@link SampleEvent} that has occurred
-     */
-    void sampleOccurred(SampleEvent e);
+public interface SampleResultMetadataConsumer {
 
     /**
-     * A sample has started.
+     * Whether this consumer needs a snapshot of JMeter variables attached to each result.
      *
-     * @param e
-     *            the {@link SampleEvent} that has started
+     * @return {@code true} when variable snapshots are required
      */
-    void sampleStarted(SampleEvent e);
+    default boolean needsJMeterVariables() {
+        return false;
+    }
 
     /**
-     * A sample has stopped.
+     * Whether this consumer needs the configured test-element path that produced each result.
      *
-     * @param e
-     *            the {@link SampleEvent} that has stopped
+     * @return {@code true} when source test-element paths are required
      */
-    void sampleStopped(SampleEvent e);
+    default boolean needsSourceTestElementPath() {
+        return false;
+    }
 }

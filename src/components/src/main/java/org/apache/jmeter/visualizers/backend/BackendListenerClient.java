@@ -21,6 +21,7 @@ import java.util.List;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.SampleResultMetadataConsumer;
 import org.apache.jorphan.reflect.JMeterService;
 
 /**
@@ -65,7 +66,7 @@ import org.apache.jorphan.reflect.JMeterService;
  * @since 2.13
  */
 @JMeterService
-public interface BackendListenerClient {
+public interface BackendListenerClient extends SampleResultMetadataConsumer {
 
     /**
      * Do any initialization required by this client. It is generally

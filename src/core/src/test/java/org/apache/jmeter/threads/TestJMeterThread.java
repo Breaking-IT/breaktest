@@ -523,9 +523,24 @@ class TestJMeterThread {
         private static final long serialVersionUID = 1L;
 
         private final List<SampleEvent> events = Collections.synchronizedList(new ArrayList<>());
+        private final boolean jMeterVariablesNeeded;
+        private final boolean sourceTestElementPathNeeded;
 
         private RecordingSampleListener(String name) {
+            this(name, false, false);
+        }
+
+        private RecordingSampleListener(
+                String name, boolean jMeterVariablesNeeded, boolean sourceTestElementPathNeeded) {
             setName(name);
+            this.jMeterVariablesNeeded = jMeterVariablesNeeded;
+            this.sourceTestElementPathNeeded = sourceTestElementPathNeeded;
+        }
+
+        List<SampleEvent> events() {
+            synchronized (events) {
+                return List.copyOf(events);
+            }
         }
 
         List<SampleEvent> transactionEvents() {
@@ -537,6 +552,16 @@ class TestJMeterThread {
         @Override
         public void sampleOccurred(SampleEvent e) {
             events.add(e);
+        }
+
+        @Override
+        public boolean needsJMeterVariables() {
+            return jMeterVariablesNeeded;
+        }
+
+        @Override
+        public boolean needsSourceTestElementPath() {
+            return sourceTestElementPathNeeded;
         }
 
         @Override
@@ -782,6 +807,52 @@ class TestJMeterThread {
                 "Parallel workers should share virtual user variables");
         assertEquals("yes", context.getVariables().get("written-by-three"),
                 "Parallel workers should share virtual user variables");
+    }
+
+    @Test
+    void testSourcePathOnlyListenerReceivesParallelAncestryWithoutVariableSnapshot() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(1);
+        parallelController.setEnabled(true);
+        AtomicInteger calls = new AtomicInteger();
+        ResultStatusSampler sampler = new ResultStatusSampler("request", true, calls);
+        RecordingSampleListener listener = new RecordingSampleListener("source-path-listener", false, true);
+
+        HashTree loopTree = testTree.add(loop);
+        HashTree parallelTree = loopTree.add(parallelController);
+        loopTree.add(listener);
+        parallelTree.add(sampler);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("source-path-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("should-not-be-copied", "value");
+        jMeterThread.putVariables(variables);
+        jMeterThread.run();
+
+        assertEquals(1, calls.get());
+        List<SampleEvent> events = listener.events();
+        assertEquals(1, events.size());
+        SampleResult result = events.get(0).getResult();
+        assertFalse(result.hasJMeterVariables(), "Requesting a source path must not snapshot variables");
+        assertTrue(result.getSourceTestElementPath().stream()
+                .anyMatch(entry -> entry.className().equals(ParallelController.class.getName())),
+                "The source path should expose Parallel Controller ancestry");
+        SampleResult.TestElementPathEntry source = result.getSourceTestElementPath()
+                .get(result.getSourceTestElementPath().size() - 1);
+        assertEquals(sampler.getClass().getName(), source.className());
+        assertEquals(sampler.getName(), source.name());
     }
 
     @Test
@@ -1577,6 +1648,8 @@ class TestJMeterThread {
         assertEquals(1, childCalls.get(), "Child sampler should run once");
         assertEquals("transaction", transactionResult.getSampleLabel());
         assertEquals(1, transactionResult.getSubResults().length);
+        assertTrue(transactionResult.hasJMeterVariables(),
+                "The legacy metadata capability should continue requesting variable snapshots");
         SampleResult childResult = transactionResult.getSubResults()[0];
         List<SampleResult.TestElementPathEntry> childPath = childResult.getSourceTestElementPath();
 

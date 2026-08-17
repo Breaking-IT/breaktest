@@ -104,6 +104,10 @@ public class BackendListener
 
     private transient ListenerClientData listenerClientData;
 
+    private transient boolean jMeterVariablesNeeded;
+
+    private transient boolean sourceTestElementPathNeeded;
+
     /** Create a BackendListener. */
     public BackendListener() {
         setArguments(new Arguments());
@@ -162,6 +166,16 @@ public class BackendListener
         } catch (Exception err) {
             log.error("sampleOccurred, failed to queue the sample", err);
         }
+    }
+
+    @Override
+    public boolean needsJMeterVariables() {
+        return jMeterVariablesNeeded;
+    }
+
+    @Override
+    public boolean needsSourceTestElementPath() {
+        return sourceTestElementPathNeeded;
     }
 
     /**
@@ -329,6 +343,8 @@ public class BackendListener
                 }
                 queuesByTestElementName.put(myName, listenerClientData);
             }
+            jMeterVariablesNeeded = listenerClientData.client.needsJMeterVariables();
+            sourceTestElementPathNeeded = listenerClientData.client.needsSourceTestElementPath();
             listenerClientData.instanceCount++;
         }
     }
