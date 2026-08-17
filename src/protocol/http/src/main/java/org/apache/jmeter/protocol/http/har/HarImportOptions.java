@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -53,7 +54,6 @@ public class HarImportOptions {
 
     private boolean ignoreErrors = true;
     private boolean addIndex = false;
-    private boolean detectDynamicUrls = true;
     private RecordingStorageMode recordingStorageMode = RecordingStorageMode.ALL;
 
     /** New transaction is started when idle gap exceeds this many seconds. */
@@ -70,6 +70,8 @@ public class HarImportOptions {
     private String delayMax = DEFAULT_DELAY_MAX;
     /** Store configured think times once on the Test Plan and reference them from transactions. */
     private boolean useDelayVariables;
+    /** Predefined correlations selected in the wizard review step. */
+    private List<HarPredefinedCorrelation> predefinedCorrelations = List.of();
 
     // Timeouts are always applied via HTTP Request Defaults; not exposed in the wizard.
     private int connectTimeoutSeconds = 10;
@@ -94,14 +96,6 @@ public class HarImportOptions {
 
     public void setAddIndex(boolean addIndex) {
         this.addIndex = addIndex;
-    }
-
-    public boolean isDetectDynamicUrls() {
-        return detectDynamicUrls;
-    }
-
-    public void setDetectDynamicUrls(boolean detectDynamicUrls) {
-        this.detectDynamicUrls = detectDynamicUrls;
     }
 
     public RecordingStorageMode getRecordingStorageMode() {
@@ -219,6 +213,14 @@ public class HarImportOptions {
             putLiteralVariable(variables, MAX_DELAY_VARIABLE, delayMax);
         }
         return variables;
+    }
+
+    List<HarPredefinedCorrelation> getPredefinedCorrelations() {
+        return predefinedCorrelations;
+    }
+
+    void setPredefinedCorrelations(List<HarPredefinedCorrelation> predefinedCorrelations) {
+        this.predefinedCorrelations = predefinedCorrelations == null ? List.of() : List.copyOf(predefinedCorrelations);
     }
 
     public static boolean isValidDelay(String value) {

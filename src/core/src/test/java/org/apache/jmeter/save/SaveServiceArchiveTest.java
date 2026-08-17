@@ -168,6 +168,29 @@ class SaveServiceArchiveTest extends JMeterTestCase {
     }
 
     @Test
+    void customCorrelationRulesSurviveArchiveSaveLoadAndResave() throws Exception {
+        String entryName = "correlations/custom-predefined-rules.json";
+        String checksum = "rules-checksum";
+        byte[] rules = "{\"format\":\"breaktest-predefined-correlations-v1\",\"groups\":[]}".getBytes(
+                StandardCharsets.UTF_8);
+        JmxArchiveEntryStore.register(entryName, checksum, rules);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Thread Group");
+        threadGroup.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.threads.gui.ThreadGroupGui");
+        threadGroup.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY, entryName);
+        threadGroup.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY, checksum);
+        HashTree tree = new ListedHashTree();
+        tree.add(threadGroup);
+
+        Path input = tempDir.resolve("custom-correlations.jmx");
+        Files.write(input, saveTree(tree));
+        byte[] resaved = saveTree(SaveService.loadTree(input.toFile()));
+
+        assertArrayEquals(rules, readEntry(resaved, entryName).orElseThrow());
+    }
+
+    @Test
     void nativeRecordingBundleSurvivesSaveLoadAndIsRemovedWithItsReference() throws Exception {
         byte[] har = ("{\"log\":{\"entries\":[{"
                 + "\"request\":{\"method\":\"POST\",\"url\":\"https://example.invalid/api\","

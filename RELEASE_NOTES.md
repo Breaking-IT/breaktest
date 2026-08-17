@@ -277,7 +277,7 @@ JMeter JMX metadata.
   data, making the impact of retaining bodies and static resources visible.
 - The importer removes the continue-on-error control and the redundant
   all-except-static-resources retention mode.
-- Request indexing, dynamic URL detection, transaction delay, and storage
+- Request indexing, transaction delay, and storage
   choices remain available in a smaller dialog without excess empty space.
 
 ## HTTP Request Controls

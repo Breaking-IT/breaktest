@@ -24,7 +24,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -80,17 +79,6 @@ public final class HarConverter {
 
     private static final String UNSAFE_CHARS = " <>\"#%{}|\\^~[]`&?+";
 
-    private static final Pattern HEX_TOKEN_PATTERN =
-            Pattern.compile("(?<![a-zA-Z0-9])([a-fA-F0-9]{8,})(?![a-zA-Z0-9])");
-    private static final Pattern UUID_TOKEN_PATTERN =
-            Pattern.compile("(?i)(?<![a-f0-9])([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?![a-f0-9])");
-    private static final Pattern OPAQUE_TOKEN_PATTERN =
-            Pattern.compile("(?<![A-Za-z0-9._~+/=-])([A-Za-z0-9][A-Za-z0-9._~+/=-]{11,})(?![A-Za-z0-9._~+/=-])");
-    private static final Pattern JSON_ID_FIELD_PATTERN =
-            Pattern.compile("\"([^\"]*(?:id|uuid|token|nonce|csrf|session|key|code)[^\"]*)\"\\s*:\\s*\"?([A-Za-z0-9._~+/=-]{4,})\"?",
-                    Pattern.CASE_INSENSITIVE);
-    private static final Pattern NUMERIC_TOKEN_PATTERN =
-            Pattern.compile("^[0-9]{6,}$");
     private final List<HarEntry> entries;
     private final HarImportOptions options;
     private final String harName;
@@ -347,24 +335,69 @@ public final class HarConverter {
         sorted.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
 
         List<HarEntry> currentGroup = new ArrayList<>();
+        Map<String, Integer> pendingRedirectTargets = new HashMap<>();
         double earliestEndMs = Double.POSITIVE_INFINITY;
         for (HarEntry entry : sorted) {
             // A browser can only start every request in one parallel wave before
             // the first request in that wave has completed. Once that boundary is
             // crossed, later requests belong to a new wave even if slower requests
-            // from the previous wave are still in flight.
-            if (!currentGroup.isEmpty() && entry.getStartMs() > earliestEndMs) {
+            // from the previous wave are still in flight. Redirect targets always
+            // start a new wave because HAR timestamps can round their start to just
+            // before the redirect response's recorded end.
+            boolean followsRedirect = consumeRedirectTarget(pendingRedirectTargets, entry.getUrl());
+            if (!currentGroup.isEmpty() && (entry.getStartMs() > earliestEndMs || followsRedirect)) {
                 groups.add(currentGroup);
                 currentGroup = new ArrayList<>();
                 earliestEndMs = Double.POSITIVE_INFINITY;
             }
             currentGroup.add(entry);
             earliestEndMs = Math.min(earliestEndMs, entry.getEndMs());
+            String redirectTarget = redirectTargetOf(entry);
+            if (!redirectTarget.isEmpty()) {
+                pendingRedirectTargets.merge(redirectTarget, 1, Integer::sum);
+            }
         }
         if (!currentGroup.isEmpty()) {
             groups.add(currentGroup);
         }
         return groups;
+    }
+
+    private static boolean consumeRedirectTarget(Map<String, Integer> pendingTargets, String url) {
+        Integer count = pendingTargets.get(url);
+        if (count == null) {
+            return false;
+        }
+        if (count == 1) {
+            pendingTargets.remove(url);
+        } else {
+            pendingTargets.put(url, count - 1);
+        }
+        return true;
+    }
+
+    private static String redirectTargetOf(HarEntry entry) {
+        int status = entry.getResponseStatus();
+        if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
+            return "";
+        }
+        String redirect = entry.getResponseRedirectUrl();
+        if (redirect.isEmpty()) {
+            for (NameValue header : entry.getResponseHeaders()) {
+                if ("location".equalsIgnoreCase(header.getName())) {
+                    redirect = header.getValue();
+                    break;
+                }
+            }
+        }
+        if (redirect.isEmpty()) {
+            return "";
+        }
+        try {
+            return URI.create(entry.getUrl()).resolve(redirect).toString();
+        } catch (IllegalArgumentException e) {
+            return redirect;
+        }
     }
 
     private static boolean allMultiplexedProtocol(List<HarEntry> group) {
@@ -444,6 +477,9 @@ public final class HarConverter {
         if (url.query != null && !url.query.isEmpty() && bodyMethod) {
             fullPath = path + "?" + url.query;
         }
+        fullPath = replaceCorrelations(entry, fullPath,
+                HarPredefinedCorrelation.RequestLocation.URL_PATH,
+                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
 
         sampleCounter++;
         String name;
@@ -460,12 +496,6 @@ public final class HarConverter {
         sampler.setProperty(TestElement.GUI_CLASS, HttpTestSampleGui.class.getName());
         sampler.setProperty(TestElement.TEST_CLASS, HTTPSamplerProxy.class.getName());
         sampler.setName(name);
-        if (options.isDetectDynamicUrls()) {
-            String comment = detectDynamicReferences(entry, url);
-            if (!comment.isEmpty()) {
-                sampler.setComment(comment);
-            }
-        }
         sampler.setMethod(method);
         sampler.setDomain(url.host == null ? "" : url.host);
         if (url.port != -1) {
@@ -487,6 +517,8 @@ public final class HarConverter {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
                 String decodedValue = percentDecode(param.getValue());
+                decodedValue = replaceCorrelations(entry, decodedValue,
+                        HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
                 boolean alwaysEncode = needsUrlEncoding(decodedName) || !param.getName().equals(decodedName)
                         || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
                 addHttpArgument(arguments, decodedName, decodedValue, alwaysEncode, true);
@@ -496,12 +528,16 @@ public final class HarConverter {
             if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
                     String decodedValue = percentDecode(param.getValue());
+                    decodedValue = replaceCorrelations(entry, decodedValue,
+                            HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
                     boolean alwaysEncode = needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
                     addHttpArgument(arguments, param.getName(), decodedValue, alwaysEncode, true);
                 }
             } else if (postData.getText() != null) {
                 sampler.setPostBodyRaw(true);
                 String cleaned = removeInvalidXmlChars(postData.getText());
+                cleaned = replaceCorrelations(entry, cleaned,
+                        HarPredefinedCorrelation.RequestLocation.REQUEST_BODY);
                 addHttpArgument(arguments, "", cleaned, false, false);
             }
         }
@@ -512,7 +548,9 @@ public final class HarConverter {
         for (NameValue header : entry.getRequestHeaders()) {
             String lower = header.getName().toLowerCase(Locale.ROOT);
             if (!commonHeadersLower.contains(lower) && isExportableHeader(header.getName())) {
-                uniqueHeaders.add(new Header(header.getName(), header.getValue()));
+                String value = replaceCorrelations(entry, header.getValue(),
+                        HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER);
+                uniqueHeaders.add(new Header(header.getName(), value));
             }
         }
         if (!uniqueHeaders.isEmpty()) {
@@ -520,10 +558,41 @@ public final class HarConverter {
         }
 
         HashTree samplerHt = parent.add(sampler);
+        addPredefinedExtractors(samplerHt, entry);
 
         int status = entry.getResponseStatus();
         if (options.isIgnoreErrors() && status >= 400 && status <= 599) {
             samplerHt.add(buildIgnoreErrorAssertion(status));
+        }
+    }
+
+    private String replaceCorrelations(HarEntry entry, String text,
+            HarPredefinedCorrelation.RequestLocation... locations) {
+        String replaced = text;
+        Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
+        for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
+            String variableReference = "${" + correlation.getRule().getVariableName() + "}";
+            for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                if (replacement.getTargetEntryIndex() == entry.getOriginalIndex()
+                        && acceptedLocations.contains(replacement.getLocation())) {
+                    for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
+                        replaced = replaced.replace(variant, variableReference);
+                    }
+                }
+            }
+        }
+        return replaced;
+    }
+
+    private void addPredefinedExtractors(HashTree samplerHt, HarEntry entry) {
+        Set<String> addedRules = new HashSet<>();
+        for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
+            HarPredefinedCorrelation.Rule rule = correlation.getRule();
+            if (correlation.getSourceEntryIndex() != entry.getOriginalIndex()
+                    || !addedRules.add(rule.getId())) {
+                continue;
+            }
+            samplerHt.add(HarPredefinedCorrelation.buildExtractor(correlation));
         }
     }
 
@@ -749,143 +818,6 @@ public final class HarConverter {
             }
         }
         return sb.toString();
-    }
-
-    private String detectDynamicReferences(HarEntry target, ParsedUrl url) {
-        Set<String> tokens = dynamicRequestTokens(target, url);
-        if (tokens.isEmpty()) {
-            return "";
-        }
-        for (HarEntry entry : entries) {
-            if (entry.getOriginalIndex() >= target.getOriginalIndex()) {
-                continue;
-            }
-            for (NameValue header : entry.getResponseHeaders()) {
-                for (String token : tokens) {
-                    if (header.getValue().contains(token)) {
-                        return "Reference detected in " + entry.getUrl();
-                    }
-                }
-            }
-            for (String token : tokens) {
-                if (entry.getResponseContentText().contains(token)) {
-                    return "Reference detected in " + entry.getUrl();
-                }
-            }
-        }
-        return "";
-    }
-
-    private static Set<String> dynamicRequestTokens(HarEntry entry, ParsedUrl url) {
-        Set<String> tokens = new LinkedHashSet<>();
-        for (String segment : url.path.split("/")) {
-            if (segment.isEmpty()) {
-                continue;
-            }
-            addDynamicTokensFromText(segment, tokens);
-        }
-        addDynamicTokensFromRawQuery(url.query, tokens);
-        for (NameValue param : entry.getQueryString()) {
-            addDynamicTokensFromNameValue(param.getName(), param.getValue(), tokens);
-        }
-        PostData postData = entry.getPostData();
-        if (postData != null) {
-            addDynamicTokensFromText(postData.getText(), tokens);
-            addJsonIdFieldTokens(postData.getText(), tokens);
-            for (NameValue param : postData.getParams()) {
-                addDynamicTokensFromNameValue(param.getName(), param.getValue(), tokens);
-            }
-        }
-        return tokens;
-    }
-
-    private static void addDynamicTokensFromRawQuery(String query, Set<String> tokens) {
-        if (query == null || query.isEmpty()) {
-            return;
-        }
-        for (String param : query.split("&")) {
-            int equals = param.indexOf('=');
-            if (equals >= 0) {
-                addDynamicTokensFromNameValue(
-                        percentDecode(param.substring(0, equals)),
-                        percentDecode(param.substring(equals + 1)),
-                        tokens);
-            } else {
-                addDynamicTokensFromText(percentDecode(param), tokens);
-            }
-        }
-    }
-
-    private static void addDynamicTokensFromNameValue(String name, String value, Set<String> tokens) {
-        addDynamicTokensFromText(value, tokens);
-        if (isIdLikeName(name) && value != null && NUMERIC_TOKEN_PATTERN.matcher(value).matches()) {
-            tokens.add(value);
-        }
-    }
-
-    private static void addJsonIdFieldTokens(String text, Set<String> tokens) {
-        if (text == null || text.isEmpty()) {
-            return;
-        }
-        Matcher matcher = JSON_ID_FIELD_PATTERN.matcher(text);
-        while (matcher.find()) {
-            addDynamicTokensFromNameValue(matcher.group(1), matcher.group(2), tokens);
-        }
-    }
-
-    private static void addDynamicTokensFromText(String text, Set<String> tokens) {
-        if (text == null || text.isEmpty()) {
-            return;
-        }
-        Matcher uuidMatcher = UUID_TOKEN_PATTERN.matcher(text);
-        while (uuidMatcher.find()) {
-            tokens.add(uuidMatcher.group(1));
-        }
-        Matcher hexMatcher = HEX_TOKEN_PATTERN.matcher(text);
-        while (hexMatcher.find()) {
-            tokens.add(hexMatcher.group(1));
-        }
-        Matcher opaqueMatcher = OPAQUE_TOKEN_PATTERN.matcher(text);
-        while (opaqueMatcher.find()) {
-            String token = opaqueMatcher.group(1);
-            if (looksOpaque(token)) {
-                tokens.add(token);
-            }
-        }
-    }
-
-    private static boolean isIdLikeName(String name) {
-        if (name == null) {
-            return false;
-        }
-        String lower = name.toLowerCase(Locale.ROOT);
-        return lower.contains("id")
-                || lower.contains("uuid")
-                || lower.contains("token")
-                || lower.contains("nonce")
-                || lower.contains("csrf")
-                || lower.contains("session")
-                || lower.contains("key")
-                || lower.contains("code");
-    }
-
-    private static boolean looksOpaque(String token) {
-        boolean hasLetter = false;
-        boolean hasDigit = false;
-        for (int i = 0; i < token.length(); i++) {
-            char c = token.charAt(i);
-            if (Character.isLetter(c)) {
-                hasLetter = true;
-            } else if (Character.isDigit(c)) {
-                hasDigit = true;
-            } else if ("._~+/=-".indexOf(c) >= 0) {
-                return true;
-            }
-            if (hasLetter && hasDigit) {
-                return true;
-            }
-        }
-        return false;
     }
 
     // ---------------------------------------------------------------------

@@ -29,11 +29,13 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JRadioButton;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -73,6 +75,11 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     @Override
     public String getLabelResource() {
         return "regex_extractor_title"; //$NON-NLS-1$
+    }
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
     }
 
     @Override

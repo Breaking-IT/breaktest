@@ -41,7 +41,7 @@ import java.util.regex.Pattern;
  */
 public final class UpdateInstaller {
     private static final Set<String> PRESERVED_SETTINGS = Set.of(
-            "bin/user.properties", "bin/system.properties");
+            "bin/user.properties", "bin/system.properties", "bin/predefined-correlations.custom.json");
     private static final Set<String> UNIX_LAUNCHERS = Set.of(
             "breaktest", "breaktest-agent-mcp", "breaktest-agent-tool", "mirror-server");
     private static final String MANAGED_FILES = ".breaktest-managed-files";
