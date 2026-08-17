@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
@@ -56,13 +57,18 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     void loadsBuiltInRulesFromVersionedResource() {
         List<Rule> rules = HarCorrelationRuleCatalog.builtInRules();
 
-        assertEquals(19, rules.size());
         assertEquals("oauth-access-token", rules.get(0).getId());
         assertEquals("OAuth", rules.get(0).getGroup());
-        assertEquals("aspnet-request-verification", rules.get(10).getId());
-        assertEquals("ASP.NET", rules.get(10).getGroup());
-        assertEquals("siebel-session-cookie", rules.get(17).getId());
-        assertEquals("oracle-nca-icx-ticket", rules.get(18).getId());
+        List<String> ids = rules.stream().map(Rule::getId).toList();
+        assertEquals(Set.copyOf(ids).size(), ids.size(), "rule ids stay unique");
+        assertTrue(ids.containsAll(List.of(
+                "aspnet-request-verification", "saml-request", "keycloak-session-code",
+                "sap-csrf-token", "siebel-session-cookie", "oracle-nca-icx-ticket")), ids.toString());
+        assertEquals("ASP.NET", rules.stream()
+                .filter(rule -> "aspnet-request-verification".equals(rule.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getGroup());
     }
 
     @Test
@@ -166,7 +172,8 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .orElseThrow();
         assertEquals("Company access token", merged.getName());
         assertEquals("company_access_token", merged.getVariableName());
-        assertEquals(19, rules.size());
+        assertEquals(HarCorrelationRuleCatalog.builtInRules().size(), rules.size(),
+                "an override replaces the built-in rule instead of adding one");
     }
 
     @Test

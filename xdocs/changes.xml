@@ -66,6 +66,10 @@ desktop behavior across themes, menus, icons, and modern Java launches.
   <li>Splits a Parallel Controller when a request uses a value extracted from another request in the same controller, moving the consumer into a new Parallel Controller that runs after the extractor. <b>Tools &gt; Try Predefined Correlations</b> reports how many requests will move before applying.</li>
   <li>Places a request directly under its parent instead of in a Parallel Controller when splitting leaves a single request behind.</li>
   <li>Ignores correlation values shorter than six characters, which matched unrelated requests by coincidence and replaced values those requests never carried.</li>
+  <li>Adds built-in correlation groups for SAML, Keycloak, Microsoft Entra ID, Okta, Salesforce, Salesforce Commerce Cloud, SAP, ServiceNow, SharePoint, Drupal, WordPress, Magento, Liferay, Atlassian, PeopleSoft, Oracle ADF, SignalR, CSRF meta tags, and generic JSON and REST responses.</li>
+  <li>Matches hidden form fields and meta tags whatever the order of their attributes, so frameworks that emit the value before the name are recognized.</li>
+  <li>Skips correlation scanning of image, font, media, stylesheet, and other binary response bodies, which never carry correlation values.</li>
+  <li>Bounds the attribute span of built-in tag expressions so a response with unterminated markup cannot make the generated Regex Extractors rescan the body from every tag, which cost seconds of load generator CPU per sample.</li>
 </ul>
 
 <ch_section>Desktop and Build Reliability</ch_section>

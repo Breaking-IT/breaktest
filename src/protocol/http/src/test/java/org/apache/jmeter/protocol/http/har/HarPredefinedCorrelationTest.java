@@ -50,6 +50,66 @@ class HarPredefinedCorrelationTest {
     }
 
     @Test
+    void predefinedRulesUseDistinctVariableNames() {
+        List<String> variableNames = HarPredefinedCorrelation.rules().stream()
+                .map(HarPredefinedCorrelation.Rule::getVariableName)
+                .toList();
+
+        assertEquals(Set.copyOf(variableNames).size(), variableNames.size(),
+                "two rules writing one variable overwrite each other: " + variableNames);
+    }
+
+    @Test
+    void findsHiddenFieldsRegardlessOfAttributeOrder() {
+        HarEntry source = entry(0, 0, "GET", "https://example.test/form");
+        source.setResponseContentText("<form>"
+                + "<input type=\"hidden\" value=\"reversed-token-123\" name=\"_csrf\">"
+                + "<meta name=\"csrf-token\" content=\"meta-token-456\">"
+                + "</form>");
+        HarEntry target = entry(1, 100, "POST", "https://example.test/form");
+        target.getRequestHeaders().add(new NameValue("X-CSRF-TOKEN", "meta-token-456"));
+        target.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("_csrf", "reversed-token-123"))));
+
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
+
+        assertEquals(List.of("spring-csrf-token", "meta-csrf-token"),
+                matches.stream().map(match -> match.getRule().getId()).toList());
+    }
+
+    @Test
+    void findsSamlKeycloakAndSapValuesUsedByLaterRequests() {
+        HarEntry source = entry(0, 0, "GET", "https://sso.example.test/login");
+        source.getResponseHeaders().add(new NameValue("Content-Type", "text/html"));
+        source.getResponseHeaders().add(new NameValue("X-CSRF-Token", "sap-csrf-token-123"));
+        source.setResponseContentText("<form action=\"/auth?session_code=keycloak-code-123\">"
+                + "<input name=\"SAMLRequest\" value=\"saml-request-456\">"
+                + "</form>");
+        HarEntry target = entry(1, 100, "POST", "https://sso.example.test/auth");
+        target.getRequestHeaders().add(new NameValue("X-CSRF-Token", "sap-csrf-token-123"));
+        target.getQueryString().add(new NameValue("session_code", "keycloak-code-123"));
+        target.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("SAMLRequest", "saml-request-456"))));
+
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
+
+        assertEquals(List.of("saml-request", "keycloak-session-code", "sap-csrf-token"),
+                matches.stream().map(match -> match.getRule().getId()).toList());
+    }
+
+    @Test
+    void skipsBodyRulesForBinaryResponses() {
+        HarEntry source = entry(0, 0, "GET", "https://example.test/logo.png");
+        source.getResponseHeaders().add(new NameValue("Content-Type", "image/png"));
+        source.setResponseContentText("<input name=\"_csrf\" value=\"binary-token-123\">");
+        HarEntry target = entry(1, 100, "POST", "https://example.test/form");
+        target.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("_csrf", "binary-token-123"))));
+
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target)).isEmpty());
+    }
+
+    @Test
     void findsAspNetResponseFieldsUsedByLaterFormParameters() {
         String viewState = "/wEPDwUKMTIzNDU2Nzg5MA==";
         HarEntry source = entry(0, 0, "GET", "https://example.test/form");
