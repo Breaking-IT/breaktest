@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -48,6 +49,11 @@ import org.apache.oro.text.regex.Perl5Matcher;
 
 /** Predefined, evidence-backed correlations found in a recorded HTTP flow. */
 final class HarPredefinedCorrelation {
+
+    private static final List<String> NON_SCANNABLE_CONTENT_TYPES = List.of(
+            "image/", "audio/", "video/", "font/", "text/css",
+            "application/octet-stream", "application/pdf", "application/zip",
+            "application/font", "application/x-font");
 
     enum ExtractorType {
         REGEX,
@@ -287,7 +293,11 @@ final class HarPredefinedCorrelation {
         for (int sourcePosition = 0; sourcePosition < selected.size(); sourcePosition++) {
             HarEntry source = selected.get(sourcePosition);
             String responseHeaders = responseHeaders(source);
+            boolean scanBody = hasScannableBody(source);
             for (Rule rule : rules) {
+                if (!scanBody && rule.getResponseField() == ResponseField.BODY) {
+                    continue;
+                }
                 List<ExtractedValue> extractedValues = extract(
                         rule, source.getResponseContentText(), responseHeaders, jsonManager);
                 CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues);
@@ -389,6 +399,32 @@ final class HarPredefinedCorrelation {
         }
         result.append(template, previousEnd, template.length());
         return result.toString();
+    }
+
+    /**
+     * Whether the response body is worth running body rules over. Images, fonts, media and other
+     * binary downloads never carry correlation values, and a recording is mostly made of them.
+     */
+    private static boolean hasScannableBody(HarEntry entry) {
+        if (entry.getResponseContentText().isEmpty()) {
+            return false;
+        }
+        String contentType = "";
+        for (NameValue header : entry.getResponseHeaders()) {
+            if ("content-type".equalsIgnoreCase(header.getName())) {
+                contentType = header.getValue().toLowerCase(Locale.ROOT).trim();
+                break;
+            }
+        }
+        if (contentType.isEmpty()) {
+            return true;
+        }
+        for (String binaryType : NON_SCANNABLE_CONTENT_TYPES) {
+            if (contentType.startsWith(binaryType)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String responseHeaders(HarEntry entry) {

@@ -63,6 +63,10 @@ desktop behavior across themes, menus, icons, and modern Java launches.
   <li>Adds a per-rule maximum match count (default 1) as a safety ceiling, then detects the correct nth extractor match from the value used by a later request.</li>
   <li>Moves built-in extractors to a versioned JSON catalog, supports a shared custom catalog, and stores plan-local custom rules as a separate JMX archive entry.</li>
   <li>Adds <b>Save as Custom Predefined Correlation</b> to Regex and JSONPath Extractor context menus.</li>
+  <li>Adds built-in correlation groups for SAML, Keycloak, Microsoft Entra ID, Okta, Salesforce, Salesforce Commerce Cloud, SAP, ServiceNow, SharePoint, Drupal, WordPress, Magento, Liferay, Atlassian, PeopleSoft, Oracle ADF, SignalR, CSRF meta tags, and generic JSON and REST responses.</li>
+  <li>Matches hidden form fields and meta tags whatever the order of their attributes, so frameworks that emit the value before the name are recognized.</li>
+  <li>Skips correlation scanning of image, font, media, stylesheet, and other binary response bodies, which never carry correlation values.</li>
+  <li>Bounds the attribute span of built-in tag expressions so a response with unterminated markup cannot make the generated Regex Extractors rescan the body from every tag, which cost seconds of load generator CPU per sample.</li>
 </ul>
 
 <ch_section>Desktop and Build Reliability</ch_section>
