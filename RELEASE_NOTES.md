@@ -13,6 +13,69 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.08.17 — Predefined Correlations and Smarter HAR Imports
+
+BreakTest 2026.08.17 adds guided predefined correlation discovery, models
+parallel browser traffic more faithfully during HAR import, and expands AI
+Repair with Pi Code, Gemini CLI, and Cursor Agent. It also includes HTTP
+authentication, recording search, listener metadata, and packaging fixes.
+
+## Predefined Correlations
+
+- Scans HAR imports for grouped predefined correlations by default and previews
+  the later request values that will be parameterized.
+- Adds **Tools > Try Predefined Correlations** for existing Thread Groups, with
+  grouped rule selection, match previews, custom Regex and JSONPath rules, and
+  reviewed application.
+- Ships predefined rules for common OAuth/OIDC, SAML, identity-provider,
+  enterprise, web-framework, and generic JSON/REST flows.
+- Handles repeated and chained values with unique variables and the nearest
+  valid preceding extraction, while enforcing configurable match limits.
+- Skips binary response bodies and unwritable request headers, and bounds
+  built-in tag expressions to avoid pathological Regex Extractor CPU usage.
+
+## HAR Import and Parallel Flow Recognition
+
+- Groups browser requests into parallel waves using in-flight completion times
+  instead of splitting solely on the immediately preceding request.
+- Keeps redirect chains sequential even when their recorded timings overlap.
+- Splits parallel waves when a request consumes a value extracted by another
+  request in the same wave, including nested and chained dependencies.
+- Preserves request order, controller enabled state, and parallelism
+  expressions, while avoiding unnecessary single-request parallel wrappers.
+
+## AI Repair Harnesses
+
+- Adds experimental Pi Code, Gemini CLI, and Cursor Agent harnesses for AI
+  Repair, with harness-specific model, authentication, and execution settings.
+- Sorts available AI tools ahead of unavailable tools and provides
+  harness-aware setup and repair guidance.
+- Supports npm-installed `.cmd` tools, standard-input prompts, bundled Command
+  Prompt and PowerShell bridges, and argument-file JSON on Windows.
+- Restores action-local unsaved state when a batched repair action fails, so
+  earlier successful edits remain available.
+
+## Bug Fixes and Improvements
+
+- Fixes HC5 authentication across HTTP/1.1 and HTTP/2, including proxy
+  credentials, wildcard realms, and credentials backed by JMeter variables.
+- Allows recorded request and response content to be searched immediately after
+  HAR import, before the recording is first saved.
+- Lets listeners and Backend Listener clients opt into source test-element paths
+  independently from JMeter variable snapshots, using one allocation-free
+  capability check per sample delivery.
+- Excludes the generated `breaktest_html_report.log` file from archives created
+  by `create_breaktest_archive.sh`.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans and BreakTest archives continue to load
+  and save normally.
+- Existing flat custom predefined-correlation catalogs remain readable.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.08.17`.
+
 # BreakTest 2026.08.07 — Safer AI Repair and Desktop Polish
 
 BreakTest 2026.08.07 makes AI-assisted repairs safer by keeping backups
@@ -21,16 +84,6 @@ desktop behavior across themes, menus, icons, and modern Java launches.
 
 ## AI Repair Safety
 
-- Sorts available AI CLI tools alphabetically ahead of unavailable tools, marks
-  missing executables in the start dialog, and keeps them selectable for setup.
-- Adds Cursor Agent as an experimental AI Auto Scripting harness with autonomous
-  headless execution, model and working-directory overrides, and Cursor-owned
-  authentication.
-- Adds Gemini CLI as an experimental AI Auto Scripting harness with headless
-  execution, model and working-directory overrides, and Gemini-owned API-key
-  authentication.
-- Adds Pi Code as an experimental AI Auto Scripting harness, including provider,
-  model, thinking-level, executable, and working-directory configuration.
 - Creates a backup of the current JMX file before AI repair, then continues the
   repair against the active file instead of modifying the backup.
 - Keeps the backup as an unchanged recovery point while preserving the normal
