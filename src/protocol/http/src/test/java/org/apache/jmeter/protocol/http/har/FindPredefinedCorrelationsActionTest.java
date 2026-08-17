@@ -40,6 +40,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.threads.ThreadGroup;
@@ -291,6 +292,81 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
     }
 
     @Test
+    void keepsMovedRequestsInTheirRecordedOrder() throws Exception {
+        // The first response is used by the last request and the second by the one before it, so
+        // discovery order is the reverse of tree order.
+        String har = """
+                {"log":{"entries":[
+                  {"startedDateTime":"2026-08-14T10:00:00Z",
+                   "request":{"method":"GET","url":"https://example.test/source-0"},
+                   "response":{"status":200,"httpVersion":"HTTP/2","headers":[
+                     {"name":"Content-Type","value":"application/json"}],
+                     "content":{"text":"{\\"access_token\\":\\"token-zero-000\\"}"}}},
+                  {"startedDateTime":"2026-08-14T10:00:01Z",
+                   "request":{"method":"GET","url":"https://example.test/source-1"},
+                   "response":{"status":200,"httpVersion":"HTTP/2","headers":[
+                     {"name":"Content-Type","value":"application/json"}],
+                     "content":{"text":"{\\"refresh_token\\":\\"token-one-111\\"}"}}}
+                ]}}
+                """;
+        Files.writeString(tempDir.resolve("recording.har"), har, StandardCharsets.UTF_8);
+
+        JMeterTreeNode group = threadGroupNode(har);
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("Parallel Requests 1");
+        JMeterTreeNode parallelNode = new JMeterTreeNode(parallelController, null);
+        group.add(parallelNode);
+        for (int i = 0; i < 2; i++) {
+            HTTPSamplerProxy source = sampler("GET", "/source-" + i);
+            source.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, Integer.toString(i));
+            parallelNode.add(new JMeterTreeNode(source, null));
+        }
+        HTTPSamplerProxy firstTarget = sampler("POST", "/target-0");
+        firstTarget.setNativeHeaders(List.of(new Header("Authorization", "Bearer token-one-111")));
+        HTTPSamplerProxy secondTarget = sampler("POST", "/target-1");
+        secondTarget.setNativeHeaders(List.of(new Header("Authorization", "Bearer token-zero-000")));
+        parallelNode.add(new JMeterTreeNode(firstTarget, null));
+        parallelNode.add(new JMeterTreeNode(secondTarget, null));
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                group, tempDir.resolve("plan.jmx"));
+        assertEquals(2, result.correlations().size());
+        FindPredefinedCorrelationsAction.splitParallelControllers(
+                null, result.correlations(), result.nodesByEntryIndex());
+
+        assertEquals(List.of("/target-0", "/target-1"), samplerPaths(followUpOf(group, parallelNode)),
+                "moved requests keep the order they were recorded in");
+        assertEquals(List.of("/source-0", "/source-1"), samplerPaths(parallelNode));
+    }
+
+    @Test
+    void separatesAPairNestedInSeveralParallelControllers() throws Exception {
+        RecordedFlow flow = recordedFlow(1);
+        JMeterTreeNode deepest = flow.group();
+        for (int level = 1; level <= 4; level++) {
+            ParallelController controller = new ParallelController();
+            controller.setName("Parallel Requests " + level);
+            JMeterTreeNode controllerNode = new JMeterTreeNode(controller, null);
+            deepest.add(controllerNode);
+            deepest = controllerNode;
+        }
+        deepest.add(new JMeterTreeNode(flow.source(), null));
+        deepest.add(new JMeterTreeNode(flow.consumers().get(0), null));
+
+        FindPredefinedCorrelationsAction.ScanResult result = FindPredefinedCorrelationsAction.scan(
+                flow.group(), tempDir.resolve("plan.jmx"));
+        assertEquals(1, result.correlations().size());
+        FindPredefinedCorrelationsAction.SplitResult split =
+                FindPredefinedCorrelationsAction.splitParallelControllers(
+                        null, result.correlations(), result.nodesByEntryIndex());
+
+        assertTrue(split.unseparableTargets().isEmpty(),
+                "four levels of nesting are unwound instead of being given up on");
+        assertTrue(FindPredefinedCorrelationsAction.plannedSplits(
+                result.correlations(), result.nodesByEntryIndex()).isEmpty());
+    }
+
+    @Test
     void scansQueryValuesStoredDirectlyInPostSamplerPath() {
         HTTPSamplerProxy source = sampler("GET", "/authorize");
         HTTPSamplerProxy target = sampler("POST", "/callback?code=authorization-code-123");
@@ -306,6 +382,21 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
                 matches.get(0).getReplacements().get(0).getLocation());
         assertTrue(matches.get(0).getReplacements().get(0).getLocationName().isEmpty());
+    }
+
+    /** The controller inserted right after the given one by a split. */
+    private static JMeterTreeNode followUpOf(JMeterTreeNode parent, JMeterTreeNode controller) {
+        return (JMeterTreeNode) parent.getChildAt(parent.getIndex(controller) + 1);
+    }
+
+    private static List<String> samplerPaths(JMeterTreeNode parent) {
+        List<String> paths = new ArrayList<>();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            if (((JMeterTreeNode) parent.getChildAt(i)).getTestElement() instanceof HTTPSamplerBase sampler) {
+                paths.add(sampler.getPath());
+            }
+        }
+        return paths;
     }
 
     private record RecordedFlow(JMeterTreeNode group, HTTPSamplerProxy source,

@@ -26,6 +26,7 @@ import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -352,9 +353,12 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         Set<JMeterTreeNode> movedNodes = new LinkedHashSet<>();
         Map<JMeterTreeNode, Set<JMeterTreeNode>> splits =
                 plannedSplits(correlations, nodesByEntryIndex);
-        // Every round separates at least one pair, so the number of pairs bounds the rounds.
+        // A pair needs one round per Parallel Controller it is nested in, and every round makes
+        // progress, so this is a safety net rather than the real stopping condition.
         int maxRounds = 1 + correlations.stream()
-                .mapToInt(correlation -> correlation.getReplacements().size())
+                .flatMap(correlation -> correlation.getReplacements().stream())
+                .mapToInt(replacement -> 1 + parallelAncestorCount(
+                        nodesByEntryIndex.get(replacement.getTargetEntryIndex())))
                 .sum();
         for (int round = 0; round < maxRounds && !splits.isEmpty(); round++) {
             boolean progressed = false;
@@ -411,7 +415,12 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
 
         JMeterTreeNode followUpNode = new JMeterTreeNode(followUp, gui == null ? null : gui.getTreeModel());
         parent.insert(followUpNode, parent.getIndex(controller) + 1);
-        for (JMeterTreeNode movedChild : movedChildren) {
+        // Move them in the order they had in the controller: correlations are discovered per
+        // source, which says nothing about tree order, and the order decides which requests a
+        // bounded parallelism starts first.
+        List<JMeterTreeNode> orderedChildren = new ArrayList<>(movedChildren);
+        orderedChildren.sort(Comparator.comparingInt(controller::getIndex));
+        for (JMeterTreeNode movedChild : orderedChildren) {
             controller.remove(movedChild);
             followUpNode.add(movedChild);
         }
@@ -459,6 +468,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
         return lowestCommon != null && lowestCommon.getTestElement() instanceof ParallelController
                 ? lowestCommon : null;
+    }
+
+    private static int parallelAncestorCount(JMeterTreeNode node) {
+        int count = 0;
+        JMeterTreeNode current = node;
+        while (current != null) {
+            if (current.getTestElement() instanceof ParallelController) {
+                count++;
+            }
+            current = current.getParent() instanceof JMeterTreeNode parent ? parent : null;
+        }
+        return count;
     }
 
     /** The node's ancestors from the root down to the node itself. */
