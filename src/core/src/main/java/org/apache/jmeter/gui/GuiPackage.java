@@ -35,16 +35,20 @@ import javax.swing.AbstractButton;
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JToolBar;
+import javax.swing.JTree;
+import javax.swing.ListModel;
 import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.event.TableModelEvent;
+import javax.swing.event.ListDataEvent;
+import javax.swing.event.ListDataListener;
 import javax.swing.event.TableModelListener;
 import javax.swing.table.TableModel;
 import javax.swing.text.JTextComponent;
@@ -97,6 +101,8 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
 
     private static final String TABLE_DIRTY_TRACKER = "JMeter.table_dirty_tracker"; // $NON-NLS-1$
 
+    private static final String LIST_DIRTY_TRACKER = "JMeter.list_dirty_tracker"; // $NON-NLS-1$
+
     private static final String SBR_PREFS_KEY = "save_before_run"; // $NON-NLS-1$
 
     private static final String SAVE_BEFORE_RUN_PROPERTY = "save_automatically_before_run"; // $NON-NLS-1$
@@ -142,7 +148,18 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     /** The currently selected node in the tree. */
     private JMeterTreeNode currentNode = null;
 
+    /**
+     * {@code false} while the editor on screen may still hold state that has not
+     * been written back into {@link #currentNode}.
+     */
     private boolean currentNodeUpdated = false;
+
+    /**
+     * {@code true} once a tracked widget of the editor on screen reported a
+     * change. This is separate from {@link #currentNodeUpdated} so write-back
+     * safety does not depend on recognizing every possible editing surface.
+     */
+    private boolean currentNodeEdited = false;
 
     private boolean configuringCurrentGui = false;
 
@@ -486,13 +503,6 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     }
 
     private void configureCurrentGui(JMeterGUIComponent comp, TestElement element) {
-        // Track whether the user actually edits the GUI rather than writing the
-        // node back on every navigation. A blind write-back is not safe: some
-        // GUIs (e.g. TestBeanGUI for JSR223) are not idempotent on a
-        // configure -> modifyTestElement round-trip, so navigating away and back
-        // would record a spurious history entry and discard the redo stack.
-        // Interaction tracking avoids that because it never writes back unless a
-        // tracked widget reported a change.
         configuringCurrentGui = true;
         try {
             comp.configure(element);
@@ -502,12 +512,15 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
         if (comp instanceof JComponent component) {
             installDirtyTrackers(component);
         }
-        currentNodeUpdated = true;
+        // The editor now shows the element and may be edited, so write it back
+        // before another GUI can be configured into the shared component.
+        currentNodeUpdated = false;
+        currentNodeEdited = false;
     }
 
-    private void markCurrentNodeDirty() {
+    private void markCurrentNodeEdited() {
         if (!configuringCurrentGui) {
-            currentNodeUpdated = false;
+            currentNodeEdited = true;
         }
     }
 
@@ -529,31 +542,31 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
             textComponent.getDocument().addDocumentListener(new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {
-                    markCurrentNodeDirty();
+                    markCurrentNodeEdited();
                 }
 
                 @Override
                 public void removeUpdate(DocumentEvent e) {
-                    markCurrentNodeDirty();
+                    markCurrentNodeEdited();
                 }
 
                 @Override
                 public void changedUpdate(DocumentEvent e) {
-                    markCurrentNodeDirty();
+                    markCurrentNodeEdited();
                 }
             });
         }
         if (component instanceof AbstractButton button) {
-            button.addItemListener(e -> markCurrentNodeDirty());
+            button.addItemListener(e -> markCurrentNodeEdited());
         }
         if (component instanceof JComboBox<?> comboBox) {
-            comboBox.addItemListener(e -> markCurrentNodeDirty());
+            comboBox.addItemListener(e -> markCurrentNodeEdited());
         }
         if (component instanceof JSpinner spinner) {
-            spinner.addChangeListener(e -> markCurrentNodeDirty());
+            spinner.addChangeListener(e -> markCurrentNodeEdited());
         }
         if (component instanceof JSlider slider) {
-            slider.addChangeListener(e -> markCurrentNodeDirty());
+            slider.addChangeListener(e -> markCurrentNodeEdited());
         }
         if (component instanceof JTable table) {
             installTableDirtyTracker(table, table.getModel());
@@ -563,19 +576,53 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 }
             });
         }
+        if (component instanceof JTree tree) {
+            tree.addTreeSelectionListener(event -> markCurrentNodeEdited());
+        }
+        if (component instanceof JList<?> list) {
+            list.addListSelectionListener(event -> markCurrentNodeEdited());
+            installListDirtyTracker(list, list.getModel());
+            list.addPropertyChangeListener("model", event -> {
+                if (event.getNewValue() instanceof ListModel<?> listModel) {
+                    installListDirtyTracker(list, listModel);
+                }
+            });
+        }
     }
 
     private void installTableDirtyTracker(JTable table, TableModel tableModel) {
         if (tableModel == null || table.getClientProperty(TABLE_DIRTY_TRACKER) == tableModel) {
             return;
         }
-        TableModelListener listener = event -> {
-            if (event.getType() != TableModelEvent.UPDATE || event.getFirstRow() != TableModelEvent.HEADER_ROW) {
-                markCurrentNodeDirty();
-            }
-        };
+        // Structure changes can be genuine edits, such as adding or deleting a
+        // User Parameters column. Configuration-time events are ignored by
+        // markCurrentNodeEdited().
+        TableModelListener listener = event -> markCurrentNodeEdited();
         tableModel.addTableModelListener(listener);
         table.putClientProperty(TABLE_DIRTY_TRACKER, tableModel);
+    }
+
+    private void installListDirtyTracker(JList<?> list, ListModel<?> listModel) {
+        if (listModel == null || list.getClientProperty(LIST_DIRTY_TRACKER) == listModel) {
+            return;
+        }
+        listModel.addListDataListener(new ListDataListener() {
+            @Override
+            public void intervalAdded(ListDataEvent e) {
+                markCurrentNodeEdited();
+            }
+
+            @Override
+            public void intervalRemoved(ListDataEvent e) {
+                markCurrentNodeEdited();
+            }
+
+            @Override
+            public void contentsChanged(ListDataEvent e) {
+                markCurrentNodeEdited();
+            }
+        });
+        list.putClientProperty(LIST_DIRTY_TRACKER, listModel);
     }
 
     /**
@@ -599,11 +646,14 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 if (historyEnabled) {
                     before = getTestElementCheckSum(el);
                 }
+                // Always write the visible editor back. Trackers improve dirty and
+                // undo precision, but lazy or custom editing components must not be
+                // able to make persistence depend on a hard-coded widget list.
                 comp.modifyTestElement(el);
                 if (historyEnabled) {
                     after = getTestElementCheckSum(el);
                 }
-                if (!historyEnabled || (before != after)) {
+                if (currentNodeEdited && (!historyEnabled || before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
                     if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments)) {
                         // Transaction tree labels can summarize delays backed by Test Plan/User Defined
@@ -662,14 +712,14 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      *
      * <p>The regular dirty flag only covers changes that have already been
      * written back to the test tree. The currently displayed editor can also
-     * contain a pending change, represented by {@code currentNodeUpdated}.
+     * contain a pending change, represented by {@code currentNodeEdited}.
      * Checking both lets callers avoid an unnecessary full save without
      * dropping an edit that still lives in the GUI.</p>
      *
      * @return {@code true} when the tree or current editor has unsaved changes
      */
     public boolean hasUnsavedChanges() {
-        return dirty || currentNode != null && !currentNodeUpdated;
+        return dirty || currentNodeEdited;
     }
 
     /**
