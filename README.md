@@ -253,6 +253,13 @@ checks, or change `breaktest.update.interval_hours` to adjust their frequency.
 Some internal property names, package names, and artifact names still use
 `jmeter` for compatibility.
 
+## Browser Recorder
+
+The [BreakTest Browser Recorder](https://github.com/Breaking-IT/breaktest-browser-extension)
+is a separate project with its own validation, packaging, releases, and browser
+store submissions. Install and update it independently from BreakTest; it
+exports local HAR files that BreakTest can import through **File > Import HAR...**.
+
 ## Build From Source
 
 BreakTest uses Gradle and JVM toolchains.

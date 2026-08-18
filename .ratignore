@@ -16,7 +16,6 @@ README.md
 SECURITY.md
 THREAT_MODEL.md
 renovate.json
-browser-extension/**
 **/*.jmx
 bin/examples/**
 bin/report-output/**

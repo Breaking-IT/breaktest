@@ -63,6 +63,7 @@ authentication, recording search, listener metadata, and packaging fixes.
   <li>Allows recorded request and response content to be searched immediately after HAR import, before the recording is first saved.</li>
   <li>Lets listeners and Backend Listener clients opt into source test-element paths independently from JMeter variable snapshots, using one allocation-free capability check per sample delivery.</li>
   <li>Excludes the generated <code>breaktest_html_report.log</code> file from archives created by <code>create_breaktest_archive.sh</code>.</li>
+  <li>Keeps the browser recorder in its own repository and release lifecycle; it is no longer tracked as a BreakTest submodule or included in BreakTest archives.</li>
 </ul>
 
 <ch_section>Compatibility</ch_section>
