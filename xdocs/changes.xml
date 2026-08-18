@@ -24,6 +24,34 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.08.18 - GUI Persistence Hotfix</h1>
+<p>
+BreakTest 2026.08.18 is a focused hotfix that prevents editor changes from
+being lost when navigating between test elements. It also completes the move of
+the browser recorder to its independent companion-project release lifecycle.
+</p>
+
+<ch_section>GUI Persistence</ch_section>
+<ul>
+  <li>Preserves the selected <b>Module To Run</b> in Module Controller when navigating away from the element and back.</li>
+  <li>Preserves edits to existing <b>Patterns to Test</b> rows in Response Assertion; rows no longer need to be removed and re-added for changes to stick.</li>
+  <li>Writes the visible editor state back before switching nodes, including custom or lazily-created editing surfaces that are not covered by built-in Swing change trackers.</li>
+  <li>Tracks tree and list selections, list-model updates, and table structure changes while keeping undo history precise and protecting shared GUI components from stale double write-backs.</li>
+  <li>Restores <code>PowerTableModel</code> cell-update notifications so committed table edits are visible to model listeners.</li>
+</ul>
+
+<ch_section>Packaging</ch_section>
+<ul>
+  <li>Keeps the browser recorder in its own repository and release lifecycle; it is no longer tracked as a BreakTest submodule or included in BreakTest archives.</li>
+</ul>
+
+<ch_section>Compatibility</ch_section>
+<ul>
+  <li>Existing JMeter-compatible JMX plans and BreakTest archives continue to load and save normally.</li>
+  <li>Java 21 or later is required; Java 26 or later is required for HTTP/3 over QUIC.</li>
+  <li>This release uses the direct Git tag <code>2026.08.18</code>.</li>
+</ul>
+
 <h1>BreakTest 2026.08.17 - Predefined Correlations and Smarter HAR Imports</h1>
 <p>
 BreakTest 2026.08.17 adds guided predefined correlation discovery, models
@@ -63,7 +91,6 @@ authentication, recording search, listener metadata, and packaging fixes.
   <li>Allows recorded request and response content to be searched immediately after HAR import, before the recording is first saved.</li>
   <li>Lets listeners and Backend Listener clients opt into source test-element paths independently from JMeter variable snapshots, using one allocation-free capability check per sample delivery.</li>
   <li>Excludes the generated <code>breaktest_html_report.log</code> file from archives created by <code>create_breaktest_archive.sh</code>.</li>
-  <li>Keeps the browser recorder in its own repository and release lifecycle; it is no longer tracked as a BreakTest submodule or included in BreakTest archives.</li>
 </ul>
 
 <ch_section>Compatibility</ch_section>
