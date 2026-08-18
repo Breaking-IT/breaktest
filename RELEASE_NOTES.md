@@ -66,6 +66,8 @@ authentication, recording search, listener metadata, and packaging fixes.
   capability check per sample delivery.
 - Excludes the generated `breaktest_html_report.log` file from archives created
   by `create_breaktest_archive.sh`.
+- Keeps the browser recorder in its own repository and release lifecycle; it is
+  no longer tracked as a BreakTest submodule or included in BreakTest archives.
 
 ## Compatibility
 

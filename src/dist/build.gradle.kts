@@ -503,24 +503,6 @@ val previewSite by tasks.registering(Sync::class) {
 
 val distributionGroup = "distribution"
 val baseFolder = "breaktest"
-val browserExtensionDir = rootDir.resolve("browser-extension")
-
-val verifyBrowserExtensionCheckout by tasks.registering {
-    group = distributionGroup
-    description = "Verifies that the browser recorder submodule is initialized"
-    val manifests = listOf(
-        browserExtensionDir.resolve("chrome/manifest.json"),
-        browserExtensionDir.resolve("firefox/manifest.json"),
-    )
-    inputs.files(manifests)
-    doLast {
-        val missing = manifests.filterNot { it.isFile }
-        check(missing.isEmpty()) {
-            "Browser recorder submodule is not initialized. " +
-                "Run 'git submodule update --init browser-extension'."
-        }
-    }
-}
 
 fun CopySpec.javadocs() = from(javadocAggregate)
 
@@ -553,8 +535,6 @@ fun CrLfSpec.binaryLayout() = copySpec {
             include("lib/ext/**")
             include("lib/junit/**")
             include("extras/**")
-            include("browser-extension/**")
-            exclude("browser-extension/.git")
             include("README.md")
             include("LICENSE")
             include("NOTICE")
@@ -596,7 +576,6 @@ fun CrLfSpec.sourceLayout() = copySpec {
             exclude("xdocs/package.json")
             exclude("xdocs/package-lock.json")
             exclude("xdocs/yarn.lock")
-            exclude("browser-extension/.git")
         }
     }
 }
@@ -626,7 +605,6 @@ for (type in listOf("binary", "source")) {
             val eol = if (archive == Tar::class) LineEndings.LF else LineEndings.CRLF
             group = distributionGroup
             description = "Creates $type distribution with $eol line endings for text files"
-            dependsOn(verifyBrowserExtensionCheckout)
             if (this is Tar) {
                 compression = Compression.GZIP
             }
