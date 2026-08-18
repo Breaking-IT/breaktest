@@ -13,6 +13,40 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.08.18 — GUI Persistence Hotfix
+
+BreakTest 2026.08.18 is a focused hotfix that prevents editor changes from
+being lost when navigating between test elements. It also completes the move of
+the browser recorder to its independent companion-project release lifecycle.
+
+## GUI Persistence
+
+- Preserves the selected **Module To Run** in Module Controller when navigating
+  away from the element and back.
+- Preserves edits to existing **Patterns to Test** rows in Response Assertion;
+  rows no longer need to be removed and re-added for changes to stick.
+- Writes the visible editor state back before switching nodes, including custom
+  or lazily-created editing surfaces that are not covered by built-in Swing
+  change trackers.
+- Tracks tree and list selections, list-model updates, and table structure
+  changes while keeping undo history precise and protecting shared GUI
+  components from stale double write-backs.
+- Restores `PowerTableModel` cell-update notifications so committed table edits
+  are visible to model listeners.
+
+## Packaging
+
+- Keeps the browser recorder in its own repository and release lifecycle; it is
+  no longer tracked as a BreakTest submodule or included in BreakTest archives.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans and BreakTest archives continue to load
+  and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.08.18`.
+
 # BreakTest 2026.08.17 — Predefined Correlations and Smarter HAR Imports
 
 BreakTest 2026.08.17 adds guided predefined correlation discovery, models
@@ -66,9 +100,6 @@ authentication, recording search, listener metadata, and packaging fixes.
   capability check per sample delivery.
 - Excludes the generated `breaktest_html_report.log` file from archives created
   by `create_breaktest_archive.sh`.
-- Keeps the browser recorder in its own repository and release lifecycle; it is
-  no longer tracked as a BreakTest submodule or included in BreakTest archives.
-
 ## Compatibility
 
 - Existing JMeter-compatible JMX plans and BreakTest archives continue to load
