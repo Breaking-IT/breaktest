@@ -237,6 +237,8 @@ public class PowerTableModel extends DefaultTableModel {
         if (row < model.size()) {
             model.setCurrentPos(row);
             model.addColumnValue(model.getHeaders()[column], value);
+            // Preserve DefaultTableModel's listener-notification contract.
+            fireTableCellUpdated(row, column);
         }
     }
 }
