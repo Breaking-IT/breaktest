@@ -185,8 +185,9 @@ public class UpdateAction extends AbstractAction {
 
         Path home = Path.of(JMeterUtils.getJMeterHome()).toAbsolutePath().normalize();
         Path workingDirectory = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
+        String testPlanFile = guiPackage.getTestPlanFile();
         Path logFile = UpdateInstaller.launch(prepared.workspace(), prepared.distributionRoot(), home,
-                workingDirectory, Restart.createRestartCommand());
+                workingDirectory, Restart.createRestartCommand(testPlanFile));
         log.info("BreakTest update scheduled; installer log: {}", logFile);
         System.exit(0); // NOSONAR Required to release installed JARs before replacement
         return true;
