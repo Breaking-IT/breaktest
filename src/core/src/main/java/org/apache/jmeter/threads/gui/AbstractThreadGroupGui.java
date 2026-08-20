@@ -134,7 +134,7 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
     }
 
     private void initGui() {
-        continueBox.setSelected(true);
+        startNextLoop.setSelected(true);
     }
 
     private JPanel createOnErrorPanel() {
@@ -207,7 +207,9 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
     @Override
     public void assignDefaultValues(TestElement element) {
         super.assignDefaultValues(element);
-        element.set(AbstractThreadGroupSchema.INSTANCE.getOnSampleError(), AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
+        element.set(
+                AbstractThreadGroupSchema.INSTANCE.getOnSampleError(),
+                AbstractThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP);
     }
 
     @Override
