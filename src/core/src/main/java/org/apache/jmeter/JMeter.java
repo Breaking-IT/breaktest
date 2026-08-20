@@ -395,12 +395,6 @@ public class JMeter implements JMeterPlugin {
                         testFile = LoadRecentProject.getRecentFile(0);// most recent
                     }
                 }
-                if (testFile == null) {
-                    String reopenedTestFile = JMeterUtils.getProperty(REOPEN_TEST_PLAN_PROPERTY);
-                    if (StringUtilities.isNotBlank(reopenedTestFile)) {
-                        testFile = reopenedTestFile;
-                    }
-                }
                 CLOption testReportOpt = parser.getArgumentById(REPORT_GENERATING_OPT);
                 if (testReportOpt != null) { // generate report from existing file
                     String reportFile = testReportOpt.getArgument();
@@ -409,7 +403,7 @@ public class JMeter implements JMeterPlugin {
                     generator.generate();
                 } else if (parser.getArgumentById(NONGUI_OPT) == null) { // not non-GUI => GUI
                     PluginManager.install(this, true);
-                    String initialTestFile = testFile;
+                    String initialTestFile = testFile == null ? testPlanToReopen() : testFile;
                     JMeterGuiLauncher.startGui(initialTestFile);
                     startOptionalServers();
                 } else { // NON-GUI must be true
@@ -438,6 +432,14 @@ public class JMeter implements JMeterPlugin {
             // FIXME Should we exit here ? If we are called by Maven or Jenkins
             System.exit(1);
         }
+    }
+
+    /**
+     * @return the test plan handed over by a GUI self-update restart, or {@code null}
+     */
+    private static String testPlanToReopen() {
+        String reopenedTestFile = JMeterUtils.getProperty(REOPEN_TEST_PLAN_PROPERTY);
+        return StringUtilities.isNotBlank(reopenedTestFile) ? reopenedTestFile : null;
     }
 
     private static DateTimeFormatter getFormatter(String pattern) {

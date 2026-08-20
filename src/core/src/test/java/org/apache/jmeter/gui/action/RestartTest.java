@@ -51,6 +51,21 @@ class RestartTest {
     }
 
     @Test
+    void replacesReopenPropertyInheritedFromAPreviousRestart() {
+        Path currentPlan = Path.of("plans", "currently-open.jmx").toAbsolutePath().normalize();
+        List<String> restartCommand = List.of(
+                "/path/to/java", "-jar", "/path/to/breaktest.jar",
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=/path/to/previously-reopened.jmx",
+                "-Jcustom.property=value");
+
+        assertEquals(List.of(
+                "/path/to/java", "-jar", "/path/to/breaktest.jar",
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + currentPlan,
+                "-Jcustom.property=value"),
+                Restart.withTestPlan(restartCommand, currentPlan.toString()));
+    }
+
+    @Test
     void placesReopenPropertyAfterJarForPackagedLaunches() {
         Path currentPlan = Path.of("plans", "currently-open.jmx").toAbsolutePath().normalize();
         List<String> restartCommand = List.of(

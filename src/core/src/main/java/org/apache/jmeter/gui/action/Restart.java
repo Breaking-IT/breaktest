@@ -60,6 +60,9 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
      */
     public static final String SUN_JAVA_COMMAND = "sun.java.command";
 
+    /** Command line prefix defining {@link JMeter#REOPEN_TEST_PLAN_PROPERTY}. */
+    private static final String REOPEN_PROPERTY_PREFIX = "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=";
+
     private static final Set<String> commands = new HashSet<>();
 
     static {
@@ -224,14 +227,24 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
             if ("-t".equals(argument) || "--testfile".equals(argument)) {
                 skipNextArgument = true;
             } else if (!argument.startsWith("--testfile=")
-                    && !(argument.startsWith("-t") && argument.length() > 2)) {
+                    && !(argument.startsWith("-t") && argument.length() > 2)
+                    && !isReopenProperty(argument)) {
                 command.add(argument);
             }
         }
         String normalizedTestPlan = new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString();
-        String reopenProperty = "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + normalizedTestPlan;
-        command.add(applicationArgumentsStart(command), reopenProperty);
+        command.add(applicationArgumentsStart(command), REOPEN_PROPERTY_PREFIX + normalizedTestPlan);
         return command;
+    }
+
+    /**
+     * The restart command is rebuilt from the arguments of the running process, so a
+     * process that was itself started by a previous update restart still carries the
+     * reopen property. Command line properties are applied in argument order, so a
+     * leftover definition would override the one added here.
+     */
+    private static boolean isReopenProperty(String argument) {
+        return argument.startsWith(REOPEN_PROPERTY_PREFIX);
     }
 
     private static int applicationArgumentsStart(List<String> command) {
