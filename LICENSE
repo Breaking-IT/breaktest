@@ -35,29 +35,11 @@ controlled by, or is under common control with You. "Control" means direct or
 indirect ownership of more than fifty percent of the voting interests or the
 power to direct management and policies.
 
-"Your Systems" means applications, services, networks, and infrastructure
-owned or operated by Your Organization primarily for Your Organization's own
-business or internal purposes. A system is not Your System merely because a
-third party has authorized You to test it.
-
-"Internal Performance Testing" means creating, debugging, validating, or
-executing performance, load, stress, reliability, or related tests solely
-against Your Systems and solely for Your Organization's own internal quality
-assurance, engineering, security, or operational purposes.
-
-"Testing Service Provider" means a person or entity that, as a material part
-of its business, performs or manages performance, load, stress, reliability,
-or related testing for third parties, whether as consultancy, staff
-augmentation, managed testing, testing as a service, or otherwise.
-
-"Testing Platform Provider" means a person or entity that, as a material part
-of its business, provides a product, platform, cloud service, hosted service,
-managed service, extension, plugin, or other offering for creating, executing,
-managing, or analyzing performance, load, stress, reliability, or related
-tests.
-
-"Restricted Provider" means a Testing Service Provider or Testing Platform
-Provider.
+"Permitted Testing" means creating, debugging, validating, or executing
+performance, load, stress, reliability, or related tests against systems that
+Your Organization owns or operates, or that You are authorized by the system's
+operator to test, including testing carried out for a client under a services
+engagement.
 
 "Community Limits" means any technical or quantitative limits expressly
 identified in the Software or in the release-specific documentation supplied
@@ -72,67 +54,59 @@ Subject to Your continued compliance with these terms, Licensor grants You a
 limited, non-exclusive, non-transferable, non-sublicensable, royalty-free
 license to:
 
-  a. use the Software solely for Internal Performance Testing;
+  a. use the Software for Permitted Testing;
 
   b. make a reasonable number of copies solely as necessary for that use; and
 
-  c. modify the Software solely for Internal Performance Testing, provided
-     that You do not distribute, publish, sublicense, or otherwise provide the
-     Software or Your modifications to any third party.
+  c. modify the Software for Permitted Testing, provided that You do not
+     distribute, publish, sublicense, or otherwise provide the Software or
+     Your modifications to any third party.
 
-Internal Performance Testing may support a commercial business. That fact
-alone does not make the use prohibited. All other use requires a separate
-written license from Licensor.
+Permitted Testing may be performed commercially, including as a paid service
+for clients. All other use requires a separate written license from Licensor.
 
-4. Restricted Providers
-
-The Community License Grant is not available to a Restricted Provider. A
-Restricted Provider must obtain Licensor's prior written permission or a
-commercial license before using, copying, modifying, or otherwise exercising
-rights in the Software, including for its own internal purposes.
-
-5. Prohibited Uses
+4. Prohibited Uses
 
 Unless Licensor gives prior written permission or a separate commercial
 license expressly allowing the activity, You must not, directly or
 indirectly:
 
-  a. use the Software to test, assess, monitor, or produce test results or
-     reports for any third party or against systems other than Your Systems;
+  a. sell, resell, rent, lease, sublicense, distribute, publish, transfer, or
+     otherwise provide the Software, or any modification or derivative work of
+     the Software, to a third party;
 
-  b. provide or make available any functionality of the Software to a third
-     party, including through a hosted service, managed service, cloud
-     service, software as a service, API, platform, extension, plugin, OEM
-     offering, or embedded product;
+  b. provide or make available the Software or its functionality to a third
+     party as a hosted service, managed service, cloud service, software as a
+     service, API, platform, extension, plugin, OEM offering, or embedded
+     product, whether or not for a fee. Performing testing for a client, where
+     You operate the Software and deliver results, reports, or analysis to
+     that client, is not prohibited by this paragraph;
 
-  c. sell, resell, rent, lease, sublicense, distribute, publish, transfer, or
-     otherwise provide the Software or any modification or derivative work of
-     the Software to a third party;
-
-  d. copy, adapt, translate, or reuse the Software or any portion of it in
+  c. copy, adapt, translate, or reuse the Software or any portion of it in
      another product, service, performance-testing engine, JMeter
      distribution, JMeter extension, platform, plugin, library, or competing
      offering, except for an internal modification permitted by Section 3(c);
 
-  e. use the Software to develop, operate, support, or improve a Testing
-     Service Provider or Testing Platform Provider offering;
+  d. use the Software to develop, improve, benchmark, or support a product or
+     service that competes with the Software or with BreakTest Enterprise;
 
-  f. remove, alter, or obscure any license, copyright, attribution, trademark,
+  e. present the Software under another name or brand, or remove, alter, or
+     obscure any license, copyright, attribution, trademark,
      source-identification, or Community Limit notice; or
 
-  g. disable, avoid, bypass, remove, or circumvent Community Limits or any
+  f. disable, avoid, bypass, remove, or circumvent Community Limits or any
      license-key, entitlement, metering, or enforcement functionality,
      including by dividing a workload among processes, machines, accounts, or
      copies for the purpose of avoiding a Community Limit.
 
-6. Commercial Licenses and Written Permission
+5. Commercial Licenses and Written Permission
 
 Licensor may grant additional rights, exceptions, or commercial licenses in a
 separate written agreement. Requests may be sent to info@breakingit.nl. No
 permission is effective unless given in writing by an authorized
 representative of Licensor.
 
-7. Third-Party Materials
+6. Third-Party Materials
 
 Third-Party Materials remain governed solely by their applicable third-party
 licenses. Nothing in this license limits rights granted directly under those
@@ -144,7 +118,7 @@ For clarity, the Apache-licensed JMeter code may be used under Apache-2.0.
 This license applies only to Licensor's rights in BreakTest and does not turn
 Third-Party Materials into restricted materials.
 
-8. Changes and Ownership
+7. Changes and Ownership
 
 As between You and Licensor, Licensor and its licensors retain all rights,
 title, and interest in the Software. You retain ownership of original material
@@ -152,7 +126,7 @@ You create in a permitted modification, but Your rights do not include any
 right to distribute the Software or the modification. No rights are granted
 except those expressly stated in this license.
 
-9. Patents
+8. Patents
 
 For the duration of the Community License Grant, Licensor grants You a
 non-exclusive, non-transferable, non-sublicensable patent license under patent
@@ -162,14 +136,14 @@ claims caused by Your modifications or combinations. If You or Your
 Organization assert in writing that the Software infringes a patent, this
 patent license terminates immediately.
 
-10. Trademarks
+9. Trademarks
 
 This license does not grant permission to use the names, logos, trademarks, or
 service marks of Breaking IT or BreakTest, except for reasonable factual
 reference to an unmodified copy of the Software. Third-party marks remain
 subject to their owners' rights.
 
-11. Termination
+10. Termination
 
 Any use outside the Community License Grant is unlicensed. Your rights under
 this license terminate automatically when You breach these terms. If this is
@@ -180,7 +154,7 @@ using the Software and delete all copies and modifications in Your possession
 or control. Termination of this license does not terminate rights You hold
 directly under a license for Third-Party Materials.
 
-12. Disclaimer of Warranty
+11. Disclaimer of Warranty
 
 TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS" AND
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
@@ -188,7 +162,7 @@ WARRANTIES OF TITLE, NON-INFRINGEMENT, MERCHANTABILITY, FITNESS FOR A
 PARTICULAR PURPOSE, ACCURACY, OR RESULTS. YOU ARE RESPONSIBLE FOR DETERMINING
 WHETHER THE SOFTWARE AND YOUR TESTING ARE APPROPRIATE AND SAFE.
 
-13. Limitation of Liability
+12. Limitation of Liability
 
 TO THE MAXIMUM EXTENT PERMITTED BY LAW, LICENSOR AND ITS CONTRIBUTORS WILL NOT
 BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
@@ -197,7 +171,7 @@ GOODWILL, OR BUSINESS INTERRUPTION, ARISING FROM OR RELATED TO THE SOFTWARE OR
 THIS LICENSE, UNDER ANY LEGAL THEORY, EVEN IF ADVISED OF THE POSSIBILITY OF
 SUCH DAMAGES.
 
-14. General
+13. General
 
 These terms are governed by the laws of the Netherlands, excluding
 choice-of-law rules. The competent courts for the place where Licensor has its
