@@ -34,9 +34,10 @@ test shape, and runtime conditions.
 ## BreakTest And BreakTest Enterprise
 
 BreakTest Community is the source-available desktop and runtime distribution.
-Organizations may use it to build, debug, validate, and run performance tests
-against systems operated for their own internal purposes, subject to the
-Community license and any release-specific Community Limits.
+You may use it to build, debug, validate, and run performance tests against
+systems you operate, and against systems you are authorized to test, including
+work carried out for clients. That use is subject to the Community license and
+any release-specific Community Limits.
 
 BreakTest Enterprise is the paid shell around scaled execution and analysis. It
 runs BreakTest, JMeter, and k6 tests across your own infrastructure with
@@ -342,11 +343,12 @@ BreakTest-specific materials are licensed under the
 [BreakTest Community Source License 1.0](LICENSE). This is a source-available
 license, not an Open Source license.
 
-Community use is limited to testing systems operated by your own organization.
-Performance-testing service providers, load-testing platform providers,
-third-party testing, hosted or managed offerings, redistribution, reuse in
-other products or JMeter extensions, and circumvention of Community Limits
-require prior written permission or a commercial license from Breaking IT.
+Community use covers testing systems you operate and systems you are
+authorized to test, including testing performed for clients. Reselling or
+redistributing BreakTest, offering it to third parties as a hosted or managed
+service, reusing it in another product or JMeter extension, using it to build a
+competing product, rebranding it, and circumventing Community Limits require
+prior written permission or a commercial license from Breaking IT.
 
 Commercial licensing requests may be sent to `info@breakingit.nl`.
 
