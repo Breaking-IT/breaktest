@@ -32,6 +32,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.MenuElement;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.plugin.MenuCreator;
 import org.apache.jmeter.util.JMeterUtils;
@@ -227,9 +228,23 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
                 command.add(argument);
             }
         }
-        command.add("-t");
-        command.add(new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString());
+        String normalizedTestPlan = new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString();
+        String reopenProperty = "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + normalizedTestPlan;
+        command.add(applicationArgumentsStart(command), reopenProperty);
         return command;
+    }
+
+    private static int applicationArgumentsStart(List<String> command) {
+        for (int i = 0; i < command.size(); i++) {
+            String argument = command.get(i);
+            if ("-jar".equals(argument)) {
+                return Math.min(i + 2, command.size());
+            }
+            if ("-cp".equals(argument) || "-classpath".equals(argument)) {
+                return Math.min(i + 3, command.size());
+            }
+        }
+        return command.size();
     }
 
     /**

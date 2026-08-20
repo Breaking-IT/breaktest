@@ -155,6 +155,9 @@ public class JMeter implements JMeterPlugin {
 
     private static final String JMX_SUFFIX = ".JMX"; // $NON-NLS-1$
 
+    /** JMeter property used to reopen the plan after a GUI self-update restart. */
+    public static final String REOPEN_TEST_PLAN_PROPERTY = "breaktest.gui.reopen.test.plan";
+
     private static final String PACKAGE_PREFIX = "org.apache."; //$NON_NLS-1$
 
     /**
@@ -390,6 +393,12 @@ public class JMeter implements JMeterPlugin {
                     testFile = testFileOpt.getArgument();
                     if (USE_LAST_JMX.equals(testFile)) {
                         testFile = LoadRecentProject.getRecentFile(0);// most recent
+                    }
+                }
+                if (testFile == null) {
+                    String reopenedTestFile = JMeterUtils.getProperty(REOPEN_TEST_PLAN_PROPERTY);
+                    if (StringUtilities.isNotBlank(reopenedTestFile)) {
+                        testFile = reopenedTestFile;
                     }
                 }
                 CLOption testReportOpt = parser.getArgumentById(REPORT_GENERATING_OPT);
