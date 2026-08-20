@@ -644,10 +644,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         JPanel closedModelPanel = new JPanel(new MigLayout("fillx, wrap 2, hidemode 3", "[][fill,grow]"));
         closedModelPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("thread_properties"))); // $NON-NLS-1$
-        closedModelPanel.add(new JLabel(JMeterUtils.getResString("thread_group_thread_mode")));
-        closedModelThreadMode.setName("closedModelThreadMode"); // $NON-NLS-1$
-        closedModelPanel.add(closedModelThreadMode, "w pref!, growx 0");
-
         // These settings apply to both standard and custom closed-model loads.
         closedModelPanel.add(createSameUserPanel(), "span 2");
         if (showDelayedStart) {
@@ -659,6 +655,10 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             closedModelPanel.add(delayedStart, "span 2");
         }
         addPacingControls(closedModelPanel);
+
+        closedModelPanel.add(new JLabel(JMeterUtils.getResString("thread_group_thread_mode")));
+        closedModelThreadMode.setName("closedModelThreadMode"); // $NON-NLS-1$
+        closedModelPanel.add(closedModelThreadMode, "w pref!, growx 0");
 
         closedModelStandardSettings = createStandardClosedModelPanel();
         closedModelStandardSettings.setName("standardThreadSettings"); // $NON-NLS-1$

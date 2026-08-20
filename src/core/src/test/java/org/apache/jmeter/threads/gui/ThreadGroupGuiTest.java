@@ -51,6 +51,13 @@ class ThreadGroupGuiTest {
     }
 
     @Test
+    void newThreadGroupStartsNextThreadLoopAfterSamplerErrorByDefault() {
+        ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+
+        assertTrue(threadGroup.getOnErrorStartNextLoop());
+    }
+
+    @Test
     void fixedPacingShowsIterationsPerMinute() {
         assertEquals(
                 "60 iterations/min",
@@ -178,6 +185,8 @@ class ThreadGroupGuiTest {
         assertNotNull(startupDelay);
 
         assertTrue(SwingUtilities.isDescendingFrom(startupDelay, standardSettings));
+        assertComesBefore(closedModelSettings, pacingControls, loadProfile);
+        assertComesBefore(closedModelSettings, loadProfile, profileSettings);
         assertComesBefore(closedModelSettings, sameUserControls, profileSettings);
         assertComesBefore(closedModelSettings, delayedThreadCreation, profileSettings);
         assertComesBefore(closedModelSettings, pacingControls, profileSettings);
