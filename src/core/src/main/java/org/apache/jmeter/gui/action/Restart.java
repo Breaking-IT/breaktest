@@ -144,6 +144,26 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
      * @throws IllegalStateException when the current JVM does not expose its launch command
      */
     public static List<String> createRestartCommand() {
+        return createRestartCommand(null);
+    }
+
+    /**
+     * Builds the command used to relaunch the current BreakTest process and,
+     * when provided, reopens the currently loaded test plan.
+     *
+     * @param testPlanFile the test plan to open after restarting, or {@code null}
+     * @return process arguments suitable for {@link ProcessBuilder}
+     * @throws IllegalStateException when the current JVM does not expose its launch command
+     */
+    static List<String> createRestartCommand(String testPlanFile) {
+        List<String> restartCommand = createRawRestartCommand();
+        if (testPlanFile == null || testPlanFile.isBlank()) {
+            return restartCommand;
+        }
+        return withTestPlan(restartCommand, testPlanFile);
+    }
+
+    private static List<String> createRawRestartCommand() {
         ProcessHandle.Info processInfo = ProcessHandle.current().info();
         if (processInfo.command().isPresent() && processInfo.arguments().isPresent()) {
             List<String> exactCommand = new ArrayList<>();
@@ -190,6 +210,26 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
         // finally add program arguments
         processRemainingArgs(processArgs, mainCommand);
         return processArgs;
+    }
+
+    static List<String> withTestPlan(List<String> restartCommand, String testPlanFile) {
+        List<String> command = new ArrayList<>();
+        boolean skipNextArgument = false;
+        for (String argument : restartCommand) {
+            if (skipNextArgument) {
+                skipNextArgument = false;
+                continue;
+            }
+            if ("-t".equals(argument) || "--testfile".equals(argument)) {
+                skipNextArgument = true;
+            } else if (!argument.startsWith("--testfile=")
+                    && !(argument.startsWith("-t") && argument.length() > 2)) {
+                command.add(argument);
+            }
+        }
+        command.add("-t");
+        command.add(new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString());
+        return command;
     }
 
     /**
