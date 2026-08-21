@@ -49,14 +49,19 @@ import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.engine.util.TestElementPropertyTransformer;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollectorHelper;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.FunctionProperty;
+import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.NameUpdater;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.ExceptionUtils;
 import org.apache.jorphan.util.JMeterError;
@@ -328,11 +333,60 @@ public class SaveService {
 
     // Called by Save function
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        HashTree serializableTree = createSerializableTree(tree);
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(new NonClosingOutputStream(out))) {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
-            saveTreeAsXml(tree, zipOutputStream);
+            saveTreeAsXml(serializableTree, zipOutputStream);
             zipOutputStream.closeEntry();
-            writeReferencedArchiveEntries(tree, zipOutputStream);
+            writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+        }
+    }
+
+    /**
+     * Creates a detached tree whose properties are safe to persist.
+     * FunctionProperty is execution-only state: its CompoundVariable is
+     * transient, so serializing it directly creates a property that fails after
+     * the test plan is loaded in a fresh JVM.
+     */
+    private static HashTree createSerializableTree(HashTree tree) throws IOException {
+        try {
+            return cloneAndNormalizeTree(tree);
+        } catch (UnserializableFunctionPropertyException e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    private static HashTree cloneAndNormalizeTree(HashTree tree) {
+        ListedHashTree result = new ListedHashTree();
+        for (Object node : tree.list()) {
+            Object serializableNode = node;
+            if (node instanceof TestElement element) {
+                TestElement clonedElement = (TestElement) element.clone();
+                new TestElementPropertyTransformer(SaveService::normalizeProperty).visit(clonedElement);
+                serializableNode = clonedElement;
+            }
+            result.add(serializableNode, cloneAndNormalizeTree(tree.getTree(node)));
+        }
+        return result;
+    }
+
+    private static JMeterProperty normalizeProperty(JMeterProperty property) {
+        if (!(property instanceof FunctionProperty functionProperty)) {
+            return property;
+        }
+        String rawValue = functionProperty.getRawValue();
+        if (rawValue == null) {
+            throw new UnserializableFunctionPropertyException(functionProperty.getName());
+        }
+        return new StringProperty(functionProperty.getName(), rawValue);
+    }
+
+    private static final class UnserializableFunctionPropertyException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private UnserializableFunctionPropertyException(String propertyName) {
+            super("Cannot save test plan because runtime property '" + propertyName
+                    + "' has lost its original expression. Reload the last valid test plan and retry.");
         }
     }
 
