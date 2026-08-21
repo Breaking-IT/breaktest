@@ -599,6 +599,24 @@ class TestJMeterThread {
         }
     }
 
+    private static final class RecordingThreadListener extends AbstractTestElement implements ThreadListener {
+        private static final long serialVersionUID = 1L;
+        private final AtomicBoolean finished;
+
+        private RecordingThreadListener(AtomicBoolean finished) {
+            this.finished = finished;
+        }
+
+        @Override
+        public void threadStarted() {
+        }
+
+        @Override
+        public void threadFinished() {
+            finished.set(true);
+        }
+    }
+
     @Test
     void testBug61661OnError() {
         HashTree hashTree = new HashTree();
@@ -1657,6 +1675,39 @@ class TestJMeterThread {
         SampleResult.TestElementPathEntry source = childPath.get(childPath.size() - 1);
         assertEquals(childSampler.getClass().getName(), source.className());
         assertEquals(childSampler.getName(), source.name());
+    }
+
+    @Test
+    void threadCleanupActionsAreDeduplicatedAndRunAfterThreadListeners() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        AtomicBoolean listenerFinished = new AtomicBoolean();
+        testTree.add(loop);
+        testTree.add(loop, new RecordingThreadListener(listenerFinished));
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("cleanup-action-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+
+        Object cleanupKey = new Object();
+        AtomicInteger cleanupCalls = new AtomicInteger();
+        AtomicBoolean cleanupRanAfterListener = new AtomicBoolean();
+        jMeterThread.registerThreadCleanup(cleanupKey, () -> {
+            cleanupCalls.incrementAndGet();
+            cleanupRanAfterListener.set(listenerFinished.get());
+        });
+        jMeterThread.registerThreadCleanup(cleanupKey, () -> cleanupCalls.addAndGet(100));
+
+        jMeterThread.run();
+
+        assertEquals(1, cleanupCalls.get());
+        assertTrue(cleanupRanAfterListener.get());
     }
 
     private static LoopController createLoopController() {
