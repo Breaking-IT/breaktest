@@ -36,8 +36,12 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import java.lang.reflect.Field
 import java.lang.reflect.InvocationTargetException
+import java.net.ServerSocket
+import java.nio.file.Files
+import java.nio.file.Path
 import javax.swing.JTree
 import javax.swing.tree.TreePath
 
@@ -47,6 +51,47 @@ class BreakTestAgentGuiServiceTest {
         val field: Field = GuiPackage::class.java.getDeclaredField("guiPack")
         field.isAccessible = true
         field.set(null, null)
+    }
+
+    @Test
+    fun `start reclaims a stale descriptor and replaces a closed listener`(@TempDir tempDir: Path) {
+        val descriptorProperty = "breaktest.agent.descriptor"
+        val socketProperty = "breaktest.agent.socket"
+        val previousDescriptor = System.getProperty(descriptorProperty)
+        val previousSocket = System.getProperty(socketProperty)
+        val descriptor = tempDir.resolve("agent.json")
+        val socket = tempDir.resolve("agent.sock")
+        System.setProperty(descriptorProperty, descriptor.toString())
+        System.setProperty(socketProperty, socket.toString())
+
+        try {
+            BreakTestAgentGuiService.start()
+            val firstDetails = ObjectMapper().readTree(descriptor.toFile())
+
+            Files.writeString(
+                descriptor,
+                """{"host":"127.0.0.1","port":9,"socketPath":"/stale.sock","token":"stale"}""",
+            )
+            BreakTestAgentGuiService.start()
+            val reclaimedDetails = ObjectMapper().readTree(descriptor.toFile())
+
+            assertEquals(firstDetails.path("port").asInt(), reclaimedDetails.path("port").asInt())
+            assertEquals(firstDetails.path("token").asText(), reclaimedDetails.path("token").asText())
+
+            val serverField = BreakTestAgentGuiService::class.java.getDeclaredField("serverSocket")
+                .apply { isAccessible = true }
+            (serverField.get(BreakTestAgentGuiService) as ServerSocket).close()
+            BreakTestAgentGuiService.start()
+            val restartedDetails = ObjectMapper().readTree(descriptor.toFile())
+
+            assertNotEquals(firstDetails.path("token").asText(), restartedDetails.path("token").asText())
+            assertTrue(!(serverField.get(BreakTestAgentGuiService) as ServerSocket).isClosed)
+        } finally {
+            invokePrivate("closeListeners")
+            Files.deleteIfExists(descriptor)
+            restoreSystemProperty(descriptorProperty, previousDescriptor)
+            restoreSystemProperty(socketProperty, previousSocket)
+        }
     }
 
     @Test
@@ -178,6 +223,14 @@ class BreakTestAgentGuiServiceTest {
 
     private fun invokePrivate(name: String, vararg arguments: Any) {
         invokePrivateResult(name, *arguments)
+    }
+
+    private fun restoreSystemProperty(name: String, value: String?) {
+        if (value == null) {
+            System.clearProperty(name)
+        } else {
+            System.setProperty(name, value)
+        }
     }
 
     private fun invokePrivateResult(name: String, vararg arguments: Any): Any? {

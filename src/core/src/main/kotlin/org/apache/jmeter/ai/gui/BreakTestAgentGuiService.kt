@@ -150,6 +150,8 @@ public object BreakTestAgentGuiService {
     )
     private var serverSocket: ServerSocket? = null
     private var unixServerSocket: ServerSocketChannel? = null
+    private var serverThread: Thread? = null
+    private var unixServerThread: Thread? = null
     private var token: String? = null
     private val backedUpPlanKeys = mutableSetOf<String>()
     private var latestOpenPlanBackup: OpenPlanBackup? = null
@@ -172,9 +174,28 @@ public object BreakTestAgentGuiService {
     @JvmStatic
     @Synchronized
     public fun start() {
-        if (serverSocket != null) {
+        val existingServer = serverSocket
+        val existingToken = token
+        if (
+            existingServer != null &&
+            existingServer.isBound &&
+            !existingServer.isClosed &&
+            serverThread?.isAlive == true &&
+            !existingToken.isNullOrBlank()
+        ) {
+            val existingUnixSocket = unixServerSocket
+                ?.takeIf { it.isOpen && unixServerThread?.isAlive == true && unixSocketFile().exists() }
+            // The descriptor is shared so the instance whose AI action was most
+            // recently invoked becomes the active GUI target. Another BreakTest
+            // instance may have overwritten it and exited in the meantime.
+            writeDescriptor(
+                existingServer.localPort,
+                unixSocketFile().takeIf { existingUnixSocket != null },
+                existingToken,
+            )
             return
         }
+        closeListeners()
         val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
         val unixServer = openUnixServer()
         val serviceToken = UUID.randomUUID().toString()
@@ -183,7 +204,7 @@ public object BreakTestAgentGuiService {
         token = serviceToken
         writeDescriptor(server.localPort, unixSocketFile().takeIf { unixServer != null }, serviceToken)
         if (unixServer != null) {
-            thread(name = "BreakTest Agent GUI Unix Service", isDaemon = true) {
+            unixServerThread = thread(name = "BreakTest Agent GUI Unix Service", isDaemon = true) {
                 log.info("BreakTest Agent GUI service listening on {}", unixSocketFile().path)
                 while (unixServer.isOpen) {
                     try {
@@ -196,7 +217,7 @@ public object BreakTestAgentGuiService {
                 }
             }
         }
-        thread(name = "BreakTest Agent GUI Service", isDaemon = true) {
+        serverThread = thread(name = "BreakTest Agent GUI Service", isDaemon = true) {
             log.info("BreakTest Agent GUI service listening on 127.0.0.1:{}", server.localPort)
             while (!server.isClosed) {
                 try {
@@ -208,6 +229,17 @@ public object BreakTestAgentGuiService {
                 }
             }
         }
+    }
+
+    private fun closeListeners() {
+        runCatching { unixServerSocket?.close() }
+        runCatching { serverSocket?.close() }
+        runCatching { unixSocketFile().delete() }
+        unixServerSocket = null
+        serverSocket = null
+        unixServerThread = null
+        serverThread = null
+        token = null
     }
 
     private fun openUnixServer(): ServerSocketChannel? =
@@ -5457,7 +5489,10 @@ public object BreakTestAgentGuiService {
         File(System.getProperty("breaktest.agent.socket", defaultSocketPath()))
 
     private fun defaultSocketPath(): String =
-        File(System.getProperty("java.io.tmpdir"), "breaktest-agent-${System.getProperty("user.name")}.sock").path
+        // The descriptor intentionally stays per-user so the last GUI whose AI
+        // action was invoked is discoverable. The socket itself must be per-process:
+        // deleting/rebinding one shared Unix path makes an older GUI unreachable.
+        File(System.getProperty("java.io.tmpdir"), "breaktest-agent-${ProcessHandle.current().pid()}.sock").path
 
     private fun JsonNode.takeIfPresent(): JsonNode? =
         takeIf { !isMissingNode && !isNull }
