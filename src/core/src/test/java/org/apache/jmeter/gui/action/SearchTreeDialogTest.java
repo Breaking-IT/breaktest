@@ -18,12 +18,16 @@
 package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
@@ -63,6 +67,83 @@ class SearchTreeDialogTest {
     }
 
     @Test
+    void findsContainingThreadGroupForDefaultScope() {
+        JMeterTreeNode threadGroupNode = new JMeterTreeNode(new ThreadGroup(), null);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(new DummySampler(), null);
+        threadGroupNode.add(samplerNode);
+
+        assertSame(threadGroupNode, SearchTreeDialog.findThreadGroupScope(samplerNode));
+        assertSame(threadGroupNode, SearchTreeDialog.findThreadGroupScope(threadGroupNode));
+        assertNull(SearchTreeDialog.findThreadGroupScope(new JMeterTreeNode(new DummySampler(), null)));
+    }
+
+    @Test
+    void limitsNodesToSelectedThreadGroupScope() {
+        JMeterTreeNode firstThreadGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        JMeterTreeNode firstSampler = new JMeterTreeNode(new DummySampler(), null);
+        firstThreadGroup.add(firstSampler);
+        JMeterTreeNode secondThreadGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        JMeterTreeNode secondSampler = new JMeterTreeNode(new DummySampler(), null);
+        secondThreadGroup.add(secondSampler);
+
+        assertTrue(SearchTreeDialog.isWithinScope(firstThreadGroup, firstThreadGroup));
+        assertTrue(SearchTreeDialog.isWithinScope(firstSampler, firstThreadGroup));
+        assertFalse(SearchTreeDialog.isWithinScope(secondSampler, firstThreadGroup));
+        assertTrue(SearchTreeDialog.isWithinScope(secondSampler, null));
+    }
+
+    @Test
+    void exposesNameAndCommentsAsReplaceableFields() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Checkout transaction");
+        threadGroup.setComment("Calls the old checkout endpoint");
+        JMeterTreeNode node = new JMeterTreeNode(threadGroup, null);
+
+        var fields = SearchTreeDialog.replaceableFields(node);
+
+        assertTrue(fields.stream().anyMatch(field -> field.name().equals("Name")
+                && field.value().equals("Checkout transaction")));
+        assertTrue(fields.stream().anyMatch(field -> field.name().equals("Comments")
+                && field.value().equals("Calls the old checkout endpoint")));
+    }
+
+    @Test
+    void replacementCanDeleteCommentText() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Checkout");
+        threadGroup.setComment("old old");
+        JMeterTreeNode node = new JMeterTreeNode(threadGroup, null);
+
+        var changes = SearchTreeDialog.replacementChanges(
+                node, Pattern.compile(Pattern.quote("old")), "", false);
+
+        assertEquals(2, SearchTreeDialog.applyChanges(changes));
+        assertEquals(" ", threadGroup.getComment());
+    }
+
+    @Test
+    void regexReplacementSupportsCaptureGroups() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("checkout-v12");
+        JMeterTreeNode node = new JMeterTreeNode(threadGroup, null);
+
+        var changes = SearchTreeDialog.replacementChanges(
+                node, Pattern.compile("v(\\d+)"), "version-$1", true);
+
+        assertEquals(1, SearchTreeDialog.applyChanges(changes));
+        assertEquals("checkout-version-12", threadGroup.getName());
+    }
+
+    @Test
+    void broadSearchDoesNotExposeInternalPropertyNames() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setComment("visible comment");
+
+        assertTrue(threadGroup.getSearchableTokens().contains("visible comment"));
+        assertFalse(threadGroup.getSearchableTokens().contains("TestElement.comments"));
+    }
+
+    @Test
     void addsRecordedExchangeTokensBeforeTestPlanIsFirstSaved() throws Exception {
         RecordedExchangeStore.Archive recording = RecordedExchangeStore.fromHar("""
                 {
@@ -98,7 +179,7 @@ class SearchTreeDialogTest {
         threadGroupNode.add(samplerNode);
 
         List<String> searchableTokens = new ArrayList<>();
-        SearchTreeDialog.addRecordedExchangeTokens(searchableTokens, samplerNode, null, true);
+        SearchTreeDialog.addRecordedExchangeTokens(searchableTokens, samplerNode, null);
 
         assertTrue(searchableTokens.stream().anyMatch(token -> token.contains("unsaved-search-value")));
         assertTrue(searchableTokens.stream().anyMatch(token -> token.contains("unsaved-response-value")));

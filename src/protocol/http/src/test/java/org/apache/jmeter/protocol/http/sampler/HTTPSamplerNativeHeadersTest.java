@@ -154,4 +154,38 @@ public class HTTPSamplerNativeHeadersTest {
         assertEquals("Bearer ${token}", sampler.getNativeHeaderList().get(0).getValue());
         assertFalse(sampler.getSearchableTokens().contains("Bearer abc123"));
     }
+
+    @Test
+    public void replaceableFieldsIncludeParameterAndHeaderNamesAndValues() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.addArgument("old-parameter", "old-value");
+        sampler.setNativeHeaders(List.of(new Header("Old-Header", "old-header-value")));
+
+        var fields = sampler.getReplaceableFields();
+        fields.stream()
+                .filter(field -> field.value().equals("old-parameter"))
+                .findFirst()
+                .orElseThrow()
+                .setValue("new-parameter");
+        fields.stream()
+                .filter(field -> field.value().equals("Old-Header"))
+                .findFirst()
+                .orElseThrow()
+                .setValue("New-Header");
+
+        assertEquals("new-parameter", sampler.getArguments().getArgument(0).getName());
+        assertEquals("New-Header", sampler.getNativeHeaderList().get(0).getName());
+        assertTrue(fields.stream().anyMatch(field -> field.value().equals("old-value")));
+        assertTrue(fields.stream().anyMatch(field -> field.value().equals("old-header-value")));
+    }
+
+    @Test
+    public void headerManagerExposesHeaderNamesAndValuesAsReplaceable() {
+        HeaderManager headerManager = manager(new Header("Old-Header", "old-value"));
+
+        var fields = headerManager.getReplaceableFields();
+
+        assertTrue(fields.stream().anyMatch(field -> field.value().equals("Old-Header")));
+        assertTrue(fields.stream().anyMatch(field -> field.value().equals("old-value")));
+    }
 }
