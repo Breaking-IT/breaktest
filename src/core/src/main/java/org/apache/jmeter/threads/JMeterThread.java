@@ -24,10 +24,12 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -228,6 +230,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
 
+    // Runtime sampler clones (for example parallel ForEach branches) are not traversed as
+    // ThreadListeners when the source test tree finishes. Resources created by those clones can
+    // register one cleanup action on the owning virtual user instead.
+    private final Map<Object, Runnable> threadCleanupActions = new ConcurrentHashMap<>();
+
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
     }
@@ -421,7 +428,11 @@ public class JMeterThread implements Runnable, Interruptible {
             try {
                 threadContext.clear();
                 log.info("Thread finished: {}", threadName);
-                threadFinished(iterationListener);
+                try {
+                    threadFinished(iterationListener);
+                } finally {
+                    runThreadCleanupActions();
+                }
                 monitor.threadFinished(this); // Tell the monitor we are done
                 JMeterContextService.removeContext(); // Remove the ThreadLocal entry
             } finally {
@@ -1399,6 +1410,32 @@ public class JMeterThread implements Runnable, Interruptible {
 
     public boolean isRunning() {
         return running;
+    }
+
+    /**
+     * Registers an action that runs once after detached workers and thread listeners have finished.
+     * Registrations with the same key are deduplicated.
+     *
+     * @param key resource-owner key used to deduplicate registrations
+     * @param cleanup action to run during virtual-user cleanup
+     */
+    @API(status = API.Status.INTERNAL)
+    public void registerThreadCleanup(Object key, Runnable cleanup) {
+        threadCleanupActions.putIfAbsent(
+                Objects.requireNonNull(key, "key"),
+                Objects.requireNonNull(cleanup, "cleanup"));
+    }
+
+    private void runThreadCleanupActions() {
+        List<Runnable> actions = new ArrayList<>(threadCleanupActions.values());
+        threadCleanupActions.clear();
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                log.error("Error running thread cleanup action", e);
+            }
+        }
     }
 
     /**

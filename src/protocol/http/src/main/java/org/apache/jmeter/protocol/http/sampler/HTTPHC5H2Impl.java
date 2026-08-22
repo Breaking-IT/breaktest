@@ -130,6 +130,7 @@ import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
@@ -194,6 +195,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
+
+    // Keep the key used while sampling. JMeterContext.clear() runs before ThreadListener callbacks,
+    // so recalculating the key in threadFinished() would fall back to the carrier Java thread and
+    // miss the clients cached under the owning JMeterThread. Official parallel, foreach, fork and
+    // embedded-resource worker contexts retain that owner, so runtime sampler clones use it too.
+    private volatile Object jMeterThreadCacheKey;
 
     private volatile HttpUriRequest currentRequest;
 
@@ -407,12 +414,19 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         asyncClient.start();
         CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
         log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
-        return new HttpClientState(client, asyncClient, connectionManager);
+        return new HttpClientState(client, connectionManager);
     }
 
-    private static Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
+    private Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
+        Object cacheKey = getJMeterThreadCacheKey();
+        jMeterThreadCacheKey = cacheKey;
+        if (cacheKey instanceof JMeterThread jMeterThread) {
+            jMeterThread.registerThreadCleanup(
+                    HTTPHC5H2Impl.class,
+                    () -> closeThreadLocalConnections(cacheKey));
+        }
         return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(
-                getJMeterThreadCacheKey(),
+                cacheKey,
                 ignored -> new HashMap<>(5));
     }
 
@@ -1382,7 +1396,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     @Override
     protected void threadFinished() {
-        closeThreadLocalConnections();
+        Object cacheKey = jMeterThreadCacheKey;
+        if (cacheKey != null) {
+            closeThreadLocalConnections(cacheKey);
+            jMeterThreadCacheKey = null;
+        }
     }
 
     private static void resetThreadLocalConnections() {
@@ -1400,15 +1418,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private static void closeThreadLocalConnections() {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey());
+    private static void closeThreadLocalConnections(Object cacheKey) {
+        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(cacheKey);
         if (clients == null) {
             return;
         }
         synchronized (clients) {
             for (HttpClientState clientState : clients.values()) {
+                // The classic facade owns and closes its backing async client. Closing both here
+                // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
                 JOrphanUtils.closeQuietly(clientState.getClient());
-                JOrphanUtils.closeQuietly(clientState.getAsyncClient());
             }
         }
     }
@@ -1448,24 +1467,17 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final class HttpClientState {
         private final CloseableHttpClient client;
-        private final CloseableHttpAsyncClient asyncClient;
         private final H2RouteReuseConnectionManager connectionManager;
 
         private HttpClientState(
                 CloseableHttpClient client,
-                CloseableHttpAsyncClient asyncClient,
                 H2RouteReuseConnectionManager connectionManager) {
             this.client = client;
-            this.asyncClient = asyncClient;
             this.connectionManager = connectionManager;
         }
 
         private CloseableHttpClient getClient() {
             return client;
-        }
-
-        private CloseableHttpAsyncClient getAsyncClient() {
-            return asyncClient;
         }
 
         private H2RouteReuseConnectionManager getConnectionManager() {
