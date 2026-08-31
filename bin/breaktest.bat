@@ -89,7 +89,7 @@ if not defined JMETER_LANGUAGE (
 )
 
 rem Minimal version to run BreakTest
-set MINIMAL_VERSION=21.0.0
+set "MINIMAL_VERSION=21"
 
 
 rem Optimized GC logging for Java 21 with structured output and performance analysis
@@ -103,24 +103,11 @@ rem set VERBOSE_GC=-Xlog:gc:gc_jmeter_%%p.log:time
 rem Module and native access for modern Java versions (required for BreakTest components)
 set JAVA_OPTS=--enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.swing=ALL-UNNAMED --add-opens java.desktop/javax.swing.text.html=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/java.awt.font=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/sun.awt.shell=ALL-UNNAMED
 
-for /f "tokens=3" %%g in ('java -version 2^>^&1 ^| findstr /i "version"') do (
-    rem @echo Debug Output: %%g
-    set JAVAVER=%%g
-)
-if not defined JAVAVER (
-    @echo Not able to find Java executable or version. Please check your Java installation.
-    set ERRORLEVEL=2
-    goto pause
-)
-
-rem Extract major version number from Java version string
-for /f "delims=. tokens=1" %%v in ("%JAVAVER:~1,-1%") do (
-    set current_major=%%v
-)
-
-rem Extract minimal major version
-for /f "delims=. tokens=1" %%v in ("%MINIMAL_VERSION%") do (
-    set minimal_major=%%v
+rem Read the standardized Java specification major version instead of parsing
+rem vendor-specific `java -version` text such as "21.0.2".
+set "current_major="
+for /f "tokens=2 delims==" %%v in ('java -XshowSettings:properties -version 2^>^&1 ^| findstr /c:"java.specification.version ="') do (
+    for /f "tokens=1 delims=. " %%m in ("%%v") do set "current_major=%%m"
 )
 
 if not defined current_major (
@@ -129,8 +116,8 @@ if not defined current_major (
     goto pause
 )
 
-if %current_major% LSS %minimal_major% (
-    @echo Error: Java version -- %JAVAVER% -- is too low to run BreakTest. Needs Java %MINIMAL_VERSION% or higher.
+if %current_major% LSS %MINIMAL_VERSION% (
+    @echo Error: Java major version %current_major% is too low to run BreakTest. Needs Java %MINIMAL_VERSION% or higher.
     set ERRORLEVEL=3
     goto pause
 )
@@ -195,9 +182,11 @@ set CDS=
 if /i not "%BREAKTEST_CDS%" == "off" (
     if %current_major% GEQ 19 (
         if not exist "%USERPROFILE%\.breaktest" mkdir "%USERPROFILE%\.breaktest" 2>nul
-        rem -Xlog:cds*=off hides the harmless archive-creation/regeneration notices
-        rem that newer JVMs print at error level on the first run
-        set CDS="-XX:+AutoCreateSharedArchive" "-XX:SharedArchiveFile=%USERPROFILE%\.breaktest\appcds-java%current_major%.jsa" "-Xlog:cds*=off"
+        rem Verify the archive before using it. With -Xshare:auto, a stale,
+        rem damaged, or unmappable archive is ignored and startup continues
+        rem with normal class loading instead of failing the application.
+        rem -Xlog:cds*=off hides harmless fallback and regeneration notices.
+        set CDS="-Xshare:auto" "-XX:+VerifySharedSpaces" "-XX:+AutoCreateSharedArchive" "-XX:SharedArchiveFile=%USERPROFILE%\.breaktest\appcds-java%current_major%.jsa" "-Xlog:cds*=off"
     )
 )
 
