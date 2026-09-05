@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Interface for nodes that have replaceable content.
@@ -51,4 +52,19 @@ public interface Replaceable {
      */
     int replace(String regex, String replaceBy, boolean caseSensitive)
         throws Exception;
+
+    /**
+     * Replace a literal value without interpreting it as a regular expression.
+     * Implementations may override this when they need to protect existing
+     * JMeter variable references or replace fields that are not covered by
+     * their regular-expression replacement implementation.
+     *
+     * @param literal value to search for
+     * @param replaceBy replacement value
+     * @return number of replacements
+     * @throws Exception when something fails while replacing
+     */
+    default int replaceLiteral(String literal, String replaceBy) throws Exception {
+        return replace(Pattern.quote(literal), replaceBy, true);
+    }
 }

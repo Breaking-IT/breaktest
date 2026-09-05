@@ -156,6 +156,18 @@ public class HTTPSamplerNativeHeadersTest {
     }
 
     @Test
+    public void replaceLiteralCoversArgumentNamesWithoutNestingVariables() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.addArgument("code", "${oauth_code}");
+
+        int replaced = sampler.replaceLiteral("code", "${oauth_code_g1}");
+
+        assertEquals(1, replaced);
+        assertEquals("${oauth_code_g1}", sampler.getArguments().getArgument(0).getName());
+        assertEquals("${oauth_code}", sampler.getArguments().getArgument(0).getValue());
+    }
+
+    @Test
     public void replaceableFieldsIncludeParameterAndHeaderNamesAndValues() {
         HTTPSamplerProxy sampler = newSampler();
         sampler.addArgument("old-parameter", "old-value");

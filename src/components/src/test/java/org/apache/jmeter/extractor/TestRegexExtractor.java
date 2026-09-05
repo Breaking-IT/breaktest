@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
+import java.util.List;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContext;
@@ -94,6 +95,7 @@ public class TestRegexExtractor {
         assertEquals("one", vars.get("varname_1"));
         assertEquals("two", vars.get("varname_2"));
         assertEquals("2", vars.get("varname_matchNr"));
+        assertTrue(List.of("one", "two").contains(vars.get("varname_rand")));
     }
 
     @Test
@@ -162,6 +164,38 @@ public class TestRegexExtractor {
         assertEquals("<value field=\"pinposition2\">5</value>", vars.get("regVal_g0"));
         assertNull(vars.get("regVal_g3"));
         assertEquals("2", vars.get("regVal_g"));
+    }
+
+    @Test
+    public void testExtractForTestingUsesTemplateAndReturnsAllMatches() {
+        extractor.setRegex("item=(\\w+)");
+        extractor.setTemplate("value:$1$");
+
+        List<String> matches = extractor.extractForTesting("item=one item=two");
+
+        assertEquals(List.of("value:one", "value:two"), matches);
+    }
+
+    @Test
+    public void testExtractForTestingIncludesFullMatchAndCaptureGroups() {
+        extractor.setRegex("(\\w+)-(\\d+)");
+        extractor.setTemplate("$1$$2$");
+
+        List<RegexExtractor.TestMatch> matches = extractor.extractForTestingWithGroups("item-42");
+
+        assertEquals("item42", matches.get(0).extractedValue());
+        assertEquals(List.of("item-42", "item", "42"), matches.get(0).groups());
+    }
+
+    @Test
+    public void testExtractForTestingUsesSelectedResponseField() {
+        extractor.setUseField(RegexExtractor.USE_HDRS);
+        extractor.setRegex("Header1: (\\w+)");
+        extractor.setTemplate("$1$");
+
+        List<String> matches = extractor.extractForTesting(result);
+
+        assertEquals(List.of("Value1"), matches);
     }
 
     private static void templateSetup(RegexExtractor rex, String tmp) {
