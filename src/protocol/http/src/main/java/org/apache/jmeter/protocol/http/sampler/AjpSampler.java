@@ -258,7 +258,7 @@ public class AjpSampler extends HTTPSamplerBase implements Interruptible {
             HTTPFileArg[] hfa = getHTTPFiles();
             if(hfa.length > 0) {
                 HTTPFileArg fa = hfa[0];
-                String fn = fa.getPath();
+                String fn = fa.getResolvedPath();
                 File input = new File(fn);
                 cl = (int)input.length();
                 if(body != null) {

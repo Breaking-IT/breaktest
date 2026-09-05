@@ -37,6 +37,7 @@ import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.save.CSVSaveService;
 import org.apache.jmeter.services.FileServer;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -208,7 +209,12 @@ public class CSVDataSet extends ConfigTestElement
     }
 
     private void initVars(FileServer server, final JMeterContext context, String delim) {
-        String fileName = getFilename().trim();
+        String fileName;
+        try {
+            fileName = isUseCsvFromArchive() ? resolveCsvFile().toString() : getFilename().trim();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Unable to read CSV from archive", e);
+        }
         setAlias(context, fileName);
         final String names = getVariableNames();
         if (StringUtilities.isEmpty(names)) {
@@ -262,6 +268,57 @@ public class CSVDataSet extends ConfigTestElement
      */
     public void setFilename(String filename) {
         this.filename = filename;
+    }
+
+    public boolean isUseCsvFromArchive() {
+        return getPropertyAsBoolean("useCsvFromArchive");
+    }
+
+    public void setUseCsvFromArchive(boolean useArchive) {
+        setProperty("useCsvFromArchive", useArchive, false);
+    }
+
+    public String getCsvArchiveEntry() {
+        return getPropertyAsString(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY);
+    }
+
+    public void setCsvArchiveEntry(String entry) {
+        setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, entry);
+    }
+
+    public String getCsvArchiveChecksum() {
+        return getPropertyAsString(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY);
+    }
+
+    public void setCsvArchiveChecksum(String checksum) {
+        setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, checksum);
+    }
+
+    private String archiveEntry() {
+        return getCsvArchiveEntry().isEmpty()
+                ? org.apache.jmeter.save.ArchiveFiles.entryName(getFilename()) : getCsvArchiveEntry();
+    }
+
+    Path resolveCsvFile() throws IOException {
+        if (isUseCsvFromArchive()) {
+            return CsvArchiveSupport.materialize(archiveEntry(), getCsvArchiveChecksum());
+        }
+        return FileServer.getFileServer().resolveFile(getFilename().trim()).toPath();
+    }
+
+    byte[] readCsvContent() throws IOException {
+        return isUseCsvFromArchive()
+                ? CsvArchiveSupport.read(archiveEntry(), getCsvArchiveChecksum())
+                : Files.readAllBytes(resolveCsvFile());
+    }
+
+    void storeArchivedCsv(byte[] content) {
+        String checksum = CsvArchiveSupport.checksum(content);
+        String entry = CsvArchiveSupport.entryName(getFilename());
+        JmxArchiveEntryStore.register(entry, checksum, content);
+        setCsvArchiveEntry(entry);
+        setCsvArchiveChecksum(checksum);
+        setUseCsvFromArchive(true);
     }
 
     /**
@@ -469,10 +526,10 @@ public class CSVDataSet extends ConfigTestElement
 
     private BufferedReader createPreviewReader() throws IOException {
         String fileName = getFilename();
-        if (StringUtilities.isEmpty(fileName)) {
+        if (!isUseCsvFromArchive() && StringUtilities.isEmpty(fileName)) {
             throw new IllegalArgumentException("Filename must not be null or empty");
         }
-        File file = FileServer.getFileServer().resolveFile(fileName.trim());
+        File file = resolveCsvFile().toFile();
         if (!file.canRead() || !file.isFile()) {
             throw new IllegalArgumentException("File " + file.getName() + " must exist and be readable");
         }

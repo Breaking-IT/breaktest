@@ -100,6 +100,28 @@ public class PostWriterTest {
      * This method test sending a request which contains both formdata and file content
      */
     @Test
+    public void archivedFileUploadsPreserveContentAndFilename() throws Exception {
+        org.apache.jmeter.testelement.TestPlan plan = new org.apache.jmeter.testelement.TestPlan();
+        org.apache.jmeter.save.ArchiveFiles.put(plan, "upload.txt", TEST_FILE_CONTENT, false);
+        org.apache.jmeter.save.ArchiveFiles.activate(plan);
+        try {
+            HTTPFileArg file = new HTTPFileArg("upload.txt", "attachment", "text/plain");
+            file.setUseArchive(true);
+            HTTPFileArg copy = new HTTPFileArg(file);
+            assertEquals(true, copy.isUseArchive());
+            sampler.setHTTPFiles(new HTTPFileArg[] {copy});
+            sampler.setDoMultipart(true);
+            postWriter.setHeaders(connection, sampler);
+            postWriter.sendPostData(connection, sampler);
+            String body = new String(connection.getOutputStreamContent(), StandardCharsets.ISO_8859_1);
+            org.junit.jupiter.api.Assertions.assertTrue(body.contains("filename=\"upload.txt\""));
+            org.junit.jupiter.api.Assertions.assertTrue(body.contains(new String(TEST_FILE_CONTENT, StandardCharsets.ISO_8859_1)));
+        } finally {
+            org.apache.jmeter.save.ArchiveFiles.activate(null);
+        }
+    }
+
+    @Test
     public void testSendPostData() throws IOException {
         sampler.setMethod(HTTPConstants.POST);
         setupFilepart(sampler);

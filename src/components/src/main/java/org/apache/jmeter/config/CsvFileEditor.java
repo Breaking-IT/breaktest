@@ -18,6 +18,7 @@
 package org.apache.jmeter.config;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.ByteBuffer;
@@ -50,15 +51,18 @@ final class CsvFileEditor {
             throw new IllegalArgumentException("Filename must not be null or empty");
         }
         Path path = FileServer.getFileServer().resolveFile(filename.trim()).toPath();
+        return fromBytes(path, encoding, Files.readAllBytes(path));
+    }
+
+    static CsvFileEditor fromBytes(Path path, String encoding, byte[] original) throws IOException {
         Charset charset;
         if (encoding != null && !encoding.trim().isEmpty()) {
             charset = Charset.forName(encoding);
         } else {
-            try (Reader reader = BomInputStream.reader(Files.newInputStream(path))) {
+            try (Reader reader = BomInputStream.reader(new ByteArrayInputStream(original))) {
                 charset = Charset.forName(((InputStreamReader) reader).getEncoding());
             }
         }
-        byte[] original = Files.readAllBytes(path);
         String content = charset.newDecoder().decode(ByteBuffer.wrap(original)).toString();
         byte[] encoded = content.getBytes(charset);
         // Some decoders consume the BOM. Retain it when the encoder does not emit it.
@@ -80,10 +84,14 @@ final class CsvFileEditor {
     }
 
     void save(String updatedContent) throws IOException {
+        Files.write(path, encode(updatedContent), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    byte[] encode(String updatedContent) throws IOException {
         // Encode before opening the file so unsupported characters cannot truncate it.
         ByteBuffer encoded = charset.newEncoder().encode(CharBuffer.wrap(updatedContent));
         byte[] bytes = Arrays.copyOf(prefix, prefix.length + encoded.remaining());
         encoded.get(bytes, prefix.length, encoded.remaining());
-        Files.write(path, bytes, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+        return bytes;
     }
 }

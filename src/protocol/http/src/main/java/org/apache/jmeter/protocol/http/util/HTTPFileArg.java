@@ -164,6 +164,7 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
      */
     public HTTPFileArg(HTTPFileArg file) {
         this(file.getPath(), file.getParamName(), file.getMimeType());
+        setUseArchive(file.isUseArchive());
     }
 
     /**
@@ -220,6 +221,18 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
      *
      * @return the file's path
      */
+    public boolean isUseArchive() {
+        return getPropertyAsBoolean("HTTPFileArg.useArchive");
+    }
+
+    public void setUseArchive(boolean useArchive) {
+        setProperty("HTTPFileArg.useArchive", useArchive, false);
+    }
+
+    public String getResolvedPath() throws java.io.IOException {
+        return isUseArchive() ? org.apache.jmeter.save.ArchiveFiles.resolve(getPath()).toString() : getPath();
+    }
+
     public String getPath() {
         return get(getSchema().getPath());
     }

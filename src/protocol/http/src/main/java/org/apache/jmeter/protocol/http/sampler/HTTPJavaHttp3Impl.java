@@ -454,7 +454,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 builder.setHeader(HTTPConstants.HEADER_CONTENT_TYPE, file.getMimeType());
             }
             bodyPublisher = HttpRequest.BodyPublishers.ofFile(
-                    FileServer.getFileServer().getResolvedFile(file.getPath()).toPath());
+                    FileServer.getFileServer().getResolvedFile(file.getResolvedPath()).toPath());
             res.setQueryString("<actual file content, not shown here>");
         } else if (getSendParameterValuesAsPostBody()) {
             if (!hasContentTypeHeader) {

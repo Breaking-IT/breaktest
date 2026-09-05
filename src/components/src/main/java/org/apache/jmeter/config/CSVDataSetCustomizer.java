@@ -26,13 +26,18 @@ import java.awt.GridBagLayout;
 import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
+import java.beans.PropertyDescriptor;
+import java.awt.event.ActionEvent;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 
 import javax.swing.JButton;
 import javax.swing.JDialog;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -41,6 +46,10 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
+import org.apache.jmeter.testbeans.gui.FileEditor;
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.util.ArchiveBrowser;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
@@ -106,10 +115,54 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         editButton.addActionListener(event -> {
             saveGuiFields();
             try {
-                CsvFileEditor file = CsvFileEditor.open(getString("filename"), getString("fileEncoding"));
-                showEditor(file, bundle, previewButton);
+                CSVDataSet csv = createCsvDataSet();
+                CsvFileEditor file = csv.isUseCsvFromArchive()
+                        ? CsvFileEditor.fromBytes(Path.of(csv.getCsvArchiveEntry()), csv.getFileEncoding(),
+                                csv.readCsvContent())
+                        : CsvFileEditor.open(csv.getFilename(), csv.getFileEncoding());
+                showEditor(file, csv, bundle, previewButton);
             } catch (IOException | RuntimeException ex) {
                 JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("editCsv.error"),
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        JButton copyButton = new JButton(bundle.getString("copyCsvToArchive.displayName"));
+        copyButton.addActionListener(event -> {
+            saveGuiFields();
+            try {
+                CSVDataSet csv = createCsvDataSet();
+                // Always import the configured external file, even when an archived copy is active.
+                csv.setUseCsvFromArchive(false);
+                storeArchivedCsv(csv, csv.readCsvContent());
+                updateArchiveProperties(csv);
+                previewButton.doClick();
+            } catch (IOException | RuntimeException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("csvArchive.error"),
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        JButton exportButton = new JButton(bundle.getString("exportCsv.displayName"));
+        exportButton.addActionListener(event -> {
+            saveGuiFields();
+            try {
+                CSVDataSet csv = createCsvDataSet();
+                byte[] content = csv.readCsvContent();
+                JFileChooser chooser = new JFileChooser();
+                chooser.setDialogTitle(bundle.getString("exportCsv.displayName"));
+                String source = csv.isUseCsvFromArchive() ? csv.getCsvArchiveEntry() : csv.getFilename();
+                chooser.setSelectedFile(Path.of(source).getFileName().toFile());
+                if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                    Path destination = chooser.getSelectedFile().toPath();
+                    if (Files.exists(destination) && JOptionPane.showConfirmDialog(this,
+                            bundle.getString("exportCsv.overwrite"), bundle.getString("exportCsv.displayName"),
+                            JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
+                        return;
+                    }
+                    Files.write(destination, content);
+                }
+            } catch (IOException | RuntimeException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("csvArchive.error"),
                         JOptionPane.ERROR_MESSAGE);
             }
         });
@@ -117,6 +170,8 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         buttonPanel.add(previewButton);
         buttonPanel.add(editButton);
+        buttonPanel.add(copyButton);
+        buttonPanel.add(exportButton);
 
         JPanel previewPanel = new JPanel(new BorderLayout(0, 5));
         previewPanel.add(buttonPanel, BorderLayout.NORTH);
@@ -125,7 +180,78 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         return previewPanel;
     }
 
-    private void showEditor(CsvFileEditor file, ResourceBundle bundle, JButton previewButton) {
+    boolean browseArchiveFile() {
+        saveGuiFields();
+        if (!getBoolean("useCsvFromArchive")) {
+            return false;
+        }
+        String entry = chooseArchiveFile();
+        if (entry != null) {
+            CSVDataSet csv = createCsvDataSet();
+            propertyMap.put("filename", entry.substring("files/".length()));
+            csv.setCsvArchiveEntry(entry);
+            csv.setCsvArchiveChecksum(ArchiveFiles.references(ArchiveFiles.currentPlan()).get(entry));
+            updateArchiveProperties(csv);
+        }
+        return true;
+    }
+
+    String chooseArchiveFile() {
+        return ArchiveBrowser.chooseFile(this);
+    }
+
+    /** Routes the standard filename Browse button through the selected CSV source. */
+    public static class CsvFilenameEditor extends FileEditor {
+        public CsvFilenameEditor() throws IntrospectionException {
+            super(new PropertyDescriptor("filename", CSVDataSet.class));
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent event) {
+            CSVDataSetCustomizer customizer = (CSVDataSetCustomizer) SwingUtilities.getAncestorOfClass(
+                    CSVDataSetCustomizer.class, getCustomEditor());
+            if (customizer == null || !customizer.browseArchiveFile()) {
+                super.actionPerformed(event);
+            }
+        }
+    }
+
+    private static void storeArchivedCsv(CSVDataSet csv, byte[] content) {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui != null) {
+            List<CSVDataSet> existing = gui.getTreeModel().getNodesOfType(CSVDataSet.class).stream()
+                    .filter(node -> node != gui.getCurrentNode())
+                    .map(node -> (CSVDataSet) node.getTestElement())
+                    .toList();
+            CsvArchiveSupport.validateFilename(CsvArchiveSupport.entryName(csv.getFilename()),
+                    CsvArchiveSupport.checksum(content), existing);
+        }
+        if (gui != null) {
+            String entry = CsvArchiveSupport.entryName(csv.getFilename());
+            if (csv.isUseCsvFromArchive() && !csv.getCsvArchiveEntry().isEmpty()) {
+                entry = csv.getCsvArchiveEntry();
+            }
+            ArchiveFiles.put(ArchiveFiles.currentPlan(), entry, content, csv.isUseCsvFromArchive());
+            csv.setCsvArchiveEntry(entry);
+            csv.setCsvArchiveChecksum(ArchiveFiles.checksum(content));
+            csv.setUseCsvFromArchive(true);
+        } else {
+            csv.storeArchivedCsv(content);
+        }
+    }
+
+    private void updateArchiveProperties(CSVDataSet csv) {
+        propertyMap.put("useCsvFromArchive", csv.isUseCsvFromArchive());
+        propertyMap.put("csvArchiveEntry", csv.getCsvArchiveEntry());
+        propertyMap.put("csvArchiveChecksum", csv.getCsvArchiveChecksum());
+        setObject(propertyMap);
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui != null) {
+            gui.setDirty(true);
+        }
+    }
+
+    private void showEditor(CsvFileEditor file, CSVDataSet csv, ResourceBundle bundle, JButton previewButton) {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
                 bundle.getString("editCsv.displayName"), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -140,7 +266,12 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         JButton save = new JButton(JMeterUtils.getResString("save"));
         save.addActionListener(event -> {
             try {
-                file.save(editor.getText());
+                if (csv.isUseCsvFromArchive()) {
+                    storeArchivedCsv(csv, file.encode(editor.getText()));
+                    updateArchiveProperties(csv);
+                } else {
+                    file.save(editor.getText());
+                }
                 dialog.dispose();
                 previewButton.doClick();
             } catch (IOException | RuntimeException ex) {
@@ -161,6 +292,9 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
     private CSVDataSet createCsvDataSet() {
         CSVDataSet csvDataSet = new CSVDataSet();
         csvDataSet.setFilename(getString("filename"));
+        csvDataSet.setUseCsvFromArchive(getBoolean("useCsvFromArchive"));
+        csvDataSet.setCsvArchiveEntry(getString("csvArchiveEntry"));
+        csvDataSet.setCsvArchiveChecksum(getString("csvArchiveChecksum"));
         csvDataSet.setFileEncoding(getString("fileEncoding"));
         csvDataSet.setVariableNames(getString("variableNames"));
         csvDataSet.setDelimiter(getString("delimiter"));

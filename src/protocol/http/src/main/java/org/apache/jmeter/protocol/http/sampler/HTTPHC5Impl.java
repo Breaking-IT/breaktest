@@ -1840,7 +1840,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             for (int i=0; i < files.length; i++) {
                 HTTPFileArg file = files[i];
 
-                File reservedFile = FileServer.getFileServer().getResolvedFile(file.getPath());
+                File reservedFile = FileServer.getFileServer().getResolvedFile(file.getResolvedPath());
                 Charset filenameCharset = doBrowserCompatibleMultipart ? charset : StandardCharsets.UTF_8;
                 fileBodies[i] = new ViewableFileBody(reservedFile, ContentType.parse(file.getMimeType()), filenameCharset);
                 FormBodyPartBuilder formPartBuilder = FormBodyPartBuilder.create(file.getParamName(), fileBodies[i]);
@@ -1873,7 +1873,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                         entityEnclosingRequest.setHeader(HTTPConstants.HEADER_CONTENT_TYPE, HTTPConstants.APPLICATION_X_WWW_FORM_URLENCODED);
                     }
                 }
-                FileEntity fileRequestEntity = new FileEntity(FileServer.getFileServer().getResolvedFile(file.getPath()), (ContentType) null);
+                FileEntity fileRequestEntity = new FileEntity(FileServer.getFileServer().getResolvedFile(file.getResolvedPath()), (ContentType) null);
                 entityEnclosingRequest.setEntity(fileRequestEntity);
 
                 // We just add placeholder text for file content
@@ -2003,7 +2003,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             hasEntityBody = true;
 
             // If getSendFileAsPostBody returned true, it's sure that file is not null
-            File reservedFile = FileServer.getFileServer().getResolvedFile(files[0].getPath());
+            File reservedFile = FileServer.getFileServer().getResolvedFile(files[0].getResolvedPath());
             FileEntity fileRequestEntity = new FileEntity(reservedFile, (ContentType) null); // no need for content-type here
             entity.setEntity(fileRequestEntity);
         }

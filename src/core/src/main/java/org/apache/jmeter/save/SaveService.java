@@ -555,6 +555,7 @@ public class SaveService {
                 log.info("Loading JMX archive: {}", file);
                 HashTree tree = readTreeFromZip(file);
                 cacheReferencedArchiveEntries(tree, file, true);
+                cacheSharedArchiveFiles(tree, file);
                 return tree;
             }
             log.info("Loading file: {}", file);
@@ -614,6 +615,40 @@ public class SaveService {
         } catch (ZipException e) {
             return Optional.empty();
         }
+    }
+
+    private static void cacheSharedArchiveFiles(HashTree tree, File archive) throws IOException {
+        org.apache.jmeter.testelement.TestPlan plan = findArchiveTestPlan(tree);
+        if (plan == null) {
+            return;
+        }
+        // Older archives have CSV references but no shared-files index. Rebuild it from
+        // the actual files so browsing and runtime resolution use the same metadata.
+        try (ZipFile zip = new ZipFile(archive)) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (!entry.isDirectory() && entry.getName().startsWith("files/")
+                        && JmxArchiveEntryStore.isSafeEntryName(entry.getName())) {
+                    try (InputStream input = zip.getInputStream(entry)) {
+                        ArchiveFiles.put(plan, entry.getName(), input.readAllBytes(), true);
+                    }
+                }
+            }
+        }
+    }
+
+    private static org.apache.jmeter.testelement.TestPlan findArchiveTestPlan(HashTree tree) {
+        for (Object node : tree.list()) {
+            if (node instanceof org.apache.jmeter.testelement.TestPlan plan) {
+                return plan;
+            }
+            org.apache.jmeter.testelement.TestPlan plan = findArchiveTestPlan(tree.getTree(node));
+            if (plan != null) {
+                return plan;
+            }
+        }
+        return null;
     }
 
     private static void cacheReferencedArchiveEntries(HashTree tree, File testPlanFile, boolean archive) {
@@ -678,10 +713,23 @@ public class SaveService {
         }
     }
 
-    private static Map<String, String> collectArchiveReferences(HashTree tree) {
+    public static Map<String, String> collectArchiveReferences(HashTree tree) {
         Map<String, String> references = new LinkedHashMap<>();
         collectArchiveReferences(tree, references);
+        collectSharedFiles(tree, references);
         return references;
+    }
+
+    private static void collectSharedFiles(HashTree tree, Map<String, String> references) {
+        if (tree == null) {
+            return;
+        }
+        for (Object item : tree.list()) {
+            if (item instanceof TestElement element) {
+                references.putAll(ArchiveFiles.references(element));
+            }
+            collectSharedFiles(tree.getTree(item), references);
+        }
     }
 
     private static void collectArchiveReferences(HashTree tree, Map<String, String> references) {
@@ -695,6 +743,8 @@ public class SaveService {
                 collectArchiveReference(element, references,
                         JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY,
                         JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY);
+                collectArchiveReference(element, references,
+                        JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY);
                 collectArchiveReference(element, references,
                         RecordedExchangeStore.MANIFEST_PROPERTY, RecordedExchangeStore.CHECKSUM_PROPERTY);
             }
@@ -714,6 +764,10 @@ public class SaveService {
                 return candidate;
             }
             if (!candidate.isEmpty() && !current.equalsIgnoreCase(candidate)) {
+                if (JmxArchiveEntryStore.CSV_ENTRY_PROPERTY.equals(entryProperty)) {
+                    throw new IllegalArgumentException("Different CSV files use the same archive filename: "
+                            + entryName + ". Use unique CSV filenames.");
+                }
                 log.warn("Conflicting checksums found for archive entry '{}': '{}' and '{}'",
                         entryName, current, candidate);
             }

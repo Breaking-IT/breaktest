@@ -237,6 +237,7 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
      */
     @Override
     public void testStarted() {
+        org.apache.jmeter.save.ArchiveFiles.activate(this);
         if (StringUtilities.isNotEmpty(getBasedir())) {
             try {
                 FileServer.getFileServer().setBasedir(FileServer.getFileServer().getBaseDir() + getBasedir());

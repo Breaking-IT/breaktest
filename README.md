@@ -160,6 +160,10 @@ debugging, and migration work that has landed across the BreakTest PR series.
   can fail the sampler when no value is found.
 - CSV Data Set can read records in random order while preserving header behavior.
 - CSV preview shows the first variable assignments before running the test.
+- Tools > Archive browser imports and exports shared files stored under `files/` in the JMX archive.
+  Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
+  the archive using their archive-source flags. For other fields that accept functions, use
+  `${__archiveFile(filename)}` to obtain a local path to an archived file.
 - JSR223/Groovy is the intended scripting direction; legacy BeanShell, BSF,
   JEXL2, Rhino JavaScript, and LogKit paths are removed.
 

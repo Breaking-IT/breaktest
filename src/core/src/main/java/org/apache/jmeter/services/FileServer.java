@@ -317,6 +317,13 @@ public class FileServer {
      * @return {@link File} instance
      */
     private File resolveFileFromPath(String filename) {
+        if (filename.startsWith("archive:")) {
+            try {
+                return org.apache.jmeter.save.ArchiveFiles.resolve(filename.substring("archive:".length())).toFile();
+            } catch (IOException e) {
+                throw new IllegalArgumentException(e.getMessage(), e);
+            }
+        }
         File f = new File(filename);
         if (f.isAbsolute() || f.exists()) {
             return f;

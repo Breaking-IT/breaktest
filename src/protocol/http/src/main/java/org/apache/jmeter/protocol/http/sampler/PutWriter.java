@@ -68,7 +68,7 @@ public class PutWriter extends PostWriter {
             }
 
             // Create the content length we are going to write
-            File inputFile = new File(file.getPath());
+            File inputFile = new File(file.getResolvedPath());
             contentLength = inputFile.length();
         }
         else if(sampler.getSendParameterValuesAsPostBody()) {

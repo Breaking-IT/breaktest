@@ -39,6 +39,9 @@ public final class JmxArchiveEntryStore {
     public static final String CORRELATION_RULES_CHECKSUM_PROPERTY =
             "BreakTest.correlationRules.checksum"; // $NON-NLS-1$
 
+    public static final String CSV_ENTRY_PROPERTY = "csvArchiveEntry";
+    public static final String CSV_CHECKSUM_PROPERTY = "csvArchiveChecksum";
+
     private static final Map<EntryKey, Map<String, byte[]>> BUNDLES = new ConcurrentHashMap<>();
 
     private JmxArchiveEntryStore() {
