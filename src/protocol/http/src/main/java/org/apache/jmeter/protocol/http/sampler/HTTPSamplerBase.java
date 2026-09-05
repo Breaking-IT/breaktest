@@ -3022,8 +3022,6 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         for (JMeterProperty jMeterProperty : getArguments()) {
             HTTPArgument arg = (HTTPArgument) jMeterProperty.getObjectValue();
             totalReplaced += JOrphanUtils.replaceLiteralValue(literal, replaceBy, true,
-                    arg.getName(), arg::setName);
-            totalReplaced += JOrphanUtils.replaceLiteralValue(literal, replaceBy, true,
                     arg.getValue(), arg::setValue);
         }
 

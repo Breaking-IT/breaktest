@@ -18,6 +18,8 @@
 package org.apache.jmeter.protocol.http.gui;
 
 import java.util.Iterator;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -217,29 +219,44 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
         // register the right click menu
         JTable table = getTable();
         final JPopupMenu popupMenu = new JPopupMenu();
-        JMenuItem variabilizeItem = new JMenuItem(JMeterUtils.getResString("transform_into_variable"));
-        variabilizeItem.addActionListener(e -> transformNameIntoVariable());
-        popupMenu.add(variabilizeItem);
-        table.setComponentPopupMenu(popupMenu);
-    }
-
-    /**
-     * replace the argument value of the selection with a variable
-     * the variable name is derived from the parameter name
-     */
-    private void transformNameIntoVariable() {
-        // Columns: 0 = enable checkbox, 1 = name, 2 = value
-        int[] rowsSelected = getTable().getSelectedRows();
-        for (int selectedRow : rowsSelected) {
-            String name = (String) tableModel.getValueAt(selectedRow, 1);
-            if (StringUtilities.isNotBlank(name)) {
-                name = name.trim();
-                name = name.replaceAll("\\$", "_");
-                name = name.replaceAll("\\{", "_");
-                name = name.replaceAll("\\}", "_");
-                tableModel.setValueAt("${" + name + "}", selectedRow, 2);
+        JMenuItem searchItem = new JMenuItem(JMeterUtils.getResString("http_parameter_search_responses"));
+        searchItem.addActionListener(e -> {
+            int row = table.getSelectedRow();
+            if (row >= 0) {
+                PreviousResponseSearch.search(this,
+                        (String) tableModel.getValueAt(table.convertRowIndexToModel(row), 2));
             }
-        }
+        });
+        popupMenu.add(searchItem);
+        table.addMouseListener(new MouseAdapter() {
+            private void showPopup(MouseEvent event) {
+                if (!event.isPopupTrigger()) {
+                    return;
+                }
+                int row = table.rowAtPoint(event.getPoint());
+                int column = table.columnAtPoint(event.getPoint());
+                if (row < 0 || column < 0 || table.convertColumnIndexToModel(column) != 2) {
+                    return;
+                }
+                if (table.isEditing() && !table.getCellEditor().stopCellEditing()) {
+                    return;
+                }
+                table.setRowSelectionInterval(row, row);
+                String value = (String) tableModel.getValueAt(table.convertRowIndexToModel(row), 2);
+                searchItem.setEnabled(value != null && !value.isEmpty());
+                popupMenu.show(table, event.getX(), event.getY());
+            }
+
+            @Override
+            public void mousePressed(MouseEvent event) {
+                showPopup(event);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showPopup(event);
+            }
+        });
     }
 
 }

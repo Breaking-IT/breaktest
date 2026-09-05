@@ -42,6 +42,8 @@ import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
@@ -51,6 +53,8 @@ import javax.swing.JTextArea;
 import javax.swing.JTextPane;
 import javax.swing.JToolBar;
 import javax.swing.SwingConstants;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.text.BadLocationException;
@@ -67,6 +71,12 @@ import javax.swing.text.View;
 import javax.swing.text.ViewFactory;
 
 import org.apache.jmeter.assertions.AssertionResult;
+import org.apache.jmeter.assertions.ResponseAssertion;
+import org.apache.jmeter.extractor.RegexExtractor;
+import org.apache.jmeter.gui.util.ResponseSelectionActions;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
@@ -871,6 +881,34 @@ public abstract class SamplerResultTab implements ResultRenderer {
         responseData.setWrapStyleWord(false);
         responseData.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
 
+        JPopupMenu popup = responseData.getPopupMenu();
+        JMenuItem addAssertion = new JMenuItem(JMeterUtils.getResString("view_results_add_assertion")); //$NON-NLS-1$
+        JMenuItem addExtractor = new JMenuItem(JMeterUtils.getResString("view_results_add_regex_extractor")); //$NON-NLS-1$
+        popup.addSeparator();
+        popup.add(addAssertion);
+        popup.add(addExtractor);
+        popup.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent event) {
+                JMeterTreeNode node = ViewResultsFullVisualizer.findTestPlanNode(sampleResult);
+                addAssertion.setEnabled(selectedResponseAssertion() != null && node != null
+                        && node.getTestElement() instanceof Sampler);
+                addExtractor.setEnabled(addAssertion.isEnabled());
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent event) {
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent event) {
+            }
+        });
+        addAssertion.addActionListener(event -> addSelectedResponseAssertion());
+        addExtractor.addActionListener(event -> addResponseChild(sampleResult == null ? null
+                : extractorForSelection(sampleResult.getResponseHeaders(), responseData.getSelectionStart(),
+                        responseData.getSelectionEnd(), responseData.getSelectedText())));
+
         JPanel responseAndSearchPanel = new JPanel(new BorderLayout());
         responseSearchToolBar = new JSyntaxSearchToolBar(responseData);
         responseSearchToolBar.setDiffContentSupplier(this::recordedResponseDiffContent);
@@ -1362,6 +1400,27 @@ public abstract class SamplerResultTab implements ResultRenderer {
     private static String withheldBodyMessage(String responseBody) {
         return JMeterUtils.getResString("view_results_body_too_long_single_line") // $NON-NLS-1$
                 .formatted(responseBody.length(), MAX_SINGLE_LINE_BODY_SIZE);
+    }
+
+    private ResponseAssertion selectedResponseAssertion() {
+        return sampleResult == null ? null : assertionForSelection(sampleResult.getResponseHeaders(),
+                responseData.getSelectionStart(), responseData.getSelectionEnd(), responseData.getSelectedText());
+    }
+
+    static ResponseAssertion assertionForSelection(String headers, int start, int end, String text) {
+        return ResponseSelectionActions.assertionForSelection(headers, start, end, text);
+    }
+
+    static RegexExtractor extractorForSelection(String headers, int start, int end, String text) {
+        return ResponseSelectionActions.extractorForSelection(headers, start, end, text);
+    }
+
+    private void addSelectedResponseAssertion() {
+        addResponseChild(selectedResponseAssertion());
+    }
+
+    private void addResponseChild(TestElement child) {
+        ResponseSelectionActions.addResponseChild(child, ViewResultsFullVisualizer.findTestPlanNode(sampleResult));
     }
 
     private static String buildResponseData(String responseHeaders, String responseBody) {
