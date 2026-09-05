@@ -21,15 +21,21 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Dialog;
 import java.awt.GridBagLayout;
 import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
 
 import javax.swing.JButton;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -38,7 +44,7 @@ import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
- * Adds a CSV preview action while keeping the standard TestBean property editor.
+ * Adds CSV preview and editing actions while keeping the standard TestBean property editor.
  */
 public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
 
@@ -96,14 +102,60 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
             }
         });
 
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        JButton editButton = new JButton(bundle.getString("editCsv.displayName"));
+        editButton.addActionListener(event -> {
+            saveGuiFields();
+            try {
+                CsvFileEditor file = CsvFileEditor.open(getString("filename"), getString("fileEncoding"));
+                showEditor(file, bundle, previewButton);
+            } catch (IOException | RuntimeException ex) {
+                JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("editCsv.error"),
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         buttonPanel.add(previewButton);
+        buttonPanel.add(editButton);
 
         JPanel previewPanel = new JPanel(new BorderLayout(0, 5));
         previewPanel.add(buttonPanel, BorderLayout.NORTH);
         previewPanel.add(previewScroll, BorderLayout.CENTER);
 
         return previewPanel;
+    }
+
+    private void showEditor(CsvFileEditor file, ResourceBundle bundle, JButton previewButton) {
+        JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
+                bundle.getString("editCsv.displayName"), Dialog.ModalityType.APPLICATION_MODAL);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        JTextArea editor = new JTextArea(file.getContent(), 24, 100);
+        editor.setCaretPosition(0);
+        editor.getAccessibleContext().setAccessibleName(bundle.getString("editCsv.displayName"));
+        JPanel content = new JPanel(new BorderLayout(5, 5));
+        content.add(new JLabel(file.getPath().toString()), BorderLayout.NORTH);
+        content.add(new JScrollPane(editor), BorderLayout.CENTER);
+        JButton cancel = new JButton(JMeterUtils.getResString("cancel"));
+        cancel.addActionListener(event -> dialog.dispose());
+        JButton save = new JButton(JMeterUtils.getResString("save"));
+        save.addActionListener(event -> {
+            try {
+                file.save(editor.getText());
+                dialog.dispose();
+                previewButton.doClick();
+            } catch (IOException | RuntimeException ex) {
+                JOptionPane.showMessageDialog(dialog, ex.getMessage(), bundle.getString("editCsv.error"),
+                        JOptionPane.ERROR_MESSAGE);
+            }
+        });
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttons.add(cancel);
+        buttons.add(save);
+        content.add(buttons, BorderLayout.SOUTH);
+        dialog.setContentPane(content);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 
     private CSVDataSet createCsvDataSet() {
