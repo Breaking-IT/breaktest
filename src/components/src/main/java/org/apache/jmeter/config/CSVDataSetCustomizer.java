@@ -255,7 +255,7 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
                 bundle.getString("editCsv.displayName"), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        JTextArea editor = new JTextArea(file.getContent(), 24, 100);
+        JTextArea editor = new JTextArea(file.getEditorText(), 24, 100);
         editor.setCaretPosition(0);
         editor.getAccessibleContext().setAccessibleName(bundle.getString("editCsv.displayName"));
         JPanel content = new JPanel(new BorderLayout(5, 5));
@@ -266,11 +266,12 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         JButton save = new JButton(JMeterUtils.getResString("save"));
         save.addActionListener(event -> {
             try {
+                String updatedContent = file.toFileText(editor.getText());
                 if (csv.isUseCsvFromArchive()) {
-                    storeArchivedCsv(csv, file.encode(editor.getText()));
+                    storeArchivedCsv(csv, file.encode(updatedContent));
                     updateArchiveProperties(csv);
                 } else {
-                    file.save(editor.getText());
+                    file.save(updatedContent);
                 }
                 dialog.dispose();
                 previewButton.doClick();

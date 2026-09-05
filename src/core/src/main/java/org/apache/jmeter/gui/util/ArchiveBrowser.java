@@ -27,9 +27,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.text.MessageFormat;
 import java.util.TreeMap;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.SwingWorker;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -41,7 +45,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.table.DefaultTableModel;
 
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.save.ArchiveFiles;
+import org.apache.jmeter.save.ArchiveCleanup;
+import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
@@ -54,10 +61,15 @@ public final class ArchiveBrowser {
     }
 
     private static Map<String, String> entries() {
-        HashTree tree = new HashTree();
-        GuiPackage.getInstance().getTreeModel().getNodesOfType(TestElement.class)
-                .forEach(node -> tree.add(node.getTestElement()));
+        HashTree tree = testElementTree(GuiPackage.getInstance().getTreeModel().getTestPlan());
         return new TreeMap<>(SaveService.collectArchiveReferences(tree));
+    }
+
+    private static Map<String, byte[]> archiveContents() {
+        Map<String, byte[]> contents = new TreeMap<>();
+        entries().forEach((entry, checksum) -> JmxArchiveEntryStore.findBundle(entry, checksum)
+                .ifPresent(contents::putAll));
+        return contents;
     }
 
     public static String chooseFile(Component parent) {
@@ -84,8 +96,7 @@ public final class ArchiveBrowser {
         JTable table = new JTable(model);
         Runnable refresh = () -> {
             model.setRowCount(0);
-            entries().forEach((entry, checksum) -> model.addRow(new Object[] {entry,
-                    JmxArchiveEntryStore.find(entry, checksum).map(bytes -> Integer.toString(bytes.length)).orElse("?")}));
+            archiveContents().forEach((entry, bytes) -> model.addRow(new Object[] {entry, bytes.length}));
         };
         refresh.run();
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -131,8 +142,10 @@ public final class ArchiveBrowser {
                 return;
             }
             try {
-                byte[] bytes = JmxArchiveEntryStore.find(entry, entries().get(entry))
-                        .orElseThrow(() -> new IOException("Archive file content is unavailable: " + entry));
+                byte[] bytes = archiveContents().get(entry);
+                if (bytes == null) {
+                    throw new IOException("Archive file content is unavailable: " + entry);
+                }
                 Files.write(destination, bytes);
             } catch (IOException | RuntimeException ex) {
                 showError(dialog, ex);
@@ -149,11 +162,14 @@ public final class ArchiveBrowser {
                 }
             }
         });
+        JButton cleanup = new JButton(JMeterUtils.getResString("archive_cleanup"));
+        cleanup.addActionListener(event -> cleanRecordings(dialog, refresh));
         JButton close = new JButton(JMeterUtils.getResString("close"));
         close.addActionListener(event -> dialog.dispose());
         buttons.add(add);
         buttons.add(export);
         buttons.add(reference);
+        buttons.add(cleanup);
         buttons.add(close);
         dialog.add(new JLabel(JMeterUtils.getResString("archive_help")), BorderLayout.NORTH);
         dialog.add(new JScrollPane(table), BorderLayout.CENTER);
@@ -161,6 +177,76 @@ public final class ArchiveBrowser {
         dialog.setSize(800, 460);
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
+    }
+
+    private static HashTree testElementTree(HashTree source) {
+        HashTree tree = new HashTree();
+        for (Object node : source.list()) {
+            tree.add(((JMeterTreeNode) node).getTestElement(), testElementTree(source.getTree(node)));
+        }
+        return tree;
+    }
+
+    private static void cleanRecordings(JDialog parent, Runnable refresh) {
+        String title = JMeterUtils.getResString("archive_cleanup");
+        JComboBox<String> mode = new JComboBox<>(new String[] {
+                JMeterUtils.getResString("archive_keep_recordings"),
+                JMeterUtils.getResString("archive_omit_static_bodies"),
+                JMeterUtils.getResString("archive_omit_statics"),
+                JMeterUtils.getResString("archive_omit_recordings")});
+        RecordingStorageMode[] modes = {RecordingStorageMode.ALL, RecordingStorageMode.OMIT_STATIC_BODIES,
+                RecordingStorageMode.OMIT_STATICS, RecordingStorageMode.NONE};
+        JCheckBox orphans = new JCheckBox(JMeterUtils.getResString("archive_remove_orphans"));
+        JPanel options = new JPanel(new BorderLayout(5, 5));
+        options.add(mode, BorderLayout.NORTH);
+        options.add(orphans, BorderLayout.CENTER);
+        options.add(new JLabel(JMeterUtils.getResString("archive_cleanup_help")), BorderLayout.SOUTH);
+        if (JOptionPane.showConfirmDialog(parent, options, title, JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+            return;
+        }
+        RecordingStorageMode selected = modes[mode.getSelectedIndex()];
+        boolean removeOrphans = orphans.isSelected();
+        if (selected == RecordingStorageMode.ALL && !removeOrphans) {
+            return;
+        }
+        GuiPackage gui = GuiPackage.getInstance();
+        gui.updateCurrentNode();
+        HashTree tree = testElementTree(gui.getTreeModel().getTestPlan());
+        JDialog progress = new JDialog(parent, title, Dialog.ModalityType.APPLICATION_MODAL);
+        progress.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        progress.add(new JLabel(JMeterUtils.getResString("archive_cleanup_calculating")));
+        progress.setSize(400, 100);
+        progress.setLocationRelativeTo(parent);
+        new SwingWorker<ArchiveCleanup.Prepared, Void>() {
+            @Override
+            protected ArchiveCleanup.Prepared doInBackground() throws IOException {
+                return ArchiveCleanup.prepare(tree, selected, removeOrphans);
+            }
+
+            @Override
+            protected void done() {
+                progress.dispose();
+                try {
+                    ArchiveCleanup.Prepared prepared = get();
+                    String summary = MessageFormat.format(JMeterUtils.getResString("archive_cleanup_summary"),
+                            prepared.removedEntries(), prepared.bytesRemoved());
+                    if (JOptionPane.showConfirmDialog(parent, summary, title, JOptionPane.OK_CANCEL_OPTION,
+                            JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION) {
+                        prepared.apply();
+                        gui.setDirty(true);
+                        gui.refreshCurrentGui();
+                        refresh.run();
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showError(parent, ex);
+                } catch (java.util.concurrent.ExecutionException | RuntimeException ex) {
+                    showError(parent, ex);
+                }
+            }
+        }.execute();
+        progress.setVisible(true);
     }
 
     private static void showError(Component parent, Exception error) {

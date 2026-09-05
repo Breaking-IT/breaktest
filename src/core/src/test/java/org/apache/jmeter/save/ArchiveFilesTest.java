@@ -45,6 +45,33 @@ class ArchiveFilesTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
+    void guiReopenUsesVisiblePlanInsteadOfStaleInvisibleRoot() throws Exception {
+        java.lang.reflect.Field field = org.apache.jmeter.gui.GuiPackage.class.getDeclaredField("guiPack");
+        field.setAccessible(true);
+        Object previousGui = field.get(null);
+        try {
+            TestPlan oldPlan = new TestPlan("Old plan");
+            ArchiveFiles.put(oldPlan, "old.csv", new byte[] {1}, false);
+            var model = new org.apache.jmeter.gui.tree.JMeterTreeModel(oldPlan);
+            org.apache.jmeter.gui.GuiPackage.initInstance(
+                    new org.apache.jmeter.gui.tree.JMeterTreeListener(model), model);
+            TestPlan reopened = new TestPlan("Reopened plan");
+            byte[] content = "name\nAlice\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            ArchiveFiles.put(reopened, "accounts.csv", content, false);
+            model.clearTestPlan(reopened);
+            // getNodesOfType finds the old hidden root first, reproducing the GUI reopen state.
+            assertEquals(oldPlan, model.getNodesOfType(TestPlan.class).get(0).getTestElement());
+            org.junit.jupiter.api.Assertions.assertSame(reopened, ArchiveFiles.currentPlan());
+            assertArrayEquals(content, ArchiveFiles.read("accounts.csv"));
+            ArchiveFiles.put(ArchiveFiles.currentPlan(), "accounts.csv", new byte[] {2}, true);
+            assertArrayEquals(new byte[] {2}, ArchiveFiles.read("accounts.csv"));
+            assertThrows(IOException.class, () -> ArchiveFiles.read("old.csv"));
+        } finally {
+            field.set(null, previousGui);
+        }
+    }
+
+    @Test
     void reopeningOlderCsvArchiveRebuildsSharedFileIndex() throws Exception {
         TestPlan plan = new TestPlan();
         plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");

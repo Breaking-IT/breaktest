@@ -35,6 +35,32 @@ class CsvFileEditorTest {
     Path directory;
 
     @Test
+    void appendingAtLineEndDoesNotCreateAdditionalCsvRecords() throws Exception {
+        for (String separator : new String[] {"\r\n", "\r", "\n"}) {
+            String original = "Alice,id-one" + separator + "Bob,id-two" + separator;
+            CsvFileEditor file = CsvFileEditor.fromBytes(Path.of("files/accounts.csv"), "UTF-8",
+                    original.getBytes(StandardCharsets.UTF_8));
+            javax.swing.JTextArea area = new javax.swing.JTextArea(file.getEditorText());
+            area.insert("aaaa", area.getLineEndOffset(0) - 1);
+            area.insert("bbbb", area.getLineEndOffset(1) - 1);
+            byte[] saved = file.encode(file.toFileText(area.getText()));
+            String expected = "Alice,id-oneaaaa" + separator + "Bob,id-twobbbb" + separator;
+            assertArrayEquals(expected.getBytes(StandardCharsets.UTF_8), saved);
+            try (var reader = new java.io.BufferedReader(new java.io.StringReader(new String(saved, StandardCharsets.UTF_8)))) {
+                assertEquals(java.util.List.of("Alice,id-oneaaaa", "Bob,id-twobbbb"), reader.lines().toList());
+            }
+        }
+    }
+
+    @Test
+    void unchangedEditorTextPreservesMixedOriginalLineEndings() throws Exception {
+        String original = "Alice,1\r\nBob,2\nCarol,3\r";
+        CsvFileEditor file = CsvFileEditor.fromBytes(Path.of("mixed.csv"), "UTF-8",
+                original.getBytes(StandardCharsets.UTF_8));
+        assertEquals(original, file.toFileText(file.getEditorText()));
+    }
+
+    @Test
     void openingDoesNotWriteAndSavingPreservesRawCsv() throws Exception {
         Path path = directory.resolve("data.csv");
         String original = "name,value\r\nAlice,\"two,three\"\r\n";

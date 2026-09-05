@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.MapProperty;
@@ -48,7 +49,9 @@ public final class ArchiveFiles {
     public static TestPlan currentPlan() {
         GuiPackage gui = GuiPackage.getInstance();
         if (gui != null) {
-            return (TestPlan) gui.getTreeModel().getNodesOfType(TestPlan.class).get(0).getTestElement();
+            // The invisible tree root can retain a previous TestPlan after Open/Close.
+            JMeterTreeNode node = (JMeterTreeNode) gui.getTreeModel().getTestPlan().getArray()[0];
+            return (TestPlan) node.getTestElement();
         }
         return activePlan;
     }

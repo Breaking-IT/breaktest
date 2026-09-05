@@ -164,6 +164,10 @@ debugging, and migration work that has landed across the BreakTest PR series.
   Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
   the archive using their archive-source flags. For other fields that accept functions, use
   `${__archiveFile(filename)}` to obtain a local path to an archived file.
+  The browser's **Clean up recordings** action can remove static-resource bodies, static-resource
+  recordings, or all recorded headers and bodies. Its orphan cleanup removes exchanges without
+  sampler references and unused recording blobs; shared files are preserved. Review the estimated
+  reduction before applying cleanup, then save the plan.
 - JSR223/Groovy is the intended scripting direction; legacy BeanShell, BSF,
   JEXL2, Rhino JavaScript, and LogKit paths are removed.
 

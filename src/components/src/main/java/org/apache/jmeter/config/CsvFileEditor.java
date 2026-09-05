@@ -83,6 +83,35 @@ final class CsvFileEditor {
         return content;
     }
 
+    String getEditorText() {
+        // Swing's text area treats LF as the line boundary. A raw CR remains an
+        // invisible editable character, so typing at End can split a CSV record.
+        return normalizeLineEndings(content);
+    }
+
+    String toFileText(String editorText) {
+        String normalized = normalizeLineEndings(editorText);
+        if (normalized.equals(getEditorText())) {
+            return content;
+        }
+        String separator = "\n";
+        for (int i = 0; i < content.length(); i++) {
+            char character = content.charAt(i);
+            if (character == '\r') {
+                separator = i + 1 < content.length() && content.charAt(i + 1) == '\n' ? "\r\n" : "\r";
+                break;
+            }
+            if (character == '\n') {
+                break;
+            }
+        }
+        return normalized.replace("\n", separator);
+    }
+
+    private static String normalizeLineEndings(String text) {
+        return text.replace("\r\n", "\n").replace('\r', '\n');
+    }
+
     void save(String updatedContent) throws IOException {
         Files.write(path, encode(updatedContent), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
     }
