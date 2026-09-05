@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -34,6 +35,56 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.Test;
 
 public class SamplerResultTabTest {
+
+    @Test
+    public void selectionCreatesEscapedExtractorWithRequestedDefaults() {
+        String headers = "X-Token: a.b[1]\r\n";
+        String body = "url?x=(a+b)*[1].$^|\\end";
+        SampleResult sample = sampleResult(SampleResult.TEXT, headers, body);
+        var extractor = SamplerResultTab.extractorForSelection(headers,
+                headers.length() + 1, headers.length() + 1 + body.length(), body);
+        assertEquals(JMeterUtils.getResString("regex_extractor_title"), extractor.getName());
+        assertEquals("", extractor.getRefName());
+        assertEquals("$1$", extractor.getTemplate());
+        assertEquals(1, extractor.getMatchNumber());
+        assertTrue(extractor.isEnabled());
+        assertTrue(extractor.isFailOnNoMatch());
+        assertTrue(extractor.useBody());
+        assertEquals("url\\?x\\=\\(a\\+b\\)\\*\\[1\\]\\.\\$\\^\\|\\\\end", extractor.getRegex());
+        // No capture group is added; use group zero to verify literal matching.
+        extractor.setTemplate("$0$");
+        assertEquals(Arrays.asList(body), extractor.extractForTesting(sample));
+
+        var headerExtractor = SamplerResultTab.extractorForSelection(headers, 9, 15, "a.b[1]");
+        assertTrue(headerExtractor.useHeaders());
+        assertEquals("a\\.b\\[1\\]", headerExtractor.getRegex());
+        assertEquals("$1$", headerExtractor.getTemplate());
+        headerExtractor.setTemplate("$0$");
+        assertEquals(Arrays.asList("a.b[1]"), headerExtractor.extractForTesting(sample));
+        sample.setResponseHeaders("X-Token: axb1\r\n");
+        assertTrue(headerExtractor.extractForTesting(sample).isEmpty());
+        assertTrue(SamplerResultTab.extractorForSelection("", 0, body.length(), body).useBody());
+        assertNull(SamplerResultTab.extractorForSelection(headers, 0, headers.length() + 5, "mixed"));
+        assertNull(SamplerResultTab.extractorForSelection(headers, 0, 0, ""));
+    }
+
+    @Test
+    public void selectionCreatesLiteralAssertionForItsResponseSection() {
+        String headers = "X-Token: a.b[1]\r\n";
+        SampleResult sample = sampleResult(SampleResult.TEXT, headers, "body (value)");
+        var headerAssertion = SamplerResultTab.assertionForSelection(headers, 9, 15, "a.b[1]");
+        assertTrue(headerAssertion.isTestFieldResponseHeaders());
+        assertFalse(headerAssertion.getResult(sample).isFailure());
+        sample.setResponseHeaders("X-Token: axb1\r\n");
+        assertTrue(headerAssertion.getResult(sample).isFailure());
+
+        var bodyAssertion = SamplerResultTab.assertionForSelection(headers,
+                headers.length() + 1, headers.length() + 13, "body (value)");
+        assertTrue(bodyAssertion.isTestFieldResponseData());
+        assertFalse(bodyAssertion.getResult(sample).isFailure());
+        assertNull(SamplerResultTab.assertionForSelection(headers, 0, headers.length() + 5, "mixed"));
+        assertNull(SamplerResultTab.assertionForSelection(headers, 0, 0, ""));
+    }
 
     @Test
     public void clearDataBeforeInitDoesNotThrow() {

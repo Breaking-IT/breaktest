@@ -1593,7 +1593,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return SampleResultNodeResolver.find(sampleResult);
     }
 
-    private static void jumpToTestPlanElement(JMeterTreeNode testPlanNode) {
+    static void jumpToTestPlanElement(JMeterTreeNode testPlanNode) {
         if (testPlanNode == null) {
             return;
         }
