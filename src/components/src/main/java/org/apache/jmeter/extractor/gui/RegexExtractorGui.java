@@ -23,6 +23,8 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -37,7 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -57,7 +59,6 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -65,6 +66,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableCellRenderer;
 
@@ -103,7 +105,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
             JMeterUtils.getPropDefault("regex_extractor_tester_timeout_ms", //$NON-NLS-1$
                     DEFAULT_PREVIEW_TIMEOUT_MILLIS));
     private static final ThreadPoolExecutor PREVIEW_EXECUTOR = new ThreadPoolExecutor(
-            0, 1, 30L, TimeUnit.SECONDS, new SynchronousQueue<>(),
+            1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(1),
             daemonThreadFactory("regex-extractor-preview")); //$NON-NLS-1$
     private static final ScheduledExecutorService PREVIEW_TIMEOUT_EXECUTOR =
             Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("regex-extractor-watchdog")); //$NON-NLS-1$
@@ -133,6 +135,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     private List<ReplacementCandidate> displayedCandidates = List.of();
     private final AtomicLong previewGeneration = new AtomicLong();
     private volatile PreviewRun previewRun;
+    private boolean configuring;
 
     public RegexExtractorGui() {
         super();
@@ -151,6 +154,17 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement el) {
+        configuring = true;
+        cancelPreview();
+        try {
+            configureFields(el);
+        } finally {
+            configuring = false;
+        }
+        updateTestResult();
+    }
+
+    private void configureFields(TestElement el) {
         super.configure(el);
         if (el instanceof RegexExtractor re){
             configuredExtractor = el;
@@ -171,7 +185,6 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
             matchNumberField.setText(re.getMatchNumberAsString());
             refNameField.setText(re.getRefName());
             recordedSampleResult = loadRecordedSampleResult(el);
-            updateTestResult();
         }
     }
 
@@ -239,10 +252,9 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         box.add(createScopePanel(true));
         box.add(makeSourcePanel());
         add(box, BorderLayout.NORTH);
-        JSplitPane editorPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                makeParameterPanel(), makeTestResultPanel());
-        editorPane.setResizeWeight(0.55d);
-        editorPane.setOneTouchExpandable(true);
+        JPanel editorPane = new JPanel(new BorderLayout(0, 16));
+        editorPane.add(makeParameterPanel(), BorderLayout.NORTH);
+        editorPane.add(makeTestResultPanel(), BorderLayout.CENTER);
         add(editorPane, BorderLayout.CENTER);
     }
 
@@ -365,19 +377,20 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                         JMeterUtils.getResString("regex_test_variable"), //$NON-NLS-1$
                         JMeterUtils.getResString("regex_test_extracted_value"), //$NON-NLS-1$
                         JMeterUtils.getResString("regex_test_occurrence_count"), //$NON-NLS-1$
-                        JMeterUtils.getResString("regex_test_replace") //$NON-NLS-1$
+                        "" //$NON-NLS-1$
                 }, 0) {
             private static final long serialVersionUID = 1L;
 
             @Override
             public boolean isCellEditable(int row, int column) {
                 return column == 4 && row >= 0 && row < displayedCandidates.size()
-                        && displayedCandidates.get(row).replaceable();
+                        && displayedCandidates.get(row).replaceable()
+                        && ((Number) getValueAt(row, 3)).intValue() > 0;
             }
         };
         testResultTable = new JTable(testResultModel);
         testResultTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
-        testResultTable.setRowHeight(52);
+        testResultTable.setRowHeight(28);
         testResultTable.getColumnModel().getColumn(0).setPreferredWidth(60);
         testResultTable.getColumnModel().getColumn(1).setPreferredWidth(210);
         testResultTable.getColumnModel().getColumn(2).setPreferredWidth(500);
@@ -386,12 +399,23 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         replaceColumn.setPreferredWidth(100);
         replaceColumn.setMinWidth(100);
         replaceColumn.setMaxWidth(100);
-        testResultTable.getColumnModel().getColumn(0).setCellRenderer(new WrapTextRenderer());
-        testResultTable.getColumnModel().getColumn(1).setCellRenderer(new WrapTextRenderer());
-        testResultTable.getColumnModel().getColumn(2).setCellRenderer(new WrapTextRenderer());
-        testResultTable.getColumnModel().getColumn(3).setCellRenderer(new WrapTextRenderer());
+        for (int column = 0; column < 4; column++) {
+            testResultTable.getColumnModel().getColumn(column).setCellRenderer(new SingleLineRenderer());
+        }
         replaceColumn.setCellRenderer(new ReplaceButtonRenderer());
         replaceColumn.setCellEditor(new ReplaceButtonEditor());
+        testResultTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                int row = testResultTable.rowAtPoint(event.getPoint());
+                int column = testResultTable.columnAtPoint(event.getPoint());
+                if (SwingUtilities.isLeftMouseButton(event) && event.getClickCount() == 2
+                        && row >= 0 && column >= 0
+                        && testResultTable.convertColumnIndexToModel(column) == 2) {
+                    showFullValue(testResultTable.convertRowIndexToModel(row));
+                }
+            }
+        });
 
         DocumentListener previewListener = new DocumentListener() {
             @Override
@@ -426,12 +450,26 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         return panel;
     }
 
+    private void showFullValue(int row) {
+        JTextArea value = new JTextArea(String.valueOf(testResultModel.getValueAt(row, 2)));
+        value.setEditable(false);
+        value.setLineWrap(true);
+        value.setWrapStyleWord(true);
+        value.setCaretPosition(0);
+        JScrollPane scrollPane = new JScrollPane(value);
+        scrollPane.setPreferredSize(new Dimension(720, 320));
+        JOptionPane.showMessageDialog(this, scrollPane,
+                JMeterUtils.getResString("regex_test_extracted_value") + " — " //$NON-NLS-1$ //$NON-NLS-2$
+                        + testResultModel.getValueAt(row, 1), JOptionPane.PLAIN_MESSAGE);
+    }
+
     private void updateTestResult() {
-        if (testResultTable == null || regexField == null
+        if (configuring || testResultTable == null || regexField == null
                 || templateField == null || matchNumberField == null) {
             return;
         }
         cancelPreview();
+        PREVIEW_EXECUTOR.purge();
         long generation = previewGeneration.incrementAndGet();
         String regex = regexField.getText();
         if (regex.isEmpty()) {
@@ -466,6 +504,9 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     }
 
     private void clearTestTable() {
+        if (testResultTable != null && testResultTable.isEditing()) {
+            testResultTable.getCellEditor().cancelCellEditing();
+        }
         if (testResultModel != null) {
             testResultModel.setRowCount(0);
         }
@@ -571,7 +612,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                     ? countOccurrences(findReplacementTargets(sourceNode, candidate.value())) : 0;
             testResultModel.addRow(new Object[] {
                     candidate.displayMatch(), candidate.variableName(), candidate.value(), occurrences,
-                    candidate.replaceable() && occurrences > 0
+                    candidate.replaceable()
                             ? JMeterUtils.getResString("regex_test_replace") : "" //$NON-NLS-1$
             });
         }
@@ -906,24 +947,26 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     private static final int REPLACE_BUTTON_WIDTH = 84;
     private static final int REPLACE_BUTTON_HEIGHT = 26;
 
-    private static final class WrapTextRenderer extends JTextArea implements TableCellRenderer {
+    private static final class SingleLineRenderer extends DefaultTableCellRenderer {
         private static final long serialVersionUID = 1L;
 
-        private WrapTextRenderer() {
-            setLineWrap(true);
-            setWrapStyleWord(true);
-            setOpaque(true);
-            setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
-            setEditable(false);
+        private SingleLineRenderer() {
+            putClientProperty("html.disable", true); //$NON-NLS-1$
         }
 
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
                 boolean hasFocus, int row, int column) {
-            setText(value == null ? "" : value.toString()); //$NON-NLS-1$
-            setFont(table.getFont());
-            setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-            setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+            String text = value == null ? "" : value.toString(); //$NON-NLS-1$
+            int newline = text.indexOf('\n');
+            int carriageReturn = text.indexOf('\r');
+            int end = newline < 0 ? text.length() : newline;
+            if (carriageReturn >= 0) {
+                end = Math.min(end, carriageReturn);
+            }
+            String preview = end < text.length() ? text.substring(0, end) + "..." : text; //$NON-NLS-1$
+            super.getTableCellRendererComponent(table, preview, isSelected, hasFocus, row, column);
+            setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
             return this;
         }
     }
@@ -941,8 +984,8 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
                 boolean hasFocus, int row, int column) {
-            button.setText(String.valueOf(value));
-            button.setEnabled(value != null && !value.toString().isEmpty());
+            button.setText(JMeterUtils.getResString("regex_test_replace")); //$NON-NLS-1$
+            button.setEnabled(table.isCellEditable(row, column));
             return this;
         }
     }
@@ -970,9 +1013,14 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected,
                 int row, int column) {
             this.row = row;
-            button.setText(String.valueOf(value));
-            button.setEnabled(value != null && !value.toString().isEmpty());
+            button.setText(JMeterUtils.getResString("regex_test_replace")); //$NON-NLS-1$
+            button.setEnabled(table.isCellEditable(row, column));
             return panel;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return JMeterUtils.getResString("regex_test_replace"); //$NON-NLS-1$
         }
     }
 
