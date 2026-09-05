@@ -26,14 +26,18 @@ import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JPopupMenu;
 import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JBooleanPropertyEditor;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
@@ -45,6 +49,7 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
+import org.apache.jmeter.gui.util.ResponseSelectionActions;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -320,6 +325,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             recordedRequestData = textArea;
         } else {
             recordedResponseData = textArea;
+            installRecordedResponseActions();
         }
 
         JPanel contentAndSearch = new JPanel(new BorderLayout());
@@ -329,6 +335,63 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         JPanel panel = new JPanel(new BorderLayout(0, 5));
         panel.add(GuiUtils.makeScrollPane(contentAndSearch));
         return panel;
+    }
+
+    private void installRecordedResponseActions() {
+        JPopupMenu popup = recordedResponseData.getPopupMenu();
+        JMenuItem assertion = new JMenuItem(JMeterUtils.getResString("view_results_add_assertion"));
+        JMenuItem extractor = new JMenuItem(JMeterUtils.getResString("view_results_add_regex_extractor"));
+        popup.addSeparator();
+        popup.add(assertion);
+        popup.add(extractor);
+        popup.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent event) {
+                GuiPackage gui = GuiPackage.getInstance();
+                boolean enabled = gui != null && gui.getNodeOf(recordedHarElement) != null
+                        && selectedRecordedResponseChild(false) != null;
+                assertion.setEnabled(enabled);
+                extractor.setEnabled(enabled);
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent event) {
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent event) {
+            }
+        });
+        assertion.addActionListener(event -> addRecordedResponseChild(false));
+        extractor.addActionListener(event -> addRecordedResponseChild(true));
+    }
+
+    TestElement selectedRecordedResponseChild(boolean extractor) {
+        if (!(recordedHarElement instanceof HTTPSamplerBase) || recordedHarResolution == null
+                || !recordedHarExchangeLoaded || recordedHarResolution.exchange().isEmpty()) {
+            return null;
+        }
+        var exchange = recordedHarResolution.exchange().orElseThrow();
+        String text = recordedResponseData.getSelectedText();
+        int start = recordedResponseData.getSelectionStart();
+        int end = recordedResponseData.getSelectionEnd();
+        int bodyStart = exchange.response().length() - exchange.responseBody().length();
+        if (text == null || text.isEmpty() || end > exchange.response().length()
+                || !exchange.response().regionMatches(start, text, 0, text.length())
+                || (end > exchange.responseHeaders().length() && start < bodyStart)) {
+            return null;
+        }
+        return extractor
+                ? ResponseSelectionActions.extractorForSelection(exchange.responseHeaders(), start, end, text)
+                : ResponseSelectionActions.assertionForSelection(exchange.responseHeaders(), start, end, text);
+    }
+
+    private void addRecordedResponseChild(boolean extractor) {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui != null) {
+            ResponseSelectionActions.addResponseChild(selectedRecordedResponseChild(extractor),
+                    gui.getNodeOf(recordedHarElement));
+        }
     }
 
     private void updateRecordedHarTabs(TestElement element) {
@@ -382,6 +445,17 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         }
         String selectedTitle = configTabbedPane.getTitleAt(selectedIndex);
         return RECORDED_REQUEST_TAB.equals(selectedTitle) || RECORDED_RESPONSE_TAB.equals(selectedTitle);
+    }
+
+    /** Open a recorded response and select a literal search hit. */
+    public void selectRecordedResponseText(int offset, String value) {
+        configTabbedPane.setSelectedComponent(recordedResponsePane);
+        populateSelectedRecordedHarTab();
+        String text = recordedResponseData.getText();
+        if (offset >= 0 && text.startsWith(value, offset)) {
+            recordedResponseData.requestFocusInWindow();
+            recordedResponseData.select(offset, offset + value.length());
+        }
     }
 
     private void removeTab(String title) {

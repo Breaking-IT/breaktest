@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.control.gui;
 import java.awt.Component;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.nio.file.Files;
 
 import javax.swing.JComboBox;
 import javax.swing.JTabbedPane;
@@ -27,6 +28,8 @@ import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.assertions.ResponseAssertion;
+import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -66,6 +69,20 @@ public class TestHttpTestSampleGui {
         clonedSampler.setRunningVersion(true);
         sampler.getArguments().getArgument(0).setValue("new value");
         Assertions.assertEquals("new value", sampler.getArguments().getArgument(0).getValue(), "Sampler didn't clone correctly");
+    }
+
+    @Test
+    public void testRecordedResponseNavigationSelectsTheRequestedOccurrence() throws Exception {
+        gui.configure(new HTTPSamplerProxy());
+        JSyntaxTextArea response = recordedResponseData();
+        response.setText("Header: token\r\n\r\nbody token");
+        Assertions.assertEquals("Header: token\r\n\r\nbody token", response.getText());
+        int offset = response.getText().lastIndexOf("token");
+        gui.selectRecordedResponseText(offset, "token");
+        Assertions.assertEquals("Recorded Response",
+                configTabbedPane().getTitleAt(configTabbedPane().getSelectedIndex()));
+        Assertions.assertEquals(offset, response.getSelectionStart());
+        Assertions.assertEquals("token", response.getSelectedText());
     }
 
     @Test
@@ -153,6 +170,56 @@ public class TestHttpTestSampleGui {
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
         Assertions.assertTrue(recordedRequestData().getText().contains(
                 tempDir.resolve("plan.jmx").toAbsolutePath().normalize() + "!/missing.har"));
+    }
+
+    @Test
+    public void testRecordedResponseSelectionCreatesAssertionAndExtractor() throws Exception {
+        Files.writeString(tempDir.resolve("selection.har"), """
+                {"log":{"entries":[{"request":{"method":"GET","url":"https://example.invalid/"},
+                "response":{"httpVersion":"HTTP/1.1","status":200,"statusText":"OK",
+                "headers":[{"name":"X-Token","value":"a.b[1]"}],
+                "content":{"text":"body (value)"}}}]}}
+                """);
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
+        sampler.setProperty("BreakTest.har.entryIndex", "0");
+        ThreadGroup group = new ThreadGroup();
+        group.setProperty("BreakTest.har.filename", "selection.har");
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel model = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(model), model);
+        setTestPlanFile(tempDir.resolve("plan.jmx"));
+        var groupNode = new JMeterTreeNode(group, model);
+        ((JMeterTreeNode) model.getRoot()).add(groupNode);
+        groupNode.add(new JMeterTreeNode(sampler, model));
+        gui.configure(sampler);
+        configTabbedPane().setSelectedIndex(configTabbedPane().indexOfTab("Recorded Response"));
+        JSyntaxTextArea response = recordedResponseData();
+        String text = response.getText();
+        int header = text.indexOf("a.b[1]");
+        Assertions.assertTrue(header >= 0, text);
+        response.select(header, header + 6);
+        ResponseAssertion assertion = (ResponseAssertion) gui.selectedRecordedResponseChild(false);
+        Assertions.assertTrue(assertion.isTestFieldResponseHeaders());
+        RegexExtractor extractor = (RegexExtractor) gui.selectedRecordedResponseChild(true);
+        Assertions.assertTrue(extractor.useHeaders());
+        Assertions.assertEquals("a\\.b\\[1\\]", extractor.getRegex());
+        Assertions.assertEquals("$1$", extractor.getTemplate());
+        Assertions.assertEquals(1, extractor.getMatchNumber());
+        Assertions.assertTrue(extractor.isFailOnNoMatch());
+        Assertions.assertEquals(JMeterUtils.getResString("regex_extractor_title"), extractor.getName());
+
+        int body = text.indexOf("body (value)");
+        response.select(body, text.length());
+        assertion = (ResponseAssertion) gui.selectedRecordedResponseChild(false);
+        Assertions.assertTrue(assertion.isTestFieldResponseData());
+        extractor = (RegexExtractor) gui.selectedRecordedResponseChild(true);
+        Assertions.assertTrue(extractor.useBody());
+        Assertions.assertEquals("body\\ \\(value\\)", extractor.getRegex());
+        response.select(header, text.length());
+        Assertions.assertNull(gui.selectedRecordedResponseChild(false));
+        Assertions.assertNull(gui.selectedRecordedResponseChild(true));
+        response.select(0, 0);
+        Assertions.assertNull(gui.selectedRecordedResponseChild(true));
     }
 
     @Test

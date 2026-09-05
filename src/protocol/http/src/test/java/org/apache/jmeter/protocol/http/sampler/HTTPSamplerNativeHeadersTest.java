@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.jmeter.extractor.gui.RegexExtractorGui;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.junit.jupiter.api.Test;
@@ -156,15 +158,42 @@ public class HTTPSamplerNativeHeadersTest {
     }
 
     @Test
-    public void replaceLiteralCoversArgumentNamesWithoutNestingVariables() {
+    public void replaceLiteralIgnoresArgumentNamesAndExistingVariables() {
         HTTPSamplerProxy sampler = newSampler();
         sampler.addArgument("code", "${oauth_code}");
 
         int replaced = sampler.replaceLiteral("code", "${oauth_code_g1}");
 
-        assertEquals(1, replaced);
-        assertEquals("${oauth_code_g1}", sampler.getArguments().getArgument(0).getName());
+        assertEquals(0, replaced);
+        assertEquals("code", sampler.getArguments().getArgument(0).getName());
         assertEquals("${oauth_code}", sampler.getArguments().getArgument(0).getValue());
+    }
+
+    @Test
+    public void regexHelperCountsOnlyValuesThatWillActuallyBeReplaced() throws Exception {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.setName("token");
+        sampler.setComment("token");
+        sampler.setProperty("BreakTest.recordedResponse", "token");
+        sampler.addArgument("token", "${token}");
+        sampler.setNativeHeaders(List.of(new Header("token", "${token}")));
+        var count = RegexExtractorGui.class.getDeclaredMethod("countOccurrences", TestElement.class, String.class);
+        count.setAccessible(true);
+        assertEquals(0, count.invoke(null, sampler, "token"));
+        sampler.setPath("/token/token");
+        sampler.addArgument("token", "token");
+        sampler.setNativeHeaders(List.of(new Header("token", "token ${token}")));
+        assertEquals(4, count.invoke(null, sampler, "token"));
+        // The preview must not modify the real request or nested header/argument values.
+        assertEquals("/token/token", sampler.getPath());
+        assertEquals("token", sampler.getArguments().getArgument(1).getValue());
+        assertEquals("token ${token}", sampler.getNativeHeaderList().get(0).getValue());
+        assertEquals(4, sampler.replaceLiteral("token", "${extracted}"));
+        assertEquals(0, count.invoke(null, sampler, "token"));
+        assertEquals("token", sampler.getName());
+        assertEquals("token", sampler.getArguments().getArgument(1).getName());
+        assertEquals("token", sampler.getNativeHeaderList().get(0).getName());
+        assertEquals("token", sampler.getPropertyAsString("BreakTest.recordedResponse"));
     }
 
     @Test

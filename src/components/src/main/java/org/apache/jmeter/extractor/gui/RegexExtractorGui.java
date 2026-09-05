@@ -72,7 +72,6 @@ import javax.swing.table.TableCellRenderer;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.RegexExtractor.TestMatch;
-import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.Replaceable;
@@ -85,10 +84,6 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.MultiProperty;
-import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jorphan.gui.JLabeledTextField;
@@ -373,7 +368,6 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         testResultStatus.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         testResultModel = new DefaultTableModel(
                 new Object[] {
-                        JMeterUtils.getResString("regex_test_match"), //$NON-NLS-1$
                         JMeterUtils.getResString("regex_test_variable"), //$NON-NLS-1$
                         JMeterUtils.getResString("regex_test_extracted_value"), //$NON-NLS-1$
                         JMeterUtils.getResString("regex_test_occurrence_count"), //$NON-NLS-1$
@@ -383,23 +377,22 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
 
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 4 && row >= 0 && row < displayedCandidates.size()
+                return column == 3 && row >= 0 && row < displayedCandidates.size()
                         && displayedCandidates.get(row).replaceable()
-                        && ((Number) getValueAt(row, 3)).intValue() > 0;
+                        && ((Number) getValueAt(row, 2)).intValue() > 0;
             }
         };
         testResultTable = new JTable(testResultModel);
         testResultTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
         testResultTable.setRowHeight(28);
-        testResultTable.getColumnModel().getColumn(0).setPreferredWidth(60);
-        testResultTable.getColumnModel().getColumn(1).setPreferredWidth(210);
-        testResultTable.getColumnModel().getColumn(2).setPreferredWidth(500);
-        testResultTable.getColumnModel().getColumn(3).setPreferredWidth(145);
-        TableColumn replaceColumn = testResultTable.getColumnModel().getColumn(4);
+        testResultTable.getColumnModel().getColumn(0).setPreferredWidth(210);
+        testResultTable.getColumnModel().getColumn(1).setPreferredWidth(500);
+        testResultTable.getColumnModel().getColumn(2).setPreferredWidth(145);
+        TableColumn replaceColumn = testResultTable.getColumnModel().getColumn(3);
         replaceColumn.setPreferredWidth(100);
         replaceColumn.setMinWidth(100);
         replaceColumn.setMaxWidth(100);
-        for (int column = 0; column < 4; column++) {
+        for (int column = 0; column < 3; column++) {
             testResultTable.getColumnModel().getColumn(column).setCellRenderer(new SingleLineRenderer());
         }
         replaceColumn.setCellRenderer(new ReplaceButtonRenderer());
@@ -411,7 +404,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                 int column = testResultTable.columnAtPoint(event.getPoint());
                 if (SwingUtilities.isLeftMouseButton(event) && event.getClickCount() == 2
                         && row >= 0 && column >= 0
-                        && testResultTable.convertColumnIndexToModel(column) == 2) {
+                        && testResultTable.convertColumnIndexToModel(column) == 1) {
                     showFullValue(testResultTable.convertRowIndexToModel(row));
                 }
             }
@@ -451,7 +444,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     }
 
     private void showFullValue(int row) {
-        JTextArea value = new JTextArea(String.valueOf(testResultModel.getValueAt(row, 2)));
+        JTextArea value = new JTextArea(String.valueOf(testResultModel.getValueAt(row, 1)));
         value.setEditable(false);
         value.setLineWrap(true);
         value.setWrapStyleWord(true);
@@ -460,7 +453,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         scrollPane.setPreferredSize(new Dimension(720, 320));
         JOptionPane.showMessageDialog(this, scrollPane,
                 JMeterUtils.getResString("regex_test_extracted_value") + " — " //$NON-NLS-1$ //$NON-NLS-2$
-                        + testResultModel.getValueAt(row, 1), JOptionPane.PLAIN_MESSAGE);
+                        + testResultModel.getValueAt(row, 0), JOptionPane.PLAIN_MESSAGE);
     }
 
     private void updateTestResult() {
@@ -576,28 +569,6 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         return null;
     }
 
-    private static int countOccurrences(String input, String searchValue) {
-        if (input == null || searchValue == null || searchValue.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        int offset = 0;
-        while (offset < input.length()) {
-            int variableStart = input.indexOf("${", offset); //$NON-NLS-1$
-            int searchEnd = variableStart < 0 ? input.length() : variableStart;
-            int match = input.indexOf(searchValue, offset);
-            if (match >= 0 && match + searchValue.length() <= searchEnd) {
-                count++;
-                offset = match + searchValue.length();
-            } else if (variableStart >= 0) {
-                int variableEnd = input.indexOf('}', variableStart + 2);
-                offset = variableEnd >= 0 ? variableEnd + 1 : input.length();
-            } else {
-                break;
-            }
-        }
-        return count;
-    }
 
     private static int countOccurrences(List<ReplacementTarget> targets) {
         return targets.stream().mapToInt(ReplacementTarget::occurrences).sum();
@@ -611,7 +582,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
             int occurrences = candidate.replaceable() && sourceNode != null
                     ? countOccurrences(findReplacementTargets(sourceNode, candidate.value())) : 0;
             testResultModel.addRow(new Object[] {
-                    candidate.displayMatch(), candidate.variableName(), candidate.value(), occurrences,
+                    candidate.variableName(), candidate.value(), occurrences,
                     candidate.replaceable()
                             ? JMeterUtils.getResString("regex_test_replace") : "" //$NON-NLS-1$
             });
@@ -772,32 +743,17 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     }
 
     private static int countOccurrences(TestElement element, String literal) {
-        if (element instanceof Argument argument) {
-            return countOccurrences(argument.getName(), literal)
-                    + countOccurrences(argument.getValue(), literal);
+        if (literal == null || literal.isEmpty() || !(element instanceof Replaceable)) {
+            return 0;
         }
-        int count = 0;
-        PropertyIterator properties = element.propertyIterator();
-        while (properties.hasNext()) {
-            count += countOccurrences(properties.next(), literal);
+        // Dry-run the actual replacement on a detached copy: metadata, names and
+        // existing variables must have exactly the same eligibility as when applying.
+        Replaceable preview = (Replaceable) element.clone();
+        try {
+            return preview.replaceLiteral(literal, "${__regex_preview}"); //$NON-NLS-1$
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to count regex extractor replacements", ex);
         }
-        return count;
-    }
-
-    private static int countOccurrences(JMeterProperty property, String literal) {
-        if (property instanceof MultiProperty multiProperty) {
-            int count = 0;
-            PropertyIterator properties = multiProperty.iterator();
-            while (properties.hasNext()) {
-                count += countOccurrences(properties.next(), literal);
-            }
-            return count;
-        }
-        if (property instanceof TestElementProperty testElementProperty
-                && testElementProperty.getElement() != null) {
-            return countOccurrences(testElementProperty.getElement(), literal);
-        }
-        return countOccurrences(property.getStringValue(), literal);
     }
 
     private void applyReplacement(GuiPackage gui, List<ReplacementTarget> targets,
