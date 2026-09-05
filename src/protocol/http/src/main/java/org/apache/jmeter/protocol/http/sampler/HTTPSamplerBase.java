@@ -61,6 +61,7 @@ import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.KeystoreConfig;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.gui.Replaceable;
+import org.apache.jmeter.gui.ReplaceableField;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.Cookie;
@@ -2976,26 +2977,42 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * Replace by replaceBy in path, body (arguments) and native header properties
+     * Returns the editable URL, argument, native header, and upload-file fields.
      */
+    @Override
+    public List<ReplaceableField> getReplaceableFields() {
+        List<ReplaceableField> fields = new ArrayList<>();
+        fields.add(new ReplaceableField("Domain", this::getDomain, this::setDomain));
+        fields.add(new ReplaceableField("Protocol", this::getProtocol, this::setProtocol));
+        fields.add(new ReplaceableField(
+                "Port", () -> getString(getSchema().getPort()), value -> set(getSchema().getPort(), value)));
+        fields.add(new ReplaceableField("Path", this::getPath, this::setPath));
+        for (JMeterProperty jMeterProperty : getArguments()) {
+            HTTPArgument argument = (HTTPArgument) jMeterProperty.getObjectValue();
+            fields.add(new ReplaceableField("Parameter name", argument::getName, argument::setName));
+            fields.add(new ReplaceableField("Parameter value", argument::getValue, argument::setValue));
+            fields.add(new ReplaceableField(
+                    "Parameter description", argument::getDescription, argument::setDescription));
+        }
+        for (Header header : getNativeHeaderList()) {
+            fields.add(new ReplaceableField("Header name", header::getName, header::setName));
+            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue));
+        }
+        for (HTTPFileArg file : getHTTPFiles()) {
+            fields.add(new ReplaceableField("File path", file::getPath, file::setPath));
+            fields.add(new ReplaceableField("File parameter", file::getParamName, file::setParamName));
+            fields.add(new ReplaceableField("File MIME type", file::getMimeType, file::setMimeType));
+        }
+        return fields;
+    }
+
     @Override
     public int replace(String regex, String replaceBy, boolean caseSensitive) throws Exception {
         int totalReplaced = 0;
-        for (JMeterProperty jMeterProperty : getArguments()) {
-            HTTPArgument arg = (HTTPArgument) jMeterProperty.getObjectValue();
-            totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, arg.getValue(), arg::setValue);
+        for (ReplaceableField field : getReplaceableFields()) {
+            totalReplaced += JOrphanUtils.replaceValue(
+                    regex, replaceBy, caseSensitive, field.value(), field::setValue);
         }
-
-        totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, getPath(), this::setPath);
-        totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, getDomain(), this::setDomain);
-        for (PropertyDescriptor<HTTPSamplerBaseSchema, ? extends Serializable> key : Arrays.asList(getSchema().getPort(), getSchema().getProtocol())) {
-            totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, getString(key), s -> set(key, s));
-        }
-
-        for (Header header : getNativeHeaderList()) {
-            totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, header.getValue(), header::setValue);
-        }
-
         return totalReplaced;
     }
 

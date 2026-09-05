@@ -32,6 +32,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.MenuElement;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.plugin.MenuCreator;
 import org.apache.jmeter.util.JMeterUtils;
@@ -58,6 +59,9 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
      * Might not be defined on non Hotspot VM implementations.
      */
     public static final String SUN_JAVA_COMMAND = "sun.java.command";
+
+    /** Command line prefix defining {@link JMeter#REOPEN_TEST_PLAN_PROPERTY}. */
+    private static final String REOPEN_PROPERTY_PREFIX = "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=";
 
     private static final Set<String> commands = new HashSet<>();
 
@@ -223,13 +227,37 @@ public class Restart extends AbstractActionWithNoRunningTest implements MenuCrea
             if ("-t".equals(argument) || "--testfile".equals(argument)) {
                 skipNextArgument = true;
             } else if (!argument.startsWith("--testfile=")
-                    && !(argument.startsWith("-t") && argument.length() > 2)) {
+                    && !(argument.startsWith("-t") && argument.length() > 2)
+                    && !isReopenProperty(argument)) {
                 command.add(argument);
             }
         }
-        command.add("-t");
-        command.add(new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString());
+        String normalizedTestPlan = new File(testPlanFile).getAbsoluteFile().toPath().normalize().toString();
+        command.add(applicationArgumentsStart(command), REOPEN_PROPERTY_PREFIX + normalizedTestPlan);
         return command;
+    }
+
+    /**
+     * The restart command is rebuilt from the arguments of the running process, so a
+     * process that was itself started by a previous update restart still carries the
+     * reopen property. Command line properties are applied in argument order, so a
+     * leftover definition would override the one added here.
+     */
+    private static boolean isReopenProperty(String argument) {
+        return argument.startsWith(REOPEN_PROPERTY_PREFIX);
+    }
+
+    private static int applicationArgumentsStart(List<String> command) {
+        for (int i = 0; i < command.size(); i++) {
+            String argument = command.get(i);
+            if ("-jar".equals(argument)) {
+                return Math.min(i + 2, command.size());
+            }
+            if ("-cp".equals(argument) || "-classpath".equals(argument)) {
+                return Math.min(i + 3, command.size());
+            }
+        }
+        return command.size();
     }
 
     /**

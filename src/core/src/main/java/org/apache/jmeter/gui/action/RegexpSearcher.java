@@ -49,7 +49,7 @@ public class RegexpSearcher implements Searcher {
         if (caseSensitive) {
             pattern = Pattern.compile(regexp);
         } else {
-            pattern = Pattern.compile(regexp, Pattern.CASE_INSENSITIVE);
+            pattern = Pattern.compile(regexp, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
         }
         return textTokens.stream()
                 .filter(StringUtilities::isNotEmpty)

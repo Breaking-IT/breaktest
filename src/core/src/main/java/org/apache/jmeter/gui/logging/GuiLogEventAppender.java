@@ -19,7 +19,6 @@ package org.apache.jmeter.gui.logging;
 
 import java.io.Serializable;
 
-import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jorphan.util.StringUtilities;
 import org.apache.logging.log4j.core.Filter;
 import org.apache.logging.log4j.core.Layout;
@@ -47,20 +46,12 @@ public class GuiLogEventAppender extends AbstractAppender {
 
     @Override
     public void append(LogEvent logEvent) {
-        // Note: GuiPackage class access SHOULD be always successful.
-        //       For example, if it fails to get GuiPackage#getInstance() due to static member initialization failure
-        //       (e.g, accessing JMeterUtils#getPropDefault(...) without initializing application properties),
-        //       the error log can be detected as "Recursive call to appender ..." by Log4j2 LoggerControl,
-        //       resulting in no meaningful error logs in the log appender targets.
-        GuiPackage instance = GuiPackage.getInstance();
-
-        if (instance != null) {
-            final String serializedString = getStringLayout().toSerializable(logEvent);
-
-            if (StringUtilities.isNotEmpty(serializedString)) {
-                LogEventObject logEventObject = new LogEventObject(logEvent, serializedString);
-                instance.getLogEventBus().postEvent(logEventObject);
-            }
+        final String serializedString = getStringLayout().toSerializable(logEvent);
+        if (StringUtilities.isNotEmpty(serializedString)) {
+            // Log4j may reuse mutable events after append returns. Retain a snapshot
+            // because the GUI can subscribe after startup logging has finished.
+            LogEventObject logEventObject = new LogEventObject(logEvent.toImmutable(), serializedString);
+            GuiLogEventBus.getInstance().postEvent(logEventObject);
         }
     }
 

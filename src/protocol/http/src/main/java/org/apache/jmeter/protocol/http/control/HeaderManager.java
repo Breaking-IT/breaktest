@@ -30,6 +30,7 @@ import java.util.List;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.Replaceable;
+import org.apache.jmeter.gui.ReplaceableField;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -355,13 +356,22 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
     }
 
     @Override
+    public List<ReplaceableField> getReplaceableFields() {
+        List<ReplaceableField> fields = new ArrayList<>();
+        for (JMeterProperty headerProperty : getHeaders()) {
+            Header header = (Header) headerProperty.getObjectValue();
+            fields.add(new ReplaceableField("Header name", header::getName, header::setName));
+            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue));
+        }
+        return fields;
+    }
+
+    @Override
     public int replace(String regex, String replaceBy, boolean caseSensitive) throws Exception {
-        final CollectionProperty hdrs = getHeaders();
         int totalReplaced = 0;
-        for (int i = 0; i < hdrs.size(); i++) {
-            final JMeterProperty hdr = hdrs.get(i);
-            Header head = (Header) hdr.getObjectValue();
-            totalReplaced += JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, head.getValue(), head::setValue);
+        for (ReplaceableField field : getReplaceableFields()) {
+            totalReplaced += JOrphanUtils.replaceValue(
+                    regex, replaceBy, caseSensitive, field.value(), field::setValue);
         }
         return totalReplaced;
     }

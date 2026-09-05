@@ -124,6 +124,24 @@ public class FunctionProperty extends AbstractProperty {
         return function;
     }
 
+    /**
+     * Returns the unevaluated value that should be persisted in a test plan.
+     *
+     * <p>A value assigned while the property is running is an edit of the
+     * original expression, so it takes precedence over the compiled function.
+     * The compiled function itself is transient execution state and must not be
+     * serialized.</p>
+     *
+     * @return the latest override, the raw function expression, or {@code null}
+     *         when this property has already lost its compiled function
+     */
+    public String getRawValue() {
+        if (overrideValue != null) {
+            return overrideValue;
+        }
+        return function == null ? null : function.getRawParameters();
+    }
+
     @Override
     public FunctionProperty clone() {
         FunctionProperty prop = (FunctionProperty) super.clone();

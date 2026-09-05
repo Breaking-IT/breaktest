@@ -155,6 +155,9 @@ public class JMeter implements JMeterPlugin {
 
     private static final String JMX_SUFFIX = ".JMX"; // $NON-NLS-1$
 
+    /** JMeter property used to reopen the plan after a GUI self-update restart. */
+    public static final String REOPEN_TEST_PLAN_PROPERTY = "breaktest.gui.reopen.test.plan";
+
     private static final String PACKAGE_PREFIX = "org.apache."; //$NON_NLS-1$
 
     /**
@@ -400,7 +403,7 @@ public class JMeter implements JMeterPlugin {
                     generator.generate();
                 } else if (parser.getArgumentById(NONGUI_OPT) == null) { // not non-GUI => GUI
                     PluginManager.install(this, true);
-                    String initialTestFile = testFile;
+                    String initialTestFile = testFile == null ? testPlanToReopen() : testFile;
                     JMeterGuiLauncher.startGui(initialTestFile);
                     startOptionalServers();
                 } else { // NON-GUI must be true
@@ -429,6 +432,14 @@ public class JMeter implements JMeterPlugin {
             // FIXME Should we exit here ? If we are called by Maven or Jenkins
             System.exit(1);
         }
+    }
+
+    /**
+     * @return the test plan handed over by a GUI self-update restart, or {@code null}
+     */
+    private static String testPlanToReopen() {
+        String reopenedTestFile = JMeterUtils.getProperty(REOPEN_TEST_PLAN_PROPERTY);
+        return StringUtilities.isNotBlank(reopenedTestFile) ? reopenedTestFile : null;
     }
 
     private static DateTimeFormatter getFormatter(String pattern) {

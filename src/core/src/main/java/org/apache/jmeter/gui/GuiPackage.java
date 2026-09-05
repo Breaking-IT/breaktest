@@ -188,7 +188,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
     private final UndoHistory undoHistory = new UndoHistory();
 
     /** GUI Logging Event Bus. */
-    private final GuiLogEventBus logEventBus = new GuiLogEventBus();
+    private final GuiLogEventBus logEventBus = GuiLogEventBus.getInstance();
 
     /** Listeners for events on test plan */
     private final List<TestPlanListener> testPlanListeners = Collections.synchronizedList(new ArrayList<>());

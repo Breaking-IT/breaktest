@@ -38,9 +38,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.CollectionProperty;
+import org.apache.jmeter.testelement.property.FunctionProperty;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -73,6 +76,63 @@ class SaveServiceArchiveTest extends JMeterTestCase {
             assertTrue(new String(zip.readAllBytes(), StandardCharsets.UTF_8).contains("<jmeterTestPlan"));
             assertNull(zip.getNextEntry());
         }
+    }
+
+    @Test
+    void saveTreeConvertsRuntimeFunctionPropertiesToPortableStrings() throws Exception {
+        ThreadGroup threadGroup = new ThreadGroup();
+        FunctionProperty condition = new FunctionProperty(
+                "IfController.condition", new CompoundVariable("${getAccessToken}"));
+        threadGroup.setProperty(condition);
+        CollectionProperty conditions = new CollectionProperty();
+        conditions.setName("IfController.conditions");
+        conditions.addProperty(new FunctionProperty(
+                "IfController.condition.operand1", new CompoundVariable("${getAccessToken}")));
+        threadGroup.setProperty(conditions);
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(threadGroup);
+
+        byte[] archive = saveTree(tree);
+        String xml = new String(readEntry(archive, SaveService.TEST_PLAN_ZIP_ENTRY).orElseThrow(),
+                StandardCharsets.UTF_8);
+
+        assertFalse(xml.contains(FunctionProperty.class.getName()));
+        assertTrue(xml.contains("<stringProp name=\"IfController.condition\">${getAccessToken}</stringProp>"));
+        assertTrue(xml.contains(
+                "<stringProp name=\"IfController.condition.operand1\">${getAccessToken}</stringProp>"));
+        assertTrue(threadGroup.getProperty("IfController.condition") instanceof FunctionProperty,
+                "saving must not mutate the live test tree");
+    }
+
+    @Test
+    void saveTreePersistsFunctionPropertyOverrideInsteadOfStaleExpression() throws Exception {
+        ThreadGroup threadGroup = new ThreadGroup();
+        FunctionProperty condition = new FunctionProperty(
+                "IfController.condition", new CompoundVariable("${legacyCondition}"));
+        condition.setRunningVersion(true);
+        condition.setObjectValue("");
+        threadGroup.setProperty(condition);
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(threadGroup);
+
+        String xml = new String(readEntry(saveTree(tree), SaveService.TEST_PLAN_ZIP_ENTRY).orElseThrow(),
+                StandardCharsets.UTF_8);
+
+        assertFalse(xml.contains(FunctionProperty.class.getName()));
+        assertTrue(xml.contains("<stringProp name=\"IfController.condition\"/>"));
+    }
+
+    @Test
+    void saveTreeRejectsFunctionPropertyThatHasLostItsExpression() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setProperty(new FunctionProperty("IfController.condition", null));
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(threadGroup);
+
+        IOException error = assertThrows(IOException.class, () -> saveTree(tree));
+
+        assertTrue(error.getMessage().contains("IfController.condition"));
+        assertTrue(error.getMessage().contains("lost its original expression"));
     }
 
     @Test

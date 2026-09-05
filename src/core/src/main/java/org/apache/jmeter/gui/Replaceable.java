@@ -17,17 +17,29 @@
 
 package org.apache.jmeter.gui;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
  * Interface for nodes that have replaceable content.
  * <p>
- * A {@link Replaceable} component will get asked for tokens, that should be used
- * in a search. These tokens will then be matched against a user given search
- * string.
+ * A {@link Replaceable} component declares the user-editable text fields that
+ * can be searched and replaced as one consistent operation.
  * @since 3.2
  */
 public interface Replaceable {
+
+    /**
+     * Returns the user-editable text fields supported by Search and Replace.
+     * Implementations should not expose internal property keys or read-only data.
+     *
+     * @return replaceable fields
+     * @since 2026.08
+     */
+    default List<ReplaceableField> getReplaceableFields() {
+        return List.of();
+    }
+
     /**
      * Replace in object  by replaceBy
      *

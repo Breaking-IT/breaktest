@@ -17,7 +17,9 @@
 
 package org.apache.jmeter.gui.logging;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -25,6 +27,20 @@ import java.util.List;
  * @since 3.2
  */
 public class GuiLogEventBus {
+
+    // Logging starts before application properties or Swing are initialized.
+    private static final int HISTORY_LIMIT = 1000;
+    private static final GuiLogEventBus INSTANCE = new GuiLogEventBus();
+
+    private final Deque<LogEventObject> history = new ArrayDeque<>();
+
+    /**
+     * Returns the process-wide bus, available before GuiPackage is created.
+     * @return shared GUI log event bus
+     */
+    public static GuiLogEventBus getInstance() {
+        return INSTANCE;
+    }
 
     /**
      * Registered GUI log event listeners array.
@@ -39,18 +55,26 @@ public class GuiLogEventBus {
     }
 
     /**
-     * Register a GUI log event listener ({@link GuiLogEventListener}).
+     * Register a GUI log event listener and replay the most recent 1000 events.
+     * Replay and live delivery share a lock so events cannot be missed or reordered
+     * when a logging thread posts during GUI initialization.
      * @param listener a GUI log event listener ({@link GuiLogEventListener})
      */
-    public void registerEventListener(GuiLogEventListener listener) {
+    public synchronized void registerEventListener(GuiLogEventListener listener) {
+        if (listeners.contains(listener)) {
+            return;
+        }
         listeners.add(listener);
+        for (LogEventObject event : new ArrayList<>(history)) {
+            listener.processLogEvent(event);
+        }
     }
 
     /**
      * Unregister a GUI log event listener ({@link GuiLogEventListener}).
      * @param listener a GUI log event listener ({@link GuiLogEventListener})
      */
-    public void unregisterEventListener(GuiLogEventListener listener) {
+    public synchronized void unregisterEventListener(GuiLogEventListener listener) {
         listeners.remove(listener);
     }
 
@@ -58,8 +82,12 @@ public class GuiLogEventBus {
      * Post a log event object.
      * @param logEventObject log event object
      */
-    public void postEvent(LogEventObject logEventObject) {
-        for (GuiLogEventListener listener : listeners) {
+    public synchronized void postEvent(LogEventObject logEventObject) {
+        if (history.size() == HISTORY_LIMIT) {
+            history.removeFirst();
+        }
+        history.addLast(logEventObject);
+        for (GuiLogEventListener listener : new ArrayList<>(listeners)) {
             listener.processLogEvent(logEventObject);
         }
     }

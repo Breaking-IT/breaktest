@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.apache.jmeter.JMeter;
 import org.junit.jupiter.api.Test;
 
 class RestartTest {
@@ -34,7 +35,8 @@ class RestartTest {
 
         assertEquals(List.of(
                 "/path/to/java", "-cp", "breaktest.jar", "org.apache.jmeter.NewDriver",
-                "-Jcustom.property=value", "-t", currentPlan.toString()),
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + currentPlan,
+                "-Jcustom.property=value"),
                 Restart.withTestPlan(restartCommand, currentPlan.toString()));
     }
 
@@ -44,7 +46,35 @@ class RestartTest {
         List<String> restartCommand = List.of(
                 "/path/to/java", "--testfile=/path/to/original.jmx", "-t/path/to/another.jmx");
 
-        assertEquals(List.of("/path/to/java", "-t", currentPlan.toString()),
+        assertEquals(List.of("/path/to/java", "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + currentPlan),
+                Restart.withTestPlan(restartCommand, currentPlan.toString()));
+    }
+
+    @Test
+    void replacesReopenPropertyInheritedFromAPreviousRestart() {
+        Path currentPlan = Path.of("plans", "currently-open.jmx").toAbsolutePath().normalize();
+        List<String> restartCommand = List.of(
+                "/path/to/java", "-jar", "/path/to/breaktest.jar",
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=/path/to/previously-reopened.jmx",
+                "-Jcustom.property=value");
+
+        assertEquals(List.of(
+                "/path/to/java", "-jar", "/path/to/breaktest.jar",
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + currentPlan,
+                "-Jcustom.property=value"),
+                Restart.withTestPlan(restartCommand, currentPlan.toString()));
+    }
+
+    @Test
+    void placesReopenPropertyAfterJarForPackagedLaunches() {
+        Path currentPlan = Path.of("plans", "currently-open.jmx").toAbsolutePath().normalize();
+        List<String> restartCommand = List.of(
+                "/path/to/java", "-Xmx2g", "-jar", "/path/to/breaktest.jar", "-Jcustom.property=value");
+
+        assertEquals(List.of(
+                "/path/to/java", "-Xmx2g", "-jar", "/path/to/breaktest.jar",
+                "-J" + JMeter.REOPEN_TEST_PLAN_PROPERTY + "=" + currentPlan,
+                "-Jcustom.property=value"),
                 Restart.withTestPlan(restartCommand, currentPlan.toString()));
     }
 }

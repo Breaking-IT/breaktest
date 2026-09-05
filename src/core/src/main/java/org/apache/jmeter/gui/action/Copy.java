@@ -68,9 +68,10 @@ public class Copy extends AbstractAction {
 
     public static JMeterTreeNode[] getCopiedNodes() {
         Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        if (clipboard.isDataFlavorAvailable(JMeterTreeNodeTransferable.JMETER_TREE_NODE_ARRAY_DATA_FLAVOR)) {
+        if (clipboard.isDataFlavorAvailable(JMeterTreeNodeTransferable.TREE_WITH_ATTACHMENTS_FLAVOR)
+                || clipboard.isDataFlavorAvailable(JMeterTreeNodeTransferable.JMETER_TREE_NODE_ARRAY_DATA_FLAVOR)) {
             try {
-                return (JMeterTreeNode[]) clipboard.getData(JMeterTreeNodeTransferable.JMETER_TREE_NODE_ARRAY_DATA_FLAVOR);
+                return JMeterTreeNodeTransferable.readTransferData(clipboard.getContents(null));
             } catch (Exception ex) {
                 log.error("Clipboard node read error: {}", ex.getMessage(), ex);
                 JOptionPane.showMessageDialog(GuiPackage.getInstance().getMainFrame(),

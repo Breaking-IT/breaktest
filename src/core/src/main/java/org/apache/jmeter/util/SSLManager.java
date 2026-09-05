@@ -142,14 +142,18 @@ public abstract class SSLManager {
                  log.info("Total of {} aliases loaded OK from PKCS11", keyStore.getAliasCount());
               } else {
                  File initStore = new File(fileName);
-                 if (!fileName.isEmpty() && initStore.exists()) {
+                 if (fileName.isEmpty()) {
+                    log.debug("No client certificate keystore configured, loading empty in-memory keystore");
+                    this.defaultpw = ""; // Ensure not null
+                    this.keyStore.load(null, "");
+                 } else if (initStore.exists()) {
                      retryLoadKeys(initStore, true);
                      if (log.isInfoEnabled()) {
                          log.info("Total of {} aliases loaded OK from keystore {}",
                                  keyStore.getAliasCount(), fileName);
                      }
                  } else {
-                    log.warn("Keystore file not found, loading empty keystore");
+                    log.warn("Keystore file '{}' not found, loading empty in-memory keystore", fileName);
                     this.defaultpw = ""; // Ensure not null
                     this.keyStore.load(null, "");
                  }

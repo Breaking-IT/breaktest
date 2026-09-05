@@ -92,10 +92,16 @@ JAVA9_OPTS=
 # Minimal version to run BreakTest
 MINIMAL_VERSION=21
 
-# Check if version is from OpenJDK or Oracle Hotspot JVM prior to 9 containing 1.${version}.x
-CURRENT_VERSION=`"${JAVA_HOME}/bin/java" -version 2>&1 | awk -F'"' '/version/ {gsub("^1[.]", "", $2); gsub("[^0-9].*$", "", $2); print $2}'`
+# Read Java's standardized specification major version rather than parsing
+# vendor-specific `java -version` output.
+CURRENT_VERSION=$("${JAVA_HOME}/bin/java" -XshowSettings:properties -version 2>&1 |
+    awk -F'= *' '/^[[:space:]]*java[.]specification[.]version[[:space:]]*=/ {split($2, version, "."); print version[1]; exit}')
 
 # Check if Java is present and the minimal version requirement
+if [ -z "$CURRENT_VERSION" ]; then
+    echo "Unable to determine the Java version. Check JAVA_HOME and your Java installation."
+    exit 1
+fi
 if [ "$CURRENT_VERSION" -ge "$MINIMAL_VERSION" ]; then
     JAVA9_OPTS="--enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.swing=ALL-UNNAMED --add-opens java.desktop/javax.swing.text.html=ALL-UNNAMED --add-opens java.desktop/java.awt=ALL-UNNAMED --add-opens java.desktop/java.awt.font=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/sun.awt.shell=ALL-UNNAMED"
 else

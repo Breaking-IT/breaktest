@@ -13,6 +13,82 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.08.24 — Scoped Search, Flagging, and Reliability Fixes
+
+BreakTest 2026.08.24 makes large test plans easier to inspect and edit with
+scoped search and broader, safer flagging. It also hardens update restarts, AI
+Auto Scripting, HTTP client cleanup, and saved JMX files.
+
+## Search and Flagging
+
+- Scopes searches to the Thread Group containing the selected element by
+  default, with controls to choose another Thread Group or the full test plan.
+- Separates broad, read-only flagging from search and replace, so recorded
+  request and response content can be flagged without exposing it to edits.
+- Adds live text and node-type flagging with compact, mutually exclusive
+  controls.
+- Supports safe replacement in element names, comments, HTTP request fields,
+  parameters, headers, and upload metadata.
+- Improves result navigation, regular-expression validation, case handling,
+  replacement behavior, and the compact Search Tree dialog layout.
+
+## Reliability Fixes
+
+- Reliably reopens the active JMX file after an update restart while removing
+  stale reopen properties from reconstructed launch commands.
+- Self-heals stale or closed AI Auto Scripting GUI agent bridges and isolates
+  Unix sockets per BreakTest process.
+- Closes HC5/H2 clients for short-lived users and runtime sampler clones across
+  parallel and exceptional execution paths, preventing leaked client threads
+  and file descriptors.
+- Saves runtime function properties as portable JMX values without mutating
+  the live GUI tree, and refuses to write properties whose compiled function
+  has already been lost.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans and BreakTest archives continue to load
+  and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.08.24`.
+
+# BreakTest 2026.08.20 — Restart Reliability and Safer Thread Group Defaults
+
+BreakTest 2026.08.20 improves self-update restart behavior, clarifies permitted
+Community testing, and makes new Thread Groups safer to configure.
+
+## Update Restart
+
+- Reopens the GUI's currently active JMX file after an update is installed and
+  the application restarts.
+- Replaces stale command-line test-file arguments so the restarted process
+  receives exactly one plan.
+
+## Thread Group Defaults
+
+- Places the **Load Profile** row below **Pacing option**, keeping the controls
+  affected by the profile selection together.
+- Defaults new Thread Groups to **Start Next Thread Loop** after a sampler
+  error instead of **Continue**.
+
+## Community License
+
+- Permits testing systems that the user's organization owns or operates, or
+  that the user is authorized by the system operator to test, including testing
+  carried out for clients under a services engagement.
+- Updates the documentation and license terms to match the permitted testing
+  scope and prohibited hosted, redistributed, competing, and circumvention
+  uses.
+
+## Compatibility
+
+- Existing JMeter-compatible JMX plans and BreakTest archives continue to load
+  and save normally.
+- Java 21 or later is required; Java 26 or later is required for HTTP/3 over
+  QUIC.
+- This release uses the direct Git tag `2026.08.20`.
+
 # BreakTest 2026.08.18 — GUI Persistence Hotfix
 
 BreakTest 2026.08.18 is a focused hotfix that prevents editor changes from

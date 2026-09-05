@@ -763,7 +763,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         title.setFont(title.getFont().deriveFont(title.getFont().getStyle() | java.awt.Font.BOLD));
         header.add(title, BorderLayout.WEST);
 
-        JTextField searchField = new JTextField("Search plan"); // $NON-NLS-1$
+        JTextField searchField = new JTextField("Search / Flag elements"); // $NON-NLS-1$
         searchField.setEditable(false);
         searchField.setFocusable(false);
         searchField.setToolTipText(JMeterUtils.getResString("menu_search")); // $NON-NLS-1$
