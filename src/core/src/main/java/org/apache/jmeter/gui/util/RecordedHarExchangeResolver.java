@@ -593,10 +593,13 @@ public final class RecordedHarExchangeResolver {
     }
 
     private static RecordedExchange toRecordedExchange(JsonNode entry) {
+        JsonNode request = entry.path("request"); // $NON-NLS-1$
         JsonNode response = entry.path("response"); // $NON-NLS-1$
         String responseBody = responseBody(response.path("content")); // $NON-NLS-1$
         return new RecordedExchange(
-                formatRequest(entry.path("request")), formatResponse(response, responseBody), responseBody); // $NON-NLS-1$
+                formatRequest(request), formatResponse(response, responseBody), responseBody,
+                request.path("url").asText(), formatRequestHeaders(request), formatResponseHeaders(response), // $NON-NLS-1$
+                response.path("status").asText(), response.path("statusText").asText()); // $NON-NLS-1$
     }
 
     private static String formatRequest(JsonNode request) {
@@ -605,7 +608,7 @@ public final class RecordedHarExchangeResolver {
                 request.path("method").asText(), // $NON-NLS-1$
                 request.path("url").asText(), // $NON-NLS-1$
                 displayHttpVersion(request.path("httpVersion").asText())); // $NON-NLS-1$
-        appendHeaders(builder, request.path("headers"), true); // $NON-NLS-1$
+        builder.append(formatRequestHeaders(request));
         String body = requestBody(request.path("postData")); // $NON-NLS-1$
         appendBody(builder, body);
         return builder.toString();
@@ -613,13 +616,25 @@ public final class RecordedHarExchangeResolver {
 
     private static String formatResponse(JsonNode response, String responseBody) {
         StringBuilder builder = new StringBuilder();
+        builder.append(formatResponseHeaders(response));
+        appendBody(builder, responseBody);
+        return builder.toString();
+    }
+
+    private static String formatRequestHeaders(JsonNode request) {
+        StringBuilder builder = new StringBuilder();
+        appendHeaders(builder, request.path("headers"), true); // $NON-NLS-1$
+        return builder.toString();
+    }
+
+    private static String formatResponseHeaders(JsonNode response) {
+        StringBuilder builder = new StringBuilder();
         String httpVersion = response.path("httpVersion").asText(); // $NON-NLS-1$
         appendLine(builder,
                 displayHttpVersion(httpVersion),
                 response.path("status").isMissingNode() ? "" : response.path("status").asText(), // $NON-NLS-1$ //$NON-NLS-2$
                 isHttp2(httpVersion) ? "" : response.path("statusText").asText()); // $NON-NLS-1$ //$NON-NLS-2$
         appendHeaders(builder, response.path("headers"), false); // $NON-NLS-1$
-        appendBody(builder, responseBody);
         return builder.toString();
     }
 
@@ -852,11 +867,22 @@ public final class RecordedHarExchangeResolver {
         private final String request;
         private final String response;
         private final String responseBody;
+        private final String requestUrl;
+        private final String requestHeaders;
+        private final String responseHeaders;
+        private final String responseCode;
+        private final String responseMessage;
 
-        RecordedExchange(String request, String response, String responseBody) {
+        RecordedExchange(String request, String response, String responseBody, String requestUrl,
+                String requestHeaders, String responseHeaders, String responseCode, String responseMessage) {
             this.request = request;
             this.response = response;
             this.responseBody = responseBody;
+            this.requestUrl = requestUrl;
+            this.requestHeaders = requestHeaders;
+            this.responseHeaders = responseHeaders;
+            this.responseCode = responseCode;
+            this.responseMessage = responseMessage;
         }
 
         public String request() {
@@ -869,6 +895,26 @@ public final class RecordedHarExchangeResolver {
 
         public String responseBody() {
             return responseBody;
+        }
+
+        public String requestUrl() {
+            return requestUrl;
+        }
+
+        public String requestHeaders() {
+            return requestHeaders;
+        }
+
+        public String responseHeaders() {
+            return responseHeaders;
+        }
+
+        public String responseCode() {
+            return responseCode;
+        }
+
+        public String responseMessage() {
+            return responseMessage;
         }
     }
 

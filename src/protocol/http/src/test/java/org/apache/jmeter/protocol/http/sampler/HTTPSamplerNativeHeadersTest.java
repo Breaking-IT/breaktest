@@ -154,4 +154,16 @@ public class HTTPSamplerNativeHeadersTest {
         assertEquals("Bearer ${token}", sampler.getNativeHeaderList().get(0).getValue());
         assertFalse(sampler.getSearchableTokens().contains("Bearer abc123"));
     }
+
+    @Test
+    public void replaceLiteralCoversArgumentNamesWithoutNestingVariables() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.addArgument("code", "${oauth_code}");
+
+        int replaced = sampler.replaceLiteral("code", "${oauth_code_g1}");
+
+        assertEquals(1, replaced);
+        assertEquals("${oauth_code_g1}", sampler.getArguments().getArgument(0).getName());
+        assertEquals("${oauth_code}", sampler.getArguments().getArgument(0).getValue());
+    }
 }

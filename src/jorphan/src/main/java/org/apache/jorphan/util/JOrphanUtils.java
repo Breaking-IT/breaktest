@@ -722,6 +722,64 @@ public final class JOrphanUtils {
     }
 
     /**
+     * Replace literal text outside JMeter variable references such as
+     * {@code ${variable}}.
+     *
+     * @param literal text to search for
+     * @param replaceBy replacement text
+     * @param caseSensitive whether matching is case sensitive
+     * @param value input value
+     * @param setter receives the changed value
+     * @return number of replacements
+     */
+    public static int replaceLiteralValue(String literal, String replaceBy, boolean caseSensitive,
+            String value, Consumer<? super String> setter) {
+        if (StringUtilities.isBlank(value) || StringUtilities.isEmpty(literal)) {
+            return 0;
+        }
+        StringBuilder result = new StringBuilder(value.length());
+        int cursor = 0;
+        int replacements = 0;
+        while (cursor < value.length()) {
+            int variableStart = value.indexOf("${", cursor); //$NON-NLS-1$
+            int searchEnd = variableStart < 0 ? value.length() : variableStart;
+            int match = indexOfLiteral(value, literal, cursor, searchEnd, caseSensitive);
+            if (match >= 0) {
+                result.append(value, cursor, match).append(replaceBy);
+                cursor = match + literal.length();
+                replacements++;
+            } else if (variableStart >= 0) {
+                int variableEnd = value.indexOf('}', variableStart + 2);
+                if (variableEnd >= 0) {
+                    result.append(value, cursor, variableEnd + 1);
+                    cursor = variableEnd + 1;
+                } else {
+                    result.append(value, cursor, value.length());
+                    cursor = value.length();
+                }
+            } else {
+                result.append(value, cursor, value.length());
+                cursor = value.length();
+            }
+        }
+        if (replacements > 0) {
+            setter.accept(result.toString());
+        }
+        return replacements;
+    }
+
+    private static int indexOfLiteral(String value, String literal, int start, int end,
+            boolean caseSensitive) {
+        int lastStart = end - literal.length();
+        for (int index = start; index <= lastStart; index++) {
+            if (value.regionMatches(!caseSensitive, index, literal, 0, literal.length())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Takes an array of strings and a tokenizer character, and returns a string
      * of all the strings concatenated with the tokenizer string in between each
      * one.

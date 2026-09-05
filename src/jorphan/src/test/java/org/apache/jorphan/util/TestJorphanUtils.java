@@ -380,6 +380,14 @@ public class TestJorphanUtils {
         assertEquals("${port}", h.value);
     }
 
+    @Test
+    public void testReplaceLiteralValueDoesNotModifyVariableReferences() {
+        Holder h = new Holder();
+        assertEquals(1, JOrphanUtils.replaceLiteralValue("code", "${oauth_code_g1}", true,
+                "code=${oauth_code}", s -> h.value = s));
+        assertEquals("${oauth_code_g1}=${oauth_code}", h.value);
+    }
+
     private static class Holder {
         String value;
     }
