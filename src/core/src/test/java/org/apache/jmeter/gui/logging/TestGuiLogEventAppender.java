@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.gui.logging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -30,6 +31,9 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.appender.ConsoleAppender;
 import org.apache.logging.log4j.core.config.Configurator;
+import org.apache.logging.log4j.core.impl.MutableLogEvent;
+import org.apache.logging.log4j.core.layout.PatternLayout;
+import org.apache.logging.log4j.message.SimpleMessage;
 import org.apache.logging.log4j.core.config.builder.api.AppenderComponentBuilder;
 import org.apache.logging.log4j.core.config.builder.api.ConfigurationBuilder;
 import org.apache.logging.log4j.core.config.builder.api.ConfigurationBuilderFactory;
@@ -95,6 +99,36 @@ public class TestGuiLogEventAppender {
     @BeforeEach
     public void setUp() {
         log4j2LevelErrorMessages.clear();
+    }
+
+    @Test
+    public void replaysImmutableStartupEventWithoutGuiPackage() {
+        GuiLogEventAppender appender = GuiLogEventAppender.createAppender(
+                "startup-test", true, PatternLayout.newBuilder().setPattern("%m").build(), null);
+        MutableLogEvent original = new MutableLogEvent();
+        original.setLevel(Level.ERROR);
+        original.setMessage(new SimpleMessage("startup-event-before-gui"));
+        appender.append(original);
+        original.setLevel(Level.INFO);
+        original.setMessage(new SimpleMessage("reused-event"));
+
+        List<LogEventObject> received = new ArrayList<>();
+        GuiLogEventListener listener = event -> {
+            if ("startup-event-before-gui".equals(event.toString())) {
+                received.add(event);
+            }
+        };
+        GuiLogEventBus bus = GuiLogEventBus.getInstance();
+        bus.registerEventListener(listener);
+        try {
+            assertEquals(1, received.size());
+            assertTrue(received.get(0).isMoreSpecificThanError());
+            LogEvent snapshot = (LogEvent) received.get(0).getSource();
+            assertEquals(Level.ERROR, snapshot.getLevel());
+            assertEquals("startup-event-before-gui", snapshot.getMessage().getFormattedMessage());
+        } finally {
+            bus.unregisterEventListener(listener);
+        }
     }
 
     /**
