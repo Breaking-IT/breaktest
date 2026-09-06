@@ -42,6 +42,7 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
+import org.apache.jorphan.test.JMeterSerialTest;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class PostWriterTest {
+public class PostWriterTest implements JMeterSerialTest {
 
     private static final Logger log = LoggerFactory.getLogger(PostWriterTest.class);
 

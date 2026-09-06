@@ -17,8 +17,8 @@
 
 package org.apache.jmeter.config;
 
-import java.io.IOException;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.ByteBuffer;
@@ -46,15 +46,38 @@ final class CsvFileEditor {
         this.prefix = prefix;
     }
 
+    // The decoded text, normalized text and Swing document coexist while editing.
+    static long maxEditableBytes() {
+        return Math.min(128L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 12);
+    }
+
+    static void checkEditableSize(long size) throws IOException {
+        if (size > maxEditableBytes()) {
+            throw new IOException("CSV is too large for the built-in editor (limit "
+                    + maxEditableBytes() / (1024 * 1024)
+                    + " MiB). Export it and use an external editor, then import the updated file.");
+        }
+    }
+
+    static byte[] readEditableContent(java.io.InputStream input) throws IOException {
+        byte[] content = input.readNBytes((int) maxEditableBytes() + 1);
+        checkEditableSize(content.length);
+        return content;
+    }
+
     static CsvFileEditor open(String filename, String encoding) throws IOException {
         if (filename == null || filename.trim().isEmpty()) {
             throw new IllegalArgumentException("Filename must not be null or empty");
         }
         Path path = FileServer.getFileServer().resolveFile(filename.trim()).toPath();
-        return fromBytes(path, encoding, Files.readAllBytes(path));
+        checkEditableSize(Files.size(path));
+        try (var input = Files.newInputStream(path)) {
+            return fromBytes(path, encoding, readEditableContent(input));
+        }
     }
 
     static CsvFileEditor fromBytes(Path path, String encoding, byte[] original) throws IOException {
+        checkEditableSize(original.length);
         Charset charset;
         if (encoding != null && !encoding.trim().isEmpty()) {
             charset = Charset.forName(encoding);

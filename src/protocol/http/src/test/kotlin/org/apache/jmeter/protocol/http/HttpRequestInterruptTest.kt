@@ -17,60 +17,83 @@
 
 package org.apache.jmeter.protocol.http
 
+import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo
-import com.github.tomakehurst.wiremock.junit5.WireMockTest
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
+import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy
-import org.apache.jmeter.test.assertions.executePlanAndCollectEvents
+import org.apache.jmeter.test.samplers.CollectSamplesListener
+import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup
+import org.apache.jmeter.treebuilder.dsl.testTree
+import org.apache.jorphan.test.JMeterSerialTest
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Timeout
-import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
-@WireMockTest
-class HttpRequestInterruptTest : JMeterTestCase() {
+class HttpRequestInterruptTest : JMeterTestCase(), JMeterSerialTest {
     @ParameterizedTest
-    @Timeout(10, unit = TimeUnit.SECONDS)
+    @Timeout(20, unit = TimeUnit.SECONDS)
     @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT5])
-    fun `http request interrupts`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
-            get("/delayed")
-                .willReturn(
-                    aResponse()
-                        .withFixedDelay(1.minutes.inWholeMilliseconds.toInt())
-                        .withStatus(200)
-                )
-        )
-
-        val events = executePlanAndCollectEvents(5.seconds) {
-            OpenModelThreadGroup::class {
-                scheduleString = "rate(50 / sec) random_arrivals(100 ms) pause(3 s)"
-                HTTPSamplerProxy::class {
-                    implementation = httpImplementation
-                    method = "GET"
-                    protocol = "http"
-                    domain = "localhost"
-                    port = server.httpPort
-                    path = "/delayed"
+    fun `http request interrupts`(httpImplementation: String) {
+        val server = WireMockServer(wireMockConfig().dynamicPort())
+        val received = CountDownLatch(1)
+        val listener = CollectSamplesListener()
+        val engine = StandardJMeterEngine()
+        server.addMockServiceRequestListener { _, _ -> received.countDown() }
+        server.start()
+        try {
+            server.stubFor(
+                get("/delayed").willReturn(aResponse().withFixedDelay(60_000).withStatus(200))
+            )
+            val tree = testTree {
+                TestPlan::class {
+                    +listener
+                    OpenModelThreadGroup::class {
+                        // One predictable arrival; stop explicitly after the server receives it.
+                        scheduleString = "rate(1 / sec) even_arrivals(1 s) pause(1 min)"
+                        HTTPSamplerProxy::class {
+                            implementation = httpImplementation
+                            method = "GET"
+                            protocol = "http"
+                            domain = "localhost"
+                            port = server.port()
+                            path = "/delayed"
+                        }
+                    }
                 }
             }
-        }
+            engine.configure(tree)
+            engine.runTest()
+            assertTrue(received.await(10, TimeUnit.SECONDS), "The delayed request must reach the server")
+            assertTrue(listener.events.isEmpty(), "The delayed response must still be in flight")
+            engine.stopTest(true)
+            engine.awaitTermination(Duration.ofSeconds(5))
 
-        val expectedEventRange = 1..5
-        assertTrue(events.size in expectedEventRange) { "${expectedEventRange.first} to 5 interrupted events expected, got $events" }
-        if (events.any { it.result.isSuccessful || it.result.isResponseCodeOK || (it.result.time + it.result.connectTime) < 500 }) {
-            fail(
-                "All events should be failing, and they should take more than 500ms since the requests " +
-                    "should have been cancelled after 1sec. Results are: $events"
-            )
+            val events = listener.events
+            assertEquals(1, events.size, "One interrupted request expected")
+            val result = events.single().result
+            assertFalse(result.isSuccessful)
+            assertFalse(result.isResponseCodeOK)
+            assertTrue(result.responseCode.contains("Interrupted")) {
+                "Expected cancellation of the in-flight request, got ${result.responseCode}: ${result.responseMessage}"
+            }
+        } finally {
+            try {
+                engine.stopTest(true)
+                engine.awaitTermination(Duration.ofSeconds(5))
+            } finally {
+                server.stop()
+            }
         }
     }
 }

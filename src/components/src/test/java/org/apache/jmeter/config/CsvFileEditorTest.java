@@ -35,6 +35,20 @@ class CsvFileEditorTest {
     Path directory;
 
     @Test
+    void editorSizeLimitRejectsOversizedFilesBeforeReading() throws Exception {
+        long limit = CsvFileEditor.maxEditableBytes();
+        CsvFileEditor.checkEditableSize(limit);
+        assertThrows(java.io.IOException.class, () -> CsvFileEditor.checkEditableSize(limit + 1));
+        Path large = directory.resolve("oversized.csv");
+        try (var file = new java.io.RandomAccessFile(large.toFile(), "rw")) {
+            file.setLength(limit + 1);
+        }
+        assertThrows(java.io.IOException.class, () -> CsvFileEditor.open(large.toString(), "UTF-8"));
+        assertArrayEquals(new byte[] {1, 2}, CsvFileEditor.readEditableContent(
+                new java.io.ByteArrayInputStream(new byte[] {1, 2})));
+    }
+
+    @Test
     void appendingAtLineEndDoesNotCreateAdditionalCsvRecords() throws Exception {
         for (String separator : new String[] {"\r\n", "\r", "\n"}) {
             String original = "Alice,id-one" + separator + "Bob,id-two" + separator;

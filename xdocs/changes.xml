@@ -33,6 +33,8 @@ Auto Scripting, HTTP client cleanup, and saved JMX files.
 
 <ch_section>Portable Archive Files</ch_section>
 <ul>
+  <li>Preserves file permissions when saving, allows recovery of missing or corrupt archive files, and warns about missing pasted CSV references.</li>
+  <li>Validates portable archive filenames, recreates expired temporary files, preselects archived uploads, and limits CSV editor memory use.</li>
   <li>Adds Tools &gt; Archive browser for importing, exporting, and deleting shared files in the JMX archive.</li>
   <li>Adds archive-source settings for CSV Data Set and HTTP file uploads, a CSV editor with Save/Cancel, and the __archiveFile function for other file references.</li>
   <li>Adds recording-retention and orphan-cleanup options with a preview of removed data and retained exchanges.</li>

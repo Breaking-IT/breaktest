@@ -95,7 +95,9 @@ include(
     "src:test-services",
     "src:xstream-compat",
     "src:dist",
-    "src:dist-check"
+    "src:dist-check",
+    "src:dist-check-jms",
+    "src:dist-check-local"
 )
 
 // See https://github.com/gradle/gradle/issues/1348#issuecomment-284758705 and

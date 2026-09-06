@@ -221,6 +221,11 @@ public class Load extends AbstractActionWithNoRunningTest {
             final HashTree tree) throws Exception {
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
         reportMissingPluginElements(tree);
+        var archiveWarnings = SaveService.archiveWarnings(tree);
+        if (!archiveWarnings.isEmpty()) {
+            JOptionPane.showMessageDialog(guiPackage.getMainFrame(), String.join("\n", archiveWarnings),
+                    "Archive files", JOptionPane.WARNING_MESSAGE);
+        }
 
         // don't change name if merging
         if (!merging && isTestPlan && setDetails) {

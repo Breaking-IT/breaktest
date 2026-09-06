@@ -70,6 +70,13 @@ dependencies {
     loggingClasspath("org.apache.logging.log4j:log4j-slf4j2-impl")
 }
 
+// Export the same logging dependencies to the independent batch runners.
+configurations.create("batchLoggingClasspath") {
+    isCanBeConsumed = true
+    isCanBeResolved = false
+    extendsFrom(loggingClasspath)
+}
+
 val libOpt = copySpec {
     // Extra dependencies for testing purposes, to be placed in lib/opt
 }
@@ -153,24 +160,43 @@ fun createBatchTestTask(name: String, suffix: String = "", action: (BatchTest.()
     createBatchTask(name, suffix, action)
 
 arrayOf(
-    "BatchTestLocal",
-    "Bug62239", "Bug52968", "Bug50898",
-    "Bug56243",
-    // StackOverflowError with ModuleController in Non-GUI mode if its name is the same as the target node
-    "Bug55375",
-    "Bug56811",
     "TEST_HTTPS",
     "TestCookieManager",
-    "JMS_TESTS",
     "OS_TESTS",
     "TestKeepAlive",
     "ResponseDecompression",
     "TestSchedulerWithTimer",
-    "BUG_62847",
     "HTMLParserTestFile_2",
-    "TestResultStatusAction",
     "TestRedirectionPolicies"
 ).map { createBatchTestTask(it) }
+
+// Keep the existing command available while allowing JMS to overlap other batch tests.
+val batchJmsTests = tasks.register("batchJMS_TESTS") {
+    dependsOn(":src:dist-check-jms:batchJMS_TESTS")
+}
+
+batchTests.configure {
+    dependsOn(batchJmsTests)
+}
+
+// Preserve existing task paths for the local fixtures moved to a parallel project.
+listOf(
+    "BatchTestLocal",
+    "Bug62239",
+    "Bug52968",
+    "Bug50898",
+    "Bug56243",
+    "Bug55375",
+    "Bug56811",
+    "BUG_62847",
+    "TestResultStatusAction"
+).forEach { name ->
+    val taskName = "batch" + name.replaceFirstChar { it.titlecaseChar() }
+    val alias = tasks.register(taskName) {
+        dependsOn(":src:dist-check-local:$taskName")
+    }
+    batchTests.configure { dependsOn(alias) }
+}
 
 // Certain errors are expected in those tests as they examine failure cases as well
 arrayOf(

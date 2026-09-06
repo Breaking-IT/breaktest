@@ -35,6 +35,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -309,10 +311,18 @@ public class SaveService {
     /** Saves a complete archive before replacing the destination, preserving it on serialization failure. */
     public static void saveTreeToFile(HashTree tree, Path destination) throws IOException {
         Path target = destination.toAbsolutePath();
-        Path temporary = Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx");
+        boolean posix = Files.getFileAttributeView(target.getParent(), PosixFileAttributeView.class) != null;
+        var permissions = posix && Files.exists(target) ? Files.getPosixFilePermissions(target) : null;
+        Path temporary = posix && permissions == null
+                ? Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx",
+                        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-rw-rw-")))
+                : Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx");
         try {
             try (OutputStream output = Files.newOutputStream(temporary)) {
                 saveTree(tree, output);
+            }
+            if (permissions != null) {
+                Files.setPosixFilePermissions(temporary, permissions);
             }
             try {
                 Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -362,6 +372,7 @@ public class SaveService {
 
     // Called by Save function
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        archiveWarnings(tree).forEach(message -> log.warn("{}", message));
         HashTree serializableTree = createSerializableTree(tree);
         validateSharedFilesForSave(serializableTree);
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(
@@ -425,6 +436,11 @@ public class SaveService {
         TestPlan plan = findArchiveTestPlan(tree);
         if (plan == null || !(plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty)) {
             validateLegacyCsvReferences(tree, new LinkedHashMap<>(), new LinkedHashMap<>());
+        }
+        if (plan != null && !plan.getUnavailableArchiveFiles().isEmpty()) {
+            throw new IOException("Cannot save: archive files are unavailable: "
+                    + String.join(", ", plan.getUnavailableArchiveFiles())
+                    + ". Restore or delete them using Tools > Archive browser.");
         }
         for (Map.Entry<String, String> entry : collectArchiveReferences(tree).entrySet()) {
             if ((entry.getKey().startsWith("files/") || entry.getKey().startsWith("csv/"))
@@ -692,27 +708,40 @@ public class SaveService {
         }
         if (plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
             for (Map.Entry<String, String> reference : ArchiveFiles.references(plan).entrySet()) {
-                byte[] content = readZipEntry(zip, reference.getKey())
-                        .orElseThrow(() -> new IOException("Archive file is missing: " + reference.getKey()));
-                if (!ArchiveFiles.checksum(content).equals(reference.getValue())) {
-                    throw new IOException("Archive file checksum does not match: " + reference.getKey());
+                try {
+                    byte[] content = readZipEntry(zip, reference.getKey())
+                            .orElseThrow(() -> new IOException("Archive file is missing: " + reference.getKey()));
+                    if (!ArchiveFiles.checksum(content).equals(reference.getValue())) {
+                        throw new IOException("Archive file checksum does not match: " + reference.getKey());
+                    }
+                    JmxArchiveEntryStore.register(reference.getKey(), reference.getValue(), content);
+                } catch (IOException e) {
+                    var unavailable = new LinkedHashSet<>(plan.getUnavailableArchiveFiles());
+                    unavailable.add(reference.getKey());
+                    plan.setUnavailableArchiveFiles(unavailable);
+                    log.warn("{}. Open Tools > Archive browser to restore or delete the file.", e.getMessage());
                 }
-                JmxArchiveEntryStore.register(reference.getKey(), reference.getValue(), content);
             }
             return;
         }
         // Older archives have CSV references but no shared-files index. Rebuild it from
         // the actual files so browsing and runtime resolution use the same metadata.
+        MapProperty recoveredIndex = new MapProperty();
+        recoveredIndex.setName(ArchiveFiles.PROPERTY);
         var entries = zip.entries();
         while (entries.hasMoreElements()) {
             ZipEntry entry = entries.nextElement();
             if (!entry.isDirectory() && entry.getName().startsWith("files/")
                     && JmxArchiveEntryStore.isSafeEntryName(entry.getName())) {
                 try (InputStream input = zip.getInputStream(entry)) {
-                    ArchiveFiles.put(plan, entry.getName(), input.readAllBytes(), true);
+                    byte[] content = input.readAllBytes();
+                    String checksum = ArchiveFiles.checksum(content);
+                    JmxArchiveEntryStore.register(entry.getName(), checksum, content);
+                    recoveredIndex.addProperty(new StringProperty(entry.getName(), checksum));
                 }
             }
         }
+        plan.setProperty(recoveredIndex);
     }
 
     private static TestPlan findArchiveTestPlan(HashTree tree) {
@@ -801,6 +830,48 @@ public class SaveService {
         }
         try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
             return Optional.of(inputStream.readAllBytes());
+        }
+    }
+
+    /** Reports recoverable archive problems without making the plan unopenable. */
+    public static List<String> archiveWarnings(HashTree tree) {
+        TestPlan plan = findArchiveTestPlan(tree);
+        List<String> warnings = new ArrayList<>();
+        if (plan != null) {
+            for (String entry : plan.getUnavailableArchiveFiles()) {
+                warnings.add("Archive file is missing or corrupt: " + entry
+                        + ". Restore or delete it using Tools > Archive browser before saving.");
+            }
+            if (plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
+                Map<String, String> index = ArchiveFiles.references(plan);
+                for (String entry : index.keySet()) {
+                    try {
+                        ArchiveFiles.entryName(entry);
+                    } catch (IllegalArgumentException e) {
+                        warnings.add(e.getMessage() + ". Export and rename it, then replace it in the archive.");
+                    }
+                }
+                collectUnindexedCsvWarnings(tree, index, warnings);
+            }
+        }
+        return warnings;
+    }
+
+    private static void collectUnindexedCsvWarnings(HashTree tree, Map<String, String> index, List<String> warnings) {
+        for (Object item : tree.list()) {
+            if (item instanceof TestElement element && element.getPropertyAsBoolean("useCsvFromArchive")) {
+                String entry = element.getPropertyAsString(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY);
+                if (entry.isEmpty()) {
+                    String filename = element.getPropertyAsString("filename").replace('\\', '/');
+                    entry = "files/" + filename.substring(filename.lastIndexOf('/') + 1);
+                }
+                if (entry.startsWith("files/") && !index.containsKey(entry)) {
+                    warnings.add("CSV Data Set '" + element.getName() + "' references " + entry
+                            + ", which is not in this plan's archive. Import it using Tools > Archive browser "
+                            + "or change the CSV source. Saving will not include this file.");
+                }
+            }
+            collectUnindexedCsvWarnings(tree.getTree(item), index, warnings);
         }
     }
 

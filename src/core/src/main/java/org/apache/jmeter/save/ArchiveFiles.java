@@ -23,10 +23,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -41,6 +44,9 @@ public final class ArchiveFiles {
     public static final String PROPERTY = "BreakTest.archive.files";
     private static volatile TestPlan activePlan;
     private static final Map<String, Path> LOCAL_FILES = new ConcurrentHashMap<>();
+
+    private static final Pattern NON_PORTABLE_CHARACTERS = Pattern.compile("[<>:\"|?*\\x00-\\x1f]");
+    private static final Pattern RESERVED_DEVICE = Pattern.compile("CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]");
 
     private ArchiveFiles() {
     }
@@ -74,6 +80,14 @@ public final class ArchiveFiles {
         if (!JmxArchiveEntryStore.isSafeEntryName(entry) || entry.indexOf(':') >= 0) {
             throw new IllegalArgumentException("Invalid archive filename: " + name);
         }
+        for (String segment : entry.split("/")) {
+            String stem = segment.split("\\.", 2)[0].toUpperCase(Locale.ROOT);
+            if (NON_PORTABLE_CHARACTERS.matcher(segment).find()
+                    || segment.endsWith(".") || segment.endsWith(" ")
+                    || RESERVED_DEVICE.matcher(stem).matches()) {
+                throw new IllegalArgumentException("Archive filename is not portable: " + name);
+            }
+        }
         return entry;
     }
 
@@ -86,7 +100,10 @@ public final class ArchiveFiles {
 
     public static void remove(TestPlan plan, String name) {
         Map<String, String> entries = references(plan);
-        entries.remove(entryName(name));
+        // Deletion must also work for older names that fail the portability policy.
+        String entry = name.startsWith("files/") ? name : "files/" + name;
+        entries.remove(entry);
+        clearUnavailable(plan, entry);
         setReferences(plan, entries);
     }
 
@@ -116,14 +133,29 @@ public final class ArchiveFiles {
         }
         JmxArchiveEntryStore.register(entry, checksum, content);
         references.put(entry, checksum);
+        clearUnavailable(plan, entry);
         setReferences(plan, references);
+    }
+
+    private static void clearUnavailable(TestPlan plan, String entry) {
+        var unavailable = new HashSet<>(plan.getUnavailableArchiveFiles());
+        unavailable.remove(entry);
+        plan.setUnavailableArchiveFiles(unavailable);
+    }
+
+    private static String readableEntryName(String name) throws IOException {
+        try {
+            return entryName(name);
+        } catch (IllegalArgumentException e) {
+            throw new IOException(e.getMessage(), e);
+        }
     }
 
     public static byte[] read(String name) throws IOException {
         TestPlan plan = currentPlan();
-        String entry = entryName(name);
+        String entry = readableEntryName(name);
         String checksum = plan == null ? null : references(plan).get(entry);
-        if (checksum == null) {
+        if (checksum == null || plan.getUnavailableArchiveFiles().contains(entry)) {
             throw new IOException("File is not available in the JMX archive: " + entry);
         }
         return JmxArchiveEntryStore.find(entry, checksum)
@@ -132,9 +164,9 @@ public final class ArchiveFiles {
 
     public static Path resolve(String name) throws IOException {
         TestPlan plan = currentPlan();
-        String entry = entryName(name);
+        String entry = readableEntryName(name);
         String digest = plan == null ? null : references(plan).get(entry);
-        if (digest == null) {
+        if (digest == null || plan.getUnavailableArchiveFiles().contains(entry)) {
             throw new IOException("File is not available in the JMX archive: " + entry);
         }
         return materialize(entry, digest);
@@ -144,8 +176,12 @@ public final class ArchiveFiles {
     public static Path materialize(String entry, String digest) throws IOException {
         String key = entry + ":" + digest;
         try {
-            return LOCAL_FILES.computeIfAbsent(key, ignored -> {
+            return LOCAL_FILES.compute(key, (ignored, cached) -> {
+                if (cached != null && Files.isRegularFile(cached)) {
+                    return cached;
+                }
                 try {
+                    entryName(entry);
                     byte[] content = JmxArchiveEntryStore.find(entry, digest)
                             .orElseThrow(() -> new IOException("Archive file content is unavailable: " + entry));
                     Path directory = Files.createTempDirectory("breaktest-archive-");
@@ -160,6 +196,8 @@ public final class ArchiveFiles {
                     }
                     path.toFile().deleteOnExit();
                     return path;
+                } catch (IllegalArgumentException e) {
+                    throw new UncheckedIOException(new IOException("Cannot materialize archive file: " + entry, e));
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }

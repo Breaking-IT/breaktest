@@ -61,6 +61,8 @@ val notPublishedProjects by extra {
             projects.src,
             projects.src.dist,
             projects.src.distCheck,
+            projects.src.distCheckJms,
+            projects.src.distCheckLocal,
             projects.src.examples,
             projects.src.generator,
             projects.src.licenses,

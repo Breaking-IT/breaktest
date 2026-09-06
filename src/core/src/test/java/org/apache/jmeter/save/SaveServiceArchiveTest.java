@@ -60,6 +60,25 @@ class SaveServiceArchiveTest extends JMeterTestCase {
     Path tempDir;
 
     @Test
+    void atomicSavePreservesPermissionsAndNewFilesRespectUmask() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileAttributeView(tempDir,
+                java.nio.file.attribute.PosixFileAttributeView.class) != null);
+        Path target = tempDir.resolve("permissions.jmx");
+        Files.writeString(target, "old plan");
+        for (String mode : List.of("rw-r--r--", "rw-rw----", "rw-------")) {
+            var permissions = java.nio.file.attribute.PosixFilePermissions.fromString(mode);
+            Files.setPosixFilePermissions(target, permissions);
+            SaveService.saveTreeToFile(new HashTree(), target);
+            assertEquals(permissions, Files.getPosixFilePermissions(target));
+        }
+        Path ordinary = tempDir.resolve("ordinary");
+        Files.createFile(ordinary);
+        Path fresh = tempDir.resolve("fresh.jmx");
+        SaveService.saveTreeToFile(new HashTree(), fresh);
+        assertEquals(Files.getPosixFilePermissions(ordinary), Files.getPosixFilePermissions(fresh));
+    }
+
+    @Test
     void failedSerializationPreservesExistingFileAndRemovesTemporaryFile() throws Exception {
         Path target = tempDir.resolve("existing.jmx");
         byte[] original = "previous saved plan".getBytes(StandardCharsets.UTF_8);

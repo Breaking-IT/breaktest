@@ -70,8 +70,11 @@ public final class ArchiveBrowser {
 
     private static Map<String, byte[]> archiveContents() {
         Map<String, byte[]> contents = new TreeMap<>();
-        entries().forEach((entry, checksum) -> JmxArchiveEntryStore.findBundle(entry, checksum)
-                .ifPresent(contents::putAll));
+        entries().forEach((entry, checksum) -> {
+            if (!ArchiveFiles.currentPlan().getUnavailableArchiveFiles().contains(entry)) {
+                JmxArchiveEntryStore.findBundle(entry, checksum).ifPresent(contents::putAll);
+            }
+        });
         return contents;
     }
 

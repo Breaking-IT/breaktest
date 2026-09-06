@@ -182,6 +182,11 @@ public class Save extends AbstractAction {
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_DIRTY));
         boolean createBackup = GuiPackage.getInstance().isDirty();
         prepareSubTreeForSave(subTree);
+        var archiveWarnings = SaveService.archiveWarnings(subTree);
+        if (!archiveWarnings.isEmpty()) {
+            JOptionPane.showMessageDialog(GuiPackage.getInstance().getMainFrame(),
+                    String.join("\n", archiveWarnings), "Archive files", JOptionPane.WARNING_MESSAGE);
+        }
         if (canSaveInBackground()) {
             saveWithLoadingOverlay(e, subTree, fullSave, updateFile, createBackup);
         } else {

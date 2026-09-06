@@ -167,6 +167,16 @@ debugging, and migration work that has landed across the BreakTest PR series.
   FileServer also accept `archive:filename` (this prefix is not a general filesystem path).
   Files are shared by archive name; editing a file updates every reference to it. The browser's
   Delete action removes shared files from the next saved archive; references to deleted files fail.
+  Plans with missing or corrupt indexed files still open with a warning. Those files appear as
+  Unavailable in the archive browser; restore the matching file or delete its entry before saving.
+  Pasted CSV configurations whose files are absent from this plan's index produce a warning;
+  import those files explicitly. Deleted files are not automatically restored from element metadata.
+  New shared filenames must be portable across macOS, Windows, and Linux: Windows reserved names,
+  characters, and trailing dots/spaces are rejected without silently renaming the file.
+  The built-in CSV editor accepts at most 128 MiB, reduced to one twelfth of the JVM heap limit
+  on smaller heaps. Larger files can be exported, edited externally, and imported again.
+  JMX saves replace the destination only after serialization succeeds, preserving existing POSIX
+  permissions; new files use normal permissions subject to the process umask.
   Archive portability currently covers local GUI and CLI execution. Distributed RMI engines receive
   the test tree but not embedded file bytes; extract/copy files to each remote server and configure
   external paths there instead of archive flags or archive-file references.
@@ -284,6 +294,17 @@ Build and test:
 ```sh
 ./gradlew build
 ```
+
+Batch integration checks run in three parallel groups after the shared distribution
+and extra test libraries have been prepared. JMS exclusively owns port 61616,
+`bin/activemq-data`, and `bin/JMS_TESTS.*` outputs. A separate local regression group
+runs controller, extractor, and result-action fixtures with in-process samplers,
+read-only inputs, and distinct output files. Both groups disable the unused UDP
+shutdown listener. Each fixture still runs in its own JVM, and each group runs
+serially internally. The remaining protocol fixtures stay together: HTTP variants
+reuse output files, while FTP/TCP fixtures share ports. Intentional waits and all
+assertions remain unchanged. Use `--no-parallel` to serialize the groups for
+diagnostics. Existing `:src:dist-check:batch...` task paths remain available.
 
 Create local `bin` and `lib` contents for development:
 

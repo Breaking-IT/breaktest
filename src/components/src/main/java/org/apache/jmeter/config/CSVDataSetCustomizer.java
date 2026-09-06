@@ -57,13 +57,13 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 
-import org.apache.jorphan.io.BomInputStream;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.ArchiveBrowser;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.testbeans.gui.FileEditor;
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.io.BomInputStream;
 
 /**
  * Adds CSV preview and editing actions while keeping the standard TestBean property editor.
@@ -137,14 +137,21 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
             saveGuiFields();
             try {
                 CSVDataSet csv = createCsvDataSet();
+                if (csv.isUseCsvFromArchive()) {
+                    CsvFileEditor.checkEditableSize(csv.readCsvContent().length);
+                }
                 Callable<InputStream> source = csvInput(csv);
                 Path path = csv.isUseCsvFromArchive()
                         ? Path.of(csv.getCsvArchiveEntry().isEmpty()
                                 ? CsvArchiveSupport.entryName(csv.getFilename()) : csv.getCsvArchiveEntry())
                         : csv.resolveCsvFile();
                 LoadedEditor loaded = loadInBackground(editButton.getText(), () -> {
+                    if (!csv.isUseCsvFromArchive()) {
+                        CsvFileEditor.checkEditableSize(Files.size(path));
+                    }
                     try (InputStream input = source.call()) {
-                        CsvFileEditor file = CsvFileEditor.fromBytes(path, csv.getFileEncoding(), input.readAllBytes());
+                        CsvFileEditor file = CsvFileEditor.fromBytes(path, csv.getFileEncoding(),
+                                CsvFileEditor.readEditableContent(input));
                         return new LoadedEditor(file, file.getEditorText());
                     }
                 });

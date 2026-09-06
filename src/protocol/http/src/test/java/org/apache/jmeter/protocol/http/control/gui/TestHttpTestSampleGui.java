@@ -19,17 +19,17 @@ package org.apache.jmeter.protocol.http.control.gui;
 
 import java.awt.Component;
 import java.lang.reflect.Field;
-import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 import javax.swing.JComboBox;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
-import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.extractor.RegexExtractor;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -45,20 +45,31 @@ import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.locale.LocalizedValue;
 import org.apache.jorphan.locale.ResourceKeyed;
+import org.apache.jorphan.test.JMeterSerialTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class TestHttpTestSampleGui {
+public class TestHttpTestSampleGui implements JMeterSerialTest {
     @TempDir
     private Path tempDir;
 
     private HttpTestSampleGui gui;
+    private GuiPackage previousGui;
 
     @BeforeEach
     public void setUp() {
+        previousGui = GuiPackage.getInstance();
         gui = new HttpTestSampleGui();
+    }
+
+    @AfterEach
+    public void restoreGuiSingleton() throws Exception {
+        var field = GuiPackage.class.getDeclaredField("guiPack");
+        field.setAccessible(true);
+        field.set(null, previousGui);
     }
 
     @Test

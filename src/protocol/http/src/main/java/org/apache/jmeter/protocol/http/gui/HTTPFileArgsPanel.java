@@ -301,7 +301,7 @@ public class HTTPFileArgsPanel extends JPanel implements ActionListener {
         } else if (BROWSE.equals(command)) {
             HTTPFileArg file = (HTTPFileArg) tableModel.getObjectListAsList().get(rowSelected);
             String path = file.isUseArchive()
-                    ? ArchiveBrowser.chooseFile(this) : browseAndGetFilePath();
+                    ? ArchiveBrowser.chooseFile(this, file.getPath()) : browseAndGetFilePath();
             if (StringUtilities.isNotBlank(path)) {
                 tableModel.setValueAt(path, rowSelected, 0);
             }

@@ -45,6 +45,101 @@ class ArchiveFilesTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
+    void rejectsNonPortableNamesAndAllowsDeletingLegacyNames() {
+        for (String name : new String[] {"report?.csv", "a*b", "a<b", "a>b", "a|b", "a\"b", "a\nb",
+                "end.", "end ", "CON", "nul.csv", "Com1.log", "LPT9", "COM¹.txt", "folder./file.csv"}) {
+            assertThrows(IllegalArgumentException.class, () -> ArchiveFiles.entryName(name), name);
+            if (!name.contains("/")) {
+                assertThrows(IllegalArgumentException.class, () -> ArchiveFiles.importEntryName(name), name);
+            }
+        }
+        assertEquals("files/Quarterly report.csv", ArchiveFiles.entryName("Quarterly report.csv"));
+        TestPlan plan = new TestPlan();
+        ArchiveFiles.remove(plan, "files/report?.csv");
+    }
+
+    @Test
+    void reCreatesMaterializedFileAfterItIsDeleted() throws Exception {
+        byte[] content = {1, 4, 9};
+        String entry = "files/reaped.csv";
+        String digest = ArchiveFiles.checksum(content);
+        JmxArchiveEntryStore.register(entry, digest, content);
+        Path initial = ArchiveFiles.materialize(entry, digest);
+        Files.delete(initial);
+        Path recreated = ArchiveFiles.materialize(entry, digest);
+        assertArrayEquals(content, Files.readAllBytes(recreated));
+        assertThrows(IOException.class, () -> ArchiveFiles.materialize("files/report?.csv", digest));
+    }
+
+    @Test
+    void unavailableFilesCanBeOpenedAndRepairedWithoutUsingStaleCachedBytes() throws Exception {
+        for (boolean corrupt : new boolean[] {false, true}) {
+            TestPlan plan = new TestPlan();
+            plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");
+            byte[] original = {2, 4, 6};
+            ArchiveFiles.put(plan, "recovery.csv", original, false);
+            HashTree tree = new HashTree();
+            tree.add(plan);
+            var saved = new java.io.ByteArrayOutputStream();
+            SaveService.saveTree(tree, saved);
+            Path archive = directory.resolve("broken-" + corrupt + ".jmx");
+            try (var input = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(saved.toByteArray()));
+                    var output = new java.util.zip.ZipOutputStream(Files.newOutputStream(archive))) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = input.getNextEntry()) != null) {
+                    if (entry.getName().equals("files/recovery.csv")) {
+                        if (corrupt) {
+                            output.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                            output.write(new byte[] {99});
+                            output.closeEntry();
+                        }
+                    } else {
+                        output.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                        input.transferTo(output);
+                        output.closeEntry();
+                    }
+                }
+            }
+            HashTree loaded = SaveService.loadTree(archive.toFile());
+            TestPlan reopened = (TestPlan) loaded.getArray()[0];
+            assertEquals(java.util.Set.of("files/recovery.csv"), reopened.getUnavailableArchiveFiles());
+            assertEquals(1, SaveService.archiveWarnings(loaded).size());
+            ArchiveFiles.activate(reopened);
+            assertThrows(IOException.class, () -> ArchiveFiles.read("recovery.csv"));
+            assertThrows(IOException.class, () -> ArchiveFiles.resolve("recovery.csv"));
+            assertThrows(IOException.class, () -> SaveService.saveTree(loaded, new java.io.ByteArrayOutputStream()));
+            // The good bytes still belong to the original plan; recovery state is per plan.
+            ArchiveFiles.activate(plan);
+            assertArrayEquals(original, ArchiveFiles.read("recovery.csv"));
+            if (corrupt) {
+                ArchiveFiles.put(reopened, "recovery.csv", original, true);
+            } else {
+                ArchiveFiles.remove(reopened, "recovery.csv");
+            }
+            assertEquals(java.util.Set.of(), reopened.getUnavailableArchiveFiles());
+            SaveService.saveTree(loaded, new java.io.ByteArrayOutputStream());
+        }
+    }
+
+    @Test
+    void pastedCsvWarnsWithoutResurrectingDeletedFiles() {
+        TestPlan plan = new TestPlan();
+        ArchiveFiles.remove(plan, "pasted.csv");
+        var csv = new org.apache.jmeter.testelement.TestPlan();
+        csv.setName("Pasted accounts");
+        csv.setProperty("useCsvFromArchive", true);
+        csv.setProperty("filename", "pasted.csv");
+        csv.setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, "files/pasted.csv");
+        csv.setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, "old-digest");
+        HashTree tree = new HashTree();
+        tree.add(plan).add(csv);
+        org.junit.jupiter.api.Assertions.assertTrue(SaveService.archiveWarnings(tree).get(0).contains("Pasted accounts"));
+        assertEquals(java.util.Map.of(), SaveService.collectArchiveReferences(tree));
+        ArchiveFiles.put(plan, "pasted.csv", new byte[] {1}, false);
+        assertEquals(java.util.List.of(), SaveService.archiveWarnings(tree));
+    }
+
+    @Test
     void indexedArchiveDoesNotReimportEntriesRemovedFromIndex() throws Exception {
         TestPlan plan = new TestPlan();
         plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");
