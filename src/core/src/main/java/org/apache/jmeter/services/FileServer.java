@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.jmeter.gui.JMeterFileFilter;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.CSVSaveService;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.BomInputStream;
@@ -319,7 +320,7 @@ public class FileServer {
     private File resolveFileFromPath(String filename) {
         if (filename.startsWith("archive:")) {
             try {
-                return org.apache.jmeter.save.ArchiveFiles.resolve(filename.substring("archive:".length())).toFile();
+                return ArchiveFiles.resolve(filename.substring("archive:".length())).toFile();
             } catch (IOException e) {
                 throw new IllegalArgumentException(e.getMessage(), e);
             }

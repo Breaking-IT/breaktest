@@ -163,7 +163,13 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Tools > Archive browser imports and exports shared files stored under `files/` in the JMX archive.
   Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
   the archive using their archive-source flags. For other fields that accept functions, use
-  `${__archiveFile(filename)}` to obtain a local path to an archived file.
+  `${__archiveFile(filename)}` to obtain a local path to an archived file. Fields resolved by
+  FileServer also accept `archive:filename` (this prefix is not a general filesystem path).
+  Files are shared by archive name; editing a file updates every reference to it. The browser's
+  Delete action removes shared files from the next saved archive; references to deleted files fail.
+  Archive portability currently covers local GUI and CLI execution. Distributed RMI engines receive
+  the test tree but not embedded file bytes; extract/copy files to each remote server and configure
+  external paths there instead of archive flags or archive-file references.
   The browser's **Clean up recordings** action can remove static-resource bodies, static-resource
   recordings, or all recorded headers and bodies. Its orphan cleanup removes exchanges without
   sampler references and unused recording blobs; shared files are preserved. Review the estimated

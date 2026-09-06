@@ -18,26 +18,29 @@
 package org.apache.jmeter.save;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.MapProperty;
+import org.apache.jmeter.testelement.property.StringProperty;
 
 /** Shared files owned by a test plan and persisted in its JMX archive. */
 public final class ArchiveFiles {
     public static final String PROPERTY = "BreakTest.archive.files";
     private static volatile TestPlan activePlan;
-    private static final Map<String, Path> LOCAL_FILES = new HashMap<>();
+    private static final Map<String, Path> LOCAL_FILES = new ConcurrentHashMap<>();
 
     private ArchiveFiles() {
     }
@@ -61,7 +64,7 @@ public final class ArchiveFiles {
         if (element.getProperty(PROPERTY) instanceof MapProperty map) {
             Map<?, ?> values = (Map<?, ?>) map.getObjectValue();
             values.forEach((name, value) -> result.put(name.toString(),
-                    ((org.apache.jmeter.testelement.property.JMeterProperty) value).getStringValue()));
+                    ((JMeterProperty) value).getStringValue()));
         }
         return result;
     }
@@ -72,6 +75,27 @@ public final class ArchiveFiles {
             throw new IllegalArgumentException("Invalid archive filename: " + name);
         }
         return entry;
+    }
+
+    /** Imports the basename of a local path without silently renaming it. */
+    public static String importEntryName(String filename) {
+        String name = filename.replace('\\', '/');
+        name = name.substring(name.lastIndexOf('/') + 1);
+        return entryName(name);
+    }
+
+    public static void remove(TestPlan plan, String name) {
+        Map<String, String> entries = references(plan);
+        entries.remove(entryName(name));
+        setReferences(plan, entries);
+    }
+
+    private static void setReferences(TestPlan plan, Map<String, String> references) {
+        MapProperty property = new MapProperty();
+        property.setName(PROPERTY);
+        references.forEach((path, digest) -> property.addProperty(
+                new StringProperty(path, digest)));
+        plan.setProperty(property);
     }
 
     public static String checksum(byte[] content) {
@@ -92,11 +116,7 @@ public final class ArchiveFiles {
         }
         JmxArchiveEntryStore.register(entry, checksum, content);
         references.put(entry, checksum);
-        MapProperty property = new MapProperty();
-        property.setName(PROPERTY);
-        references.forEach((path, digest) -> property.addProperty(
-                new org.apache.jmeter.testelement.property.StringProperty(path, digest)));
-        plan.setProperty(property);
+        setReferences(plan, references);
     }
 
     public static byte[] read(String name) throws IOException {
@@ -111,20 +131,41 @@ public final class ArchiveFiles {
     }
 
     public static Path resolve(String name) throws IOException {
-        return materialize(entryName(name), read(name));
+        TestPlan plan = currentPlan();
+        String entry = entryName(name);
+        String digest = plan == null ? null : references(plan).get(entry);
+        if (digest == null) {
+            throw new IOException("File is not available in the JMX archive: " + entry);
+        }
+        return materialize(entry, digest);
     }
 
-    public static synchronized Path materialize(String entry, byte[] content) throws IOException {
-        String key = entry + ":" + checksum(content);
-        Path path = LOCAL_FILES.get(key);
-        if (path == null || !Files.exists(path)) {
-            Path directory = Files.createTempDirectory("breaktest-archive-");
-            directory.toFile().deleteOnExit();
-            path = directory.resolve(Path.of(entry).getFileName());
-            Files.write(path, content);
-            path.toFile().deleteOnExit();
-            LOCAL_FILES.put(key, path);
+    /** Cache hits use the stored version, without loading or hashing the payload. */
+    public static Path materialize(String entry, String digest) throws IOException {
+        String key = entry + ":" + digest;
+        try {
+            return LOCAL_FILES.computeIfAbsent(key, ignored -> {
+                try {
+                    byte[] content = JmxArchiveEntryStore.find(entry, digest)
+                            .orElseThrow(() -> new IOException("Archive file content is unavailable: " + entry));
+                    Path directory = Files.createTempDirectory("breaktest-archive-");
+                    directory.toFile().deleteOnExit();
+                    Path path = directory.resolve(Path.of(entry).getFileName());
+                    try {
+                        Files.write(path, content);
+                    } catch (IOException failure) {
+                        Files.deleteIfExists(path);
+                        Files.deleteIfExists(directory);
+                        throw failure;
+                    }
+                    path.toFile().deleteOnExit();
+                    return path;
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
         }
-        return path;
     }
 }

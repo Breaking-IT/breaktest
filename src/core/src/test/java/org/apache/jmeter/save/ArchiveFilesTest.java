@@ -45,6 +45,82 @@ class ArchiveFilesTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
+    void indexedArchiveDoesNotReimportEntriesRemovedFromIndex() throws Exception {
+        TestPlan plan = new TestPlan();
+        plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");
+        ArchiveFiles.remove(plan, "removed.bin");
+        HashTree tree = new HashTree();
+        tree.add(plan);
+        var original = new java.io.ByteArrayOutputStream();
+        SaveService.saveTree(tree, original);
+        Path file = directory.resolve("with-unindexed-entry.jmx");
+        try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(file));
+                var input = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(original.toByteArray()))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(entry.getName()));
+                input.transferTo(zip);
+                zip.closeEntry();
+            }
+            zip.putNextEntry(new java.util.zip.ZipEntry("files/removed.bin"));
+            zip.write(new byte[] {1});
+            zip.closeEntry();
+        }
+        TestPlan loaded = (TestPlan) SaveService.loadTree(file.toFile()).getArray()[0];
+        assertEquals(java.util.Map.of(), ArchiveFiles.references(loaded));
+    }
+
+    @Test
+    void materializationCacheUsesVersionAndDoesNotReadPayloadOnHit() throws Exception {
+        String entry = "files/cache-test.bin";
+        byte[] content = {1, 2, 3};
+        String version = ArchiveFiles.checksum(content);
+        JmxArchiveEntryStore.register(entry, version, content);
+        Path first = ArchiveFiles.materialize(entry, version);
+        // Altering the backing cache after materialization must not cause a cache-hit reread or rehash.
+        JmxArchiveEntryStore.register(entry, version, new byte[] {9});
+        org.junit.jupiter.api.Assertions.assertSame(first, ArchiveFiles.materialize(entry, version));
+        assertArrayEquals(content, Files.readAllBytes(first));
+        String updatedVersion = ArchiveFiles.checksum(new byte[] {4});
+        JmxArchiveEntryStore.register(entry, updatedVersion, new byte[] {4});
+        assertArrayEquals(new byte[] {4}, Files.readAllBytes(ArchiveFiles.materialize(entry, updatedVersion)));
+    }
+
+    @Test
+    void deletionPersistsDespiteLegacyCsvReference() throws Exception {
+        TestPlan plan = new TestPlan();
+        plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");
+        byte[] content = {7};
+        ArchiveFiles.put(plan, "delete-me.csv", content, false);
+        plan.setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, "files/delete-me.csv");
+        plan.setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, ArchiveFiles.checksum(content));
+        ArchiveFiles.remove(plan, "delete-me.csv");
+        HashTree tree = new HashTree();
+        tree.add(plan);
+        Path path = directory.resolve("deleted.jmx");
+        try (OutputStream output = Files.newOutputStream(path)) {
+            SaveService.saveTree(tree, output);
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(SaveService.readArchiveEntry(path.toFile(), "files/delete-me.csv").isEmpty());
+        TestPlan reopened = (TestPlan) SaveService.loadTree(path.toFile()).getArray()[0];
+        assertEquals(java.util.Map.of(), ArchiveFiles.references(reopened));
+    }
+
+    @Test
+    void missingSharedFileFailsBeforeWritingArchive() throws Exception {
+        TestPlan plan = new TestPlan();
+        var index = new org.apache.jmeter.testelement.property.MapProperty();
+        index.setName(ArchiveFiles.PROPERTY);
+        index.addProperty(new org.apache.jmeter.testelement.property.StringProperty("files/missing.bin", "missing-version"));
+        plan.setProperty(index);
+        HashTree tree = new HashTree();
+        tree.add(plan);
+        var output = new java.io.ByteArrayOutputStream();
+        assertThrows(IOException.class, () -> SaveService.saveTree(tree, output));
+        assertEquals(0, output.size());
+    }
+
+    @Test
     void guiReopenUsesVisiblePlanInsteadOfStaleInvisibleRoot() throws Exception {
         java.lang.reflect.Field field = org.apache.jmeter.gui.GuiPackage.class.getDeclaredField("guiPack");
         field.setAccessible(true);

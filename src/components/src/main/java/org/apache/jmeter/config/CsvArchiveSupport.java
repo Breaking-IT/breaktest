@@ -20,10 +20,14 @@ package org.apache.jmeter.config;
 import java.io.IOException;
 import java.nio.file.Path;
 
-import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.ArchiveFiles;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.testelement.property.MapProperty;
 
-/** Resolves archived CSV data to shared temporary files for FileServer readers. */
+/**
+ * Resolves shared CSV files by name. Per-element checksums are a compatibility
+ * fallback only for older plans that do not have a shared-file index.
+ */
 final class CsvArchiveSupport {
 
     private CsvArchiveSupport() {
@@ -34,26 +38,13 @@ final class CsvArchiveSupport {
     }
 
     static String entryName(String filename) {
-        String name = filename == null ? "data.csv" : filename.replace('\\', '/');
-        name = name.substring(name.lastIndexOf('/') + 1).replaceAll("[^A-Za-z0-9._-]", "_");
-        if (name.isEmpty() || ".".equals(name) || "..".equals(name)) {
-            name = "data.csv";
-        }
-        return "files/" + name;
-    }
-
-    static void validateFilename(String entry, String checksum, Iterable<CSVDataSet> existing) {
-        for (CSVDataSet csv : existing) {
-            if (entry.equals(csv.getCsvArchiveEntry()) && !checksum.equals(csv.getCsvArchiveChecksum())) {
-                throw new IllegalArgumentException("A different CSV already uses the archive filename " + entry
-                        + ". Use a unique CSV filename.");
-            }
-        }
+        return ArchiveFiles.importEntryName(filename);
     }
 
     static byte[] read(String entry, String checksum) throws IOException {
         if (entry.startsWith("files/") && ArchiveFiles.currentPlan() != null
-                && ArchiveFiles.references(ArchiveFiles.currentPlan()).containsKey(entry)) {
+                && ArchiveFiles.currentPlan().getProperty(ArchiveFiles.PROPERTY)
+                        instanceof MapProperty) {
             return ArchiveFiles.read(entry);
         }
         return JmxArchiveEntryStore.find(entry, checksum)
@@ -61,6 +52,11 @@ final class CsvArchiveSupport {
     }
 
     static Path materialize(String entry, String checksum) throws IOException {
-        return ArchiveFiles.materialize(entry, read(entry, checksum));
+        if (entry.startsWith("files/") && ArchiveFiles.currentPlan() != null
+                && ArchiveFiles.currentPlan().getProperty(ArchiveFiles.PROPERTY)
+                        instanceof MapProperty) {
+            return ArchiveFiles.resolve(entry);
+        }
+        return ArchiveFiles.materialize(entry, checksum);
     }
 }

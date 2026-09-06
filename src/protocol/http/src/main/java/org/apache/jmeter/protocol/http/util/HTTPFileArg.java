@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.Objects;
 
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
@@ -229,8 +230,8 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
         setProperty("HTTPFileArg.useArchive", useArchive, false);
     }
 
-    public String getResolvedPath() throws java.io.IOException {
-        return isUseArchive() ? org.apache.jmeter.save.ArchiveFiles.resolve(getPath()).toString() : getPath();
+    public String getResolvedPath() throws IOException {
+        return isUseArchive() ? ArchiveFiles.resolve(getPath()).toString() : getPath();
     }
 
     public String getPath() {

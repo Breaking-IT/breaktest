@@ -296,7 +296,7 @@ public class CSVDataSet extends ConfigTestElement
 
     private String archiveEntry() {
         return getCsvArchiveEntry().isEmpty()
-                ? org.apache.jmeter.save.ArchiveFiles.entryName(getFilename()) : getCsvArchiveEntry();
+                ? CsvArchiveSupport.entryName(getFilename()) : getCsvArchiveEntry();
     }
 
     Path resolveCsvFile() throws IOException {

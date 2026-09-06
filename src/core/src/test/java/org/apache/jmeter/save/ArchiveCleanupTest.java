@@ -41,6 +41,29 @@ class ArchiveCleanupTest extends JMeterTestCase {
     Path directory;
 
     @Test
+    void unlinkedRecordingIsNotAssumedToBeOrphaned() throws Exception {
+        var archive = RecordedExchangeStore.fromHar("""
+                {"log":{"entries":[{"request":{"url":"https://example.invalid/api"},
+                "response":{"content":{"text":"unconverted recording"}}}]}}
+                """.getBytes(StandardCharsets.UTF_8), "test.har");
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        TestPlan owner = new TestPlan();
+        owner.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        owner.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, archive.checksum());
+        HashTree tree = new HashTree();
+        tree.add(owner);
+        var cleanup = ArchiveCleanup.prepare(tree, RecordingStorageMode.ALL, true);
+        assertEquals(1, cleanup.unlinkedRecordings());
+        assertEquals(1, cleanup.retainedExchanges());
+        cleanup.apply();
+        assertEquals(archive.manifestEntryName(), owner.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        var explicitRemoval = ArchiveCleanup.prepare(tree, RecordingStorageMode.NONE, true);
+        assertEquals(0, explicitRemoval.retainedExchanges());
+        explicitRemoval.apply();
+        assertEquals("", owner.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+    }
+
+    @Test
     void orphanCleanupRespectsInheritedManifestReferences() throws Exception {
         var archive = RecordedExchangeStore.fromHar("""
                 {"log":{"entries":[

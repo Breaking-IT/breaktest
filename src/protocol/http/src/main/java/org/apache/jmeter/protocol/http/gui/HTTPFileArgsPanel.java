@@ -42,6 +42,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.event.TableModelListener;
 
 import org.apache.jmeter.config.gui.RowDetailDialog;
+import org.apache.jmeter.gui.util.ArchiveBrowser;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -300,7 +301,7 @@ public class HTTPFileArgsPanel extends JPanel implements ActionListener {
         } else if (BROWSE.equals(command)) {
             HTTPFileArg file = (HTTPFileArg) tableModel.getObjectListAsList().get(rowSelected);
             String path = file.isUseArchive()
-                    ? org.apache.jmeter.gui.util.ArchiveBrowser.chooseFile(this) : browseAndGetFilePath();
+                    ? ArchiveBrowser.chooseFile(this) : browseAndGetFilePath();
             if (StringUtilities.isNotBlank(path)) {
                 tableModel.setValueAt(path, rowSelected, 0);
             }

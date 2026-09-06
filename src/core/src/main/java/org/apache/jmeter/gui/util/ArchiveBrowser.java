@@ -23,17 +23,18 @@ import java.awt.Dialog;
 import java.awt.FlowLayout;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
 import java.text.MessageFormat;
+import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
-import javax.swing.SwingWorker;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -42,13 +43,14 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableModel;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.save.ArchiveFiles;
-import org.apache.jmeter.save.ArchiveCleanup;
 import org.apache.jmeter.recording.RecordingStorageMode;
+import org.apache.jmeter.save.ArchiveCleanup;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
@@ -96,7 +98,10 @@ public final class ArchiveBrowser {
         JTable table = new JTable(model);
         Runnable refresh = () -> {
             model.setRowCount(0);
-            archiveContents().forEach((entry, bytes) -> model.addRow(new Object[] {entry, bytes.length}));
+            Map<String, byte[]> contents = archiveContents();
+            contents.forEach((entry, bytes) -> model.addRow(new Object[] {entry, bytes.length}));
+            entries().keySet().stream().filter(entry -> !contents.containsKey(entry)).forEach(entry ->
+                    model.addRow(new Object[] {entry, JMeterUtils.getResString("archive_file_unavailable")}));
         };
         refresh.run();
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -107,7 +112,7 @@ public final class ArchiveBrowser {
             if (chooser.showOpenDialog(dialog) != JFileChooser.APPROVE_OPTION) {
                 return;
             }
-            for (java.io.File file : chooser.getSelectedFiles()) {
+            for (File file : chooser.getSelectedFiles()) {
                 try {
                     byte[] bytes = Files.readAllBytes(file.toPath());
                     String entry = ArchiveFiles.entryName(file.getName());
@@ -151,6 +156,26 @@ public final class ArchiveBrowser {
                 showError(dialog, ex);
             }
         });
+        JButton delete = new JButton(JMeterUtils.getResString("delete"));
+        delete.addActionListener(event -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            String entry = model.getValueAt(row, 0).toString();
+            if (!entry.startsWith("files/")) {
+                JOptionPane.showMessageDialog(dialog, JMeterUtils.getResString("archive_delete_recording"));
+                return;
+            }
+            if (JOptionPane.showConfirmDialog(dialog,
+                    MessageFormat.format(JMeterUtils.getResString("archive_delete_confirm"), entry),
+                    JMeterUtils.getResString("delete"), JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION) {
+                ArchiveFiles.remove(ArchiveFiles.currentPlan(), entry);
+                GuiPackage.getInstance().setDirty(true);
+                refresh.run();
+            }
+        });
         JButton reference = new JButton(JMeterUtils.getResString("archive_copy_reference"));
         reference.addActionListener(event -> {
             int row = table.getSelectedRow();
@@ -168,6 +193,7 @@ public final class ArchiveBrowser {
         close.addActionListener(event -> dialog.dispose());
         buttons.add(add);
         buttons.add(export);
+        buttons.add(delete);
         buttons.add(reference);
         buttons.add(cleanup);
         buttons.add(close);
@@ -230,7 +256,11 @@ public final class ArchiveBrowser {
                 try {
                     ArchiveCleanup.Prepared prepared = get();
                     String summary = MessageFormat.format(JMeterUtils.getResString("archive_cleanup_summary"),
-                            prepared.removedEntries(), prepared.bytesRemoved());
+                            prepared.removedEntries(), prepared.bytesRemoved(), prepared.retainedExchanges());
+                    if (prepared.unlinkedRecordings() > 0) {
+                        summary += "\n" + MessageFormat.format(JMeterUtils.getResString("archive_cleanup_unlinked"),
+                                prepared.unlinkedRecordings());
+                    }
                     if (JOptionPane.showConfirmDialog(parent, summary, title, JOptionPane.OK_CANCEL_OPTION,
                             JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION) {
                         prepared.apply();
@@ -241,7 +271,7 @@ public final class ArchiveBrowser {
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     showError(parent, ex);
-                } catch (java.util.concurrent.ExecutionException | RuntimeException ex) {
+                } catch (ExecutionException | RuntimeException ex) {
                     showError(parent, ex);
                 }
             }

@@ -29,7 +29,6 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
@@ -51,6 +50,27 @@ class CsvArchiveSupportTest extends JMeterTestCase implements JMeterSerialTest {
     @AfterEach
     void closeFiles() throws IOException {
         FileServer.getFileServer().closeFiles();
+    }
+
+    @Test
+    void importedNamesArePreservedAndSharedIndexOverridesStaleCsvVersion() throws Exception {
+        assertEquals("files/my data.csv", CsvArchiveSupport.entryName("/tmp/my data.csv"));
+        assertEquals("files/my data.csv", CsvArchiveSupport.entryName("C:\\data\\my data.csv"));
+        assertThrows(IllegalArgumentException.class, () -> CsvArchiveSupport.entryName("/tmp/"));
+        var plan = new org.apache.jmeter.testelement.TestPlan();
+        org.apache.jmeter.save.ArchiveFiles.put(plan, "my data.csv", "name\nnew\n".getBytes(StandardCharsets.UTF_8), false);
+        org.apache.jmeter.save.ArchiveFiles.activate(plan);
+        try {
+            CSVDataSet csv = new CSVDataSet();
+            csv.setFilename("/tmp/my data.csv");
+            csv.setUseCsvFromArchive(true);
+            csv.setCsvArchiveChecksum("old-checksum");
+            assertEquals("name\nnew\n", new String(csv.readCsvContent(), StandardCharsets.UTF_8));
+            org.apache.jmeter.save.ArchiveFiles.remove(plan, "my data.csv");
+            assertThrows(IOException.class, csv::readCsvContent);
+        } finally {
+            org.apache.jmeter.save.ArchiveFiles.activate(null);
+        }
     }
 
     @Test
@@ -113,24 +133,26 @@ class CsvArchiveSupportTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
-    void conflictingFilenamesAreRejectedButIdenticalContentsCanBeReused() throws Exception {
+    void conflictingLegacyVersionsAreReadableButRejectedOnSave() throws Exception {
         CSVDataSet first = new CSVDataSet();
         first.setFilename("first/data.csv");
         byte[] content = "name\nAlice\n".getBytes(StandardCharsets.UTF_8);
         first.storeArchivedCsv(content);
         String entry = CsvArchiveSupport.entryName("second/data.csv");
         assertEquals("files/data.csv", entry);
-        CsvArchiveSupport.validateFilename(entry, CsvArchiveSupport.checksum(content), List.of(first));
         byte[] different = "name\nBob\n".getBytes(StandardCharsets.UTF_8);
-        assertThrows(IllegalArgumentException.class,
-                () -> CsvArchiveSupport.validateFilename(entry, CsvArchiveSupport.checksum(different), List.of(first)));
         CSVDataSet second = new CSVDataSet();
         second.setFilename("second/data.csv");
         second.storeArchivedCsv(different);
         HashTree tree = new HashTree();
         tree.add(first);
         tree.add(second);
-        assertThrows(IllegalArgumentException.class, () -> SaveService.saveTree(tree, new ByteArrayOutputStream()));
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> SaveService.collectArchiveReferences(tree));
+        first.setName("First CSV");
+        second.setName("Second CSV");
+        IOException error = assertThrows(IOException.class, () -> SaveService.saveTree(tree, new ByteArrayOutputStream()));
+        assertTrue(error.getMessage().contains("First CSV"));
+        assertTrue(error.getMessage().contains("Second CSV"));
     }
 
     @Test

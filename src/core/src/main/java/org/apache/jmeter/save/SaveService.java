@@ -55,8 +55,10 @@ import org.apache.jmeter.reporters.ResultCollectorHelper;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.FunctionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.MapProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.NameUpdater;
@@ -334,6 +336,7 @@ public class SaveService {
     // Called by Save function
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
         HashTree serializableTree = createSerializableTree(tree);
+        validateSharedFilesForSave(serializableTree);
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(new NonClosingOutputStream(out))) {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
             saveTreeAsXml(serializableTree, zipOutputStream);
@@ -387,6 +390,39 @@ public class SaveService {
         private UnserializableFunctionPropertyException(String propertyName) {
             super("Cannot save test plan because runtime property '" + propertyName
                     + "' has lost its original expression. Reload the last valid test plan and retry.");
+        }
+    }
+
+    private static void validateSharedFilesForSave(HashTree tree) throws IOException {
+        TestPlan plan = findArchiveTestPlan(tree);
+        if (plan == null || !(plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty)) {
+            validateLegacyCsvReferences(tree, new LinkedHashMap<>(), new LinkedHashMap<>());
+        }
+        for (Map.Entry<String, String> entry : collectArchiveReferences(tree).entrySet()) {
+            if ((entry.getKey().startsWith("files/") || entry.getKey().startsWith("csv/"))
+                    && JmxArchiveEntryStore.findBundle(entry.getKey(), entry.getValue()).isEmpty()) {
+                throw new IOException("Cannot save: archive file is unavailable: " + entry.getKey()
+                        + ". Restore the file or remove it from the archive index.");
+            }
+        }
+    }
+
+    private static void validateLegacyCsvReferences(HashTree tree, Map<String, String> versions,
+            Map<String, String> owners) throws IOException {
+        for (Object node : tree.list()) {
+            if (node instanceof TestElement element) {
+                String entry = element.getPropertyAsString(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY);
+                String checksum = element.getPropertyAsString(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY);
+                if (!entry.isEmpty()) {
+                    String previous = versions.putIfAbsent(entry, checksum);
+                    if (previous != null && !previous.equalsIgnoreCase(checksum)) {
+                        throw new IOException("Conflicting legacy CSV versions for " + entry + " in elements '"
+                                + owners.get(entry) + "' and '" + element.getName() + "'. Import a shared file to resolve it.");
+                    }
+                    owners.putIfAbsent(entry, element.getName());
+                }
+            }
+            validateLegacyCsvReferences(tree.getTree(node), versions, owners);
         }
     }
 
@@ -618,8 +654,19 @@ public class SaveService {
     }
 
     private static void cacheSharedArchiveFiles(HashTree tree, File archive) throws IOException {
-        org.apache.jmeter.testelement.TestPlan plan = findArchiveTestPlan(tree);
+        TestPlan plan = findArchiveTestPlan(tree);
         if (plan == null) {
+            return;
+        }
+        if (plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
+            for (Map.Entry<String, String> reference : ArchiveFiles.references(plan).entrySet()) {
+                byte[] content = readArchiveEntry(archive, reference.getKey())
+                        .orElseThrow(() -> new IOException("Archive file is missing: " + reference.getKey()));
+                if (!ArchiveFiles.checksum(content).equals(reference.getValue())) {
+                    throw new IOException("Archive file checksum does not match: " + reference.getKey());
+                }
+                JmxArchiveEntryStore.register(reference.getKey(), reference.getValue(), content);
+            }
             return;
         }
         // Older archives have CSV references but no shared-files index. Rebuild it from
@@ -638,12 +685,15 @@ public class SaveService {
         }
     }
 
-    private static org.apache.jmeter.testelement.TestPlan findArchiveTestPlan(HashTree tree) {
+    private static TestPlan findArchiveTestPlan(HashTree tree) {
+        if (tree == null) {
+            return null;
+        }
         for (Object node : tree.list()) {
-            if (node instanceof org.apache.jmeter.testelement.TestPlan plan) {
+            if (node instanceof TestPlan plan) {
                 return plan;
             }
-            org.apache.jmeter.testelement.TestPlan plan = findArchiveTestPlan(tree.getTree(node));
+            TestPlan plan = findArchiveTestPlan(tree.getTree(node));
             if (plan != null) {
                 return plan;
             }
@@ -716,6 +766,11 @@ public class SaveService {
     public static Map<String, String> collectArchiveReferences(HashTree tree) {
         Map<String, String> references = new LinkedHashMap<>();
         collectArchiveReferences(tree, references);
+        TestPlan plan = findArchiveTestPlan(tree);
+        if (plan != null && plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
+            // The shared index is authoritative, including deliberate deletions.
+            references.keySet().removeIf(entry -> entry.startsWith("files/"));
+        }
         collectSharedFiles(tree, references);
         return references;
     }
@@ -764,10 +819,6 @@ public class SaveService {
                 return candidate;
             }
             if (!candidate.isEmpty() && !current.equalsIgnoreCase(candidate)) {
-                if (JmxArchiveEntryStore.CSV_ENTRY_PROPERTY.equals(entryProperty)) {
-                    throw new IllegalArgumentException("Different CSV files use the same archive filename: "
-                            + entryName + ". Use unique CSV filenames.");
-                }
                 log.warn("Conflicting checksums found for archive entry '{}': '{}' and '{}'",
                         entryName, current, candidate);
             }

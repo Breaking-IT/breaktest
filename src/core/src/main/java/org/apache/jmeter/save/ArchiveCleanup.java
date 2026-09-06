@@ -42,6 +42,8 @@ public final class ArchiveCleanup {
         Map<String, byte[]> before = new LinkedHashMap<>();
         Map<String, byte[]> after = new LinkedHashMap<>();
         List<Update> updates = new ArrayList<>();
+        int unlinkedRecordings = 0;
+        int retainedExchanges = 0;
         for (Map.Entry<String, Group> group : owners.entrySet()) {
             String entry = group.getKey();
             String checksum = group.getValue().checksum();
@@ -49,8 +51,13 @@ public final class ArchiveCleanup {
             Map<String, byte[]> bundle = JmxArchiveEntryStore.findBundle(entry, checksum)
                     .orElseThrow(() -> new IOException("Recording is unavailable: " + entry));
             before.putAll(bundle);
+            boolean canRemoveOrphans = removeOrphans && !liveIds.isEmpty();
+            if (removeOrphans && liveIds.isEmpty() && mode != RecordingStorageMode.NONE) {
+                unlinkedRecordings++;
+            }
             RecordedExchangeStore.Archive cleaned = RecordedExchangeStore.cleanArchive(
-                    entry, bundle, mode, removeOrphans ? liveIds : null);
+                    entry, bundle, mode, canRemoveOrphans ? liveIds : null);
+            retainedExchanges += cleaned.exchangeCount();
             if (!cleaned.exchangeIds().isEmpty()) {
                 after.putAll(cleaned.entries());
             }
@@ -60,7 +67,7 @@ public final class ArchiveCleanup {
         long afterBytes = after.values().stream().mapToLong(bytes -> bytes.length).sum();
         Set<String> removed = new LinkedHashSet<>(before.keySet());
         removed.removeAll(after.keySet());
-        return new Prepared(List.copyOf(updates), beforeBytes, afterBytes, removed.size());
+        return new Prepared(List.copyOf(updates), beforeBytes, afterBytes, removed.size(), retainedExchanges, unlinkedRecordings);
     }
 
     private static void collectOwners(HashTree tree, String inheritedEntry, String inheritedChecksum,
@@ -105,12 +112,16 @@ public final class ArchiveCleanup {
         private final long beforeBytes;
         private final long afterBytes;
         private final int removedEntries;
+        private final int retainedExchanges;
+        private final int unlinkedRecordings;
 
-        private Prepared(List<Update> updates, long beforeBytes, long afterBytes, int removedEntries) {
+        private Prepared(List<Update> updates, long beforeBytes, long afterBytes, int removedEntries, int retainedExchanges, int unlinkedRecordings) {
             this.updates = updates;
             this.beforeBytes = beforeBytes;
             this.afterBytes = afterBytes;
             this.removedEntries = removedEntries;
+            this.retainedExchanges = retainedExchanges;
+            this.unlinkedRecordings = unlinkedRecordings;
         }
 
         public long bytesRemoved() {
@@ -121,6 +132,14 @@ public final class ArchiveCleanup {
             return removedEntries;
         }
 
+        public int retainedExchanges() {
+            return retainedExchanges;
+        }
+
+        public int unlinkedRecordings() {
+            return unlinkedRecordings;
+        }
+
         public void apply() {
             for (Update update : updates) {
                 RecordedExchangeStore.Archive archive = update.archive();
@@ -129,7 +148,7 @@ public final class ArchiveCleanup {
                 }
                 for (TestElement owner : update.owners()) {
                     String id = owner.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY);
-                    if (archive.exchangeIds().isEmpty() || !id.isEmpty() && !archive.exchangeIds().contains(id)) {
+                    if (archive.exchangeIds().isEmpty() || (!id.isEmpty() && !archive.exchangeIds().contains(id))) {
                         owner.removeProperty(RecordedExchangeStore.MANIFEST_PROPERTY);
                         owner.removeProperty(RecordedExchangeStore.CHECKSUM_PROPERTY);
                         owner.removeProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY);

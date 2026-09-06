@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.apache.jmeter.NewDriver;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
@@ -237,7 +238,7 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
      */
     @Override
     public void testStarted() {
-        org.apache.jmeter.save.ArchiveFiles.activate(this);
+        ArchiveFiles.activate(this);
         if (StringUtilities.isNotEmpty(getBasedir())) {
             try {
                 FileServer.getFileServer().setBasedir(FileServer.getFileServer().getBaseDir() + getBasedir());

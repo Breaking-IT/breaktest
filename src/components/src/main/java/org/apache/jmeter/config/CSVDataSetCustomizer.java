@@ -19,15 +19,15 @@ package org.apache.jmeter.config;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Dialog;
 import java.awt.GridBagLayout;
+import java.awt.event.ActionEvent;
 import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
-import java.awt.event.ActionEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,16 +40,16 @@ import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
-import javax.swing.SwingUtilities;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 
-import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
-import org.apache.jmeter.testbeans.gui.FileEditor;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.ArchiveBrowser;
 import org.apache.jmeter.save.ArchiveFiles;
+import org.apache.jmeter.testbeans.gui.FileEditor;
+import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
@@ -105,7 +105,7 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
                 List<String> lines = csvDataSet.readFirstSample(10);
                 previewText.setText(String.join(System.lineSeparator(), lines));
                 previewText.setCaretPosition(0);
-            } catch (RuntimeException | java.io.IOException ex) {
+            } catch (RuntimeException | IOException ex) {
                 previewText.setText(ex.getMessage());
                 previewText.setCaretPosition(0);
             }
@@ -219,18 +219,10 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
     private static void storeArchivedCsv(CSVDataSet csv, byte[] content) {
         GuiPackage gui = GuiPackage.getInstance();
         if (gui != null) {
-            List<CSVDataSet> existing = gui.getTreeModel().getNodesOfType(CSVDataSet.class).stream()
-                    .filter(node -> node != gui.getCurrentNode())
-                    .map(node -> (CSVDataSet) node.getTestElement())
-                    .toList();
-            CsvArchiveSupport.validateFilename(CsvArchiveSupport.entryName(csv.getFilename()),
-                    CsvArchiveSupport.checksum(content), existing);
-        }
-        if (gui != null) {
-            String entry = CsvArchiveSupport.entryName(csv.getFilename());
-            if (csv.isUseCsvFromArchive() && !csv.getCsvArchiveEntry().isEmpty()) {
-                entry = csv.getCsvArchiveEntry();
-            }
+            String entry = csv.isUseCsvFromArchive() && !csv.getCsvArchiveEntry().isEmpty()
+                    ? csv.getCsvArchiveEntry() : CsvArchiveSupport.entryName(csv.getFilename());
+            // An archived file is shared by name; editing updates that shared file.
+            // Importing a different external file still rejects a name collision.
             ArchiveFiles.put(ArchiveFiles.currentPlan(), entry, content, csv.isUseCsvFromArchive());
             csv.setCsvArchiveEntry(entry);
             csv.setCsvArchiveChecksum(ArchiveFiles.checksum(content));
