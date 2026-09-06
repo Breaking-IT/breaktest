@@ -21,7 +21,6 @@ import java.awt.SecondaryLoop;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -334,8 +333,8 @@ public class Save extends AbstractAction {
             }
         }
 
-        try (FileOutputStream ostream = new FileOutputStream(newFile)){
-            SaveService.saveTree(subTree, ostream);
+        try {
+            SaveService.saveTreeToFile(subTree, Path.of(newFile));
             // delete expired backups : here everything went right so we can
             // proceed to deletion
             for (Path backupFile : expiredBackupFiles) {

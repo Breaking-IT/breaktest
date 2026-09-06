@@ -38,6 +38,48 @@ import org.junit.jupiter.api.Test;
 
 class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTest {
     @Test
+    void editorPopulationYieldsToEdtAndPreservesCompleteContent() throws Exception {
+        String content = "first,value\r\nsecond,é😀\n".repeat(30000);
+        var completed = new java.util.concurrent.CountDownLatch(1);
+        var heartbeat = new java.util.concurrent.atomic.AtomicBoolean();
+        var editor = new javax.swing.JTextArea();
+        SwingUtilities.invokeAndWait(() -> {
+            CSVDataSetCustomizer.populateEditor(editor, content, completed::countDown);
+            SwingUtilities.invokeLater(() -> heartbeat.set(true));
+            assertEquals("", editor.getText());
+        });
+        assertTrue(completed.await(15, java.util.concurrent.TimeUnit.SECONDS));
+        SwingUtilities.invokeAndWait(() -> {
+            assertTrue(heartbeat.get());
+            assertEquals(content, editor.getText());
+        });
+    }
+
+    @Test
+    void backgroundLoadingLeavesEventThreadAvailableAndPropagatesErrors() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(java.awt.GraphicsEnvironment.isHeadless());
+        SwingUtilities.invokeAndWait(() -> {
+            CSVDataSetCustomizer customizer = new CSVDataSetCustomizer();
+            try {
+                String result = customizer.loadInBackground("CSV preview", () -> {
+                    assertFalse(SwingUtilities.isEventDispatchThread());
+                    // This would deadlock if loading blocked the EDT.
+                    SwingUtilities.invokeAndWait(() -> assertTrue(SwingUtilities.isEventDispatchThread()));
+                    return "loaded";
+                });
+                assertEquals("loaded", result);
+                java.io.IOException failure = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
+                        () -> customizer.loadInBackground("CSV preview", () -> {
+                            throw new java.io.IOException("Unreadable CSV");
+                        }));
+                assertEquals("Unreadable CSV", failure.getMessage());
+            } catch (java.io.IOException e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    @Test
     void filenameBrowseUsesArchivePickerAndCancellationKeepsSelection() throws Exception {
         TestPlan plan = new TestPlan();
         ArchiveFiles.put(plan, "selected.csv", new byte[0], false);
@@ -54,11 +96,13 @@ class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTes
                 customizer.selection = "files/selected.csv";
                 browse.doClick();
                 assertTrue(customizer.pickerOpened);
+                assertEquals("files/external.csv", customizer.currentEntry);
                 assertEquals("selected.csv", properties.get("filename"));
                 assertEquals("files/selected.csv", properties.get("csvArchiveEntry"));
                 assertEquals(ArchiveFiles.checksum(new byte[0]), properties.get("csvArchiveChecksum"));
                 customizer.selection = null;
                 browse.doClick();
+                assertEquals("files/selected.csv", customizer.currentEntry);
                 assertEquals("selected.csv", properties.get("filename"));
                 assertEquals("files/selected.csv", properties.get("csvArchiveEntry"));
                 properties.put("useCsvFromArchive", false);
@@ -89,10 +133,12 @@ class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTes
 
     private static class TestCustomizer extends CSVDataSetCustomizer {
         private String selection;
+        private String currentEntry;
         private boolean pickerOpened;
 
         @Override
-        String chooseArchiveFile() {
+        String chooseArchiveFile(String currentEntry) {
+            this.currentEntry = currentEntry;
             pickerOpened = true;
             return selection;
         }

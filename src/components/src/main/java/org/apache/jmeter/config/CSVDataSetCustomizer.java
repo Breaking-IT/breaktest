@@ -18,6 +18,7 @@
 package org.apache.jmeter.config;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.Dimension;
@@ -28,12 +29,20 @@ import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
 import javax.swing.JDialog;
@@ -41,10 +50,14 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
+import javax.swing.Timer;
 
+import org.apache.jorphan.io.BomInputStream;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.ArchiveBrowser;
 import org.apache.jmeter.save.ArchiveFiles;
@@ -102,7 +115,15 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
             saveGuiFields();
             CSVDataSet csvDataSet = createCsvDataSet();
             try {
-                List<String> lines = csvDataSet.readFirstSample(10);
+                Callable<InputStream> source = csvInput(csvDataSet);
+                List<String> lines = loadInBackground(previewButton.getText(), () -> {
+                    try (InputStream input = new BufferedInputStream(source.call());
+                            BufferedReader reader = new BufferedReader(csvDataSet.getFileEncoding().isBlank()
+                                    ? BomInputStream.reader(input)
+                                    : new InputStreamReader(input, Charset.forName(csvDataSet.getFileEncoding())))) {
+                        return csvDataSet.readFirstSample(10, reader);
+                    }
+                });
                 previewText.setText(String.join(System.lineSeparator(), lines));
                 previewText.setCaretPosition(0);
             } catch (RuntimeException | IOException ex) {
@@ -116,11 +137,18 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
             saveGuiFields();
             try {
                 CSVDataSet csv = createCsvDataSet();
-                CsvFileEditor file = csv.isUseCsvFromArchive()
-                        ? CsvFileEditor.fromBytes(Path.of(csv.getCsvArchiveEntry()), csv.getFileEncoding(),
-                                csv.readCsvContent())
-                        : CsvFileEditor.open(csv.getFilename(), csv.getFileEncoding());
-                showEditor(file, csv, bundle, previewButton);
+                Callable<InputStream> source = csvInput(csv);
+                Path path = csv.isUseCsvFromArchive()
+                        ? Path.of(csv.getCsvArchiveEntry().isEmpty()
+                                ? CsvArchiveSupport.entryName(csv.getFilename()) : csv.getCsvArchiveEntry())
+                        : csv.resolveCsvFile();
+                LoadedEditor loaded = loadInBackground(editButton.getText(), () -> {
+                    try (InputStream input = source.call()) {
+                        CsvFileEditor file = CsvFileEditor.fromBytes(path, csv.getFileEncoding(), input.readAllBytes());
+                        return new LoadedEditor(file, file.getEditorText());
+                    }
+                });
+                showEditor(loaded.file(), loaded.text(), csv, bundle, previewButton);
             } catch (IOException | RuntimeException ex) {
                 JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("editCsv.error"),
                         JOptionPane.ERROR_MESSAGE);
@@ -180,12 +208,64 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         return previewPanel;
     }
 
+    // Capture the source on the EDT so workers never consult the mutable GUI tree.
+    private static Callable<InputStream> csvInput(CSVDataSet csv) throws IOException {
+        if (csv.isUseCsvFromArchive()) {
+            byte[] content = csv.readCsvContent();
+            return () -> new ByteArrayInputStream(content);
+        }
+        Path path = csv.resolveCsvFile();
+        return () -> Files.newInputStream(path);
+    }
+
+    private record LoadedEditor(CsvFileEditor file, String text) {
+    }
+
+    <T> T loadInBackground(String title, Callable<T> operation) throws IOException {
+        JDialog progress = new JDialog(SwingUtilities.getWindowAncestor(this), title,
+                Dialog.ModalityType.APPLICATION_MODAL);
+        progress.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+        JProgressBar bar = new JProgressBar();
+        bar.setIndeterminate(true);
+        progress.add(bar);
+        progress.pack();
+        progress.setLocationRelativeTo(this);
+        SwingWorker<T, Void> worker = new SwingWorker<>() {
+            @Override
+            protected T doInBackground() throws Exception {
+                return operation.call();
+            }
+
+            @Override
+            protected void done() {
+                progress.dispose();
+            }
+        };
+        worker.execute();
+        progress.setVisible(true);
+        try {
+            return worker.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException(e);
+        } catch (ExecutionException e) {
+            throw new IOException(e.getCause().getMessage(), e.getCause());
+        } finally {
+            progress.dispose();
+        }
+    }
+
     boolean browseArchiveFile() {
         saveGuiFields();
         if (!getBoolean("useCsvFromArchive")) {
             return false;
         }
-        String entry = chooseArchiveFile();
+        String currentEntry = getString("csvArchiveEntry");
+        if (currentEntry.isEmpty()) {
+            String filename = getString("filename").replace('\\', '/');
+            currentEntry = "files/" + filename.substring(filename.lastIndexOf('/') + 1);
+        }
+        String entry = chooseArchiveFile(currentEntry);
         if (entry != null) {
             CSVDataSet csv = createCsvDataSet();
             propertyMap.put("filename", entry.substring("files/".length()));
@@ -196,8 +276,8 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         return true;
     }
 
-    String chooseArchiveFile() {
-        return ArchiveBrowser.chooseFile(this);
+    String chooseArchiveFile(String currentEntry) {
+        return ArchiveBrowser.chooseFile(this, currentEntry);
     }
 
     /** Routes the standard filename Browse button through the selected CSV source. */
@@ -233,6 +313,9 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
     }
 
     private void updateArchiveProperties(CSVDataSet csv) {
+        if (csv.isUseCsvFromArchive() && csv.getCsvArchiveEntry().startsWith("files/")) {
+            propertyMap.put("filename", csv.getCsvArchiveEntry().substring("files/".length()));
+        }
         propertyMap.put("useCsvFromArchive", csv.isUseCsvFromArchive());
         propertyMap.put("csvArchiveEntry", csv.getCsvArchiveEntry());
         propertyMap.put("csvArchiveChecksum", csv.getCsvArchiveChecksum());
@@ -243,19 +326,30 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         }
     }
 
-    private void showEditor(CsvFileEditor file, CSVDataSet csv, ResourceBundle bundle, JButton previewButton) {
+    private void showEditor(CsvFileEditor file, String text, CSVDataSet csv, ResourceBundle bundle, JButton previewButton) {
         JDialog dialog = new JDialog(SwingUtilities.getWindowAncestor(this),
                 bundle.getString("editCsv.displayName"), Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        JTextArea editor = new JTextArea(file.getEditorText(), 24, 100);
+        JTextArea editor = new JTextArea(24, 100);
         editor.setCaretPosition(0);
         editor.getAccessibleContext().setAccessibleName(bundle.getString("editCsv.displayName"));
         JPanel content = new JPanel(new BorderLayout(5, 5));
         content.add(new JLabel(file.getPath().toString()), BorderLayout.NORTH);
-        content.add(new JScrollPane(editor), BorderLayout.CENTER);
+        CardLayout cards = new CardLayout();
+        JPanel editorPanel = new JPanel(cards);
+        JPanel loading = new JPanel(new GridBagLayout());
+        JProgressBar progress = new JProgressBar();
+        progress.setIndeterminate(true);
+        progress.setStringPainted(true);
+        progress.setString(bundle.getString("editCsv.loading"));
+        loading.add(progress);
+        editorPanel.add(loading, "loading");
+        editorPanel.add(new JScrollPane(editor), "editor");
+        content.add(editorPanel, BorderLayout.CENTER);
         JButton cancel = new JButton(JMeterUtils.getResString("cancel"));
         cancel.addActionListener(event -> dialog.dispose());
         JButton save = new JButton(JMeterUtils.getResString("save"));
+        save.setEnabled(false);
         save.addActionListener(event -> {
             try {
                 String updatedContent = file.toFileText(editor.getText());
@@ -279,7 +373,38 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         dialog.setContentPane(content);
         dialog.pack();
         dialog.setLocationRelativeTo(this);
+        // Populate the Swing document in bounded EDT turns. Keeping the editor hidden
+        // avoids showing readable text while its document and views are still being built.
+        Timer populate = populateEditor(editor, text, () -> {
+            editor.setCaretPosition(0);
+            cards.show(editorPanel, "editor");
+            save.setEnabled(true);
+            editor.requestFocusInWindow();
+        });
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowClosed(java.awt.event.WindowEvent event) {
+                populate.stop();
+            }
+        });
         dialog.setVisible(true);
+    }
+
+    static Timer populateEditor(JTextArea editor, String text, Runnable ready) {
+        int[] offset = {0};
+        Timer timer = new Timer(1, null);
+        timer.addActionListener(event -> {
+            int end = Math.min(text.length(), offset[0] + 256 * 1024);
+            editor.append(text.substring(offset[0], end));
+            offset[0] = end;
+            if (end == text.length()) {
+                timer.stop();
+                // Let pending document/layout work complete before revealing the controls.
+                SwingUtilities.invokeLater(ready);
+            }
+        });
+        timer.start();
+        return timer;
     }
 
     private CSVDataSet createCsvDataSet() {

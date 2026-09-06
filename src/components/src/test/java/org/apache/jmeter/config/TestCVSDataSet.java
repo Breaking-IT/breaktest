@@ -56,6 +56,40 @@ public class TestCVSDataSet extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
+    void sequentialPreviewStopsAfterRequestedRecords() throws Exception {
+        for (boolean quoted : new boolean[] {false, true}) {
+            CSVDataSet csv = new CSVDataSet();
+            csv.setVariableNames("value");
+            csv.setQuotedData(quoted);
+            csv.setRandomOrder(false);
+            try (var reader = new java.io.BufferedReader(new java.io.StringReader("first\nsecond\nthird\n"))) {
+                List<String> preview = csv.readFirstSample(2, reader);
+                assertEquals(List.of("value", "${value} = first", "------------",
+                        "${value} = second", "------------"), preview);
+                assertEquals("third", reader.readLine());
+            }
+        }
+    }
+
+    @Test
+    void randomPreviewScansAllRecordsButReturnsOnlyRequestedSamples() throws Exception {
+        for (boolean quoted : new boolean[] {false, true}) {
+            CSVDataSet csv = new CSVDataSet();
+            csv.setVariableNames("value");
+            csv.setQuotedData(quoted);
+            csv.setRandomOrder(true);
+            String content = java.util.stream.IntStream.range(0, 1000)
+                    .mapToObj(Integer::toString).collect(java.util.stream.Collectors.joining("\n"));
+            try (var reader = new java.io.BufferedReader(new java.io.StringReader(content))) {
+                List<String> preview = csv.readFirstSample(10, reader);
+                assertEquals(21, preview.size());
+                assertEquals(10, preview.stream().filter(line -> line.startsWith("${value}")).distinct().count());
+                assertEquals(null, reader.readLine());
+            }
+        }
+    }
+
+    @Test
     public void testopen() throws Exception {
         CSVDataSet csv = new CSVDataSet();
         csv.setFilename("No.such.filename");

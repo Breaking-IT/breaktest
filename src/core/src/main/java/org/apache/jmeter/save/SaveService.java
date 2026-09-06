@@ -18,6 +18,7 @@
 package org.apache.jmeter.save;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FilterOutputStream;
@@ -30,8 +31,10 @@ import java.io.Writer;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -139,6 +142,12 @@ public class SaveService {
     private static final class NonClosingOutputStream extends FilterOutputStream {
         private NonClosingOutputStream(OutputStream out) {
             super(out);
+        }
+
+        @Override
+        public void write(byte[] bytes, int offset, int length) throws IOException {
+            // FilterOutputStream otherwise forwards compressed blocks one byte at a time.
+            out.write(bytes, offset, length);
         }
 
         @Override
@@ -297,6 +306,24 @@ public class SaveService {
         }
     }
 
+    /** Saves a complete archive before replacing the destination, preserving it on serialization failure. */
+    public static void saveTreeToFile(HashTree tree, Path destination) throws IOException {
+        Path target = destination.toAbsolutePath();
+        Path temporary = Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx");
+        try {
+            try (OutputStream output = Files.newOutputStream(temporary)) {
+                saveTree(tree, output);
+            }
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
     /**
      * Register converter.
      * @param key
@@ -337,7 +364,8 @@ public class SaveService {
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
         HashTree serializableTree = createSerializableTree(tree);
         validateSharedFilesForSave(serializableTree);
-        try (ZipOutputStream zipOutputStream = new ZipOutputStream(new NonClosingOutputStream(out))) {
+        try (ZipOutputStream zipOutputStream = new ZipOutputStream(
+                new BufferedOutputStream(new NonClosingOutputStream(out), 64 * 1024))) {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
             saveTreeAsXml(serializableTree, zipOutputStream);
             zipOutputStream.closeEntry();
@@ -589,16 +617,22 @@ public class SaveService {
                     new BufferedInputStream(inputStream)){
             if (hasZipSignature(bufferedInputStream)) {
                 log.info("Loading JMX archive: {}", file);
-                HashTree tree = readTreeFromZip(file);
-                cacheReferencedArchiveEntries(tree, file, true);
-                cacheSharedArchiveFiles(tree, file);
-                return tree;
+                try (ZipFile zip = new ZipFile(file)) {
+                    return loadTreeFromZip(file, zip);
+                }
             }
             log.info("Loading file: {}", file);
             HashTree tree = readTree(bufferedInputStream, file);
-            cacheReferencedArchiveEntries(tree, file, false);
+            cacheReferencedArchiveEntries(tree, file, null);
             return tree;
         }
+    }
+
+    static HashTree loadTreeFromZip(File file, ZipFile zip) throws IOException {
+        HashTree tree = readTreeFromZip(file, zip);
+        cacheSharedArchiveFiles(tree, zip);
+        cacheReferencedArchiveEntries(tree, file, zip);
+        return tree;
     }
 
     private static boolean hasZipSignature(BufferedInputStream inputStream) throws IOException {
@@ -615,13 +649,11 @@ public class SaveService {
                         || (third == 7 && fourth == 8));
     }
 
-    private static HashTree readTreeFromZip(File file) throws IOException {
-        try (ZipFile zipFile = new ZipFile(file)) {
-            ZipEntry entry = zipFile.getEntry(TEST_PLAN_ZIP_ENTRY);
-            if (entry != null && !entry.isDirectory()) {
-                try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
-                    return readTree(inputStream, file);
-                }
+    private static HashTree readTreeFromZip(File file, ZipFile zipFile) throws IOException {
+        ZipEntry entry = zipFile.getEntry(TEST_PLAN_ZIP_ENTRY);
+        if (entry != null && !entry.isDirectory()) {
+            try (InputStream inputStream = new BufferedInputStream(zipFile.getInputStream(entry))) {
+                return readTree(inputStream, file);
             }
         }
         throw new IOException("Invalid JMX archive '" + file.getAbsolutePath()
@@ -653,14 +685,14 @@ public class SaveService {
         }
     }
 
-    private static void cacheSharedArchiveFiles(HashTree tree, File archive) throws IOException {
+    private static void cacheSharedArchiveFiles(HashTree tree, ZipFile zip) throws IOException {
         TestPlan plan = findArchiveTestPlan(tree);
         if (plan == null) {
             return;
         }
         if (plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
             for (Map.Entry<String, String> reference : ArchiveFiles.references(plan).entrySet()) {
-                byte[] content = readArchiveEntry(archive, reference.getKey())
+                byte[] content = readZipEntry(zip, reference.getKey())
                         .orElseThrow(() -> new IOException("Archive file is missing: " + reference.getKey()));
                 if (!ArchiveFiles.checksum(content).equals(reference.getValue())) {
                     throw new IOException("Archive file checksum does not match: " + reference.getKey());
@@ -671,15 +703,13 @@ public class SaveService {
         }
         // Older archives have CSV references but no shared-files index. Rebuild it from
         // the actual files so browsing and runtime resolution use the same metadata.
-        try (ZipFile zip = new ZipFile(archive)) {
-            var entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
-                if (!entry.isDirectory() && entry.getName().startsWith("files/")
-                        && JmxArchiveEntryStore.isSafeEntryName(entry.getName())) {
-                    try (InputStream input = zip.getInputStream(entry)) {
-                        ArchiveFiles.put(plan, entry.getName(), input.readAllBytes(), true);
-                    }
+        var entries = zip.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (!entry.isDirectory() && entry.getName().startsWith("files/")
+                    && JmxArchiveEntryStore.isSafeEntryName(entry.getName())) {
+                try (InputStream input = zip.getInputStream(entry)) {
+                    ArchiveFiles.put(plan, entry.getName(), input.readAllBytes(), true);
                 }
             }
         }
@@ -701,16 +731,23 @@ public class SaveService {
         return null;
     }
 
-    private static void cacheReferencedArchiveEntries(HashTree tree, File testPlanFile, boolean archive) {
+    private static void cacheReferencedArchiveEntries(HashTree tree, File testPlanFile, ZipFile archive) {
+        TestPlan plan = findArchiveTestPlan(tree);
+        boolean sharedFilesCached = archive != null && plan != null
+                && plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty;
         for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
+            // Shared files were already read and validated using the authoritative index.
+            if (sharedFilesCached && reference.getKey().startsWith("files/")) {
+                continue;
+            }
             try {
-                if (archive && RecordedExchangeStore.isManifestEntry(reference.getKey())) {
-                    Map<String, byte[]> bundle = readRecordingBundle(testPlanFile, reference.getKey());
+                if (archive != null && RecordedExchangeStore.isManifestEntry(reference.getKey())) {
+                    Map<String, byte[]> bundle = readRecordingBundle(archive, reference.getKey());
                     JmxArchiveEntryStore.registerBundle(reference.getKey(), reference.getValue(), bundle);
                 } else {
                     Optional<byte[]> content;
-                    if (archive) {
-                        content = readArchiveEntry(testPlanFile, reference.getKey());
+                    if (archive != null) {
+                        content = readZipEntry(archive, reference.getKey());
                     } else {
                         Path baseDirectory = testPlanFile.toPath().toAbsolutePath().getParent();
                         if (baseDirectory == null) {
@@ -731,23 +768,27 @@ public class SaveService {
         }
     }
 
-    private static Map<String, byte[]> readRecordingBundle(File testPlanFile, String manifestEntryName)
+    private static Map<String, byte[]> readRecordingBundle(ZipFile zipFile, String manifestEntryName)
             throws IOException {
-        try (ZipFile zipFile = new ZipFile(testPlanFile)) {
-            byte[] manifest = readZipEntry(zipFile, manifestEntryName)
+        Map<String, byte[]> loaded = new LinkedHashMap<>();
+        byte[] manifest = readZipEntry(zipFile, manifestEntryName)
+                .orElseThrow(() -> new IOException(
+                        "Recording manifest was not found: " + manifestEntryName)); // $NON-NLS-1$
+        Set<String> dependencies = RecordedExchangeStore.referencedEntryNames(
+                manifest, entryName -> {
+                    Optional<byte[]> content = readZipEntry(zipFile, entryName);
+                    content.ifPresent(bytes -> loaded.put(entryName, bytes));
+                    return content;
+                });
+        Map<String, byte[]> bundle = new LinkedHashMap<>();
+        bundle.put(manifestEntryName, manifest);
+        for (String dependency : dependencies) {
+            bundle.put(dependency, (loaded.containsKey(dependency)
+                    ? Optional.of(loaded.get(dependency)) : readZipEntry(zipFile, dependency))
                     .orElseThrow(() -> new IOException(
-                            "Recording manifest was not found: " + manifestEntryName)); // $NON-NLS-1$
-            Set<String> dependencies = RecordedExchangeStore.referencedEntryNames(
-                    manifest, entryName -> readZipEntry(zipFile, entryName));
-            Map<String, byte[]> bundle = new LinkedHashMap<>();
-            bundle.put(manifestEntryName, manifest);
-            for (String dependency : dependencies) {
-                bundle.put(dependency, readZipEntry(zipFile, dependency)
-                        .orElseThrow(() -> new IOException(
-                                "Recording archive entry was not found: " + dependency))); // $NON-NLS-1$
-            }
-            return bundle;
+                            "Recording archive entry was not found: " + dependency))); // $NON-NLS-1$
         }
+        return bundle;
     }
 
     private static Optional<byte[]> readZipEntry(ZipFile zipFile, String entryName) throws IOException {

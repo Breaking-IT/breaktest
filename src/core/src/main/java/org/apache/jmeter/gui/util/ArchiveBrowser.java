@@ -44,6 +44,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
 import org.apache.jmeter.gui.GuiPackage;
@@ -75,13 +76,24 @@ public final class ArchiveBrowser {
     }
 
     public static String chooseFile(Component parent) {
-        Object[] files = entries().keySet().stream().filter(name -> name.startsWith("files/")).toArray();
+        return chooseFile(parent, null);
+    }
+
+    public static String chooseFile(Component parent, String currentEntry) {
+        Object[] files = entries().keySet().stream()
+                .filter(name -> name.startsWith("files/"))
+                .map(name -> name.substring("files/".length()))
+                .toArray();
         if (files.length == 0) {
             JOptionPane.showMessageDialog(parent, JMeterUtils.getResString("archive_no_files"));
             return null;
         }
-        return (String) JOptionPane.showInputDialog(parent, JMeterUtils.getResString("archive_choose_file"),
-                JMeterUtils.getResString("archive_browser"), JOptionPane.PLAIN_MESSAGE, null, files, files[0]);
+        String current = currentEntry != null && currentEntry.startsWith("files/")
+                ? currentEntry.substring("files/".length()) : currentEntry;
+        Object initial = java.util.Arrays.asList(files).contains(current) ? current : files[0];
+        String selected = (String) JOptionPane.showInputDialog(parent, JMeterUtils.getResString("archive_choose_file"),
+                JMeterUtils.getResString("archive_browser"), JOptionPane.PLAIN_MESSAGE, null, files, initial);
+        return selected == null ? null : "files/" + selected;
     }
 
     public static void show(Component parent) {
@@ -96,6 +108,12 @@ public final class ArchiveBrowser {
             }
         };
         JTable table = new JTable(model);
+        var sizeColumn = table.getColumnModel().getColumn(1);
+        sizeColumn.setPreferredWidth(120);
+        sizeColumn.setMaxWidth(120);
+        DefaultTableCellRenderer sizeRenderer = new DefaultTableCellRenderer();
+        sizeRenderer.setHorizontalAlignment(JLabel.RIGHT);
+        sizeColumn.setCellRenderer(sizeRenderer);
         Runnable refresh = () -> {
             model.setRowCount(0);
             Map<String, byte[]> contents = archiveContents();
