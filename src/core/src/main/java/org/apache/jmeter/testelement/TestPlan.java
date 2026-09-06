@@ -21,9 +21,11 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.jmeter.NewDriver;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
@@ -44,6 +46,23 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
 
     // There's only 1 test plan, so can cache the mode here
     private static volatile boolean functionalMode = false;
+
+    private transient Set<String> unavailableArchiveFiles = Set.of();
+
+    public Set<String> getUnavailableArchiveFiles() {
+        return unavailableArchiveFiles == null ? Set.of() : unavailableArchiveFiles;
+    }
+
+    public void setUnavailableArchiveFiles(Set<String> entries) {
+        unavailableArchiveFiles = Set.copyOf(entries);
+    }
+
+    @Override
+    public Object clone() {
+        TestPlan copy = (TestPlan) super.clone();
+        copy.setUnavailableArchiveFiles(getUnavailableArchiveFiles());
+        return copy;
+    }
 
     public TestPlan() {
         super();
@@ -237,6 +256,7 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
      */
     @Override
     public void testStarted() {
+        ArchiveFiles.activate(this);
         if (StringUtilities.isNotEmpty(getBasedir())) {
             try {
                 FileServer.getFileServer().setBasedir(FileServer.getFileServer().getBaseDir() + getBasedir());

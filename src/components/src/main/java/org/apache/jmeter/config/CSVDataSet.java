@@ -36,6 +36,7 @@ import org.apache.jmeter.engine.util.NoConfigMerge;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.save.CSVSaveService;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
@@ -208,7 +209,12 @@ public class CSVDataSet extends ConfigTestElement
     }
 
     private void initVars(FileServer server, final JMeterContext context, String delim) {
-        String fileName = getFilename().trim();
+        String fileName;
+        try {
+            fileName = isUseCsvFromArchive() ? resolveCsvFile().toString() : getFilename().trim();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Unable to read CSV from archive", e);
+        }
         setAlias(context, fileName);
         final String names = getVariableNames();
         if (StringUtilities.isEmpty(names)) {
@@ -262,6 +268,57 @@ public class CSVDataSet extends ConfigTestElement
      */
     public void setFilename(String filename) {
         this.filename = filename;
+    }
+
+    public boolean isUseCsvFromArchive() {
+        return getPropertyAsBoolean("useCsvFromArchive");
+    }
+
+    public void setUseCsvFromArchive(boolean useArchive) {
+        setProperty("useCsvFromArchive", useArchive, false);
+    }
+
+    public String getCsvArchiveEntry() {
+        return getPropertyAsString(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY);
+    }
+
+    public void setCsvArchiveEntry(String entry) {
+        setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, entry);
+    }
+
+    public String getCsvArchiveChecksum() {
+        return getPropertyAsString(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY);
+    }
+
+    public void setCsvArchiveChecksum(String checksum) {
+        setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, checksum);
+    }
+
+    private String archiveEntry() {
+        return getCsvArchiveEntry().isEmpty()
+                ? CsvArchiveSupport.entryName(getFilename()) : getCsvArchiveEntry();
+    }
+
+    Path resolveCsvFile() throws IOException {
+        if (isUseCsvFromArchive()) {
+            return CsvArchiveSupport.materialize(archiveEntry(), getCsvArchiveChecksum());
+        }
+        return FileServer.getFileServer().resolveFile(getFilename().trim()).toPath();
+    }
+
+    byte[] readCsvContent() throws IOException {
+        return isUseCsvFromArchive()
+                ? CsvArchiveSupport.read(archiveEntry(), getCsvArchiveChecksum())
+                : Files.readAllBytes(resolveCsvFile());
+    }
+
+    void storeArchivedCsv(byte[] content) {
+        String checksum = CsvArchiveSupport.checksum(content);
+        String entry = CsvArchiveSupport.entryName(getFilename());
+        JmxArchiveEntryStore.register(entry, checksum, content);
+        setCsvArchiveEntry(entry);
+        setCsvArchiveChecksum(checksum);
+        setUseCsvFromArchive(true);
     }
 
     /**
@@ -375,36 +432,44 @@ public class CSVDataSet extends ConfigTestElement
         if (sampleCount <= 0) {
             return new ArrayList<>();
         }
+        try (BufferedReader reader = createPreviewReader()) {
+            return readFirstSample(sampleCount, reader);
+        }
+    }
+
+    List<String> readFirstSample(int sampleCount, BufferedReader reader) throws IOException {
+        if (sampleCount <= 0) {
+            return new ArrayList<>();
+        }
         String delim = normalizeDelimiter();
         PreviewData previewData;
         if (getQuotedData()) {
-            previewData = readQuotedPreviewData(delim.charAt(0));
+            previewData = readQuotedPreviewData(delim.charAt(0), sampleCount, reader);
         } else {
-            previewData = readPlainPreviewData(delim);
+            previewData = readPlainPreviewData(delim, sampleCount, reader);
         }
         return formatPreview(previewData, sampleCount);
     }
 
-    private PreviewData readPlainPreviewData(String delim) throws IOException {
+    private PreviewData readPlainPreviewData(String delim, int sampleCount, BufferedReader reader) throws IOException {
         String[] variableNames = {};
         List<String[]> dataRows = new ArrayList<>();
-        try (BufferedReader reader = createPreviewReader()) {
-            if (StringUtilities.isEmpty(getVariableNames())) {
-                String header = reader.readLine();
-                if (header == null) {
-                    return new PreviewData(variableNames, dataRows);
-                }
-                variableNames = CSVSaveService.csvSplitString(header, delim.charAt(0));
-            } else if (isIgnoreFirstLine()) {
-                variableNames = parseVariableNames();
-                reader.readLine(); // NOSONAR skip configured header line
-            } else {
-                variableNames = parseVariableNames();
+        if (StringUtilities.isEmpty(getVariableNames())) {
+            String header = reader.readLine();
+            if (header == null) {
+                return new PreviewData(variableNames, dataRows);
             }
-            String line;
-            while ((line = reader.readLine()) != null) {
-                dataRows.add(JOrphanUtils.split(line, delim, false));
-            }
+            variableNames = CSVSaveService.csvSplitString(header, delim.charAt(0));
+        } else if (isIgnoreFirstLine()) {
+            variableNames = parseVariableNames();
+            reader.readLine(); // NOSONAR skip configured header line
+        } else {
+            variableNames = parseVariableNames();
+        }
+        String line;
+        long seen = 0;
+        while ((isRandomOrder() || seen < sampleCount) && (line = reader.readLine()) != null) {
+            retainPreviewRow(dataRows, JOrphanUtils.split(line, delim, false), ++seen, sampleCount);
         }
         if (isRandomOrder()) {
             shuffle(dataRows);
@@ -412,34 +477,44 @@ public class CSVDataSet extends ConfigTestElement
         return new PreviewData(variableNames, dataRows);
     }
 
-    private PreviewData readQuotedPreviewData(char delim) throws IOException {
+    private PreviewData readQuotedPreviewData(char delim, int sampleCount, BufferedReader reader) throws IOException {
         String[] variableNames = {};
         List<String[]> dataRows = new ArrayList<>();
-        try (BufferedReader reader = createPreviewReader()) {
-            if (StringUtilities.isEmpty(getVariableNames())) {
-                String[] header = CSVSaveService.csvReadFile(reader, delim);
-                if (header.length == 0) {
-                    return new PreviewData(variableNames, dataRows);
-                }
-                variableNames = header;
-            } else if (isIgnoreFirstLine()) {
-                variableNames = parseVariableNames();
-                CSVSaveService.csvReadFile(reader, delim);
-            } else {
-                variableNames = parseVariableNames();
+        if (StringUtilities.isEmpty(getVariableNames())) {
+            String[] header = CSVSaveService.csvReadFile(reader, delim);
+            if (header.length == 0) {
+                return new PreviewData(variableNames, dataRows);
             }
-            while (true) {
-                String[] dataRow = CSVSaveService.csvReadFile(reader, delim);
-                if (dataRow.length == 0) {
-                    break;
-                }
-                dataRows.add(dataRow);
+            variableNames = header;
+        } else if (isIgnoreFirstLine()) {
+            variableNames = parseVariableNames();
+            CSVSaveService.csvReadFile(reader, delim);
+        } else {
+            variableNames = parseVariableNames();
+        }
+        long seen = 0;
+        while (isRandomOrder() || seen < sampleCount) {
+            String[] dataRow = CSVSaveService.csvReadFile(reader, delim);
+            if (dataRow.length == 0) {
+                break;
             }
+            retainPreviewRow(dataRows, dataRow, ++seen, sampleCount);
         }
         if (isRandomOrder()) {
             shuffle(dataRows);
         }
         return new PreviewData(variableNames, dataRows);
+    }
+
+    private static void retainPreviewRow(List<String[]> rows, String[] row, long seen, int limit) {
+        if (rows.size() < limit) {
+            rows.add(row);
+        } else {
+            long slot = ThreadLocalRandom.current().nextLong(seen);
+            if (slot < limit) {
+                rows.set((int) slot, row);
+            }
+        }
     }
 
     private static List<String> formatPreview(PreviewData previewData, int sampleCount) {
@@ -469,10 +544,10 @@ public class CSVDataSet extends ConfigTestElement
 
     private BufferedReader createPreviewReader() throws IOException {
         String fileName = getFilename();
-        if (StringUtilities.isEmpty(fileName)) {
+        if (!isUseCsvFromArchive() && StringUtilities.isEmpty(fileName)) {
             throw new IllegalArgumentException("Filename must not be null or empty");
         }
-        File file = FileServer.getFileServer().resolveFile(fileName.trim());
+        File file = resolveCsvFile().toFile();
         if (!file.canRead() || !file.isFile()) {
             throw new IllegalArgumentException("File " + file.getName() + " must exist and be readable");
         }

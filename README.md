@@ -160,6 +160,30 @@ debugging, and migration work that has landed across the BreakTest PR series.
   can fail the sampler when no value is found.
 - CSV Data Set can read records in random order while preserving header behavior.
 - CSV preview shows the first variable assignments before running the test.
+- Tools > Archive browser imports and exports shared files stored under `files/` in the JMX archive.
+  Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
+  the archive using their archive-source flags. For other fields that accept functions, use
+  `${__archiveFile(filename)}` to obtain a local path to an archived file. Fields resolved by
+  FileServer also accept `archive:filename` (this prefix is not a general filesystem path).
+  Files are shared by archive name; editing a file updates every reference to it. The browser's
+  Delete action removes shared files from the next saved archive; references to deleted files fail.
+  Plans with missing or corrupt indexed files still open with a warning. Those files appear as
+  Unavailable in the archive browser; restore the matching file or delete its entry before saving.
+  Pasted CSV configurations whose files are absent from this plan's index produce a warning;
+  import those files explicitly. Deleted files are not automatically restored from element metadata.
+  New shared filenames must be portable across macOS, Windows, and Linux: Windows reserved names,
+  characters, and trailing dots/spaces are rejected without silently renaming the file.
+  The built-in CSV editor accepts at most 128 MiB, reduced to one twelfth of the JVM heap limit
+  on smaller heaps. Larger files can be exported, edited externally, and imported again.
+  JMX saves replace the destination only after serialization succeeds, preserving existing POSIX
+  permissions; new files use normal permissions subject to the process umask.
+  Archive portability currently covers local GUI and CLI execution. Distributed RMI engines receive
+  the test tree but not embedded file bytes; extract/copy files to each remote server and configure
+  external paths there instead of archive flags or archive-file references.
+  The browser's **Clean up recordings** action can remove static-resource bodies, static-resource
+  recordings, or all recorded headers and bodies. Its orphan cleanup removes exchanges without
+  sampler references and unused recording blobs; shared files are preserved. Review the estimated
+  reduction before applying cleanup, then save the plan.
 - JSR223/Groovy is the intended scripting direction; legacy BeanShell, BSF,
   JEXL2, Rhino JavaScript, and LogKit paths are removed.
 
@@ -270,6 +294,17 @@ Build and test:
 ```sh
 ./gradlew build
 ```
+
+Batch integration checks run in three parallel groups after the shared distribution
+and extra test libraries have been prepared. JMS exclusively owns port 61616,
+`bin/activemq-data`, and `bin/JMS_TESTS.*` outputs. A separate local regression group
+runs controller, extractor, and result-action fixtures with in-process samplers,
+read-only inputs, and distinct output files. Both groups disable the unused UDP
+shutdown listener. Each fixture still runs in its own JVM, and each group runs
+serially internally. The remaining protocol fixtures stay together: HTTP variants
+reuse output files, while FTP/TCP fixtures share ports. Intentional waits and all
+assertions remain unchanged. Use `--no-parallel` to serialize the groups for
+diagnostics. Existing `:src:dist-check:batch...` task paths remain available.
 
 Create local `bin` and `lib` contents for development:
 

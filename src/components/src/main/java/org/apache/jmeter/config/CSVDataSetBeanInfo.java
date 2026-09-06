@@ -22,7 +22,6 @@ import java.beans.PropertyDescriptor;
 import java.util.Enumeration;
 
 import org.apache.jmeter.testbeans.BeanInfoSupport;
-import org.apache.jmeter.testbeans.gui.FileEditor;
 import org.apache.jmeter.testbeans.gui.TypeEditor;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.JOrphanUtils;
@@ -61,7 +60,7 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
         beanDescriptor = createBeanDescriptorWithCustomizer(super.getBeanDescriptor());
 
         createPropertyGroup("csv_data",             //$NON-NLS-1$
-                new String[] { FILENAME, FILE_ENCODING, VARIABLE_NAMES,
+                new String[] { FILENAME, "useCsvFromArchive", FILE_ENCODING, VARIABLE_NAMES,
                         IGNORE_FIRST_LINE, DELIMITER, QUOTED_DATA,
                         RANDOM_ORDER, RECYCLE, STOPTHREAD, SHAREMODE });
 
@@ -69,7 +68,18 @@ public class CSVDataSetBeanInfo extends BeanInfoSupport {
         p.setValue(NOT_UNDEFINED, true);
         p.setValue(DEFAULT, "");        //$NON-NLS-1$
         p.setValue(NOT_EXPRESSION, true);
-        p.setPropertyEditorClass(FileEditor.class);
+        p.setPropertyEditorClass(CSVDataSetCustomizer.CsvFilenameEditor.class);
+
+        p = property("useCsvFromArchive");
+        p.setValue(NOT_UNDEFINED, true);
+        p.setValue(DEFAULT, false);
+
+        for (String name : new String[] {"csvArchiveEntry", "csvArchiveChecksum"}) {
+            p = property(name);
+            p.setHidden(true);
+            p.setValue(NOT_UNDEFINED, true);
+            p.setValue(DEFAULT, "");
+        }
 
         p = property(FILE_ENCODING, TypeEditor.ComboStringEditor);
         p.setValue(NOT_UNDEFINED, true);

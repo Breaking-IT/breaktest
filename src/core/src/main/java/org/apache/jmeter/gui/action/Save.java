@@ -21,7 +21,6 @@ import java.awt.SecondaryLoop;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -183,6 +182,11 @@ public class Save extends AbstractAction {
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_DIRTY));
         boolean createBackup = GuiPackage.getInstance().isDirty();
         prepareSubTreeForSave(subTree);
+        var archiveWarnings = SaveService.archiveWarnings(subTree);
+        if (!archiveWarnings.isEmpty()) {
+            JOptionPane.showMessageDialog(GuiPackage.getInstance().getMainFrame(),
+                    String.join("\n", archiveWarnings), "Archive files", JOptionPane.WARNING_MESSAGE);
+        }
         if (canSaveInBackground()) {
             saveWithLoadingOverlay(e, subTree, fullSave, updateFile, createBackup);
         } else {
@@ -334,8 +338,8 @@ public class Save extends AbstractAction {
             }
         }
 
-        try (FileOutputStream ostream = new FileOutputStream(newFile)){
-            SaveService.saveTree(subTree, ostream);
+        try {
+            SaveService.saveTreeToFile(subTree, Path.of(newFile));
             // delete expired backups : here everything went right so we can
             // proceed to deletion
             for (Path backupFile : expiredBackupFiles) {
