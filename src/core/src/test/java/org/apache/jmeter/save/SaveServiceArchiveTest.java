@@ -60,6 +60,105 @@ class SaveServiceArchiveTest extends JMeterTestCase {
     Path tempDir;
 
     @Test
+    void atomicSavePreservesPermissionsAndNewFilesRespectUmask() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileAttributeView(tempDir,
+                java.nio.file.attribute.PosixFileAttributeView.class) != null);
+        Path target = tempDir.resolve("permissions.jmx");
+        Files.writeString(target, "old plan");
+        for (String mode : List.of("rw-r--r--", "rw-rw----", "rw-------")) {
+            var permissions = java.nio.file.attribute.PosixFilePermissions.fromString(mode);
+            Files.setPosixFilePermissions(target, permissions);
+            SaveService.saveTreeToFile(new HashTree(), target);
+            assertEquals(permissions, Files.getPosixFilePermissions(target));
+        }
+        Path ordinary = tempDir.resolve("ordinary");
+        Files.createFile(ordinary);
+        Path fresh = tempDir.resolve("fresh.jmx");
+        SaveService.saveTreeToFile(new HashTree(), fresh);
+        assertEquals(Files.getPosixFilePermissions(ordinary), Files.getPosixFilePermissions(fresh));
+    }
+
+    @Test
+    void failedSerializationPreservesExistingFileAndRemovesTemporaryFile() throws Exception {
+        Path target = tempDir.resolve("existing.jmx");
+        byte[] original = "previous saved plan".getBytes(StandardCharsets.UTF_8);
+        Files.write(target, original);
+        var broken = new org.apache.jmeter.testelement.TestPlan() {
+            @Override
+            public Object clone() {
+                throw new NoClassDefFoundError("Simulated unavailable application class");
+            }
+        };
+        HashTree tree = new HashTree();
+        tree.add(broken);
+        assertThrows(NoClassDefFoundError.class, () -> SaveService.saveTreeToFile(tree, target));
+        assertArrayEquals(original, Files.readAllBytes(target));
+        try (var files = Files.list(tempDir)) {
+            assertEquals(List.of(target), files.toList());
+        }
+        SaveService.saveTreeToFile(new HashTree(), target);
+        try (var zip = new java.util.zip.ZipFile(target.toFile())) {
+            assertNotNull(zip.getEntry(SaveService.TEST_PLAN_ZIP_ENTRY));
+        }
+    }
+
+    @Test
+    void loadingSharedFilesDecompressesEachEntryOnlyOnce() throws Exception {
+        var plan = new org.apache.jmeter.testelement.TestPlan();
+        plan.setProperty("TestElement.gui_class", "org.apache.jmeter.control.gui.TestPlanGui");
+        byte[] content = "name\nAlice\n".getBytes(StandardCharsets.UTF_8);
+        ArchiveFiles.put(plan, "once.csv", content, false);
+        HashTree tree = new HashTree();
+        tree.add(plan);
+        Path path = tempDir.resolve("read-once.jmx");
+        try (var output = Files.newOutputStream(path)) {
+            SaveService.saveTree(tree, output);
+        }
+        var reads = new java.util.HashMap<String, Integer>();
+        try (var zip = new java.util.zip.ZipFile(path.toFile()) {
+            @Override
+            public java.io.InputStream getInputStream(ZipEntry entry) throws IOException {
+                reads.merge(entry.getName(), 1, Integer::sum);
+                return super.getInputStream(entry);
+            }
+        }) {
+            SaveService.loadTreeFromZip(path.toFile(), zip);
+        }
+        assertEquals(java.util.Map.of(SaveService.TEST_PLAN_ZIP_ENTRY, 1, "files/once.csv", 1), reads);
+        assertArrayEquals(content, JmxArchiveEntryStore.find("files/once.csv", ArchiveFiles.checksum(content))
+                .orElseThrow());
+    }
+
+    @Test
+    void saveTreeWritesArchiveInBlocksWithoutClosingCallerStream() throws Exception {
+        byte[] content = new byte[1024 * 1024];
+        new java.util.Random(42).nextBytes(content);
+        var plan = new org.apache.jmeter.testelement.TestPlan();
+        ArchiveFiles.put(plan, "bulk-save.bin", content, false);
+        HashTree tree = new HashTree();
+        tree.add(plan);
+        var output = new ByteArrayOutputStream() {
+            @Override
+            public synchronized void write(int value) {
+                throw new AssertionError("Archive data must be forwarded in blocks");
+            }
+
+            @Override
+            public void close() {
+                throw new AssertionError("The caller owns the output stream");
+            }
+        };
+        SaveService.saveTree(tree, output);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(output.toByteArray()))) {
+            assertEquals(SaveService.TEST_PLAN_ZIP_ENTRY, zip.getNextEntry().getName());
+            zip.closeEntry();
+            assertEquals("files/bulk-save.bin", zip.getNextEntry().getName());
+            assertArrayEquals(content, zip.readAllBytes());
+            assertNull(zip.getNextEntry());
+        }
+    }
+
+    @Test
     void saveTreeCreatesZipWithMainTestPlan() throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
 

@@ -17,9 +17,9 @@
 
 package org.apache.jmeter.protocol.http.gui;
 
-import java.util.Iterator;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.Iterator;
 
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;

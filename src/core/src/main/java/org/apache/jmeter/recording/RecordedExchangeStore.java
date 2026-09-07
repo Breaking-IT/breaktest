@@ -281,6 +281,84 @@ public final class RecordedExchangeStore {
                 archiveEntries, exchangeIds, captureId);
     }
 
+    /** Applies retention to existing captures and optionally drops exchanges without a live sampler. */
+    public static Archive cleanArchive(String manifestEntryName, Map<String, byte[]> existingEntries,
+            RecordingStorageMode mode, Set<String> liveExchangeIds) throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<>(existingEntries);
+        byte[] source = entries.get(manifestEntryName);
+        if (source == null) {
+            throw new IOException("Recording manifest is unavailable: " + manifestEntryName);
+        }
+        JsonNode parsed = JSON.readTree(source);
+        requireFormat(parsed, MANIFEST_FORMAT, "recording manifest");
+        if (!(parsed instanceof ObjectNode manifest) || !(manifest.path("captures") instanceof ArrayNode captures)) {
+            throw new IOException("Invalid recording captures");
+        }
+        Set<String> retainedIds = new LinkedHashSet<>();
+        boolean changed = false;
+        for (int captureIndex = captures.size() - 1; captureIndex >= 0; captureIndex--) {
+            JsonNode capture = captures.get(captureIndex);
+            String exchangesEntry = capture.path("exchanges").asText();
+            ObjectNode document = loadExchangesDocument(exchangesEntry, entries);
+            ArrayNode exchanges = (ArrayNode) document.path("exchanges");
+            boolean captureChanged = false;
+            for (int i = exchanges.size() - 1; i >= 0; i--) {
+                JsonNode exchange = exchanges.get(i);
+                String id = exchange.path("id").asText();
+                boolean isStatic = isStaticResource(exchange.path("request").path("url").asText(),
+                        exchange.path("response").path("content").path("mimeType").asText());
+                if (mode == RecordingStorageMode.NONE
+                        || mode == RecordingStorageMode.OMIT_STATICS && isStatic
+                        || liveExchangeIds != null && !liveExchangeIds.contains(id)) {
+                    exchanges.remove(i);
+                    captureChanged = true;
+                    continue;
+                }
+                retainedIds.add(id);
+                if (mode == RecordingStorageMode.OMIT_STATIC_BODIES && isStatic) {
+                    if (exchange.path("request") instanceof ObjectNode request && request.has("postData")) {
+                        request.remove("postData");
+                        captureChanged = true;
+                    }
+                    if (exchange.path("response").path("content") instanceof ObjectNode content) {
+                        for (String field : List.of("text", "encoding", BODY_REFERENCE, BODY_ENCODING)) {
+                            if (content.has(field)) {
+                                content.remove(field);
+                                captureChanged = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (exchanges.isEmpty()) {
+                captures.remove(captureIndex);
+                changed = true;
+            } else if (captureChanged) {
+                entries.put(exchangesEntry, JSON.writeValueAsBytes(document));
+                changed = true;
+            }
+        }
+        String active = manifest.path("activeCaptureId").asText();
+        boolean activeExists = false;
+        for (JsonNode capture : captures) {
+            activeExists |= active.equals(capture.path("id").asText());
+        }
+        if (!activeExists) {
+            if (captures.isEmpty()) {
+                manifest.remove("activeCaptureId");
+            } else {
+                manifest.put("activeCaptureId", captures.get(captures.size() - 1).path("id").asText());
+            }
+        }
+        if (changed) {
+            manifest.put("updatedAt", Instant.now().toString());
+            source = JSON.writeValueAsBytes(manifest);
+        }
+        retainReferencedEntries(manifestEntryName, source, entries);
+        return new Archive(manifestEntryName, sha256Hex(source), entries,
+                new ArrayList<>(retainedIds), manifest.path("activeCaptureId").asText());
+    }
+
     private static void removeExchanges(
             ObjectNode manifest, Map<String, byte[]> archiveEntries, Set<String> exchangeIds) throws IOException {
         for (JsonNode capture : manifest.path("captures")) { // $NON-NLS-1$
@@ -383,11 +461,14 @@ public final class RecordedExchangeStore {
         if (result == null) {
             return false;
         }
-        if (STATIC_URL.matcher(result.getUrlAsString()).find()) {
+        return isStaticResource(result.getUrlAsString(), result.getContentType());
+    }
+
+    private static boolean isStaticResource(String url, String contentType) {
+        if (STATIC_URL.matcher(url).find()) {
             return true;
         }
-        String contentType = nullToEmpty(result.getContentType());
-        String mediaType = contentType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT); // $NON-NLS-1$
+        String mediaType = nullToEmpty(contentType).split(";", 2)[0].trim().toLowerCase(Locale.ROOT); // $NON-NLS-1$
         return mediaType.startsWith("image/") // $NON-NLS-1$
                 || mediaType.startsWith("font/") // $NON-NLS-1$
                 || mediaType.startsWith("audio/") // $NON-NLS-1$

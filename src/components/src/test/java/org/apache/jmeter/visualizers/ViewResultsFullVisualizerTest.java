@@ -41,9 +41,26 @@ import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.test.JMeterSerialTest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-public class ViewResultsFullVisualizerTest {
+public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
+
+    private GuiPackage previousGui;
+
+    @BeforeEach
+    public void captureGuiSingleton() {
+        previousGui = GuiPackage.getInstance();
+    }
+
+    @AfterEach
+    public void restoreGuiSingleton() throws Exception {
+        var field = GuiPackage.class.getDeclaredField("guiPack");
+        field.setAccessible(true);
+        field.set(null, previousGui);
+    }
 
     @Test
     public void responseTimeoutStackTraceIsCompactedForDisplay() throws Exception {

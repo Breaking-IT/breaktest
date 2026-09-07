@@ -30,11 +30,10 @@ import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testelement.TestElement;
-
-import org.apache.jmeter.gui.tree.JMeterTreeNode;
 
 /**
  * Simple implementation of a transferable for {@link JMeterTreeNode} arrays based on serialization.

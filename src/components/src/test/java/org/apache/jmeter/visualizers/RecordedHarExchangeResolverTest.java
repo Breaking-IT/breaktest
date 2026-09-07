@@ -47,13 +47,30 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.test.JMeterSerialTest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class RecordedHarExchangeResolverTest extends JMeterTestCase {
+public class RecordedHarExchangeResolverTest extends JMeterTestCase implements JMeterSerialTest {
 
     @TempDir
     private Path tempDir;
+
+    private GuiPackage previousGui;
+
+    @BeforeEach
+    public void captureGuiSingleton() {
+        previousGui = GuiPackage.getInstance();
+    }
+
+    @AfterEach
+    public void restoreGuiSingleton() throws Exception {
+        var field = GuiPackage.class.getDeclaredField("guiPack");
+        field.setAccessible(true);
+        field.set(null, previousGui);
+    }
 
     @Test
     public void usesEntryIndexWhenHarHashMatches() throws Exception {

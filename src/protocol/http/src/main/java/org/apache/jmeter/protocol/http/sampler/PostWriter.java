@@ -132,7 +132,7 @@ public class PostWriter {
                 // Retrieve the formatted data using the same encoding used to create it
                 postedBody.append(headerValue);
                 // Write the actual file content
-                writeFileToStream(file.getPath(), out);
+                writeFileToStream(file.getResolvedPath(), out);
                 // We just add placeholder text for file content
                 postedBody.append("<actual file content, not shown here>"); // $NON-NLS-1$
                 out.write(CRLF);
@@ -153,7 +153,7 @@ public class PostWriter {
                 // we're sure that there is at least one file because of
                 // getSendFileAsPostBody method's return value.
                 HTTPFileArg file = files[0];
-                writeFileToStream(file.getPath(), out);
+                writeFileToStream(file.getResolvedPath(), out);
                 out.flush();
                 out.close();
 
@@ -214,7 +214,7 @@ public class PostWriter {
                 contentLength += multipartDividerBytes.length + CRLF.length;
                 HTTPFileArg file = files[i];
                 // Write multipart for file
-                writeStartFileMultipart(osw, contentEncoding, file.getPath(), file.getParamName(), file.getMimeType());
+                writeStartFileMultipart(osw, contentEncoding, file.getResolvedPath(), file.getParamName(), file.getMimeType());
                 osw.flush();
                 // Technically speaking, we should refrain from decoding the header to string
                 // since we will have to encode it again when sending the request
@@ -225,7 +225,7 @@ public class PostWriter {
                 file.setHeader(header);
                 contentLength += bos.size();
                 // Add also the length of the file content
-                File uploadFile = new File(file.getPath());
+                File uploadFile = new File(file.getResolvedPath());
                 contentLength += uploadFile.length();
                 contentLength += CRLF.length;
             }
@@ -263,7 +263,7 @@ public class PostWriter {
                     }
                 }
                 // Create the content length we are going to write
-                File inputFile = new File(file.getPath());
+                File inputFile = new File(file.getResolvedPath());
                 contentLength = inputFile.length();
             }
             else {

@@ -27,9 +27,9 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.apache.jmeter.extractor.gui.RegexExtractorGui;
-import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
+import org.apache.jmeter.testelement.TestElement;
 import org.junit.jupiter.api.Test;
 
 /**

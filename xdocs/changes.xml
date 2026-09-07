@@ -31,6 +31,19 @@ scoped search and broader, safer flagging. It also hardens update restarts, AI
 Auto Scripting, HTTP client cleanup, and saved JMX files.
 </p>
 
+<ch_section>Portable Archive Files</ch_section>
+<ul>
+  <li>Preserves file permissions when saving, allows recovery of missing or corrupt archive files, and warns about missing pasted CSV references.</li>
+  <li>Validates portable archive filenames, recreates expired temporary files, preselects archived uploads, and limits CSV editor memory use.</li>
+  <li>Adds Tools &gt; Archive browser for importing, exporting, and deleting shared files in the JMX archive.</li>
+  <li>Adds archive-source settings for CSV Data Set and HTTP file uploads, a CSV editor with Save/Cancel, and the __archiveFile function for other file references.</li>
+  <li>Adds recording-retention and orphan-cleanup options with a preview of removed data and retained exchanges.</li>
+  <li>Preserves CSV line endings when editing and resolves archived files correctly after reopening a test plan.</li>
+  <li>Reads shared archive files once when opening JMX plans, bounds CSV preview memory, and loads CSV previews and editor content in the background.</li>
+  <li>Speeds up saving large embedded files by writing compressed archive data in buffered blocks.</li>
+  <li>Embedded files support local GUI and CLI execution; automatic transfer to distributed RMI engines is not supported.</li>
+</ul>
+
 <ch_section>Search and Flagging</ch_section>
 <ul>
   <li>Scopes searches to the Thread Group containing the selected element by default, with controls to choose another Thread Group or the full test plan.</li>

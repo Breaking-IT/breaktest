@@ -42,6 +42,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.event.TableModelListener;
 
 import org.apache.jmeter.config.gui.RowDetailDialog;
+import org.apache.jmeter.gui.util.ArchiveBrowser;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -130,17 +131,17 @@ public class HTTPFileArgsPanel extends JPanel implements ActionListener {
      */
     private void initializeTableModel() {
         tableModel = new ObjectTableModel(new String[] {
-                FILEPATH, PARAMNAME, MIMETYPE},
+                FILEPATH, PARAMNAME, MIMETYPE, "use_archive_file"},
             HTTPFileArg.class,
             new Functor[] {
                 new Functor("getPath"), //$NON-NLS-1$
                 new Functor("getParamName"), //$NON-NLS-1$
-                new Functor("getMimeType")}, //$NON-NLS-1$
+                new Functor("getMimeType"), new Functor("isUseArchive")}, //$NON-NLS-1$
             new Functor[] {
                 new Functor("setPath"), //$NON-NLS-1$
                 new Functor("setParamName"), //$NON-NLS-1$
-                new Functor("setMimeType")}, //$NON-NLS-1$
-            new Class[] {String.class, String.class, String.class});
+                new Functor("setMimeType"), new Functor("setUseArchive")}, //$NON-NLS-1$
+            new Class[] {String.class, String.class, String.class, Boolean.class});
     }
 
     public static boolean testFunctors(){
@@ -298,7 +299,9 @@ public class HTTPFileArgsPanel extends JPanel implements ActionListener {
         if (DELETE.equals(command)) {
             tableModel.removeRow(rowSelected);
         } else if (BROWSE.equals(command)) {
-            String path = browseAndGetFilePath();
+            HTTPFileArg file = (HTTPFileArg) tableModel.getObjectListAsList().get(rowSelected);
+            String path = file.isUseArchive()
+                    ? ArchiveBrowser.chooseFile(this, file.getPath()) : browseAndGetFilePath();
             if (StringUtilities.isNotBlank(path)) {
                 tableModel.setValueAt(path, rowSelected, 0);
             }

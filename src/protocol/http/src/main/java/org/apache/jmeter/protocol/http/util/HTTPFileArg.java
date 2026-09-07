@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.util.Objects;
 
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
@@ -164,6 +165,7 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
      */
     public HTTPFileArg(HTTPFileArg file) {
         this(file.getPath(), file.getParamName(), file.getMimeType());
+        setUseArchive(file.isUseArchive());
     }
 
     /**
@@ -220,6 +222,18 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
      *
      * @return the file's path
      */
+    public boolean isUseArchive() {
+        return getPropertyAsBoolean("HTTPFileArg.useArchive");
+    }
+
+    public void setUseArchive(boolean useArchive) {
+        setProperty("HTTPFileArg.useArchive", useArchive, false);
+    }
+
+    public String getResolvedPath() throws IOException {
+        return isUseArchive() ? ArchiveFiles.resolve(getPath()).toString() : getPath();
+    }
+
     public String getPath() {
         return get(getSchema().getPath());
     }
