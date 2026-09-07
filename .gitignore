@@ -42,6 +42,7 @@
 
 # Ignore Gradle project-specific cache directory
 .gradle
+.kotlin/
 .gradle-build_jmeter/
 
 # burrunan/gradle-cache-action creates this folder, so ignore it until the folder moved to another location
