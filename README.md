@@ -327,7 +327,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.08.24
+breaktest.version=2026.09.07
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix

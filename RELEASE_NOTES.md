@@ -13,6 +13,96 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.07 — Portable Files, CSV Editing, and Correlation Tools
+
+BreakTest 2026.09.07 makes test plans easier to transport by keeping CSVs and
+upload files inside the JMX archive. It adds CSV editing, archive cleanup, and
+new tools for finding dynamic values and creating extractors and assertions
+from recorded responses.
+
+## Portable Files and Archive Management
+
+- Adds **Tools → Archive browser** to add, browse, export, and delete shared
+  files stored under `files/` inside the JMX archive.
+- Lets CSV Data Sets and HTTP file uploads use files from the archive. Other
+  function-capable file fields can use `${__archiveFile(filename)}`.
+- Adds recording cleanup with options to remove recorded headers and bodies,
+  exclude static-resource recording data, and remove orphaned recording data.
+  A preview shows the proposed removal and retained exchanges before applying
+  changes. Shared files are preserved by recording cleanup.
+- Keeps recordings without clear sampler links during orphan cleanup to avoid
+  accidentally removing an entire recording.
+- Includes recording manifests, request/response content, HAR attachments, and
+  correlation rules when copying elements between BreakTest processes.
+
+Sources: [#135](https://github.com/Breaking-IT/breaktest/pull/135),
+[#132](https://github.com/Breaking-IT/breaktest/pull/132).
+
+## CSV Editing and Responsiveness
+
+- Adds an **Edit CSV** dialog with Save and Cancel for external and archived
+  CSV files. Copy a CSV file directly into the JMX archive for easy portability,
+  or export it back to disk.
+
+Source: [#135](https://github.com/Breaking-IT/breaktest/pull/135).
+
+## Correlation and Response Tools
+
+- Shows live regular-expression extraction results using recorded sample data,
+  including extracted variables, capture groups, occurrence counts, and parse
+  time. Double-clicking a shortened value opens its full selectable text.
+- Adds replacement actions for extracted values, with affected sampler paths
+  shown before replacement. Existing variable references remain protected.
+- Creates assertions and regex extractors directly from selected response body
+  or header text, with undo support.
+- Searches HTTP parameter values in earlier recorded responses from the value
+  cell's context menu. Results show sampler paths and surrounding content;
+  opening a result selects the matching value in the recorded response.
+
+Sources: [#131](https://github.com/Breaking-IT/breaktest/pull/131),
+[#134](https://github.com/Breaking-IT/breaktest/pull/134).
+
+## Saving, Startup, and Diagnostics
+
+- Improves archive read/write performance, including saves and backups, and
+  avoids repeatedly hashing archived uploads during test execution.
+- Saves plans through atomic file replacement while preserving existing POSIX
+  permissions. Archives with missing or corrupt indexed files can open for
+  repair; saving is blocked until those indexed files are restored or removed.
+- Makes Java version detection more reliable, including Java 21 patch releases,
+  and falls back to normal class loading when a shared class cache is unusable.
+- Shows recent startup messages in the GUI log panel, including messages emitted
+  before the panel initialized.
+- Removes the misleading warning when no client-certificate keystore is
+  configured, while retaining warnings for explicitly configured missing files.
+
+Sources: [#135](https://github.com/Breaking-IT/breaktest/pull/135),
+[#130](https://github.com/Breaking-IT/breaktest/pull/130),
+[#133](https://github.com/Breaking-IT/breaktest/pull/133),
+[#129](https://github.com/Breaking-IT/breaktest/pull/129).
+
+## Build and Test Improvements
+
+- Cuts clean build times by up to half in measured cache-warmed builds by
+  running independent batch integration suites in three parallel groups while
+  keeping tests with shared ports or output files serialized. Intentional
+  delays and assertions remain unchanged.
+- Improves GUI test isolation and makes HTTP interruption testing wait for
+  request receipt before interrupting it.
+
+Source: [#135](https://github.com/Breaking-IT/breaktest/pull/135).
+
+## Compatibility Notes
+
+- Java 21 or later is required; HTTP/3 over QUIC requires Java 26 or later.
+- Both BreakTest processes must use an updated build to transfer recording
+  attachments through copy/paste.
+- Embedded files are not automatically transferred to remote RMI engines.
+- Imported archive filenames must be portable across operating systems,
+  including Windows filename restrictions.
+
+[Full changelog since 2026.08.24](https://github.com/Breaking-IT/breaktest/compare/2026.08.24...757c5c73323c5b578e27bc1e54269bd91d742bff)
+
 # BreakTest 2026.08.24 — Scoped Search, Flagging, and Reliability Fixes
 
 BreakTest 2026.08.24 makes large test plans easier to inspect and edit with
