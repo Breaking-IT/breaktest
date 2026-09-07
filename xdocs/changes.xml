@@ -24,25 +24,55 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.09.07 — Portable Files, CSV Editing, and Correlation Tools</h1>
+<p>BreakTest 2026.09.07 makes test plans easier to transport by keeping CSVs and upload files inside the JMX archive. It adds CSV editing, archive cleanup, and new tools for finding dynamic values and creating extractors and assertions from recorded responses.</p>
+<ch_section>Portable Files and Archive Management</ch_section>
+<ul>
+<li>Adds <b>Tools → Archive browser</b> to add, browse, export, and delete shared files stored under <code>files/</code> inside the JMX archive.</li>
+<li>Lets CSV Data Sets and HTTP file uploads use files from the archive. Other function-capable file fields can use <code>${__archiveFile(filename)}</code>.</li>
+<li>Adds recording cleanup with options to remove recorded headers and bodies, exclude static-resource recording data, and remove orphaned recording data. A preview shows the proposed removal and retained exchanges before applying changes. Shared files are preserved by recording cleanup.</li>
+<li>Keeps recordings without clear sampler links during orphan cleanup to avoid accidentally removing an entire recording.</li>
+<li>Includes recording manifests, request/response content, HAR attachments, and correlation rules when copying elements between BreakTest processes.</li>
+</ul>
+<ch_section>CSV Editing and Responsiveness</ch_section>
+<ul>
+<li>Adds an <b>Edit CSV</b> dialog with Save and Cancel for external and archived CSV files. Copy a CSV file directly into the JMX archive for easy portability, or export it back to disk.</li>
+</ul>
+<ch_section>Correlation and Response Tools</ch_section>
+<ul>
+<li>Shows live regular-expression extraction results using recorded sample data, including extracted variables, capture groups, occurrence counts, and parse time. Double-clicking a shortened value opens its full selectable text.</li>
+<li>Adds replacement actions for extracted values, with affected sampler paths shown before replacement. Existing variable references remain protected.</li>
+<li>Creates assertions and regex extractors directly from selected response body or header text, with undo support.</li>
+<li>Searches HTTP parameter values in earlier recorded responses from the value cell&#x27;s context menu. Results show sampler paths and surrounding content; opening a result selects the matching value in the recorded response.</li>
+</ul>
+<ch_section>Saving, Startup, and Diagnostics</ch_section>
+<ul>
+<li>Improves archive read/write performance, including saves and backups, and avoids repeatedly hashing archived uploads during test execution.</li>
+<li>Saves plans through atomic file replacement while preserving existing POSIX permissions. Archives with missing or corrupt indexed files can open for repair; saving is blocked until those indexed files are restored or removed.</li>
+<li>Makes Java version detection more reliable, including Java 21 patch releases, and falls back to normal class loading when a shared class cache is unusable.</li>
+<li>Shows recent startup messages in the GUI log panel, including messages emitted before the panel initialized.</li>
+<li>Removes the misleading warning when no client-certificate keystore is configured, while retaining warnings for explicitly configured missing files.</li>
+</ul>
+<ch_section>Build and Test Improvements</ch_section>
+<ul>
+<li>Cuts clean build times by up to half in measured cache-warmed builds by running independent batch integration suites in three parallel groups while keeping tests with shared ports or output files serialized. Intentional delays and assertions remain unchanged.</li>
+<li>Improves GUI test isolation and makes HTTP interruption testing wait for request receipt before interrupting it.</li>
+</ul>
+<ch_section>Compatibility Notes</ch_section>
+<ul>
+<li>Java 21 or later is required; HTTP/3 over QUIC requires Java 26 or later.</li>
+<li>Both BreakTest processes must use an updated build to transfer recording attachments through copy/paste.</li>
+<li>Embedded files are not automatically transferred to remote RMI engines.</li>
+<li>Imported archive filenames must be portable across operating systems, including Windows filename restrictions.</li>
+</ul>
+
+
 <h1>BreakTest 2026.08.24 - Scoped Search, Flagging, and Reliability Fixes</h1>
 <p>
 BreakTest 2026.08.24 makes large test plans easier to inspect and edit with
 scoped search and broader, safer flagging. It also hardens update restarts, AI
 Auto Scripting, HTTP client cleanup, and saved JMX files.
 </p>
-
-<ch_section>Portable Archive Files</ch_section>
-<ul>
-  <li>Preserves file permissions when saving, allows recovery of missing or corrupt archive files, and warns about missing pasted CSV references.</li>
-  <li>Validates portable archive filenames, recreates expired temporary files, preselects archived uploads, and limits CSV editor memory use.</li>
-  <li>Adds Tools &gt; Archive browser for importing, exporting, and deleting shared files in the JMX archive.</li>
-  <li>Adds archive-source settings for CSV Data Set and HTTP file uploads, a CSV editor with Save/Cancel, and the __archiveFile function for other file references.</li>
-  <li>Adds recording-retention and orphan-cleanup options with a preview of removed data and retained exchanges.</li>
-  <li>Preserves CSV line endings when editing and resolves archived files correctly after reopening a test plan.</li>
-  <li>Reads shared archive files once when opening JMX plans, bounds CSV preview memory, and loads CSV previews and editor content in the background.</li>
-  <li>Speeds up saving large embedded files by writing compressed archive data in buffered blocks.</li>
-  <li>Embedded files support local GUI and CLI execution; automatic transfer to distributed RMI engines is not supported.</li>
-</ul>
 
 <ch_section>Search and Flagging</ch_section>
 <ul>
