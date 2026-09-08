@@ -21,6 +21,7 @@ import com.google.auto.service.AutoService
 import org.apache.jmeter.samplers.ResponseDecoder
 import org.apiguardian.api.API
 import org.brotli.dec.BrotliInputStream
+import java.io.ByteArrayInputStream
 import java.io.InputStream
 
 /**
@@ -34,6 +35,14 @@ import java.io.InputStream
 public class BrotliDecoder : ResponseDecoder {
     override val encodings: List<String>
         get() = listOf("br")
+
+    override fun decode(compressed: ByteArray): ByteArray {
+        // Bulk reads do not use BrotliInputStream's single-byte read buffer.
+        // Its constructor requires a positive size; keep the default for decodeStream.
+        return BrotliInputStream(ByteArrayInputStream(compressed), 1).use {
+            it.readAllBytes()
+        }
+    }
 
     override fun decodeStream(input: InputStream): InputStream {
         return BrotliInputStream(input)
