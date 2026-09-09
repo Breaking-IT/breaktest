@@ -117,6 +117,27 @@ public interface BackendListenerClient extends SampleResultMetadataConsumer {
     }
 
     /**
+     * Whether {@link #createSampleResult(BackendListenerContext, SampleResult)} can reuse
+     * a read-only snapshot of listener parameters taken at test startup.
+     * <p>
+     * Queried during listener startup, after {@link #setupTest(BackendListenerContext)}.
+     * Returning {@code true} allows the same context to be passed to callbacks from
+     * multiple sampling threads. Its parameter-name iterator does not support removal.
+     * The snapshot is refreshed for each test run; changes to arguments, variables and
+     * functions during the run are not evaluated for these callbacks.
+     * <p>
+     * Opt in only if this callback ignores the context or can use startup parameter
+     * values without mutation or per-event evaluation side effects. This does not
+     * change the contexts passed to setup, batch handling or teardown.
+     * Existing clients retain per-event context creation by default.
+     *
+     * @return {@code true} to reuse the sample context; {@code false} by default
+     */
+    default boolean canReuseSampleContext() {
+        return false;
+    }
+
+    /**
      * Create a copy of SampleResult, this method is here to allow customizing
      * what is kept in the copy, for example copy could remove some useless fields.
      * Note that if it returns null, the sample result is not put in the queue.
