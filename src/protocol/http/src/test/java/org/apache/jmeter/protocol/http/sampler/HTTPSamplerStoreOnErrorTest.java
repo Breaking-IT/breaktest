@@ -17,14 +17,22 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.List;
+
+import org.apache.jmeter.assertions.ResponseAssertion;
+import org.apache.jmeter.extractor.RegexExtractor;
 
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
+import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.SamplePackage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +40,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests {@link ResponseProcessingMode#STORE_ON_ERROR} and the validation-run override that
  * forces body-discarding modes to keep the body so it is visible while validating. A normal
- * run (GUI or non-GUI) always honours the configured mode.
+ * run preserves bodies when assertions or post-processors need them.
  */
 public class HTTPSamplerStoreOnErrorTest {
 
@@ -43,11 +51,13 @@ public class HTTPSamplerStoreOnErrorTest {
         // validation-run forces storage; ensure it is off so the configured mode is honoured
         // (it is a static, reset to avoid cross-test leakage).
         JMeterContextService.setValidationRun(false);
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
     }
 
     @AfterEach
     public void restoreValidationRun() {
         JMeterContextService.setValidationRun(false);
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
     }
 
     private static byte[] readWith(ResponseProcessingMode mode, String responseCode) throws IOException {
@@ -89,6 +99,41 @@ public class HTTPSamplerStoreOnErrorTest {
         assertEquals(0, readWith(ResponseProcessingMode.FETCH_AND_DISCARD, "200").length);
         assertEquals(0, readWith(ResponseProcessingMode.FETCH_AND_DISCARD, "500").length,
                 "FETCH_AND_DISCARD discards even on error (unlike STORE_ON_ERROR)");
+    }
+
+    @Test
+    public void assertionForcesStorageInDiscardModes() throws IOException {
+        SamplePackage pack = new SamplePackage(List.of(), List.of(), List.of(),
+                List.of(new ResponseAssertion()), List.of(), List.of(), List.of());
+        JMeterContextService.getContext().getVariables().putObject(JMeterThread.PACKAGE_OBJECT, pack);
+        assertArrayEquals(BODY, readWith(ResponseProcessingMode.STORE_ON_ERROR, "200"));
+        assertArrayEquals(BODY, readWith(ResponseProcessingMode.FETCH_AND_DISCARD, "200"));
+    }
+
+    @Test
+    public void extractorForcesStorageAndNextPackageCanDiscard() throws IOException {
+        SamplePackage pack = new SamplePackage(List.of(), List.of(), List.of(), List.of(),
+                List.of(new RegexExtractor()), List.of(), List.of());
+        JMeterContextService.getContext().getVariables().putObject(JMeterThread.PACKAGE_OBJECT, pack);
+        assertArrayEquals(BODY, readWith(ResponseProcessingMode.STORE_ON_ERROR, "200"));
+        assertArrayEquals(BODY, readWith(ResponseProcessingMode.FETCH_AND_DISCARD, "200"));
+
+        SamplePackage next = new SamplePackage(List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), List.of());
+        JMeterContextService.getContext().getVariables().putObject(JMeterThread.PACKAGE_OBJECT, next);
+        assertEquals(0, readWith(ResponseProcessingMode.STORE_ON_ERROR, "200").length);
+        assertEquals(0, readWith(ResponseProcessingMode.FETCH_AND_DISCARD, "200").length);
+    }
+
+    @Test
+    public void assertionDoesNotOverrideExplicitChecksum() throws IOException {
+        SamplePackage pack = new SamplePackage(List.of(), List.of(), List.of(),
+                List.of(new ResponseAssertion()), List.of(), List.of(), List.of());
+        byte[] expectedEncoded = readWith(ResponseProcessingMode.CHECKSUM_ENCODED_MD5, "200");
+        byte[] expectedDecoded = readWith(ResponseProcessingMode.CHECKSUM_DECODED_MD5, "200");
+        JMeterContextService.getContext().getVariables().putObject(JMeterThread.PACKAGE_OBJECT, pack);
+        assertArrayEquals(expectedEncoded, readWith(ResponseProcessingMode.CHECKSUM_ENCODED_MD5, "200"));
+        assertArrayEquals(expectedDecoded, readWith(ResponseProcessingMode.CHECKSUM_DECODED_MD5, "200"));
     }
 
     @Test
