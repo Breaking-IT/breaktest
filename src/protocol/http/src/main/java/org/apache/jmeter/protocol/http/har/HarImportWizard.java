@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutionException;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -51,8 +52,10 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingWorker;
@@ -69,7 +72,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * A modal wizard that imports a HAR file: choose the file (which immediately
- * advances to hostname filtering), then pick conversion options. Mirrors the
+ * advances to hostname filtering), review detected file uploads, then pick conversion options. Mirrors the
  * flow of the BreakTest Python {@code HarConvertModal}. On success
  * {@link #getResult()} returns the user's selections; it is {@code null} when
  * the user cancels.
@@ -87,6 +90,11 @@ public class HarImportWizard extends JDialog {
         private final String harName;
         private final String harMd5;
         private final byte[] harContent;
+        private HarUploadCapture.Result uploads = HarUploadCapture.Result.empty();
+
+        public HarUploadCapture.Result getUploads() {
+            return uploads;
+        }
 
         Result(List<HarEntry> entries, Set<String> selectedHostnames, HarImportOptions options,
                 String harName, String harMd5, byte[] harContent) {
@@ -127,8 +135,9 @@ public class HarImportWizard extends JDialog {
 
     private static final int STEP_FILE = 0;
     private static final int STEP_HOSTS = 1;
-    private static final int STEP_OPTIONS = 2;
-    private static final int STEP_CORRELATIONS = 3;
+    private static final int STEP_FILE_UPLOAD = 2;
+    private static final int STEP_OPTIONS = 3;
+    private static final int STEP_CORRELATIONS = 4;
     static final boolean DEFAULT_FIND_PREDEFINED_CORRELATIONS = true;
 
     private static final String[] STORAGE_MODE_KEYS = {
@@ -155,6 +164,7 @@ public class HarImportWizard extends JDialog {
     private final JLabel fileLabel = new JLabel(JMeterUtils.getResString("har_import_no_file"));
     private final JLabel analysisLabel = new JLabel(" ");
     private List<HarEntry> entries;
+    private HarUploadCapture.Result uploads = HarUploadCapture.Result.empty();
     private List<String> hostnames;
     private String harName;
     private String harMd5;
@@ -166,6 +176,17 @@ public class HarImportWizard extends JDialog {
     private final List<JCheckBox> groupCheckBoxes = new ArrayList<>();
     private final JButton toggleAllButton = new JButton(JMeterUtils.getResString("har_import_unselect_all"));
     private boolean allSelected = true;
+
+    private final JLabel uploadFilesLabel = new JLabel(" ");
+    private final JLabel uploadWarningLabel = new JLabel(" ");
+    private final JTextArea captureWarnings = new JTextArea(3, 60);
+    private final JScrollPane captureWarningsScroll = new JScrollPane(captureWarnings);
+    private final JRadioButton useArchiveUploadFiles = new JRadioButton(
+            JMeterUtils.getResString("har_import_upload_archive"), true);
+    private final JRadioButton useLocalUploadFiles = new JRadioButton(
+            JMeterUtils.getResString("har_import_upload_local_file"));
+    private final JRadioButton referenceUploadFiles = new JRadioButton(
+            JMeterUtils.getResString("har_import_upload_reference_only"));
 
     // Step 3 controls
     private final JCheckBox ignoreErrors = new JCheckBox(JMeterUtils.getResString("har_import_ignore_errors"), true);
@@ -221,6 +242,7 @@ public class HarImportWizard extends JDialog {
     private void buildUi() {
         cards.add(buildFileCard(), "file");
         cards.add(buildHostsCard(), "hosts");
+        cards.add(buildFileUploadCard(), "fileUpload");
         cards.add(buildOptionsCard(), "options");
         cards.add(buildCorrelationsCard(), "correlations");
 
@@ -314,8 +336,8 @@ public class HarImportWizard extends JDialog {
             @Override
             protected HarAnalysis doInBackground() throws IOException {
                 byte[] content = Files.readAllBytes(file.toPath());
-                List<HarEntry> parsed = HarParser.parse(content);
-                return new HarAnalysis(file, parsed, HarConverter.sortedHostnames(parsed), md5(content), content);
+                HarParser.Recording recording = HarParser.parseRecording(content);
+                return new HarAnalysis(file, recording, HarConverter.sortedHostnames(recording.entries()), md5(content), content);
             }
 
             @Override
@@ -346,6 +368,7 @@ public class HarImportWizard extends JDialog {
 
     private void applyAnalysis(HarAnalysis analysis) {
         this.entries = analysis.entries();
+        this.uploads = analysis.recording.uploads();
         this.hostnames = analysis.hostnames();
         this.harName = analysis.file().getName();
         this.harMd5 = analysis.md5();
@@ -487,6 +510,96 @@ public class HarImportWizard extends JDialog {
             }
         }
         return selected;
+    }
+
+    private JPanel buildFileUploadCard() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+
+        JLabel detected = new JLabel(JMeterUtils.getResString("har_import_upload_detected"));
+        detected.setAlignmentX(Component.LEFT_ALIGNMENT);
+        uploadFilesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        uploadWarningLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        useLocalUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
+        useArchiveUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
+        referenceUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        ButtonGroup choices = new ButtonGroup();
+        choices.add(useArchiveUploadFiles);
+        choices.add(useLocalUploadFiles);
+        choices.add(referenceUploadFiles);
+
+        panel.add(detected);
+        panel.add(Box.createVerticalStrut(10));
+        panel.add(uploadFilesLabel);
+        panel.add(Box.createVerticalStrut(6));
+        panel.add(uploadWarningLabel);
+        captureWarnings.setEditable(false);
+        captureWarnings.setLineWrap(true);
+        captureWarnings.setWrapStyleWord(true);
+        captureWarningsScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        captureWarningsScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        panel.add(captureWarningsScroll);
+        panel.add(Box.createVerticalStrut(16));
+        panel.add(useArchiveUploadFiles);
+        panel.add(useLocalUploadFiles);
+        panel.add(referenceUploadFiles);
+        panel.add(Box.createVerticalGlue());
+        return panel;
+    }
+
+    private List<HarEntry.NameValue> selectedFileUploads() {
+        Set<String> selected = selectedHostnames();
+        List<HarEntry.NameValue> uploads = new ArrayList<>();
+        if (entries == null) {
+            return uploads;
+        }
+        for (HarEntry entry : entries) {
+            if (!selected.contains(HarConverter.hostnameOf(entry.getUrl())) || entry.getPostData() == null) {
+                continue;
+            }
+            entry.getPostData().getParams().stream()
+                    .filter(HarEntry.NameValue::isFileUpload)
+                    .forEach(uploads::add);
+        }
+        return uploads;
+    }
+
+    private boolean hasSelectedFileUploads() {
+        return uploads.present() || !selectedFileUploads().isEmpty();
+    }
+
+    private void updateFileUploadCard() {
+        List<HarEntry.NameValue> uploads = selectedFileUploads();
+        boolean canArchive = !this.uploads.resources().isEmpty()
+                || uploads.stream().anyMatch(HarEntry.NameValue::hasFileContent);
+        captureWarnings.setText(String.join("\n", this.uploads.warnings()));
+        captureWarningsScroll.setVisible(!this.uploads.warnings().isEmpty());
+        captureWarnings.setCaretPosition(0);
+        useLocalUploadFiles.setText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_upload_local_file"), HarImportAction.uploadWorkingDirectory()));
+        useArchiveUploadFiles.setEnabled(canArchive);
+        if (!canArchive && useArchiveUploadFiles.isSelected()) {
+            referenceUploadFiles.setSelected(true);
+        }
+        String fileNames = java.util.stream.Stream.concat(uploads.stream(), this.uploads.resources().stream())
+                .map(upload -> HarEntry.localFileName(upload.getFileName()))
+                .distinct()
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+        String missingFiles = uploads.stream()
+                .filter(upload -> !upload.hasFileContent())
+                .map(upload -> HarEntry.localFileName(upload.getFileName()))
+                .distinct()
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("");
+        uploadFilesLabel.setText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_upload_files"), fileNames));
+        uploadWarningLabel.setText(missingFiles.isEmpty()
+                ? " "
+                : MessageFormat.format(
+                        JMeterUtils.getResString("har_import_upload_missing_content"), missingFiles));
     }
 
     // ---------------------------------------------------------------------
@@ -754,21 +867,37 @@ public class HarImportWizard extends JDialog {
             if (step == STEP_CORRELATIONS) {
                 cancelCorrelationAnalysis();
             }
-            step--;
+            step = switch (step) {
+                case STEP_HOSTS -> STEP_FILE;
+                case STEP_FILE_UPLOAD -> STEP_HOSTS;
+                case STEP_OPTIONS -> hasSelectedFileUploads() ? STEP_FILE_UPLOAD : STEP_HOSTS;
+                case STEP_CORRELATIONS -> STEP_OPTIONS;
+                default -> STEP_FILE;
+            };
             showStep();
         }
     }
 
     private void goNext() {
-        if (step < STEP_OPTIONS || step == STEP_OPTIONS && findPredefinedCorrelations.isSelected()) {
-            step++;
-            showStep();
+        if (step == STEP_FILE) {
+            step = STEP_HOSTS;
+        } else if (step == STEP_HOSTS) {
+            step = hasSelectedFileUploads() ? STEP_FILE_UPLOAD : STEP_OPTIONS;
+        } else if (step == STEP_FILE_UPLOAD) {
+            step = STEP_OPTIONS;
+        } else if (step == STEP_OPTIONS && findPredefinedCorrelations.isSelected()) {
+            step = STEP_CORRELATIONS;
         }
+        showStep();
     }
 
     private void showStep() {
         switch (step) {
             case STEP_HOSTS -> cardLayout.show(cards, "hosts");
+            case STEP_FILE_UPLOAD -> {
+                updateFileUploadCard();
+                cardLayout.show(cards, "fileUpload");
+            }
             case STEP_OPTIONS -> {
                 updateIdleTimeVisibility();
                 updateStorageEstimates();
@@ -791,6 +920,8 @@ public class HarImportWizard extends JDialog {
             nextButton.setEnabled(canLeaveFile);
         } else if (step == STEP_HOSTS) {
             nextButton.setEnabled(canLeaveHosts);
+        } else if (step == STEP_FILE_UPLOAD) {
+            nextButton.setEnabled(true);
         } else if (step == STEP_OPTIONS) {
             nextButton.setEnabled(findPredefinedCorrelations.isSelected());
         } else {
@@ -814,6 +945,11 @@ public class HarImportWizard extends JDialog {
             case 2 -> RecordingStorageMode.NONE;
             default -> RecordingStorageMode.ALL;
         });
+        options.setFileUploadMode(useArchiveUploadFiles.isSelected()
+                ? HarImportOptions.FileUploadMode.ARCHIVE
+                : useLocalUploadFiles.isSelected()
+                ? HarImportOptions.FileUploadMode.LOCAL_FILE
+                : HarImportOptions.FileUploadMode.REFERENCE_ONLY);
         options.setIdleTimeSeconds((Integer) idleTime.getValue());
         options.setDelayMode(selectedDelayMode);
         options.setRecordedRandomPercent((Integer) recordedRandom.getValue());
@@ -826,6 +962,7 @@ public class HarImportWizard extends JDialog {
         }
 
         result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
+        result.uploads = uploads;
         dispose();
     }
 
@@ -892,14 +1029,14 @@ public class HarImportWizard extends JDialog {
 
     private static final class HarAnalysis {
         private final File file;
-        private final List<HarEntry> entries;
+        private final HarParser.Recording recording;
         private final List<String> hostnames;
         private final String md5;
         private final byte[] content;
 
-        private HarAnalysis(File file, List<HarEntry> entries, List<String> hostnames, String md5, byte[] content) {
+        private HarAnalysis(File file, HarParser.Recording recording, List<String> hostnames, String md5, byte[] content) {
             this.file = file;
-            this.entries = entries;
+            this.recording = recording;
             this.hostnames = hostnames;
             this.md5 = md5;
             this.content = content;
@@ -910,7 +1047,7 @@ public class HarImportWizard extends JDialog {
         }
 
         private List<HarEntry> entries() {
-            return entries;
+            return recording.entries();
         }
 
         private List<String> hostnames() {

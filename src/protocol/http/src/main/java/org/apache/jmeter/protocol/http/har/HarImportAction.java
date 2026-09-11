@@ -19,7 +19,13 @@ package org.apache.jmeter.protocol.http.har;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,6 +51,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
+import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -108,6 +115,10 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                     HashTree convertedTree = get();
                     // Flush any pending Test Plan GUI edits before changing its variables.
                     guiPackage.updateCurrentGui();
+                    if (options.getFileUploadMode() == HarImportOptions.FileUploadMode.ARCHIVE) {
+                        storeArchiveUploads(result.getEntries(), result.getSelectedHostnames(),
+                                ArchiveFiles.currentPlan(), result.getUploads().resources());
+                    }
                     applyDelayVariables(guiPackage, options);
                     JMeterTreeNode importedThreadGroup = insertUnderTestPlan(guiPackage, convertedTree);
                     guiPackage.refreshCurrentGui();
@@ -134,6 +145,10 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             HarImportWizard.Result result, HarImportOptions options, HarConverter converter) {
         HashTree convertedTree = converter.convert(result.getSelectedHostnames());
         try {
+            if (options.getFileUploadMode() == HarImportOptions.FileUploadMode.LOCAL_FILE) {
+                storeUploadFiles(result.getEntries(), result.getSelectedHostnames(), uploadWorkingDirectory(),
+                        result.getUploads().resources());
+            }
             var filteredHar = HarArchiveFilter.filterAndRelink(
                     result.getHarContent(), convertedTree, result.getHarName(), options.getRecordingStorageMode());
             if (filteredHar.isEmpty()) {
@@ -147,8 +162,76 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             }
             return convertedTree;
         } catch (java.io.IOException ex) {
-            throw new IllegalStateException("Failed to filter the HAR for archive storage", ex);
+            throw new IllegalStateException("Failed to store HAR import data: " + ex.getMessage(), ex);
         }
+    }
+
+    static void storeUploadFiles(List<HarEntry> entries, Set<String> selectedHostnames, Path workingDirectory)
+            throws IOException {
+        storeUploadFiles(entries, selectedHostnames, workingDirectory, List.of());
+    }
+
+    static Path uploadWorkingDirectory() {
+        return Path.of("").toAbsolutePath().normalize();
+    }
+
+    static void storeUploadFiles(List<HarEntry> entries, Set<String> selectedHostnames, Path workingDirectory,
+            List<HarEntry.NameValue> captures) throws IOException {
+        List<HarEntry.NameValue> files = new java.util.ArrayList<>(captures);
+        for (HarEntry entry : entries) {
+            if (!selectedHostnames.contains(HarConverter.hostnameOf(entry.getUrl()))
+                    || entry.getPostData() == null) {
+                continue;
+            }
+            files.addAll(entry.getPostData().getParams());
+        }
+        for (HarEntry.NameValue param : files) {
+            if (!param.isFileUpload() || !param.hasFileContent()) {
+                continue;
+            }
+            String fileName = HarEntry.localFileName(param.getResourceName());
+            ArchiveFiles.entryName(fileName);
+            Path target = workingDirectory.resolve(fileName);
+            byte[] content = param.getFileContent();
+            if (Files.exists(target)) {
+                if (Files.isRegularFile(target) && Arrays.equals(Files.readAllBytes(target), content)) {
+                    continue;
+                }
+                throw new IOException("Cannot store uploaded file '" + fileName
+                        + "' because it already exists with different content: " + target.toAbsolutePath());
+            }
+            Files.createDirectories(target.toAbsolutePath().getParent());
+            Files.write(target, content, StandardOpenOption.CREATE_NEW);
+        }
+    }
+
+    static void storeArchiveUploads(List<HarEntry> entries, Set<String> selectedHostnames, TestPlan plan) {
+        storeArchiveUploads(entries, selectedHostnames, plan, List.of());
+    }
+
+    static void storeArchiveUploads(List<HarEntry> entries, Set<String> selectedHostnames, TestPlan plan,
+            List<HarEntry.NameValue> captures) {
+        // Validate the whole batch before changing the open plan.
+        TestPlan pending = new TestPlan();
+        pending.setProperty(plan.getProperty(ArchiveFiles.PROPERTY).clone());
+        pending.setUnavailableArchiveFiles(plan.getUnavailableArchiveFiles());
+        for (HarEntry.NameValue capture : captures) {
+            ArchiveFiles.put(pending, capture.getResourceName(), capture.getFileContent(), false);
+        }
+        for (HarEntry entry : entries) {
+            if (!selectedHostnames.contains(HarConverter.hostnameOf(entry.getUrl()))
+                    || entry.getPostData() == null) {
+                continue;
+            }
+            for (HarEntry.NameValue param : entry.getPostData().getParams()) {
+                if (param.isFileUpload() && param.hasFileContent()) {
+                    ArchiveFiles.put(pending, param.getResourceName(),
+                            param.getFileContent(), false);
+                }
+            }
+        }
+        plan.setProperty(pending.getProperty(ArchiveFiles.PROPERTY).clone());
+        plan.setUnavailableArchiveFiles(pending.getUnavailableArchiveFiles());
     }
 
     /**

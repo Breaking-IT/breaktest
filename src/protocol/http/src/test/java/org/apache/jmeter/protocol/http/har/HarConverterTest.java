@@ -491,6 +491,80 @@ public class HarConverterTest {
                 () -> HarParser.parse(new byte[] {0x50, 0x4b, 0x03, 0x04}));
     }
 
+    @Test
+    void convertsDetectedUploadToRelativeFileReference() throws Exception {
+        List<HarEntry> entries = HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8));
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.LOCAL_FILE);
+        HashTree converted = new HarConverter(entries, options, "upload.har", "md5")
+                .convert(Set.of("api.example.com"));
+
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals("invoice.pdf", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("file", sampler.getHTTPFiles()[0].getParamName());
+        assertEquals("application/pdf", sampler.getHTTPFiles()[0].getMimeType());
+        assertTrue(sampler.getDoMultipart());
+        assertFalse(sampler.getPostBodyRaw());
+        assertTrue(sampler.getNativeHeaderList().stream()
+                .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName())),
+                "the client must generate the multipart boundary");
+
+        HarEntry.NameValue upload = entries.get(0).getPostData().getParams().get(0);
+        assertTrue(upload.hasFileContent());
+        assertEquals("sample document", new String(upload.getFileContent(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void canReferenceFilenameWithoutSavingUpload() throws Exception {
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.REFERENCE_ONLY);
+        HashTree converted = new HarConverter(
+                HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8)), options, "upload.har", "md5")
+                .convert(Set.of("api.example.com"));
+
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals("invoice.pdf", sampler.getHTTPFiles()[0].getPath());
+        assertFalse(sampler.getPostBodyRaw());
+        assertTrue(sampler.getDoMultipart());
+        assertTrue(sampler.getNativeHeaderList().stream()
+                .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName())
+                        && header.getValue().contains("boundary=boundary")));
+    }
+
+    @Test
+    void usesArchiveFunctionForAvailableUploadsByDefault() throws Exception {
+        HashTree converted = new HarConverter(
+                HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "upload.har", "md5").convert(Set.of("api.example.com"));
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertEquals("${__archiveFile(invoice.pdf)}", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("file", sampler.getHTTPFiles()[0].getParamName());
+        assertTrue(sampler.getDoMultipart());
+    }
+
+    @Test
+    void keepsRelativeReferenceWhenHarDoesNotContainFileContent() throws Exception {
+        String postData = "{\"mimeType\":\"multipart/form-data\",\"params\":[{"
+                + "\"name\":\"file\",\"fileName\":\"invoice.pdf\","
+                + "\"contentType\":\"application/pdf\"}]}";
+        String har = "{\"log\":{\"entries\":["
+                + entry("2021-01-01T00:00:00.000Z", 50, "POST", "https://api.example.com/upload", "[]",
+                        "[{\"name\":\"content-type\",\"value\":\"multipart/form-data\"}]",
+                        postData, 200)
+                + "]}}";
+        List<HarEntry> entries = HarParser.parse(har.getBytes(StandardCharsets.UTF_8));
+
+        HashTree converted = new HarConverter(entries, new HarImportOptions(), "upload.har", "md5")
+                .convert(Set.of("api.example.com"));
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+
+        assertEquals("invoice.pdf", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("file", sampler.getHTTPFiles()[0].getParamName());
+        assertFalse(entries.get(0).getPostData().getParams().get(0).hasFileContent());
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -507,6 +581,21 @@ public class HarConverterTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private static String uploadHar() {
+        String postData = "{\"mimeType\":\"multipart/form-data; boundary=boundary\","
+                + "\"params\":[{\"name\":\"file\",\"value\":\"(binary)\"}],"
+                + "\"text\":\"--boundary\\r\\n"
+                + "Content-Disposition: form-data; name=\\\"file\\\"; filename=\\\"C:\\\\fakepath\\\\invoice.pdf\\\"\\r\\n"
+                + "Content-Type: application/pdf\\r\\n\\r\\n"
+                + "sample document\\r\\n--boundary--\\r\\n\"}";
+        return "{\"log\":{\"entries\":["
+                + entry("2021-01-01T00:00:00.000Z", 50, "POST", "https://api.example.com/upload", "[]",
+                        "[{\"name\":\"content-type\","
+                                + "\"value\":\"multipart/form-data; boundary=boundary\"}]",
+                        postData, 200)
+                + "]}}";
     }
 
     private static TestElement findByType(HashTree tree, Class<?> type) {
