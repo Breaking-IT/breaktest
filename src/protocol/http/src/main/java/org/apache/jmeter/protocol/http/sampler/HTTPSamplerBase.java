@@ -2688,10 +2688,17 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     public void readResponse(SampleResult sampleResult, InputStream in, long length, @Nullable String contentEncoding) throws IOException {
         ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode());
         if (responseProcessingMode == ResponseProcessingMode.CHECKSUM_DECODED_MD5) {
-            in = ResponseDecoderRegistry.decodeStream(contentEncoding, in);
-            contentEncoding = null; // already decoded
+            // Closing the original HTTP input does not release resources owned by the decoder.
+            try (InputStream decoded = ResponseDecoderRegistry.decodeStream(contentEncoding, in)) {
+                readResponse(sampleResult, decoded, length, null, responseProcessingMode);
+            }
+        } else {
+            readResponse(sampleResult, in, length, contentEncoding, responseProcessingMode);
         }
+    }
 
+    private static void readResponse(SampleResult sampleResult, InputStream in, long length,
+            @Nullable String contentEncoding, ResponseProcessingMode responseProcessingMode) throws IOException {
         // 8kB is the (max) size to have the latency ('the first packet').
         // Per-thread reusable buffer: this is transient scratch, copied into the stored-body stream
         // (or digest) each read, so it need not be reallocated per sample.
