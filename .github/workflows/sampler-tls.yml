@@ -31,7 +31,10 @@ jobs:
             -v "$RUNNER_TEMP/http3:/fixture:ro" \
             caddy:2@sha256:13ba145cba2f3e28fa801994876e4c086d1b95d5aa2a520a734765ffb6b12017 \
             caddy run --config /fixture/Caddyfile
-          curl -kf --retry 10 --retry-connrefused --retry-delay 1 https://localhost:19443/
+          # Docker can accept TCP before Caddy completes TLS startup, yielding
+          # curl error 35 rather than connection refused. Bound retries for both.
+          curl -kf --retry 10 --retry-all-errors --retry-delay 1 \
+            --connect-timeout 2 --max-time 5 --retry-max-time 30 https://localhost:19443/
           echo "BREAKTEST_HTTP3_FIXTURE=$RUNNER_TEMP/http3" >> "$GITHUB_ENV"
           echo 'BREAKTEST_HTTP3_SELF_SIGNED_URL=https://localhost:19443/' >> "$GITHUB_ENV"
       - name: Sampler and updater TLS tests
