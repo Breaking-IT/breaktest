@@ -39,6 +39,17 @@ public final class SampleResultNodeResolver {
     private SampleResultNodeResolver() {
     }
 
+    /** Resolves a navigation target, falling back to the nearest resolvable result ancestor. */
+    public static JMeterTreeNode findForNavigation(SampleResult sampleResult) {
+        for (SampleResult current = sampleResult; current != null; current = current.getParent()) {
+            JMeterTreeNode node = find(current);
+            if (node != null) {
+                return node;
+            }
+        }
+        return null;
+    }
+
     public static JMeterTreeNode find(SampleResult sampleResult) {
         if (sampleResult == null) {
             return null;
