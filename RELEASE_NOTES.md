@@ -13,6 +13,31 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased — Sampler TLS compatibility
+
+**HTTP/2 samplers now ignore certificate hostname mismatches**, matching
+HTTP/1.1. Tests that previously relied on HTTP/2 rejecting a wrong-host
+certificate will no longer receive that validation failure.
+
+HTTP/3 ignores certificate-chain errors by default, including expired test
+certificates, and uses JMeter's configured client certificates on the normal
+connection path. The updater retains certificate and hostname verification.
+
+The HTTP/3 certificate retry requires TCP TLS at the original origin with a
+matching certificate. It cannot rescue certificate failures at a different
+origin reached through automatic redirects. The failed handshake, TCP probe,
+and retry contribute to the sample's elapsed time.
+
+Hostname handling for the JDK HTTP client uses the process-wide
+`jdk.internal.httpclient.disableHostnameVerification=true` setting in
+`bin/system.properties`. This also affects JDK clients created by plugins and
+JSR223 scripts. Embedded applications and test runners that do not load that
+file must pass `-Djdk.internal.httpclient.disableHostnameVerification=true`
+**at JVM startup**, before any JDK HTTP client is initialized, to get the same
+sampler behavior. Without it, wrong-host certificates can still fail after a
+probe and retry. Security-sensitive JDK clients must explicitly enable HTTPS
+endpoint identification, as the updater does.
+
 # BreakTest 2026.09.07 — Portable Files, CSV Editing, and Correlation Tools
 
 BreakTest 2026.09.07 makes test plans easier to transport by keeping CSVs and

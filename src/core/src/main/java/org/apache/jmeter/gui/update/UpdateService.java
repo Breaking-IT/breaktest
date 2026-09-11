@@ -51,6 +51,7 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 
 import org.apache.jmeter.gui.GuiPackage;
@@ -92,11 +93,7 @@ public final class UpdateService {
     private volatile ReleaseInfo availableRelease;
 
     private UpdateService() {
-        this(HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(15))
-                        .followRedirects(HttpClient.Redirect.NORMAL)
-                        .sslParameters(strictSslParameters())
-                        .build(),
+        this(createHttpClient(),
                 URI.create(JMeterUtils.getPropDefault("breaktest.update.api_url", DEFAULT_RELEASE_API.toString())),
                 JMeterUtils.getJMeterVersion(),
                 Preferences.userNodeForPackage(UpdateService.class),
@@ -104,10 +101,22 @@ public final class UpdateService {
                 UpdateService::isGuiMode);
     }
 
+    static HttpClient createHttpClient() {
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslParameters(strictSslParameters())
+                .build();
+    }
+
     static SSLParameters strictSslParameters() {
-        SSLParameters parameters = new SSLParameters();
-        parameters.setEndpointIdentificationAlgorithm("HTTPS");
-        return parameters;
+        try {
+            SSLParameters parameters = SSLContext.getDefault().getDefaultSSLParameters();
+            parameters.setEndpointIdentificationAlgorithm("HTTPS");
+            return parameters;
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Cannot initialize updater TLS parameters", e);
+        }
     }
 
     UpdateService(HttpClient httpClient, URI releaseApi, String currentVersion,

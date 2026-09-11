@@ -28,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.security.cert.CertificateException;
+import java.util.Locale;
 
 import javax.net.ssl.SSLContext;
 
@@ -39,6 +40,9 @@ import org.apache.jmeter.util.SSLManager;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Tests for HTTP/3 protocol selection, runtime capability detection, and the
@@ -201,11 +205,13 @@ public class TestHTTPJavaHttp3Impl {
                 new javax.net.ssl.SSLHandshakeException("protocol_version")));
     }
 
-    @Test
-    public void quicCertificateAlertTriggersRetryButOtherTransportErrorsDoNot() {
+    @ParameterizedTest
+    @ValueSource(strings = {"certificate_unknown", "certificate_expired", "bad_certificate",
+            "certificate_revoked", "unsupported_certificate", "unknown_ca"})
+    public void quicCertificateAlertTriggersRetryButOtherTransportErrorsDoNot(String alert) {
         javax.net.ssl.SSLHandshakeException handshake =
                 new javax.net.ssl.SSLHandshakeException("QUIC connection establishment failed");
-        handshake.initCause(new java.io.IOException("certificate_unknown"));
+        handshake.initCause(new java.io.IOException(alert));
         assertTrue(HTTPJavaHttp3Impl.isCertificateValidationFailure(handshake));
 
         javax.net.ssl.SSLHandshakeException otherHandshake =
@@ -252,10 +258,43 @@ public class TestHTTPJavaHttp3Impl {
         sampleSelfSignedEndpoint(HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE, "HTTP/2", "HTTP/3", "HTTP/3");
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {19444, 19445})
+    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_FIXTURE", matches = ".+")
+    public void expiredAndWrongHostCertificatesSupportHttp3(int port) throws Exception {
+        String url = "https://localhost:" + port + "/";
+        sampleEndpoint(url, HTTPJavaHttp3Impl.Http3Discovery.HTTP3_ONLY, "HTTP/3");
+        sampleEndpoint(url, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE, "HTTP/2", "HTTP/3", "HTTP/3");
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_FIXTURE", matches = ".+")
+    @EnabledIfSystemProperty(named = "jdk.internal.httpclient.disableHostnameVerification", matches = "false")
+    public void embeddedClientWithoutStartupSettingRejectsWrongHostname() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("10000");
+        HTTPJavaHttp3Impl impl = new HTTPJavaHttp3Impl(sampler);
+        try {
+            HTTPSampleResult result = impl.sample(new URI("https://localhost:19445/").toURL(),
+                    HTTPConstants.GET, false, 0);
+            assertFalse(result.isSuccessful(), "The JDK still verifies hostnames without its startup setting");
+            assertTrue(result.getResponseDataAsString().toLowerCase(Locale.ROOT).contains("certificate"),
+                    result.getResponseDataAsString());
+        } finally {
+            impl.threadFinished();
+        }
+    }
+
     private void sampleSelfSignedEndpoint(HTTPJavaHttp3Impl.Http3Discovery discovery,
             String... expectedProtocols) throws Exception {
+        sampleEndpoint(System.getenv("BREAKTEST_HTTP3_SELF_SIGNED_URL"), discovery, expectedProtocols);
+    }
+
+    private void sampleEndpoint(String endpoint, HTTPJavaHttp3Impl.Http3Discovery discovery,
+            String... expectedProtocols) throws Exception {
         assertTrue(Http3RuntimeSupport.isHttp3Supported(), "Requires Java 26+");
-        URL url = new URI(System.getenv("BREAKTEST_HTTP3_SELF_SIGNED_URL")).toURL();
+        URL url = new URI(endpoint).toURL();
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setConnectTimeout("5000");
         sampler.setResponseTimeout("10000");

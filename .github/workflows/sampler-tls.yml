@@ -1,0 +1,59 @@
+name: Sampler TLS
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+
+jobs:
+  sampler-tls:
+    if: github.repository == 'Breaking-IT/breaktest'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [21, 26]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: |
+            ${{ matrix.java }}
+            21
+      - name: Create HTTP/3 TLS fixtures
+        if: matrix.java == 26
+        run: |
+          bash src/protocol/http/src/test/resources/http3/create-fixture.sh "$RUNNER_TEMP/http3"
+          docker run --rm -d --name breaktest-h3-review \
+            -p 127.0.0.1:19443-19446:19443-19446/tcp \
+            -p 127.0.0.1:19443-19446:19443-19446/udp \
+            -v "$RUNNER_TEMP/http3:/fixture:ro" \
+            caddy:2@sha256:13ba145cba2f3e28fa801994876e4c086d1b95d5aa2a520a734765ffb6b12017 \
+            caddy run --config /fixture/Caddyfile
+          curl -kf --retry 10 --retry-connrefused --retry-delay 1 https://localhost:19443/
+          echo "BREAKTEST_HTTP3_FIXTURE=$RUNNER_TEMP/http3" >> "$GITHUB_ENV"
+          echo 'BREAKTEST_HTTP3_SELF_SIGNED_URL=https://localhost:19443/' >> "$GITHUB_ENV"
+      - name: Sampler and updater TLS tests
+        run: |
+          ./gradlew :src:protocol:http:test --tests '*TestHTTPJavaHttp3Impl' --tests '*TestHTTPHC5Impl' \
+            :src:core:test --tests '*UpdateService*Test' \
+            -PjdkTestVersion=${{ matrix.java }} \
+            -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true
+      - name: HTTP/3 mutual TLS without certificate retries
+        if: matrix.java == 26
+        run: |
+          ./gradlew :src:protocol:http:test --tests '*HTTP3MutualTlsTest' \
+            -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
+            -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts"
+      - name: Embedded startup configuration regression
+        if: matrix.java == 26
+        run: |
+          ./gradlew :src:protocol:http:test \
+            --tests '*TestHTTPJavaHttp3Impl.embeddedClientWithoutStartupSettingRejectsWrongHostname' \
+            -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=false
+      - name: Container diagnostics and cleanup
+        if: always() && matrix.java == 26
+        run: |
+          docker logs breaktest-h3-review || true
+          docker stop breaktest-h3-review || true

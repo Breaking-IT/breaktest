@@ -28,7 +28,9 @@
 <ch_section>HTTP/3 Certificate Compatibility</ch_section>
 <ul>
   <li>Ignores HTTP/3 certificate errors by default, matching the other HTTP samplers.</li>
+  <li>Uses configured client certificates on the normal HTTP/3 connection path.</li>
   <li>After a certificate-validation failure, obtains the presented certificate through a lenient TLS handshake and retries with a JDK QUIC-compatible trust context.</li>
+  <li>The retry requires TCP TLS at the original origin and cannot rescue certificate failures at cross-origin automatic redirect targets. Embedded/test JVMs must set the process-wide JDK hostname property at startup; it also affects JDK clients in plugins and scripts.</li>
   <li>HTTP samplers ignore certificate hostname mismatches, including HTTPS over HTTP/2. Update downloads retain certificate and hostname verification. Set <code>httpsampler.http3.ignore_certificate_errors=false</code> to enforce HTTP/3 certificate-chain validation.</li>
 </ul>
 

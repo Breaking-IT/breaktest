@@ -206,6 +206,16 @@ public class JsseSSLManager extends SSLManager {
     }
 
     /**
+     * Creates a QUIC-compatible context with configured trust and client keys.
+     *
+     * @return a new context using the built-in trust manager
+     * @throws GeneralSecurityException when the context cannot be created
+     */
+    public SSLContext createQuicContext() throws GeneralSecurityException {
+        return createContextWithTrustStore(getTrustStore());
+    }
+
+    /**
      * Creates an uncached SSL context that uses the supplied trust store without
      * JMeter's trust-all wrapper. This is used by transports such as the JDK QUIC
      * stack that require the built-in SunJSSE trust manager implementation.

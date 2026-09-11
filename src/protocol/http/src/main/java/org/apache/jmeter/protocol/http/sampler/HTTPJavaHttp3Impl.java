@@ -94,7 +94,9 @@ import org.slf4j.LoggerFactory;
  * <li>no Cache Manager integration</li>
  * <li>certificate errors are ignored by default. Because Java 26 QUIC requires its
  * built-in trust manager, BreakTest obtains the presented certificate through a
- * lenient TCP TLS handshake and retries with a QUIC-compatible trust context</li>
+ * lenient TCP TLS handshake and retries with a QUIC-compatible trust context.
+ * This requires TCP TLS at the original origin with a matching certificate;
+ * certificate failures at cross-origin automatic redirect targets cannot be rescued.</li>
  * <li>connect time is not reported separately; sent/received byte counts are
  * application-layer estimates, not QUIC wire bytes</li>
  * <li>the destination endpoint is the resolved target address (the JDK client does not
@@ -271,7 +273,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             // JDK QUIC can replace the certificate exception with an IOException
             // containing only the TLS alert name beneath the handshake exception.
             if (handshakeFailure && current instanceof IOException
-                    && "certificate_unknown".equals(current.getMessage())) {
+                    && isCertificateAlert(current.getMessage())) {
                 return true;
             }
             if (current instanceof SSLHandshakeException
@@ -281,6 +283,17 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
         }
         return false;
+    }
+
+    private static boolean isCertificateAlert(@Nullable String message) {
+        if (message == null) {
+            return false;
+        }
+        return switch (message) {
+            case "certificate_unknown", "certificate_expired", "bad_certificate",
+                    "certificate_revoked", "unsupported_certificate", "unknown_ca" -> true;
+            default -> false;
+        };
     }
 
     /**
@@ -339,7 +352,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             if (client != null) {
                 return client;
             }
-            client = buildClient(key, null);
+            client = buildClient(key, ((JsseSSLManager) SSLManager.getInstance()).createQuicContext());
             log.debug("Created new HTTP/3 HttpClient: @{} {}", System.identityHashCode(client), key);
             clients.put(key, client);
             return client;
