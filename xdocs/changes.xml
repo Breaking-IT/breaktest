@@ -24,6 +24,14 @@
 <body>
 <section name="Release Notes">
 
+<h1>Unreleased</h1>
+<ch_section>HTTP/3 Certificate Compatibility</ch_section>
+<ul>
+  <li>Ignores HTTP/3 certificate errors by default, matching the other HTTP samplers.</li>
+  <li>After a certificate-validation failure, obtains the presented certificate through a lenient TLS handshake and retries with a JDK QUIC-compatible trust context.</li>
+  <li>HTTP samplers ignore certificate hostname mismatches, including HTTPS over HTTP/2. Update downloads retain certificate and hostname verification. Set <code>httpsampler.http3.ignore_certificate_errors=false</code> to enforce HTTP/3 certificate-chain validation.</li>
+</ul>
+
 <h1>BreakTest 2026.09.07 — Portable Files, CSV Editing, and Correlation Tools</h1>
 <p>BreakTest 2026.09.07 makes test plans easier to transport by keeping CSVs and upload files inside the JMX archive. It adds CSV editing, archive cleanup, and new tools for finding dynamic values and creating extractors and assertions from recorded responses.</p>
 <ch_section>Portable Files and Archive Management</ch_section>

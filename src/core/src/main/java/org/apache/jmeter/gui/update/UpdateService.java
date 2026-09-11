@@ -51,6 +51,8 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import javax.net.ssl.SSLParameters;
+
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
@@ -93,12 +95,19 @@ public final class UpdateService {
         this(HttpClient.newBuilder()
                         .connectTimeout(Duration.ofSeconds(15))
                         .followRedirects(HttpClient.Redirect.NORMAL)
+                        .sslParameters(strictSslParameters())
                         .build(),
                 URI.create(JMeterUtils.getPropDefault("breaktest.update.api_url", DEFAULT_RELEASE_API.toString())),
                 JMeterUtils.getJMeterVersion(),
                 Preferences.userNodeForPackage(UpdateService.class),
                 Duration.ofHours(Math.max(1, JMeterUtils.getPropDefault("breaktest.update.interval_hours", 6))),
                 UpdateService::isGuiMode);
+    }
+
+    static SSLParameters strictSslParameters() {
+        SSLParameters parameters = new SSLParameters();
+        parameters.setEndpointIdentificationAlgorithm("HTTPS");
+        return parameters;
     }
 
     UpdateService(HttpClient httpClient, URI releaseApi, String currentVersion,

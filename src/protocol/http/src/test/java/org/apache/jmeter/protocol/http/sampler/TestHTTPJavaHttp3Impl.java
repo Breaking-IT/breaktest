@@ -26,10 +26,16 @@ import java.net.URL;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.CertificateException;
+
+import javax.net.ssl.SSLContext;
 
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.SSLManager;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -181,6 +187,110 @@ public class TestHTTPJavaHttp3Impl {
     public void versionEnumIsFormattedForDisplay() {
         assertEquals("HTTP/1.1", HTTPJavaHttp3Impl.formatVersion(HttpClient.Version.HTTP_1_1));
         assertEquals("HTTP/2", HTTPJavaHttp3Impl.formatVersion(HttpClient.Version.HTTP_2));
+    }
+
+    @Test
+    public void certificateValidationFailuresAreRecognizedThroughCauseChain() {
+        CertificateException certificateError = new CertificateException("untrusted test certificate");
+        javax.net.ssl.SSLHandshakeException handshake =
+                new javax.net.ssl.SSLHandshakeException("handshake failed");
+        handshake.initCause(certificateError);
+
+        assertTrue(HTTPJavaHttp3Impl.isCertificateValidationFailure(handshake));
+        assertFalse(HTTPJavaHttp3Impl.isCertificateValidationFailure(
+                new javax.net.ssl.SSLHandshakeException("protocol_version")));
+    }
+
+    @Test
+    public void quicCertificateAlertTriggersRetryButOtherTransportErrorsDoNot() {
+        javax.net.ssl.SSLHandshakeException handshake =
+                new javax.net.ssl.SSLHandshakeException("QUIC connection establishment failed");
+        handshake.initCause(new java.io.IOException("certificate_unknown"));
+        assertTrue(HTTPJavaHttp3Impl.isCertificateValidationFailure(handshake));
+
+        javax.net.ssl.SSLHandshakeException otherHandshake =
+                new javax.net.ssl.SSLHandshakeException("QUIC connection establishment failed");
+        otherHandshake.initCause(new java.io.IOException("internal_error"));
+        assertFalse(HTTPJavaHttp3Impl.isCertificateValidationFailure(otherHandshake));
+        assertFalse(HTTPJavaHttp3Impl.isCertificateValidationFailure(
+                new java.io.IOException("certificate_unknown")));
+    }
+
+    @Test
+    public void lenientClientCacheIsScopedToTlsOrigin() throws Exception {
+        assertEquals("https://example.test:443", HTTPJavaHttp3Impl.trustedOrigin(
+                new URI("https://Example.Test/path").toURL()));
+        assertEquals("https://example.test:8443", HTTPJavaHttp3Impl.trustedOrigin(
+                new URI("https://example.test:8443/other").toURL()));
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledIf(
+            "org.apache.jmeter.protocol.http.sampler.Http3RuntimeSupport#isHttp3Supported")
+    public void builtInTrustManagerContextIsAcceptedByJdkQuic() throws Exception {
+        KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        trustStore.load(null, null);
+        SSLContext sslContext = ((JsseSSLManager) SSLManager.getInstance())
+                .createContextWithTrustStore(trustStore);
+
+        HttpClient client = HttpClient.newBuilder()
+                .version(Http3RuntimeSupport.HTTP_3)
+                .sslContext(sslContext)
+                .build();
+        client.close();
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_SELF_SIGNED_URL", matches = ".+")
+    public void selfSignedEndpointSupportsDirectHttp3() throws Exception {
+        sampleSelfSignedEndpoint(HTTPJavaHttp3Impl.Http3Discovery.HTTP3_ONLY, "HTTP/3");
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_SELF_SIGNED_URL", matches = ".+")
+    public void selfSignedEndpointUpgradesFromHttp2ToHttp3() throws Exception {
+        sampleSelfSignedEndpoint(HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE, "HTTP/2", "HTTP/3", "HTTP/3");
+    }
+
+    private void sampleSelfSignedEndpoint(HTTPJavaHttp3Impl.Http3Discovery discovery,
+            String... expectedProtocols) throws Exception {
+        assertTrue(Http3RuntimeSupport.isHttp3Supported(), "Requires Java 26+");
+        URL url = new URI(System.getenv("BREAKTEST_HTTP3_SELF_SIGNED_URL")).toURL();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("10000");
+        HTTPJavaHttp3Impl impl = new HTTPJavaHttp3Impl(sampler, discovery);
+        try {
+            for (String expected : expectedProtocols) {
+                HTTPSampleResult result = impl.sample(url, HTTPConstants.GET, false, 0);
+                assertTrue(result.isSuccessful(), result.getResponseDataAsString());
+                assertTrue(result.getResponseHeaders().startsWith(expected), result.getResponseHeaders());
+                System.out.println("Self-signed endpoint: " + discovery + " -> " + expected);
+            }
+        } finally {
+            impl.threadFinished();
+        }
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_CERT_LIVE", matches = "true")
+    public void ignoresSelfSignedCertificateByDefault() throws Exception {
+        assertTrue(Http3RuntimeSupport.isHttp3Supported(),
+                "HTTP/3 certificate test requires a Java 26+ runtime");
+
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("10000");
+        HTTPJavaHttp3Impl impl =
+                new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
+
+        try {
+            HTTPSampleResult result = impl.sample(
+                    new URI("https://self-signed.badssl.com/").toURL(), HTTPConstants.GET, false, 0);
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+        } finally {
+            impl.threadFinished();
+        }
     }
 
     @Test
