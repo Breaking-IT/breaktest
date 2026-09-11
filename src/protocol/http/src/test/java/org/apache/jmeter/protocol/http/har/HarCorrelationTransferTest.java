@@ -85,6 +85,7 @@ class HarCorrelationTransferTest extends JMeterTestCase {
         Path destinationCatalog = directory.resolve("destination/catalog.json");
         useCatalog(destinationCatalog);
         TestPlan destination = new TestPlan("Destination");
+        destination.setUserDefinedVariables(new org.apache.jmeter.config.Arguments());
         destination.setProperty(org.apache.jmeter.testelement.TestElement.TEST_CLASS, TestPlan.class.getName());
         destination.setProperty(org.apache.jmeter.testelement.TestElement.GUI_CLASS,
                 org.apache.jmeter.control.gui.TestPlanGui.class.getName());
@@ -113,7 +114,19 @@ class HarCorrelationTransferTest extends JMeterTestCase {
         }
         useCatalog(directory.resolve("third-installation/missing.json"));
         TestPlan reloaded = (TestPlan) SaveService.loadTree(jmx.toFile()).getArray()[0];
-        List<Rule> restored = HarCorrelationRuleCatalog.loadCustomRules(reloaded);
+        // Selecting/leaving the plan in the GUI rewrites its editable properties.
+        SwingUtilities.invokeAndWait(() -> {
+            var editor = new org.apache.jmeter.control.gui.TestPlanGui();
+            editor.configure(reloaded);
+            editor.modifyTestElement(reloaded);
+        });
+        var model = new org.apache.jmeter.gui.tree.JMeterTreeModel(source);
+        model.clearTestPlan(reloaded);
+        model.addSubTree(new HashTree(reloaded),
+                (org.apache.jmeter.gui.tree.JMeterTreeNode) model.getRoot(), false);
+        TestPlan activePlan = (TestPlan) FindPredefinedCorrelationsAction.activeTestPlanNode(model).getTestElement();
+        org.junit.jupiter.api.Assertions.assertSame(reloaded, activePlan);
+        List<Rule> restored = HarCorrelationRuleCatalog.loadCustomRules(activePlan);
         assertArrayEquals(HarCorrelationRuleCatalog.serialize(expected), HarCorrelationRuleCatalog.serialize(restored));
 
         // Exercise the transferred regex through the real correlation discovery engine.

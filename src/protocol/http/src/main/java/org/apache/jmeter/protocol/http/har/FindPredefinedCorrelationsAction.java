@@ -62,6 +62,7 @@ import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.plugin.MenuCreator;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
@@ -92,14 +93,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     private static final Logger LOG = LoggerFactory.getLogger(FindPredefinedCorrelationsAction.class);
     private static final Set<String> COMMANDS = Set.of(ActionNames.FIND_PREDEFINED_CORRELATIONS);
 
+    static JMeterTreeNode activeTestPlanNode(JMeterTreeModel model) {
+        // The hidden root can retain the initial plan after another JMX is opened.
+        return (JMeterTreeNode) model.getTestPlan().getArray()[0];
+    }
+
     @Override
     public void doActionAfterCheck(ActionEvent event) {
         GuiPackage gui = GuiPackage.getInstance();
         if (gui == null) {
             return;
         }
-        List<JMeterTreeNode> testPlans = gui.getTreeModel().getNodesOfType(TestPlan.class);
-        JMeterTreeNode testPlanNode = testPlans.isEmpty() ? null : testPlans.get(0);
+        JMeterTreeNode testPlanNode = activeTestPlanNode(gui.getTreeModel());
         TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
         HarCorrelationRulesPanel rulesPanel = new HarCorrelationRulesPanel(
                 HarCorrelationRuleCatalog.rulesFor(testPlan),
