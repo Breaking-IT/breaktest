@@ -826,7 +826,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (localAddress != null) {
                 request.addHeader(HEADER_LOCAL_ADDRESS, localAddress.toString());
             }
-            res.setRequestHeaders(getAllHeadersExceptCookie(request));
+            captureRequestHeaders(res, request, deferDiagnosticHeaders());
 
             Header contentType = httpResponse.getLastHeader(HTTPConstants.HEADER_CONTENT_TYPE);
             if (contentType != null){
@@ -869,10 +869,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             res.setResponseCode(Integer.toString(statusCode));
             res.setResponseMessage(statusLine.getReasonPhrase());
             res.setSuccessful(successful);
-            res.setResponseHeaders(getResponseHeaders(httpResponse));
+            captureResponseHeaders(res, httpResponse, deferDiagnosticHeaders());
             if (res.isRedirect()) {
                 final Header headerLocation = httpResponse.getLastHeader(HTTPConstants.HEADER_LOCATION);
                 if (headerLocation == null) { // HTTP protocol violation, but avoids NPE
+                    // Historically this failure occurred before header-size accounting.
+                    res.setHeadersSize(0);
                     throw new IllegalArgumentException("Missing location header in redirect for " + httpRequest.getRequestUri());
                 }
                 String redirectLocation = headerLocation.getValue();
@@ -880,12 +882,6 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
 
             // record some sizes to allow HTTPSampleResult.getBytes() with different options
-            long headerBytes =
-                (long)res.getResponseHeaders().length()   // condensed length (without \r)
-              + (long) httpResponse.getHeaders().length // Add \r for each header
-              + 1L // Add \r for initial header
-              + 2L; // final \r\n before data
-            res.setHeadersSize((int)headerBytes);
             res.setBodySize(bodyBytes);
             Long sentBytes = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES);
             long sent = sentBytes == null || sentBytes <= 0 ? HTTPHC5Metrics.estimateSentBytes(request, "HTTP/1.1") : sentBytes;
@@ -1565,12 +1561,30 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      // Method left empty here, but allows subclasses to override
     }
 
-    /**
-     * Gets the ResponseHeaders
-     *
-     * @param response containing the headers
-     * @return string containing the headers, one per line
-     */
+    protected boolean deferDiagnosticHeaders() {
+        return DeferredHttpHeaders.ENABLED;
+    }
+
+    static void captureRequestHeaders(HTTPSampleResult result, HttpRequest request, boolean deferred) {
+        if (deferred && request != null) {
+            result.setDeferredRequestHeaders(new DeferredHttpHeaders("", request.getHeaders(), ALL_EXCEPT_COOKIE));
+        } else {
+            result.setRequestHeaders(getAllHeadersExceptCookie(request));
+        }
+    }
+
+    static void captureResponseHeaders(HTTPSampleResult result, HttpResponse response, boolean deferred) {
+        if (deferred) {
+            DeferredHttpHeaders snapshot = new DeferredHttpHeaders(
+                    new StatusLine(response) + "\n", response.getHeaders(), name -> true);
+            result.setDeferredResponseHeaders(snapshot);
+            result.setHeadersSize(snapshot.length() + snapshot.count() + 3);
+        } else {
+            result.setResponseHeaders(getResponseHeaders(response));
+            result.setHeadersSize(result.getResponseHeaders().length() + response.getHeaders().length + 3);
+        }
+    }
+
     private static String getResponseHeaders(HttpResponse response) {
         Header[] rh = response.getHeaders();
 

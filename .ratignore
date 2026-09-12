@@ -50,3 +50,6 @@ xdocs/yarn.lock
 # Rat should automatically detect below files as binary, however it fails
 **/*.sxi
 **/*.sxw
+
+# Generated diagnostic-header benchmark and validation evidence
+benchmarks/deferred-headers/results/**

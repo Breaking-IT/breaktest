@@ -45,6 +45,45 @@ public class HTTPSampleResult extends SampleResult {
                     HTTPConstants.OPTIONS,
                     HTTPConstants.TRACE));
 
+    // Results must be safely published before concurrent reads, as for SampleResult generally.
+    // Snapshots own immutable strings and synchronize materialization; shallow clones may share them.
+    private transient DeferredHttpHeaders deferredRequestHeaders;
+    private transient DeferredHttpHeaders deferredResponseHeaders;
+
+    void setDeferredRequestHeaders(DeferredHttpHeaders headers) {
+        super.setRequestHeaders("");
+        deferredRequestHeaders = headers;
+    }
+
+    void setDeferredResponseHeaders(DeferredHttpHeaders headers) {
+        super.setResponseHeaders("");
+        deferredResponseHeaders = headers;
+    }
+
+    @Override
+    public String getRequestHeaders() {
+        DeferredHttpHeaders headers = deferredRequestHeaders;
+        return headers == null ? super.getRequestHeaders() : headers.text();
+    }
+
+    @Override
+    public String getResponseHeaders() {
+        DeferredHttpHeaders headers = deferredResponseHeaders;
+        return headers == null ? super.getResponseHeaders() : headers.text();
+    }
+
+    @Override
+    public void setRequestHeaders(String headers) {
+        deferredRequestHeaders = null;
+        super.setRequestHeaders(headers);
+    }
+
+    @Override
+    public void setResponseHeaders(String headers) {
+        deferredResponseHeaders = null;
+        super.setResponseHeaders(headers);
+    }
+
     private String cookies = ""; // never null
 
     private String method;

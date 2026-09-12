@@ -12,7 +12,7 @@
         {"key": "template.files", "type": "list", "default": "/bin/templates/templates.xml", "description": "Comma-separated list of files describing test plan templates and their descriptions, relative to the JMeter root folder."},
         {"key": "upgrade_properties", "type": "file", "default": "/bin/upgrade.properties", "description": "File that holds a record of element name changes for backward compatibility."},
         {"key": "onload.expandtree", "type": "boolean", "default": "false", "description": "Expand the whole test plan tree when loading a test plan."},
-        {"key": "load.jmx.fast", "type": "boolean", "default": "false", "description": "Use the fast JMX loading mode when opening test plans."},
+        {"key": "breaktest.gui.load.fast", "type": "boolean", "default": "false", "description": "Use the fast JMX loading mode when opening test plans. Applies the next time a test plan is opened."},
         {"key": "confirm.delete.skip", "type": "boolean", "default": "false", "description": "Skip the confirmation dialogue when deleting tree elements."},
         {"key": "help.local", "type": "boolean", "default": "false", "description": "Open local documentation in the GUI instead of the online documentation in a browser."},
         {"key": "docgeneration.schematic_xsl", "type": "file", "description": "Path to the XSL file used to generate the Schematic View of a test plan. When empty the embedded stylesheet is used."}
@@ -92,6 +92,7 @@
         {"key": "view.results.tree.max_line_size", "type": "integer", "default": "110000", "description": "Maximum line length before an artificial line break is added, to keep the UI responsive on very long lines."},
         {"key": "view.results.tree.soft_wrap_line_size", "type": "integer", "default": "100000", "description": "Preferred position for artificial line breaks; breaking happens on a word boundary between this and the maximum line size."},
         {"key": "view.results.tree.simple_view_limit", "type": "integer", "default": "10000", "description": "Content size above which the faster simple view mode is used in the text renderer. Set to -1 to switch off."},
+        {"key": "view.results.tree.max_single_line_body_size", "type": "integer", "default": "100000", "description": "Maximum response-line length in characters before View Results Tree waits for Load Body instead of displaying the body automatically. Loaded text is wrapped for display. Set to 0 to disable the guard. Restart BreakTest after changing this setting."},
         {"key": "view.results.tree.max_results", "type": "integer", "default": "500", "description": "Maximum number of results kept in the results tree. Set to 0 to store all results, which might consume a lot of memory."},
         {"key": "view.results.tree.renderers_order", "type": "list", "default": ".RenderAsText,.RenderAsRegexp,.RenderAsBoundaryExtractor,.RenderAsCssJQuery,org.apache.jmeter.extractor.json.render.RenderAsJsonRenderer,.RenderAsXPath2,org.apache.jmeter.extractor.json.render.RenderAsJmesPathRenderer,.RenderAsXPath,.RenderAsHTML,.RenderAsHTMLFormatted,.RenderAsHTMLWithEmbedded,.RenderAsDocument,.RenderAsJSON,.RenderAsXML", "description": "Order of the renderers in View Results Tree. Class names starting with a dot are relative to org.apache.jmeter.visualizers."},
         {"key": "document.max_size", "type": "integer", "default": "10485760", "description": "Maximum size in bytes of a document that can be parsed by the Tika engine for the Document renderer. Set to 0 to disable the size check."}
@@ -280,8 +281,10 @@
       "settings": [
         {"key": "hc.parameters.file", "type": "file", "description": "Properties file overriding Apache HttpClient parameters, e.g. hc.parameters in the bin directory."},
         {"key": "httpclient5.default_user_agent_disabled", "type": "boolean", "default": "false", "description": "Do not add the default HttpClient5 User-Agent header."},
+        {"key": "httpclient5.defer_diagnostic_headers", "type": "boolean", "default": "true", "description": "Format request and response header text only when needed. Applies to HttpClient5 HTTP/1 and HTTP/2 and the Java HTTP/3 client. Can reduce CPU and allocation when headers are unread; disable if small headers are frequently read or retained snapshots use too much memory. Restart BreakTest after changing this setting."},
         {"key": "httpclient5.auth.preemptive", "type": "boolean", "default": "true", "description": "Preemptively send the Authorization header when BASIC auth is used."},
         {"key": "httpclient5.retrycount", "type": "integer", "default": "0", "description": "Number of retries to attempt for failed requests."},
+        {"key": "httpsampler.hc5.h2.closed_session_retry_count", "type": "integer", "default": "1", "description": "Maximum retries after a closed HTTP/2 session for an eligible request. Set to 0 to disable these retries. Separate from general HttpClient5 retry settings. Restart BreakTest after changing this setting."},
         {"key": "httpclient5.request_sent_retry_enabled", "type": "boolean", "default": "false", "description": "Retry requests that have already been sent, including non-idempotent ones. Usually false, but useful when testing against some load balancers like Amazon ELB."},
         {"key": "httpclient5.idletimeout", "type": "integer", "default": "0", "description": "Idle connection timeout in milliseconds applied when the server does not send Keep-Alive headers. When 0 or less, the idle timeout only applies if the server sends a Keep-Alive header."},
         {"key": "httpclient5.validate_after_inactivity", "type": "integer", "default": "4900", "description": "Check connections when the elapsed time in milliseconds since last use exceeds this value."},
@@ -427,6 +430,15 @@
       ]
     },
     {
+      "id": "correlation-extractors",
+      "title": "Correlation & Extractors",
+      "description": "Custom correlation-rule storage and extractor preview behavior.",
+      "settings": [
+        {"key": "breaktest.predefined_correlations.file", "type": "file", "default": "predefined-correlations.custom.json", "description": "File for user-defined predefined correlation rules. Relative paths are resolved under the BreakTest bin directory; an unset value uses predefined-correlations.custom.json there. Existing rules are not moved when this path changes."},
+        {"key": "regex_extractor_tester_timeout_ms", "type": "integer", "default": "500", "description": "Timeout in milliseconds for the Regular Expression Extractor tester preview. Values below 100 use 100 ms. This does not change extractor execution during a test. Restart BreakTest after changing this setting."}
+      ]
+    },
+    {
       "id": "functions",
       "title": "Functions & Assertions",
       "description": "Defaults of built-in functions and assertion diff output.",
@@ -455,7 +467,7 @@
     {
       "id": "protocols",
       "title": "Other Protocols",
-      "description": "TCP, JDBC, LDAP and JMS sampler configuration.",
+      "description": "TCP, UDP, JDBC, LDAP and JMS sampler configuration.",
       "settings": [
         {"key": "tcp.handler", "type": "text", "default": "TCPClientImpl", "description": "Default TCP client handler implementation class."},
         {"key": "tcp.charset", "type": "text", "description": "Character set used to encode and decode TCP data. Defaults to the platform default charset."},
@@ -465,6 +477,8 @@
         {"key": "tcp.status.prefix", "type": "text", "description": "Text preceding the status number in TCP responses. When defined, the sampler parses a status code from responses."},
         {"key": "tcp.status.suffix", "type": "text", "description": "Text following the status number in TCP responses."},
         {"key": "tcp.status.properties", "type": "file", "description": "Properties file mapping TCP status codes to messages."},
+        {"key": "udp.receive_buffer_size", "type": "integer", "description": "Maximum UDP response payload accepted, in bytes. Unset uses the address-family maximum: 65507 for IPv4 or 65527 for IPv6. Overrides are limited to 1 through that maximum. Use Reset to restore automatic sizing."},
+        {"key": "udp.fragmentation_warning_size", "type": "integer", "description": "Warn when a UDP request payload exceeds this many bytes. Unset uses 1472 for IPv4 or 1452 for IPv6. Set to 0 to disable the warning; use Reset to restore the address-family default."},
         {"key": "jdbc.config.jdbc.driver.class", "type": "list", "description": "Pipe-separated list of JDBC driver class names offered in the JDBC Connection Configuration GUI, in addition to the built-in ones."},
         {"key": "jdbc.config.check.query", "type": "list", "description": "Pipe-separated list of validation queries offered in the JDBC Connection Configuration GUI, in addition to the built-in ones."},
         {"key": "jdbcsampler.max_retain_result_size", "type": "integer", "default": "65536", "description": "Maximum size in bytes of a JDBC result set retained in the sample result."},
@@ -505,6 +519,8 @@
         {"key": "search_paths", "type": "list", "description": "Directories (separated by ;) searched for additional JMeter plugin classes, in addition to lib/ext. Jar files in sub directories are ignored."},
         {"key": "user.classpath", "type": "list", "description": "Directories searched for utility and dependency classes (platform path separator), in addition to lib. Entries are added to the system class loader and the JMeter internal loader."},
         {"key": "plugin_dependency_paths", "type": "list", "description": "Directories (separated by ;) searched for plugin dependency classes; added to the JMeter internal loader only. Prefer this over user.classpath for plugin dependencies."},
+        {"key": "classfinder.cache", "type": "boolean", "default": "true", "description": "Cache discovered plugin and function classes to reduce startup scanning. Disable to scan classes again instead of using the cache. Restart BreakTest to apply this to startup discovery."},
+        {"key": "classfinder.cache.file", "type": "file", "description": "Location of the class-discovery cache. Leave unset to use class-scan.cache in the .breaktest directory under your home directory. Use an absolute path for an override. Restart BreakTest after changing the cache location."},
         {"key": "classfinder.functions.contain", "type": "text", "default": ".functions.", "description": "Only classes whose name contains this string are scanned as JMeter functions."},
         {"key": "classfinder.functions.notContain", "type": "text", "default": ".gui.", "description": "Classes whose name contains this string are skipped when scanning for JMeter functions."}
       ]

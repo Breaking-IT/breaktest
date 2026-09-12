@@ -184,7 +184,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             RequestData requestData = createRequest(url, method, areFollowingRedirect, res);
             request = requestData.request();
             requestBodyBytes = requestData.bodyBytes();
-            res.setRequestHeaders(formatRequestHeaders(request));
+            captureRequestHeaders(res, request, DeferredHttpHeaders.ENABLED);
             destinationEndpoint = resolveDestinationEndpoint(url);
         } catch (Exception e) {
             res.sampleStart();
@@ -540,9 +540,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
         res.sampleEnd();
         res.setSuccessful(successful);
-        String responseHeadersText = formatResponseHeaders(protocolVersion, statusCode, responseHeaders);
-        res.setResponseHeaders(responseHeadersText);
-        res.setHeadersSize(responseHeadersText.length());
+        captureResponseHeaders(res, protocolVersion, statusCode, responseHeaders, DeferredHttpHeaders.ENABLED);
         res.setBodySize(bodyBytes);
         try {
             // With client-level auto-redirect the final URI may differ from the sampled one
@@ -566,6 +564,28 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             return name;
         }
         return "HTTP/" + name.substring("HTTP_".length()).replace('_', '.'); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    static void captureRequestHeaders(HTTPSampleResult result, HttpRequest request, boolean deferred) {
+        if (deferred) {
+            result.setDeferredRequestHeaders(new DeferredHttpHeaders("", request.headers().map(), ALL_EXCEPT_COOKIE));
+        } else {
+            result.setRequestHeaders(formatRequestHeaders(request));
+        }
+    }
+
+    static void captureResponseHeaders(HTTPSampleResult result, String protocolVersion, int statusCode,
+            Map<String, List<String>> headers, boolean deferred) {
+        if (deferred) {
+            DeferredHttpHeaders snapshot = new DeferredHttpHeaders(
+                    protocolVersion + " " + statusCode + "\n", headers, name -> true);
+            result.setDeferredResponseHeaders(snapshot);
+            result.setHeadersSize(snapshot.length());
+        } else {
+            String text = formatResponseHeaders(protocolVersion, statusCode, headers);
+            result.setResponseHeaders(text);
+            result.setHeadersSize(text.length());
+        }
     }
 
     private static String formatRequestHeaders(HttpRequest request) {

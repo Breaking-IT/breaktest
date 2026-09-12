@@ -332,7 +332,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         if (request == null) {
             request = httpRequest;
         }
-        res.setRequestHeaders(getAllHeadersExceptCookie(request));
+        captureRequestHeaders(res, request, deferDiagnosticHeaders());
         Header contentType = httpResponse.getLastHeader(HTTPConstants.HEADER_CONTENT_TYPE);
         if (contentType != null) {
             String ct = contentType.getValue();
@@ -366,16 +366,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         res.setResponseCode(Integer.toString(statusCode));
         res.setResponseMessage(statusLine.getReasonPhrase());
         res.setSuccessful(successful);
-        res.setResponseHeaders(getResponseHeaders(httpResponse));
+        captureResponseHeaders(res, httpResponse, deferDiagnosticHeaders());
         if (res.isRedirect()) {
             Header location = httpResponse.getLastHeader(HTTPConstants.HEADER_LOCATION);
             if (location == null) {
+                // Historically this failure occurred before header-size accounting.
+                res.setHeadersSize(0);
                 throw new IllegalArgumentException("Missing location header in redirect for "
                         + httpRequest.getRequestUri());
             }
             res.setRedirectLocation(location.getValue());
         }
-        setResponseSizes(res, httpResponse, bodyBytes);
+        res.setBodySize(bodyBytes);
         saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
     }
 
@@ -1297,14 +1299,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         request.removeHeaders(HEADER_HOST);
     }
 
-    private static void setResponseSizes(HTTPSampleResult res, HttpResponse response, long bodyBytes) {
-        long headerBytes = (long) res.getResponseHeaders().length()
-                + (long) response.getHeaders().length
-                + 3L;
-        res.setHeadersSize((int) headerBytes);
-        res.setBodySize(bodyBytes);
-    }
-
     private static void updateUrlAfterRedirect(HttpClientContext clientContext, HTTPSampleResult res) {
         HttpRequest req = clientContext.getRequest();
         if (req == null) {
@@ -1325,6 +1319,20 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             }
         } catch (URISyntaxException | MalformedURLException e) {
             throw new IllegalArgumentException("Invalid redirect URI", e);
+        }
+    }
+
+    static void captureResponseHeaders(HTTPSampleResult result, HttpResponse response, boolean deferred) {
+        if (deferred) {
+            StringBuilder prefix = new StringBuilder(40);
+            appendResponseStatusLine(prefix, response);
+            DeferredHttpHeaders snapshot = new DeferredHttpHeaders(
+                    prefix.toString(), response.getHeaders(), name -> true);
+            result.setDeferredResponseHeaders(snapshot);
+            result.setHeadersSize(snapshot.length() + snapshot.count() + 3);
+        } else {
+            result.setResponseHeaders(getResponseHeaders(response));
+            result.setHeadersSize(result.getResponseHeaders().length() + response.getHeaders().length + 3);
         }
     }
 
