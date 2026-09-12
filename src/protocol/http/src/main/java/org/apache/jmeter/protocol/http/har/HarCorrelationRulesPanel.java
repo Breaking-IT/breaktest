@@ -22,12 +22,14 @@ import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,11 +67,18 @@ final class HarCorrelationRulesPanel extends JPanel {
         Rule update(Rule rule);
     }
 
+    interface RuleTransfer {
+        List<Rule> importRules();
+
+        void exportRules(List<Rule> rules);
+    }
+
     private static final long serialVersionUID = 1L;
 
     private final List<Rule> rules;
     private final Set<String> customRuleIds;
     private final RuleUpdater ruleUpdater;
+    private final RuleTransfer ruleTransfer;
     private final Map<String, Boolean> selectedGroups = new LinkedHashMap<>();
     private final DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("rules");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
@@ -86,13 +95,19 @@ final class HarCorrelationRulesPanel extends JPanel {
     private final JTable detailsTable = new JTable(detailsModel);
     private final JButton editButton = new JButton(
             JMeterUtils.getResString("try_predefined_correlations_edit_custom"));
+    private final JButton exportButton = new JButton(
+            JMeterUtils.getResString("try_predefined_correlations_export_custom"));
+    private final JCheckBox customOnly = new JCheckBox(
+            JMeterUtils.getResString("try_predefined_correlations_custom_only"));
     private Rule selectedRule;
 
-    HarCorrelationRulesPanel(List<Rule> rules, Set<String> customRuleIds, RuleUpdater ruleUpdater) {
+    HarCorrelationRulesPanel(List<Rule> rules, Set<String> customRuleIds, RuleUpdater ruleUpdater,
+            RuleTransfer ruleTransfer) {
         super(new BorderLayout(10, 10));
         this.rules = new ArrayList<>(rules);
-        this.customRuleIds = customRuleIds;
+        this.customRuleIds = new LinkedHashSet<>(customRuleIds);
         this.ruleUpdater = ruleUpdater;
+        this.ruleTransfer = ruleTransfer;
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         add(new JLabel(JMeterUtils.getResString("try_predefined_correlations_rules_prompt")),
@@ -119,7 +134,12 @@ final class HarCorrelationRulesPanel extends JPanel {
     }
 
     List<String> getRulePaths() {
-        return rules.stream().map(rule -> rule.getGroup() + " > " + rule.getName()).toList();
+        return displayedRules().stream().map(rule -> rule.getGroup() + " > " + rule.getName()).toList();
+    }
+
+    void setCustomOnly(boolean selected) {
+        customOnly.setSelected(selected);
+        rebuildTree();
     }
 
     boolean areAllGroupsCollapsed() {
@@ -134,6 +154,7 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     private Component createBrowser() {
         JPanel treePanel = new JPanel(new BorderLayout(0, 6));
+        JPanel controls = new JPanel(new GridLayout(0, 1, 0, 2));
         JPanel groupButtons = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
         JButton selectAll = new JButton(
                 JMeterUtils.getResString("try_predefined_correlations_select_all"));
@@ -141,9 +162,24 @@ final class HarCorrelationRulesPanel extends JPanel {
         JButton selectNone = new JButton(
                 JMeterUtils.getResString("try_predefined_correlations_select_none"));
         selectNone.addActionListener(event -> setAllGroupsSelected(false));
+        customOnly.addActionListener(event -> rebuildTree());
+        JButton importButton = new JButton(
+                JMeterUtils.getResString("try_predefined_correlations_import_custom"));
+        importButton.setEnabled(ruleTransfer != null);
+        importButton.addActionListener(event -> importCustomRules());
+        exportButton.setEnabled(ruleTransfer != null && !getCustomRules().isEmpty());
+        exportButton.addActionListener(event -> ruleTransfer.exportRules(getCustomRules()));
         groupButtons.add(selectAll);
         groupButtons.add(selectNone);
-        treePanel.add(groupButtons, BorderLayout.NORTH);
+        JPanel filter = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
+        filter.add(customOnly);
+        JPanel transferButtons = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
+        transferButtons.add(importButton);
+        transferButtons.add(exportButton);
+        controls.add(groupButtons);
+        controls.add(filter);
+        controls.add(transferButtons);
+        treePanel.add(controls, BorderLayout.NORTH);
         configureTree();
         treePanel.add(new JScrollPane(ruleTree), BorderLayout.CENTER);
 
@@ -193,15 +229,15 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     private void rebuildTree() {
         String selectedRuleId = selectedRule == null ? null : selectedRule.getId();
-        Map<String, Boolean> previousSelection = new LinkedHashMap<>(selectedGroups);
-        selectedGroups.clear();
         treeRoot.removeAllChildren();
         Map<String, List<Rule>> rulesByGroup = new LinkedHashMap<>();
         for (Rule rule : rules) {
+            selectedGroups.putIfAbsent(rule.getGroup(), true);
+        }
+        for (Rule rule : displayedRules()) {
             rulesByGroup.computeIfAbsent(rule.getGroup(), ignored -> new ArrayList<>()).add(rule);
         }
         for (Map.Entry<String, List<Rule>> group : rulesByGroup.entrySet()) {
-            selectedGroups.put(group.getKey(), previousSelection.getOrDefault(group.getKey(), true));
             CatalogNode groupNode = CatalogNode.group(group.getKey());
             treeRoot.add(groupNode);
             for (Rule rule : group.getValue()) {
@@ -221,6 +257,39 @@ final class HarCorrelationRulesPanel extends JPanel {
         } else {
             showRule(null);
         }
+    }
+
+    private List<Rule> displayedRules() {
+        if (!customOnly.isSelected()) {
+            return List.copyOf(rules);
+        }
+        return getCustomRules();
+    }
+
+    List<Rule> getCustomRules() {
+        return rules.stream().filter(rule -> customRuleIds.contains(rule.getId())).toList();
+    }
+
+    private void importCustomRules() {
+        if (ruleTransfer == null) {
+            return;
+        }
+        List<Rule> imported = ruleTransfer.importRules();
+        if (imported == null || imported.isEmpty()) {
+            return;
+        }
+        Map<String, Rule> merged = new LinkedHashMap<>();
+        for (Rule rule : rules) {
+            merged.put(rule.getId(), rule);
+        }
+        for (Rule rule : imported) {
+            merged.put(rule.getId(), rule);
+            customRuleIds.add(rule.getId());
+        }
+        rules.clear();
+        rules.addAll(merged.values());
+        exportButton.setEnabled(true);
+        rebuildTree();
     }
 
     private TreePath findRulePath(String ruleId) {
