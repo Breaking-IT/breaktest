@@ -19,6 +19,7 @@ package org.apache.jmeter.visualizers.backend;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -108,6 +109,8 @@ public class BackendListener
 
     private transient boolean sourceTestElementPathNeeded;
 
+    private transient BackendListenerContext cachedSampleContext;
+
     /** Create a BackendListener. */
     public BackendListener() {
         setArguments(new Arguments());
@@ -121,6 +124,7 @@ public class BackendListener
     public Object clone() {
         BackendListener clone = (BackendListener) super.clone();
         clone.clientClass = this.clientClass;
+        clone.cachedSampleContext = null;
         return clone;
     }
 
@@ -145,8 +149,10 @@ public class BackendListener
 
     @Override
     public void sampleOccurred(SampleEvent event) {
-        Arguments args = getArguments();
-        BackendListenerContext context = new BackendListenerContext(args);
+        BackendListenerContext context = cachedSampleContext;
+        if (context == null) {
+            context = new BackendListenerContext(getArguments());
+        }
 
         SampleResult sr = listenerClientData.client.createSampleResult(context, event.getResult());
         if (sr == null) {
@@ -343,6 +349,9 @@ public class BackendListener
                 }
                 queuesByTestElementName.put(myName, listenerClientData);
             }
+            cachedSampleContext = listenerClientData.client.canReuseSampleContext()
+                    ? new BackendListenerContext(Collections.unmodifiableMap(getArguments().getArgumentsAsMap()))
+                    : null;
             jMeterVariablesNeeded = listenerClientData.client.needsJMeterVariables();
             sourceTestElementPathNeeded = listenerClientData.client.needsSourceTestElementPath();
             listenerClientData.instanceCount++;
