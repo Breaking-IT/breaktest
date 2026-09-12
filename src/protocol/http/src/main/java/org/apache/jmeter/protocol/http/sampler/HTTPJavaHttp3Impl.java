@@ -22,6 +22,7 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
@@ -29,6 +30,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -39,6 +44,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLSocket;
 
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.CookieManager;
@@ -83,9 +92,11 @@ import org.slf4j.LoggerFactory;
  * <li>no multipart/form-data uploads</li>
  * <li>authentication is limited to preemptive Basic</li>
  * <li>no Cache Manager integration</li>
- * <li>when the JMeter SSL manager context is rejected by the JDK QUIC stack (Java 26
- * requires the built-in trust manager), the default JVM TLS context is used instead:
- * keystore client certificates and lenient certificate trust then do not apply</li>
+ * <li>certificate errors are ignored by default. Because Java 26 QUIC requires its
+ * built-in trust manager, BreakTest obtains the presented certificate through a
+ * lenient TCP TLS handshake and retries with a QUIC-compatible trust context.
+ * This requires TCP TLS at the original origin with a matching certificate;
+ * certificate failures at cross-origin automatic redirect targets cannot be rescued.</li>
  * <li>connect time is not reported separately; sent/received byte counts are
  * application-layer estimates, not QUIC wire bytes</li>
  * <li>the destination endpoint is the resolved target address (the JDK client does not
@@ -107,6 +118,12 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static final boolean FORCE_HTTP3 =
             JMeterUtils.getPropDefault("httpsampler.http3.force_http3", true); //$NON-NLS-1$
 
+    /** Ignore certificate-chain errors by default, matching the other HTTP samplers. */
+    private static final boolean IGNORE_CERTIFICATE_ERRORS =
+            JMeterUtils.getPropDefault("httpsampler.http3.ignore_certificate_errors", true); //$NON-NLS-1$
+
+    private static final int DEFAULT_CERTIFICATE_PROBE_TIMEOUT = 10_000;
+
     /**
      * Headers the JDK HttpClient refuses to set on a request, plus hop-by-hop headers
      * that are meaningless for HTTP/3 (the HTTP/2 implementation strips the same set).
@@ -124,9 +141,6 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     private static final ConcurrentMap<Object, Map<Http3ClientKey, HttpClient>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
-
-    private static final java.util.concurrent.atomic.AtomicBoolean SSL_CONTEXT_FALLBACK_WARNED =
-            new java.util.concurrent.atomic.AtomicBoolean();
 
     private volatile @Nullable CompletableFuture<HttpResponse<InputStream>> currentCall;
 
@@ -180,7 +194,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         String destinationEndpoint = null;
         try {
             checkUnsupportedConfiguration(url);
-            client = setupClient();
+            client = setupClient(url);
             RequestData requestData = createRequest(url, method, areFollowingRedirect, res);
             request = requestData.request();
             requestBodyBytes = requestData.bodyBytes();
@@ -194,10 +208,23 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
         res.sampleStart();
         try {
-            CompletableFuture<HttpResponse<InputStream>> call =
-                    client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
-            currentCall = call;
-            HttpResponse<InputStream> response = call.get();
+            HttpResponse<InputStream> response;
+            try {
+                response = send(client, request);
+            } catch (Exception firstFailure) {
+                Throwable cause = unwrapExecutionException(firstFailure);
+                if (!IGNORE_CERTIFICATE_ERRORS || !isCertificateValidationFailure(cause)) {
+                    throw firstFailure;
+                }
+                log.debug("HTTP/3 certificate validation failed for {}; retrying with the "
+                        + "certificate observed through JMeter's lenient TLS context", url);
+                try {
+                    response = send(setupLenientClient(url), request);
+                } catch (Exception retryFailure) {
+                    retryFailure.addSuppressed(cause);
+                    throw retryFailure;
+                }
+            }
             fillSampleResult(res, request, response, requestBodyBytes, destinationEndpoint);
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (Exception e) {
@@ -222,6 +249,51 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         } finally {
             currentCall = null;
         }
+    }
+
+    private HttpResponse<InputStream> send(HttpClient client, HttpRequest request)
+            throws InterruptedException, ExecutionException {
+        CompletableFuture<HttpResponse<InputStream>> call =
+                client.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        currentCall = call;
+        return call.get();
+    }
+
+    private static Throwable unwrapExecutionException(Throwable error) {
+        return error instanceof ExecutionException && error.getCause() != null ? error.getCause() : error;
+    }
+
+    static boolean isCertificateValidationFailure(Throwable error) {
+        boolean handshakeFailure = false;
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current instanceof CertificateException) {
+                return true;
+            }
+            handshakeFailure |= current instanceof SSLHandshakeException;
+            // JDK QUIC can replace the certificate exception with an IOException
+            // containing only the TLS alert name beneath the handshake exception.
+            if (handshakeFailure && current instanceof IOException
+                    && isCertificateAlert(current.getMessage())) {
+                return true;
+            }
+            if (current instanceof SSLHandshakeException
+                    && current.getMessage() != null
+                    && current.getMessage().toLowerCase(Locale.ROOT).contains("certificate")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isCertificateAlert(@Nullable String message) {
+        if (message == null) {
+            return false;
+        }
+        return switch (message) {
+            case "certificate_unknown", "certificate_expired", "bad_certificate",
+                    "certificate_revoked", "unsupported_certificate", "unknown_ca" -> true;
+            default -> false;
+        };
     }
 
     /**
@@ -259,11 +331,41 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
     }
 
-    private HttpClient setupClient() throws Exception {
+    private HttpClient setupClient(URL url) throws Exception {
         Http3ClientKey key = new Http3ClientKey(
                 getConnectTimeout(),
                 getAutoRedirects(),
-                getIpSourceAddress());
+                getIpSourceAddress(),
+                null);
+        Map<Http3ClientKey, HttpClient> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
+                .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
+        synchronized (clients) {
+            if (IGNORE_CERTIFICATE_ERRORS) {
+                Http3ClientKey lenientKey = new Http3ClientKey(
+                        key.connectTimeout(), key.autoRedirect(), key.localAddress(), trustedOrigin(url));
+                HttpClient lenientClient = clients.get(lenientKey);
+                if (lenientClient != null) {
+                    return lenientClient;
+                }
+            }
+            HttpClient client = clients.get(key);
+            if (client != null) {
+                return client;
+            }
+            client = buildClient(key, ((JsseSSLManager) SSLManager.getInstance()).createQuicContext());
+            log.debug("Created new HTTP/3 HttpClient: @{} {}", System.identityHashCode(client), key);
+            clients.put(key, client);
+            return client;
+        }
+    }
+
+    private HttpClient setupLenientClient(URL url) throws Exception {
+        String trustedOrigin = trustedOrigin(url);
+        Http3ClientKey key = new Http3ClientKey(
+                getConnectTimeout(),
+                getAutoRedirects(),
+                getIpSourceAddress(),
+                trustedOrigin);
         Map<Http3ClientKey, HttpClient> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
                 .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
         synchronized (clients) {
@@ -271,22 +373,63 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             if (client != null) {
                 return client;
             }
-            try {
-                client = buildClient(key, ((JsseSSLManager) SSLManager.getInstance()).getContext());
-            } catch (RuntimeException e) {
-                if (!isQuicIncompatibleSslContextFailure(e)) {
-                    throw e;
-                }
-                // The JDK QUIC stack (as of Java 26) only accepts SSL contexts using the
-                // built-in trust manager; JMeter's SSL manager wraps trust managers to be
-                // lenient with self-signed certificates, which QUIC rejects.
-                warnSslContextFallbackOnce();
-                client = buildClient(key, null);
-            }
-            log.debug("Created new HTTP/3 HttpClient: @{} {}", System.identityHashCode(client), key);
+            SSLContext sslContext = createQuicCompatibleLenientContext(url);
+            client = buildClient(key, sslContext);
+            log.debug("Created certificate-lenient HTTP/3 HttpClient: @{} {}",
+                    System.identityHashCode(client), key);
             clients.put(key, client);
             return client;
         }
+    }
+
+    private SSLContext createQuicCompatibleLenientContext(URL url) throws Exception {
+        X509Certificate[] certificates = captureServerCertificates(url);
+        KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
+        trustStore.load(null, null);
+        for (int i = 0; i < certificates.length; i++) {
+            trustStore.setCertificateEntry("http3-peer-" + i, certificates[i]);
+        }
+        return ((JsseSSLManager) SSLManager.getInstance()).createContextWithTrustStore(trustStore);
+    }
+
+    private X509Certificate[] captureServerCertificates(URL url) throws Exception {
+        String host = url.getHost();
+        int port = url.getPort() > 0 ? url.getPort() : url.getDefaultPort();
+        int connectTimeout = getConnectTimeout();
+        int responseTimeout = getResponseTimeout();
+        int probeConnectTimeout = connectTimeout > 0
+                ? connectTimeout
+                : responseTimeout > 0 ? responseTimeout : DEFAULT_CERTIFICATE_PROBE_TIMEOUT;
+        int probeResponseTimeout = responseTimeout > 0 ? responseTimeout : probeConnectTimeout;
+        InetAddress localAddress = getIpSourceAddress();
+
+        try (Socket plainSocket = new Socket()) {
+            if (localAddress != null) {
+                plainSocket.bind(new InetSocketAddress(localAddress, 0));
+            }
+            plainSocket.connect(new InetSocketAddress(host, port), probeConnectTimeout);
+            plainSocket.setSoTimeout(probeResponseTimeout);
+            SSLContext jmeterContext = ((JsseSSLManager) SSLManager.getInstance()).getContext();
+            try (SSLSocket sslSocket = (SSLSocket) jmeterContext.getSocketFactory()
+                    .createSocket(plainSocket, host, port, true)) {
+                sslSocket.startHandshake();
+                Certificate[] peerCertificates = sslSocket.getSession().getPeerCertificates();
+                X509Certificate[] result = new X509Certificate[peerCertificates.length];
+                for (int i = 0; i < peerCertificates.length; i++) {
+                    if (!(peerCertificates[i] instanceof X509Certificate certificate)) {
+                        throw new CertificateException("HTTP/3 peer presented a non-X.509 certificate");
+                    }
+                    result[i] = certificate;
+                }
+                return result;
+            }
+        }
+    }
+
+    static String trustedOrigin(URL url) {
+        int port = url.getPort() > 0 ? url.getPort() : url.getDefaultPort();
+        return url.getProtocol().toLowerCase(Locale.ROOT) + "://"
+                + url.getHost().toLowerCase(Locale.ROOT) + ':' + port;
     }
 
     private static HttpClient buildClient(Http3ClientKey key, javax.net.ssl.@Nullable SSLContext sslContext) {
@@ -306,25 +449,6 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             builder.localAddress(localAddr);
         }
         return builder.build();
-    }
-
-    private static boolean isQuicIncompatibleSslContextFailure(RuntimeException e) {
-        for (Throwable current = e; current != null; current = current.getCause()) {
-            // Compiled against Java 21, so the JDK 26 exception type is matched by name
-            if ("java.net.http.UnsupportedProtocolVersionException".equals(current.getClass().getName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static void warnSslContextFallbackOnce() {
-        if (SSL_CONTEXT_FALLBACK_WARNED.compareAndSet(false, true)) {
-            log.warn("The JMeter SSL manager context is not usable with the JDK QUIC/HTTP/3 stack "
-                    + "(it requires the built-in JDK trust manager). HTTP/3 samplers use the default "
-                    + "JVM TLS context instead: JMeter keystore client certificates and lenient "
-                    + "certificate trust do not apply to HTTP/3 requests.");
-        }
     }
 
     private static Object getJMeterThreadCacheKey() {
@@ -662,12 +786,14 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         return call != null;
     }
 
-    private record Http3ClientKey(int connectTimeout, boolean autoRedirect, @Nullable InetAddress localAddress) {
+    private record Http3ClientKey(int connectTimeout, boolean autoRedirect,
+            @Nullable InetAddress localAddress, @Nullable String trustedOrigin) {
 
         @Override
         public String toString() {
             return "connectTimeout=" + connectTimeout + " autoRedirect=" + autoRedirect
-                    + (localAddress == null ? "" : " localAddress=" + localAddress);
+                    + (localAddress == null ? "" : " localAddress=" + localAddress)
+                    + (trustedOrigin == null ? "" : " trustedOrigin=" + trustedOrigin);
         }
     }
 }

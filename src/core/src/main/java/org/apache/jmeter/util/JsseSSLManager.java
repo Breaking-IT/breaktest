@@ -20,6 +20,7 @@ package org.apache.jmeter.util;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.security.GeneralSecurityException;
+import java.security.KeyStore;
 import java.security.Principal;
 import java.security.PrivateKey;
 import java.security.Provider;
@@ -201,6 +202,34 @@ public class JsseSSLManager extends SSLManager {
      * not be found or the keys have problems
      */
     private SSLContext createContext() throws GeneralSecurityException {
+        return createContext(getTrustStore(), true);
+    }
+
+    /**
+     * Creates a QUIC-compatible context with configured trust and client keys.
+     *
+     * @return a new context using the built-in trust manager
+     * @throws GeneralSecurityException when the context cannot be created
+     */
+    public SSLContext createQuicContext() throws GeneralSecurityException {
+        return createContextWithTrustStore(getTrustStore());
+    }
+
+    /**
+     * Creates an uncached SSL context that uses the supplied trust store without
+     * JMeter's trust-all wrapper. This is used by transports such as the JDK QUIC
+     * stack that require the built-in SunJSSE trust manager implementation.
+     * JMeter's client-certificate key manager is retained.
+     *
+     * @param trustStore certificates to trust
+     * @return a new SSL context
+     * @throws GeneralSecurityException when the context cannot be created
+     */
+    public SSLContext createContextWithTrustStore(KeyStore trustStore) throws GeneralSecurityException {
+        return createContext(trustStore, false);
+    }
+
+    private SSLContext createContext(KeyStore trustStore, boolean lenientTrust) throws GeneralSecurityException {
         SSLContext context;
         if (pro != null) {
             context = SSLContext.getInstance(DEFAULT_SSL_PROTOCOL, pro); // $NON-NLS-1$
@@ -230,14 +259,17 @@ public class JsseSSLManager extends SSLManager {
         // Get the default trust managers
         TrustManagerFactory tmfactory = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm());
-        tmfactory.init(this.getTrustStore());
+        tmfactory.init(trustStore);
 
-        // Wrap the defaults in our custom trust manager
+        // Wrap the defaults in our custom trust manager for normal JMeter TLS.
+        // QUIC contexts must keep the built-in SunJSSE trust manager unchanged.
         TrustManager[] trustmanagers = tmfactory.getTrustManagers();
-        for (int i = 0; i < trustmanagers.length; i++) {
-            if (trustmanagers[i] instanceof X509TrustManager) {
-                trustmanagers[i] = new CustomX509TrustManager(
-                    (X509TrustManager)trustmanagers[i]);
+        if (lenientTrust) {
+            for (int i = 0; i < trustmanagers.length; i++) {
+                if (trustmanagers[i] instanceof X509TrustManager) {
+                    trustmanagers[i] = new CustomX509TrustManager(
+                        (X509TrustManager)trustmanagers[i]);
+                }
             }
         }
         context.init(newManagers, trustmanagers, this.rand);

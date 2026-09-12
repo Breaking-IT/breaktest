@@ -90,6 +90,8 @@ import org.apache.hc.client5.http.nio.AsyncConnectionEndpoint;
 import org.apache.hc.client5.http.nio.ManagedAsyncClientConnection;
 import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
+import org.apache.hc.client5.http.ssl.HostnameVerificationPolicy;
+import org.apache.hc.client5.http.ssl.NoopHostnameVerifier;
 import org.apache.hc.core5.concurrent.BasicFuture;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ClassicHttpResponse;
@@ -1124,9 +1126,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static TlsStrategy createTlsStrategy() throws GeneralSecurityException {
         SSLContext sslContext = ((JsseSSLManager) SSLManager.getInstance()).getContext();
-        return ClientTlsStrategyBuilder.create()
+        ClientTlsStrategyBuilder builder = ClientTlsStrategyBuilder.create()
                 .setSslContext(sslContext)
-                .buildAsync();
+                .setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+        // Match the HTTP/1.1 sampler: test targets need not have matching certificates.
+        builder.setHostnameVerificationPolicy(HostnameVerificationPolicy.CLIENT);
+        return builder.buildAsync();
     }
 
     IOReactorConfig createIOReactorConfig() {

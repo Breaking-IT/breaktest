@@ -57,6 +57,11 @@ class UpdateServiceTest {
     Path temporaryDirectory;
 
     @Test
+    void updaterKeepsHostnameVerificationEnabled() {
+        assertEquals("HTTPS", UpdateService.strictSslParameters().getEndpointIdentificationAlgorithm());
+    }
+
+    @Test
     void comparesCalendarVersionsNumerically() {
         assertTrue(UpdateService.compareVersions("2026.10.1", "2026.9.30") > 0);
         assertTrue(UpdateService.compareVersions("v2026.07.11", "2026.07.10") > 0);
