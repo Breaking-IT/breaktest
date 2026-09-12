@@ -1,9 +1,11 @@
 name: "Validate Gradle Wrapper"
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   validation:
-    if: github.repository == 'apache/jmeter'
     name: "Validation"
     runs-on: ubuntu-latest
     steps:
