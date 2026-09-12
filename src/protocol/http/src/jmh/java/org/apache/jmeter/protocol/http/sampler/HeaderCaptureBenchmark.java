@@ -17,7 +17,13 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import java.net.URI;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.hc.core5.http.HttpVersion;
@@ -50,13 +56,15 @@ public class HeaderCaptureBenchmark {
     public boolean deferred;
     @Param({"400", "1600", "8192"})
     public int totalBytes;
-    @Param({"h1", "h2"})
+    @Param({"h1", "h2", "h3"})
     public String protocol;
     @Param({"unread", "request", "response", "both25", "both50", "both75", "both100"})
     public String readers;
 
     private BasicHttpRequest request;
     private BasicHttpResponse response;
+    private HttpRequest javaRequest;
+    private Map<String, List<String>> javaResponseHeaders;
     private int sequence;
     private int threshold;
     private boolean requestOnly;
@@ -91,6 +99,18 @@ public class HeaderCaptureBenchmark {
                 response.addHeader(name, value);
             }
         }
+        if ("h3".equals(protocol)) {
+            var builder = HttpRequest.newBuilder(URI.create("https://example.test/synthetic"));
+            for (var header : request.getHeaders()) {
+                builder.header(header.getName(), header.getValue());
+            }
+            javaRequest = builder.build();
+            Map<String, List<String>> headers = new LinkedHashMap<>();
+            for (var header : response.getHeaders()) {
+                headers.put(header.getName(), List.of(header.getValue()));
+            }
+            javaResponseHeaders = HttpHeaders.of(headers, (name, value) -> true).map();
+        }
         HTTPSampleResult check = captureResult();
         if (check.getRequestHeaders().getBytes(StandardCharsets.UTF_8).length != requestBytes
                 || check.getResponseHeaders().getBytes(StandardCharsets.UTF_8).length != responseBytes) {
@@ -103,6 +123,11 @@ public class HeaderCaptureBenchmark {
 
     private HTTPSampleResult captureResult() {
         HTTPSampleResult result = new HTTPSampleResult();
+        if ("h3".equals(protocol)) {
+            HTTPJavaHttp3Impl.captureRequestHeaders(result, javaRequest, deferred);
+            HTTPJavaHttp3Impl.captureResponseHeaders(result, "HTTP/3", 200, javaResponseHeaders, deferred);
+            return result;
+        }
         HTTPHC5Impl.captureRequestHeaders(result, request, deferred);
         if ("h1".equals(protocol)) {
             HTTPHC5Impl.captureResponseHeaders(result, response, deferred);
