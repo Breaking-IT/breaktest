@@ -28,6 +28,7 @@ matrix.addAxis({
   values: [
     '21',
     '25',
+    '26',
     eaJava,
   ]
 });
@@ -87,6 +88,8 @@ matrix.imply({java_version: eaJava}, {java_distribution: {value: 'oracle'}})
 matrix.imply({java_distribution: {value: 'oracle'}}, {java_version: v => v === eaJava || v >= 21});
 // TODO: Semeru does not ship Java 21 builds yet
 matrix.exclude({java_distribution: {value: 'semeru'}, java_version: '21'});
+// Use Temurin for Java 26; not every vendor ships non-LTS releases.
+matrix.imply({java_version: "26"}, {java_distribution: {value: "temurin"}});
 // Ensure at least one job with "same" hashcode exists
 matrix.generateRow({hash: {value: 'same'}});
 // Ensure at least one Windows and at least one Linux job is present (macOS is almost the same as Linux)
@@ -97,6 +100,8 @@ matrix.generateRow({os: 'windows-latest'});
 matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
 matrix.generateRow({java_version: "25"});
+// Always exercise the native HTTP/3 runtime and live BenchMart tests.
+matrix.generateRow({java_version: "26"});
 // Ensure there will be at least one job with Java EA
 // matrix.generateRow({java_version: eaJava});
 const include = matrix.generateRows(process.env.MATRIX_JOBS || 5);
@@ -143,6 +148,9 @@ include.forEach(v => {
     // share/opto/c2_globals.hpp
     jvmArgs.push('-XX:+StressIGVN');
     jvmArgs.push('-XX:+StressCCP');
+  }
+  if (v.java_version === "26") {
+    v.testDisableCaching = "Live HTTP/3 tests must contact BenchMart on every CI run";
   }
   v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');

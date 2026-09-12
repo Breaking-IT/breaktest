@@ -358,13 +358,15 @@ public class TestHTTPJavaHttp3Impl {
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);
-        sampler.setDomain("cloudflare-quic.com");
+        sampler.setDomain("benchmart.breaktest.io");
+        sampler.setConnectTimeout("10000");
+        sampler.setResponseTimeout("15000");
         sampler.setPath("/");
         sampler.setMethod(HTTPConstants.GET);
         HTTPJavaHttp3Impl impl =
                 new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
 
-        URL url = new URI("https://cloudflare-quic.com/").toURL();
+        URL url = new URI("https://benchmart.breaktest.io/").toURL();
         try {
             // Drop any client cached by other tests on this thread: a reused client may
             // already have learned Alt-Svc (or hold an open QUIC connection) for the origin
@@ -394,7 +396,9 @@ public class TestHTTPJavaHttp3Impl {
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);
-        sampler.setDomain("cloudflare-quic.com");
+        sampler.setDomain("benchmart.breaktest.io");
+        sampler.setConnectTimeout("10000");
+        sampler.setResponseTimeout("15000");
         sampler.setPath("/");
         sampler.setMethod(HTTPConstants.GET);
         sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_3);

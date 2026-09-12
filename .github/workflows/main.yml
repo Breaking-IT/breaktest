@@ -28,7 +28,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     env:
       # Number of jobs to generate in matrix.js
-      MATRIX_JOBS: 4
+      MATRIX_JOBS: 5
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
@@ -42,6 +42,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       TZ: ${{ matrix.tz }}
+      BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '26' && 'true' || 'false' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
