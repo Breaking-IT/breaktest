@@ -69,10 +69,14 @@ jobs:
       if: runner.os == 'Linux'
       shell: bash
       run: |
+        if ! command -v xdpyinfo > /dev/null; then
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y x11-utils
+        fi
         Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
         xvfb_pid=$!
         for attempt in {1..40}; do
-          if DISPLAY=:99 xdpyinfo > /dev/null 2>&1; then
+          if DISPLAY=:99 xdpyinfo > "$RUNNER_TEMP/xdpyinfo.log" 2>&1; then
             echo 'DISPLAY=:99' >> "$GITHUB_ENV"
             exit 0
           fi
@@ -81,7 +85,7 @@ jobs:
           fi
           sleep 0.25
         done
-        cat "$RUNNER_TEMP/xvfb.log"
+        cat "$RUNNER_TEMP/xvfb.log" "$RUNNER_TEMP/xdpyinfo.log"
         exit 1
     - name: Steps to reproduce
       uses: actions/github-script@v8
