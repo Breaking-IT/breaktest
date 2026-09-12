@@ -84,7 +84,12 @@ class HttpRequestInterruptTest : JMeterTestCase(), JMeterSerialTest {
             val result = events.single().result
             assertFalse(result.isSuccessful)
             assertFalse(result.isResponseCodeOK)
-            assertTrue(result.responseCode.contains("Interrupted")) {
+            // HttpClient may wrap InterruptedIOException in a TransportException on Windows.
+            assertTrue(
+                result.responseCode.contains("Interrupted") ||
+                    result.responseCode.endsWith("TransportException") &&
+                    result.responseMessage.contains("java.io.InterruptedIOException")
+            ) {
                 "Expected cancellation of the in-flight request, got ${result.responseCode}: ${result.responseMessage}"
             }
         } finally {
