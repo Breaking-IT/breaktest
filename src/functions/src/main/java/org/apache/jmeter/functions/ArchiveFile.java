@@ -26,7 +26,10 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.save.ArchiveFiles;
 
+import com.google.auto.service.AutoService;
+
 /** Returns a local path for a shared file in the current JMX archive. */
+@AutoService(Function.class)
 public class ArchiveFile extends AbstractFunction {
     private CompoundVariable filename;
 
