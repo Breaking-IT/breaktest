@@ -114,7 +114,10 @@ class UpdateInstallerTest {
         assertTrue(Files.exists(home.resolve("lib/dependency-2.0.jar")));
         assertEquals("custom driver", Files.readString(home.resolve("lib/custom-jdbc-driver-4.2.jar")));
         assertTrue(Files.exists(home.resolve(".breaktest-managed-files")));
-        assertFalse(Files.readString(home.resolve("bin/breaktest.sh")).contains("\r"));
+        // Unix launcher preparation preserves the shipped bytes on Windows.
+        String expectedLauncher = System.getProperty("os.name", "").startsWith("Windows")
+                ? "#!/bin/sh\r\necho updated\r\n" : "#!/bin/sh\necho updated\n";
+        assertEquals(expectedLauncher, Files.readString(home.resolve("bin/breaktest.sh")));
 
         Path nextStaged = temporaryDirectory.resolve("next-staged");
         write(nextStaged, "bin/ApacheJMeter.jar", "next launcher");

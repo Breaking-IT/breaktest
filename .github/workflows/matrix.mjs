@@ -28,6 +28,7 @@ matrix.addAxis({
   values: [
     '21',
     '25',
+    '26',
     eaJava,
   ]
 });
@@ -45,8 +46,7 @@ matrix.addAxis({
   name: 'os',
   title: x => x.replace('-latest', ''),
   values: [
-    // TODO: X11 is not available. Un-comment when https://github.com/burrunan/gradle-cache-action/issues/48 is resolved
-    // 'ubuntu-latest',
+    // Linux is covered by the fixed Java 26 + Xvfb row appended below.
     'windows-latest',
     'macos-latest'
   ]
@@ -87,16 +87,18 @@ matrix.imply({java_version: eaJava}, {java_distribution: {value: 'oracle'}})
 matrix.imply({java_distribution: {value: 'oracle'}}, {java_version: v => v === eaJava || v >= 21});
 // TODO: Semeru does not ship Java 21 builds yet
 matrix.exclude({java_distribution: {value: 'semeru'}, java_version: '21'});
+// Use Temurin for Java 26; not every vendor ships non-LTS releases.
+matrix.imply({java_version: "26"}, {java_distribution: {value: "temurin"}});
 // Ensure at least one job with "same" hashcode exists
 matrix.generateRow({hash: {value: 'same'}});
-// Ensure at least one Windows and at least one Linux job is present (macOS is almost the same as Linux)
+// Ensure at least one Windows job is present in the randomized matrix.
 matrix.generateRow({os: 'windows-latest'});
-// TODO: un-comment when xvfb will be possible
-// matrix.generateRow({os: 'ubuntu-latest'});
 // Ensure there will be at least one job with Java 21
 matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
 matrix.generateRow({java_version: "25"});
+// Always exercise the native HTTP/3 runtime and live HTTP/3 tests.
+matrix.generateRow({java_version: "26"});
 // Ensure there will be at least one job with Java EA
 // matrix.generateRow({java_version: eaJava});
 const include = matrix.generateRows(process.env.MATRIX_JOBS || 5);
@@ -123,8 +125,8 @@ include.forEach(v => {
   // Gradle does not work in tr_TR locale, so pass locale to test only: https://github.com/gradle/gradle/issues/17361
   jvmArgs.push(`-Duser.country=${v.locale.country}`);
   jvmArgs.push(`-Duser.language=${v.locale.language}`);
-  v.java_distribution = v.java_distribution.value;
   v.java_vendor = v.java_distribution.vendor;
+  v.java_distribution = v.java_distribution.value;
   if (v.java_distribution === 'oracle') {
       v.oracle_java_website = v.java_version === eaJava ? 'jdk.java.net' : 'oracle.com';
   }
@@ -144,9 +146,28 @@ include.forEach(v => {
     jvmArgs.push('-XX:+StressIGVN');
     jvmArgs.push('-XX:+StressCCP');
   }
+  if (v.java_version === "26") {
+    v.testDisableCaching = "Live HTTP/3 tests must contact the endpoint on every CI run";
+  }
   v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');
   delete v.hash;
+});
+
+// Keep the Linux baseline outside the random job budget so it is always present
+// without displacing the existing Windows/macOS and Java-version guarantees.
+include.push({
+  name: '26, temurin, ubuntu, UTC, en_US, Xvfb',
+  os: 'ubuntu-24.04',
+  java_version: '26',
+  non_ea_java_version: '26',
+  java_distribution: 'temurin',
+  java_vendor: 'eclipse',
+  tz: 'UTC',
+  extraGradleArgs: '-Duser.country=US -Duser.language=en',
+  extraJvmArgs: '-Duser.country=US -Duser.language=en',
+  testExtraJvmArgs: '',
+  testDisableCaching: 'Live HTTP/3 tests must contact the endpoint on every CI run',
 });
 
 console.log(include);

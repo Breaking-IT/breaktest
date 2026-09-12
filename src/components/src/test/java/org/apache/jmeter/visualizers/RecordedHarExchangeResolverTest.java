@@ -291,7 +291,7 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
         assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
         assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
         assertEquals(RecordedHarExchangeResolver.Status.FOUND, check.status());
-        assertTrue(check.harPath().toString().contains("!/" + entryName));
+        assertEquals(Path.of(testPlan + "!/" + entryName), check.harPath());
     }
 
     @Test

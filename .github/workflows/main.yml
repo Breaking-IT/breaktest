@@ -1,35 +1,33 @@
 name: CI
 
-# Forks: skip all jobs (secrets, dependency graph, etc. are not fork-friendly).
-# PRs into apache/jmeter still run CI in the base repo, where github.repository is apache/jmeter.
+# Run validation in BreakTest and contributor forks without requiring secrets.
 
 on:
   push:
     branches:
-      - '*'
+      - main
   pull_request:
-    branches:
-      - '*'
+
+permissions:
+  contents: read
 
 # https://help.github.com/en/actions/automating-your-workflow-with-github-actions/software-installed-on-github-hosted-runners
 
 concurrency:
-  # On master/release, we don't want any jobs cancelled so the sha is used to name the group
-  # On PR branches, we cancel the job if new commits are pushed
+  # Preserve each main push; cancel superseded runs of the same PR.
   # More info: https://stackoverflow.com/a/68422069/253468
-  group: ${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release' ) && format('ci-main-{0}', github.sha) || format('ci-main-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-main-{0}', github.sha) || format('ci-main-{0}', github.ref) }}
   cancel-in-progress: true
 
 jobs:
   matrix_prep:
-    if: github.repository == 'apache/jmeter'
     name: Matrix Preparation
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     env:
-      # Number of jobs to generate in matrix.js
-      MATRIX_JOBS: 4
+      # Random Windows/macOS jobs; matrix.mjs also adds one fixed Linux job.
+      MATRIX_JOBS: 5
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
@@ -38,12 +36,12 @@ jobs:
           node .github/workflows/matrix.mjs
 
   test:
-    if: github.repository == 'apache/jmeter'
     needs: matrix_prep
     name: '${{ matrix.name }}'
     runs-on: ${{ matrix.os }}
     env:
       TZ: ${{ matrix.tz }}
+      BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '26' && 'true' || 'false' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
@@ -65,21 +63,43 @@ jobs:
         java-version: |
           ${{ matrix.non_ea_java_version }}
           21
+        # Use the runner architecture (native ARM64 on macOS).
         distribution: ${{ matrix.java_distribution }}
-        architecture: x64
+    - name: Start virtual display for Linux GUI tests
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if ! command -v xdpyinfo > /dev/null; then
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y x11-utils
+        fi
+        Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+        xvfb_pid=$!
+        for attempt in {1..40}; do
+          if DISPLAY=:99 xdpyinfo > "$RUNNER_TEMP/xdpyinfo.log" 2>&1; then
+            echo 'DISPLAY=:99' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+            break
+          fi
+          sleep 0.25
+        done
+        cat "$RUNNER_TEMP/xvfb.log" "$RUNNER_TEMP/xdpyinfo.log"
+        exit 1
     - name: Steps to reproduce
       uses: actions/github-script@v8
       with:
         script: |
           console.log('The following command might help reproducing CI results, use Java ${{ matrix.java_version }}')
-          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
         job-id: jdk${{ matrix.java_version }}
         multi-cache-enabled: false
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
-        arguments: --scan --no-parallel build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        arguments: --scan --no-parallel --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
@@ -95,7 +115,6 @@ jobs:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
   errorprone:
-    if: github.repository == 'apache/jmeter'
     name: 'Error Prone (JDK 21)'
     runs-on: ubuntu-latest
     steps:

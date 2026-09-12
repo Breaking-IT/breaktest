@@ -180,7 +180,7 @@ public class TestHttpTestSampleGui implements JMeterSerialTest {
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
         Assertions.assertTrue(recordedRequestData().getText().contains(
-                tempDir.resolve("plan.jmx").toAbsolutePath().normalize() + "!/missing.har"));
+                Path.of(tempDir.resolve("plan.jmx").toAbsolutePath().normalize() + "!/missing.har").toString()));
     }
 
     @Test
