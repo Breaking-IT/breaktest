@@ -1,0 +1,63 @@
+{
+  "jdk": "OpenJDK 26.0.2.1+1-7",
+  "liveHttp3Enabled": true,
+  "command": "JAVA_HOME=<jdk21> BREAKTEST_HTTP3_LIVE=true ./gradlew -PjdkTestVersion=26 -Porg.gradle.java.installations.paths=<jdk26> :src:protocol:http:test --tests \"*DeferredHttpHeadersTest\" --tests \"*TestHTTPJavaHttp3Impl\"",
+  "suites": [
+    {
+      "name": "org.apache.jmeter.protocol.http.sampler.TestHTTPJavaHttp3Impl",
+      "tests": 23,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "testsPassed": [
+        "preferForDefaultRoutesBlankProtocolToHttp3Client()",
+        "jdkRequestTimeoutIsClassifiedAsResponseTimeout()",
+        "preferForDefaultKeepsUnsupportedConfigurationsOnHttpClient5()",
+        "http3UnclassifiedErrorIdentifiesQuicTransport()",
+        "factoryFallsBackToNegotiatingHttp2OnUnsupportedRuntime()",
+        "jdkConnectTimeoutIsClassifiedAsConnectTimeout()",
+        "http3SamplesLiveEndpointOnSupportedRuntime()",
+        "destinationEndpointResolvesToAddressAndPort()",
+        "http3AliasesAreNormalized()",
+        "http3ConnectTimeoutIdentifiesQuicTransport()",
+        "factorySelectsHttp3ImplementationOnSupportedRuntime()",
+        "jdkUnresolvedAddressIsClassifiedAsUnknownHost()",
+        "preferForDefaultLeavesExplicitProtocolsUntouched()",
+        "closedUdpPortProducesConnectTimeoutResult()",
+        "versionEnumIsFormattedForDisplay()",
+        "proxyConfigurationProducesClearErrorResult()",
+        "jdkTimeoutsAreRecognizedAsExpectedTimeouts()",
+        "multipartConfigurationProducesClearErrorResult()",
+        "factoryLeavesOtherProtocolsUntouchedRegardlessOfHttp3Support()",
+        "capabilityDetectionMatchesRuntimeFeatureVersion()",
+        "jdkConnectTimeoutBoundedByResponseTimeoutReportsThatTimeout()",
+        "fallbackWarningIsLoggedOnce()",
+        "preferredModeUpgradesToHttp3AfterAltSvcDiscovery()"
+      ]
+    },
+    {
+      "name": "org.apache.jmeter.protocol.http.sampler.DeferredHttpHeadersTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "testsPassed": [
+        "javaHttp3HeadersMatchEagerOutputWithoutEarlyFormatting()",
+        "concurrentReadersShareOneFormattedString()",
+        "messageReplacementDoesNotChangeSnapshot()",
+        "headerExtractorAndAssertionWorkAfterSuccessfulHttpResponse()",
+        "javaHeaderSnapshotDoesNotRetainMutableMapOrLists()",
+        "javaSerializationMaterializesUnreadHeaders()",
+        "textAndByteAccountingMatchEagerPath()",
+        "snapshotSurvivesParserBufferMutationAndAccountsWithoutFormatting()",
+        "cloneKeepsSnapshotWhenOriginalIsOverwritten()",
+        "accountingPreservesCharacterConventionAndLargeBodySizes()",
+        "settersOverrideSnapshotsAndCopiesKeepHeaders()",
+        "recordingResponsePreservesHeadersAndDecodedBodyLength()",
+        "xmlSavingMaterializesUnreadHeaders()",
+        "realHttpSamplerCapturesHeadersForSuccessAndHttpError()",
+        "http2StatusLineAndAccountingMatchWithoutReasonPhrase()"
+      ]
+    }
+  ]
+}

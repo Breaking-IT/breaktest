@@ -8,6 +8,8 @@ See the LICENSE file at the root of this distribution.
 
 # Java HTTP/3 deferred-header benchmark
 
+The supported-runtime follow-up is in [Java 26 results, including response-only reads](HTTP3-JAVA26.md). The numbers below remain the historical Java 21 measurements.
+
 ## Findings
 
 | Combined fixture bytes | Unread CPU change | Both read 50% CPU change | Both read 100% CPU change | Unread allocation, eager → deferred |
@@ -23,6 +25,16 @@ The 400-byte both25 case is effectively tied in process CPU; both50 is clearly m
 Unread allocation falls approximately 52%, 85% and 97%. At both100, allocation rises for 400 bytes (1,160 → 1,328 B/op) but falls for 1,600 (4,864 → 3,312) and 8,192 (21,704 → 13,200). CPU and allocation can move in opposite directions.
 
 The default-enabled setting remains useful for predominantly unread diagnostic headers, but these HTTP/3 measurements show a narrower CPU benefit for small/read-heavy workloads than the earlier HC5 measurements. No total-request throughput improvement is claimed.
+
+### Response-only reads on Java 21
+
+These cases were included in the original full matrix. Both sides are captured, and the response string alone is read on every result.
+
+| Combined fixture bytes | CPU change | Eager → deferred CPU (ns/op) | Eager → deferred allocation (B/op) |
+|---:|---:|---:|---:|
+| 400 | +17.8% | 128.7 → 151.6 | 1,160 → 1,040 |
+| 1,600 | +11.7% | 480.4 → 536.3 | 4,864 → 2,432 |
+| 8,192 | −33.5% | 1,220.5 → 812.1 | 21,704 → 9,024 |
 
 ## Scope and method
 

@@ -7,7 +7,7 @@
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-: "${JAVA_HOME:?Set JAVA_HOME to JDK 21}"
+: "${JAVA_HOME:?Set JAVA_HOME to the benchmark JDK}"
 jar_path=$(ls src/protocol/http/build/libs/*-jmh.jar)
 "$JAVA_HOME/bin/java" -Djdk.net.hosts.file=/etc/hosts -jar "$jar_path" HeaderCaptureBenchmark \
   -jvmArgsAppend "${HEADER_JVM_ARGS:--Xms512m -Xmx512m -Djdk.net.hosts.file=/etc/hosts}" \

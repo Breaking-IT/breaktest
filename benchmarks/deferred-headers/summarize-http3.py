@@ -6,16 +6,22 @@
 # See the LICENSE file at the root of this distribution.
 
 """Validate and summarize the Java HTTP/3 capture matrix."""
+import argparse
 import json
 import math
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
-rows = json.loads((root / 'results/http3-matrix.json').read_text())
+parser = argparse.ArgumentParser()
+parser.add_argument('--jdk', choices=['21', '26'], default='21')
+args = parser.parse_args()
+suffix = '-java26' if args.jdk == '26' else ''
+rows = json.loads((root / f'results/http3{suffix}-matrix.json').read_text())
 assert len(rows) == 42, f'Incomplete matrix: {len(rows)} rows'
 lookup = {}
 for row in rows:
     assert row['params']['protocol'] == 'h3'
+    assert row['jdkVersion'].split('.')[0] == args.jdk, row['jdkVersion']
     for metric in [row['primaryMetric'], row['secondaryMetrics']['process.cpu'],
                    row['secondaryMetrics']['gc.alloc.rate.norm']]:
         assert len(metric['rawData']) == 2 and all(len(fork) == 4 for fork in metric['rawData'])
@@ -24,8 +30,9 @@ for row in rows:
     assert key not in lookup
     lookup[key] = row
 lines = [
-    '# Java HTTP/3 header capture measurements', '',
-    'See [method and interpretation](HTTP3.md). CPU is process ns/op; ± is the JMH 99.9% confidence interval half-width. '
+    f'# Java HTTP/3 header capture measurements — JDK {args.jdk}', '',
+    f'See [method and interpretation]({"HTTP3-JAVA26.md" if args.jdk == "26" else "HTTP3.md"}). '
+    'CPU is process ns/op; ± is the JMH 99.9% confidence interval half-width. '
     'Wall time is ns/op; allocation is B/op. Positive changes mean deferral costs more.', '',
     '| Fixture bytes | Readers | Eager CPU | Deferred CPU | CPU change | Eager → deferred wall | Eager → deferred allocation |',
     '|---:|---|---:|---:|---:|---:|---:|'
@@ -43,5 +50,5 @@ for size in [400, 1600, 8192]:
                      f"{dc['score']:.1f} ± {dc['scoreError']:.1f} | {change:+.1f}% | "
                      f"{e['primaryMetric']['score']:.1f} → {d['primaryMetric']['score']:.1f} | {ea:.0f} → {da:.0f} |")
 license_text = (root / 'README.md').read_text().split('-->')[0] + '-->\n\n'
-(root / 'HTTP3-RESULTS.md').write_text(license_text + '\n'.join(lines) + '\n')
+(root / f'HTTP3{suffix}-RESULTS.md').write_text(license_text + '\n'.join(lines) + '\n')
 print('Validated all 42 configurations, two forks × four measurements each.')

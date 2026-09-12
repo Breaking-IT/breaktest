@@ -6,7 +6,7 @@ You may not use this file except in compliance with that license.
 See the LICENSE file at the root of this distribution.
 -->
 
-# Java HTTP/3 header capture measurements
+# Java HTTP/3 header capture measurements — JDK 21
 
 See [method and interpretation](HTTP3.md). CPU is process ns/op; ± is the JMH 99.9% confidence interval half-width. Wall time is ns/op; allocation is B/op. Positive changes mean deferral costs more.
 
