@@ -100,7 +100,7 @@ matrix.generateRow({os: 'windows-latest'});
 matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
 matrix.generateRow({java_version: "25"});
-// Always exercise the native HTTP/3 runtime and live BenchMart tests.
+// Always exercise the native HTTP/3 runtime and live HTTP/3 tests.
 matrix.generateRow({java_version: "26"});
 // Ensure there will be at least one job with Java EA
 // matrix.generateRow({java_version: eaJava});
@@ -150,7 +150,7 @@ include.forEach(v => {
     jvmArgs.push('-XX:+StressCCP');
   }
   if (v.java_version === "26") {
-    v.testDisableCaching = "Live HTTP/3 tests must contact BenchMart on every CI run";
+    v.testDisableCaching = "Live HTTP/3 tests must contact the endpoint on every CI run";
   }
   v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');
