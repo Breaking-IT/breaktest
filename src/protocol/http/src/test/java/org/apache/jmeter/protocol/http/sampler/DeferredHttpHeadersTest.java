@@ -29,6 +29,9 @@ import java.io.ObjectOutputStream;
 import java.io.StringWriter;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
@@ -75,6 +78,52 @@ class DeferredHttpHeadersTest extends JMeterTestCase {
         HTTPHC5Impl.captureRequestHeaders(result, request, deferred);
         HTTPHC5Impl.captureResponseHeaders(result, response, deferred);
         return result;
+    }
+
+    @Test
+    void javaHttp3HeadersMatchEagerOutputWithoutEarlyFormatting() throws Exception {
+        var request = java.net.http.HttpRequest.newBuilder(URI.create("https://example.test/"))
+                .header("X-Request", "first").header("X-Request", "second")
+                .header("Cookie", "private=1").build();
+        Map<String, List<String>> response = new LinkedHashMap<>();
+        response.put("x-token", List.of("first", "second"));
+        response.put("x-unicode", List.of("caf\u00e9-\u2603"));
+        response.put("x-empty", List.of(""));
+        for (String protocol : List.of("HTTP/3", "HTTP/2", "HTTP/1.1")) {
+            HTTPSampleResult eager = new HTTPSampleResult();
+            HTTPSampleResult lazy = new HTTPSampleResult();
+            HTTPJavaHttp3Impl.captureRequestHeaders(eager, request, false);
+            HTTPJavaHttp3Impl.captureRequestHeaders(lazy, request, true);
+            HTTPJavaHttp3Impl.captureResponseHeaders(eager, protocol, 200, response, false);
+            HTTPJavaHttp3Impl.captureResponseHeaders(lazy, protocol, 200, response, true);
+            for (String fieldName : List.of("deferredRequestHeaders", "deferredResponseHeaders")) {
+                var field = HTTPSampleResult.class.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                assertEquals(null, field.get(eager));
+                assertFalse(((DeferredHttpHeaders) field.get(lazy)).isMaterialized());
+            }
+            assertEquals(eager.getHeadersSize(), lazy.getHeadersSize());
+            assertEquals(eager.getRequestHeaders(), lazy.getRequestHeaders());
+            assertFalse(lazy.getRequestHeaders().contains("private=1"));
+            assertEquals(eager.getResponseHeaders(), lazy.getResponseHeaders());
+            assertTrue(lazy.getResponseHeaders().startsWith(protocol + " 200\n"));
+        }
+    }
+
+    @Test
+    void javaHeaderSnapshotDoesNotRetainMutableMapOrLists() {
+        var values = new ArrayList<>(List.of("original"));
+        Map<String, List<String>> source = new LinkedHashMap<>();
+        source.put("x-token", values);
+        DeferredHttpHeaders snapshot = new DeferredHttpHeaders("HTTP/3 204\n", source, name -> true);
+        values.set(0, "changed");
+        source.clear();
+        String expected = "HTTP/3 204\nx-token: original\n";
+        assertEquals(expected.length(), snapshot.length());
+        assertFalse(snapshot.isMaterialized());
+        assertEquals(expected, snapshot.text());
+        DeferredHttpHeaders empty = new DeferredHttpHeaders("HTTP/3 204\n", Map.of(), name -> true);
+        assertEquals("HTTP/3 204\n", empty.text());
     }
 
     @Test

@@ -207,10 +207,6 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private static final boolean DISABLE_DEFAULT_UA = JMeterUtils.getPropDefault("httpclient5.default_user_agent_disabled", false);
 
-    // Can be disabled for workloads where small headers are frequently consumed.
-    private static final boolean DEFER_DIAGNOSTIC_HEADERS =
-            JMeterUtils.getPropDefault("httpclient5.defer_diagnostic_headers", true);
-
     private static final Logger log = LoggerFactory.getLogger(HTTPHC5Impl.class);
 
     private static final String HEADER_CONTENT_TRANSFER_ENCODING = "Content-Transfer-Encoding";
@@ -1566,7 +1562,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     }
 
     protected boolean deferDiagnosticHeaders() {
-        return DEFER_DIAGNOSTIC_HEADERS;
+        return DeferredHttpHeaders.ENABLED;
     }
 
     static void captureRequestHeaders(HTTPSampleResult result, HttpRequest request, boolean deferred) {

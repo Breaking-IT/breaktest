@@ -12,7 +12,7 @@ This worktree isolates the header prototype from `/Users/jvangaalen/.codex/workt
 
 ## Setting and performance tradeoffs
 
-Deferred formatting is enabled by default for HC5 HTTP/1 and HTTP/2. In the GUI, open **Options → Settings → HttpClient5** and toggle `httpclient5.defer_diagnostic_headers` (search for `defer` or `headers`). Save and restart BreakTest for the change to take effect. Set `httpclient5.defer_diagnostic_headers=false` in `user.properties`, or pass `-Jhttpclient5.defer_diagnostic_headers=false` at startup, to restore eager formatting. Set it to `true` to enable it explicitly. Restart the process after changing it: the property is read at class initialization.
+Deferred formatting is enabled by default for HC5 HTTP/1 and HTTP/2 and the Java HTTP/3 client. In the GUI, open **Options → Settings → HttpClient5** and toggle `httpclient5.defer_diagnostic_headers` (search for `defer` or `headers`). Save and restart BreakTest for the change to take effect. Set `httpclient5.defer_diagnostic_headers=false` in `user.properties`, or pass `-Jhttpclient5.defer_diagnostic_headers=false` at startup, to restore eager formatting. Set it to `true` to enable it explicitly. Restart the process after changing it: the property is read at class initialization.
 
 The default targets workloads where most diagnostic headers remain unread, such as headless API tests whose TSDB listener captures headers only on errors. This is not an unconditional performance improvement. Small read-heavy headers can cost more CPU, unread snapshots can retain more heap, and the two snapshot references enlarge every HTTP result by 8 bytes even when disabled. The switch lets those workloads retain eager formatting. End-to-end benefits depend on the plan and other consumers.
 
@@ -35,7 +35,7 @@ The 84-configuration full sweep and 36-configuration fixed-heap confirmation eac
 
 ## Scope and compatibility
 
-`httpclient5.defer_diagnostic_headers` controls formatting at startup for HC5 HTTP/1 and HTTP/2 and defaults to true. Request cookies retain their existing separate handling and are excluded from `getRequestHeaders()`. HTTP/3 is unchanged. The option does not promise that lazy formatting improves every workload.
+`httpclient5.defer_diagnostic_headers` controls formatting at startup for HC5 HTTP/1 and HTTP/2 and the Java HTTP/3 client and defaults to true. Request cookies retain their existing separate handling and are excluded from `getRequestHeaders()`. HTTP/3 uses the same deferred storage with snapshots of Java client header maps. The measurements in this report cover HC5 only; HTTP/3 performance has not been measured. The option does not promise that lazy formatting improves every workload.
 
 The snapshots contain only owned strings: mutable parser buffers are copied at capture time. Basic header names and values are immutable strings. Ordering, duplicates, null values, original buffered whitespace and protocol-specific status-line formatting are preserved. Response-size accounting uses the original character-count convention, including the extra CR/LF accounting; it does not silently redefine size as UTF-8 bytes or HTTP/2 compressed wire bytes. Body and sent-byte paths remain unchanged. A review fix restores the original zero header size for a redirect missing `Location`: capture now computes size earlier, so that error path explicitly resets it before reporting the protocol failure. Its response headers remain available for diagnostics.
 

@@ -17,13 +17,19 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import java.util.List;
+import java.util.Map;
 import java.util.function.Predicate;
+
+import org.apache.jmeter.util.JMeterUtils;
 
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.message.BufferedHeader;
 
 /** Owned diagnostic snapshot: no references to mutable HTTP messages or parser buffers. */
 final class DeferredHttpHeaders {
+    static final boolean ENABLED = JMeterUtils.getPropDefault("httpclient5.defer_diagnostic_headers", true);
+
     private String[] fields;
     private final String prefix;
     private final int count;
@@ -50,6 +56,33 @@ final class DeferredHttpHeaders {
                 chars += fields[index].length() + 2 + fields[index + 1].length() + 1;
             }
             accepted++;
+        }
+        count = accepted;
+        length = chars;
+    }
+
+    DeferredHttpHeaders(String prefix, Map<String, List<String>> headers, Predicate<String> include) {
+        this.prefix = prefix;
+        int capacity = 0;
+        for (var entry : headers.entrySet()) {
+            if (include.test(entry.getKey())) {
+                capacity += entry.getValue().size();
+            }
+        }
+        fields = new String[capacity * 2];
+        int accepted = 0;
+        int chars = prefix.length();
+        for (var entry : headers.entrySet()) {
+            String name = entry.getKey();
+            if (!include.test(name)) {
+                continue;
+            }
+            for (String value : entry.getValue()) {
+                fields[accepted * 2] = name;
+                fields[accepted * 2 + 1] = value;
+                chars += name.length() + 2 + value.length() + 1;
+                accepted++;
+            }
         }
         count = accepted;
         length = chars;
