@@ -39,7 +39,9 @@ import org.junit.jupiter.api.Test;
 class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTest {
     @Test
     void editorPopulationYieldsToEdtAndPreservesCompleteContent() throws Exception {
-        String content = "first,value\r\nsecond,é😀\n".repeat(30000);
+        // Exercise several 256 KiB chunks without making Swing lay out tens of thousands
+        // of lines under the constant-hashcode CI stress configuration.
+        String content = ("first,value\r\nsecond,é😀" + "x".repeat(1000) + "\n").repeat(600);
         var completed = new java.util.concurrent.CountDownLatch(1);
         var heartbeat = new java.util.concurrent.atomic.AtomicBoolean();
         var editor = new javax.swing.JTextArea();
