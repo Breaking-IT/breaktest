@@ -46,8 +46,7 @@ matrix.addAxis({
   name: 'os',
   title: x => x.replace('-latest', ''),
   values: [
-    // TODO: X11 is not available. Un-comment when https://github.com/burrunan/gradle-cache-action/issues/48 is resolved
-    // 'ubuntu-latest',
+    // Linux is covered by the fixed Java 26 + Xvfb row appended below.
     'windows-latest',
     'macos-latest'
   ]
@@ -92,10 +91,8 @@ matrix.exclude({java_distribution: {value: 'semeru'}, java_version: '21'});
 matrix.imply({java_version: "26"}, {java_distribution: {value: "temurin"}});
 // Ensure at least one job with "same" hashcode exists
 matrix.generateRow({hash: {value: 'same'}});
-// Ensure at least one Windows and at least one Linux job is present (macOS is almost the same as Linux)
+// Ensure at least one Windows job is present in the randomized matrix.
 matrix.generateRow({os: 'windows-latest'});
-// TODO: un-comment when xvfb will be possible
-// matrix.generateRow({os: 'ubuntu-latest'});
 // Ensure there will be at least one job with Java 21
 matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
@@ -155,6 +152,22 @@ include.forEach(v => {
   v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');
   delete v.hash;
+});
+
+// Keep the Linux baseline outside the random job budget so it is always present
+// without displacing the existing Windows/macOS and Java-version guarantees.
+include.push({
+  name: '26, temurin, ubuntu, UTC, en_US, Xvfb',
+  os: 'ubuntu-24.04',
+  java_version: '26',
+  non_ea_java_version: '26',
+  java_distribution: 'temurin',
+  java_vendor: 'eclipse',
+  tz: 'UTC',
+  extraGradleArgs: '-Duser.country=US -Duser.language=en',
+  extraJvmArgs: '-Duser.country=US -Duser.language=en',
+  testExtraJvmArgs: '',
+  testDisableCaching: 'Live HTTP/3 tests must contact the endpoint on every CI run',
 });
 
 console.log(include);

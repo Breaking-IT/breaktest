@@ -26,7 +26,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     env:
-      # Number of jobs to generate in matrix.js
+      # Random Windows/macOS jobs; matrix.mjs also adds one fixed Linux job.
       MATRIX_JOBS: 5
     steps:
       - uses: actions/checkout@v6
@@ -65,6 +65,24 @@ jobs:
           21
         # Use the runner architecture (native ARM64 on macOS).
         distribution: ${{ matrix.java_distribution }}
+    - name: Start virtual display for Linux GUI tests
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > "$RUNNER_TEMP/xvfb.log" 2>&1 &
+        xvfb_pid=$!
+        for attempt in {1..40}; do
+          if DISPLAY=:99 xdpyinfo > /dev/null 2>&1; then
+            echo 'DISPLAY=:99' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+            break
+          fi
+          sleep 0.25
+        done
+        cat "$RUNNER_TEMP/xvfb.log"
+        exit 1
     - name: Steps to reproduce
       uses: actions/github-script@v8
       with:
