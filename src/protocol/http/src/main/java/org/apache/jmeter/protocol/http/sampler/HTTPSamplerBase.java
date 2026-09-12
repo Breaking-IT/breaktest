@@ -97,6 +97,8 @@ import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.testelement.schema.PropertyDescriptor;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
+import org.apache.jmeter.threads.SamplePackage;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.DirectAccessByteArrayOutputStream;
 import org.apache.jorphan.locale.ResourceKeyed;
@@ -466,8 +468,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
          * Discard the body on success (2xx/3xx), store it (compressed) on error responses.
          * Gives FETCH_AND_DISCARD memory behaviour in steady state while preserving the
          * body for HTTP error responses, where it is usually needed for triage.
-         * Only the HTTP status is consulted; samples that fail for other reasons
-         * (assertion, timeout) still have no body.
+         * Without assertions or post-processors, only the HTTP status is consulted.
+         * When either applies, the effective mode stores all response bodies.
          */
         STORE_ON_ERROR("response_processing_store_on_error"), //$NON-NLS-1$
 
@@ -2641,18 +2643,23 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * Resolves the configured mode to the one actually used for this response. A normal run
-     * (GUI or non-GUI) always honours the configured mode, so FETCH_AND_DISCARD really
-     * discards. The only override is a GUI validation run ("Validate"), during which the
-     * body-discarding modes ({@link ResponseProcessingMode#FETCH_AND_DISCARD} and
-     * {@link ResponseProcessingMode#STORE_ON_ERROR}) fall back to
-     * {@link ResponseProcessingMode#STORE_COMPRESSED} so the body is visible while validating.
+     * Preserve bodies for validation and for assertions or post-processors in the current
+     * execution package (including inherited elements). Scripted post-processors can read
+     * bodies too, so all post-processors conservatively require storage. Explicit checksum
+     * modes are left intact so assertions can still check the requested digest.
      */
     private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured) {
-        if ((configured == ResponseProcessingMode.FETCH_AND_DISCARD
-                || configured == ResponseProcessingMode.STORE_ON_ERROR)
-                && JMeterContextService.isValidationRun()) {
-            return ResponseProcessingMode.STORE_COMPRESSED;
+        if (configured == ResponseProcessingMode.FETCH_AND_DISCARD
+                || configured == ResponseProcessingMode.STORE_ON_ERROR) {
+            if (JMeterContextService.isValidationRun()) {
+                return ResponseProcessingMode.STORE_COMPRESSED;
+            }
+            Object currentPackage = JMeterContextService.getContext().getVariables()
+                    .getObject(JMeterThread.PACKAGE_OBJECT);
+            if (currentPackage instanceof SamplePackage pack
+                    && (!pack.getAssertions().isEmpty() || !pack.getPostProcessors().isEmpty())) {
+                return ResponseProcessingMode.STORE_COMPRESSED;
+            }
         }
         return configured;
     }
