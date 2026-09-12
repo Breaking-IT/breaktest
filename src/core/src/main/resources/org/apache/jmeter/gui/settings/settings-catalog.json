@@ -280,6 +280,7 @@
       "settings": [
         {"key": "hc.parameters.file", "type": "file", "description": "Properties file overriding Apache HttpClient parameters, e.g. hc.parameters in the bin directory."},
         {"key": "httpclient5.default_user_agent_disabled", "type": "boolean", "default": "false", "description": "Do not add the default HttpClient5 User-Agent header."},
+        {"key": "httpclient5.defer_diagnostic_headers", "type": "boolean", "default": "true", "description": "Format request and response header text only when needed. Applies to HttpClient5 HTTP/1 and HTTP/2. Can reduce CPU and allocation when headers are unread; disable if small headers are frequently read or retained snapshots use too much memory. Restart BreakTest after changing this setting."},
         {"key": "httpclient5.auth.preemptive", "type": "boolean", "default": "true", "description": "Preemptively send the Authorization header when BASIC auth is used."},
         {"key": "httpclient5.retrycount", "type": "integer", "default": "0", "description": "Number of retries to attempt for failed requests."},
         {"key": "httpclient5.request_sent_retry_enabled", "type": "boolean", "default": "false", "description": "Retry requests that have already been sent, including non-idempotent ones. Usually false, but useful when testing against some load balancers like Amazon ELB."},

@@ -12,7 +12,7 @@ This worktree isolates the header prototype from `/Users/jvangaalen/.codex/workt
 
 ## Setting and performance tradeoffs
 
-Deferred formatting is enabled by default for HC5 HTTP/1 and HTTP/2. Set `httpclient5.defer_diagnostic_headers=false` in `user.properties`, or pass `-Jhttpclient5.defer_diagnostic_headers=false` at startup, to restore eager formatting. Set it to `true` to enable it explicitly. Restart the process after changing it: the property is read at class initialization.
+Deferred formatting is enabled by default for HC5 HTTP/1 and HTTP/2. In the GUI, open **Options → Settings → HttpClient5** and toggle `httpclient5.defer_diagnostic_headers` (search for `defer` or `headers`). Save and restart BreakTest for the change to take effect. Set `httpclient5.defer_diagnostic_headers=false` in `user.properties`, or pass `-Jhttpclient5.defer_diagnostic_headers=false` at startup, to restore eager formatting. Set it to `true` to enable it explicitly. Restart the process after changing it: the property is read at class initialization.
 
 The default targets workloads where most diagnostic headers remain unread, such as headless API tests whose TSDB listener captures headers only on errors. This is not an unconditional performance improvement. Small read-heavy headers can cost more CPU, unread snapshots can retain more heap, and the two snapshot references enlarge every HTTP result by 8 bytes even when disabled. The switch lets those workloads retain eager formatting. End-to-end benefits depend on the plan and other consumers.
 
@@ -87,6 +87,8 @@ Historical results were located under `5b7a/breaktest/build/reports/deferred-htt
 ## Functional evidence
 
 The final targeted Gradle run completed successfully: **156 passed, 3 skipped, 0 failed** (133 HTTP tests including 3 skips; 26 core tests). The 13 new tests cover exact text/accounting, duplicates/null/Unicode/buffered values, parser-buffer and message mutation, copy construction, shallow cloning, setters, concurrent cached reads, Java serialization, XML saving, request/response extractors and assertions, recording header rewriting, and live HTTP success/error with cookies. Existing HC5, redirect, H2 lifecycle, SampleResult and save-configuration suites also passed. Main/test/JMH Checkstyle and `git diff --check` passed.
+
+A subsequent GUI-settings regression test exercises the actual Swing checkbox on the event-dispatch thread, verifies search matches and the enabled default, and saves/reloads both disabled and enabled choices using temporary property files. The settings suite, Checkstyle and license check pass; see [GUI validation](results/gui-validation.log).
 
 The skipped tests are the existing externally gated `http2NegotiatesHttp2AgainstBreaktestApp`, `http11ReportsConnectTimeAgainstBreaktestApp`, and `benchmarkShortLivedParallelUserChurn`. No broad test pass is claimed for those environments.
 
