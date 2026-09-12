@@ -17,7 +17,9 @@
 
 package org.apache.jmeter.protocol.http.sampler
 
+import io.airlift.compress.zstd.ZstdOutputStream
 import org.apache.jmeter.protocol.http.sampler.decoders.BrotliDecoder
+import org.apache.jmeter.protocol.http.sampler.decoders.ZstdDecoder
 import org.apache.jmeter.samplers.ResponseDecoder
 import org.apache.jmeter.samplers.ResponseDecoderRegistry
 import org.apache.jmeter.samplers.SampleResult
@@ -46,7 +48,10 @@ class HTTPDecoderOwnershipTest {
             DeflaterOutputStream(this).use { it.write(original) }
         }.toByteArray()
         val brotli = Base64.getDecoder().decode("G/+nAARqcqTH+vvtjQo4TjiU6pbbqvqwcsuZSj8B+KkGAA==")
-        for ((decoder, compressed) in listOf(DeflateDecoder() to deflate, BrotliDecoder() to brotli)) {
+        val zstd = ByteArrayOutputStream().apply {
+            ZstdOutputStream(this).use { it.write(original) }
+        }.toByteArray()
+        for ((decoder, compressed) in listOf(DeflateDecoder() to deflate, BrotliDecoder() to brotli, ZstdDecoder() to zstd)) {
             var decoderClosed = false
             var inputClosed = false
             val encoding = "test-decoder-ownership-${UUID.randomUUID()}"
