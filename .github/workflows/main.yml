@@ -5,7 +5,7 @@ name: CI
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
 
 permissions:
@@ -14,10 +14,9 @@ permissions:
 # https://help.github.com/en/actions/automating-your-workflow-with-github-actions/software-installed-on-github-hosted-runners
 
 concurrency:
-  # On master/release, we don't want any jobs cancelled so the sha is used to name the group
-  # On PR branches, we cancel the job if new commits are pushed
+  # Preserve each main push; cancel superseded runs of the same PR.
   # More info: https://stackoverflow.com/a/68422069/253468
-  group: ${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release' ) && format('ci-main-{0}', github.sha) || format('ci-main-{0}', github.ref) }}
+  group: ${{ github.event_name == 'push' && format('ci-main-{0}', github.sha) || format('ci-main-{0}', github.ref) }}
   cancel-in-progress: true
 
 jobs:
@@ -64,8 +63,8 @@ jobs:
         java-version: |
           ${{ matrix.non_ea_java_version }}
           21
+        # Use the runner architecture (native ARM64 on macOS).
         distribution: ${{ matrix.java_distribution }}
-        architecture: x64
     - name: Steps to reproduce
       uses: actions/github-script@v8
       with:
