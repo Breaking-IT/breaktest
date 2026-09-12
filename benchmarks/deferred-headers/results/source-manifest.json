@@ -1,0 +1,27 @@
+{
+  "base": "f6b0c11dc3cb8320c6e086e56cf3452f34e210a7",
+  "jdk": "21.0.5+9-LTS-239",
+  "hardware": "Apple M4 Pro",
+  "os": "macOS 26.6.2 (25G83)",
+  "measuredSourceSha256": {
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderRetentionProbe.java": "470ea961a47acc1c8985f270c8f28e9956212ce8c91591f87c36a30181e73e19",
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderProcessCpuProfiler.java": "7e37f8ecb234d6d31faf24c0a8da2741e08c0cbde9d76a0733ed58eaafbde237",
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderCaptureBenchmark.java": "a794e5ea8da9ea430f857ae154cc56c4602f05f63f5e5df9b91c0a8c6318d338",
+    "src/core/src/main/java/org/apache/jmeter/samplers/SampleResult.java": "0227f046a8fb4a0db9130da7fea79ad4e23d3974e53146ccd93fead4ac887474",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/DeferredHttpHeaders.java": "1d99523f25d6e48b04a655656a1546ed164131f850d328ff734f01504cbb753e",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPHC5Impl.java": "958de471ffe04af2a5ac11408e630094d4521aea538502d0de2465a69fdbbcf8",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPHC5H2Impl.java": "bf3f24759a28560647c86abffd20ae5ae16fe3fabdb735f5752a1eb98d968f64",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPSampleResult.java": "a25e0f41684f329f30e43402f990ae3402b9ed87c9ce3ae83f5768e6d95cb254"
+  },
+  "finalSourceSha256": {
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderRetentionProbe.java": "470ea961a47acc1c8985f270c8f28e9956212ce8c91591f87c36a30181e73e19",
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderProcessCpuProfiler.java": "7e37f8ecb234d6d31faf24c0a8da2741e08c0cbde9d76a0733ed58eaafbde237",
+    "src/protocol/http/src/jmh/java/org/apache/jmeter/protocol/http/sampler/HeaderCaptureBenchmark.java": "a794e5ea8da9ea430f857ae154cc56c4602f05f63f5e5df9b91c0a8c6318d338",
+    "src/core/src/main/java/org/apache/jmeter/samplers/SampleResult.java": "0227f046a8fb4a0db9130da7fea79ad4e23d3974e53146ccd93fead4ac887474",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/DeferredHttpHeaders.java": "1d99523f25d6e48b04a655656a1546ed164131f850d328ff734f01504cbb753e",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPHC5Impl.java": "7fd920bfa6f89632ac1f3d2db914a3730c7856a5f73ffbeaf885c75a4519a69b",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPHC5H2Impl.java": "c2530e2bfbd186aeec6da6dfd99d27582231bc65a794c131f265f88f0cdd528f",
+    "src/protocol/http/src/main/java/org/apache/jmeter/protocol/http/sampler/HTTPSampleResult.java": "a25e0f41684f329f30e43402f990ae3402b9ed87c9ce3ae83f5768e6d95cb254"
+  },
+  "finalChangeAfterTiming": "Missing-Location redirect accounting fix, default enabled with explicit opt-out, and license headers. Timed capture/getter/snapshot algorithm unchanged; benchmark uses explicit eager/deferred parameters."
+}

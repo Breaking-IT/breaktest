@@ -18,6 +18,7 @@
 package org.apache.jmeter.samplers;
 
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
@@ -408,11 +409,11 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         setSourceTestElementPath(res.getSourceTestElementPath());
         parent = res.parent;
         pauseTime = res.pauseTime;
-        requestHeaders = res.requestHeaders;//OK
+        requestHeaders = res.getRequestHeaders();
         responseCode = res.responseCode;//OK
         responseData = res.responseData;//OK
         responseDataAsString = null;
-        responseHeaders = res.responseHeaders;//OK
+        responseHeaders = res.getResponseHeaders();
         responseMessage = res.responseMessage;//OK
 
         // Don't copy this; it is per instance resultFileName = res.resultFileName;
@@ -1058,8 +1059,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         sb.append(", samplerData='").append(samplerData).append('\'');
         sb.append(", threadName='").append(threadName).append('\'');
         sb.append(", responseMessage='").append(responseMessage).append('\'');
-        sb.append(", responseHeaders='").append(responseHeaders).append('\'');
-        sb.append(", requestHeaders='").append(requestHeaders).append('\'');
+        sb.append(", responseHeaders='").append(getResponseHeaders()).append('\'');
+        sb.append(", requestHeaders='").append(getRequestHeaders()).append('\'');
         sb.append(", timeStamp=").append(timeStamp);
         sb.append(", startTime=").append(startTime);
         sb.append(", endTime=").append(endTime);
@@ -1173,6 +1174,13 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
 
     public void setStopThread(boolean b) {
         stopThread = b;
+    }
+
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        // Subclasses can defer diagnostic formatting. Keep the existing serialized String fields.
+        requestHeaders = getRequestHeaders();
+        responseHeaders = getResponseHeaders();
+        out.defaultWriteObject();
     }
 
     /**
