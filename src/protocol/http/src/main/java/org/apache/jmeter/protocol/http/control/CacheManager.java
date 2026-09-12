@@ -185,7 +185,8 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
             String cacheControl = conn.getHeaderField(HTTPConstants.CACHE_CONTROL);
             String date = conn.getHeaderField(HTTPConstants.DATE);
             if (anyNotBlank(lastModified, expires, etag, cacheControl)) {
-                setCache(lastModified, cacheControl, expires, etag, url, date, getVaryHeader(varyHeader, asHeaders(res.getRequestHeaders())));
+                setCache(lastModified, cacheControl, expires, etag, url, date,
+                        varyHeader == null ? null : getVaryHeader(varyHeader, asHeaders(res.getRequestHeaders())));
             }
         }
     }
@@ -236,7 +237,7 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
             String date = getHeader(method, HTTPConstants.DATE);
             if (anyNotBlank(lastModified, expires, etag, cacheControl)) {
                 setCache(lastModified, cacheControl, expires, etag,
-                        res.getUrlAsString(), date, getVaryHeader(varyHeader,
+                        res.getUrlAsString(), date, varyHeader == null ? null : getVaryHeader(varyHeader,
                                 asHeaders(res.getRequestHeaders()))); // TODO correct URL?
             }
         }
