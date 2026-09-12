@@ -1,5 +1,0 @@
-2026-09-12T07:31:03.518051Z main ERROR Error processing element GuiLogEvent ([Appenders: null]): CLASS_NOT_FOUND
-2026-09-12T07:31:03.551096Z main ERROR Unable to locate appender "gui-log-event" for logger config "root"
-2026-09-12T07:31:04.244094Z main ERROR Error processing element GuiLogEvent ([Appenders: null]): CLASS_NOT_FOUND
-2026-09-12T07:31:04.277545Z main ERROR Unable to locate appender "gui-log-event" for logger config "root"
-baselineResultShallowBytes=248
