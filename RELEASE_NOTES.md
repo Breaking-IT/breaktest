@@ -13,30 +13,101 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
-# Unreleased — Sampler TLS compatibility
+# BreakTest 2026.09.13 — HAR Uploads, Shared Correlation Rules, and HTTP Improvements
 
-**HTTP/2 samplers now ignore certificate hostname mismatches**, matching
-HTTP/1.1. Tests that previously relied on HTTP/2 rejecting a wrong-host
-certificate will no longer receive that validation failure.
+This release improves replaying recorded file uploads, adds import and export
+for custom correlation rules, and fixes response handling and result navigation.
+It also reduces HTTP processing overhead and expands HTTP/3 compatibility with
+test certificates and client-certificate authentication.
 
-HTTP/3 ignores certificate-chain errors by default, including expired test
-certificates, and uses JMeter's configured client certificates on the normal
-connection path. The updater retains certificate and hostname verification.
+## HAR Uploads and Correlation Rules
 
-The HTTP/3 certificate retry requires TCP TLS at the original origin with a
-matching certificate. It cannot rescue certificate failures at a different
-origin reached through automatic redirects. The failed handshake, TCP probe,
-and retry contribute to the sample's elapsed time.
+- **Replay browser-captured file uploads.** HAR import recognizes multipart
+  uploads and preserves filenames, field names, and content types. When the HAR
+  includes supported browser upload captures, import binary and empty files
+  into the JMX archive, save them to the working directory, or keep filename
+  references only. Missing or ambiguous captures produce warnings.
+- Reuse identical captured files and give different files with the same name
+  distinct archive filenames. Archived upload references now resolve even
+  before the imported plan has been saved.
+- **Share custom correlation rules as JSON** through **Tools → Try Predefined
+  Correlations**, with import, export, and a custom-rules-only filter. Reimporting
+  updates matching rule IDs without duplicating them or removing unrelated rules.
+- Fix custom correlation selection after opening another JMX, so the dialog
+  uses the loaded plan's archived rules and imports into the correct plan.
 
-Hostname handling for the JDK HTTP client uses the process-wide
-`jdk.internal.httpclient.disableHostnameVerification=true` setting in
-`bin/system.properties`. This also affects JDK clients created by plugins and
-JSR223 scripts. Embedded applications and test runners that do not load that
-file must pass `-Djdk.internal.httpclient.disableHostnameVerification=true`
-**at JVM startup**, before any JDK HTTP client is initialized, to get the same
-sampler behavior. Without it, wrong-host certificates can still fail after a
-probe and retry. Security-sensitive JDK clients must explicitly enable HTTPS
-endpoint identification, as the updater does.
+Sources: [#140](https://github.com/Breaking-IT/breaktest/pull/140),
+[#142](https://github.com/Breaking-IT/breaktest/pull/142).
+
+## Fixes and Usability
+
+- **Keep response bodies available to assertions and extractors during normal
+  runs.** HTTP samplers configured with **Fetch and discard** or **Store on
+  error** automatically retain bodies when assertions or post-processors apply,
+  including inherited elements. Saved settings and explicit checksum modes
+  remain unchanged.
+- Navigate from redirect and embedded-resource subresults to their originating
+  sampler using **Jump to** or double-click in either Results Tree view.
+- Fix the **fast JMX loading** setting so it takes effect. Expose additional
+  controls in **Options → Settings**, including extractor preview timeouts,
+  custom correlation files, class-discovery caching, UDP receive limits,
+  HTTP/2 closed-session retries, and the long-line response display guard.
+
+Sources: [#138](https://github.com/Breaking-IT/breaktest/pull/138),
+[#143](https://github.com/Breaking-IT/breaktest/pull/143),
+[#145](https://github.com/Breaking-IT/breaktest/pull/145).
+
+## HTTP Performance and Resource Use
+
+- Reduce temporary allocations when decoding gzip, Deflate, Brotli, and
+  Zstandard responses. Release decoder resources promptly, including when
+  calculating checksums of decoded responses.
+- Format diagnostic request and response headers only when a consumer reads
+  them, by default across HC5 HTTP/1.1 and HTTP/2 and the Java HTTP/3 client.
+  This reduces unnecessary work when headers are unused; workloads that
+  frequently read small headers may benefit from disabling the option under
+  **Options → Settings → HttpClient5** and restarting BreakTest.
+- Avoid unnecessary request-header parsing when caching responses without a
+  `Vary` header.
+- Let compatible backend-listener plugins opt into reusing a static sample
+  context, reducing per-sample allocations. Existing plugins retain their
+  current behavior unless they opt in.
+
+Sources: [#137](https://github.com/Breaking-IT/breaktest/pull/137),
+[#139](https://github.com/Breaking-IT/breaktest/pull/139),
+[#144](https://github.com/Breaking-IT/breaktest/pull/144),
+[#145](https://github.com/Breaking-IT/breaktest/pull/145),
+[#146](https://github.com/Breaking-IT/breaktest/pull/146).
+
+## HTTP/3 and TLS Compatibility
+
+- Support HTTP/3 test targets with self-signed or expired certificates through
+  a certificate retry, and use configured client certificates on the normal
+  HTTP/3 connection path for mutual TLS.
+- **HTTP/2 samplers now ignore certificate hostname mismatches**, matching
+  HTTP/1.1. Tests that relied on rejecting a wrong-host certificate will no
+  longer receive that validation failure. The updater retains certificate and
+  hostname verification.
+- HTTP/3 certificate retries require TCP TLS at the original origin with a
+  matching certificate. They cannot recover certificate failures at a different
+  origin reached through automatic redirects. The initial handshake failure,
+  TCP probe, and retry count toward sample elapsed time.
+- The JDK hostname setting in `bin/system.properties` also affects JDK HTTP
+  clients in plugins and JSR223 scripts. Embedded applications and test runners
+  that do not load that file must pass
+  `-Djdk.internal.httpclient.disableHostnameVerification=true` at JVM startup,
+  before any JDK HTTP client initializes, to obtain the same sampler behavior.
+  Security-sensitive JDK clients must explicitly enable HTTPS endpoint
+  identification.
+- Java 21 or later remains required; HTTP/3 over QUIC requires Java 26 or later.
+  Automatic HTTP/3 discovery remains opt-in.
+
+Source: [#141](https://github.com/Breaking-IT/breaktest/pull/141).
+
+Also includes test and CI reliability improvements across Linux, macOS, and
+Windows, with expanded Java 26 and HTTP/3 coverage.
+
+[Full changelog since 2026.09.07](https://github.com/Breaking-IT/breaktest/compare/2026.09.07...e0e2f67ac668bd8d78b13f5a754c64a4eb799829)
 
 # BreakTest 2026.09.07 — Portable Files, CSV Editing, and Correlation Tools
 
