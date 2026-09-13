@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 
-plugins {
-    id("build-logic.kotlin-dsl-gradle-plugin")
-}
+package org.apache.jmeter.buildtools.testing
 
-dependencies {
-    api(projects.basics)
-    implementation("org.ajoberstar.grgit:grgit-gradle:5.3.3")
-    implementation("org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r")
+import org.gradle.api.provider.MapProperty
+
+/** Opt-in external tests: boolean flags match "true"; paths/URLs match non-empty values. */
+abstract class TestEnvironmentInputs {
+    abstract val flags: MapProperty<String, String>
+    abstract val paths: MapProperty<String, String>
+
+    init {
+        flags.convention(emptyMap())
+        paths.convention(emptyMap())
+    }
 }

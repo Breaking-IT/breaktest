@@ -66,7 +66,20 @@ class UpdateInstallerTest {
                 UpdateInstallerRestartProbe.class.getName(), restartMarker.toString());
 
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Standalone updater did not exit");
+        try {
+            assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Standalone updater did not exit");
+        } catch (Exception | AssertionError failure) {
+            try {
+                if (process.isAlive()) {
+                    process.descendants().forEach(ProcessHandle::destroyForcibly);
+                    process.destroyForcibly();
+                    assertTrue(process.waitFor(10, TimeUnit.SECONDS), "Standalone updater did not terminate");
+                }
+            } catch (Exception | AssertionError cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
+        }
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, process.exitValue(), output);
         assertEquals("new launcher", Files.readString(home.resolve("bin/breaktest.jar")));
@@ -77,6 +90,24 @@ class UpdateInstallerTest {
             Thread.sleep(25);
         }
         assertTrue(Files.exists(restartMarker), "Standalone updater did not launch the restart command");
+        // The marker proves startup, not termination. Wait for the probe to release its
+        // classpath JAR before JUnit removes the temporary directory (required on Windows).
+        ProcessHandle restart = ProcessHandle.of(Long.parseLong(Files.readString(restartMarker))).orElse(null);
+        if (restart != null) {
+            try {
+                restart.onExit().get(10, TimeUnit.SECONDS);
+            } catch (Exception failure) {
+                try {
+                    if (restart.isAlive()) {
+                        restart.destroyForcibly();
+                        restart.onExit().get(10, TimeUnit.SECONDS);
+                    }
+                } catch (Exception cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
+        }
     }
 
     @Test

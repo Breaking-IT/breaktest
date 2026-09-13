@@ -28,11 +28,14 @@ jobs:
     env:
       # Random Windows/macOS jobs; matrix.mjs also adds one fixed Linux job.
       MATRIX_JOBS: 5
+      # Keep each PR reproducible; different PRs still sample different rows.
+      GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
         run: |
           npm ci --prefix .github/workflows
+          node --test .github/workflows/trim-gradle-cache.test.mjs
           node .github/workflows/matrix.mjs
 
   test:
@@ -42,6 +45,8 @@ jobs:
     env:
       TZ: ${{ matrix.tz }}
       BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '26' && 'true' || 'false' }}
+      # Bound project concurrency; keep the existing test forks and JUnit isolation.
+      GRADLE_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
@@ -56,15 +61,40 @@ jobs:
       with:
         website: ${{ matrix.oracle_java_website }}
         release: ${{ matrix.java_version }}
-    - name: Set up Java 21 and ${{ matrix.non_ea_java_version }}, ${{ matrix.java_distribution }}
+    - name: Set up test JDK ${{ matrix.non_ea_java_version }}, ${{ matrix.java_distribution }}
+      if: ${{ matrix.oracle_java_website == '' }}
       uses: actions/setup-java@v5
       with:
-        # The latest one will be the default, so we use Java 21 for launching Gradle
-        java-version: |
-          ${{ matrix.non_ea_java_version }}
-          21
-        # Use the runner architecture (native ARM64 on macOS).
+        java-version: ${{ matrix.non_ea_java_version }}
         distribution: ${{ matrix.java_distribution }}
+    - name: Remember test JDK location
+      shell: bash
+      run: echo "BREAKTEST_TEST_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+    - name: Set up build JDK 21, Temurin
+      uses: actions/setup-java@v5
+      with:
+        # Compile with one vendor across matrix rows; tests select their own toolchain.
+        java-version: 21
+        distribution: temurin
+    - name: Restore documentation dependencies
+      id: docs-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: xdocs/node_modules
+        # Include the install definition (Node/Yarn versions and flags) as well as the lockfile.
+        key: docs-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('xdocs/package.json', 'xdocs/yarn.lock', 'src/dist/build.gradle.kts') }}
+    - name: Restore Gradle task cache
+      id: gradle-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
+        restore-keys: |
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+    - name: Reset restored Gradle cache cleanup metadata
+      shell: bash
+      run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
     - name: Start virtual display for Linux GUI tests
       if: runner.os == 'Linux'
       shell: bash
@@ -91,28 +121,69 @@ jobs:
       uses: actions/github-script@v8
       with:
         script: |
-          console.log('The following command might help reproducing CI results, use Java ${{ matrix.java_version }}')
-          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
+      id: build
       with:
-        job-id: jdk${{ matrix.java_version }}
+        # All rows compile with the same JDK. The action adds the runner OS to this key.
+        job-id: build-jdk21
+        # Restore the local cache in bulk instead of downloading/unpacking each task
+        # entry through the remote proxy (particularly expensive on Windows).
+        remote-build-cache-proxy-enabled: false
+        # actions/cache can bootstrap a PR snapshot without a default-branch cache.
+        save-local-build-cache: false
         multi-cache-enabled: false
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
-        arguments: --scan --no-parallel --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        # Separate projects can overlap, including the isolated JMS/local batch groups.
+        # Protocol batch tasks within src:dist-check retain serial execution.
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
+          docsDependenciesCached=${{ steps.docs-cache.outputs.cache-hit == 'true' }}
+          testParallelism=2
+          splitHttp3LiveTests=true
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
           jdkBuildVersion=21
+          jdkBuildVendor=eclipse
           jdkTestVersion=${{ matrix.java_version }}
           jdkTestVendor=${{ matrix.java_vendor }}
+          # Keep a second JDK 21 vendor discoverable after setup-java switches JAVA_HOME.
+          org.gradle.java.installations.fromEnv=BREAKTEST_TEST_JAVA_HOME,JAVA_HOME
           # We have a separate job with Errorprone verifications, so avoid duplicate warnings
           enableErrorprone=false
           # We provision JDKs with GitHub Actions for caching purposes, so Gradle should rather fail in case JDK is not found
           org.gradle.java.installations.auto-download=false
       env:
-        _JAVA_OPTIONS: ${{ matrix.extraJvmArgs }}
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    - name: Save documentation dependencies
+      # One writer per OS avoids races; only save a fully successful installation/build.
+      if: ${{ !cancelled() && matrix.docs_cache_writer && steps.docs-cache.outputs.cache-hit != 'true' && steps.build.outcome == 'success' }}
+      uses: actions/cache/save@v6
+      with:
+        path: xdocs/node_modules
+        key: ${{ steps.docs-cache.outputs.cache-primary-key }}
+    - name: Bound Gradle cache snapshot size
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      run: node .github/workflows/trim-gradle-cache.mjs
+    - name: Save completed Gradle task outputs
+      # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+
+    - name: Upload build timings
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-timings-${{ strategy.job-index }}
+        path: build/reports/profile/
+        if-no-files-found: ignore
+        retention-days: 14
 
   errorprone:
     name: 'Error Prone (JDK 21)'
@@ -123,12 +194,36 @@ jobs:
       uses: actions/setup-java@v5
       with:
         java-version: 21
-        distribution: 'zulu'
+        distribution: 'temurin'
+    - name: Restore Gradle task cache
+      id: gradle-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}-${{ github.run_attempt }}
+        restore-keys: |
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+    - name: Reset restored Gradle cache cleanup metadata
+      shell: bash
+      run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
         job-id: errprone
+        remote-build-cache-proxy-enabled: false
+        save-local-build-cache: false
         multi-cache-enabled: false
-        arguments: --scan --no-parallel --no-daemon classes
+        arguments: --scan --parallel --max-workers=4 --no-daemon classes
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    - name: Bound Gradle cache snapshot size
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      run: node .github/workflows/trim-gradle-cache.mjs
+    - name: Save completed Gradle task outputs
+      # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: ${{ steps.gradle-cache.outputs.cache-primary-key }}

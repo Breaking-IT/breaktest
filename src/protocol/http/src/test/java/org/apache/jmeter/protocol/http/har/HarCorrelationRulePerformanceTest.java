@@ -18,7 +18,10 @@
 package org.apache.jmeter.protocol.http.har;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.util.List;
 
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
@@ -28,22 +31,32 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.oro.text.regex.PatternMatcherInput;
 import org.apache.oro.text.regex.Perl5Compiler;
 import org.apache.oro.text.regex.Perl5Matcher;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Built-in expressions run on every response of every sample, so a badly shaped one costs the load
- * generator real CPU. These bounds are far above the measured cost (tenths of a millisecond on a
- * 100 KB page) and only fail for an expression that scans the body more than once per position.
+ * generator real CPU. Measure warmed-up scans in thread CPU time so other Gradle workers and
+ * JIT compiler threads cannot consume the budget while this test is descheduled.
  */
 class HarCorrelationRulePerformanceTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(HarCorrelationRulePerformanceTest.class);
+    private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
 
     private static final int BODY_SIZE = 100 * 1024;
     private static final long REALISTIC_BUDGET_MS = 100;
     private static final long HOSTILE_BUDGET_MS = 500;
+
+    @BeforeAll
+    static void enableThreadCpuTiming() {
+        assumeTrue(THREADS.isCurrentThreadCpuTimeSupported(), "Thread CPU timing is required");
+        if (!THREADS.isThreadCpuTimeEnabled()) {
+            THREADS.setThreadCpuTimeEnabled(true);
+        }
+    }
 
     @Test
     void bodyExpressionsStayCheapOnALargePage() {
@@ -72,11 +85,13 @@ class HarCorrelationRulePerformanceTest {
     }
 
     private static void assertWithinBudget(Rule rule, String body, long budgetMs, String description) {
-        long start = System.nanoTime();
+        // Resolve the pattern and exercise the matching path before measuring steady-state cost.
         scan(rule, body);
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+        long start = THREADS.getCurrentThreadCpuTime();
+        scan(rule, body);
+        long elapsedMs = (THREADS.getCurrentThreadCpuTime() - start) / 1_000_000;
         assertTrue(elapsedMs < budgetMs,
-                () -> rule.getId() + " took " + elapsedMs + "ms on " + description
+                () -> rule.getId() + " took " + elapsedMs + "ms CPU time on " + description
                         + ", budget is " + budgetMs + "ms: " + rule.getExpression());
     }
 

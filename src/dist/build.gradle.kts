@@ -417,7 +417,17 @@ val yarn_install = tasks.named<YarnTask>("yarn_install") {
     workingDir = xdocs
     mustRunAfter(":rat")
     inputs.file(xdocs.file("package.json")).withPropertyName("package_json").withPathSensitivity(PathSensitivity.NONE)
-    outputs.file(xdocs.file("yarn.lock")).withPropertyName("yarn.lock")
+    args = listOf("--frozen-lockfile", "--ignore-scripts")
+    inputs.file(xdocs.file("yarn.lock")).withPropertyName("yarn_lock").withPathSensitivity(PathSensitivity.NONE)
+    inputs.property("nodeVersion", node.version)
+    inputs.property("yarnVersion", node.yarnVersion)
+    inputs.property("operatingSystem", System.getProperty("os.name"))
+    inputs.property("architecture", System.getProperty("os.arch"))
+    // CI restores this large, static directory separately from per-row Gradle caches.
+    val restored = providers.gradleProperty("docsDependenciesCached").map { it.toBoolean() }.orElse(false)
+    onlyIf("Documentation dependencies were not restored") {
+        !restored.get() || !xdocs.file("node_modules/.yarn-integrity").asFile.isFile
+    }
     outputs.dir(xdocs.dir("node_modules")).withPropertyName("node_modules")
 }
 

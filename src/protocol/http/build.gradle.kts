@@ -15,9 +15,51 @@
  * limitations under the License.
  */
 
+import org.apache.jmeter.buildtools.testing.TestEnvironmentInputs
+
 plugins {
     id("java-test-fixtures")
     id("build-logic.jvm-published-library")
+}
+
+// Keep direct `test --tests ...` invocations compatible; CI opts into the split.
+val splitHttp3LiveTests = providers.gradleProperty("splitHttp3LiveTests").map { it.toBoolean() }.orElse(false)
+val liveHttp3 = providers.environmentVariable("BREAKTEST_HTTP3_LIVE").orElse("")
+extensions.configure<TestEnvironmentInputs> {
+    listOf(
+        "BREAKTEST_HTTP2_LIVE", "BREAKTEST_HTTP_LIVE", "BREAKTEST_HTTP3_LIVE",
+        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
+    ).forEach { flags.put(it, providers.environmentVariable(it).orElse("")) }
+    listOf(
+        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
+    ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
+}
+
+tasks.test {
+    if (splitHttp3LiveTests.get()) {
+        useJUnitPlatform { excludeTags("live-http3") }
+        extensions.configure<TestEnvironmentInputs> {
+            // The excluded workload runs in http3LiveTest with the real flag value.
+            flags.put("BREAKTEST_HTTP3_LIVE", "")
+        }
+    }
+}
+
+val http3LiveTest by tasks.registering(Test::class) {
+    description = "Runs the opt-in live HTTP/3 checks separately from the reusable HTTP suite"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform { includeTags("live-http3") }
+    onlyIf { liveHttp3.get() == "true" }
+    // Avoid overlapping global/network-sensitive HTTP suites within this project.
+    mustRunAfter(tasks.test)
+}
+
+tasks.check {
+    if (splitHttp3LiveTests.get()) {
+        dependsOn(http3LiveTest)
+    }
 }
 
 dependencies {

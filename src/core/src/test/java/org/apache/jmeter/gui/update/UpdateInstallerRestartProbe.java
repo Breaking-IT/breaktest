@@ -26,6 +26,9 @@ public final class UpdateInstallerRestartProbe {
     }
 
     public static void main(String[] args) throws Exception {
-        Files.writeString(Path.of(args[0]), "restarted");
+        Path marker = Path.of(args[0]);
+        Path pending = marker.resolveSibling(marker.getFileName() + ".pending");
+        Files.writeString(pending, Long.toString(ProcessHandle.current().pid()));
+        Files.move(pending, marker, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
     }
 }

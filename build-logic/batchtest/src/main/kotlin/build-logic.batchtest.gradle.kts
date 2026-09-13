@@ -14,3 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import org.apache.jmeter.buildtools.batchtest.BatchTest
+
+plugins {
+    `jvm-toolchains`
+    id("build-logic.build-params")
+}
+
+tasks.withType<BatchTest>().configureEach {
+    buildParameters.testJdk?.let {
+        javaLauncher.convention(javaToolchains.launcherFor(it))
+    }
+    userLanguage.convention(providers.gradleProperty("testLanguage").orElse("en"))
+    userCountry.convention(providers.gradleProperty("testCountry").orElse("US"))
+    providers.gradleProperty("testExtraJvmArgs").orNull?.trim()?.takeIf { it.isNotEmpty() }?.let {
+        jvmArgs(it.split(" ::: "))
+    }
+}

@@ -38,10 +38,17 @@ tasks.configureEach<Test> {
     useJUnitPlatform()
     // Pass the property to tests
     fun passProperty(name: String, default: String? = null) {
-        val value = System.getProperty(name) ?: default
+        val value = providers.systemProperty(name).orNull ?: default
         value?.let { systemProperty(name, it) }
     }
     passProperty("junit.jupiter.execution.parallel.enabled", "true")
+    providers.gradleProperty("testParallelism").orNull?.let {
+        require(it.toInt() > 0) { "testParallelism must be positive" }
+        // CI overlaps projects; do not multiply each worker by the runner CPU count.
+        systemProperty("junit.jupiter.execution.parallel.config.strategy", "fixed")
+        systemProperty("junit.jupiter.execution.parallel.config.fixed.parallelism", it)
+        systemProperty("junit.jupiter.execution.parallel.config.fixed.max-pool-size", it)
+    }
     passProperty("junit.jupiter.execution.timeout.threaddump.enabled", "true")
     passProperty("junit.jupiter.execution.timeout.default", "2 m")
 }

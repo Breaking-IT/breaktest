@@ -38,6 +38,7 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
 import org.apache.jmeter.util.SSLManager;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -497,6 +498,7 @@ public class TestHTTPJavaHttp3Impl {
     }
 
     @Test
+    @Tag("live-http3")
     @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_LIVE", matches = "true")
     public void preferredModeUpgradesToHttp3AfterAltSvcDiscovery() throws Exception {
         // Browser-like behavior: a fresh client's first request runs over TCP (HTTP/2 or
@@ -536,6 +538,7 @@ public class TestHTTPJavaHttp3Impl {
     }
 
     @Test
+    @Tag("live-http3")
     @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_LIVE", matches = "true")
     public void http3SamplesLiveEndpointOnSupportedRuntime() {
         // Requires a Java 26+ test JVM (-PjdkTestVersion=26) and network access to an

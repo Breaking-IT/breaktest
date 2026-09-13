@@ -246,7 +246,6 @@ class TestSampleResult implements JMeterSerialTest {
         child1.setSampleLabel("Child1 Sample");
         child1.setSuccessful(true);
         child1.sampleEnd();
-        long child1Elapsed = child1.getTime();
 
         Assertions.assertTrue(child1.isSuccessful());
         Assertions.assertEquals(100, child1.getBytesAsLong());
@@ -254,11 +253,8 @@ class TestSampleResult implements JMeterSerialTest {
         Assertions.assertEquals(1, child1.getSampleCount());
         Assertions.assertEquals(0, child1.getSubResults().length);
 
-        long actualPause = 0;
         if (pause > 0) {
-            long t1 = parent.currentTimeInMillis();
             Thread.sleep(pause);
-            actualPause = parent.currentTimeInMillis() - t1;
         }
 
         // Sample with no sub results, simulates an image download
@@ -268,8 +264,11 @@ class TestSampleResult implements JMeterSerialTest {
         child2.setBytes(200L);
         child2.setSampleLabel("Child2 Sample");
         child2.setSuccessful(true);
+        // Bound the child end in the parent's clock domain. Scheduling delays between
+        // samples or assertions are not part of the sample and have no fixed upper bound.
+        long child2EndBefore = parent.currentTimeInMillis();
         child2.sampleEnd();
-        long child2Elapsed = child2.getTime();
+        long child2EndAfter = parent.currentTimeInMillis();
 
         Assertions.assertTrue(child2.isSuccessful());
         Assertions.assertEquals(200, child2.getBytesAsLong());
@@ -289,28 +288,13 @@ class TestSampleResult implements JMeterSerialTest {
 
         long overallTime = parent.currentTimeInMillis() - beginTest;
 
-        long sumSamplesTimes = parentElapsed + child1Elapsed + actualPause + child2Elapsed;
-
-        /*
-         * Parent elapsed total should be no smaller than the sum of the individual samples.
-         * It may be greater by the timer granularity.
-         */
-
-        long diff = parentElapsedTotal - sumSamplesTimes;
-        long maxDiff = nanoTime ? 10 : 16; // TimeMillis has granularity of 10-20
-        if (diff < 0 || diff > maxDiff) {
-            Assertions.fail("ParentElapsed: " + parentElapsedTotal + " - " + " sum(samples): " + sumSamplesTimes
-                    + " => " + diff + " not in [0," + maxDiff + "]; nanotime=" + nanoTime);
-        }
-
-        // The overall time to run the test must be no less than,
-        // and may be greater (but not much greater) than the parent elapsed time
-
-        diff = overallTime - parentElapsedTotal;
-        if (diff < 0 || diff > maxDiff) {
-            Assertions.fail("TestElapsed: " + overallTime + " - " + " ParentElapsed: " + parentElapsedTotal
-                    + " => " + diff + " not in [0," + maxDiff + "]; nanotime=" + nanoTime);
-        }
+        Assertions.assertTrue(parent.getEndTime() >= child2EndBefore,
+                "Parent must extend through the second child's end");
+        Assertions.assertTrue(parent.getEndTime() <= child2EndAfter,
+                "Parent must not extend beyond the second child's end");
+        Assertions.assertEquals(parent.getEndTime() - parent.getStartTime(), parentElapsedTotal);
+        Assertions.assertTrue(overallTime >= parentElapsedTotal,
+                "Overall test time must include the parent sample interval");
 
         // Check that calculator gets the correct statistics from the sample
         Calculator calculator = new Calculator();
