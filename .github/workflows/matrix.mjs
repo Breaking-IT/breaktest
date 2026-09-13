@@ -164,6 +164,13 @@ include.push({
   testDisableCaching: '',
 });
 
+// Static documentation dependencies need one shared snapshot per OS, not per row/attempt.
+const docsCacheWriters = new Set();
+include.forEach(row => {
+  row.docs_cache_writer = !docsCacheWriters.has(row.os);
+  docsCacheWriters.add(row.os);
+});
+
 console.log(include);
 
 let filePath = process.env['GITHUB_OUTPUT'] || '';

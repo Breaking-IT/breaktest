@@ -423,8 +423,11 @@ val yarn_install = tasks.named<YarnTask>("yarn_install") {
     inputs.property("yarnVersion", node.yarnVersion)
     inputs.property("operatingSystem", System.getProperty("os.name"))
     inputs.property("architecture", System.getProperty("os.arch"))
-    // The locked dependencies contain only documentation fonts/CSS; no install scripts.
-    outputs.cacheIf("Documentation dependencies are pinned by yarn.lock") { true }
+    // CI restores this large, static directory separately from per-row Gradle caches.
+    val restored = providers.gradleProperty("docsDependenciesCached").map { it.toBoolean() }.orElse(false)
+    onlyIf("Documentation dependencies were not restored") {
+        !restored.get() || !xdocs.file("node_modules/.yarn-integrity").asFile.isFile
+    }
     outputs.dir(xdocs.dir("node_modules")).withPropertyName("node_modules")
 }
 

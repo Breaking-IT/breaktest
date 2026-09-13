@@ -38,7 +38,7 @@ tasks.configureEach<Test> {
     useJUnitPlatform()
     // Pass the property to tests
     fun passProperty(name: String, default: String? = null) {
-        val value = System.getProperty(name) ?: default
+        val value = providers.systemProperty(name).orNull ?: default
         value?.let { systemProperty(name, it) }
     }
     passProperty("junit.jupiter.execution.parallel.enabled", "true")

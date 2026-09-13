@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+import org.apache.jmeter.buildtools.testing.TestEnvironmentInputs
+
 plugins {
     id("java-test-fixtures")
     id("build-logic.jvm-published-library")
@@ -22,39 +24,24 @@ plugins {
 
 // Keep direct `test --tests ...` invocations compatible; CI opts into the split.
 val splitHttp3LiveTests = providers.gradleProperty("splitHttp3LiveTests").map { it.toBoolean() }.orElse(false)
-val liveHttp3Methods = listOf(
-    "org.apache.jmeter.protocol.http.sampler.TestHTTPJavaHttp3Impl.http3SamplesLiveEndpointOnSupportedRuntime",
-    "org.apache.jmeter.protocol.http.sampler.TestHTTPJavaHttp3Impl.preferredModeUpgradesToHttp3AfterAltSvcDiscovery"
-)
-val httpTestEnvironment = listOf(
-    "BREAKTEST_HTTP2_LIVE", "BREAKTEST_HTTP_LIVE", "BREAKTEST_HTTP3_LIVE",
-    "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK",
-    "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
-).associateWith { providers.environmentVariable(it).orElse("") }
-
-tasks.withType<Test>().configureEach {
-    httpTestEnvironment.forEach { (name, value) -> inputs.property(name, value) }
-    // An unchanged URL/path does not mean unchanged endpoint or fixture contents.
-    val externalTestsEnabled = provider {
-        httpTestEnvironment.any { (variable, value) ->
-            if (variable == "BREAKTEST_HTTP3_LIVE" && name == "test" && splitHttp3LiveTests.get()) {
-                false
-            } else if (variable.endsWith("_LIVE") || variable.endsWith("_BENCHMARK")) {
-                value.get() == "true"
-            } else {
-                value.get().isNotEmpty()
-            }
-        }
-    }
-    outputs.doNotCacheIf("External HTTP tests must execute against current endpoints/fixtures") {
-        externalTestsEnabled.get()
-    }
-    outputs.upToDateWhen { !externalTestsEnabled.get() }
+val liveHttp3 = providers.environmentVariable("BREAKTEST_HTTP3_LIVE").orElse("")
+extensions.configure<TestEnvironmentInputs> {
+    listOf(
+        "BREAKTEST_HTTP2_LIVE", "BREAKTEST_HTTP_LIVE", "BREAKTEST_HTTP3_LIVE",
+        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
+    ).forEach { flags.put(it, providers.environmentVariable(it).orElse("")) }
+    listOf(
+        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
+    ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
 }
 
 tasks.test {
     if (splitHttp3LiveTests.get()) {
-        liveHttp3Methods.forEach { filter.excludeTestsMatching(it) }
+        useJUnitPlatform { excludeTags("live-http3") }
+        extensions.configure<TestEnvironmentInputs> {
+            // The excluded workload runs in http3LiveTest with the real flag value.
+            flags.put("BREAKTEST_HTTP3_LIVE", "")
+        }
     }
 }
 
@@ -63,8 +50,8 @@ val http3LiveTest by tasks.registering(Test::class) {
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    liveHttp3Methods.forEach { filter.includeTestsMatching(it) }
-    onlyIf { httpTestEnvironment.getValue("BREAKTEST_HTTP3_LIVE").get() == "true" }
+    useJUnitPlatform { includeTags("live-http3") }
+    onlyIf { liveHttp3.get() == "true" }
     // Avoid overlapping global/network-sensitive HTTP suites within this project.
     mustRunAfter(tasks.test)
 }

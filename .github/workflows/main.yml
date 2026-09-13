@@ -76,15 +76,22 @@ jobs:
         # Compile with one vendor across matrix rows; tests select their own toolchain.
         java-version: 21
         distribution: temurin
+    - name: Restore documentation dependencies
+      id: docs-cache
+      uses: actions/cache/restore@v6
+      with:
+        path: xdocs/node_modules
+        # Include the install definition (Node/Yarn versions and flags) as well as the lockfile.
+        key: docs-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('xdocs/package.json', 'xdocs/yarn.lock', 'src/dist/build.gradle.kts') }}
     - name: Restore Gradle task cache
       id: gradle-cache
       uses: actions/cache/restore@v6
       with:
         path: ~/.gradle/caches/build-cache-1
-        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
+        key: gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
         restore-keys: |
-          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-
-          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
     - name: Reset restored Gradle cache cleanup metadata
       shell: bash
       run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
@@ -115,9 +122,10 @@ jobs:
       with:
         script: |
           console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
-          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=1 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
+      id: build
       with:
         # All rows compile with the same JDK. The action adds the runner OS to this key.
         job-id: build-jdk21
@@ -132,7 +140,8 @@ jobs:
         # Protocol batch tasks within src:dist-check retain serial execution.
         arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
-          testParallelism=1
+          docsDependenciesCached=${{ steps.docs-cache.outputs.cache-hit == 'true' }}
+          testParallelism=2
           splitHttp3LiveTests=true
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
@@ -149,6 +158,13 @@ jobs:
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
+    - name: Save documentation dependencies
+      # One writer per OS avoids races; only save a fully successful installation/build.
+      if: ${{ !cancelled() && matrix.docs_cache_writer && steps.docs-cache.outputs.cache-hit != 'true' && steps.build.outcome == 'success' }}
+      uses: actions/cache/save@v6
+      with:
+        path: xdocs/node_modules
+        key: ${{ steps.docs-cache.outputs.cache-primary-key }}
     - name: Bound Gradle cache snapshot size
       if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
       run: node .github/workflows/trim-gradle-cache.mjs
@@ -184,9 +200,9 @@ jobs:
       uses: actions/cache/restore@v6
       with:
         path: ~/.gradle/caches/build-cache-1
-        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}-${{ github.run_attempt }}
+        key: gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}-${{ github.run_attempt }}
         restore-keys: |
-          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+          gradle-tasks-v2-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
     - name: Reset restored Gradle cache cleanup metadata
       shell: bash
       run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
