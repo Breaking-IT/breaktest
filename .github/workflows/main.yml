@@ -73,6 +73,13 @@ jobs:
         # Compile with one vendor across matrix rows; tests select their own toolchain.
         java-version: 21
         distribution: temurin
+    - name: Restore Gradle task cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}
+        restore-keys: |
+          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
     - name: Start virtual display for Linux GUI tests
       if: runner.os == 'Linux'
       shell: bash
@@ -109,6 +116,8 @@ jobs:
         # Restore the local cache in bulk instead of downloading/unpacking each task
         # entry through the remote proxy (particularly expensive on Windows).
         remote-build-cache-proxy-enabled: false
+        # actions/cache can bootstrap a PR snapshot without a default-branch cache.
+        save-local-build-cache: false
         multi-cache-enabled: false
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
         # Separate projects can overlap, including the isolated JMS/local batch groups.
@@ -149,11 +158,19 @@ jobs:
       with:
         java-version: 21
         distribution: 'temurin'
+    - name: Restore Gradle task cache
+      uses: actions/cache@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}
+        restore-keys: |
+          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
         job-id: errprone
         remote-build-cache-proxy-enabled: false
+        save-local-build-cache: false
         multi-cache-enabled: false
         arguments: --scan --parallel --max-workers=4 --no-daemon classes
       env:
