@@ -35,6 +35,7 @@ jobs:
       - id: set-matrix
         run: |
           npm ci --prefix .github/workflows
+          node --test .github/workflows/trim-gradle-cache.test.mjs
           node .github/workflows/matrix.mjs
 
   test:
@@ -148,6 +149,9 @@ jobs:
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
+    - name: Bound Gradle cache snapshot size
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      run: node .github/workflows/trim-gradle-cache.mjs
     - name: Save completed Gradle task outputs
       # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
       if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
@@ -197,6 +201,9 @@ jobs:
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
+    - name: Bound Gradle cache snapshot size
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      run: node .github/workflows/trim-gradle-cache.mjs
     - name: Save completed Gradle task outputs
       # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
       if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
