@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler
 
+import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aMultipart
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.containing
@@ -24,15 +25,18 @@ import com.github.tomakehurst.wiremock.client.WireMock.equalTo
 import com.github.tomakehurst.wiremock.client.WireMock.post
 import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
-import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo
-import com.github.tomakehurst.wiremock.junit5.WireMockTest
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.protocol.http.control.Header
 import org.apache.jmeter.protocol.http.util.HTTPFileArg
 import org.apache.jmeter.test.assertions.executePlanAndCollectEvents
 import org.apache.jmeter.treebuilder.TreeBuilder
 import org.apache.jmeter.treebuilder.oneRequest
+import org.apache.jmeter.wiremock.WireMockExtension
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.extension.ExtendWith
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -43,10 +47,24 @@ import kotlin.io.path.absolutePathString
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.seconds
 
-@WireMockTest
+@ExtendWith(WireMockExtension::class)
 class HttpSamplerTest : JMeterTestCase() {
+    @AfterEach
+    fun checkForUnmatchedRequests(server: WireMockServer) {
+        server.checkForUnmatchedRequests()
+    }
+
     @TempDir
     lateinit var dir: Path
+
+    private fun executeUpload(body: TreeBuilder.() -> Unit) {
+        val events = executePlanAndCollectEvents(10.seconds, body)
+        assertEquals(1, events.size, "Expected one upload sample")
+        val result = events.single().result
+        assertTrue(result.isSuccessful) {
+            "Upload failed: ${result.responseCode}: ${result.responseMessage}\n${result.responseDataAsString}"
+        }
+    }
 
     fun TreeBuilder.httpPost(body: HTTPSamplerProxy.() -> Unit) {
         HTTPSamplerProxy::class {
@@ -61,8 +79,8 @@ class HttpSamplerTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `upload file uses percent encoding for filename`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `upload file uses percent encoding for filename`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/upload")
                 .willReturn(
                     aResponse()
@@ -82,11 +100,11 @@ class HttpSamplerTest : JMeterTestCase() {
         }
         testFile.writeText("hello, привет")
 
-        executePlanAndCollectEvents(10.seconds) {
+        executeUpload {
             oneRequest {
                 httpPost {
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     httpFiles = arrayOf(
                         HTTPFileArg(testFile.absolutePathString(), "file_parameter", "application/octet-stream")
                     )
@@ -106,7 +124,7 @@ class HttpSamplerTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/upload"))
                 .withAnyRequestBodyPart(
@@ -127,22 +145,22 @@ class HttpSamplerTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `one parameter`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `one parameter`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/upload").willReturn(aResponse().withStatus(200))
         )
 
-        executePlanAndCollectEvents(10.seconds) {
+        executeUpload {
             oneRequest {
                 httpPost {
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("hello", "world")
                 }
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/upload"))
                 .withRequestBodyPart(
@@ -168,23 +186,23 @@ class HttpSamplerTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `two parameters`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `two parameters`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/upload").willReturn(aResponse().withStatus(200))
         )
 
-        executePlanAndCollectEvents(10.seconds) {
+        executeUpload {
             oneRequest {
                 httpPost {
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("hello", "world")
                     addArgument("name", "Tim")
                 }
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/upload"))
                 .withRequestBodyPart(
@@ -217,8 +235,8 @@ class HttpSamplerTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `two parameters and file`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `two parameters and file`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/upload").willReturn(aResponse().withStatus(200))
         )
 
@@ -226,11 +244,11 @@ class HttpSamplerTest : JMeterTestCase() {
             writeText("file contents")
         }
 
-        executePlanAndCollectEvents(10.seconds) {
+        executeUpload {
             oneRequest {
                 httpPost {
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("hello", "world")
                     addArgument("name", "Tim")
                     httpFiles = arrayOf(
@@ -240,7 +258,7 @@ class HttpSamplerTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/upload"))
                 .withRequestBodyPart(
@@ -279,8 +297,8 @@ class HttpSamplerTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `two parameters and two files`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `two parameters and two files`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/upload").willReturn(aResponse().withStatus(200))
         )
 
@@ -291,11 +309,11 @@ class HttpSamplerTest : JMeterTestCase() {
             writeText("file contents2")
         }
 
-        executePlanAndCollectEvents(10.seconds) {
+        executeUpload {
             oneRequest {
                 httpPost {
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("hello", "world")
                     addArgument("name", "Tim")
                     httpFiles = arrayOf(
@@ -306,7 +324,7 @@ class HttpSamplerTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/upload"))
                 .withRequestBodyPart(

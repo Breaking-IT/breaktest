@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -77,7 +78,8 @@ class TestRedirects {
             } else {
                 Assertions.assertNull(res.getRedirectLocation());
             }
-            Assertions.assertEquals("" + redirectCode, res.getResponseCode());
+            Assertions.assertEquals("" + redirectCode, res.getResponseCode(),
+                    () -> res.getResponseMessage() + "\n" + res.getResponseDataAsString());
         } finally {
             server.stop();
         }
@@ -174,7 +176,7 @@ class TestRedirects {
     }
 
     private static WireMockServer createServer() {
-        WireMockConfiguration configuration = WireMockConfiguration.wireMockConfig().dynamicPort();
+        WireMockConfiguration configuration = WireMockExtension.loopbackConfig();
         return new WireMockServer(configuration);
     }
 

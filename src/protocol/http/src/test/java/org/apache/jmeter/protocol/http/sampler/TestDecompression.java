@@ -32,6 +32,7 @@ import java.util.function.Consumer;
 
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
+import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -124,9 +125,7 @@ public class TestDecompression {
 
     private static WireMockServer createServer(Consumer<WireMockConfiguration> config) {
         WireMockConfiguration configuration =
-                WireMockConfiguration
-                        .wireMockConfig()
-                        .dynamicPort();
+                WireMockExtension.loopbackConfig();
         config.accept(configuration);
         return new WireMockServer(configuration);
     }

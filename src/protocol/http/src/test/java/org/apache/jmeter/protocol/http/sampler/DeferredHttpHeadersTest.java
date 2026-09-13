@@ -54,11 +54,11 @@ import org.apache.jmeter.samplers.SampleSaveConfiguration;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.Test;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 class DeferredHttpHeadersTest extends JMeterTestCase {
     private HTTPSampleResult capture(boolean deferred) throws Exception {
@@ -323,7 +323,7 @@ class DeferredHttpHeadersTest extends JMeterTestCase {
 
     @Test
     void realHttpSamplerCapturesHeadersForSuccessAndHttpError() throws Exception {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             for (int code : new int[] {200, 500, 302}) {

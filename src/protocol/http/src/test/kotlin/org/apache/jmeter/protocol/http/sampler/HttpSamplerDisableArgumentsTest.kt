@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler
 
+import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aMultipart
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.equalTo
@@ -27,8 +28,7 @@ import com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.put
 import com.github.tomakehurst.wiremock.client.WireMock.putRequestedFor
 import com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo
-import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo
-import com.github.tomakehurst.wiremock.junit5.WireMockTest
+import com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.protocol.http.control.arguments
 import org.apache.jmeter.protocol.http.control.httpRequestDefaults
@@ -36,12 +36,19 @@ import org.apache.jmeter.protocol.http.util.HTTPArgument
 import org.apache.jmeter.test.assertions.executePlanAndCollectEvents
 import org.apache.jmeter.treebuilder.TreeBuilder
 import org.apache.jmeter.treebuilder.oneRequest
+import org.apache.jmeter.wiremock.WireMockExtension
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.extension.ExtendWith
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import kotlin.time.Duration.Companion.seconds
 
-@WireMockTest
+@ExtendWith(WireMockExtension::class)
 class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
+    @AfterEach
+    fun checkForUnmatchedRequests(server: WireMockServer) {
+        server.checkForUnmatchedRequests()
+    }
 
     fun TreeBuilder.httpRequest(body: HTTPSamplerProxy.() -> Unit) {
         HTTPSamplerProxy::class {
@@ -55,9 +62,9 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `GET disable param1 should send enabled param2`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
-            get("/test").willReturn(aResponse().withStatus(200))
+    fun `GET disable param1 should send enabled param2`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
+            get(urlPathEqualTo("/test")).willReturn(aResponse().withStatus(200))
         )
 
         executePlanAndCollectEvents(10.seconds) {
@@ -65,7 +72,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
                 httpRequest {
                     method = "GET"
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("param1", "value1")
                     arguments.getArgument(0).isEnabled = false
                     addArgument("param2", "value2")
@@ -73,7 +80,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             getRequestedFor(urlEqualTo("/test?param2=value2"))
         )
@@ -81,8 +88,8 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `PUT disable param2 should send enabled param1 and param3`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `PUT disable param2 should send enabled param1 and param3`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             put("/test").willReturn(aResponse().withStatus(200))
         )
 
@@ -91,7 +98,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
                 httpRequest {
                     method = "PUT"
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     postBodyRaw = true
                     addArgument("param1", "value1")
                     addArgument("param2", "value2")
@@ -101,7 +108,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             putRequestedFor(urlEqualTo("/test"))
                 .withRequestBody(equalTo("value1value3"))
@@ -110,8 +117,8 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
 
     @ParameterizedTest
     @ValueSource(strings = ["HttpClient5"])
-    fun `POST disable default and non-default param should send the only enabled non-default param`(httpImplementation: String, server: WireMockRuntimeInfo) {
-        server.wireMock.register(
+    fun `POST disable default and non-default param should send the only enabled non-default param`(httpImplementation: String, server: WireMockServer) {
+        server.stubFor(
             post("/test").willReturn(aResponse().withStatus(200))
         )
 
@@ -133,7 +140,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
                     method = "POST"
                     doMultipart = true
                     implementation = httpImplementation
-                    port = server.httpPort
+                    port = server.port()
                     addArgument("param1", "value1")
                     arguments.getArgument(0).isEnabled = false
                     addArgument("param2", "value2")
@@ -141,7 +148,7 @@ class HttpSamplerDisableArgumentsTest : JMeterTestCase() {
             }
         }
 
-        server.wireMock.verifyThat(
+        server.verify(
             1,
             postRequestedFor(urlEqualTo("/test"))
                 .withRequestBodyPart(

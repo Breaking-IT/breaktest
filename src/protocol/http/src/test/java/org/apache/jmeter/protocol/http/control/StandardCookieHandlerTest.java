@@ -23,6 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.net.URI;
 import java.net.URL;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 
 import org.junit.jupiter.api.Test;
 
@@ -82,7 +85,9 @@ class StandardCookieHandlerTest {
         URL callbackUrl = URI.create("https://nedwin.sand-box.nl/callback").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
-                ".AspNetCore.OpenIdConnect.Nonce=value; expires=Sat, 20 Jun 2036 15:59:33 GMT; path=/callback; secure; samesite=none; httponly",
+                ".AspNetCore.OpenIdConnect.Nonce=value; expires="
+                        + DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC).plusDays(1))
+                        + "; path=/callback; secure; samesite=none; httponly",
                 loginUrl);
 
         assertEquals(1, cookieManager.getCookieCount());

@@ -73,6 +73,7 @@ import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.wiremock.WireMockExtension;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
@@ -84,7 +85,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 @Execution(ExecutionMode.SAME_THREAD)
 class HTTPHC5H2ThreadLifecycleTest {
@@ -445,7 +445,7 @@ class HTTPHC5H2ThreadLifecycleTest {
     }
 
     private static void withServer(int responseDelayMillis, ServerTask task) throws Exception {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.options().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             server.stubFor(WireMock.get(WireMock.urlEqualTo("/resource"))

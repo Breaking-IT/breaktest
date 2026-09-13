@@ -68,6 +68,7 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -77,7 +78,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 public class TestHTTPHC5Impl {
     private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
@@ -413,7 +413,7 @@ public class TestHTTPHC5Impl {
 
     @Test
     public void http2ResponseTimeoutSampleUsesSingleLineResponseData() {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             server.stubFor(WireMock.get("/slow")
@@ -489,8 +489,8 @@ public class TestHTTPHC5Impl {
                 .redirectErrorStream(true).start();
         String output = new String(keytool.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, keytool.waitFor(), output);
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig()
-                .dynamicPort().dynamicHttpsPort().keystorePath(keyStore.toString())
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig()
+                .dynamicHttpsPort().keystorePath(keyStore.toString())
                 .keystoreType("PKCS12").keystorePassword("password").keyManagerPassword("password"));
         server.start();
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
@@ -516,7 +516,7 @@ public class TestHTTPHC5Impl {
 
     @Test
     public void http11ReportsSentBytes() {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             server.stubFor(WireMock.get("/sent-bytes").willReturn(WireMock.aResponse().withBody("ok")));
@@ -542,7 +542,7 @@ public class TestHTTPHC5Impl {
 
     @Test
     public void defaultProtocolFallsBackToHttp11WhenServerDoesNotSupportHttp2() {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             server.stubFor(WireMock.get("/fallback").willReturn(WireMock.aResponse().withBody("ok")));
@@ -756,7 +756,7 @@ public class TestHTTPHC5Impl {
 
     @Test
     public void http11NtlmChallengeIsAnsweredWithAuthManagerCredentials() {
-        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig().dynamicPort());
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         try {
             // The stub accepts the type 1 message, it does not replay a full NTLM handshake:

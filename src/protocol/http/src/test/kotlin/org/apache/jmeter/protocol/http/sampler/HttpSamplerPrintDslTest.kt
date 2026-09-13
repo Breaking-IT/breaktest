@@ -38,11 +38,12 @@ import java.util.Locale
 @ResourceLock(value = Resources.LOCALE)
 class HttpSamplerPrintDslTest : JMeterTestCase() {
     companion object {
-        private var locale = JMeterUtils.getLocale()
+        private lateinit var locale: Locale
 
         @JvmStatic
         @BeforeAll
         fun setup() {
+            locale = JMeterUtils.getLocale() ?: Locale.getDefault()
             // Ensure DSL uses English text, otherwise we can't reliably compare expected values
             JMeterUtils.setLocale(Locale.ENGLISH)
         }
