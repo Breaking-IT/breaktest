@@ -18,7 +18,6 @@
 package org.apache.jmeter.samplers.decoders
 
 import org.apache.jmeter.samplers.ResponseDecoder
-import org.apache.jorphan.io.DirectAccessByteArrayOutputStream
 import org.apiguardian.api.API
 import java.io.ByteArrayInputStream
 import java.io.IOException
@@ -51,7 +50,7 @@ public class DeflateDecoder : ResponseDecoder {
         // For streaming, use ZLIB wrapper (nowrap=false) which is the most common case.
         // The fallback to raw DEFLATE is only available in the byte array version
         // since we cannot retry with a stream without buffering it first.
-        return InflaterInputStream(input, Inflater(false))
+        return InflaterInputStream(input)
     }
 
     /**
@@ -63,10 +62,14 @@ public class DeflateDecoder : ResponseDecoder {
      * @throws IOException if decompression fails
      */
     private fun decompressWithInflater(compressed: ByteArray, nowrap: Boolean): ByteArray {
-        val out = DirectAccessByteArrayOutputStream()
-        InflaterInputStream(ByteArrayInputStream(compressed), Inflater(nowrap)).use {
-            it.transferTo(out)
+        val inflater = Inflater(nowrap)
+        try {
+            return InflaterInputStream(ByteArrayInputStream(compressed), inflater).use {
+                it.readAllBytes()
+            }
+        } finally {
+            // InflaterInputStream only ends inflaters that it creates itself.
+            inflater.end()
         }
-        return out.toByteArray()
     }
 }

@@ -73,6 +73,8 @@ public interface ResponseDecoder {
      *
      * Used for scenarios like MD5 computation on decompressed data, where we want to
      * compute the hash on-the-fly without storing the entire decompressed response.
+     * Callers must close the returned stream to release decoder resources; closing only
+     * the original input is insufficient.
      *
      * @param input the compressed input stream to wrap
      * @return an InputStream that decompresses data as it's read

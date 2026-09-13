@@ -22,6 +22,7 @@ import io.airlift.compress.MalformedInputException
 import io.airlift.compress.zstd.ZstdInputStream
 import org.apache.jmeter.samplers.ResponseDecoder
 import org.apiguardian.api.API
+import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -37,6 +38,10 @@ import java.io.InputStream
 public class ZstdDecoder : ResponseDecoder {
     override val encodings: List<String>
         get() = listOf("zstd")
+
+    override fun decode(compressed: ByteArray): ByteArray =
+        // Keep the stream wrapper's MalformedInputException-to-IOException translation.
+        decodeStream(ByteArrayInputStream(compressed)).use { it.readAllBytes() }
 
     override fun decodeStream(input: InputStream): InputStream {
         return object : FilterInputStream(ZstdInputStream(input)) {
