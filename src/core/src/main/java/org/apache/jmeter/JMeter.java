@@ -327,6 +327,9 @@ public class JMeter implements JMeterPlugin {
             return;
         }
         try {
+            if (parser.getArgumentById(NONGUI_OPT) != null) {
+                System.setProperty(JMETER_NON_GUI, "true");
+            }
             initializeProperties(parser); // Also initialises JMeter logging
 
             SecurityProviderLoader.addSecurityProvider(JMeterUtils.getJMeterProperties());
@@ -809,18 +812,19 @@ public class JMeter implements JMeterPlugin {
 
             HashTree tree = SaveService.loadTree(f);
 
-            @SuppressWarnings("deprecation") // Deliberate use of deprecated ctor
-            JMeterTreeModel treeModel = new JMeterTreeModel(new Object());// NOSONAR Create non-GUI version to avoid headless problems
-            JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
-            treeModel.addSubTree(tree, root);
-
             // Hack to resolve ModuleControllers in non GUI mode
             SearchByClass<ReplaceableController> replaceableControllers =
                     new SearchByClass<>(ReplaceableController.class);
             tree.traverse(replaceableControllers);
             Collection<ReplaceableController> replaceableControllersRes = replaceableControllers.getSearchResults();
-            for (ReplaceableController replaceableController : replaceableControllersRes) {
-                replaceableController.resolveReplacementSubTree(root);
+            if (!replaceableControllersRes.isEmpty()) {
+                @SuppressWarnings("deprecation") // Deliberate use of non-GUI ctor
+                JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+                JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+                treeModel.addSubTreeForExecution(tree, root);
+                for (ReplaceableController replaceableController : replaceableControllersRes) {
+                    replaceableController.resolveReplacementSubTree(root);
+                }
             }
 
             // Ensure tree is interpreted (ReplaceableControllers are replaced)

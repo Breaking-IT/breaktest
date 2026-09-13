@@ -38,6 +38,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.recording.RecordedExchangeStore;
@@ -47,14 +48,17 @@ import org.apache.jmeter.testelement.property.FunctionProperty;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.jorphan.test.JMeterSerialTest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
-class SaveServiceArchiveTest extends JMeterTestCase {
+class SaveServiceArchiveTest extends JMeterTestCase implements JMeterSerialTest {
 
     @TempDir
     Path tempDir;
@@ -76,6 +80,83 @@ class SaveServiceArchiveTest extends JMeterTestCase {
         Path fresh = tempDir.resolve("fresh.jmx");
         SaveService.saveTreeToFile(new HashTree(), fresh);
         assertEquals(Files.getPosixFilePermissions(ordinary), Files.getPosixFilePermissions(fresh));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void guiClassAvailabilityIsOnlyRequiredForGuiLoads(boolean nonGui) throws Exception {
+        Path file = tempDir.resolve("runtime-without-gui.jmx");
+        Files.writeString(file, """
+                <jmeterTestPlan version="1.2" properties="5.0">
+                  <hashTree>
+                    <TestPlan guiclass="unavailable.plugin.Editor" testclass="TestPlan" testname="Runnable"/>
+                    <hashTree/>
+                  </hashTree>
+                </jmeterTestPlan>
+                """);
+        String previous = System.getProperty(JMeter.JMETER_NON_GUI);
+        try {
+            System.setProperty(JMeter.JMETER_NON_GUI, Boolean.toString(nonGui));
+            Object element = SaveService.loadTree(file.toFile()).getArray()[0];
+            assertEquals(nonGui, element instanceof org.apache.jmeter.testelement.TestPlan);
+            assertEquals(!nonGui, element instanceof org.apache.jmeter.testelement.MissingTestElement);
+            assertEquals("unavailable.plugin.Editor", ((TestElement) element).getPropertyAsString(nonGui
+                    ? TestElement.GUI_CLASS : org.apache.jmeter.testelement.MissingTestElement.MISSING_GUI_CLASS));
+        } finally {
+            restoreNonGuiProperty(previous);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void authoringAttachmentsAreSkippedButRuntimeReferencesSurvive(boolean nonGui) throws Exception {
+        var plan = new org.apache.jmeter.testelement.TestPlan();
+        plan.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.control.gui.TestPlanGui");
+        String har = "har/authoring-" + nonGui + ".har";
+        String rules = "correlation/rules-" + nonGui + ".json";
+        // Runtime inputs must not be filtered by an authoring-looking path prefix.
+        String runtime = "har/runtime-" + nonGui + ".csv";
+        plan.setProperty(JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, har);
+        plan.setProperty(JmxArchiveEntryStore.HAR_MD5_PROPERTY, "test");
+        plan.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY, rules);
+        plan.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY, "test");
+        plan.setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, runtime);
+        plan.setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, "test");
+        byte[] content = "attachment".getBytes(StandardCharsets.UTF_8);
+        for (String entry : List.of(har, rules, runtime)) {
+            JmxArchiveEntryStore.register(entry, "test", content);
+        }
+        Path file = tempDir.resolve("attachments.jmx");
+        HashTree tree = new HashTree(plan);
+        ThreadGroup recordingOwner = new ThreadGroup();
+        recordingOwner.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.threads.gui.ThreadGroupGui");
+        recordingOwner.setProperty(JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, runtime);
+        recordingOwner.setProperty(JmxArchiveEntryStore.HAR_MD5_PROPERTY, "test");
+        tree.getTree(plan).add(recordingOwner);
+        Files.write(file, saveTree(tree));
+        for (String entry : List.of(har, rules, runtime)) {
+            JmxArchiveEntryStore.register(entry, "test", new byte[0]);
+        }
+        String previous = System.getProperty(JMeter.JMETER_NON_GUI);
+        try {
+            System.setProperty(JMeter.JMETER_NON_GUI, Boolean.toString(nonGui));
+            SaveService.loadTree(file.toFile());
+        } finally {
+            restoreNonGuiProperty(previous);
+        }
+        for (String entry : List.of(har, rules)) {
+            assertArrayEquals(nonGui ? new byte[0] : content,
+                    JmxArchiveEntryStore.find(entry, "test").orElseThrow());
+        }
+        assertArrayEquals(content, JmxArchiveEntryStore.find(runtime, "test").orElseThrow());
+    }
+
+    private static void restoreNonGuiProperty(String previous) {
+        if (previous == null) {
+            System.clearProperty(JMeter.JMETER_NON_GUI);
+        } else {
+            System.setProperty(JMeter.JMETER_NON_GUI, previous);
+        }
     }
 
     @Test
@@ -377,6 +458,48 @@ class SaveServiceArchiveTest extends JMeterTestCase {
         for (String entryName : recording.entries().keySet()) {
             assertTrue(readEntry(withoutReference, entryName).isEmpty());
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void missingRecordingOnlyWarnsInGuiWhileRuntimeFilesStillLoad(boolean nonGui) throws Exception {
+        var recording = RecordedExchangeStore.fromHar(
+                "{\"log\":{\"entries\":[]}}".getBytes(StandardCharsets.UTF_8), "source.har");
+        JmxArchiveEntryStore.registerBundle(
+                recording.manifestEntryName(), recording.checksum(), recording.entries());
+        HashTree tree = treeWithRecordingReference(recording);
+        var plan = new org.apache.jmeter.testelement.TestPlan();
+        plan.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.control.gui.TestPlanGui");
+        byte[] content = "name\nAlice\n".getBytes(StandardCharsets.UTF_8);
+        String filename = "nongui-" + nonGui + ".csv";
+        ArchiveFiles.put(plan, filename, content, false);
+        tree.add(plan);
+        byte[] saved = saveTree(tree);
+        Path file = tempDir.resolve("missing-recording.jmx");
+        try (var zip = new ZipOutputStream(Files.newOutputStream(file))) {
+            for (String entry : List.of(SaveService.TEST_PLAN_ZIP_ENTRY, "files/" + filename)) {
+                zip.putNextEntry(new ZipEntry(entry));
+                zip.write(readEntry(saved, entry).orElseThrow());
+                zip.closeEntry();
+            }
+        }
+        JmxArchiveEntryStore.register("files/" + filename, ArchiveFiles.checksum(content), new byte[0]);
+        String previous = System.getProperty(JMeter.JMETER_NON_GUI);
+        List<String> messages = new ArrayList<>();
+        try {
+            System.setProperty(JMeter.JMETER_NON_GUI, Boolean.toString(nonGui));
+            loadTreeCapturingMessages(file, messages);
+        } finally {
+            if (previous == null) {
+                System.clearProperty(JMeter.JMETER_NON_GUI);
+            } else {
+                System.setProperty(JMeter.JMETER_NON_GUI, previous);
+            }
+        }
+        assertEquals(!nonGui, messages.stream()
+                .anyMatch(message -> message.contains("Unable to cache linked archive attachment")));
+        assertArrayEquals(content, JmxArchiveEntryStore.find(
+                "files/" + filename, ArchiveFiles.checksum(content)).orElseThrow());
     }
 
     @Test

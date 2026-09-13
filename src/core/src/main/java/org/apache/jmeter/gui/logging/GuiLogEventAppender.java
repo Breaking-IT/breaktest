@@ -46,6 +46,10 @@ public class GuiLogEventAppender extends AbstractAppender {
 
     @Override
     public void append(LogEvent logEvent) {
+        // Do not initialize JMeter (and its logger) from inside an appender.
+        if ("true".equals(System.getProperty("JMeter.NonGui"))) {
+            return;
+        }
         final String serializedString = getStringLayout().toSerializable(logEvent);
         if (StringUtilities.isNotEmpty(serializedString)) {
             // Log4j may reuse mutable events after append returns. Retain a snapshot
