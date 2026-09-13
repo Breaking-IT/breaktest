@@ -1236,7 +1236,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.setSelectionPath(resultPath);
 
         SampleResult sampleResult = getSampleResult(resultPath);
-        jumpToTestPlanElement(findTestPlanNode(sampleResult));
+        jumpToTestPlanElement(SampleResultNodeResolver.findForNavigation(sampleResult));
     }
 
     private void jumpToTableResultTestPlanElementOnDoubleClick(MouseEvent event) {
@@ -1248,7 +1248,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             return;
         }
         int modelRow = resultTable.convertRowIndexToModel(viewRow);
-        jumpToTestPlanElement(findTestPlanNode(resultTableModel.sampleAt(modelRow)));
+        jumpToTestPlanElement(SampleResultNodeResolver.findForNavigation(resultTableModel.sampleAt(modelRow)));
     }
 
     private void showResultTablePopup(MouseEvent event) {
@@ -1535,7 +1535,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     }
 
     static JMenuItem createJumpToMenuItem(SampleResult sampleResult) {
-        JMeterTreeNode testPlanNode = findTestPlanNode(sampleResult);
+        JMeterTreeNode testPlanNode = SampleResultNodeResolver.findForNavigation(sampleResult);
         JMenuItem jumpTo = new JMenuItem("Jump to");
         jumpTo.setEnabled(testPlanNode != null);
         jumpTo.addActionListener(e -> jumpToTestPlanElement(testPlanNode));

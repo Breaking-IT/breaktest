@@ -19,6 +19,7 @@ package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import javax.swing.JMenuItem;
+import javax.swing.JTree;
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
@@ -36,6 +39,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
+import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.sampler.DebugSampler;
@@ -208,6 +212,54 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
         assertTrue(RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().isPresent());
         assertTrue(RecordedHarExchangeResolver.resolveFor(replay).exchange().isPresent());
+    }
+
+    @Test
+    public void jumpToFallsBackToNearestResolvableParent() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        JMeterTreeListener listener = new JMeterTreeListener(treeModel);
+        JTree testPlanTree = new JTree(treeModel);
+        listener.setJTree(testPlanTree);
+        GuiPackage.initInstance(listener, treeModel);
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName("GET /api/users");
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(samplerNode);
+
+        SampleResult parent = replayResult("parent");
+        SampleResult child = new SampleResult();
+        child.setSampleLabel("redirect without a test plan element");
+        SampleResult grandchild = new SampleResult();
+        grandchild.setSampleLabel("embedded resource without a test plan element");
+        parent.addSubResult(child, false);
+        child.addSubResult(grandchild, false);
+
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(child));
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(grandchild));
+        assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(grandchild).isEnabled());
+        SwingUtilities.invokeAndWait(() -> ViewResultsFullVisualizer.createJumpToMenuItem(grandchild).doClick());
+        assertSame(samplerNode, testPlanTree.getLastSelectedPathComponent());
+        Map<JMeterTreeNode, SampleResult> replayed = new LinkedHashMap<>();
+        child.setURL(URI.create("https://example.test/redirect").toURL());
+        grandchild.setURL(URI.create("https://example.test/image.svg").toURL());
+        ViewResultsFullVisualizer.collectReplayableSamples(parent, replayed);
+        assertEquals(Map.of(samplerNode, parent), replayed);
+        assertNull(ViewResultsFullVisualizer.findTestPlanNode(grandchild),
+                "Navigation fallback must not associate a child response with the parent's replay recording");
+
+        DebugSampler childSampler = new DebugSampler();
+        childSampler.setName(child.getSampleLabel());
+        JMeterTreeNode childNode = new JMeterTreeNode(childSampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(childNode);
+        assertSame(childNode, SampleResultNodeResolver.findForNavigation(child));
+        assertSame(childNode, SampleResultNodeResolver.findForNavigation(grandchild));
+
+        SampleResult orphan = new SampleResult();
+        orphan.setSampleLabel("missing");
+        assertNull(SampleResultNodeResolver.findForNavigation(orphan));
+        assertFalse(ViewResultsFullVisualizer.createJumpToMenuItem(orphan).isEnabled());
+        assertNull(SampleResultNodeResolver.findForNavigation(null));
     }
 
     private static SampleResult replayResult(String body) throws Exception {
