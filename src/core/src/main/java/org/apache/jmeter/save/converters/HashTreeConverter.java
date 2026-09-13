@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.save.converters;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -101,7 +102,7 @@ public class HashTreeConverter extends AbstractCollectionConverter {
         String guiClassName = aliasToClass(guiClass);
 
         Throwable missingClass = missingClass(testClassName);
-        if (missingClass == null) {
+        if (missingClass == null && !JMeter.isNonGUI()) {
             missingClass = missingClass(guiClassName);
         }
         if (missingClass == null) {

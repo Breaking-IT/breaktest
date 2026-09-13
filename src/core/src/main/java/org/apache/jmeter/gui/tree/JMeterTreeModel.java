@@ -142,6 +142,16 @@ public class JMeterTreeModel extends DefaultTreeModel {
         return getCurrentSubTree(resultRoot);
     }
 
+    /** Populates controller-resolution context without copying it back into a HashTree. */
+    public void addSubTreeForExecution(HashTree subTree, JMeterTreeNode current) throws IllegalUserActionException {
+        beginBulkUpdate();
+        try {
+            addSubTreeNodes(subTree, current, false);
+        } finally {
+            endBulkUpdate();
+        }
+    }
+
     private JMeterTreeNode addSubTreeNodes(HashTree subTree, JMeterTreeNode current, boolean configureGui)
             throws IllegalUserActionException {
         for (Object o : subTree.list()) {
