@@ -21,7 +21,6 @@ import java.lang.management.ManagementFactory;
 import java.util.Collection;
 import java.util.List;
 
-import com.sun.management.OperatingSystemMXBean;
 import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.IterationParams;
 import org.openjdk.jmh.profile.InternalProfiler;
@@ -29,6 +28,8 @@ import org.openjdk.jmh.results.AggregationPolicy;
 import org.openjdk.jmh.results.IterationResult;
 import org.openjdk.jmh.results.Result;
 import org.openjdk.jmh.results.ScalarResult;
+
+import com.sun.management.OperatingSystemMXBean;
 
 /** Whole-fork CPU, including listener worker, GC and harness; not elapsed request latency. */
 public class ProcessCpuProfiler implements InternalProfiler {
