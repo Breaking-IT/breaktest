@@ -54,6 +54,7 @@ import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.engine.util.TestElementPropertyTransformer;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollectorHelper;
@@ -764,13 +765,13 @@ public class SaveService {
         TestPlan plan = findArchiveTestPlan(tree);
         boolean sharedFilesCached = archive != null && plan != null
                 && plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty;
-        for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
+        for (Map.Entry<String, String> reference : collectArchiveReferences(tree, !JMeter.isNonGUI()).entrySet()) {
             // Shared files were already read and validated using the authoritative index.
             if (sharedFilesCached && reference.getKey().startsWith("files/")) {
                 continue;
             }
             try {
-                if (archive != null && RecordedExchangeStore.isManifestEntry(reference.getKey())) {
+                if (archive != null && JmxArchiveEntryStore.isRecordingManifestEntry(reference.getKey())) {
                     Map<String, byte[]> bundle = readRecordingBundle(archive, reference.getKey());
                     JmxArchiveEntryStore.registerBundle(reference.getKey(), reference.getValue(), bundle);
                 } else {
@@ -876,8 +877,12 @@ public class SaveService {
     }
 
     public static Map<String, String> collectArchiveReferences(HashTree tree) {
+        return collectArchiveReferences(tree, true);
+    }
+
+    private static Map<String, String> collectArchiveReferences(HashTree tree, boolean includeAuthoring) {
         Map<String, String> references = new LinkedHashMap<>();
-        collectArchiveReferences(tree, references);
+        collectArchiveReferences(tree, references, includeAuthoring);
         TestPlan plan = findArchiveTestPlan(tree);
         if (plan != null && plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty) {
             // The shared index is authoritative, including deliberate deletions.
@@ -899,23 +904,25 @@ public class SaveService {
         }
     }
 
-    private static void collectArchiveReferences(HashTree tree, Map<String, String> references) {
+    private static void collectArchiveReferences(HashTree tree, Map<String, String> references, boolean includeAuthoring) {
         if (tree == null) {
             return;
         }
         for (Object item : tree.list()) {
             if (item instanceof TestElement element) {
-                collectArchiveReference(element, references,
-                        JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, JmxArchiveEntryStore.HAR_MD5_PROPERTY);
-                collectArchiveReference(element, references,
-                        JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY,
-                        JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY);
+                if (includeAuthoring) {
+                    collectArchiveReference(element, references,
+                            JmxArchiveEntryStore.HAR_FILENAME_PROPERTY, JmxArchiveEntryStore.HAR_MD5_PROPERTY);
+                    collectArchiveReference(element, references,
+                            JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY,
+                            JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY);
+                    collectArchiveReference(element, references,
+                            RecordedExchangeStore.MANIFEST_PROPERTY, RecordedExchangeStore.CHECKSUM_PROPERTY);
+                }
                 collectArchiveReference(element, references,
                         JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY);
-                collectArchiveReference(element, references,
-                        RecordedExchangeStore.MANIFEST_PROPERTY, RecordedExchangeStore.CHECKSUM_PROPERTY);
             }
-            collectArchiveReferences(tree.getTree(item), references);
+            collectArchiveReferences(tree.getTree(item), references, includeAuthoring);
         }
     }
 

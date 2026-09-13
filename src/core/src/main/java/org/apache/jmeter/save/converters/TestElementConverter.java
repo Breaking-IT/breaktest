@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.save.converters;
 
+import org.apache.jmeter.JMeter;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -98,10 +99,12 @@ public class TestElementConverter extends AbstractCollectionConverter {
         if (guiClass == null) {
             throw new IllegalArgumentException(ConversionHelp.ATT_TE_GUICLASS + " attribute is not found");
         }
-        try {
-            mapper().realClass(guiClassName);
-        } catch (CannotResolveClassException | NoClassDefFoundError e) {
-            return readMissingTestElement(reader, context, elementName, inputName, guiClassName, e);
+        if (!JMeter.isNonGUI()) {
+            try {
+                mapper().realClass(guiClassName);
+            } catch (CannotResolveClassException | NoClassDefFoundError e) {
+                return readMissingTestElement(reader, context, elementName, inputName, guiClassName, e);
+            }
         }
         String targetName = NameUpdater.getCurrentTestName(inputName, guiClassName);
         if (!targetName.equals(inputName)) { // remap the class name

@@ -241,8 +241,11 @@ public final class NewDriver {
             System.err.println("Configuration error during init, see exceptions:"+exceptionsToString(EXCEPTIONS_IN_INIT)); // NOSONAR Intentional System.err use
         } else {
             Thread.currentThread().setContextClassLoader(loader);
-
-
+            // Logging is initialized before JMeter.startNonGui. Suppress GUI log
+            // history from the first event, without loading the core JMeter class.
+            if (Arrays.asList(args).contains("-n") || Arrays.asList(args).contains("--nongui")) {
+                System.setProperty("JMeter.NonGui", "true");
+            }
             setLoggingProperties(args);
 
             try {
