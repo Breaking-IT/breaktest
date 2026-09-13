@@ -20,6 +20,13 @@ plugins {
     id("build-logic.jvm-published-library")
 }
 
+tasks.test {
+    val liveHttp3 = providers.environmentVariable("BREAKTEST_HTTP3_LIVE").map { it.toBoolean() }.orElse(false)
+    inputs.property("liveHttp3", liveHttp3)
+    outputs.doNotCacheIf("Live HTTP/3 tests must contact the endpoint on every run") { liveHttp3.get() }
+    outputs.upToDateWhen { !liveHttp3.get() }
+}
+
 dependencies {
     api(projects.src.core)
 

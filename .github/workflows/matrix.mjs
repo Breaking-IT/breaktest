@@ -143,9 +143,8 @@ include.forEach(v => {
     testJvmArgs.push('-XX:+StressIGVN');
     testJvmArgs.push('-XX:+StressCCP');
   }
-  if (v.java_version === "26") {
-    v.testDisableCaching = "Live HTTP/3 tests must contact the endpoint on every CI run";
-  }
+  // The HTTP test task handles live HTTP/3 cache bypass itself. Other suites can
+  // reuse results for identical runtime inputs unless JIT randomization is enabled.
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');
   delete v.hash;
 });
@@ -162,7 +161,7 @@ include.push({
   tz: 'UTC',
   extraGradleArgs: '-Duser.country=US -Duser.language=en -PtestCountry=US -PtestLanguage=en',
   testExtraJvmArgs: '',
-  testDisableCaching: 'Live HTTP/3 tests must contact the endpoint on every CI run',
+  testDisableCaching: '',
 });
 
 console.log(include);

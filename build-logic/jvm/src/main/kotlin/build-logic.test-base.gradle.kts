@@ -17,6 +17,7 @@
 
 import com.github.vlsi.gradle.dsl.configureEach
 import com.github.vlsi.gradle.properties.dsl.props
+import java.util.TimeZone
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
@@ -41,6 +42,13 @@ tasks.configureEach<Test> {
     }
     providers.gradleProperty("testLanguage").orNull?.let { systemProperty("user.language", it) }
     providers.gradleProperty("testCountry").orNull?.let { systemProperty("user.country", it) }
+    // These suites exercise native processes, clocks, and platform-specific GUI behavior.
+    // Gradle does not automatically include the host OS or environment in Test cache keys.
+    inputs.property("testOperatingSystem", System.getProperty("os.name"))
+    inputs.property("testOperatingSystemVersion", System.getProperty("os.version"))
+    inputs.property("testArchitecture", System.getProperty("os.arch"))
+    inputs.property("testTimeZone", providers.environmentVariable("TZ").orElse(TimeZone.getDefault().id))
+    inputs.property("testJavaRuntimeVersion", javaLauncher.map { it.metadata.javaRuntimeVersion })
     // Pass the property to tests
     fun passProperty(name: String, default: String? = null) {
         val value = System.getProperty(name) ?: default
