@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.samplers
 
+import org.apache.jmeter.samplers.decoders.GzipDecoder
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -169,6 +170,35 @@ class ResponseDecoderRegistryTest {
         val result = ResponseDecoderRegistry.decode("priority-test", "test".toByteArray(Charsets.UTF_8))
 
         assertEquals("high", result.toString(Charsets.UTF_8), "Higher priority decoder should be used")
+    }
+
+    @Test
+    fun testPluginOverridesGzipDecoder() {
+        // Use a test alias so this test does not replace the singleton's gzip decoder
+        // for other tests. Delegation retains the built-in byte-array and stream paths.
+        val encoding = "test-gzip-plugin-priority"
+        val gzip = object : ResponseDecoder by GzipDecoder() {
+            override val encodings = listOf(encoding)
+        }
+        val original = "Gzip through the registry".toByteArray()
+        val compressed = compressGzip(original)
+        ResponseDecoderRegistry.registerDecoder(gzip)
+        assertArrayEquals(original, ResponseDecoderRegistry.decode(encoding, compressed))
+
+        val pluginOutput = "Plugin selected".toByteArray()
+        val plugin = object : ResponseDecoder {
+            override val encodings = listOf(encoding)
+            override val priority = gzip.priority + 1
+            override fun decode(compressed: ByteArray): ByteArray = pluginOutput.copyOf()
+            override fun decodeStream(input: InputStream): InputStream = pluginOutput.inputStream()
+        }
+        ResponseDecoderRegistry.registerDecoder(plugin)
+        ResponseDecoderRegistry.registerDecoder(gzip)
+
+        assertArrayEquals(pluginOutput, ResponseDecoderRegistry.decode(encoding, compressed))
+        ResponseDecoderRegistry.decodeStream(encoding, compressed.inputStream()).use {
+            assertArrayEquals(pluginOutput, it.readAllBytes())
+        }
     }
 
     /**
