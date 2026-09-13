@@ -117,6 +117,31 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void exportedRulesRoundTripThroughAStandaloneFile() throws Exception {
+        Rule rule = regexRule("exported-session", "session_id", "session=([^;]+)", "$1$", 4, false);
+        Path exportFile = tempDir.resolve("custom-predefined-correlations.json");
+
+        HarCorrelationRuleCatalog.writeRulesFile(exportFile, List.of(rule));
+
+        List<Rule> imported = HarCorrelationRuleCatalog.readRulesFile(exportFile);
+        assertEquals(1, imported.size());
+        assertEquals("exported-session", imported.get(0).getId());
+        assertEquals(4, imported.get(0).getMaxMatches());
+        assertFalse(imported.get(0).isFailOnNoMatch());
+    }
+
+    @Test
+    void importedRulesCanBeStoredWithoutAnOpenTestPlan() throws Exception {
+        Path customFile = tempDir.resolve("predefined-correlations.custom.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, customFile.toString());
+        Rule rule = regexRule("shared-import", "shared_value", "value=([^;]+)", "$1$", 1, true);
+
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(null, List.of(rule));
+
+        assertEquals("shared-import", HarCorrelationRuleCatalog.readRulesFile(customFile).get(0).getId());
+    }
+
+    @Test
     void treatsOlderFlatCustomRulesWithoutAGroupAsCustom() throws Exception {
         String content = """
                 {"format":"breaktest-predefined-correlations-v1","rules":[{

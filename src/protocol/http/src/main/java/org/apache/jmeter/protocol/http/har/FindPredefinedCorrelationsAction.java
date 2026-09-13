@@ -21,8 +21,10 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -37,6 +39,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -59,7 +62,9 @@ import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.plugin.MenuCreator;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver.RecordedExchange;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
@@ -88,19 +93,34 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     private static final Logger LOG = LoggerFactory.getLogger(FindPredefinedCorrelationsAction.class);
     private static final Set<String> COMMANDS = Set.of(ActionNames.FIND_PREDEFINED_CORRELATIONS);
 
+    static JMeterTreeNode activeTestPlanNode(JMeterTreeModel model) {
+        // The hidden root can retain the initial plan after another JMX is opened.
+        return (JMeterTreeNode) model.getTestPlan().getArray()[0];
+    }
+
     @Override
     public void doActionAfterCheck(ActionEvent event) {
         GuiPackage gui = GuiPackage.getInstance();
         if (gui == null) {
             return;
         }
-        List<JMeterTreeNode> testPlans = gui.getTreeModel().getNodesOfType(TestPlan.class);
-        JMeterTreeNode testPlanNode = testPlans.isEmpty() ? null : testPlans.get(0);
+        JMeterTreeNode testPlanNode = activeTestPlanNode(gui.getTreeModel());
         TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
         HarCorrelationRulesPanel rulesPanel = new HarCorrelationRulesPanel(
                 HarCorrelationRuleCatalog.rulesFor(testPlan),
                 HarCorrelationRuleCatalog.customRuleIds(testPlan),
-                rule -> editCustomRule(gui, testPlanNode, rule));
+                rule -> editCustomRule(gui, testPlanNode, rule),
+                new HarCorrelationRulesPanel.RuleTransfer() {
+                    @Override
+                    public List<Rule> importRules() {
+                        return importCustomRules(gui, testPlanNode);
+                    }
+
+                    @Override
+                    public void exportRules(List<Rule> rules) {
+                        exportCustomRules(gui, rules);
+                    }
+                });
         rulesPanel.setPreferredSize(new Dimension(850, 500));
         Object[] options = {
                 JMeterUtils.getResString("try_predefined_correlations_try"),
@@ -159,6 +179,76 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             }
         };
         worker.execute();
+    }
+
+    private static List<Rule> importCustomRules(GuiPackage gui, JMeterTreeNode testPlanNode) {
+        JFileChooser chooser = FileDialoger.promptToOpenFile(new String[] {".json"});
+        if (chooser == null) {
+            return null;
+        }
+        try {
+            List<Rule> imported = HarCorrelationRuleCatalog.readRulesFile(
+                    chooser.getSelectedFile().toPath());
+            if (imported.isEmpty()) {
+                JMeterUtils.reportInfoToUser(
+                        JMeterUtils.getResString("try_predefined_correlations_import_empty"),
+                        JMeterUtils.getResString("try_predefined_correlations_import_title"));
+                return List.of();
+            }
+            TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
+            HarCorrelationRuleCatalog.storeCustomRulesEverywhere(testPlan, imported);
+            if (testPlanNode != null) {
+                gui.getTreeModel().nodeChanged(testPlanNode);
+                gui.setDirty(true);
+            }
+            JMeterUtils.reportInfoToUser(
+                    MessageFormat.format(
+                            JMeterUtils.getResString("try_predefined_correlations_imported"), imported.size()),
+                    JMeterUtils.getResString("try_predefined_correlations_import_title"));
+            return imported;
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("Unable to import custom predefined correlations", ex);
+            JMeterUtils.reportErrorToUser(
+                    ex.getMessage(), JMeterUtils.getResString("try_predefined_correlations_import_title"));
+            return null;
+        }
+    }
+
+    private static void exportCustomRules(GuiPackage gui, List<Rule> rules) {
+        JFileChooser chooser = FileDialoger.promptToSaveFile(
+                "custom-predefined-correlations.json", new String[] {".json"});
+        if (chooser == null) {
+            return;
+        }
+        File selectedFile = chooser.getSelectedFile();
+        if (!selectedFile.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".json")) {
+            selectedFile = new File(selectedFile.getParentFile(), selectedFile.getName() + ".json");
+        }
+        Path destination = selectedFile.toPath();
+        if (Files.exists(destination)) {
+            int replace = JOptionPane.showConfirmDialog(
+                    gui.getMainFrame(),
+                    MessageFormat.format(
+                            JMeterUtils.getResString("try_predefined_correlations_export_replace"),
+                            selectedFile.getName()),
+                    JMeterUtils.getResString("try_predefined_correlations_export_title"),
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (replace != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
+        try {
+            HarCorrelationRuleCatalog.writeRulesFile(destination, rules);
+            JMeterUtils.reportInfoToUser(
+                    MessageFormat.format(
+                            JMeterUtils.getResString("try_predefined_correlations_exported"),
+                            rules.size(), destination.toAbsolutePath()),
+                    JMeterUtils.getResString("try_predefined_correlations_export_title"));
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("Unable to export custom predefined correlations", ex);
+            JMeterUtils.reportErrorToUser(
+                    ex.getMessage(), JMeterUtils.getResString("try_predefined_correlations_export_title"));
+        }
     }
 
     private static Rule editCustomRule(GuiPackage gui, JMeterTreeNode testPlanNode, Rule rule) {

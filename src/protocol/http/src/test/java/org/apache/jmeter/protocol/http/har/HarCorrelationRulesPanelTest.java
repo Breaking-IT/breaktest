@@ -36,7 +36,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         Rule oauth = rule("oauth", "OAuth", 1);
         Rule aspNet = rule("viewstate", "ASP.NET", 1);
         HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
-                List.of(oauth, aspNet), Set.of("viewstate"), null);
+                List.of(oauth, aspNet), Set.of("viewstate"), null, null);
 
         assertEquals(List.of("OAuth > oauth", "ASP.NET > viewstate"), panel.getRulePaths());
         assertTrue(panel.areAllGroupsCollapsed());
@@ -45,6 +45,21 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         panel.setGroupSelected("OAuth", false);
 
         assertEquals(List.of(aspNet), panel.getSelectedRules());
+    }
+
+    @Test
+    void customOnlyFiltersTheTreeWithoutChangingGroupSelections() {
+        Rule oauth = rule("oauth", "OAuth", 1);
+        Rule custom = rule("custom-oauth", "OAuth", 1);
+        Rule aspNet = rule("viewstate", "ASP.NET", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(oauth, custom, aspNet), Set.of("custom-oauth"), null, null);
+
+        panel.setCustomOnly(true);
+
+        assertEquals(List.of("OAuth > custom-oauth"), panel.getRulePaths());
+        assertEquals(List.of(custom), panel.getCustomRules());
+        assertEquals(List.of(oauth, custom, aspNet), panel.getSelectedRules());
     }
 
     @Test

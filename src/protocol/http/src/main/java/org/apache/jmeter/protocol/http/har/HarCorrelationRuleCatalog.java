@@ -140,13 +140,53 @@ final class HarCorrelationRuleCatalog {
 
     static void storeCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
         List<Rule> sharedCustomRules = merge(loadConfiguredCustomRulesStrict(), newRules);
-        List<Rule> planCustomRules = merge(loadCustomRules(testPlan), newRules);
         byte[] sharedContent = serialize(sharedCustomRules);
-        byte[] planContent = serialize(planCustomRules);
         parse(sharedContent);
-        parse(planContent);
+        List<Rule> planCustomRules = testPlan == null
+                ? List.of() : merge(loadCustomRules(testPlan), newRules);
+        byte[] planContent = testPlan == null ? null : serialize(planCustomRules);
+        if (planContent != null) {
+            parse(planContent);
+        }
         storeConfiguredCustomRules(sharedContent);
-        storeCustomRules(testPlan, planCustomRules);
+        if (testPlan != null) {
+            storeCustomRules(testPlan, planCustomRules);
+        }
+    }
+
+    static List<Rule> readRulesFile(Path file) throws IOException {
+        if (!Files.isRegularFile(file)) {
+            throw new IOException("Predefined correlation path is not a regular file: " + file);
+        }
+        long size = Files.size(file);
+        if (size <= 0 || size > MAX_CONFIG_BYTES) {
+            throw new IOException("Predefined correlation file size must be between 1 and "
+                    + MAX_CONFIG_BYTES + " bytes");
+        }
+        return parse(Files.readAllBytes(file));
+    }
+
+    static void writeRulesFile(Path file, List<Rule> rules) throws IOException {
+        byte[] content = serialize(rules);
+        parse(content);
+        Path destination = file.toAbsolutePath().normalize();
+        Path parent = destination.getParent();
+        if (parent == null) {
+            throw new IOException("Predefined correlation file has no parent directory");
+        }
+        Files.createDirectories(parent);
+        Path temporaryFile = Files.createTempFile(parent, "correlation-rules-", ".tmp");
+        try {
+            Files.write(temporaryFile, content);
+            try {
+                Files.move(temporaryFile, destination,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                Files.move(temporaryFile, destination, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporaryFile);
+        }
     }
 
     @SafeVarargs
@@ -343,15 +383,7 @@ final class HarCorrelationRuleCatalog {
         if (!Files.exists(customFile)) {
             return List.of();
         }
-        if (!Files.isRegularFile(customFile)) {
-            throw new IOException("Custom predefined correlation path is not a regular file: " + customFile);
-        }
-        long size = Files.size(customFile);
-        if (size <= 0 || size > MAX_CONFIG_BYTES) {
-            throw new IOException("Custom predefined correlation file size must be between 1 and "
-                    + MAX_CONFIG_BYTES + " bytes");
-        }
-        return parse(Files.readAllBytes(customFile));
+        return readRulesFile(customFile);
     }
 
     private static void storeConfiguredCustomRules(byte[] content) throws IOException {
