@@ -71,7 +71,6 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -508,6 +507,12 @@ public class TestHTTPHC5Impl {
             assertTrue(result.isSuccessful(), result.getResponseMessage());
             assertEquals("ok", result.getResponseDataAsString());
             assertTrue(result.getResponseHeaders().startsWith(protocol), result.getResponseHeaders());
+            assertTrue(result.getConnectTime() > 0,
+                    () -> "Expected first TLS request to report connect time, got: " + result.getConnectTime());
+            assertTrue(result.getHeadersSize() > 0,
+                    () -> "Expected response headers size, got: " + result.getHeadersSize());
+            assertTrue(result.getSentBytes() > 0,
+                    () -> "Expected sent bytes, got: " + result.getSentBytes());
         } finally {
             sampler.threadFinished();
             server.stop();
@@ -567,50 +572,6 @@ public class TestHTTPHC5Impl {
         } finally {
             server.stop();
         }
-    }
-
-    @Test
-    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP2_LIVE", matches = "true")
-    public void http2NegotiatesHttp2AgainstBreaktestApp() {
-        SampleResult result = sampleBreaktestApp(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
-
-        assertTrue(result.isSuccessful(), result.getResponseMessage());
-        assertTrue(result.getResponseHeaders().startsWith("HTTP/2"),
-                () -> "Expected HTTP/2 response, got: " + result.getResponseHeaders());
-        assertTrue(result.getConnectTime() > 0,
-                () -> "Expected first HTTP/2 request to report connect time, got: "
-                        + result.getConnectTime());
-        assertTrue(result.getHeadersSize() > 0,
-                () -> "Expected HTTP/2 response headers size, got: " + result.getHeadersSize());
-        assertTrue(result.getSentBytes() > 0,
-                () -> "Expected HTTP/2 sent bytes, got: " + result.getSentBytes());
-    }
-
-    @Test
-    @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP_LIVE", matches = "true")
-    public void http11ReportsConnectTimeAgainstBreaktestApp() {
-        SampleResult result = sampleBreaktestApp(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
-
-        assertTrue(result.isSuccessful(), result.getResponseMessage());
-        assertTrue(result.getResponseHeaders().startsWith("HTTP/1.1"),
-                () -> "Expected HTTP/1.1 response, got: " + result.getResponseHeaders());
-        assertTrue(result.getConnectTime() > 0,
-                () -> "Expected first HTTP/1.1 request to report connect time, got: "
-                        + result.getConnectTime());
-        assertTrue(result.getHeadersSize() > 0,
-                () -> "Expected HTTP/1.1 response headers size, got: " + result.getHeadersSize());
-        assertTrue(result.getSentBytes() > 0,
-                () -> "Expected HTTP/1.1 sent bytes, got: " + result.getSentBytes());
-    }
-
-    private static SampleResult sampleBreaktestApp(String httpProtocol) {
-        HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
-        sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);
-        sampler.setDomain("breaktest.app");
-        sampler.setPath("/");
-        sampler.setMethod(HTTPConstants.GET);
-        sampler.setHttpProtocol(httpProtocol);
-        return sampler.sample();
     }
 
     @Test
