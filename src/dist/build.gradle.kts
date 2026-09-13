@@ -417,7 +417,14 @@ val yarn_install = tasks.named<YarnTask>("yarn_install") {
     workingDir = xdocs
     mustRunAfter(":rat")
     inputs.file(xdocs.file("package.json")).withPropertyName("package_json").withPathSensitivity(PathSensitivity.NONE)
-    outputs.file(xdocs.file("yarn.lock")).withPropertyName("yarn.lock")
+    args = listOf("--frozen-lockfile", "--ignore-scripts")
+    inputs.file(xdocs.file("yarn.lock")).withPropertyName("yarn_lock").withPathSensitivity(PathSensitivity.NONE)
+    inputs.property("nodeVersion", node.version)
+    inputs.property("yarnVersion", node.yarnVersion)
+    inputs.property("operatingSystem", System.getProperty("os.name"))
+    inputs.property("architecture", System.getProperty("os.arch"))
+    // The locked dependencies contain only documentation fonts/CSS; no install scripts.
+    outputs.cacheIf("Documentation dependencies are pinned by yarn.lock") { true }
     outputs.dir(xdocs.dir("node_modules")).withPropertyName("node_modules")
 }
 

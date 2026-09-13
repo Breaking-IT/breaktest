@@ -49,6 +49,8 @@ tasks.configureEach<Test> {
     inputs.property("testArchitecture", System.getProperty("os.arch"))
     inputs.property("testTimeZone", providers.environmentVariable("TZ").orElse(TimeZone.getDefault().id))
     inputs.property("testJavaRuntimeVersion", javaLauncher.map { it.metadata.javaRuntimeVersion })
+    inputs.property("testJavaVendor", javaLauncher.map { it.metadata.vendor })
+    inputs.property("testJvmVersion", javaLauncher.map { it.metadata.jvmVersion })
     // Pass the property to tests
     fun passProperty(name: String, default: String? = null) {
         val value = System.getProperty(name) ?: default

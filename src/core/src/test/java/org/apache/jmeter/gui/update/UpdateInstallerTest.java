@@ -68,12 +68,17 @@ class UpdateInstallerTest {
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         try {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Standalone updater did not exit");
-        } finally {
-            if (process.isAlive()) {
-                process.descendants().forEach(ProcessHandle::destroyForcibly);
-                process.destroyForcibly();
-                assertTrue(process.waitFor(10, TimeUnit.SECONDS), "Standalone updater did not terminate");
+        } catch (Exception | AssertionError failure) {
+            try {
+                if (process.isAlive()) {
+                    process.descendants().forEach(ProcessHandle::destroyForcibly);
+                    process.destroyForcibly();
+                    assertTrue(process.waitFor(10, TimeUnit.SECONDS), "Standalone updater did not terminate");
+                }
+            } catch (Exception | AssertionError cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
             }
+            throw failure;
         }
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertEquals(0, process.exitValue(), output);
@@ -91,11 +96,16 @@ class UpdateInstallerTest {
         if (restart != null) {
             try {
                 restart.onExit().get(10, TimeUnit.SECONDS);
-            } finally {
-                if (restart.isAlive()) {
-                    restart.destroyForcibly();
-                    restart.onExit().get(10, TimeUnit.SECONDS);
+            } catch (Exception failure) {
+                try {
+                    if (restart.isAlive()) {
+                        restart.destroyForcibly();
+                        restart.onExit().get(10, TimeUnit.SECONDS);
+                    }
+                } catch (Exception cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
                 }
+                throw failure;
             }
         }
     }

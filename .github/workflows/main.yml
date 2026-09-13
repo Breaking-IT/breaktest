@@ -28,6 +28,8 @@ jobs:
     env:
       # Random Windows/macOS jobs; matrix.mjs also adds one fixed Linux job.
       MATRIX_JOBS: 5
+      # Keep each PR reproducible; different PRs still sample different rows.
+      GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
@@ -74,12 +76,17 @@ jobs:
         java-version: 21
         distribution: temurin
     - name: Restore Gradle task cache
-      uses: actions/cache@v6
+      id: gradle-cache
+      uses: actions/cache/restore@v6
       with:
         path: ~/.gradle/caches/build-cache-1
-        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}
+        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-${{ github.sha }}-${{ github.run_attempt }}
         restore-keys: |
+          gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-row-${{ strategy.job-index }}-
           gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+    - name: Reset restored Gradle cache cleanup metadata
+      shell: bash
+      run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
     - name: Start virtual display for Linux GUI tests
       if: runner.os == 'Linux'
       shell: bash
@@ -107,7 +114,7 @@ jobs:
       with:
         script: |
           console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
-          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=1 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
@@ -122,8 +129,10 @@ jobs:
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
         # Separate projects can overlap, including the isolated JMS/local batch groups.
         # Protocol batch tasks within src:dist-check retain serial execution.
-        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
+          testParallelism=1
+          splitHttp3LiveTests=true
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
           jdkBuildVersion=21
@@ -138,6 +147,14 @@ jobs:
           org.gradle.java.installations.auto-download=false
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    - name: Save completed Gradle task outputs
+      # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
 
     - name: Upload build timings
       if: ${{ !cancelled() }}
@@ -159,12 +176,16 @@ jobs:
         java-version: 21
         distribution: 'temurin'
     - name: Restore Gradle task cache
-      uses: actions/cache@v6
+      id: gradle-cache
+      uses: actions/cache/restore@v6
       with:
         path: ~/.gradle/caches/build-cache-1
-        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}
+        key: gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-${{ github.sha }}-${{ github.run_attempt }}
         restore-keys: |
           gradle-tasks-v1-${{ runner.os }}-${{ github.job }}-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}-
+    - name: Reset restored Gradle cache cleanup metadata
+      shell: bash
+      run: rm -f "$HOME/.gradle/caches/build-cache-1/gc.properties" "$HOME/.gradle/caches/build-cache-1/"*.lock
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
@@ -175,3 +196,11 @@ jobs:
         arguments: --scan --parallel --max-workers=4 --no-daemon classes
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    - name: Save completed Gradle task outputs
+      # Failed tasks do not enter Gradle's cache; preserve successful work for retries.
+      if: ${{ !cancelled() && steps.gradle-cache.outputs.cache-primary-key != '' && steps.gradle-cache.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@v6
+      with:
+        path: ~/.gradle/caches/build-cache-1
+        key: ${{ steps.gradle-cache.outputs.cache-primary-key }}

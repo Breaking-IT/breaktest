@@ -159,3 +159,4 @@ property("localAutostyle")?.ifBlank { "../autostyle" }?.let {
 
 // Keep Gradle's default local build cache enabled in CI. The workflow restores
 // it in bulk; disabling it here would leave the restored task outputs unused.
+// Remote Develocity task caching is intentionally not registered; CI uses the local cache only.
