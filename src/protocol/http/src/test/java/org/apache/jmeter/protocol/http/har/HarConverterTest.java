@@ -142,7 +142,7 @@ public class HarConverterTest {
 
     @Test
     void embeddedAssetReferenceDoesNotSplitAnActiveParallelWave() throws Exception {
-        String logoPath = "/_nuxt-assets/logos/co-branded/logo-staatsloterij.svg";
+        String logoPath = "/_nuxt-assets/logos/co-branded/logo-product.svg";
         String har = "{\"log\":{\"entries\":["
                 + entry("2026-08-16T13:50:22.000Z", 50, "GET", "https://example.com/", "[]",
                         commonHeadersOnly(), null, 200) + ","

@@ -34,10 +34,10 @@ class StandardCookieHandlerTest {
     void shouldAcceptParentDomainCookieWithoutLeadingDot() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();
-        URL url = URI.create("https://staatsloterij.lotteries-acc.nl/_nuxt-assets/logo.svg").toURL();
+        URL url = URI.create("https://product.example.test/_nuxt-assets/logo.svg").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
-                "__cf_bm=value; HttpOnly; SameSite=None; Secure; Path=/; Domain=lotteries-acc.nl; Max-Age=60",
+                "__cf_bm=value; HttpOnly; SameSite=None; Secure; Path=/; Domain=example.test; Max-Age=60",
                 url);
 
         assertEquals(1, cookieManager.getCookieCount());
@@ -48,16 +48,16 @@ class StandardCookieHandlerTest {
     void shouldNotSendHostOnlyCookieToAnotherHost() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();
-        URL sourceUrl = URI.create("https://www.lotteries-acc.nl/inloggen").toURL();
-        URL sameHostUrl = URI.create("https://www.lotteries-acc.nl/statics/nlportal-header.js").toURL();
-        URL otherHostUrl = URI.create("https://nedwin.sand-box.nl/statics/nlportal-header.js").toURL();
+        URL sourceUrl = URI.create("https://www.example.test/login").toURL();
+        URL sameHostUrl = URI.create("https://www.example.test/statics/portal-header.js").toURL();
+        URL otherHostUrl = URI.create("https://app.other.test/statics/portal-header.js").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
-                "__Host-nlportal.redirect=https%253A%252F%252Fstaatsloterij.lotteries-acc.nl%252F; path=/; secure; samesite=lax",
+                "__Host-portal.redirect=https%253A%252F%252Fproduct.example.test%252F; path=/; secure; samesite=lax",
                 sourceUrl);
 
         assertEquals(1, cookieManager.getCookieCount());
-        assertEquals("__Host-nlportal.redirect=https%253A%252F%252Fstaatsloterij.lotteries-acc.nl%252F",
+        assertEquals("__Host-portal.redirect=https%253A%252F%252Fproduct.example.test%252F",
                 handler.getCookieHeaderForURL(cookieManager.getCookies(), sameHostUrl, true));
         assertNull(handler.getCookieHeaderForURL(cookieManager.getCookies(), otherHostUrl, true));
     }
@@ -66,11 +66,11 @@ class StandardCookieHandlerTest {
     void shouldNotSendHostOnlyCookieToSubdomain() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();
-        URL sourceUrl = URI.create("https://www.lotteries-acc.nl/inloggen").toURL();
-        URL subdomainUrl = URI.create("https://staatsloterij.lotteries-acc.nl/").toURL();
+        URL sourceUrl = URI.create("https://www.example.test/login").toURL();
+        URL subdomainUrl = URI.create("https://product.example.test/").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
-                "__Host-nlportal.redirect=value; path=/; secure; samesite=lax",
+                "__Host-portal.redirect=value; path=/; secure; samesite=lax",
                 sourceUrl);
 
         assertEquals(1, cookieManager.getCookieCount());
@@ -81,8 +81,8 @@ class StandardCookieHandlerTest {
     void shouldStoreCookieForDifferentPathOnSameOrigin() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();
-        URL loginUrl = URI.create("https://nedwin.sand-box.nl/inloggen?iss=https%3A%2F%2Finloggen.sand-box.nl%2F").toURL();
-        URL callbackUrl = URI.create("https://nedwin.sand-box.nl/callback").toURL();
+        URL loginUrl = URI.create("https://app.other.test/login?iss=https%3A%2F%2Flogin.other.test%2F").toURL();
+        URL callbackUrl = URI.create("https://app.other.test/callback").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
                 ".AspNetCore.OpenIdConnect.Nonce=value; expires="
@@ -100,9 +100,9 @@ class StandardCookieHandlerTest {
     void shouldUseRfcPathMatchingWhenSendingCookies() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();
-        URL callbackUrl = URI.create("https://nedwin.sand-box.nl/callback").toURL();
-        URL callbackChildUrl = URI.create("https://nedwin.sand-box.nl/callback/continue").toURL();
-        URL callbackSiblingUrl = URI.create("https://nedwin.sand-box.nl/callback2").toURL();
+        URL callbackUrl = URI.create("https://app.other.test/callback").toURL();
+        URL callbackChildUrl = URI.create("https://app.other.test/callback/continue").toURL();
+        URL callbackSiblingUrl = URI.create("https://app.other.test/callback2").toURL();
 
         handler.addCookieFromHeader(cookieManager, true,
                 "nonce=value; path=/callback; secure; httponly",

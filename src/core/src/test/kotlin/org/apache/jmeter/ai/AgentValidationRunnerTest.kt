@@ -79,7 +79,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
                 oneRequest {
                     +ScriptRepairSampler(
                         "Fetch form",
-                        requestHeaders = "__Host-nlportal.loginCancelUrl=https%253A%252F%252Fstaatsloterij.lotteries-acc.nl%252F;",
+                        requestHeaders = "__Host-portal.loginCancelUrl=https%253A%252F%252Fproduct.example.test%252F;",
                         requestBody = "username=jane@example.test&nonce=$preFailureUuid",
                         responseBody = "TOKEN-abc123456789",
                     )
@@ -112,7 +112,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
         assertTrue(report.preFailureRequestCandidates.any { it.kind == "credential" && it.literal == "jane@example.test" })
         assertFalse(
             report.preFailureRequestCandidates.any {
-                it.kind == "credential" && it.fieldName == "__Host-nlportal.loginCancelUrl"
+                it.kind == "credential" && it.fieldName == "__Host-portal.loginCancelUrl"
             },
         )
         assertTrue(report.preFailureRequestCandidates.any { it.kind == "oauth-state" && it.literal == "STATE-abc123456789" })
