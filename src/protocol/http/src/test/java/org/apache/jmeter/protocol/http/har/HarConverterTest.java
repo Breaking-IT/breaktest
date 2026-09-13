@@ -142,7 +142,7 @@ public class HarConverterTest {
 
     @Test
     void embeddedAssetReferenceDoesNotSplitAnActiveParallelWave() throws Exception {
-        String logoPath = "/_nuxt-assets/logos/co-branded/logo-staatsloterij.svg";
+        String logoPath = "/_nuxt-assets/logos/co-branded/logo-product.svg";
         String har = "{\"log\":{\"entries\":["
                 + entry("2026-08-16T13:50:22.000Z", 50, "GET", "https://example.com/", "[]",
                         commonHeadersOnly(), null, 200) + ","
@@ -227,12 +227,12 @@ public class HarConverterTest {
 
     @Test
     void unmarkedChromiumMemoryCacheReuseIsSkippedWithoutLosingOriginalHeaders() throws Exception {
-        String url = "https://www.fedex.com/content/dam/fedex-com/common/sprite-placeholder.png";
+        String url = "https://www.example.test/assets/common/sprite-placeholder.png";
         String fullHeaders = "[{\"name\":\"accept\",\"value\":\"image/*\"},"
                 + "{\"name\":\"user-agent\",\"value\":\"Browser\"},"
                 + "{\"name\":\"sec-fetch-dest\",\"value\":\"image\"}]";
         String sparseCacheHeaders = "[{\"name\":\"Referer\","
-                + "\"value\":\"https://www.fedex.com/en-us/home.html\"}]";
+                + "\"value\":\"https://www.example.test/en-us/home.html\"}]";
         String har = "{\"log\":{\"entries\":["
                 + entry("2026-07-21T04:45:00.000Z", 180, "GET", url, "[]",
                         fullHeaders, null, 200) + ","
@@ -244,8 +244,8 @@ public class HarConverterTest {
         assertEquals("memory", parsed.get(1).getFromCache());
 
         HashTree converted = new HarConverter(
-                parsed, new HarImportOptions(), "fedex.har", "abc123")
-                .convert(Set.of("www.fedex.com"));
+                parsed, new HarImportOptions(), "memory-cache.har", "abc123")
+                .convert(Set.of("www.example.test"));
         List<HTTPSamplerProxy> samplers = new ArrayList<>();
         collect(converted, HTTPSamplerProxy.class, samplers);
         assertEquals(1, samplers.size());

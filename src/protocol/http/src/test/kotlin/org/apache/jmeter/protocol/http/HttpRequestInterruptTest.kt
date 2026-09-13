@@ -20,7 +20,6 @@ package org.apache.jmeter.protocol.http
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock.aResponse
 import com.github.tomakehurst.wiremock.client.WireMock.get
-import com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig
 import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory
@@ -29,6 +28,7 @@ import org.apache.jmeter.test.samplers.CollectSamplesListener
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
+import org.apache.jmeter.wiremock.WireMockExtension.loopbackConfig
 import org.apache.jorphan.test.JMeterSerialTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -45,7 +45,7 @@ class HttpRequestInterruptTest : JMeterTestCase(), JMeterSerialTest {
     @Timeout(20, unit = TimeUnit.SECONDS)
     @ValueSource(strings = [HTTPSamplerFactory.IMPL_HTTP_CLIENT5])
     fun `http request interrupts`(httpImplementation: String) {
-        val server = WireMockServer(wireMockConfig().dynamicPort())
+        val server = WireMockServer(loopbackConfig())
         val received = CountDownLatch(1)
         val listener = CollectSamplesListener()
         val engine = StandardJMeterEngine()

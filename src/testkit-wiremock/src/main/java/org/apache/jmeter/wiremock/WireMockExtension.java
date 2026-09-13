@@ -32,6 +32,14 @@ public class WireMockExtension implements BeforeEachCallback, BeforeAllCallback,
     private static final ExtensionContext.Namespace NAMESPACE =
             ExtensionContext.Namespace.create(WireMockExtension.class);
 
+    /**
+     * Reserve a port on the address used by local test clients. On macOS, a wildcard
+     * listener can overlap a listener on 127.0.0.1 and send tests to an unrelated service.
+     */
+    public static WireMockConfiguration loopbackConfig() {
+        return WireMockConfiguration.wireMockConfig().bindAddress("127.0.0.1").dynamicPort();
+    }
+
     @Override
     public void beforeEach(ExtensionContext context) {
         WireMockServer server = getServer(context);
@@ -61,8 +69,7 @@ public class WireMockExtension implements BeforeEachCallback, BeforeAllCallback,
     @Override
     public void beforeAll(ExtensionContext context) {
         WireMockServer server = new WireMockServer(
-                WireMockConfiguration.wireMockConfig()
-                        .dynamicPort()
+                loopbackConfig()
                         .extensions(new RequestCountDown())
         );
         server.start();

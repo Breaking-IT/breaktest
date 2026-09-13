@@ -53,7 +53,6 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
 @BugId("52310")
-@ExtendWith(WireMockExtension.class)
 @ExtendWith(JMeterContextExtension.class)
 public class ParallelResourcesAndIpSource {
 
@@ -137,6 +136,19 @@ public class ParallelResourcesAndIpSource {
     @ParameterizedTest(name = "{0}, targetHost={1}, sourceIp={2}")
     @MethodSource("implementationsAndIps")
     public void test(String httpImplementation, String targetHost, InetAddress sourceIp,
+                     JMeterVariables vars, TestInfo testInfo) throws IOException {
+        // Bind the exact target address, including ::1 for the IPv6 cases.
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig()
+                .bindAddress(InetAddress.getByName(targetHost).getHostAddress()));
+        server.start();
+        try {
+            assertSourceAddress(httpImplementation, targetHost, sourceIp, server, vars, testInfo);
+        } finally {
+            server.stop();
+        }
+    }
+
+    private static void assertSourceAddress(String httpImplementation, String targetHost, InetAddress sourceIp,
                      WireMockServer server, JMeterVariables vars, TestInfo testInfo) {
         configureStubs(server);
 
@@ -169,7 +181,12 @@ public class ParallelResourcesAndIpSource {
 
         http.setRunningVersion(true);
 
-        SampleResult result = http.sample();
+        SampleResult result;
+        try {
+            result = http.sample();
+        } finally {
+            http.threadFinished();
+        }
 
         if (sourceIp instanceof Inet4Address && targetHost.startsWith("[") ||
                 sourceIp instanceof Inet6Address && !targetHost.startsWith("[")) {
