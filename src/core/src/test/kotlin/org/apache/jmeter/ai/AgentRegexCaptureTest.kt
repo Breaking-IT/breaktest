@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
 
 class AgentRegexCaptureTest {
 
-    /** The getapigconfigs response shape from the FedEx repair runs. */
+    /** A synthetic JSON configuration response used to verify value capture. */
     private val apigResponse =
         """{"clientID":"l7xxab12cd34ef56","clientSecret":"s3cr3t","env":"prod"}"""
 
