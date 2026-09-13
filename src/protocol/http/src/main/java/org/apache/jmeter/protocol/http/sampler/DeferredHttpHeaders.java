@@ -21,10 +21,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-import org.apache.jmeter.util.JMeterUtils;
-
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.message.BufferedHeader;
+import org.apache.jmeter.util.JMeterUtils;
 
 /** Owned diagnostic snapshot: no references to mutable HTTP messages or parser buffers. */
 final class DeferredHttpHeaders {

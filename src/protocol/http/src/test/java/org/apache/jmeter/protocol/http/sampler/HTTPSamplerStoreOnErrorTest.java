@@ -26,7 +26,6 @@ import java.util.List;
 
 import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.extractor.RegexExtractor;
-
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContextService;
