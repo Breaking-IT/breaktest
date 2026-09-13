@@ -104,7 +104,11 @@ jobs:
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
-        job-id: jdk${{ matrix.java_version }}
+        # All rows compile with the same JDK. The action adds the runner OS to this key.
+        job-id: build-jdk21
+        # Restore the local cache in bulk instead of downloading/unpacking each task
+        # entry through the remote proxy (particularly expensive on Windows).
+        remote-build-cache-proxy-enabled: false
         multi-cache-enabled: false
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
         # Separate projects can overlap, including the isolated JMS/local batch groups.
@@ -149,6 +153,7 @@ jobs:
       name: Test
       with:
         job-id: errprone
+        remote-build-cache-proxy-enabled: false
         multi-cache-enabled: false
         arguments: --scan --parallel --max-workers=4 --no-daemon classes
       env:
