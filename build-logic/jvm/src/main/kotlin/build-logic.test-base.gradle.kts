@@ -39,6 +39,8 @@ tasks.configureEach<Test> {
     buildParameters.testJdk?.let {
         javaLauncher.convention(javaToolchains.launcherFor(it))
     }
+    providers.gradleProperty("testLanguage").orNull?.let { systemProperty("user.language", it) }
+    providers.gradleProperty("testCountry").orNull?.let { systemProperty("user.country", it) }
     // Pass the property to tests
     fun passProperty(name: String, default: String? = null) {
         val value = System.getProperty(name) ?: default

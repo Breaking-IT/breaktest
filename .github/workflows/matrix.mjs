@@ -107,24 +107,21 @@ if (include.length === 0) {
 }
 include.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
 include.forEach(v => {
-  // Pass locale via Gradle arguments in case it won't be inherited from _JAVA_OPTIONS
-  // In fact, _JAVA_OPTIONS is non-standard and might be ignored by some JVMs
+  // Keep compilation inputs stable; vary locale only in test processes.
   let gradleArgs = [
-    `-Duser.country=${v.locale.country}`,
-    `-Duser.language=${v.locale.language}`,
+    '-Duser.country=US',
+    '-Duser.language=en',
+    `-PtestCountry=${v.locale.country}`,
+    `-PtestLanguage=${v.locale.language}`,
   ];
   v.extraGradleArgs = gradleArgs.join(' ');
 });
 include.forEach(v => {
-  let jvmArgs = [];
   // Extra JVM arguments passed to test execution
   let testJvmArgs = [];
   if (v.hash.value === 'same') {
     testJvmArgs.push('-XX:+UnlockExperimentalVMOptions', '-XX:hashCode=2');
   }
-  // Gradle does not work in tr_TR locale, so pass locale to test only: https://github.com/gradle/gradle/issues/17361
-  jvmArgs.push(`-Duser.country=${v.locale.country}`);
-  jvmArgs.push(`-Duser.language=${v.locale.language}`);
   v.java_vendor = v.java_distribution.vendor;
   v.java_distribution = v.java_distribution.value;
   if (v.java_distribution === 'oracle') {
@@ -136,20 +133,19 @@ include.forEach(v => {
     // so it might reveal missing synchronization
     v.name += ', stress JIT';
     v.testDisableCaching = 'JIT randomization should not be cached';
-    jvmArgs.push('-XX:+UnlockDiagnosticVMOptions');
+    testJvmArgs.push('-XX:+UnlockDiagnosticVMOptions');
     // Randomize instruction scheduling in GCM and LCM.
     // share/opto/c2_globals.hpp
-    jvmArgs.push('-XX:+StressGCM');
-    jvmArgs.push('-XX:+StressLCM');
+    testJvmArgs.push('-XX:+StressGCM');
+    testJvmArgs.push('-XX:+StressLCM');
     // Randomize worklist traversal in IGVN and CCP.
     // share/opto/c2_globals.hpp
-    jvmArgs.push('-XX:+StressIGVN');
-    jvmArgs.push('-XX:+StressCCP');
+    testJvmArgs.push('-XX:+StressIGVN');
+    testJvmArgs.push('-XX:+StressCCP');
   }
   if (v.java_version === "26") {
     v.testDisableCaching = "Live HTTP/3 tests must contact the endpoint on every CI run";
   }
-  v.extraJvmArgs = jvmArgs.join(' ');
   v.testExtraJvmArgs = testJvmArgs.join(' ::: ');
   delete v.hash;
 });
@@ -164,8 +160,7 @@ include.push({
   java_distribution: 'temurin',
   java_vendor: 'eclipse',
   tz: 'UTC',
-  extraGradleArgs: '-Duser.country=US -Duser.language=en',
-  extraJvmArgs: '-Duser.country=US -Duser.language=en',
+  extraGradleArgs: '-Duser.country=US -Duser.language=en -PtestCountry=US -PtestLanguage=en',
   testExtraJvmArgs: '',
   testDisableCaching: 'Live HTTP/3 tests must contact the endpoint on every CI run',
 });

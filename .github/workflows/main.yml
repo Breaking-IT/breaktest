@@ -58,15 +58,21 @@ jobs:
       with:
         website: ${{ matrix.oracle_java_website }}
         release: ${{ matrix.java_version }}
-    - name: Set up Java 21 and ${{ matrix.non_ea_java_version }}, ${{ matrix.java_distribution }}
+    - name: Set up test JDK ${{ matrix.non_ea_java_version }}, ${{ matrix.java_distribution }}
+      if: ${{ matrix.oracle_java_website == '' }}
       uses: actions/setup-java@v5
       with:
-        # The latest one will be the default, so we use Java 21 for launching Gradle
-        java-version: |
-          ${{ matrix.non_ea_java_version }}
-          21
-        # Use the runner architecture (native ARM64 on macOS).
+        java-version: ${{ matrix.non_ea_java_version }}
         distribution: ${{ matrix.java_distribution }}
+    - name: Remember test JDK location
+      shell: bash
+      run: echo "BREAKTEST_TEST_JAVA_HOME=$JAVA_HOME" >> "$GITHUB_ENV"
+    - name: Set up build JDK 21, Temurin
+      uses: actions/setup-java@v5
+      with:
+        # Compile with one vendor across matrix rows; tests select their own toolchain.
+        java-version: 21
+        distribution: temurin
     - name: Start virtual display for Linux GUI tests
       if: runner.os == 'Linux'
       shell: bash
@@ -93,8 +99,8 @@ jobs:
       uses: actions/github-script@v8
       with:
         script: |
-          console.log('The following command might help reproducing CI results, use Java ${{ matrix.java_version }}')
-          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
@@ -108,14 +114,16 @@ jobs:
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
           jdkBuildVersion=21
+          jdkBuildVendor=eclipse
           jdkTestVersion=${{ matrix.java_version }}
           jdkTestVendor=${{ matrix.java_vendor }}
+          # Keep a second JDK 21 vendor discoverable after setup-java switches JAVA_HOME.
+          org.gradle.java.installations.fromEnv=BREAKTEST_TEST_JAVA_HOME,JAVA_HOME
           # We have a separate job with Errorprone verifications, so avoid duplicate warnings
           enableErrorprone=false
           # We provision JDKs with GitHub Actions for caching purposes, so Gradle should rather fail in case JDK is not found
           org.gradle.java.installations.auto-download=false
       env:
-        _JAVA_OPTIONS: ${{ matrix.extraJvmArgs }}
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
     - name: Upload build timings
@@ -136,7 +144,7 @@ jobs:
       uses: actions/setup-java@v5
       with:
         java-version: 21
-        distribution: 'zulu'
+        distribution: 'temurin'
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:

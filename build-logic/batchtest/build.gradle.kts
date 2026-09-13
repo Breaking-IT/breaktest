@@ -20,6 +20,7 @@ plugins {
 }
 
 dependencies {
+    api(projects.basics)
     implementation("org.ajoberstar.grgit:grgit-gradle:5.3.3")
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r")
 }
