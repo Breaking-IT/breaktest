@@ -38,8 +38,10 @@ val projectTestEnvironment = extensions.create<TestEnvironmentInputs>("testEnvir
 
 tasks.configureEach<Test> {
     val testEnvironment = extensions.create<TestEnvironmentInputs>("testEnvironmentInputs")
-    testEnvironment.flags.convention(projectTestEnvironment.flags)
-    testEnvironment.paths.convention(projectTestEnvironment.paths)
+    // Start with the project maps so put() overrides retain the other entries.
+    // A convention is discarded as soon as a task adds an explicit map entry.
+    testEnvironment.flags.set(projectTestEnvironment.flags)
+    testEnvironment.paths.set(projectTestEnvironment.paths)
     inputs.property("environmentFlags", testEnvironment.flags)
     inputs.property("environmentPaths", testEnvironment.paths)
     val externalTestsEnabled = testEnvironment.flags.zip(testEnvironment.paths) { flags, paths ->
