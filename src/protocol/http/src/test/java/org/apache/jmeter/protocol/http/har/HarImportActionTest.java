@@ -17,8 +17,19 @@
 
 package org.apache.jmeter.protocol.http.har;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
+import java.util.zip.ZipInputStream;
 
 import javax.swing.JTree;
 import javax.swing.tree.DefaultTreeModel;
@@ -26,12 +37,20 @@ import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.save.ArchiveFiles;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-class HarImportActionTest {
+class HarImportActionTest extends JMeterTestCase {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void expandsOnlyImportedThreadGroupAndCollapsesItsTransactions() {
@@ -55,6 +74,46 @@ class HarImportActionTest {
         assertTrue(tree.isExpanded(importedGroupPath));
         assertFalse(tree.isExpanded(importedTransactionPath));
         assertTrue(tree.isExpanded(existingTransactionPath), "existing tree expansion is unchanged");
+    }
+
+    @Test
+    void storesAvailableUploadContentUnderItsRelativeFileName() throws Exception {
+        byte[] content = "sample document".getBytes(StandardCharsets.UTF_8);
+        HarEntry entry = new HarEntry();
+        entry.setUrl("https://api.example.com/upload");
+        entry.setPostData(new HarEntry.PostData(
+                "multipart/form-data", null, List.of(new HarEntry.NameValue(
+                        "file", "(binary)", "C:\\fakepath\\invoice.pdf", "application/pdf", content))));
+
+        HarImportAction.storeUploadFiles(List.of(entry), Set.of("api.example.com"), tempDir);
+
+        assertArrayEquals(content, Files.readAllBytes(tempDir.resolve("invoice.pdf")));
+    }
+
+    @Test
+    void savesUploadInFilesDirectoryOfJmxArchive() throws Exception {
+        byte[] content = "sample document".getBytes(StandardCharsets.UTF_8);
+        HarEntry entry = new HarEntry();
+        entry.setUrl("https://api.example.com/upload");
+        entry.setPostData(new HarEntry.PostData("multipart/form-data", null,
+                List.of(new HarEntry.NameValue("file", "", "invoice.pdf", "application/pdf", content))));
+        TestPlan plan = new TestPlan();
+        HarImportAction.storeArchiveUploads(List.of(entry), Set.of("api.example.com"), plan);
+        assertEquals(ArchiveFiles.checksum(content), ArchiveFiles.references(plan).get("files/invoice.pdf"));
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(plan);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        SaveService.saveTree(tree, output);
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(output.toByteArray()))) {
+            java.util.zip.ZipEntry item;
+            while ((item = zip.getNextEntry()) != null) {
+                if (item.getName().equals("files/invoice.pdf")) {
+                    assertArrayEquals(content, zip.readAllBytes());
+                    return;
+                }
+            }
+        }
+        throw new AssertionError("Upload missing from saved archive");
     }
 
     private static JMeterTreeNode threadGroup(String name, JMeterTreeNode parent) {

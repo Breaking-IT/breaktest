@@ -57,6 +57,7 @@ import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
+import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.TestElementProperty;
@@ -487,14 +488,14 @@ public final class HarConverter {
         }
         Map<String, String> common = new LinkedHashMap<>();
         for (NameValue header : nonPreflight.get(0).getRequestHeaders()) {
-            if (isExportableHeader(header.getName())) {
+            if (isCommonHeader(header)) {
                 common.put(header.getName(), header.getValue());
             }
         }
         for (int i = 1; i < nonPreflight.size(); i++) {
             Map<String, String> currentLower = new HashMap<>();
             for (NameValue header : nonPreflight.get(i).getRequestHeaders()) {
-                if (isExportableHeader(header.getName())) {
+                if (isCommonHeader(header)) {
                     currentLower.put(header.getName().toLowerCase(Locale.ROOT), header.getValue());
                 }
             }
@@ -508,6 +509,12 @@ public final class HarConverter {
 
     static boolean isExportableHeader(String name) {
         return !IGNORED_REQUEST_HEADERS.contains(name.toLowerCase(Locale.ROOT)) && !name.startsWith(":");
+    }
+
+    private static boolean isCommonHeader(NameValue header) {
+        return isExportableHeader(header.getName())
+                && !("content-type".equalsIgnoreCase(header.getName())
+                        && HarParser.isMultipart(header.getValue()));
     }
 
     // ---------------------------------------------------------------------
@@ -559,6 +566,7 @@ public final class HarConverter {
 
         Arguments arguments = new Arguments();
         sampler.setArguments(arguments);
+        boolean generatedMultipart = false;
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
@@ -571,7 +579,33 @@ public final class HarConverter {
             }
         } else if (entry.getPostData() != null) {
             PostData postData = entry.getPostData();
-            if (!postData.getParams().isEmpty()) {
+            generatedMultipart = HarParser.isMultipart(postData.getMimeType())
+                    && postData.getParams().stream().anyMatch(NameValue::isFileUpload);
+            if (generatedMultipart) {
+                List<HTTPFileArg> files = new ArrayList<>();
+                for (NameValue param : postData.getParams()) {
+                    if (param.isFileUpload()) {
+                        String filename = param.getResourceName();
+                        if (options.getFileUploadMode() == HarImportOptions.FileUploadMode.ARCHIVE
+                                && param.hasFileContent()) {
+                            filename = "${__archiveFile(" + filename.replace(",", "\\,") + ")}";
+                        } else {
+                            filename = HarEntry.localFileName(filename);
+                        }
+                        files.add(new HTTPFileArg(
+                                filename,
+                                param.getName(),
+                                param.getContentType()));
+                        continue;
+                    }
+                    String value = replaceCorrelations(entry, param.getValue(),
+                            HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
+                    addHttpArgument(arguments, param.getName(), value, false, true);
+                }
+                sampler.setHTTPFiles(files.toArray(HTTPFileArg[]::new));
+                sampler.setDoMultipart(true);
+                sampler.setDoBrowserCompatibleMultipart(true);
+            } else if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
                     String decodedValue = percentDecode(param.getValue());
                     decodedValue = replaceCorrelations(entry, decodedValue,
@@ -593,7 +627,12 @@ public final class HarConverter {
         List<Header> uniqueHeaders = new ArrayList<>();
         for (NameValue header : entry.getRequestHeaders()) {
             String lower = header.getName().toLowerCase(Locale.ROOT);
-            if (!commonHeadersLower.contains(lower) && isExportableHeader(header.getName())) {
+            boolean generatedBoundaryHeader = generatedMultipart
+                    && "content-type".equalsIgnoreCase(header.getName())
+                    && HarParser.isMultipart(header.getValue());
+            if (!commonHeadersLower.contains(lower)
+                    && isExportableHeader(header.getName())
+                    && !generatedBoundaryHeader) {
                 String value = replaceCorrelations(entry, header.getValue(),
                         HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER);
                 uniqueHeaders.add(new Header(header.getName(), value));

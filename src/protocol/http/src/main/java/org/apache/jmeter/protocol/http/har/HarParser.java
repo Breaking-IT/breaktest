@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -27,7 +28,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import org.apache.hc.core5.http.HeaderElement;
+import org.apache.hc.core5.http.NameValuePair;
+import org.apache.hc.core5.http.message.BasicHeaderValueParser;
+import org.apache.hc.core5.http.message.ParserCursor;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
 
@@ -43,6 +50,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public final class HarParser {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Pattern MULTIPART_BOUNDARY = Pattern.compile(
+            "(?:^|;)\\s*boundary=(?:\"([^\"]+)\"|([^;\\s]+))", Pattern.CASE_INSENSITIVE);
 
     private HarParser() {
     }
@@ -56,6 +65,13 @@ public final class HarParser {
      * @throws IOException if the content cannot be read or is not valid HAR
      */
     public static List<HarEntry> parse(byte[] content) throws IOException {
+        return parseRecording(content).entries();
+    }
+
+    public record Recording(List<HarEntry> entries, HarUploadCapture.Result uploads) {
+    }
+
+    public static Recording parseRecording(byte[] content) throws IOException {
         ensureRawHarContent(content);
         JsonNode root = MAPPER.readTree(content);
         JsonNode entriesNode = root.path("log").path("entries");
@@ -78,7 +94,7 @@ public final class HarParser {
             entries.add(entry);
             index++;
         }
-        return entries;
+        return new Recording(entries, HarUploadCapture.read(root.path("log"), entries));
     }
 
     /**
@@ -166,7 +182,7 @@ public final class HarParser {
 
         readNameValues(request.path("headers"), entry.getRequestHeaders());
         readNameValues(request.path("queryString"), entry.getQueryString());
-        entry.setPostData(parsePostData(request.path("postData")));
+        entry.setPostData(parsePostData(request));
 
         JsonNode response = entryNode.path("response");
         entry.setResponseStatus(response.path("status").asInt(0));
@@ -237,15 +253,159 @@ public final class HarParser {
         }
     }
 
-    private static PostData parsePostData(JsonNode postDataNode) {
+    private static PostData parsePostData(JsonNode requestNode) {
+        JsonNode postDataNode = requestNode.path("postData");
         if (postDataNode.isMissingNode() || postDataNode.isNull()) {
             return null;
         }
         String mimeType = postDataNode.path("mimeType").asText("");
         String text = postDataNode.has("text") ? postDataNode.get("text").asText("") : null;
         List<NameValue> params = new ArrayList<>();
-        readNameValues(postDataNode.path("params"), params);
+        JsonNode paramsNode = postDataNode.path("params");
+        if (paramsNode.isArray()) {
+            for (JsonNode item : paramsNode) {
+                String value = item.path("value").asText("");
+                String fileName = item.path("fileName").asText("");
+                byte[] fileContent = !fileName.isBlank()
+                                && item.hasNonNull("value")
+                                && !"(binary)".equalsIgnoreCase(value.trim())
+                        ? value.getBytes(StandardCharsets.UTF_8)
+                        : null;
+                params.add(new NameValue(
+                        item.path("name").asText(""),
+                        value,
+                        fileName,
+                        item.path("contentType").asText(""),
+                        fileContent));
+            }
+        }
+        if (text != null && isMultipart(mimeType)) {
+            List<NameValue> multipartParams = parseMultipart(
+                    mimeType, text, hasCompletePostData(requestNode, text));
+            if (multipartParams.stream().anyMatch(NameValue::isFileUpload)) {
+                params = mergeRecordedFileContent(multipartParams, params);
+            }
+        }
         return new PostData(mimeType, text, params);
+    }
+
+    static boolean isMultipart(String mimeType) {
+        return mimeType != null
+                && mimeType.toLowerCase(Locale.ROOT).startsWith("multipart/form-data");
+    }
+
+    private static List<NameValue> parseMultipart(String mimeType, String body, boolean contentComplete) {
+        Matcher matcher = MULTIPART_BOUNDARY.matcher(mimeType);
+        if (!matcher.find()) {
+            return List.of();
+        }
+        String boundary = matcher.group(1) == null ? matcher.group(2) : matcher.group(1);
+        List<NameValue> params = new ArrayList<>();
+        for (String rawPart : body.split(Pattern.quote("--" + boundary), -1)) {
+            String part = removeLeadingLineBreak(rawPart);
+            if (part.isEmpty() || part.startsWith("--")) {
+                continue;
+            }
+            int separator = part.indexOf("\r\n\r\n");
+            int separatorLength = 4;
+            if (separator < 0) {
+                separator = part.indexOf("\n\n");
+                separatorLength = 2;
+            }
+            if (separator < 0) {
+                continue;
+            }
+            String headers = part.substring(0, separator);
+            String content = removeTrailingLineBreak(part.substring(separator + separatorLength));
+            String disposition = headerValue(headers, "content-disposition");
+            if (disposition == null) {
+                continue;
+            }
+            HeaderElement[] elements = BasicHeaderValueParser.INSTANCE.parseElements(
+                    disposition, new ParserCursor(0, disposition.length()));
+            if (elements.length == 0) {
+                continue;
+            }
+            NameValuePair name = elements[0].getParameterByName("name");
+            NameValuePair fileName = elements[0].getParameterByName("filename");
+            String recordedFileName = fileName == null ? "" : fileName.getValue();
+            params.add(new NameValue(
+                    name == null ? "" : name.getValue(),
+                    content,
+                    recordedFileName,
+                    headerValue(headers, "content-type"),
+                    fileName != null && contentComplete && !"(binary)".equalsIgnoreCase(content.trim())
+                            ? content.getBytes(StandardCharsets.UTF_8)
+                            : null));
+        }
+        return params;
+    }
+
+    private static List<NameValue> mergeRecordedFileContent(
+            List<NameValue> multipartParams, List<NameValue> recordedParams) {
+        List<NameValue> merged = new ArrayList<>(multipartParams.size());
+        for (NameValue multipartParam : multipartParams) {
+            if (!multipartParam.isFileUpload() || multipartParam.hasFileContent()) {
+                merged.add(multipartParam);
+                continue;
+            }
+            NameValue recorded = recordedParams.stream()
+                    .filter(NameValue::isFileUpload)
+                    .filter(candidate -> candidate.getName().equals(multipartParam.getName()))
+                    .filter(candidate -> candidate.getFileName().equals(multipartParam.getFileName()))
+                    .filter(NameValue::hasFileContent)
+                    .findFirst()
+                    .orElse(null);
+            merged.add(recorded == null
+                    ? multipartParam
+                    : new NameValue(
+                            multipartParam.getName(),
+                            multipartParam.getValue(),
+                            multipartParam.getFileName(),
+                            multipartParam.getContentType(),
+                            recorded.getFileContent()));
+        }
+        return merged;
+    }
+
+    private static boolean hasCompletePostData(JsonNode requestNode, String text) {
+        long expectedSize = requestNode.path("bodySize").asLong(-1);
+        for (JsonNode header : requestNode.path("headers")) {
+            if ("content-length".equalsIgnoreCase(header.path("name").asText(""))) {
+                try {
+                    expectedSize = Math.max(expectedSize, Long.parseLong(header.path("value").asText("")));
+                } catch (NumberFormatException ignored) {
+                    // An invalid recorded length gives us no completeness evidence.
+                }
+                break;
+            }
+        }
+        return expectedSize < 0
+                || text.getBytes(StandardCharsets.UTF_8).length >= expectedSize;
+    }
+
+    private static String headerValue(String headers, String requestedName) {
+        for (String line : headers.split("\\r?\\n")) {
+            int separator = line.indexOf(':');
+            if (separator > 0 && requestedName.equalsIgnoreCase(line.substring(0, separator).trim())) {
+                return line.substring(separator + 1).trim();
+            }
+        }
+        return "";
+    }
+
+    private static String removeLeadingLineBreak(String value) {
+        if (value.startsWith("\r\n")) {
+            return value.substring(2);
+        }
+        return value.startsWith("\n") ? value.substring(1) : value;
+    }
+
+    private static String removeTrailingLineBreak(String value) {
+        if (value.endsWith("\r\n")) {
+            return value.substring(0, value.length() - 2);
+        }
+        return value.endsWith("\n") ? value.substring(0, value.length() - 1) : value;
     }
 
     /** Parse a HAR ISO-8601 timestamp to epoch millis, tolerating a missing zone offset. */

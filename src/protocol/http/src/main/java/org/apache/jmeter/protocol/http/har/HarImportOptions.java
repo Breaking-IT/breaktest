@@ -52,9 +52,16 @@ public class HarImportOptions {
         NONE
     }
 
+    public enum FileUploadMode {
+        ARCHIVE,
+        LOCAL_FILE,
+        REFERENCE_ONLY
+    }
+
     private boolean ignoreErrors = true;
     private boolean addIndex = false;
     private RecordingStorageMode recordingStorageMode = RecordingStorageMode.ALL;
+    private FileUploadMode fileUploadMode = FileUploadMode.ARCHIVE;
 
     /** New transaction is started when idle gap exceeds this many seconds. */
     private int idleTimeSeconds = 4;
@@ -104,6 +111,14 @@ public class HarImportOptions {
 
     public void setRecordingStorageMode(RecordingStorageMode recordingStorageMode) {
         this.recordingStorageMode = recordingStorageMode;
+    }
+
+    public FileUploadMode getFileUploadMode() {
+        return fileUploadMode;
+    }
+
+    public void setFileUploadMode(FileUploadMode fileUploadMode) {
+        this.fileUploadMode = fileUploadMode;
     }
 
     public int getIdleTimeSeconds() {

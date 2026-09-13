@@ -19,11 +19,13 @@ package org.apache.jmeter.functions;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.ServiceLoader;
 
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.junit.JMeterTestCase;
@@ -33,6 +35,21 @@ import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.Test;
 
 class ArchiveFileTest extends JMeterTestCase implements JMeterSerialTest {
+    @Test
+    void registeredExpressionResolvesFileFromUnsavedPlan() throws Exception {
+        assertTrue(ServiceLoader.load(Function.class).stream()
+                .anyMatch(provider -> provider.type() == ArchiveFile.class));
+        TestPlan plan = new TestPlan();
+        ArchiveFiles.put(plan, "payload.json", "{}".getBytes(StandardCharsets.UTF_8), false);
+        ArchiveFiles.activate(plan);
+        try {
+            String resolved = new CompoundVariable("${__archiveFile(payload.json)}").execute();
+            assertEquals("{}", Files.readString(Path.of(resolved)));
+        } finally {
+            ArchiveFiles.activate(null);
+        }
+    }
+
     @Test
     void resolvesAnArchivedFileAndReportsMissingFiles() throws Exception {
         TestPlan plan = new TestPlan();

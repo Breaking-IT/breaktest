@@ -31,10 +31,31 @@ public class HarEntry {
     public static class NameValue {
         private final String name;
         private final String value;
+        private final String fileName;
+        private final String contentType;
+        private final byte[] fileContent;
+        private final String resourceName;
 
         public NameValue(String name, String value) {
+            this(name, value, "", "", null);
+        }
+
+        public NameValue(String name, String value, String fileName, String contentType, byte[] fileContent) {
+            this(name, value, fileName, contentType, fileContent, localFileName(fileName));
+        }
+
+        public NameValue(String name, String value, String fileName, String contentType, byte[] fileContent,
+                String resourceName) {
             this.name = name == null ? "" : name;
             this.value = value == null ? "" : value;
+            this.fileName = fileName == null ? "" : fileName;
+            this.contentType = contentType == null ? "" : contentType;
+            this.fileContent = fileContent == null ? null : fileContent.clone();
+            this.resourceName = resourceName;
+        }
+
+        public String getResourceName() {
+            return resourceName;
         }
 
         public String getName() {
@@ -44,6 +65,36 @@ public class HarEntry {
         public String getValue() {
             return value;
         }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public String getContentType() {
+            return contentType;
+        }
+
+        public boolean isFileUpload() {
+            return !fileName.isBlank();
+        }
+
+        public boolean hasFileContent() {
+            return fileContent != null;
+        }
+
+        public byte[] getFileContent() {
+            return fileContent == null ? null : fileContent.clone();
+        }
+    }
+
+    static String localFileName(String recordedName) {
+        String name = recordedName == null ? "" : recordedName;
+        int separator = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (separator >= 0) {
+            name = name.substring(separator + 1);
+        }
+        name = name.replaceAll("[\\p{Cntrl}/\\\\]", "_");
+        return name.isBlank() || ".".equals(name) || "..".equals(name) ? "upload.bin" : name;
     }
 
     /** The {@code request.postData} object. */
