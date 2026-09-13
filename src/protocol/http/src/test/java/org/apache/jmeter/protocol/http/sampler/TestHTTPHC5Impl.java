@@ -71,6 +71,9 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -470,6 +473,44 @@ public class TestHTTPHC5Impl {
             assertEquals(1, config.getIoThreadCount());
         } finally {
             restoreProperty(previous);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HTTP/1.1", "HTTP/2"})
+    public void httpsIgnoresUntrustedCertificateAndWrongHostname(String protocol, @TempDir Path directory)
+            throws Exception {
+        Path keyStore = directory.resolve("wrong-host.p12");
+        Process keytool = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "keytool").toString(),
+                "-genkeypair", "-alias", "server", "-keyalg", "RSA", "-storetype", "PKCS12",
+                "-keystore", keyStore.toString(), "-storepass", "password", "-keypass", "password",
+                "-dname", "CN=wrong.example", "-ext", "SAN=dns:wrong.example", "-validity", "2")
+                .redirectErrorStream(true).start();
+        String output = new String(keytool.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, keytool.waitFor(), output);
+        WireMockServer server = new WireMockServer(WireMockConfiguration.wireMockConfig()
+                .dynamicPort().dynamicHttpsPort().keystorePath(keyStore.toString())
+                .keystoreType("PKCS12").keystorePassword("password").keyManagerPassword("password"));
+        server.start();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        try {
+            server.stubFor(WireMock.get("/tls").willReturn(WireMock.aResponse().withBody("ok")));
+            sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);
+            sampler.setDomain("localhost");
+            sampler.setPort(server.httpsPort());
+            sampler.setPath("/tls");
+            sampler.setMethod(HTTPConstants.GET);
+            sampler.setHttpProtocol(protocol);
+            sampler.setConnectTimeout("5000");
+            sampler.setResponseTimeout("5000");
+            SampleResult result = sampler.sample();
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertEquals("ok", result.getResponseDataAsString());
+            assertTrue(result.getResponseHeaders().startsWith(protocol), result.getResponseHeaders());
+        } finally {
+            sampler.threadFinished();
+            server.stop();
         }
     }
 
