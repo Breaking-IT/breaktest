@@ -22,10 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JPopupMenu;
@@ -37,6 +40,10 @@ import javax.swing.tree.TreePath;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.settings.SettingDefinition;
+import org.apache.jmeter.gui.settings.SettingsCatalog;
+import org.apache.jmeter.gui.settings.SettingsGroup;
+import org.apache.jmeter.gui.settings.SettingsModel;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -54,6 +61,7 @@ import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class LoadTest {
 
@@ -210,6 +218,28 @@ class LoadTest {
         jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY, "true");
 
         assertTrue(Load.useFastJmxLoad());
+    }
+
+    @Test
+    void settingsCatalogControlsFastJmxLoadingAndPersistsChoices(@TempDir Path directory) throws Exception {
+        jMeterProperties();
+        SettingsCatalog catalog = SettingsCatalog.load();
+        SettingsGroup group = catalog.getGroups().stream()
+                .filter(candidate -> "general".equals(candidate.getId())).findFirst().orElseThrow();
+        SettingDefinition setting = group.getSettings().stream()
+                .filter(candidate -> Load.FAST_JMX_LOAD_PROPERTY.equals(candidate.getKey()))
+                .findFirst().orElseThrow();
+        SettingsModel model = new SettingsModel(catalog, directory.resolve("jmeter.properties").toFile(),
+                directory.resolve("user.properties").toFile(), directory.resolve("system.properties").toFile());
+        for (boolean enabled : new boolean[] {true, false}) {
+            model.apply(group.getTarget(), Map.of(setting.getKey(), Boolean.toString(enabled)), Set.of());
+            assertEquals(enabled, Load.useFastJmxLoad(), "GUI setting must reach the loader's runtime property");
+            SettingsModel reloaded = new SettingsModel(catalog, directory.resolve("jmeter.properties").toFile(),
+                    directory.resolve("user.properties").toFile(), directory.resolve("system.properties").toFile());
+            assertEquals(Boolean.toString(enabled), reloaded.getValue(group, setting));
+        }
+        model.apply(group.getTarget(), Map.of(), Set.of(setting.getKey()));
+        assertFalse(Load.useFastJmxLoad(), "Reset must restore the loader's opt-in default");
     }
 
     private static Properties jMeterProperties() {
