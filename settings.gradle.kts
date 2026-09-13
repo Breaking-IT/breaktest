@@ -157,11 +157,6 @@ property("localAutostyle")?.ifBlank { "../autostyle" }?.let {
     includeBuild(it)
 }
 
-buildCache {
-    local {
-        isEnabled = !isCiServer
-    }
-    remote(develocity.buildCache) {
-        isEnabled = false
-    }
-}
+// Keep Gradle's local build cache enabled in CI as well. The GitHub cache action
+// supplies its remote cache; declaring even a disabled Develocity cache here
+// prevents that setup when multi-cache-enabled is false in the workflow.
