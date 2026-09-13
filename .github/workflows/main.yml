@@ -42,6 +42,8 @@ jobs:
     env:
       TZ: ${{ matrix.tz }}
       BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '26' && 'true' || 'false' }}
+      # Bound project concurrency; keep the existing test forks and JUnit isolation.
+      GRADLE_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
@@ -92,14 +94,16 @@ jobs:
       with:
         script: |
           console.log('The following command might help reproducing CI results, use Java ${{ matrix.java_version }}')
-          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" _JAVA_OPTIONS="${{ matrix.extraJvmArgs }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       with:
         job-id: jdk${{ matrix.java_version }}
         multi-cache-enabled: false
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
-        arguments: --scan --no-parallel --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        # Separate projects can overlap, including the isolated JMS/local batch groups.
+        # Protocol batch tasks within src:dist-check retain serial execution.
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
@@ -113,6 +117,15 @@ jobs:
       env:
         _JAVA_OPTIONS: ${{ matrix.extraJvmArgs }}
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
+
+    - name: Upload build timings
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-timings-${{ strategy.job-index }}
+        path: build/reports/profile/
+        if-no-files-found: ignore
+        retention-days: 14
 
   errorprone:
     name: 'Error Prone (JDK 21)'
@@ -129,6 +142,6 @@ jobs:
       with:
         job-id: errprone
         multi-cache-enabled: false
-        arguments: --scan --no-parallel --no-daemon classes
+        arguments: --scan --parallel --max-workers=4 --no-daemon classes
       env:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
