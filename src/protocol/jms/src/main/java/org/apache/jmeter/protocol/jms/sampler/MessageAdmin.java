@@ -52,11 +52,6 @@ public class MessageAdmin {
             return reply;
         }
 
-        @SuppressWarnings("UnusedMethod")
-        private Object getRequest() {
-            return request;
-        }
-
         boolean hasReply() {
             return reply != null;
         }

@@ -233,13 +233,11 @@ public abstract class AbstractGraphConsumer extends AbstractSampleConsumer {
      * Adds a value map build from specified parameters to the result map.
      *
      * @param result     {@link MapResultData}
-     * @param group
      * @param series
      * @param seriesData
      * @param aggregated
      */
-    private void addKeyData(MapResultData result, @SuppressWarnings("unused") String group,
-                            String series,
+    private void addKeyData(MapResultData result, String series,
                             SeriesData seriesData, boolean aggregated) {
 
         // Override series name when aggregated
@@ -519,9 +517,9 @@ public abstract class AbstractGraphConsumer extends AbstractSampleConsumer {
                     .getSeriesInfo().entrySet()) {
                 String seriesName = seriesEntry.getKey();
                 SeriesData seriesData = seriesEntry.getValue();
-                addKeyData(result, groupName, seriesName, seriesData, false);
+                addKeyData(result, seriesName, seriesData, false);
                 if (aggregatedKeysSeries) {
-                    addKeyData(result, groupName, seriesName, seriesData, true);
+                    addKeyData(result, seriesName, seriesData, true);
                 }
             }
 
@@ -530,10 +528,10 @@ public abstract class AbstractGraphConsumer extends AbstractSampleConsumer {
                 SeriesData overallData = groupData.getOverallSeries();
                 String overallSeriesName = String.format(overallSeriesFormat,
                         groupName);
-                addKeyData(result, groupName, overallSeriesName, overallData,
+                addKeyData(result, overallSeriesName, overallData,
                         false);
                 if (aggregatedKeysSeries) {
-                    addKeyData(result, groupName, overallSeriesName,
+                    addKeyData(result, overallSeriesName,
                             overallData, true);
                 }
             }

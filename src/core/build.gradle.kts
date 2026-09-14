@@ -17,6 +17,7 @@
 
 import com.github.autostyle.gradle.AutostyleTask
 import com.github.vlsi.gradle.ide.IdeExtension
+import org.jetbrains.kotlin.gradle.tasks.Kapt
 import java.util.jar.JarFile
 
 plugins {
@@ -115,6 +116,16 @@ dependencies {
     testFixturesApi(testFixtures(projects.src.jorphan))
     testFixturesImplementation(projects.src.testkit)
     testFixturesImplementation("org.junit.jupiter:junit-jupiter")
+}
+
+tasks.withType<Kapt>().matching { it.name == "kaptKotlin" }.configureEach {
+    val log4jGroupId = project.group.toString()
+    val log4jArtifactId = base.archivesName.get()
+    annotationProcessorOptionsProviders.add(
+        CommandLineArgumentProvider {
+            listOf("-Alog4j.graalvm.groupId=$log4jGroupId", "-Alog4j.graalvm.artifactId=$log4jArtifactId")
+        }
+    )
 }
 
 val generatedVersionDir = layout.buildDirectory.dir("generated/sources/version")

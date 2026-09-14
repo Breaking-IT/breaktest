@@ -171,9 +171,6 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
 
     public static final String DEFAULT_GROUP = "";
 
-    @SuppressWarnings("unused") // TODO - use or remove
-    private int scrollerCount = 0;
-
     /**
      * BeanInfo object for the class of the objects being edited.
      */
@@ -290,9 +287,6 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
 
             if (propertyEditor instanceof TextAreaEditor) {
                 textAreaEditorIndex = i;
-            }
-            if (propertyEditor.getCustomEditor() instanceof JScrollPane) {
-                scrollerCount++;
             }
 
             editors[i] = propertyEditor;
