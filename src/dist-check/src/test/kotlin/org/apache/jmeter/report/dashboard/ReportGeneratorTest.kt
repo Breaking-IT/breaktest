@@ -62,7 +62,7 @@ class ReportGeneratorTest : JMeterTestCase() {
 
         val mapper = ObjectMapper()
         val expected = ReportGenerator::class.java.getResource("/org/apache/jmeter/gui/report/HTMLReportExpect.json")
-        val expectedRoot = mapper.readTree(expected)
+        val expectedRoot = requireNotNull(expected).openStream().use { mapper.readTree(it) }
 
         JMeterUtils.setProperty("jmeter.reportgenerator.outputdir", roReport.absolutePathString())
         val reportGenerator = ReportGenerator(
@@ -79,7 +79,7 @@ class ReportGeneratorTest : JMeterTestCase() {
     fun `check that report generation succeeds and statistics json are generated`() {
         val mapper = ObjectMapper()
         val expected = ReportGenerator::class.java.getResource("/org/apache/jmeter/gui/report/HTMLReportExpect.json")
-        val expectedRoot = mapper.readTree(expected)
+        val expectedRoot = requireNotNull(expected).openStream().use { mapper.readTree(it) }
 
         JMeterUtils.setProperty("jmeter.reportgenerator.outputdir", testDirectory.absolutePath)
         val reportGenerator = ReportGenerator(

@@ -131,7 +131,7 @@ class HtmlReportGeneratorTest : JMeterTestCase() {
     fun `check that report generation succeeds and statistic are generated`() {
         val mapper = ObjectMapper()
         val expected = HtmlReportGenerator::class.java.getResource("/org/apache/jmeter/gui/report/HTMLReportExpect.json")
-        val expectedRoot = mapper.readTree(expected)
+        val expectedRoot = requireNotNull(expected).openStream().use { mapper.readTree(it) }
         val htmlReportGenerator = HtmlReportGenerator(
             combine("testfiles", "HTMLReportTestFile.csv"),
             combine("user.properties"),

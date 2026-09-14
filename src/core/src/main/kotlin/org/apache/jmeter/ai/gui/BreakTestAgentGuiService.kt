@@ -1340,7 +1340,7 @@ public object BreakTestAgentGuiService {
             .getOrElse { mapper.readTree(BreakTestAiKnowledge.DEFAULT_JSON) }
         require(root.isObject) { "Existing AI Knowledge is not a JSON object" }
         val target = root as com.fasterxml.jackson.databind.node.ObjectNode
-        appendLearnings.fields().forEach { (fieldName, appendValue) ->
+        appendLearnings.properties().forEach { (fieldName, appendValue) ->
             if (appendValue.isArray) {
                 val existingArray = target.path(fieldName).takeIf { it.isArray }
                     ?.let { it as com.fasterxml.jackson.databind.node.ArrayNode }

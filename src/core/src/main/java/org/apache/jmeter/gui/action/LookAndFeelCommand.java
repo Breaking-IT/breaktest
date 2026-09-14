@@ -258,15 +258,6 @@ public class LookAndFeelCommand extends AbstractAction {
     }
 
     /**
-     * @return true when Darklaf is the current look and feel
-     * @deprecated Darklaf is no longer shipped with BreakTest; always returns false
-     */
-    @Deprecated
-    public static boolean isDarklafTheme() {
-        return false;
-    }
-
-    /**
      * @return true when the current look and feel is a dark theme
      */
     public static boolean isDark() {

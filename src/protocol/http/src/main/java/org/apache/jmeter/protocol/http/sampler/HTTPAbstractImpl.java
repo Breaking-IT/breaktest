@@ -483,17 +483,6 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
     }
 
     /**
-     * Called by testIterationStart if the SSL Context was reset.
-     *
-     * This implementation does nothing.
-     * @deprecated ** unused since r1489189. **
-     */
-    @Deprecated
-    protected void notifySSLContextWasReset() {
-        // NOOP
-    }
-
-    /**
      * Update HTTPSampleResult for a resource in cache
      * @param res {@link HTTPSampleResult}
      * @return HTTPSampleResult

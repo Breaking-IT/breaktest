@@ -24,6 +24,7 @@ import org.eclipse.jgit.diff.RawText
 import org.eclipse.jgit.diff.RawTextComparator
 import org.eclipse.jgit.util.io.AutoCRLFInputStream
 import org.gradle.api.GradleException
+import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.tasks.IgnoreEmptyDirectories
 import org.gradle.api.tasks.Input
@@ -44,6 +45,9 @@ abstract class BatchTest @Inject constructor(objects: ObjectFactory) : JavaExec(
     companion object {
         const val BATCH_TESTS_GROUP_NAME = "Batch test"
     }
+
+    @get:Inject
+    protected abstract val fileSystemOperations: FileSystemOperations
 
     @Input
     val ignoreErrorLogs = objects.property<Boolean>().convention(false)
@@ -106,13 +110,11 @@ abstract class BatchTest @Inject constructor(objects: ObjectFactory) : JavaExec(
 
     // Re-run the task when jar contents is changed
     @get:InputFiles
-    val jars
-        get() = project.rootProject.layout.projectDirectory.dir("lib").asFileTree
+    val jars = project.rootProject.layout.projectDirectory.dir("lib").asFileTree
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    val jmeterJar
-        get() = project.rootProject.layout.projectDirectory.dir("bin").file("breaktest.jar")
+    val jmeterJar = project.rootProject.layout.projectDirectory.dir("bin").file("breaktest.jar")
 
     @Internal
     val serverWorkingDir = objects.directoryProperty()
@@ -170,7 +172,7 @@ abstract class BatchTest @Inject constructor(objects: ObjectFactory) : JavaExec(
     }
 
     private fun deleteWorkfiles() {
-        project.delete(csvFile, xmlFile, logFile, jtlFile, errFile)
+        fileSystemOperations.delete { delete(csvFile, xmlFile, logFile, jtlFile, errFile) }
     }
 
     private fun File.readAsCrLf() =

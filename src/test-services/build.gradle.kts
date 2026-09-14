@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-import com.github.vlsi.gradle.dsl.configureEach
 import org.jetbrains.kotlin.gradle.tasks.Kapt
 
 plugins {
@@ -27,7 +26,7 @@ dependencies {
     implementation(projects.src.core)
 }
 
-tasks.configureEach<Kapt> {
+tasks.withType<Kapt>().matching { it.name == "kaptKotlin" }.configureEach {
     // ServiceNotImplementingInterface does not implement the service interface for testing purposes,
     // so we disable AutoService verifications
     annotationProcessorOptionsProviders.add(
