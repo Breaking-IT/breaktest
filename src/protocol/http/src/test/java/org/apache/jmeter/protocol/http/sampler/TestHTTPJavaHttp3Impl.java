@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -33,6 +34,7 @@ import java.util.Locale;
 import javax.net.ssl.SSLContext;
 
 import org.apache.hc.core5.http2.HttpVersionPolicy;
+import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
@@ -53,12 +55,52 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 public class TestHTTPJavaHttp3Impl {
 
+    @Test
+    public void authenticationFallbackIsScopedToEachRequest() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        AuthManager manager = new AuthManager();
+        manager.set(-1, "https://login.test/ntlm/", "user", "pass", "DOMAIN", "", AuthManager.Mechanism.DIGEST);
+        manager.set(-1, "https://api.test/digest/", "user", "pass", "", "", AuthManager.Mechanism.DIGEST);
+        manager.set(-1, "https://api.test/basic/", "user", "pass", "", "", AuthManager.Mechanism.BASIC);
+        sampler.setAuthManager(manager);
+        HTTPJavaHttp3Impl client = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
+        assertNull(client.authenticationClientFor(new URI("https://cdn.test/resource").toURL()));
+        assertEquals(HTTPHC5Impl.class,
+                client.authenticationClientFor(new URI("https://login.test/ntlm/").toURL()).getClass());
+        assertEquals(HTTPHC5H2Impl.class,
+                client.authenticationClientFor(new URI("https://api.test/digest/").toURL()).getClass());
+        assertNull(client.authenticationClientFor(new URI("https://api.test/basic/").toURL()));
+        assertNull(client.authenticationClientFor(new URI("https://login.test/public/").toURL()));
+        assertNull(client.authenticationClientFor(new URI("https://cdn.test/resource").toURL()),
+                "an NTLM request must not downgrade later requests to unrelated hosts");
+        sampler.setAuthManager(new AuthManager());
+        assertNull(client.authenticationClientFor(new URI("https://login.test/ntlm/").toURL()));
+        client.threadFinished();
+    }
+
     @BeforeAll
     public static void setupJMeterProperties() throws Exception {
         if (JMeterUtils.getJMeterProperties() == null) {
             Path properties = Files.createTempFile("jmeter", ".properties");
             JMeterUtils.loadJMeterProperties(properties.toString());
             Files.deleteIfExists(properties);
+        }
+    }
+
+    @Test
+    public void http3OnlyDoesNotSilentlyDowngradeNtlm() throws Exception {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        AuthManager manager = new AuthManager();
+        manager.set(-1, "https://login.test/", "user", "pass", "DOMAIN", "", AuthManager.Mechanism.DIGEST);
+        sampler.setAuthManager(manager);
+        HTTPJavaHttp3Impl client = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.HTTP3_ONLY);
+        try {
+            HTTPSampleResult result = client.sample(new URI("https://login.test/").toURL(),
+                    HTTPConstants.GET, false, 0);
+            assertFalse(result.isSuccessful());
+            assertTrue(result.getResponseMessage().contains("disable HTTP/3-only mode"));
+        } finally {
+            client.threadFinished();
         }
     }
 
