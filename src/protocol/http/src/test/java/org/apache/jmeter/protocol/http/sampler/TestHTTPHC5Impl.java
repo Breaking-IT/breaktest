@@ -35,6 +35,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.hc.client5.http.auth.AuthScope;
@@ -60,6 +62,7 @@ import org.apache.hc.core5.http.protocol.HttpCoreContext;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.protocol.http.control.Authorization;
@@ -715,10 +718,14 @@ public class TestHTTPHC5Impl {
         assertNull(provider.getCredentials(challengeScope, null));
     }
 
-    @Test
-    public void http11NtlmChallengeIsAnsweredWithAuthManagerCredentials() {
+    @ParameterizedTest
+    @ValueSource(strings = {"HTTP/1.1", "", "HTTP/3"})
+    public void ntlmChallengeIsAnsweredWithVariableAuthManagerCredentials(String httpProtocol) throws Exception {
         WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
+        JMeterVariables previousVariables = JMeterContextService.getContext().getVariables();
         try {
             // The stub accepts the type 1 message, it does not replay a full NTLM handshake:
             // what is under test is that the NTLM scheme is handed the AuthManager credentials
@@ -732,31 +739,83 @@ public class TestHTTPHC5Impl {
                             .withStatus(401)
                             .withHeader("WWW-Authenticate", "NTLM")));
 
-            HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+            JMeterVariables variables = new JMeterVariables();
+            variables.put("authHost", "localhost");
+            variables.put("authUser", "user");
+            variables.put("authPass", "pass");
+            variables.put("authDomain", "DOMAIN");
+            JMeterContextService.getContext().setVariables(variables);
             sampler.setProtocol(HTTPConstants.PROTOCOL_HTTP);
             sampler.setDomain("localhost");
             sampler.setPort(server.port());
             sampler.setPath("/ntlm");
             sampler.setMethod(HTTPConstants.GET);
-            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1);
+            sampler.setHttpProtocol(httpProtocol);
             AuthManager authManager = new AuthManager();
             // The domain turns the credentials into NTCredentials, which is what lets the NTLM
             // scheme answer the challenge, the mechanism only drives the preemptive header
             authManager.set(-1,
-                    "http://localhost:" + server.port() + "/ntlm",
-                    "user",
-                    "pass",
-                    "DOMAIN",
+                    "http://${authHost}:" + server.port() + "/ntlm",
+                    "${authUser}",
+                    "${authPass}",
+                    "${authDomain}",
                     "",
                     Mechanism.DIGEST);
+            new ValueReplacer().replaceValues(authManager);
+            authManager.setRunningVersion(true);
             sampler.setAuthManager(authManager);
 
-            SampleResult result = sampler.sample();
+            SampleResult result = sampler.isHttp3Protocol()
+                    ? http3.sample(sampler.getUrl(), HTTPConstants.GET, false, 0) : sampler.sample();
 
             assertTrue(result.isSuccessful(), result.getResponseMessage());
             assertEquals("ok", result.getResponseDataAsString());
         } finally {
+            sampler.threadFinished();
+            http3.threadFinished();
+            JMeterContextService.getContext().setVariables(previousVariables);
             server.stop();
+        }
+    }
+
+    @Test
+    public void asyncCredentialsAreResolvedPerSampleBeforeIoThreadLookup() throws Exception {
+        JMeterVariables previousVariables = JMeterContextService.getContext().getVariables();
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            JMeterVariables variables = new JMeterVariables();
+            JMeterContextService.getContext().setVariables(variables);
+            variables.put("authHost", "example.test");
+            variables.put("authUser", "first-user");
+            variables.put("authPass", "first-pass");
+            AuthManager manager = new AuthManager();
+            manager.set(-1, "https://${authHost}/", "${authUser}", "${authPass}", "", "", Mechanism.DIGEST);
+            HTTPHC5Impl.ManagedCredentialsProvider provider =
+                    new HTTPHC5Impl.ManagedCredentialsProvider(manager, null, null);
+            AuthScope scope = new AuthScope("https", "example.test", 443, null, StandardAuthScheme.DIGEST);
+            HttpClientContext first = HttpClientContext.create();
+            HTTPHC5Impl.resolveAuthManagerForAsyncRequest(first, manager);
+
+            variables.put("authUser", "second-user");
+            variables.put("authPass", "second-pass");
+            HttpClientContext second = HttpClientContext.create();
+            HTTPHC5Impl.resolveAuthManagerForAsyncRequest(second, manager);
+            HttpClientContext unauthenticated = HttpClientContext.create();
+            HTTPHC5Impl.resolveAuthManagerForAsyncRequest(unauthenticated, null);
+
+            executor.submit(() -> {
+                Credentials firstCredentials = provider.getCredentials(scope, first);
+                assertEquals("first-user", userNameOf(firstCredentials));
+                assertArrayEquals("first-pass".toCharArray(),
+                        ((UsernamePasswordCredentials) firstCredentials).getUserPassword());
+                Credentials secondCredentials = provider.getCredentials(scope, second);
+                assertEquals("second-user", userNameOf(secondCredentials));
+                assertArrayEquals("second-pass".toCharArray(),
+                        ((UsernamePasswordCredentials) secondCredentials).getUserPassword());
+                assertNull(provider.getCredentials(scope, unauthenticated),
+                        "a sample without an AuthManager must not inherit cached credentials");
+            }).get(10, TimeUnit.SECONDS);
+        } finally {
+            JMeterContextService.getContext().setVariables(previousVariables);
         }
     }
 

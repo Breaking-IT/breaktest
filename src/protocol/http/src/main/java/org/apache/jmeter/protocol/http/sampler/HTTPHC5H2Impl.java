@@ -222,6 +222,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             HttpUriRequestBase httpRequest;
             HttpClientState clientState;
             try {
+                resolveAuthManagerForAsyncRequest(clientContext, getAuthManager());
                 HttpVersionPolicy versionPolicy = versionPolicy();
                 HttpClientKey key = createHttpClientKey(url, versionPolicy);
                 clientState = setupClient(key);
