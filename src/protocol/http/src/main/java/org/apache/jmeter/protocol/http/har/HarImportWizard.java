@@ -617,11 +617,11 @@ public class HarImportWizard extends JDialog {
         gbc.gridy = 0;
         gbc.gridwidth = 2;
 
+        form.add(findPredefinedCorrelations, gbc);
+        gbc.gridy++;
         form.add(ignoreErrors, gbc);
         gbc.gridy++;
         form.add(addIndex, gbc);
-        gbc.gridy++;
-        form.add(findPredefinedCorrelations, gbc);
 
         gbc.gridwidth = 1;
         setStorageChoiceLabels(null, false);
