@@ -688,15 +688,6 @@
           "extractorType": "JSON_PATH",
           "responseField": "BODY",
           "expression": "$.sessionId"
-        },
-        {
-          "id": "etag-header",
-          "name": "ETag (conditional request)",
-          "variableName": "etag",
-          "extractorType": "REGEX",
-          "responseField": "HEADERS",
-          "expression": "(?i)(?:^|\\n)etag:\\s*([^\\r\\n]+)",
-          "template": "$1$"
         }
       ]
     }
