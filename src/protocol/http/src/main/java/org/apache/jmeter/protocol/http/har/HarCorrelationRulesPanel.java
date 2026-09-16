@@ -33,7 +33,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
+import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -47,6 +49,7 @@ import javax.swing.JSplitPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.JTree;
+import javax.swing.KeyStroke;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.UIManager;
 import javax.swing.table.DefaultTableModel;
@@ -60,7 +63,7 @@ import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseFiel
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.util.JMeterUtils;
 
-/** Lets users browse correlation rules and choose which groups should be tried. */
+/** Lets users manage correlation rules and enable individual rules or whole groups. */
 final class HarCorrelationRulesPanel extends JPanel {
 
     interface RuleUpdater {
@@ -79,7 +82,8 @@ final class HarCorrelationRulesPanel extends JPanel {
     private final Set<String> customRuleIds;
     private final RuleUpdater ruleUpdater;
     private final RuleTransfer ruleTransfer;
-    private final Map<String, Boolean> selectedGroups = new LinkedHashMap<>();
+    private final Set<String> disabledRuleIds = new LinkedHashSet<>();
+    private Predicate<Rule> ruleDeleter;
     private final DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode("rules");
     private final DefaultTreeModel treeModel = new DefaultTreeModel(treeRoot);
     private final JTree ruleTree = new JTree(treeModel);
@@ -99,7 +103,34 @@ final class HarCorrelationRulesPanel extends JPanel {
             JMeterUtils.getResString("try_predefined_correlations_export_custom"));
     private final JCheckBox customOnly = new JCheckBox(
             JMeterUtils.getResString("try_predefined_correlations_custom_only"));
+    private final JButton deleteButton = new JButton(JMeterUtils.getResString("correlation_rules_delete"));
     private Rule selectedRule;
+
+    void configureManagement(Set<String> disabled, Predicate<Rule> deleter) {
+        disabledRuleIds.clear();
+        disabledRuleIds.addAll(disabled);
+        ruleDeleter = deleter;
+        ruleTree.repaint();
+        showNode((CatalogNode) ruleTree.getLastSelectedPathComponent());
+    }
+
+    Set<String> getDisabledRuleIds() {
+        return Set.copyOf(disabledRuleIds);
+    }
+
+    void setRuleEnabled(String id, boolean enabled) {
+        if (enabled) {
+            disabledRuleIds.remove(id);
+        } else {
+            disabledRuleIds.add(id);
+        }
+        ruleTree.repaint();
+    }
+
+    private boolean isGroupEnabled(String group) {
+        return rules.stream().filter(rule -> group.equals(rule.getGroup()))
+                .allMatch(rule -> !disabledRuleIds.contains(rule.getId()));
+    }
 
     HarCorrelationRulesPanel(List<Rule> rules, Set<String> customRuleIds, RuleUpdater ruleUpdater,
             RuleTransfer ruleTransfer) {
@@ -118,7 +149,7 @@ final class HarCorrelationRulesPanel extends JPanel {
     List<Rule> getSelectedRules() {
         List<Rule> selected = new ArrayList<>();
         for (Rule rule : rules) {
-            if (selectedGroups.getOrDefault(rule.getGroup(), false)) {
+            if (!disabledRuleIds.contains(rule.getId())) {
                 selected.add(rule);
             }
         }
@@ -126,11 +157,9 @@ final class HarCorrelationRulesPanel extends JPanel {
     }
 
     void setGroupSelected(String group, boolean selected) {
-        if (selectedGroups.containsKey(group)) {
-            selectedGroups.put(group, selected);
-            ruleTree.repaint();
-            refreshSelectedGroupDetails();
-        }
+        rules.stream().filter(rule -> group.equals(rule.getGroup()))
+                .forEach(rule -> setRuleEnabled(rule.getId(), selected));
+        refreshSelectedGroupDetails();
     }
 
     List<String> getRulePaths() {
@@ -197,7 +226,21 @@ final class HarCorrelationRulesPanel extends JPanel {
         detailsTable.getColumnModel().getColumn(1).setPreferredWidth(420);
         detailPanel.add(new JScrollPane(detailsTable), BorderLayout.CENTER);
         editButton.addActionListener(this::editSelectedRule);
-        detailPanel.add(editButton, BorderLayout.SOUTH);
+        deleteButton.addActionListener(event -> {
+            if (selectedRule != null && customRuleIds.contains(selectedRule.getId())
+                    && ruleDeleter != null && ruleDeleter.test(selectedRule)) {
+                rules.remove(selectedRule);
+                customRuleIds.remove(selectedRule.getId());
+                disabledRuleIds.remove(selectedRule.getId());
+                selectedRule = null;
+                exportButton.setEnabled(ruleTransfer != null && !getCustomRules().isEmpty());
+                rebuildTree();
+            }
+        });
+        JPanel ruleButtons = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        ruleButtons.add(editButton);
+        ruleButtons.add(deleteButton);
+        detailPanel.add(ruleButtons, BorderLayout.SOUTH);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treePanel, detailPanel);
         split.setBorder(null);
@@ -207,7 +250,7 @@ final class HarCorrelationRulesPanel extends JPanel {
     }
 
     private void setAllGroupsSelected(boolean selected) {
-        selectedGroups.replaceAll((group, previous) -> selected);
+        rules.forEach(rule -> setRuleEnabled(rule.getId(), selected));
         ruleTree.repaint();
         refreshSelectedGroupDetails();
     }
@@ -216,6 +259,17 @@ final class HarCorrelationRulesPanel extends JPanel {
         ruleTree.setRootVisible(false);
         ruleTree.setShowsRootHandles(true);
         ruleTree.setCellRenderer(new CatalogTreeRenderer());
+        ruleTree.getInputMap().put(KeyStroke.getKeyStroke("SPACE"), "toggleRule");
+        ruleTree.getActionMap().put("toggleRule", new AbstractAction() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                if (ruleTree.getLastSelectedPathComponent() instanceof CatalogNode node) {
+                    toggleNode(node);
+                }
+            }
+        });
         ruleTree.addTreeSelectionListener(event -> showNode(
                 (CatalogNode) ruleTree.getLastSelectedPathComponent()));
         ruleTree.addMouseListener(new MouseAdapter() {
@@ -231,9 +285,6 @@ final class HarCorrelationRulesPanel extends JPanel {
         String selectedRuleId = selectedRule == null ? null : selectedRule.getId();
         treeRoot.removeAllChildren();
         Map<String, List<Rule>> rulesByGroup = new LinkedHashMap<>();
-        for (Rule rule : rules) {
-            selectedGroups.putIfAbsent(rule.getGroup(), true);
-        }
         for (Rule rule : displayedRules()) {
             rulesByGroup.computeIfAbsent(rule.getGroup(), ignored -> new ArrayList<>()).add(rule);
         }
@@ -313,21 +364,29 @@ final class HarCorrelationRulesPanel extends JPanel {
             return;
         }
         TreePath path = ruleTree.getPathForLocation(event.getX(), event.getY());
-        if (path == null || !(path.getLastPathComponent() instanceof CatalogNode node) || !node.isGroup()) {
+        if (path == null || !(path.getLastPathComponent() instanceof CatalogNode node)) {
             return;
         }
         java.awt.Rectangle bounds = ruleTree.getPathBounds(path);
-        if (bounds != null && event.getX() >= bounds.x) {
-            selectedGroups.computeIfPresent(node.group(), (group, selected) -> !selected);
-            ruleTree.repaint(bounds);
-            showGroup(node.group());
+        if (bounds != null && event.getX() >= bounds.x && event.getX() < bounds.x + 24) {
+            toggleNode(node);
         }
+    }
+
+    private void toggleNode(CatalogNode node) {
+        if (node.isGroup()) {
+            setGroupSelected(node.group(), !isGroupEnabled(node.group()));
+        } else {
+            setRuleEnabled(node.rule().getId(), disabledRuleIds.contains(node.rule().getId()));
+        }
+        ruleTree.repaint();
+        showNode(node);
     }
 
     private void refreshSelectedGroupDetails() {
         Object selectedNode = ruleTree.getLastSelectedPathComponent();
-        if (selectedNode instanceof CatalogNode node && node.isGroup()) {
-            showGroup(node.group());
+        if (selectedNode instanceof CatalogNode node) {
+            showNode(node);
         }
     }
 
@@ -343,14 +402,17 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     private void showGroup(String group) {
         selectedRule = null;
+        deleteButton.setEnabled(false);
         long customCount = rules.stream()
                 .filter(rule -> group.equals(rule.getGroup()) && customRuleIds.contains(rule.getId()))
                 .count();
         long ruleCount = rules.stream().filter(rule -> group.equals(rule.getGroup())).count();
         setDetails(List.of(
                 new Detail("Group", group),
-                new Detail("Selected for matching", selectedGroups.getOrDefault(group, false)),
+                new Detail("All rules enabled", isGroupEnabled(group)),
                 new Detail("Rules", ruleCount),
+                new Detail("Enabled rules", rules.stream().filter(rule -> group.equals(rule.getGroup())
+                        && !disabledRuleIds.contains(rule.getId())).count()),
                 new Detail("Built-in rules", ruleCount - customCount),
                 new Detail("Custom rules", customCount)));
         editButton.setEnabled(false);
@@ -358,6 +420,7 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     private void showRule(Rule rule) {
         selectedRule = rule;
+        deleteButton.setEnabled(rule != null && customRuleIds.contains(rule.getId()) && ruleDeleter != null);
         if (rule == null) {
             setDetails(List.of());
             editButton.setEnabled(false);
@@ -369,6 +432,7 @@ final class HarCorrelationRulesPanel extends JPanel {
                 : JMeterUtils.getResString("try_predefined_correlations_built_in_fixed");
         setDetails(List.of(
                 new Detail("Origin", origin),
+                new Detail("Enabled", !disabledRuleIds.contains(rule.getId())),
                 new Detail("Group", rule.getGroup()),
                 new Detail("ID", rule.getId()),
                 new Detail("Name", rule.getName()),
@@ -462,14 +526,9 @@ final class HarCorrelationRulesPanel extends JPanel {
                 return super.getTreeCellRendererComponent(
                         tree, value, selected, expanded, leaf, row, hasFocus);
             }
-            if (!node.isGroup()) {
-                Component component = super.getTreeCellRendererComponent(
-                        tree, value, selected, expanded, leaf, row, hasFocus);
-                setText(node.rule().getName());
-                return component;
-            }
-            groupRenderer.setText(node.group());
-            groupRenderer.setSelected(selectedGroups.getOrDefault(node.group(), false));
+            groupRenderer.setText(node.isGroup() ? node.group() : node.rule().getName());
+            groupRenderer.setSelected(node.isGroup() ? isGroupEnabled(node.group())
+                    : !disabledRuleIds.contains(node.rule().getId()));
             groupRenderer.setOpaque(true);
             groupRenderer.setForeground(selected
                     ? UIManager.getColor("Tree.selectionForeground")

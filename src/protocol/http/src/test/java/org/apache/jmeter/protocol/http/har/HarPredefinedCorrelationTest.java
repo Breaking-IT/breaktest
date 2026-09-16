@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -30,6 +31,7 @@ import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
@@ -37,11 +39,35 @@ import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorTyp
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.oro.text.regex.Perl5Compiler;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-class HarPredefinedCorrelationTest {
+class HarPredefinedCorrelationTest extends JMeterTestCase {
+
+    @TempDir
+    private Path tempDir;
+    private String previousStateFile;
+
+    @BeforeEach
+    void isolateEnabledRulesFromUserPreferences() {
+        previousStateFile = JMeterUtils.getProperty("breaktest.predefined_correlations.state_file");
+        JMeterUtils.setProperty("breaktest.predefined_correlations.state_file", tempDir.resolve("state.json").toString());
+    }
+
+    @AfterEach
+    void restoreRulePreferences() {
+        if (previousStateFile == null) {
+            JMeterUtils.getJMeterProperties().remove("breaktest.predefined_correlations.state_file");
+        } else {
+            JMeterUtils.setProperty("breaktest.predefined_correlations.state_file", previousStateFile);
+        }
+    }
+
 
     @Test
     void predefinedRegexesCompileWithJMeterRegexEngine() {
@@ -407,6 +433,76 @@ class HarPredefinedCorrelationTest {
         assertEquals(List.of("keycloak-session-code", "keycloak-execution",
                 "keycloak-tab-id", "keycloak-client-data"),
                 matches.stream().map(match -> match.getRule().getId()).toList());
+    }
+
+    @Test
+    void findsRepeatedKeycloakValuesWithoutAcceptingCompetingValues() {
+        HarEntry source = entry(0, 0, "GET", "https://sso.example.test/auth");
+        String action = "/login-actions/authenticate?session_code=session-code-111"
+                + "&amp;execution=execution-222&amp;tab_id=tab-id-333&amp;client_data=client-data-444";
+        source.setResponseContentText(("<a href=\"" + action + "\">Continue</a>").repeat(7));
+        HarEntry target = entry(1, 100, "POST", "https://sso.example.test/login-actions/authenticate");
+        target.getQueryString().add(new NameValue("session_code", "session-code-111"));
+        target.getQueryString().add(new NameValue("execution", "execution-222"));
+        target.getQueryString().add(new NameValue("tab_id", "tab-id-333"));
+        target.getQueryString().add(new NameValue("client_data", "client-data-444"));
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
+        assertEquals(List.of("keycloak-session-code", "keycloak-execution",
+                "keycloak-tab-id", "keycloak-client-data"),
+                matches.stream().map(match -> match.getRule().getId()).toList());
+        assertTrue(matches.stream().allMatch(match -> match.getMatchNumber() == 1));
+
+        source.setResponseContentText(source.getResponseContentText()
+                + "<a href=\"/auth?execution=different-execution\">Other flow</a>");
+        HarEntry otherTarget = entry(2, 200, "POST", "https://sso.example.test/login-actions/authenticate");
+        otherTarget.getQueryString().add(new NameValue("execution", "different-execution"));
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target, otherTarget)).stream()
+                .noneMatch(match -> match.getRule().getId().equals("keycloak-execution")));
+    }
+
+    @Test
+    void findsMatrixSyncPaginationAndEventValuesUsedByLaterRequests() {
+        HarEntry sync = entry(0, 0, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        sync.setResponseContentText("""
+                {"next_batch":"sync-token-111","rooms":{"join":{"!room:example.test":{"timeline":{
+                  "prev_batch":"history-token-222","events":[
+                    {"event_id":"$unused-event"},{"event_id":"$receipt-event-333"}]}}}}}
+                """);
+        HarEntry next = entry(1, 100, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        next.getQueryString().add(new NameValue("since", "sync-token-111"));
+        HarEntry messages = entry(2, 200, "GET", "https://matrix.example.test/_matrix/client/v3/rooms/room/messages");
+        messages.getQueryString().add(new NameValue("from", "history-token-222"));
+        messages.setResponseContentText("""
+                {"chunk":[],"start":"history-token-222","end":"history-end-444"}
+                """);
+        HarEntry older = entry(3, 300, "GET", "https://matrix.example.test/_matrix/client/v3/rooms/room/messages");
+        older.getQueryString().add(new NameValue("from", "history-end-444"));
+        HarEntry receipt = entry(4, 400, "POST",
+                "https://matrix.example.test/_matrix/client/v3/rooms/room/receipt/m.read/%24receipt-event-333");
+        HarEntry send = entry(5, 500, "PUT", "https://matrix.example.test/_matrix/client/v3/rooms/room/send/m.room.message/1");
+        send.setResponseContentText("{\"event_id\":\"$created-event-555\"}");
+        HarEntry read = entry(6, 600, "POST",
+                "https://matrix.example.test/_matrix/client/v3/rooms/room/receipt/m.read/%24created-event-555");
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(
+                List.of(sync, next, messages, older, receipt, send, read));
+        assertEquals(java.util.Set.of("matrix-next-batch", "matrix-previous-batch", "matrix-messages-end",
+                "matrix-event-id", "matrix-timeline-event-id"),
+                matches.stream().map(match -> match.getRule().getId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(2, matches.stream().filter(match -> match.getRule().getId().equals("matrix-timeline-event-id"))
+                .findFirst().orElseThrow().getMatchNumber());
+    }
+
+    @Test
+    void ignoresGenericEndFieldsAndAmbiguousMatrixTimelineEvents() {
+        HarEntry source = entry(0, 0, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        source.setResponseContentText("""
+                {"end":"unrelated-end","rooms":{"join":{"room":{"timeline":{"events":[
+                  {"event_id":"$event-one"},{"event_id":"$event-two"}]}}}}}
+                """);
+        HarEntry target = entry(1, 100, "POST", "https://matrix.example.test/receipt");
+        target.setPostData(new PostData("application/json",
+                "[\"unrelated-end\",\"$event-one\",\"$event-two\"]", List.of()));
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target)).isEmpty());
     }
 
     @Test
