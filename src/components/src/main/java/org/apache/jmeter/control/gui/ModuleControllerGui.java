@@ -22,6 +22,8 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.Collection;
 import java.util.Iterator;
 
@@ -30,6 +32,7 @@ import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTree;
@@ -163,6 +166,17 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
         };
         tsm.setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         moduleToRunTreeNodes.setSelectionModel(tsm);
+        moduleToRunTreeNodes.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                showTargetPopup(event);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showTargetPopup(event);
+            }
+        });
 
         ImageIcon image = JMeterUtils.getImage("warning.png");
         warningLabel = new JLabel("", image, SwingConstants.LEFT); // $NON-NLS-1$
@@ -446,16 +460,48 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
             if (currentSelectedNodeInMC != null && currentSelectedNodeInMC.getUserObject() instanceof JMeterTreeNode){
                 nodeToExpandInTestPlanTree = (JMeterTreeNode) currentSelectedNodeInMC.getUserObject();
             }
-            if (nodeToExpandInTestPlanTree != null){
-                TreePath treePath = new TreePath(nodeToExpandInTestPlanTree.getPath());
-                //changing selection in a test plan tree
-                GuiPackage.getInstance().getTreeListener().getJTree()
-                        .setSelectionPath(treePath);
-                //expanding tree to make referenced element visible in test plan tree
-                GuiPackage.getInstance().getTreeListener().getJTree()
-                        .scrollPathToVisible(treePath);
-            }
+            jumpToTarget(nodeToExpandInTestPlanTree);
         }
+    }
+
+    private void showTargetPopup(MouseEvent event) {
+        if (!event.isPopupTrigger()) {
+            return;
+        }
+        TreePath path = moduleToRunTreeNodes.getPathForLocation(event.getX(), event.getY());
+        if (path == null) {
+            return;
+        }
+        JPopupMenu popup = new JPopupMenu();
+        popup.add(createJumpToMenuItem(path));
+        popup.show(moduleToRunTreeNodes, event.getX(), event.getY());
+    }
+
+    static JMenuItem createJumpToMenuItem(TreePath path) {
+        JMeterTreeNode target = null;
+        if (path != null && path.getLastPathComponent() instanceof DefaultMutableTreeNode node
+                && node.getUserObject() instanceof JMeterTreeNode testPlanNode) {
+            target = testPlanNode;
+        }
+        JMeterTreeNode navigationTarget = target;
+        JMenuItem jumpTo = new JMenuItem("Jump to"); // $NON-NLS-1$
+        jumpTo.setEnabled(target != null && isTestElementAllowed(target.getTestElement()));
+        jumpTo.addActionListener(event -> jumpToTarget(navigationTarget));
+        return jumpTo;
+    }
+
+    private static void jumpToTarget(JMeterTreeNode target) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (target == null || guiPackage == null || guiPackage.getTreeListener() == null) {
+            return;
+        }
+        JTree tree = guiPackage.getTreeListener().getJTree();
+        if (tree == null || target.getRoot() != tree.getModel().getRoot()) {
+            return;
+        }
+        TreePath path = new TreePath(target.getPath());
+        tree.setSelectionPath(path);
+        tree.scrollPathToVisible(path);
     }
 
     /**

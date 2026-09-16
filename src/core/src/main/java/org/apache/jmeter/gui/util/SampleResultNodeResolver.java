@@ -63,6 +63,15 @@ public final class SampleResultNodeResolver {
         return sourceNode == null ? findByRuntimeIdentity(root, sampleResult) : sourceNode;
     }
 
+    /** Resolves a recorded execution path, including paths expanded through module controllers. */
+    public static JMeterTreeNode findBySourcePath(List<SampleResult.TestElementPathEntry> sourcePath) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return null;
+        }
+        return findBySourcePath((JMeterTreeNode) guiPackage.getTreeModel().getRoot(), sourcePath);
+    }
+
     private static JMeterTreeNode findBySourcePath(
             JMeterTreeNode root, List<SampleResult.TestElementPathEntry> sourcePath) {
         if (sourcePath.isEmpty()) {
