@@ -45,7 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class TestGuiLogEventAppender {
+public class TestGuiLogEventAppender implements org.apache.jorphan.test.JMeterSerialTest {
 
     private static List<String> log4j2LevelErrorMessages = Collections.synchronizedList(new ArrayList<>());
 
@@ -99,6 +99,28 @@ public class TestGuiLogEventAppender {
     @BeforeEach
     public void setUp() {
         log4j2LevelErrorMessages.clear();
+    }
+
+    @Test
+    public void nonGuiLoggingDoesNotEvenFormatTheEvent() {
+        GuiLogEventAppender appender = new GuiLogEventAppender(
+                "nongui-test", null, PatternLayout.createDefaultLayout(), true) {
+            @Override
+            public org.apache.logging.log4j.core.StringLayout getStringLayout() {
+                throw new AssertionError("Non-GUI events must not reach GUI formatting or history");
+            }
+        };
+        String previous = System.getProperty("JMeter.NonGui");
+        try {
+            System.setProperty("JMeter.NonGui", "true");
+            appender.append(new MutableLogEvent());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("JMeter.NonGui");
+            } else {
+                System.setProperty("JMeter.NonGui", previous);
+            }
+        }
     }
 
     @Test

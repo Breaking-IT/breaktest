@@ -71,6 +71,13 @@ public final class JmxArchiveEntryStore {
         return "har/" + checksum + '/' + normalizedName; // $NON-NLS-1$
     }
 
+    /** Classifies recording paths without initializing the recording JSON machinery. */
+    public static boolean isRecordingManifestEntry(String entryName) {
+        return entryName != null
+                && entryName.startsWith("recordings/manifests/") // $NON-NLS-1$
+                && entryName.endsWith(".json"); // $NON-NLS-1$
+    }
+
     public static void register(String entryName, String checksum, byte[] content) {
         if (!isSafeEntryName(entryName)) {
             throw new IllegalArgumentException("Invalid JMX archive entry name: " + entryName);

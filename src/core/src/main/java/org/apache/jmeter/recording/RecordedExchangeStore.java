@@ -632,9 +632,7 @@ public final class RecordedExchangeStore {
     }
 
     public static boolean isManifestEntry(String entryName) {
-        return entryName != null
-                && entryName.startsWith("recordings/manifests/") // $NON-NLS-1$
-                && entryName.endsWith(".json"); // $NON-NLS-1$
+        return JmxArchiveEntryStore.isRecordingManifestEntry(entryName);
     }
 
     public static String sha256Hex(byte[] content) {
