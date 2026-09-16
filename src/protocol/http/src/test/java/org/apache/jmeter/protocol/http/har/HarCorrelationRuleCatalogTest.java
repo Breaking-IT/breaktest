@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.har;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +41,7 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -48,9 +50,48 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     @TempDir
     private Path tempDir;
 
+    @BeforeEach
+    void isolateRuleState() {
+        JMeterUtils.setProperty("breaktest.predefined_correlations.state_file", tempDir.resolve("state.json").toString());
+    }
+
     @AfterEach
     void clearCustomFileProperty() {
         JMeterUtils.getJMeterProperties().remove(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY);
+        JMeterUtils.getJMeterProperties().remove("breaktest.predefined_correlations.state_file");
+    }
+
+    @Test
+    void disabledBuiltInRulesSurviveCatalogChangesAndCanBeEnabledAgain() throws Exception {
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY,
+                tempDir.resolve("custom.json").toString());
+        String builtInId = HarCorrelationRuleCatalog.builtInRules().get(0).getId();
+        HarCorrelationRuleCatalog.saveDisabledRuleIds(Set.of(builtInId, "future-rule"));
+        TestPlan plan = new TestPlan("Plan");
+        assertFalse(HarCorrelationRuleCatalog.rulesFor(plan).stream().anyMatch(r -> r.getId().equals(builtInId)));
+        assertTrue(HarCorrelationRuleCatalog.allRulesFor(plan).stream().anyMatch(r -> r.getId().equals(builtInId)));
+        Rule custom = regexRule("new-custom", "value", "value=(.+)", "$1$", 1, false);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(custom));
+        assertEquals(Set.of(builtInId, "future-rule"), HarCorrelationRuleCatalog.disabledRuleIds());
+        assertTrue(HarCorrelationRuleCatalog.rulesFor(plan).stream().anyMatch(r -> r.getId().equals("new-custom")));
+        HarCorrelationRuleCatalog.saveDisabledRuleIds(Set.of());
+        assertTrue(HarCorrelationRuleCatalog.sharedRules().stream().anyMatch(r -> r.getId().equals(builtInId)));
+    }
+
+    @Test
+    void deletesCustomRulesFromSharedCatalogAndArchiveButProtectsBuiltIns() throws Exception {
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY,
+                tempDir.resolve("custom.json").toString());
+        TestPlan plan = new TestPlan("Plan");
+        Rule custom = regexRule("delete-me", "value", "value=(.+)", "$1$", 1, false);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(custom));
+        HarCorrelationRuleCatalog.deleteCustomRule(plan, custom.getId());
+        assertTrue(HarCorrelationRuleCatalog.loadCustomRules(plan).isEmpty());
+        assertFalse(HarCorrelationRuleCatalog.sharedRules().stream().anyMatch(r -> r.getId().equals(custom.getId())));
+        Rule builtIn = HarCorrelationRuleCatalog.builtInRules().get(0);
+        assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRule(plan, builtIn.getId()));
+        assertThrows(java.io.IOException.class,
+                () -> HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(builtIn)));
     }
 
     @Test
@@ -158,7 +199,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
-    void planArchiveRulesAreMergedAfterSharedRules() throws Exception {
+    void archivedRulesCannotOverrideBuiltInDefinitions() throws Exception {
         Rule override = new Rule(
                 "oauth-access-token", "Company", "Plan access token", "plan_access_token",
                 ExtractorType.JSON_PATH, ResponseField.BODY, "$.plan.access", "",
@@ -175,12 +216,12 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .filter(rule -> "oauth-access-token".equals(rule.getId()))
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Plan access token", merged.getName());
-        assertEquals("plan_access_token", merged.getVariableName());
+        assertEquals(HarCorrelationRuleCatalog.builtInRules().get(0), merged);
+        assertFalse(HarCorrelationRuleCatalog.customRuleIds(testPlan).contains(merged.getId()));
     }
 
     @Test
-    void loadsConfiguredCustomFileAfterBuiltInsAndAllowsIdOverride() throws Exception {
+    void configuredRulesCannotOverrideBuiltInDefinitions() throws Exception {
         Rule override = new Rule(
                 "oauth-access-token", "Company", "Company access token", "company_access_token",
                 ExtractorType.JSON_PATH, ResponseField.BODY, "$.tokens.access", "",
@@ -195,10 +236,9 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .filter(rule -> "oauth-access-token".equals(rule.getId()))
                 .findFirst()
                 .orElseThrow();
-        assertEquals("Company access token", merged.getName());
-        assertEquals("company_access_token", merged.getVariableName());
+        assertEquals(HarCorrelationRuleCatalog.builtInRules().get(0), merged);
         assertEquals(HarCorrelationRuleCatalog.builtInRules().size(), rules.size(),
-                "an override replaces the built-in rule instead of adding one");
+                "a colliding custom ID never replaces or duplicates a built-in rule");
     }
 
     @Test

@@ -81,7 +81,69 @@ final class HarCorrelationRuleCatalog {
     }
 
     static List<Rule> sharedRules() {
-        return merge(BUILT_IN_RULES, loadConfiguredCustomRules());
+        return enabledRules(allRulesFor(null));
+    }
+
+    static List<Rule> allRulesFor(TestElement testPlan) {
+        // Bundled definitions always win over a colliding imported or archived ID.
+        return merge(BUILT_IN_RULES, loadConfiguredCustomRules(), customRules(testPlan), BUILT_IN_RULES);
+    }
+
+    static List<Rule> enabledRules(List<Rule> rules) {
+        Set<String> disabled = disabledRuleIds();
+        return rules.stream().filter(rule -> !disabled.contains(rule.getId())).toList();
+    }
+
+    static Path stateFile() {
+        return Path.of(JMeterUtils.getPropDefault("breaktest.predefined_correlations.state_file",
+                Path.of(System.getProperty("user.home"), ".breaktest", "correlation-rule-state.json").toString()));
+    }
+
+    static Set<String> disabledRuleIds() {
+        try {
+            Path file = stateFile();
+            if (!Files.exists(file)) {
+                return Set.of();
+            }
+            JsonNode ids = JSON.readTree(Files.readAllBytes(file)).path("disabledRuleIds");
+            if (!ids.isArray()) {
+                throw new IOException("Correlation rule state must contain disabledRuleIds");
+            }
+            Set<String> disabled = new LinkedHashSet<>();
+            for (JsonNode id : ids) {
+                disabled.add(id.asText());
+            }
+            return Set.copyOf(disabled);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to load correlation rule state", ex);
+        }
+    }
+
+    static void saveDisabledRuleIds(Set<String> disabled) throws IOException {
+        ObjectNode root = JSON.createObjectNode();
+        ArrayNode ids = root.putArray("disabledRuleIds");
+        disabled.stream().sorted().forEach(ids::add);
+        writeAtomically(stateFile(), JSON.writerWithDefaultPrettyPrinter().writeValueAsBytes(root));
+    }
+
+    static void deleteCustomRule(TestElement testPlan, String id) throws IOException {
+        rejectBuiltInIds(List.of(id));
+        List<Rule> shared = loadConfiguredCustomRulesStrict().stream()
+                .filter(rule -> !id.equals(rule.getId())).toList();
+        List<Rule> local = loadCustomRules(testPlan).stream()
+                .filter(rule -> !id.equals(rule.getId())).toList();
+        storeConfiguredCustomRules(serialize(shared));
+        if (testPlan != null) {
+            storeCustomRules(testPlan, local);
+        }
+    }
+
+    private static void rejectBuiltInIds(List<String> ids) throws IOException {
+        for (Rule rule : BUILT_IN_RULES) {
+            if (ids.contains(rule.getId())) {
+                throw new IOException("Built-in correlation rule cannot be changed: " + rule.getId());
+            }
+        }
     }
 
     static List<Rule> rulesFor(JMeterTreeNode contextNode) {
@@ -90,7 +152,7 @@ final class HarCorrelationRuleCatalog {
     }
 
     static List<Rule> rulesFor(TestElement testPlan) {
-        return testPlan == null ? sharedRules() : merge(sharedRules(), customRules(testPlan));
+        return enabledRules(allRulesFor(testPlan));
     }
 
     static List<Rule> customRules(TestElement testPlan) {
@@ -106,6 +168,7 @@ final class HarCorrelationRuleCatalog {
         Set<String> ids = new LinkedHashSet<>();
         loadConfiguredCustomRules().stream().map(Rule::getId).forEach(ids::add);
         customRules(testPlan).stream().map(Rule::getId).forEach(ids::add);
+        BUILT_IN_RULES.stream().map(Rule::getId).forEach(ids::remove);
         return Set.copyOf(ids);
     }
 
@@ -139,6 +202,7 @@ final class HarCorrelationRuleCatalog {
     }
 
     static void storeCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
+        rejectBuiltInIds(newRules.stream().map(Rule::getId).toList());
         List<Rule> sharedCustomRules = merge(loadConfiguredCustomRulesStrict(), newRules);
         byte[] sharedContent = serialize(sharedCustomRules);
         parse(sharedContent);
@@ -169,6 +233,10 @@ final class HarCorrelationRuleCatalog {
     static void writeRulesFile(Path file, List<Rule> rules) throws IOException {
         byte[] content = serialize(rules);
         parse(content);
+        writeAtomically(file, content);
+    }
+
+    private static void writeAtomically(Path file, byte[] content) throws IOException {
         Path destination = file.toAbsolutePath().normalize();
         Path parent = destination.getParent();
         if (parent == null) {

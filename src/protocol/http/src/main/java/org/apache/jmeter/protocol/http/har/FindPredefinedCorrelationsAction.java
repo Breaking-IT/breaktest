@@ -83,7 +83,7 @@ import org.slf4j.LoggerFactory;
 
 import com.google.auto.service.AutoService;
 
-/** Tries selected predefined correlation rules and applies reviewed matches. */
+/** Manages correlation rules and applies reviewed matches to a thread group. */
 @AutoService({
         Command.class,
         MenuCreator.class
@@ -104,10 +104,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         if (gui == null) {
             return;
         }
+        gui.updateCurrentNode();
         JMeterTreeNode testPlanNode = activeTestPlanNode(gui.getTreeModel());
         TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
         HarCorrelationRulesPanel rulesPanel = new HarCorrelationRulesPanel(
-                HarCorrelationRuleCatalog.rulesFor(testPlan),
+                HarCorrelationRuleCatalog.allRulesFor(testPlan),
                 HarCorrelationRuleCatalog.customRuleIds(testPlan),
                 rule -> editCustomRule(gui, testPlanNode, rule),
                 new HarCorrelationRulesPanel.RuleTransfer() {
@@ -121,19 +122,48 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                         exportCustomRules(gui, rules);
                     }
                 });
-        rulesPanel.setPreferredSize(new Dimension(850, 500));
+        rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rule -> {
+            try {
+                HarCorrelationRuleCatalog.deleteCustomRule(testPlan, rule.getId());
+                if (testPlanNode != null) {
+                    gui.getTreeModel().nodeChanged(testPlanNode);
+                    gui.setDirty(true);
+                }
+                return true;
+            } catch (IOException ex) {
+                JMeterUtils.reportErrorToUser(ex.getMessage());
+                return false;
+            }
+        });
+        rulesPanel.setPreferredSize(new Dimension(950, 550));
         Object[] options = {
+                JMeterUtils.getResString("correlation_rules_save"),
                 JMeterUtils.getResString("try_predefined_correlations_try"),
                 JMeterUtils.getResString("close")
         };
-        int result = JOptionPane.showOptionDialog(
-                gui.getMainFrame(), rulesPanel,
-                JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS),
-                JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-        if (result != 0) {
-            return;
+        while (true) {
+            int result = JOptionPane.showOptionDialog(
+                    gui.getMainFrame(), rulesPanel,
+                    JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS),
+                    JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (result == 0) {
+                try {
+                    HarCorrelationRuleCatalog.saveDisabledRuleIds(rulesPanel.getDisabledRuleIds());
+                    JMeterUtils.reportInfoToUser(JMeterUtils.getResString("correlation_rules_saved"),
+                            JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
+                } catch (IOException ex) {
+                    JMeterUtils.reportErrorToUser(ex.getMessage());
+                }
+            } else if (result == 1) {
+                processRules(gui, rulesPanel.getSelectedRules());
+                return;
+            } else {
+                return;
+            }
         }
-        List<Rule> selectedRules = rulesPanel.getSelectedRules();
+    }
+
+    private static void processRules(GuiPackage gui, List<Rule> selectedRules) {
         if (selectedRules.isEmpty()) {
             JMeterUtils.reportInfoToUser(
                     JMeterUtils.getResString("try_predefined_correlations_no_groups"),
@@ -147,7 +177,17 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
             return;
         }
-        ThreadGroupChoice choice = chooseThreadGroup(gui, choices);
+        JMeterTreeNode current = currentThreadGroup(gui);
+        ThreadGroupChoice choice;
+        if (current != null) {
+            choice = choices.stream().filter(candidate -> candidate.node() == current).findFirst().orElse(null);
+            if (choice == null) {
+                JMeterUtils.reportErrorToUser(JMeterUtils.getResString("correlation_rules_select_thread_group"));
+                return;
+            }
+        } else {
+            choice = chooseThreadGroup(gui, choices);
+        }
         if (choice == null) {
             return;
         }

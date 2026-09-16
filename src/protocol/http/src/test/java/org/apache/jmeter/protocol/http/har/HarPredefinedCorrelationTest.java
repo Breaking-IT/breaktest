@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -30,6 +31,7 @@ import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
@@ -37,11 +39,35 @@ import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorTyp
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.oro.text.regex.Perl5Compiler;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-class HarPredefinedCorrelationTest {
+class HarPredefinedCorrelationTest extends JMeterTestCase {
+
+    @TempDir
+    private Path tempDir;
+    private String previousStateFile;
+
+    @BeforeEach
+    void isolateEnabledRulesFromUserPreferences() {
+        previousStateFile = JMeterUtils.getProperty("breaktest.predefined_correlations.state_file");
+        JMeterUtils.setProperty("breaktest.predefined_correlations.state_file", tempDir.resolve("state.json").toString());
+    }
+
+    @AfterEach
+    void restoreRulePreferences() {
+        if (previousStateFile == null) {
+            JMeterUtils.getJMeterProperties().remove("breaktest.predefined_correlations.state_file");
+        } else {
+            JMeterUtils.setProperty("breaktest.predefined_correlations.state_file", previousStateFile);
+        }
+    }
+
 
     @Test
     void predefinedRegexesCompileWithJMeterRegexEngine() {

@@ -32,6 +32,23 @@ import org.junit.jupiter.api.Test;
 class HarCorrelationRulesPanelTest extends JMeterTestCase {
 
     @Test
+    void enablesIndividualRulesAndPreservesStateWhenFiltering() {
+        Rule first = rule("first", "OAuth", 1);
+        Rule second = rule("second", "OAuth", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, second), Set.of("second"), null, null);
+        panel.configureManagement(Set.of("first", "unknown-rule"), null);
+        assertEquals(List.of(second), panel.getSelectedRules());
+        panel.setCustomOnly(true);
+        assertEquals(Set.of("first", "unknown-rule"), panel.getDisabledRuleIds());
+        panel.setGroupSelected("OAuth", true);
+        assertEquals(List.of(first, second), panel.getSelectedRules());
+        panel.setRuleEnabled("second", false);
+        assertEquals(List.of(first), panel.getSelectedRules());
+        assertEquals(Set.of("second", "unknown-rule"), panel.getDisabledRuleIds());
+    }
+
+    @Test
     void selectsAllGroupsByDefaultAndCanExcludeAGroup() {
         Rule oauth = rule("oauth", "OAuth", 1);
         Rule aspNet = rule("viewstate", "ASP.NET", 1);
