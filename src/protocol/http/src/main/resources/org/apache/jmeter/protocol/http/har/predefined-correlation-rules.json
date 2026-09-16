@@ -305,6 +305,56 @@
       ]
     },
     {
+      "name": "Matrix",
+      "rules": [
+        {
+          "id": "matrix-next-batch",
+          "name": "Matrix Sync / continuation token",
+          "variableName": "matrix_next_batch",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.next_batch",
+          "maxMatches": 1
+        },
+        {
+          "id": "matrix-previous-batch",
+          "name": "Matrix Room timeline pagination token",
+          "variableName": "matrix_previous_batch",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.rooms.join.*.timeline.prev_batch",
+          "maxMatches": 100
+        },
+        {
+          "id": "matrix-messages-end",
+          "name": "Matrix Message history pagination token",
+          "variableName": "matrix_messages_end",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$[?(@.chunk && @.start)].end",
+          "maxMatches": 1
+        },
+        {
+          "id": "matrix-event-id",
+          "name": "Matrix Created event ID",
+          "variableName": "matrix_event_id",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.event_id",
+          "maxMatches": 1
+        },
+        {
+          "id": "matrix-timeline-event-id",
+          "name": "Matrix Room timeline event ID",
+          "variableName": "matrix_timeline_event_id",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.rooms.join.*.timeline.events[*].event_id",
+          "maxMatches": 100
+        }
+      ]
+    },
+    {
       "name": "Microsoft Entra ID",
       "rules": [
         {

@@ -461,6 +461,51 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
     }
 
     @Test
+    void findsMatrixSyncPaginationAndEventValuesUsedByLaterRequests() {
+        HarEntry sync = entry(0, 0, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        sync.setResponseContentText("""
+                {"next_batch":"sync-token-111","rooms":{"join":{"!room:example.test":{"timeline":{
+                  "prev_batch":"history-token-222","events":[
+                    {"event_id":"$unused-event"},{"event_id":"$receipt-event-333"}]}}}}}
+                """);
+        HarEntry next = entry(1, 100, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        next.getQueryString().add(new NameValue("since", "sync-token-111"));
+        HarEntry messages = entry(2, 200, "GET", "https://matrix.example.test/_matrix/client/v3/rooms/room/messages");
+        messages.getQueryString().add(new NameValue("from", "history-token-222"));
+        messages.setResponseContentText("""
+                {"chunk":[],"start":"history-token-222","end":"history-end-444"}
+                """);
+        HarEntry older = entry(3, 300, "GET", "https://matrix.example.test/_matrix/client/v3/rooms/room/messages");
+        older.getQueryString().add(new NameValue("from", "history-end-444"));
+        HarEntry receipt = entry(4, 400, "POST",
+                "https://matrix.example.test/_matrix/client/v3/rooms/room/receipt/m.read/%24receipt-event-333");
+        HarEntry send = entry(5, 500, "PUT", "https://matrix.example.test/_matrix/client/v3/rooms/room/send/m.room.message/1");
+        send.setResponseContentText("{\"event_id\":\"$created-event-555\"}");
+        HarEntry read = entry(6, 600, "POST",
+                "https://matrix.example.test/_matrix/client/v3/rooms/room/receipt/m.read/%24created-event-555");
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(
+                List.of(sync, next, messages, older, receipt, send, read));
+        assertEquals(java.util.Set.of("matrix-next-batch", "matrix-previous-batch", "matrix-messages-end",
+                "matrix-event-id", "matrix-timeline-event-id"),
+                matches.stream().map(match -> match.getRule().getId()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(2, matches.stream().filter(match -> match.getRule().getId().equals("matrix-timeline-event-id"))
+                .findFirst().orElseThrow().getMatchNumber());
+    }
+
+    @Test
+    void ignoresGenericEndFieldsAndAmbiguousMatrixTimelineEvents() {
+        HarEntry source = entry(0, 0, "GET", "https://matrix.example.test/_matrix/client/v3/sync");
+        source.setResponseContentText("""
+                {"end":"unrelated-end","rooms":{"join":{"room":{"timeline":{"events":[
+                  {"event_id":"$event-one"},{"event_id":"$event-two"}]}}}}}
+                """);
+        HarEntry target = entry(1, 100, "POST", "https://matrix.example.test/receipt");
+        target.setPostData(new PostData("application/json",
+                "[\"unrelated-end\",\"$event-one\",\"$event-two\"]", List.of()));
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target)).isEmpty());
+    }
+
+    @Test
     void ignoresExtractedValuesThatAreTooShortToBeEvidence() {
         HarEntry source = entry(0, 0, "GET", "https://example.test/form");
         source.setResponseContentText("<input name=\"_csrf\" value=\"nl\">");
