@@ -39,10 +39,8 @@ import java.text.Format;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
@@ -85,6 +83,7 @@ import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRendererWrapper;
+import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.CSVSaveService;
@@ -689,59 +688,8 @@ public class PerformanceReport extends AbstractVisualizer implements Clearable, 
         return (PerformanceReportData) model.getObjectListAsList().get(modelRow);
     }
 
-    private static JMeterTreeNode findTestPlanNode(PerformanceReportData row) {
-        if (row == null || row.getSourceTestElementPath().isEmpty()) {
-            return null;
-        }
-        GuiPackage guiPackage = GuiPackage.getInstance();
-        if (guiPackage == null) {
-            return null;
-        }
-        List<SampleResult.TestElementPathEntry> sourcePath = row.getSourceTestElementPath();
-        JMeterTreeNode current = findDescendant((JMeterTreeNode) guiPackage.getTreeModel().getRoot(), sourcePath.get(0));
-        for (SampleResult.TestElementPathEntry pathEntry : sourcePath.subList(1, sourcePath.size())) {
-            current = findChild(current, pathEntry);
-            if (current == null) {
-                return null;
-            }
-        }
-        return current;
-    }
-
-    private static JMeterTreeNode findDescendant(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
-        JMeterTreeNode child = findChild(parent, pathEntry);
-        if (child != null) {
-            return child;
-        }
-        Enumeration<?> children = parent.children();
-        while (children.hasMoreElements()) {
-            JMeterTreeNode descendant = findDescendant((JMeterTreeNode) children.nextElement(), pathEntry);
-            if (descendant != null) {
-                return descendant;
-            }
-        }
-        return null;
-    }
-
-    private static JMeterTreeNode findChild(JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
-        if (parent == null) {
-            return null;
-        }
-        int occurrence = 0;
-        Enumeration<?> children = parent.children();
-        while (children.hasMoreElements()) {
-            JMeterTreeNode child = (JMeterTreeNode) children.nextElement();
-            Object userObject = child.getUserObject();
-            if (userObject != null
-                    && userObject.getClass().getName().equals(pathEntry.className())
-                    && Objects.equals(child.getName(), pathEntry.name())) {
-                if (occurrence == pathEntry.occurrence()) {
-                    return child;
-                }
-                occurrence++;
-            }
-        }
-        return null;
+    static JMeterTreeNode findTestPlanNode(PerformanceReportData row) {
+        return row == null ? null : SampleResultNodeResolver.findBySourcePath(row.getSourceTestElementPath());
     }
 
     private static void jumpToTestPlanElement(JMeterTreeNode testPlanNode) {

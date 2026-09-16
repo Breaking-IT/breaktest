@@ -34,6 +34,7 @@ import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -167,6 +168,54 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
 
         assertTrue(sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY).isEmpty());
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+    }
+
+    @Test
+    public void reportNavigatesToTransactionAndSamplerInTestFragment() {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+        ThreadGroup group = new ThreadGroup();
+        group.setName("Users");
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+        root.add(groupNode);
+        ModuleController module = new ModuleController();
+        module.setName("Shared module");
+        groupNode.add(new JMeterTreeNode(module, treeModel));
+        TestFragmentController fragment = new TestFragmentController();
+        fragment.setName("Shared fragment");
+        JMeterTreeNode fragmentNode = new JMeterTreeNode(fragment, treeModel);
+        root.add(fragmentNode);
+        module.setSelectedNode(fragmentNode);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("Checkout");
+        JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, treeModel);
+        fragmentNode.add(transactionNode);
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName("Request");
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        transactionNode.add(samplerNode);
+
+        var path = new java.util.ArrayList<SampleResult.TestElementPathEntry>();
+        for (var element : java.util.List.of(group, module, fragment, transaction, sampler)) {
+            path.add(new SampleResult.TestElementPathEntry(element.getClass().getName(), element.getName(), 0));
+        }
+        for (JMeterTreeNode expected : java.util.List.of(samplerNode, transactionNode)) {
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(expected.getName());
+            result.setSourceTestElementPath(path);
+            PerformanceReport.PerformanceReportData row =
+                    new PerformanceReport.PerformanceReportData(expected.getName());
+            row.addSample(result);
+
+            assertSame(expected, PerformanceReport.findTestPlanNode(row));
+            assertSame(expected, SampleResultNodeResolver.findForNavigation(result));
+            assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+            path.remove(path.size() - 1);
+        }
+        assertNull(PerformanceReport.findTestPlanNode(null));
+        assertNull(PerformanceReport.findTestPlanNode(new PerformanceReport.PerformanceReportData("TOTAL")));
     }
 
     @Test
