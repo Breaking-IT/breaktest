@@ -62,6 +62,13 @@ inline fun <reified T : Named> AttributeContainer.attribute(attr: Attribute<T>, 
 // isCanBeConsumed = false ==> other modules must not use the configuration as a dependency
 val generatorJar by configurations.creating {
     isCanBeConsumed = false
+    isTransitive = false
+    attributes {
+        attribute(Category.CATEGORY_ATTRIBUTE, Category.LIBRARY)
+        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.JAR)
+        attribute(Usage.USAGE_ATTRIBUTE, Usage.JAVA_RUNTIME)
+        attribute(Bundling.BUNDLING_ATTRIBUTE, Bundling.EXTERNAL)
+    }
 }
 val junitSampleJar by configurations.creating {
     isCanBeConsumed = false
@@ -120,7 +127,7 @@ dependencies {
 
     binLicense(project(":src:licenses", "binLicense"))
     srcLicense(project(":src:licenses", "srcLicense"))
-    generatorJar(project(":src:generator", "archives"))
+    generatorJar(projects.src.generator)
     junitSampleJar(project(":src:protocol:junit-sample"))
 }
 

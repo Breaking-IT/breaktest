@@ -39,11 +39,6 @@ import org.apache.jorphan.util.StringUtilities;
  * Utility class for invoking native system applications
  */
 public class SystemCommand {
-    /**
-     * @deprecated does not make sense anymore. Superseded by {@link Process#wait(long)}
-     */
-    @Deprecated
-    public static final int POLL_INTERVAL = 100;
     private final File directory;
     private final Map<String, String> env;
     private Map<String, String> executionEnvironment;
