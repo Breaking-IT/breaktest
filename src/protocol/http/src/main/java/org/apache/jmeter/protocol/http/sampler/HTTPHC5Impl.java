@@ -185,6 +185,7 @@ import org.slf4j.LoggerFactory;
 public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     static final String CONTEXT_ATTRIBUTE_AUTH_MANAGER = "__jmeter.A_M__";
+    private static final String CONTEXT_ATTRIBUTE_RESOLVED_AUTH = "__jmeter.resolved_auth__";
 
     private static final String JMETER_VARIABLE_USER_TOKEN = "__jmeter.U_T__"; //$NON-NLS-1$
 
@@ -257,7 +258,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 return credentials;
             }
             AuthManagerCredential authManagerCredential =
-                    getAuthorizationForAuthScope(authManagerFor(context), authScope);
+                    getAuthorizationForAuthScope(context, authScope);
             return authManagerCredential == null ? null : authManagerCredential.credentials;
         }
 
@@ -282,12 +283,15 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
          * by the URL, as we didn't get the scheme or path of the URL. Therefore we do a
          * best guess on the information we have
          *
-         * @param authManager AuthManager to take the credentials from, may be {@code null}
+         * @param context context carrying the current sample's credentials
          * @param authScope information which destination we want to get credentials for
          * @return matching authorization information entry from the AuthManager
          */
-        private static AuthManagerCredential getAuthorizationForAuthScope(AuthManager authManager, AuthScope authScope) {
-            for (AuthManagerCredential authManagerCredential : createAuthManagerCredentials(authManager)) {
+        private AuthManagerCredential getAuthorizationForAuthScope(HttpContext context, AuthScope authScope) {
+            List<AuthManagerCredential> credentials = context != null
+                    && context.getAttribute(CONTEXT_ATTRIBUTE_RESOLVED_AUTH) instanceof ResolvedAuthManager resolved
+                    ? resolved.credentials() : createAuthManagerCredentials(authManagerFor(context));
+            for (AuthManagerCredential authManagerCredential : credentials) {
                 if (authManagerCredential.matches(authScope)) {
                     return authManagerCredential;
                 }
@@ -300,6 +304,20 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             log.debug("clear creds");
             requestScopedCredentials.clear();
         }
+    }
+
+    private record ResolvedAuthManager(List<AuthManagerCredential> credentials) {
+    }
+
+    /**
+     * Resolve on the sampling thread, before async authentication runs on an I/O thread without
+     * JMeter variables. Keep the snapshot on the request context, not the cached client, so later
+     * samplers and iterations see their own credentials. An empty snapshot also prevents fallback
+     * to an earlier sample's AuthManager.
+     */
+    static void resolveAuthManagerForAsyncRequest(HttpContext context, AuthManager authManager) {
+        context.setAttribute(CONTEXT_ATTRIBUTE_RESOLVED_AUTH,
+                new ResolvedAuthManager(List.copyOf(createAuthManagerCredentials(authManager))));
     }
 
     private static final class PreemptiveAuthRequestInterceptor implements HttpRequestInterceptor {

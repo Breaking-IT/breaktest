@@ -50,6 +50,7 @@ import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLSocket;
 
 import org.apache.jmeter.protocol.http.control.AuthManager;
+import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
@@ -90,7 +91,8 @@ import org.slf4j.LoggerFactory;
  * <li>no proxy support (requests fail fast when a proxy is configured rather than silently
  * bypassing it)</li>
  * <li>no multipart/form-data uploads</li>
- * <li>authentication is limited to preemptive Basic</li>
+ * <li>preemptive Basic uses the JDK client; configured NTLM, Kerberos, and Digest
+ * authentication use HC5 for the matching request</li>
  * <li>no Cache Manager integration</li>
  * <li>certificate errors are ignored by default. Because Java 26 QUIC requires its
  * built-in trust manager, BreakTest obtains the presented certificate through a
@@ -158,6 +160,9 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     }
 
     private final Http3Discovery discovery;
+    private HTTPHC5Impl authenticationClient;
+    private HTTPHC5H2Impl negotiatingAuthenticationClient;
+    private volatile HTTPHC5Impl activeAuthenticationClient;
 
     /** Creates the implementation for an explicit HTTP/3 protocol selection. */
     HTTPJavaHttp3Impl(HTTPSamplerBase testElement) {
@@ -181,6 +186,25 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     @Override
     protected HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth) {
+        HTTPHC5Impl fallback = authenticationClientFor(url);
+        if (fallback != null) {
+            if (discovery == Http3Discovery.HTTP3_ONLY) {
+                HTTPSampleResult result = new HTTPSampleResult();
+                configureSampleLabel(result, url);
+                result.setHTTPMethod(method);
+                result.setURL(url);
+                result.sampleStart();
+                result.sampleEnd();
+                return errorResult(new IllegalArgumentException(
+                        "The configured authentication requires HC5; disable HTTP/3-only mode"), result);
+            }
+            activeAuthenticationClient = fallback;
+            try {
+                return fallback.sample(url, method, areFollowingRedirect, frameDepth);
+            } finally {
+                activeAuthenticationClient = null;
+            }
+        }
         log.debug("Start HTTP/3 sample {} method {} followingRedirect {} depth {}",
                 url, method, areFollowingRedirect, frameDepth);
         HTTPSampleResult res = new HTTPSampleResult();
@@ -249,6 +273,29 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         } finally {
             currentCall = null;
         }
+    }
+
+    /** Select per request: other origins in the same plan remain eligible for HTTP/3. */
+    HTTPHC5Impl authenticationClientFor(URL url) {
+        AuthManager manager = getAuthManager();
+        Authorization authorization = manager == null ? null : manager.getAuthForURL(url);
+        if (authorization == null) {
+            return null;
+        }
+        if (!StringUtilities.isEmpty(HTTPHC5Impl.resolveVariables(authorization.getDomain()))
+                || authorization.getMechanism() == AuthManager.Mechanism.KERBEROS) {
+            if (authenticationClient == null) {
+                authenticationClient = new HTTPHC5Impl(testElement);
+            }
+            return authenticationClient;
+        }
+        if (authorization.getMechanism() == AuthManager.Mechanism.DIGEST) {
+            if (negotiatingAuthenticationClient == null) {
+                negotiatingAuthenticationClient = new HTTPHC5H2Impl(testElement);
+            }
+            return negotiatingAuthenticationClient;
+        }
+        return null;
     }
 
     private HttpResponse<InputStream> send(HttpClient client, HttpRequest request)
@@ -768,6 +815,12 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     @Override
     protected void notifyFirstSampleAfterLoopRestart() {
+        if (authenticationClient != null) {
+            authenticationClient.notifyFirstSampleAfterLoopRestart();
+        }
+        if (negotiatingAuthenticationClient != null) {
+            negotiatingAuthenticationClient.notifyFirstSampleAfterLoopRestart();
+        }
         if (!RESET_STATE_ON_THREAD_GROUP_ITERATION) {
             return;
         }
@@ -780,6 +833,12 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     @Override
     protected void threadFinished() {
+        if (authenticationClient != null) {
+            authenticationClient.threadFinished();
+        }
+        if (negotiatingAuthenticationClient != null) {
+            negotiatingAuthenticationClient.threadFinished();
+        }
         closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey()));
     }
 
@@ -798,6 +857,10 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     @Override
     public boolean interrupt() {
+        HTTPHC5Impl active = activeAuthenticationClient;
+        if (active != null) {
+            return active.interrupt();
+        }
         CompletableFuture<HttpResponse<InputStream>> call = currentCall;
         currentCall = null;
         if (call != null) {
