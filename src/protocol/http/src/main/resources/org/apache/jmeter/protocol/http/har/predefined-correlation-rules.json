@@ -269,7 +269,8 @@
           "extractorType": "REGEX",
           "responseField": "BODY",
           "expression": "(?i)[?&](?:amp;)?session_code=([^&\"'\\s]+)",
-          "template": "$1$"
+          "template": "$1$",
+          "maxMatches": 100
         },
         {
           "id": "keycloak-execution",
@@ -278,7 +279,8 @@
           "extractorType": "REGEX",
           "responseField": "BODY",
           "expression": "(?i)[?&](?:amp;)?execution=([^&\"'\\s]+)",
-          "template": "$1$"
+          "template": "$1$",
+          "maxMatches": 100
         },
         {
           "id": "keycloak-tab-id",
@@ -287,7 +289,8 @@
           "extractorType": "REGEX",
           "responseField": "BODY",
           "expression": "(?i)[?&](?:amp;)?tab_id=([^&\"'\\s]+)",
-          "template": "$1$"
+          "template": "$1$",
+          "maxMatches": 100
         },
         {
           "id": "keycloak-client-data",
@@ -296,7 +299,8 @@
           "extractorType": "REGEX",
           "responseField": "BODY",
           "expression": "(?i)[?&](?:amp;)?client_data=([^&\"'\\s]+)",
-          "template": "$1$"
+          "template": "$1$",
+          "maxMatches": 100
         }
       ]
     },

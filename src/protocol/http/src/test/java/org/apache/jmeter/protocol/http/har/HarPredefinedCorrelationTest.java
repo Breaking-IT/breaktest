@@ -436,6 +436,31 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
     }
 
     @Test
+    void findsRepeatedKeycloakValuesWithoutAcceptingCompetingValues() {
+        HarEntry source = entry(0, 0, "GET", "https://sso.example.test/auth");
+        String action = "/login-actions/authenticate?session_code=session-code-111"
+                + "&amp;execution=execution-222&amp;tab_id=tab-id-333&amp;client_data=client-data-444";
+        source.setResponseContentText(("<a href=\"" + action + "\">Continue</a>").repeat(7));
+        HarEntry target = entry(1, 100, "POST", "https://sso.example.test/login-actions/authenticate");
+        target.getQueryString().add(new NameValue("session_code", "session-code-111"));
+        target.getQueryString().add(new NameValue("execution", "execution-222"));
+        target.getQueryString().add(new NameValue("tab_id", "tab-id-333"));
+        target.getQueryString().add(new NameValue("client_data", "client-data-444"));
+        List<HarPredefinedCorrelation> matches = HarPredefinedCorrelation.find(List.of(source, target));
+        assertEquals(List.of("keycloak-session-code", "keycloak-execution",
+                "keycloak-tab-id", "keycloak-client-data"),
+                matches.stream().map(match -> match.getRule().getId()).toList());
+        assertTrue(matches.stream().allMatch(match -> match.getMatchNumber() == 1));
+
+        source.setResponseContentText(source.getResponseContentText()
+                + "<a href=\"/auth?execution=different-execution\">Other flow</a>");
+        HarEntry otherTarget = entry(2, 200, "POST", "https://sso.example.test/login-actions/authenticate");
+        otherTarget.getQueryString().add(new NameValue("execution", "different-execution"));
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target, otherTarget)).stream()
+                .noneMatch(match -> match.getRule().getId().equals("keycloak-execution")));
+    }
+
+    @Test
     void ignoresExtractedValuesThatAreTooShortToBeEvidence() {
         HarEntry source = entry(0, 0, "GET", "https://example.test/form");
         source.setResponseContentText("<input name=\"_csrf\" value=\"nl\">");
