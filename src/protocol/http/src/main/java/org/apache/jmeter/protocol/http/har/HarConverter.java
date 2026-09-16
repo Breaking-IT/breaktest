@@ -656,12 +656,12 @@ public final class HarConverter {
         String replaced = text;
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
-            String variableReference = "${" + correlation.getVariableName() + "}";
             for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
                 if (replacement.getTargetEntryIndex() == entry.getOriginalIndex()
                         && acceptedLocations.contains(replacement.getLocation())) {
                     for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
-                        replaced = replaced.replace(variant, variableReference);
+                        replaced = replaced.replace(variant,
+                                HarPredefinedCorrelation.variableReference(correlation, replacement));
                     }
                 }
             }

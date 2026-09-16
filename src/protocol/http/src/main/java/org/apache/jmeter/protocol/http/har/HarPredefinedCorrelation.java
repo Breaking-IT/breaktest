@@ -568,6 +568,13 @@ final class HarPredefinedCorrelation {
     private static void addReplacement(List<Replacement> result, HarEntry entry,
             RequestLocation location, String locationName, String text, String extractedValue) {
         String matchedLiteral = matchedLiteral(text, extractedValue);
+        if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
+            String decoded = decodedHeaderValue(extractedValue);
+            if (!decoded.equals(extractedValue) && decoded.strip().length() >= MIN_CORRELATED_VALUE_LENGTH
+                    && text.contains(decoded)) {
+                matchedLiteral = decoded;
+            }
+        }
         if (matchedLiteral != null) {
             result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
                     location, locationName, matchedLiteral));
@@ -609,7 +616,32 @@ final class HarPredefinedCorrelation {
         }
     }
 
+    private static String decodedHeaderValue(String value) {
+        if (!value.contains("%")) {
+            return value;
+        }
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return value;
+        }
+    }
+
+    private static boolean usesDecodedHeader(HarPredefinedCorrelation correlation, Replacement replacement) {
+        return replacement.getLocation() == RequestLocation.REQUEST_HEADER
+                && !correlation.getExtractedValue().equals(replacement.getMatchedLiteral())
+                && decodedHeaderValue(correlation.getExtractedValue()).equals(replacement.getMatchedLiteral());
+    }
+
+    static String variableReference(HarPredefinedCorrelation correlation, Replacement replacement) {
+        String reference = "${" + correlation.getVariableName() + "}";
+        return usesDecodedHeader(correlation, replacement) ? "${__urldecode(" + reference + ")}" : reference;
+    }
+
     static List<String> replacementVariants(HarPredefinedCorrelation correlation, Replacement replacement) {
+        if (usesDecodedHeader(correlation, replacement)) {
+            return List.of(replacement.getMatchedLiteral());
+        }
         Set<String> variants = new LinkedHashSet<>();
         variants.add(replacement.getMatchedLiteral());
         variants.add(percentDecode(replacement.getMatchedLiteral()));

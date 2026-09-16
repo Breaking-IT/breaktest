@@ -770,7 +770,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     static int applyReplacement(HTTPSamplerBase sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
         int replacementCount = 0;
-        String variableReference = "${" + correlation.getVariableName() + "}";
+        String variableReference = HarPredefinedCorrelation.variableReference(correlation, replacement);
         for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
             try {
                 replacementCount += sampler.replace(Pattern.quote(variant), variableReference, true);

@@ -717,6 +717,152 @@
       ]
     },
     {
+      "name": "Apereo CAS",
+      "rules": [
+        {
+          "id": "cas-login-ticket",
+          "name": "CAS login ticket",
+          "variableName": "cas_login_ticket",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']lt[\"'])[^>]{0,600}\\svalue=[\"'](LT-[^\"']+)[\"']",
+          "template": "$1$",
+          "maxMatches": 100
+        },
+        {
+          "id": "cas-service-ticket",
+          "name": "CAS service ticket",
+          "variableName": "cas_service_ticket",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?im)^Location:\\s*[^\\r\\n]*[?&]ticket=(ST-[^&\\s#]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Amazon Cognito",
+      "rules": [
+        {
+          "id": "cognito-challenge-session",
+          "name": "Cognito challenge session",
+          "variableName": "cognito_challenge_session",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$[?(@.ChallengeName)].Session"
+        },
+        {
+          "id": "cognito-access-token",
+          "name": "Cognito access token",
+          "variableName": "cognito_access_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.AuthenticationResult.AccessToken"
+        },
+        {
+          "id": "cognito-id-token",
+          "name": "Cognito ID token",
+          "variableName": "cognito_id_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.AuthenticationResult.IdToken"
+        },
+        {
+          "id": "cognito-refresh-token",
+          "name": "Cognito refresh token",
+          "variableName": "cognito_refresh_token",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$.AuthenticationResult.RefreshToken"
+        }
+      ]
+    },
+    {
+      "name": "Jenkins",
+      "rules": [
+        {
+          "id": "jenkins-crumb",
+          "name": "Jenkins CSRF crumb",
+          "variableName": "jenkins_crumb",
+          "extractorType": "JSON_PATH",
+          "responseField": "BODY",
+          "expression": "$[?(@.crumbRequestField)].crumb"
+        }
+      ]
+    },
+    {
+      "name": "Socket.IO / Engine.IO",
+      "rules": [
+        {
+          "id": "engineio-session-id",
+          "name": "Engine.IO v4 polling session ID",
+          "variableName": "engineio_session_id",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\\A0\\{(?=[^\\r\\n]{0,4096}\"upgrades\"\\s*:\\s*\\[)(?=[^\\r\\n]{0,4096}\"pingInterval\"\\s*:)(?=[^\\r\\n]{0,4096}\"pingTimeout\"\\s*:)[^\\r\\n]{0,4096}?\"sid\"\\s*:\\s*\"([^\"\\\\]+)\"",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
+      "name": "Flask-WTF",
+      "rules": [
+        {
+          "id": "flask-csrf-token",
+          "name": "Flask-WTF CSRF token",
+          "variableName": "flask_csrf_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "(?i)<input(?=[^>]{0,600}\\sname=[\"']csrf_token[\"'])[^>]{0,600}\\svalue=[\"']([^\"']+)[\"']",
+          "template": "$1$",
+          "maxMatches": 100
+        }
+      ]
+    },
+    {
+      "name": "CSRF Cookies and Headers",
+      "rules": [
+        {
+          "id": "xsrf-cookie-token",
+          "name": "XSRF cookie token (Spring / Laravel)",
+          "variableName": "xsrf_cookie_token",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?im)^Set-Cookie:\\s*XSRF-TOKEN=([^;\\r\\n]+)",
+          "template": "$1$",
+          "maxMatches": 100
+        },
+        {
+          "id": "django-csrf-cookie",
+          "name": "Django CSRF cookie",
+          "variableName": "django_csrf_cookie",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?im)^Set-Cookie:\\s*csrftoken=([^;\\r\\n]+)",
+          "template": "$1$",
+          "maxMatches": 100
+        },
+        {
+          "id": "xsrf-header-token",
+          "name": "XSRF response header",
+          "variableName": "xsrf_header_token",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?im)^X-XSRF-TOKEN:\\s*([^\\r\\n]+)",
+          "template": "$1$"
+        },
+        {
+          "id": "django-csrf-header",
+          "name": "Django-style CSRF response header",
+          "variableName": "django_csrf_header",
+          "extractorType": "REGEX",
+          "responseField": "HEADERS",
+          "expression": "(?im)^X-CSRFToken:\\s*([^\\r\\n]+)",
+          "template": "$1$"
+        }
+      ]
+    },
+    {
       "name": "Generic JSON and REST",
       "rules": [
         {
