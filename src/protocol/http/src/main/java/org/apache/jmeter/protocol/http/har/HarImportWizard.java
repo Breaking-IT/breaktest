@@ -567,7 +567,12 @@ public class HarImportWizard extends JDialog {
     }
 
     private boolean hasSelectedFileUploads() {
-        return uploads.present() || !selectedFileUploads().isEmpty();
+        return shouldReviewFileUploads(uploads, selectedFileUploads());
+    }
+
+    static boolean shouldReviewFileUploads(HarUploadCapture.Result capture, List<HarEntry.NameValue> selectedUploads) {
+        // Recorders include uploadCapture even when no files were selected or submitted.
+        return !selectedUploads.isEmpty() || !capture.resources().isEmpty() || !capture.warnings().isEmpty();
     }
 
     private void updateFileUploadCard() {

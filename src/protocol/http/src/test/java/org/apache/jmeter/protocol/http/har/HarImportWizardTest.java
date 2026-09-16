@@ -21,11 +21,48 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
 class HarImportWizardTest {
+
+    @Test
+    void skipsUploadReviewForEmptyRecorderInventory() throws Exception {
+        HarParser.Recording recording = HarParser.parseRecording("""
+                {"log":{"entries":[{
+                  "request":{"method":"POST","url":"https://example.test/messages",
+                    "postData":{"mimeType":"application/json","text":"{}"}}
+                }],"_breaktest":{"uploadCapture":{"version":1,"files":[]}}}}
+                """.getBytes(StandardCharsets.UTF_8));
+        List<HarEntry.NameValue> selectedUploads = recording.entries().stream()
+                .filter(entry -> entry.getPostData() != null)
+                .flatMap(entry -> entry.getPostData().getParams().stream())
+                .filter(HarEntry.NameValue::isFileUpload).toList();
+
+        assertTrue(recording.uploads().present());
+        assertTrue(selectedUploads.isEmpty());
+        assertFalse(HarImportWizard.shouldReviewFileUploads(recording.uploads(), selectedUploads));
+    }
+
+    @Test
+    void reviewsRequestUploadsEvenWithoutCapturedContent() {
+        HarEntry.NameValue file = new HarEntry.NameValue("file", "", "example.txt", "text/plain", null);
+
+        assertTrue(HarImportWizard.shouldReviewFileUploads(HarUploadCapture.Result.empty(), List.of(file)));
+    }
+
+    @Test
+    void reviewsUnassignedCapturedFilesAndCaptureWarnings() {
+        HarEntry.NameValue file = new HarEntry.NameValue("file", "", "example.txt", "text/plain", new byte[0]);
+
+        assertTrue(HarImportWizard.shouldReviewFileUploads(
+                new HarUploadCapture.Result(true, List.of(file), List.of()), List.of()));
+        assertTrue(HarImportWizard.shouldReviewFileUploads(
+                new HarUploadCapture.Result(true, List.of(), List.of("Content unavailable")), List.of()));
+        assertFalse(HarImportWizard.shouldReviewFileUploads(HarUploadCapture.Result.empty(), List.of()));
+    }
 
     @Test
     void recognizesBreakTestTransactionMetadata() {
