@@ -105,17 +105,22 @@ final class HarCorrelationRuleCatalog {
             if (!Files.exists(file)) {
                 return Set.of();
             }
-            JsonNode ids = JSON.readTree(Files.readAllBytes(file)).path("disabledRuleIds");
-            if (!ids.isArray()) {
+            JsonNode root = JSON.readTree(Files.readAllBytes(file));
+            JsonNode ids = root == null ? null : root.get("disabledRuleIds");
+            if (ids == null || !ids.isArray()) {
                 throw new IOException("Correlation rule state must contain disabledRuleIds");
             }
             Set<String> disabled = new LinkedHashSet<>();
             for (JsonNode id : ids) {
+                if (!id.isTextual() || !id.asText().matches("[A-Za-z0-9._-]+")) {
+                    throw new IOException("Correlation rule state contains an invalid rule ID");
+                }
                 disabled.add(id.asText());
             }
             return Set.copyOf(disabled);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Unable to load correlation rule state", ex);
+        } catch (IOException | IllegalArgumentException | SecurityException ex) {
+            LOG.warn("Unable to load correlation rule preferences; using all available rules", ex);
+            return Set.of();
         }
     }
 

@@ -62,6 +62,28 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void invalidPreferenceFilesDoNotPreventLoadingRulesOrGetOverwritten() throws Exception {
+        Path file = HarCorrelationRuleCatalog.stateFile();
+        for (String content : List.of("", "{broken", "null", "{}", "[]",
+                "{\"disabledRuleIds\":null}", "{\"disabledRuleIds\":[123]}",
+                "{\"disabledRuleIds\":[\"oauth-access-token\",null]}")) {
+            Files.writeString(file, content);
+            assertTrue(HarCorrelationRuleCatalog.disabledRuleIds().isEmpty());
+            assertTrue(HarCorrelationRuleCatalog.sharedRules().stream()
+                    .anyMatch(rule -> rule.getId().equals("oauth-access-token")));
+            assertEquals(content, Files.readString(file), "loading preferences must not overwrite the file");
+        }
+    }
+
+    @Test
+    void unreadablePreferenceLocationDoesNotPreventLoadingRules() throws Exception {
+        Files.createDirectory(HarCorrelationRuleCatalog.stateFile());
+        assertTrue(HarCorrelationRuleCatalog.disabledRuleIds().isEmpty());
+        assertTrue(HarCorrelationRuleCatalog.sharedRules().stream()
+                .anyMatch(rule -> rule.getId().equals("oauth-access-token")));
+    }
+
+    @Test
     void disabledBuiltInRulesSurviveCatalogChangesAndCanBeEnabledAgain() throws Exception {
         JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY,
                 tempDir.resolve("custom.json").toString());
