@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.har;
 
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,8 +79,6 @@ public final class HarConverter {
 
     private static final Set<String> IGNORED_REQUEST_HEADERS =
             Set.of("content-length", "cookie", "host");
-
-    private static final String UNSAFE_CHARS = " <>\"#%{}|\\^~[]`&?+";
 
     private final List<HarEntry> entries;
     private final HarImportOptions options;
@@ -610,7 +609,8 @@ public final class HarConverter {
                     String decodedValue = percentDecode(param.getValue());
                     decodedValue = replaceCorrelations(entry, decodedValue,
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
-                    boolean alwaysEncode = needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
+                    boolean alwaysEncode = needsUrlEncoding(param.getName())
+                            || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
                     addHttpArgument(arguments, param.getName(), decodedValue, alwaysEncode, true);
                 }
             } else if (postData.getText() != null) {
@@ -868,13 +868,8 @@ public final class HarConverter {
     }
 
     private static boolean needsUrlEncoding(String value) {
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (UNSAFE_CHARS.indexOf(c) >= 0 || c > 127) {
-                return true;
-            }
-        }
-        return false;
+        // Use the same form encoder as HTTPArgument rather than a partial list of unsafe characters.
+        return !URLEncoder.encode(value, StandardCharsets.UTF_8).equals(value);
     }
 
     /** Percent-decode like Python's urllib.parse.unquote (does NOT turn '+' into space). */

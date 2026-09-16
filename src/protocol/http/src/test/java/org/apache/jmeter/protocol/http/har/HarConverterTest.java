@@ -37,6 +37,7 @@ import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -85,6 +86,65 @@ public class HarConverterTest {
         HarImportOptions options = new HarImportOptions();
         HarConverter converter = new HarConverter(entries, options, "test.har", "abc123");
         tree = converter.convert(Set.of("api.example.com", "cdn.example.com"));
+    }
+
+    @Test
+    void encodesAtSignsInImportedFormAndQueryParametersExactlyOnce() throws Exception {
+        for (String method : List.of("POST", "GET")) {
+            for (String value : List.of("person@example.test", "person%40example.test")) {
+                String params = "[{\"name\":\"username\",\"value\":\"" + value + "\"}]";
+                String postData = "POST".equals(method)
+                        ? "{\"mimeType\":\"application/x-www-form-urlencoded\",\"params\":" + params
+                                + ",\"text\":\"username=person%40example.test\"}"
+                        : null;
+                String url = "https://api.example.com/login"
+                        + ("GET".equals(method) ? "?username=person%40example.test" : "");
+                String har = "{\"log\":{\"entries\":["
+                        + entry("2024-01-01T00:00:00.000Z", 10, method, url,
+                                "GET".equals(method) ? params : "[]", commonHeadersOnly(), postData, 200)
+                        + "]}}";
+                HashTree converted = new HarConverter(
+                        HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                        new HarImportOptions(), "login.har", "md5").convert(Set.of("api.example.com"));
+                HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+                HTTPArgument argument = (HTTPArgument) sampler.getArguments().getArgument(0);
+                assertEquals("person@example.test", argument.getValue());
+                assertTrue(argument.isAlwaysEncoded(), method + " " + value);
+                assertEquals("username=person%40example.test", sampler.getQueryString("UTF-8"));
+            }
+        }
+    }
+
+    @Test
+    void encodesReservedCharactersInFormAndQueryNamesAndValues() throws Exception {
+        List<String> values = List.of("=", "/", ":", ";", ",", "$", "!", "'", "(", ")", "\t", "\r", "\n");
+        List<String> encoded = List.of("%3D", "%2F", "%3A", "%3B", "%2C", "%24", "%21", "%27",
+                "%28", "%29", "%09", "%0D", "%0A");
+        for (String method : List.of("GET", "POST")) {
+            for (int i = 0; i < values.size(); i++) {
+                for (boolean inName : List.of(false, true)) {
+                    String name = inName ? "field" + values.get(i) + "name" : "field";
+                    String value = inName ? "value" : "value" + values.get(i);
+                    String params = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                            List.of(java.util.Map.of("name", name, "value", value)));
+                    String postData = "POST".equals(method)
+                            ? "{\"mimeType\":\"application/x-www-form-urlencoded\",\"params\":" + params + "}"
+                            : null;
+                    String har = "{\"log\":{\"entries\":["
+                            + entry("2024-01-01T00:00:00.000Z", 10, method, "https://api.example.com/submit",
+                                    "GET".equals(method) ? params : "[]", commonHeadersOnly(), postData, 200)
+                            + "]}}";
+                    HashTree converted = new HarConverter(
+                            HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                            new HarImportOptions(), "encoding.har", "md5").convert(Set.of("api.example.com"));
+                    HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+                    HTTPArgument argument = (HTTPArgument) sampler.getArguments().getArgument(0);
+                    assertTrue(argument.isAlwaysEncoded(), method + " " + params);
+                    assertEquals(inName ? "field" + encoded.get(i) + "name=value" : "field=value" + encoded.get(i),
+                            sampler.getQueryString("UTF-8"), method + " " + params);
+                }
+            }
+        }
     }
 
     @Test
