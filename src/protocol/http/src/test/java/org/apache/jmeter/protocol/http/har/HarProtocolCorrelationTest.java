@@ -35,6 +35,31 @@ import org.junit.jupiter.api.Test;
 class HarProtocolCorrelationTest extends JMeterTestCase {
 
     @Test
+    void findsGenericAccessTokenInCompactNestedAndRepeatedResponseFields() {
+        HarEntry source = entry(0, "/session");
+        HarEntry target = entry(1, "/api");
+        target.getRequestHeaders().add(new NameValue("Authorization", "Bearer generic-access-123"));
+        for (String body : List.of(
+                "{\"accessToken\":\"generic-access-123\"}",
+                "{\"session\": {\"accessToken\" : \"generic-access-123\"}}",
+                "[{\"accessToken\":\"generic-access-123\"},{\"accessToken\":\"generic-access-123\"}]")) {
+            source.setResponseContentText(body);
+            var matches = find(source, target);
+            assertEquals(List.of("json-access-token"), ids(matches), body);
+            assertEquals("generic-access-123", matches.get(0).getExtractedValue());
+            assertEquals(1, matches.get(0).getMatchNumber());
+            assertEquals("${json_access_token}", HarPredefinedCorrelation.variableReference(
+                    matches.get(0), matches.get(0).getReplacements().get(0)));
+        }
+        target.getRequestHeaders().add(new NameValue("X-Other-Token", "competing-access-456"));
+        source.setResponseContentText("[{\"accessToken\":\"generic-access-123\"},"
+                + "{\"accessToken\":\"competing-access-456\"}]");
+        assertTrue(find(source, target).isEmpty());
+        source.setResponseContentText("{\"accessToken\":\"unused-access-789\"}");
+        assertTrue(find(source, target).isEmpty());
+    }
+
+    @Test
     void findsCasTicketsFromFormsAndRedirects() {
         HarEntry form = entry(0, "/login");
         form.setResponseContentText("<input value='LT-login-ticket-123' type='hidden' name='lt'>");

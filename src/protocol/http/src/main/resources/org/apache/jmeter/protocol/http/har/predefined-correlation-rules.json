@@ -866,6 +866,16 @@
       "name": "Generic JSON and REST",
       "rules": [
         {
+          "id": "json-access-token",
+          "name": "JSON accessToken field",
+          "variableName": "json_access_token",
+          "extractorType": "REGEX",
+          "responseField": "BODY",
+          "expression": "\"accessToken\"\\s*:\\s*\"([^\"\\\\\\r\\n]+)\"",
+          "template": "$1$",
+          "maxMatches": 100
+        },
+        {
           "id": "json-token",
           "name": "JSON token field",
           "variableName": "json_token",
