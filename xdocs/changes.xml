@@ -24,6 +24,38 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.09.16 — Correlation Rule Management, Broader Token Detection, and Authentication Fixes</h1>
+<p>This release adds persistent correlation rule controls and broader automatic token detection, improves HAR imports and authentication across negotiated HTTP protocols, and reduces unnecessary work during command-line execution.</p>
+<ch_section>Correlation Rules and HAR Import</ch_section>
+<ul>
+<li>Manage rules through Tools → Correlation Rules: enable or disable individual rules or groups, save preferences across application updates, manage custom rules, and process the selected thread group. Corrupt or unreadable preference files now produce a warning instead of blocking HAR import.</li>
+<li>Add generic correlation rules for Matrix, CAS, Amazon Cognito, Jenkins, Engine.IO v4 HTTP polling, Flask-WTF, CSRF tokens, and JSON accessToken fields. Improve Keycloak matching and preserve URL-decoding when encoded response tokens are reused in request headers. Remove automatic ETag correlation.</li>
+<li>Correct URL encoding for imported parameter values and POST parameter names, including @ and other reserved characters. Move correlation matching to the top of HAR import options.</li>
+<li>Avoid showing the upload-review step when a recording contains only empty upload metadata.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/157">#157</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/155">#155</a>.</p>
+<ch_section>Authentication and Navigation</ch_section>
+<ul>
+<li>Fix NTLM authentication when the HTTP protocol is selected automatically. HTTP/3-capable requests use compatible fallback clients for NTLM, Kerberos, and Digest authentication; HTTP/3-only mode reports an explicit error when authentication requires a fallback.</li>
+<li>Fix Performance Report Jump to and double-click navigation for requests and transactions executed through Module Controllers. Add Jump to in the Module Controller target tree.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/154">#154</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/156">#156</a>.</p>
+<ch_section>Non-GUI Execution and Maintenance</ch_section>
+<ul>
+<li>Reduce command-line startup work and memory use by skipping unnecessary GUI processing and unused recording attachments. Runtime inputs such as archived CSV and upload files remain available.</li>
+<li>Allow non-GUI execution when a runtime test-element class is available but its GUI editor class is missing. GUI mode retains its existing missing-element validation.</li>
+<li>Improve CI caching and parallel test execution, remove unused legacy code, and address deprecated APIs and build warnings.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/152">#152</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/150">#150</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/153">#153</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<ul>
+<li>Custom correlation rules must use IDs distinct from built-in rules. Built-in IDs can no longer be overridden by custom definitions.</li>
+<li>Newly imported parameters may have URL Encode enabled more often, including values containing /, :, or comma. Existing plans are not automatically rewritten by this import change.</li>
+<li>Third-party plugins referencing removed legacy APIs, including Base64Encoder and LoopbackHTTPSocket, may require updates.</li>
+<li>Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.</li>
+</ul>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.09.13...2026.09.16">Full changelog since 2026.09.13</a></p>
+
 <h1>BreakTest 2026.09.13 — HAR Uploads, Shared Correlation Rules, and HTTP Improvements</h1>
 <p>This release improves replaying recorded file uploads, adds import and export for custom correlation rules, and fixes response handling and result navigation. It also reduces HTTP processing overhead and expands HTTP/3 compatibility with test certificates and client-certificate authentication.</p>
 <ch_section>HAR Uploads and Correlation Rules</ch_section>

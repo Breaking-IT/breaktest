@@ -13,6 +13,43 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.16 — Correlation Rule Management, Broader Token Detection, and Authentication Fixes
+
+This release adds persistent correlation rule controls and broader automatic token detection, improves HAR imports and authentication across negotiated HTTP protocols, and reduces unnecessary work during command-line execution.
+
+## Correlation Rules and HAR Import
+
+- Manage rules through Tools → Correlation Rules: enable or disable individual rules or groups, save preferences across application updates, manage custom rules, and process the selected thread group. Corrupt or unreadable preference files now produce a warning instead of blocking HAR import.
+- Add generic correlation rules for Matrix, CAS, Amazon Cognito, Jenkins, Engine.IO v4 HTTP polling, Flask-WTF, CSRF tokens, and JSON accessToken fields. Improve Keycloak matching and preserve URL-decoding when encoded response tokens are reused in request headers. Remove automatic ETag correlation.
+- Correct URL encoding for imported parameter values and POST parameter names, including @ and other reserved characters. Move correlation matching to the top of HAR import options.
+- Avoid showing the upload-review step when a recording contains only empty upload metadata.
+
+Sources: [#157](https://github.com/Breaking-IT/breaktest/pull/157), [#155](https://github.com/Breaking-IT/breaktest/pull/155).
+
+## Authentication and Navigation
+
+- Fix NTLM authentication when the HTTP protocol is selected automatically. HTTP/3-capable requests use compatible fallback clients for NTLM, Kerberos, and Digest authentication; HTTP/3-only mode reports an explicit error when authentication requires a fallback.
+- Fix Performance Report Jump to and double-click navigation for requests and transactions executed through Module Controllers. Add Jump to in the Module Controller target tree.
+
+Sources: [#154](https://github.com/Breaking-IT/breaktest/pull/154), [#156](https://github.com/Breaking-IT/breaktest/pull/156).
+
+## Non-GUI Execution and Maintenance
+
+- Reduce command-line startup work and memory use by skipping unnecessary GUI processing and unused recording attachments. Runtime inputs such as archived CSV and upload files remain available.
+- Allow non-GUI execution when a runtime test-element class is available but its GUI editor class is missing. GUI mode retains its existing missing-element validation.
+- Improve CI caching and parallel test execution, remove unused legacy code, and address deprecated APIs and build warnings.
+
+Sources: [#152](https://github.com/Breaking-IT/breaktest/pull/152), [#150](https://github.com/Breaking-IT/breaktest/pull/150), [#153](https://github.com/Breaking-IT/breaktest/pull/153).
+
+## Upgrade Notes
+
+- Custom correlation rules must use IDs distinct from built-in rules. Built-in IDs can no longer be overridden by custom definitions.
+- Newly imported parameters may have URL Encode enabled more often, including values containing /, :, or comma. Existing plans are not automatically rewritten by this import change.
+- Third-party plugins referencing removed legacy APIs, including Base64Encoder and LoopbackHTTPSocket, may require updates.
+- Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.
+
+[Full changelog since 2026.09.13](https://github.com/Breaking-IT/breaktest/compare/2026.09.13...2026.09.16)
+
 # BreakTest 2026.09.13 — HAR Uploads, Shared Correlation Rules, and HTTP Improvements
 
 This release improves replaying recorded file uploads, adds import and export
