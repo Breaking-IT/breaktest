@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 
 import org.apache.jmeter.extractor.RegexExtractor;
@@ -68,20 +70,6 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
                     JMeterUtils.getResString("add_custom_predefined_correlation"));
             return;
         }
-        String group = JOptionPane.showInputDialog(
-                gui.getMainFrame(),
-                JMeterUtils.getResString("add_custom_predefined_correlation_group_prompt"),
-                JMeterUtils.getResString("add_custom_predefined_correlation"),
-                JOptionPane.PLAIN_MESSAGE);
-        if (group == null) {
-            return;
-        }
-        group = group.trim();
-        if (group.isEmpty()) {
-            group = "Custom";
-        }
-        newRules = withGroup(newRules, group);
-
         List<JMeterTreeNode> testPlans = gui.getTreeModel().getNodesOfType(TestPlan.class);
         if (testPlans.isEmpty()) {
             JMeterUtils.reportErrorToUser(
@@ -91,6 +79,34 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         }
         JMeterTreeNode testPlanNode = testPlans.get(0);
         TestElement testPlan = testPlanNode.getTestElement();
+        Set<String> customRuleIds = HarCorrelationRuleCatalog.customRuleIds(testPlan);
+        String[] groups = HarCorrelationRuleCatalog.allRulesFor(testPlan).stream()
+                .filter(rule -> customRuleIds.contains(rule.getId()))
+                .map(Rule::getGroup)
+                .distinct()
+                .sorted()
+                .toArray(String[]::new);
+        JComboBox<String> groupSelector = new JComboBox<>(groups);
+        groupSelector.setEditable(true);
+        groupSelector.setSelectedItem("");
+        JLabel groupLabel = new JLabel(
+                JMeterUtils.getResString("add_custom_predefined_correlation_group_prompt"));
+        groupLabel.setLabelFor(groupSelector);
+        int result = JOptionPane.showConfirmDialog(
+                gui.getMainFrame(),
+                new Object[] {groupLabel, groupSelector},
+                JMeterUtils.getResString("add_custom_predefined_correlation"),
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE);
+        if (result != JOptionPane.OK_OPTION) {
+            return;
+        }
+        String group = groupSelector.getEditor().getItem().toString().trim();
+        if (group.isEmpty()) {
+            group = "Custom";
+        }
+        newRules = withGroup(newRules, group);
+
         try {
             HarCorrelationRuleCatalog.storeCustomRulesEverywhere(testPlan, newRules);
         } catch (IOException ex) {
