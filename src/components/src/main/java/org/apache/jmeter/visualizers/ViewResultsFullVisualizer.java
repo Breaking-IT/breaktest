@@ -294,6 +294,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             updateThreadGroupFilterOptions();
             List<ResultTableModel.ResultTableRow> tableRows = new ArrayList<>();
             for (SampleResult sampler: buffer) {
+                SampleResultNodeResolver.rememberNavigationTargets(sampler);
                 if (!matchesSelectedThreadFilters(sampler) || !sampleOrSubResultMatchesSelectedLabel(sampler)) {
                     continue;
                 }
