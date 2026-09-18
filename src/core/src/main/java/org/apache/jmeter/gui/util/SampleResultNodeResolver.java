@@ -17,10 +17,14 @@
 
 package org.apache.jmeter.gui.util;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,18 +40,46 @@ public final class SampleResultNodeResolver {
     private static final String MODULE_CONTROLLER_CLASS = "org.apache.jmeter.control.ModuleController"; // $NON-NLS-1$
     private static final Pattern JMETER_THREAD_NAME = Pattern.compile("(.+) \\d+-\\d+$"); // $NON-NLS-1$
 
+    // Neither retained results nor this cache should keep a closed test plan alive.
+    private static final Map<SampleResult, WeakReference<JMeterTreeNode>> NAVIGATION_TARGETS =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
     private SampleResultNodeResolver() {
     }
 
     /** Resolves a navigation target, falling back to the nearest resolvable result ancestor. */
     public static JMeterTreeNode findForNavigation(SampleResult sampleResult) {
         for (SampleResult current = sampleResult; current != null; current = current.getParent()) {
-            JMeterTreeNode node = find(current);
+            JMeterTreeNode node = navigationTarget(current);
             if (node != null) {
                 return node;
             }
         }
         return null;
+    }
+
+    /** Binds displayed results before later edits can invalidate their recorded names and paths. */
+    public static void rememberNavigationTargets(SampleResult sampleResult) {
+        navigationTarget(sampleResult);
+        for (SampleResult child : sampleResult.getSubResults()) {
+            rememberNavigationTargets(child);
+        }
+    }
+
+    private static JMeterTreeNode navigationTarget(SampleResult sampleResult) {
+        WeakReference<JMeterTreeNode> remembered = NAVIGATION_TARGETS.get(sampleResult);
+        if (remembered != null) {
+            JMeterTreeNode node = remembered.get();
+            GuiPackage gui = GuiPackage.getInstance();
+            // A deleted node must not redirect to a different sampler with the same name.
+            return node != null && gui != null && node.getRoot() == gui.getTreeModel().getRoot()
+                    ? node : null;
+        }
+        JMeterTreeNode node = find(sampleResult);
+        if (node != null) {
+            NAVIGATION_TARGETS.put(sampleResult, new WeakReference<>(node));
+        }
+        return node;
     }
 
     public static JMeterTreeNode find(SampleResult sampleResult) {
@@ -77,14 +109,14 @@ public final class SampleResultNodeResolver {
         if (sourcePath.isEmpty()) {
             return null;
         }
-        JMeterTreeNode direct = resolvePathSuffix(root, sourcePath, 0);
+        JMeterTreeNode direct = resolvePathSuffix(root, sourcePath, 0, false);
         if (direct != null) {
             return direct;
         }
         for (int i = 0; i < sourcePath.size(); i++) {
             if (MODULE_CONTROLLER_CLASS.equals(sourcePath.get(i).className())) {
                 for (int start = i + 1; start < sourcePath.size(); start++) {
-                    JMeterTreeNode fragmentNode = resolvePathSuffix(root, sourcePath, start);
+                    JMeterTreeNode fragmentNode = resolvePathSuffix(root, sourcePath, start, true);
                     if (fragmentNode != null) {
                         return fragmentNode;
                     }
@@ -96,10 +128,12 @@ public final class SampleResultNodeResolver {
     }
 
     private static JMeterTreeNode resolvePathSuffix(
-            JMeterTreeNode root, List<SampleResult.TestElementPathEntry> sourcePath, int start) {
-        JMeterTreeNode current = findDescendant(root, sourcePath.get(start));
+            JMeterTreeNode root, List<SampleResult.TestElementPathEntry> sourcePath, int start,
+            boolean includeDisabledTarget) {
+        // Module controllers can explicitly execute a disabled target or a test fragment.
+        JMeterTreeNode current = findDescendant(root, sourcePath.get(start), includeDisabledTarget);
         for (SampleResult.TestElementPathEntry pathEntry : sourcePath.subList(start + 1, sourcePath.size())) {
-            current = findChild(current, pathEntry);
+            current = findChild(current, pathEntry, false);
             if (current == null) {
                 return null;
             }
@@ -150,14 +184,18 @@ public final class SampleResultNodeResolver {
     }
 
     private static JMeterTreeNode findDescendant(
-            JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
-        JMeterTreeNode child = findChild(parent, pathEntry);
+            JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry, boolean includeDisabled) {
+        JMeterTreeNode child = findChild(parent, pathEntry, includeDisabled);
         if (child != null) {
             return child;
         }
         Enumeration<?> children = parent.children();
         while (children.hasMoreElements()) {
-            JMeterTreeNode descendant = findDescendant((JMeterTreeNode) children.nextElement(), pathEntry);
+            JMeterTreeNode next = (JMeterTreeNode) children.nextElement();
+            if (!includeDisabled && !next.isEnabled()) {
+                continue;
+            }
+            JMeterTreeNode descendant = findDescendant(next, pathEntry, includeDisabled);
             if (descendant != null) {
                 return descendant;
             }
@@ -166,7 +204,7 @@ public final class SampleResultNodeResolver {
     }
 
     private static JMeterTreeNode findChild(
-            JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry) {
+            JMeterTreeNode parent, SampleResult.TestElementPathEntry pathEntry, boolean includeDisabled) {
         if (parent == null) {
             return null;
         }
@@ -174,6 +212,10 @@ public final class SampleResultNodeResolver {
         Enumeration<?> children = parent.children();
         while (children.hasMoreElements()) {
             JMeterTreeNode child = (JMeterTreeNode) children.nextElement();
+            // Execution paths count occurrences after disabled elements have been removed.
+            if (!includeDisabled && !child.isEnabled()) {
+                continue;
+            }
             Object userObject = child.getUserObject();
             if (userObject != null
                     && userObject.getClass().getName().equals(pathEntry.className())
