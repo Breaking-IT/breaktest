@@ -38,6 +38,41 @@ import org.junit.jupiter.api.Test;
 
 class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTest {
     @Test
+    void missingCsvOffersCreationAndCancellationLeavesFileMissing(@org.junit.jupiter.api.io.TempDir
+            java.nio.file.Path directory) throws Exception {
+        TestPlan plan = new TestPlan();
+        ArchiveFiles.activate(plan);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                var bundle = java.util.ResourceBundle.getBundle(CSVDataSet.class.getName() + "Resources");
+                for (boolean archived : new boolean[] {false, true}) {
+                    TestCustomizer customizer = new TestCustomizer();
+                    CSVDataSet csv = new CSVDataSet();
+                    java.nio.file.Path path = directory.resolve("new.csv");
+                    csv.setFilename(archived ? "new.csv" : path.toString());
+                    csv.setUseCsvFromArchive(archived);
+                    csv.setFileEncoding("UTF-8");
+                    try {
+                        org.junit.jupiter.api.Assertions.assertNull(customizer.loadEditor(csv, bundle));
+                        assertTrue(customizer.creationMessage.contains("new.csv"));
+                        customizer.create = true;
+                        var loaded = customizer.loadEditor(csv, bundle);
+                        assertEquals("", loaded.text());
+                        assertEquals(archived ? java.nio.file.Path.of("files/new.csv") : path,
+                                loaded.file().getPath());
+                        assertFalse(java.nio.file.Files.exists(path));
+                        assertTrue(ArchiveFiles.references(plan).isEmpty());
+                    } catch (java.io.IOException e) {
+                        throw new AssertionError(e);
+                    }
+                }
+            });
+        } finally {
+            ArchiveFiles.activate(null);
+        }
+    }
+
+    @Test
     void editorPopulationYieldsToEdtAndPreservesCompleteContent() throws Exception {
         // Exercise several 256 KiB chunks without making Swing lay out tens of thousands
         // of lines under the constant-hashcode CI stress configuration.
@@ -134,6 +169,15 @@ class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTes
     }
 
     private static class TestCustomizer extends CSVDataSetCustomizer {
+        private boolean create;
+        private String creationMessage;
+
+        @Override
+        boolean confirmCreateCsv(String message, java.util.ResourceBundle bundle) {
+            creationMessage = message;
+            return create;
+        }
+
         private String selection;
         private String currentEntry;
         private boolean pickerOpened;
