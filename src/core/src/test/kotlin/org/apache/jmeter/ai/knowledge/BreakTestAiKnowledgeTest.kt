@@ -46,7 +46,17 @@ class BreakTestAiKnowledgeTest : JMeterTestCase() {
         gui.configure(legacy)
         gui.modifyTestElement(legacy)
         assertEquals("legacy-unparsed-notes", legacy.knowledgeJson)
-        assertEquals(null, gui.menuCategories)
+        assertTrue(gui.menuCategories.isEmpty())
+        // Paste and drag/drop stream categories without a null check.
+        assertEquals(0L, gui.menuCategories.stream().count())
+        val field = BreakTestAiKnowledgeGui::class.java.getDeclaredField("knowledgeJson").apply { isAccessible = true }
+        val text = field.get(gui) as org.apache.jmeter.gui.util.JSyntaxTextArea
+        assertEquals("legacy-unparsed-notes", text.text)
+        assertFalse(text.isEditable)
+        text.selectAll()
+        assertEquals("legacy-unparsed-notes", text.selectedText)
+        gui.clearGui()
+        assertEquals("", text.text)
     }
 
     @Test
