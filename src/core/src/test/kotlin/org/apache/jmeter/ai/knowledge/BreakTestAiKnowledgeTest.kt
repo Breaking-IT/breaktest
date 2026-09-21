@@ -19,20 +19,35 @@ package org.apache.jmeter.ai.knowledge
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.knowledge.gui.BreakTestAiKnowledgeGui
-import org.apache.jmeter.control.gui.TestPlanGui
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.save.SaveService
 import org.apache.jmeter.testelement.TestElement
-import org.apache.jmeter.testelement.TestPlan
 import org.apache.jorphan.collections.HashTree
-import org.apache.jorphan.collections.ListedHashTree
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.nio.file.Files
+import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 class BreakTestAiKnowledgeTest : JMeterTestCase() {
     private val mapper = ObjectMapper()
+
+    @Test
+    fun `legacy GUI preserves notes but is not available in add menus`() {
+        val legacy = BreakTestAiKnowledge().apply { knowledgeJson = "legacy-unparsed-notes" }
+        val gui = BreakTestAiKnowledgeGui()
+        gui.configure(legacy)
+        gui.modifyTestElement(legacy)
+        assertEquals("legacy-unparsed-notes", legacy.knowledgeJson)
+        assertEquals(null, gui.menuCategories)
+    }
 
     @Test
     fun `default knowledge is valid structured json`() {
@@ -45,57 +60,74 @@ class BreakTestAiKnowledgeTest : JMeterTestCase() {
         assertEquals(true, parsed.path("assertionPatterns").isMissingNode)
     }
 
-    @Test
-    fun `knowledge element survives jmx save load round trip`() {
-        val originalJson = """
-            {
-              "schemaVersion": 1,
-              "correlationPatterns": [
-                {
-                  "name": "csrf header",
-                  "provedBy": "ThreadGroup_01 / Login"
-                }
-              ]
-            }
+    @ParameterizedTest
+    @CsvSource("false, false", "false, true", "true, false", "true, true")
+    fun `legacy XML and archive notes load but disappear on save`(zipped: Boolean, qualified: Boolean, @TempDir directory: Path) {
+        val tag = if (qualified) BreakTestAiKnowledge::class.java.name else "BreakTestAiKnowledge"
+        val xml = """
+            <jmeterTestPlan version="1.2" properties="5.0">
+              <hashTree>
+                <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Plan" enabled="true">
+                  <stringProp name="TestPlan.comments">keep this comment</stringProp>
+                </TestPlan>
+                <hashTree>
+                  <GenericController guiclass="LogicControllerGui" testclass="GenericController" testname="Before" enabled="true"/>
+                  <hashTree/>
+                  <$tag guiclass="BreakTestAiKnowledgeGui" testclass="$tag" testname="Legacy" enabled="true">
+                    <stringProp name="BreakTestAiKnowledge.knowledgeJson">legacy-not-json</stringProp>
+                  </$tag>
+                  <hashTree>
+                    <GenericController guiclass="LogicControllerGui" testclass="GenericController" testname="Child" enabled="true"/>
+                    <hashTree/>
+                  </hashTree>
+                  <GenericController guiclass="LogicControllerGui" testclass="GenericController" testname="After" enabled="false"/>
+                  <hashTree>
+                    <$tag guiclass="BreakTestAiKnowledgeGui" testclass="$tag" testname="Nested legacy" enabled="true"/>
+                    <hashTree/>
+                  </hashTree>
+                </hashTree>
+              </hashTree>
+            </jmeterTestPlan>
         """.trimIndent()
-        val knowledge = BreakTestAiKnowledge().apply {
-            knowledgeJson = originalJson
-            setProperty(TestElement.GUI_CLASS, BreakTestAiKnowledgeGui::class.java.name)
-            setProperty(TestElement.TEST_CLASS, BreakTestAiKnowledge::class.java.name)
-        }
-        val plan = TestPlan("Plan").apply {
-            setProperty(TestElement.GUI_CLASS, TestPlanGui::class.java.name)
-            setProperty(TestElement.TEST_CLASS, TestPlan::class.java.name)
-        }
-        val tree = ListedHashTree()
-        tree.add(plan).add(knowledge)
-        val tempFile = Files.createTempFile("breaktest-ai-knowledge", ".jmx")
+        val input = directory.resolve("legacy.jmx")
+        if (zipped) {
+            ZipOutputStream(Files.newOutputStream(input)).use {
+                it.putNextEntry(ZipEntry("testplan.jmx"))
+                it.write(xml.toByteArray(Charsets.UTF_8))
+                it.closeEntry()
+            }
+        } else Files.writeString(input, xml)
+        val loaded = SaveService.loadTree(input.toFile())
+        val originalElements = elements(loaded)
+        val notes = originalElements.filterIsInstance<BreakTestAiKnowledge>()
+        assertEquals(2, notes.size)
+        assertEquals("legacy-not-json", notes.first().knowledgeJson)
+        val expected = originalElements.filterNot { it is BreakTestAiKnowledge }.map { it.name to it.isEnabled }
 
-        tempFile.toFile().outputStream().use { SaveService.saveTree(tree, it) }
-        val loaded = SaveService.loadTree(tempFile.toFile())
-        val loadedKnowledge = findKnowledge(loaded)
-
-        assertNotNull(loadedKnowledge)
-        assertEquals(
-            "csrf header",
-            mapper.readTree(loadedKnowledge!!.knowledgeJson)
-                .path("correlationPatterns")
-                .path(0)
-                .path("name")
-                .asText(),
-        )
+        // Exercise both the stream path used by the bridge and atomic GUI file saves.
+        val copy = directory.resolve("copy.jmx")
+        Files.newOutputStream(copy).use { SaveService.saveTree(loaded, it) }
+        SaveService.saveTreeToFile(loaded, input)
+        for (saved in listOf(copy, input)) {
+            val reloaded = SaveService.loadTree(saved.toFile())
+            val actual = elements(reloaded)
+            assertFalse(actual.any { it is BreakTestAiKnowledge })
+            assertEquals(expected, actual.map { it.name to it.isEnabled })
+            val plan = reloaded.array.first() as TestElement
+            assertEquals("keep this comment", plan.getPropertyAsString("TestPlan.comments"))
+            assertEquals(listOf("Before", "Child", "After"), reloaded.getTree(plan).list().map { (it as TestElement).name })
+            ZipFile(saved.toFile()).use { archive ->
+                val persistedXml = archive.getInputStream(archive.getEntry("testplan.jmx")).bufferedReader().use { it.readText() }
+                assertFalse(persistedXml.contains("BreakTestAiKnowledge"))
+                assertFalse(persistedXml.contains("legacy-not-json"))
+            }
+        }
+        // Saving must not mutate the caller's tree, including before a save failure.
+        assertEquals(originalElements, elements(loaded))
+        assertTrue(elements(loaded).containsAll(notes))
     }
 
-    private fun findKnowledge(tree: HashTree): BreakTestAiKnowledge? {
-        for (node in tree.list()) {
-            if (node is BreakTestAiKnowledge) {
-                return node
-            }
-            val found = findKnowledge(tree.getTree(node))
-            if (found != null) {
-                return found
-            }
-        }
-        return null
+    private fun elements(tree: HashTree): List<TestElement> = tree.list().flatMap { node ->
+        listOf(node as TestElement) + elements(tree.getTree(node))
     }
 }
