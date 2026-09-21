@@ -41,8 +41,12 @@ public class OpenModelThreadGroupController : GenericController(), IteratingCont
     }
 
     override fun startNextLoop() {
+        // Each arrival has only one iteration. Parent controllers have already been reset
+        // by the error handler, so continuing here would repeat the failed transaction.
+        isDone = true
     }
 
     override fun breakLoop() {
+        isDone = true
     }
 }
