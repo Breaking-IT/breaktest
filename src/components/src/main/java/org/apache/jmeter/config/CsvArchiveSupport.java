@@ -22,6 +22,7 @@ import java.nio.file.Path;
 
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.MapProperty;
 
 /**
@@ -41,20 +42,40 @@ final class CsvArchiveSupport {
         return ArchiveFiles.importEntryName(filename);
     }
 
+    private static boolean usesPlanIndex(String entry, TestPlan plan) {
+        return entry.startsWith("files/") && plan != null
+                && plan.getProperty(ArchiveFiles.PROPERTY) instanceof MapProperty;
+    }
+
     static byte[] read(String entry, String checksum) throws IOException {
-        if (entry.startsWith("files/") && ArchiveFiles.currentPlan() != null
-                && ArchiveFiles.currentPlan().getProperty(ArchiveFiles.PROPERTY)
-                        instanceof MapProperty) {
+        if (usesPlanIndex(entry, ArchiveFiles.currentPlan())) {
             return ArchiveFiles.read(entry);
         }
         return JmxArchiveEntryStore.find(entry, checksum)
                 .orElseThrow(() -> new IOException("CSV is not available in the JMX archive: " + entry));
     }
 
+    /**
+     * Whether the archive holds no entry of this name, as opposed to holding one whose content
+     * cannot be read. Only a genuinely absent entry may be created from the editor: offering to
+     * create an unreadable one would let a later save replace real content with an empty file.
+     */
+    static boolean isAbsent(String entry, String checksum) {
+        TestPlan plan = ArchiveFiles.currentPlan();
+        if (usesPlanIndex(entry, plan)) {
+            try {
+                // Match the name normalization ArchiveFiles.read applies before its own lookup.
+                return !ArchiveFiles.references(plan).containsKey(ArchiveFiles.entryName(entry));
+            } catch (IllegalArgumentException ex) {
+                // An unusable entry name is an error to report, never a file to create.
+                return false;
+            }
+        }
+        return JmxArchiveEntryStore.find(entry, checksum).isEmpty();
+    }
+
     static Path materialize(String entry, String checksum) throws IOException {
-        if (entry.startsWith("files/") && ArchiveFiles.currentPlan() != null
-                && ArchiveFiles.currentPlan().getProperty(ArchiveFiles.PROPERTY)
-                        instanceof MapProperty) {
+        if (usesPlanIndex(entry, ArchiveFiles.currentPlan())) {
             return ArchiveFiles.resolve(entry);
         }
         return ArchiveFiles.materialize(entry, checksum);

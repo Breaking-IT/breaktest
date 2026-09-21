@@ -38,6 +38,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -215,24 +216,24 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         if (csv.getFilename().isBlank()) {
             throw new IllegalArgumentException("Filename must not be empty");
         }
+        String archiveEntry = csv.isUseCsvFromArchive() ? csv.archiveEntry() : "";
         Path path = csv.isUseCsvFromArchive()
-                ? Path.of(ArchiveFiles.entryName(csv.getCsvArchiveEntry().isEmpty()
-                        ? CsvArchiveSupport.entryName(csv.getFilename()) : csv.getCsvArchiveEntry()))
+                ? Path.of(ArchiveFiles.entryName(archiveEntry))
                 : csv.resolveCsvFile();
         Callable<InputStream> source;
         if (csv.isUseCsvFromArchive()) {
-            byte[] content;
-            try {
-                content = csv.readCsvContent();
-            } catch (IOException ex) {
-                return createEditor(path, csv, bundle, ex.getMessage());
+            // Offer creation only for an entry the archive does not hold. One that exists but
+            // cannot be read must surface its own error instead, so accepting the prompt can
+            // never replace real content with an empty file.
+            if (CsvArchiveSupport.isAbsent(archiveEntry, csv.getCsvArchiveChecksum())) {
+                return createEditor(path, csv, bundle, missingMessage(bundle, path));
             }
+            byte[] content = csv.readCsvContent();
             CsvFileEditor.checkEditableSize(content.length);
             source = () -> new ByteArrayInputStream(content);
         } else {
             if (Files.notExists(path)) {
-                return createEditor(path, csv, bundle,
-                        java.text.MessageFormat.format(bundle.getString("editCsv.missing"), path));
+                return createEditor(path, csv, bundle, missingMessage(bundle, path));
             }
             source = () -> Files.newInputStream(path);
         }
@@ -246,6 +247,10 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
                 return new LoadedEditor(file, file.getEditorText());
             }
         });
+    }
+
+    private static String missingMessage(ResourceBundle bundle, Path path) {
+        return MessageFormat.format(bundle.getString("editCsv.missing"), path);
     }
 
     private LoadedEditor createEditor(Path path, CSVDataSet csv, ResourceBundle bundle, String message)
