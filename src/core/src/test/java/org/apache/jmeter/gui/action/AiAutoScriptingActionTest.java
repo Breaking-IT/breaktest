@@ -274,6 +274,123 @@ class AiAutoScriptingActionTest {
                 AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"PI,--thinking,low", "CLAUDE,--effort,low", "OPENCODE,--variant,low",
+        "CODEX,-c,model_reasoning_effort=\"low\""})
+    void popupThinkingOverrideSurvivesBackupAndReachesLauncher(String tool, String flag, String value) throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.pi.thinking");
+        try {
+            properties.setProperty("breaktest.pi.thinking", "high");
+            Object request = newRunRequest(tool);
+            Class<?> levelClass = nestedClass("AiThinkingLevel");
+            Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", levelClass);
+            withThinking.setAccessible(true);
+            request = withThinking.invoke(request, enumConstant(levelClass, "LOW"));
+            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
+            withPaths.setAccessible(true);
+            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            List<String> command = commandFor(request);
+            assertTrue(java.util.stream.IntStream.range(0, command.size() - 1)
+                    .anyMatch(i -> command.get(i).equals(flag) && command.get(i + 1).equals(value)), command.toString());
+            if (tool.equals("PI")) {
+                assertEquals(1, java.util.Collections.frequency(command, "--thinking"));
+            }
+            assertEquals("high", properties.getProperty("breaktest.pi.thinking"));
+            assertTrue(AiEngineDescription.describe(tool.toLowerCase(java.util.Locale.ROOT), tool, "low")
+                    .contains("reasoning=low [requested for this run]"));
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.pi.thinking");
+            } else {
+                properties.setProperty("breaktest.pi.thinking", previous);
+            }
+        }
+    }
+
+    @Test
+    void defaultThinkingDoesNotAddRunOverrides() throws Exception {
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.pi.thinking");
+        try {
+            properties.remove("breaktest.pi.thinking");
+            for (String tool : List.of("PI", "CLAUDE", "OPENCODE", "CODEX")) {
+                List<String> command = commandFor(newRunRequest(tool));
+                assertFalse(command.contains("--thinking"));
+                assertFalse(command.contains("--effort"));
+                assertFalse(command.contains("--variant"));
+                assertFalse(command.stream().anyMatch(v -> v.startsWith("model_reasoning_effort=")));
+            }
+        } finally {
+            if (previous != null) {
+                properties.setProperty("breaktest.pi.thinking", previous);
+            }
+        }
+    }
+
+    @Test
+    void unsupportedLaunchersOnlyOfferAgentDefault() throws Exception {
+        Class<?> toolClass = nestedClass("AiTool");
+        Method choices = AiAutoScriptingAction.class.getDeclaredMethod("thinkingChoices", toolClass);
+        choices.setAccessible(true);
+        for (String tool : List.of("CURSOR", "COPILOT", "GEMINI")) {
+            Object[] levels = (Object[]) choices.invoke(null, enumConstant(toolClass, tool));
+            assertEquals(1, levels.length);
+            assertEquals("Agent default", levels[0].toString());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> commandFor(Object request) throws Exception {
+        Method command = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", request.getClass(), File.class);
+        command.setAccessible(true);
+        return (List<String>) command.invoke(null, request, new File("."));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"PI", "CODEX", "CLAUDE", "OPENCODE", "CURSOR", "COPILOT", "GEMINI"})
+    void popupModelOverrideSurvivesBackupAndDoesNotChangeDefaults(String tool) throws Exception {
+        Properties properties = jmeterProperties();
+        String key = "breaktest." + tool.toLowerCase(java.util.Locale.ROOT) + ".model";
+        String previous = properties.getProperty(key);
+        String provider = properties.getProperty("breaktest.pi.provider");
+        try {
+            properties.setProperty(key, "configured-model");
+            properties.setProperty("breaktest.pi.provider", "openrouter");
+            Object request = newRunRequest(tool);
+            assertEquals("configured-model", commandFor(request).get(commandFor(request).indexOf("--model") + 1));
+            Method withModel = request.getClass().getDeclaredMethod("withModel", String.class);
+            withModel.setAccessible(true);
+            request = withModel.invoke(request, "omlx/local-model");
+            Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", nestedClass("AiThinkingLevel"));
+            withThinking.setAccessible(true);
+            request = withThinking.invoke(request, enumConstant(nestedClass("AiThinkingLevel"), "LOW"));
+            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
+            withPaths.setAccessible(true);
+            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            List<String> command = commandFor(request);
+            assertEquals(1, java.util.Collections.frequency(command, "--model"));
+            assertEquals("omlx/local-model", command.get(command.indexOf("--model") + 1));
+            if ("PI".equals(tool)) {
+                assertFalse(command.contains("--provider"), "A different provider must not be forced on the selected model");
+            }
+            assertEquals("configured-model", properties.getProperty(key));
+            assertTrue(AiEngineDescription.describe(tool, tool, "low", "omlx/local-model")
+                    .contains("model=omlx/local-model [requested for this run]"));
+        } finally {
+            if (previous == null) {
+                properties.remove(key);
+            } else {
+                properties.setProperty(key, previous);
+            }
+            if (provider == null) {
+                properties.remove("breaktest.pi.provider");
+            } else {
+                properties.setProperty("breaktest.pi.provider", provider);
+            }
+        }
+    }
+
     @Test
     void piCommandUsesNonInteractiveEphemeralModeAndConfiguredEngine() throws Exception {
         Properties properties = jmeterProperties();

@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -260,7 +262,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             postActivity("Starting AI Auto Scripting.");
             postActivity("AI tool: " + request.tool().displayName()
                     + " (dangerous local-agent settings approved in the start dialog).");
-            postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName()));
+            postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName(), request.thinkingLevel.value, request.modelOverride));
             postActivity("Edit surface: " + request.editSurface().displayName());
             postActivity("Run limits: max runtime " + request.maxRuntimeSeconds()
                     + "s, similar retry limit " + request.maxSimilarRetries()
@@ -410,7 +412,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             case COPILOT -> copilotCommand(request, workingDirectory);
             case PI -> piCommand(request);
             case GEMINI -> geminiCommand(request);
-            case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory);
+            case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory, request.modelOverride);
         };
     }
 
@@ -436,8 +438,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add(workingDirectory.getPath());
         command.add("-c");
         command.add("mcp_servers.breaktest.enabled=false");
+        if (request.thinkingLevel != AiThinkingLevel.DEFAULT) {
+            command.add("-c");
+            command.add("model_reasoning_effort=\"" + request.thinkingLevel.value + "\"");
+        }
 
-        String model = modelProperty("breaktest.codex");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.codex") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
@@ -455,10 +461,15 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add(workingDirectory.getPath());
         command.add("--dangerously-skip-permissions");
 
-        String model = modelProperty("breaktest.opencode");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.opencode") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
+        }
+
+        if (request.thinkingLevel != AiThinkingLevel.DEFAULT) {
+            command.add("--variant");
+            command.add(request.thinkingLevel.value);
         }
 
         String agent = JMeterUtils.getProperty("breaktest.opencode.agent");
@@ -476,10 +487,15 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add(JMeterUtils.getPropDefault("breaktest.claude.command", "claude"));
         command.add("--dangerously-skip-permissions");
 
-        String model = modelProperty("breaktest.claude");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.claude") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
+        }
+
+        if (request.thinkingLevel != AiThinkingLevel.DEFAULT) {
+            command.add("--effort");
+            command.add(request.thinkingLevel.value);
         }
 
         String agent = JMeterUtils.getProperty("breaktest.claude.agent");
@@ -515,7 +531,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         // run summary showing "not reported" for both. AiOutputFilter already keeps
         // the activity log readable for plain-text agents.
 
-        String model = modelProperty("breaktest.copilot");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.copilot") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
@@ -544,18 +560,19 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("json");
 
         String provider = JMeterUtils.getProperty("breaktest.pi.provider");
-        if (provider != null && !provider.isBlank()) {
+        if (provider != null && !provider.isBlank() && request.modelOverride.isBlank()) {
             command.add("--provider");
             command.add(provider);
         }
 
-        String model = modelProperty("breaktest.pi");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.pi") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
         }
 
-        String thinking = JMeterUtils.getProperty("breaktest.pi.thinking");
+        String thinking = request.thinkingLevel == AiThinkingLevel.DEFAULT
+                ? JMeterUtils.getProperty("breaktest.pi.thinking") : request.thinkingLevel.value;
         if (thinking != null && !thinking.isBlank()) {
             command.add("--thinking");
             command.add(thinking);
@@ -577,7 +594,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("--output-format");
         command.add("text");
 
-        String model = modelProperty("breaktest.gemini");
+        String model = request.modelOverride.isBlank() ? modelProperty("breaktest.gemini") : request.modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
@@ -782,6 +799,28 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         JComboBox<AiTool> aiTool = new JComboBox<>(aiToolChoices());
         aiTool.setSelectedItem(defaultAiTool());
+        AiModelSelector modelSelector = new AiModelSelector();
+        Runnable updateModels = () -> {
+            AiTool selected = (AiTool) aiTool.getSelectedItem();
+            modelSelector.selectTool(selected.id(), aiWorkingDirectory(selected));
+        };
+        aiTool.addActionListener(event -> updateModels.run());
+        updateModels.run();
+        JComboBox<AiThinkingLevel> thinkingLevel = new JComboBox<>();
+        Runnable updateThinkingOptions = () -> {
+            AiThinkingLevel selected = (AiThinkingLevel) thinkingLevel.getSelectedItem();
+            AiThinkingLevel[] levels = thinkingChoices((AiTool) aiTool.getSelectedItem());
+            thinkingLevel.setModel(new DefaultComboBoxModel<>(levels));
+            if (Arrays.asList(levels).contains(selected)) {
+                thinkingLevel.setSelectedItem(selected);
+            }
+            thinkingLevel.setEnabled(levels.length > 1);
+            thinkingLevel.setToolTipText(levels.length > 1
+                    ? "Applies to this run only. Agent default keeps existing settings; unsupported levels may be adjusted by the agent."
+                    : "Thinking override is not available for this AI tool.");
+        };
+        aiTool.addActionListener(event -> updateThinkingOptions.run());
+        updateThinkingOptions.run();
 
         JComboBox<ThreadGroupChoice> threadGroup = new JComboBox<>(
                 threadGroups.toArray(new ThreadGroupChoice[0])
@@ -796,9 +835,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         modeGroup.add(specificRequest);
         JPanel modePanel = new JPanel(new BorderLayout(0, 4));
         modePanel.add(new JLabel("Mode"), BorderLayout.NORTH);
-        JPanel modeChoices = new JPanel(new BorderLayout(0, 2));
-        modeChoices.add(fullRepair, BorderLayout.NORTH);
-        modeChoices.add(specificRequest, BorderLayout.CENTER);
+        JPanel modeChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        modeChoices.add(fullRepair);
+        modeChoices.add(specificRequest);
         modePanel.add(modeChoices, BorderLayout.CENTER);
 
         JRadioButton liveGui = new JRadioButton("GUI mode", defaultEditSurface() == AiEditSurface.LIVE_GUI);
@@ -808,28 +847,34 @@ public class AiAutoScriptingAction extends AbstractAction {
         surfaceGroup.add(nonGui);
         JPanel surfacePanel = new JPanel(new BorderLayout(0, 4));
         surfacePanel.add(new JLabel("Edit surface"), BorderLayout.NORTH);
-        JPanel surfaceChoices = new JPanel(new GridLayout(0, 1, 0, 2));
+        JPanel surfaceChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         surfaceChoices.add(liveGui);
         surfaceChoices.add(nonGui);
         surfacePanel.add(surfaceChoices, BorderLayout.CENTER);
 
-        JCheckBox addAssertions = new JCheckBox("Add assertions after repair succeeds", true);
+        JCheckBox addAssertions = new JCheckBox("Add assertions", true);
+        addAssertions.setToolTipText("Add response assertions after the repaired script passes validation.");
         JTextField maxRuntimeSeconds = integerTextField("1800", 6);
+        maxRuntimeSeconds.setToolTipText("Maximum total agent runtime in seconds (60–14400).");
         JTextField maxSimilarRetries = integerTextField("5", 3);
-        JPanel limitsPanel = new JPanel(new BorderLayout(0, 4));
-        limitsPanel.add(new JLabel("Repair options"), BorderLayout.NORTH);
-        JPanel limitsFields = new JPanel(new GridLayout(0, 1, 0, 2));
-        limitsFields.add(compactIntegerInputRow("Maximum runtime (seconds)", maxRuntimeSeconds));
-        limitsFields.add(compactIntegerInputRow("Similar retry limit", maxSimilarRetries));
-        limitsPanel.add(addAssertions, BorderLayout.CENTER);
-        limitsPanel.add(limitsFields, BorderLayout.SOUTH);
+        maxSimilarRetries.setToolTipText("Maximum retries for similar failures (0–50).");
+        JPanel limitsPanel = new JPanel(new BorderLayout(12, 0));
+        JPanel limitsFields = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        limitsFields.add(compactIntegerInputRow("Max runtime (s)", maxRuntimeSeconds));
+        limitsFields.add(compactIntegerInputRow("Retry limit", maxSimilarRetries));
+        limitsPanel.add(addAssertions, BorderLayout.WEST);
+        limitsPanel.add(limitsFields, BorderLayout.EAST);
+        JLabel instructionsLabel = new JLabel("Instructions (optional)");
 
-        Runnable updateModeOptions = () -> addAssertions.setEnabled(fullRepair.isSelected());
+        Runnable updateModeOptions = () -> {
+            addAssertions.setEnabled(fullRepair.isSelected());
+            instructionsLabel.setText(fullRepair.isSelected() ? "Instructions (optional)" : "Instructions (required)");
+        };
         fullRepair.addActionListener(event -> updateModeOptions.run());
         specificRequest.addActionListener(event -> updateModeOptions.run());
         updateModeOptions.run();
 
-        JTextArea instructions = new JTextArea(8, 56);
+        JTextArea instructions = new JTextArea(6, 56);
         instructions.setLineWrap(true);
         instructions.setWrapStyleWord(true);
         instructions.getInputMap().put(
@@ -837,27 +882,34 @@ public class AiAutoScriptingAction extends AbstractAction {
                 DefaultEditorKit.insertBreakAction
         );
 
-        JPanel fields = compactComboPanel("Thread group", threadGroup);
-        JPanel toolPanel = compactComboPanel("AI tool", aiTool);
+        JPanel toolFields = new JPanel(new GridLayout(1, 3, 12, 0));
+        toolFields.add(compactComboPanel("AI tool", aiTool));
+        toolFields.add(compactComboPanel("Thinking level", thinkingLevel));
+        toolFields.add(compactComboPanel("Thread group", threadGroup));
 
-        JPanel top = new JPanel(new BorderLayout(0, 10));
-        top.add(toolPanel, BorderLayout.NORTH);
-        top.add(fields, BorderLayout.CENTER);
-        JPanel choicesPanel = new JPanel(new BorderLayout(0, 8));
-        choicesPanel.add(modePanel, BorderLayout.NORTH);
-        choicesPanel.add(surfacePanel, BorderLayout.CENTER);
+        JPanel enginePanel = new JPanel(new BorderLayout(0, 10));
+        enginePanel.add(toolFields, BorderLayout.NORTH);
+        enginePanel.add(modelSelector, BorderLayout.CENTER);
+        JPanel modeFields = new JPanel(new GridLayout(1, 2, 12, 0));
+        modeFields.add(modePanel);
+        modeFields.add(surfacePanel);
+        JPanel choicesPanel = new JPanel(new BorderLayout(0, 10));
+        choicesPanel.add(modeFields, BorderLayout.NORTH);
         choicesPanel.add(limitsPanel, BorderLayout.SOUTH);
+        JPanel top = new JPanel(new BorderLayout(0, 12));
+        top.add(enginePanel, BorderLayout.NORTH);
         top.add(choicesPanel, BorderLayout.SOUTH);
 
         JPanel instructionsPanel = new JPanel(new BorderLayout(0, 4));
-        instructionsPanel.add(new JLabel("Add instructions"), BorderLayout.NORTH);
+        instructionsLabel.setLabelFor(instructions);
+        instructionsPanel.add(instructionsLabel, BorderLayout.NORTH);
         JScrollPane instructionsScrollPane = new JScrollPane(
                 instructions,
                 ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
                 ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         );
-        instructionsScrollPane.setPreferredSize(new Dimension(720, 180));
-        instructionsScrollPane.setMinimumSize(new Dimension(500, 140));
+        instructionsScrollPane.setPreferredSize(new Dimension(700, 130));
+        instructionsScrollPane.setMinimumSize(new Dimension(400, 80));
         instructionsPanel.add(instructionsScrollPane, BorderLayout.CENTER);
 
         JPanel body = new JPanel(new BorderLayout(0, 10));
@@ -865,7 +917,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         body.add(instructionsPanel, BorderLayout.CENTER);
 
         JCheckBox dangerApproved = new JCheckBox(
-                "I understand and approve running the selected local AI tool with dangerous auto-approval settings."
+                "I approve running this agent with broad permissions and auto-approval."
         );
         JPanel warningPanel = new JPanel(new BorderLayout(0, 6));
         warningPanel.setBorder(BorderFactory.createCompoundBorder(
@@ -873,18 +925,17 @@ public class AiAutoScriptingAction extends AbstractAction {
                 BorderFactory.createEmptyBorder(4, 6, 6, 6)
         ));
         warningPanel.add(new JLabel(
-                "<html><b>Warning:</b> AI Auto Scripting (Beta) starts a local coding agent that can edit the open plan "
-                        + "and run tools with broad permissions. A backup is created first, but you are approving "
-                        + "dangerous automation for this run.</html>"
+                "<html>The agent can edit files and run commands without asking. "
+                        + "A plan backup is created first.</html>"
         ), BorderLayout.CENTER);
         warningPanel.add(dangerApproved, BorderLayout.SOUTH);
 
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        panel.setPreferredSize(new Dimension(780, 740));
         panel.add(startDialogHeader(gui, testPlanFile), BorderLayout.NORTH);
         panel.add(body, BorderLayout.CENTER);
         panel.add(warningPanel, BorderLayout.SOUTH);
+        panel.setPreferredSize(new Dimension(740, panel.getPreferredSize().height));
 
         JButton startButton = new JButton("Start");
         JButton cancelButton = new JButton("Cancel");
@@ -903,6 +954,8 @@ public class AiAutoScriptingAction extends AbstractAction {
                 gui == null ? null : gui.getMainFrame(),
                 "Start AI Auto Scripting (Beta)"
         );
+        dialog.setResizable(true);
+        dialog.setMinimumSize(dialog.getSize());
         startButton.addActionListener(event -> {
             try {
                 parseIntegerField(maxRuntimeSeconds, "Maximum runtime", 60, 14400);
@@ -924,6 +977,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             dialog.dispose();
         });
         dialog.setVisible(true);
+        modelSelector.cancelLookup();
         if (optionPane.getValue() != startButton) {
             return null;
         }
@@ -950,12 +1004,14 @@ public class AiAutoScriptingAction extends AbstractAction {
                 parseIntegerField(maxRuntimeSeconds, "Maximum runtime", 60, 14400),
                 parseIntegerField(maxSimilarRetries, "Similar retry limit", 0, 50),
                 instructionText
-        );
+        ).withThinkingLevel((AiThinkingLevel) thinkingLevel.getSelectedItem()).withModel(modelSelector.selectedModel());
     }
 
     private static JPanel startDialogHeader(GuiPackage gui, String testPlanFile) {
         JPanel header = new JPanel(new BorderLayout(8, 0));
-        header.add(new JLabel("Plan: " + (testPlanFile == null ? "(unsaved)" : testPlanFile)), BorderLayout.CENTER);
+        JLabel planLabel = new JLabel("Plan: " + (testPlanFile == null ? "(unsaved)" : new File(testPlanFile).getName()));
+        planLabel.setToolTipText(testPlanFile);
+        header.add(planLabel, BorderLayout.CENTER);
         JButton help = new JButton("?");
         help.setMargin(new Insets(1, 7, 1, 7));
         help.setToolTipText("AI Auto Scripting setup help");
@@ -1016,7 +1072,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static JPanel compactIntegerInputRow(String label, JTextField field) {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        row.add(new JLabel(label));
+        JLabel fieldLabel = new JLabel(label);
+        fieldLabel.setLabelFor(field);
+        row.add(fieldLabel);
         row.add(field);
         return row;
     }
@@ -1036,10 +1094,10 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static <T> JPanel compactComboPanel(String label, JComboBox<T> comboBox) {
         JPanel panel = new JPanel(new BorderLayout(0, 4));
-        panel.add(new JLabel(label), BorderLayout.NORTH);
-        JPanel comboWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        comboWrapper.add(comboBox);
-        panel.add(comboWrapper, BorderLayout.CENTER);
+        JLabel fieldLabel = new JLabel(label);
+        fieldLabel.setLabelFor(comboBox);
+        panel.add(fieldLabel, BorderLayout.NORTH);
+        panel.add(comboBox, BorderLayout.CENTER);
         return panel;
     }
 
@@ -1147,7 +1205,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         List<String> followUps = new ArrayList<>(output.followUpLines());
         postActivity("AI Auto Scripting summary:");
         postActivity("Status: " + completionStatus(exitCode, output));
-        postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName()));
+        postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName(), request.thinkingLevel.value, request.modelOverride));
         postActivity("Total time: " + formatDuration(elapsed));
         postActivity("Token usage: input=" + output.inputTokensText()
                 + ", output=" + output.outputTokensText()
@@ -1368,6 +1426,43 @@ public class AiAutoScriptingAction extends AbstractAction {
         return AiCliAvailability.sortAvailableFirst(AiTool.values(), AiTool::id, AiTool::displayName);
     }
 
+    private enum AiThinkingLevel {
+        DEFAULT("", "Agent default"),
+        OFF("off", "Off"),
+        MINIMAL("minimal", "Minimal"),
+        LOW("low", "Low"),
+        MEDIUM("medium", "Medium"),
+        HIGH("high", "High"),
+        XHIGH("xhigh", "Extra high"),
+        MAX("max", "Maximum");
+
+        private final String value;
+        private final String label;
+
+        AiThinkingLevel(String value, String label) {
+            this.value = value;
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    private static AiThinkingLevel[] thinkingChoices(AiTool tool) {
+        return switch (tool) {
+            case PI -> AiThinkingLevel.values();
+            case CODEX -> new AiThinkingLevel[] { AiThinkingLevel.DEFAULT, AiThinkingLevel.MINIMAL,
+                AiThinkingLevel.LOW, AiThinkingLevel.MEDIUM, AiThinkingLevel.HIGH, AiThinkingLevel.XHIGH };
+            case CLAUDE -> new AiThinkingLevel[] { AiThinkingLevel.DEFAULT, AiThinkingLevel.LOW,
+                AiThinkingLevel.MEDIUM, AiThinkingLevel.HIGH, AiThinkingLevel.XHIGH, AiThinkingLevel.MAX };
+            case OPENCODE -> new AiThinkingLevel[] { AiThinkingLevel.DEFAULT, AiThinkingLevel.MINIMAL,
+                AiThinkingLevel.LOW, AiThinkingLevel.MEDIUM, AiThinkingLevel.HIGH, AiThinkingLevel.MAX };
+            default -> new AiThinkingLevel[] { AiThinkingLevel.DEFAULT };
+        };
+    }
+
     private static final class AiRunRequest {
         private final AiTool tool;
         private final ThreadGroupChoice threadGroup;
@@ -1380,6 +1475,8 @@ public class AiAutoScriptingAction extends AbstractAction {
         private final String backupPath;
         private final String repairTargetPath;
         private String analysisPacket = "";
+        private final AiThinkingLevel thinkingLevel;
+        private final String modelOverride;
 
         private AiRunRequest(
                 AiTool tool,
@@ -1392,7 +1489,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 String instructions
         ) {
             this(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds, maxSimilarRetries, instructions,
-                    "", "");
+                    "", "", AiThinkingLevel.DEFAULT, "");
         }
 
         private AiRunRequest(
@@ -1405,7 +1502,9 @@ public class AiAutoScriptingAction extends AbstractAction {
                 int maxSimilarRetries,
                 String instructions,
                 String backupPath,
-                String repairTargetPath
+                String repairTargetPath,
+                AiThinkingLevel thinkingLevel,
+                String modelOverride
         ) {
             this.tool = tool == null ? AiTool.CODEX : tool;
             this.threadGroup = threadGroup;
@@ -1417,12 +1516,25 @@ public class AiAutoScriptingAction extends AbstractAction {
             this.instructions = instructions == null ? "" : instructions;
             this.backupPath = backupPath == null ? "" : backupPath;
             this.repairTargetPath = repairTargetPath == null ? "" : repairTargetPath;
+            this.thinkingLevel = thinkingLevel == null ? AiThinkingLevel.DEFAULT : thinkingLevel;
+            this.modelOverride = modelOverride == null ? "" : modelOverride.trim();
         }
 
         private AiRunRequest withPaths(String backupPath, String repairTargetPath) {
             return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
                     maxSimilarRetries, instructions, backupPath,
-                    repairTargetPath);
+                    repairTargetPath, thinkingLevel, modelOverride);
+        }
+
+
+        private AiRunRequest withThinkingLevel(AiThinkingLevel level) {
+            return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
+                    maxSimilarRetries, instructions, backupPath, repairTargetPath, level, modelOverride);
+        }
+
+        private AiRunRequest withModel(String model) {
+            return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
+                    maxSimilarRetries, instructions, backupPath, repairTargetPath, thinkingLevel, model);
         }
 
         private AiTool tool() {
