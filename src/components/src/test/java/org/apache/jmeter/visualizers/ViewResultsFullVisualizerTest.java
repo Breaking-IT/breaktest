@@ -26,7 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JMenuItem;
 import javax.swing.JTree;
@@ -412,6 +414,52 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
         assertSame(expected, SampleResultNodeResolver.find(result));
         assertSame(expected, SampleResultNodeResolver.findForNavigation(result));
         assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+    }
+
+    @Test
+    public void refreshDoesNotRetryUnresolvedBufferedResults() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        AtomicInteger lookups = new AtomicInteger();
+        SampleResult unresolved = new SampleResult() {
+            @Override
+            public List<TestElementPathEntry> getSourceTestElementPath() {
+                lookups.incrementAndGet();
+                return super.getSourceTestElementPath();
+            }
+        };
+        unresolved.setSampleLabel("unresolved redirect");
+        SampleResult parent = new SampleResult();
+        parent.setSampleLabel("unresolved parent");
+        parent.addSubResult(unresolved, false);
+        var refresh = ViewResultsFullVisualizer.class.getDeclaredMethod("updateGui");
+        refresh.setAccessible(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                visualizer.add(parent);
+                visualizer.add(new SampleResult());
+                refresh.invoke(visualizer);
+                assertEquals(1, lookups.get());
+                for (int i = 0; i < 5; i++) {
+                    visualizer.add(new SampleResult());
+                    refresh.invoke(visualizer);
+                }
+                assertEquals(1, lookups.get(), "Refreshes must not retry old unresolved subresults");
+
+                DebugSampler sampler = new DebugSampler();
+                sampler.setName(unresolved.getSampleLabel());
+                JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+                ((JMeterTreeNode) treeModel.getRoot()).add(samplerNode);
+                assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(unresolved));
+                assertEquals(2, lookups.get(), "Explicit navigation must still retry an unresolved result");
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
     }
 
     private static SampleResult replayResult(String body) throws Exception {

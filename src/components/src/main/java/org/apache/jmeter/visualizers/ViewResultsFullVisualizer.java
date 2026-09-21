@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -227,6 +228,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private TreeSelectionEvent lastSelectionEvent;
     private JCheckBox autoScrollCB;
     private final Queue<SampleResult> buffer = new ArrayDeque<>();
+    // Guarded by buffer; discard pending work when a result is evicted or cleared.
+    private final Set<SampleResult> pendingNavigationTargets =
+            Collections.newSetFromMap(new IdentityHashMap<>());
     private final int maxResults;
     private boolean dataChanged;
     private String selectedThreadGroup;
@@ -249,9 +253,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void add(final SampleResult sample) {
         synchronized (buffer) {
             if (maxResults > 0 && buffer.size() >= maxResults) {
-                buffer.remove();
+                pendingNavigationTargets.remove(buffer.remove());
             }
             buffer.add(sample);
+            pendingNavigationTargets.add(sample);
             dataChanged = true;
         }
     }
@@ -294,7 +299,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             updateThreadGroupFilterOptions();
             List<ResultTableModel.ResultTableRow> tableRows = new ArrayList<>();
             for (SampleResult sampler: buffer) {
-                SampleResultNodeResolver.rememberNavigationTargets(sampler);
+                if (pendingNavigationTargets.remove(sampler)) {
+                    SampleResultNodeResolver.rememberNavigationTargets(sampler);
+                }
                 if (!matchesSelectedThreadFilters(sampler) || !sampleOrSubResultMatchesSelectedLabel(sampler)) {
                     continue;
                 }
@@ -455,6 +462,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void clearData() {
         synchronized (buffer) {
             buffer.clear();
+            pendingNavigationTargets.clear();
             dataChanged = true;
         }
         if (threadGroupFilter != null) {
