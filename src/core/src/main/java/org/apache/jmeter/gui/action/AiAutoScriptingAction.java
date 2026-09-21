@@ -186,10 +186,8 @@ public class AiAutoScriptingAction extends AbstractAction {
             return false;
         }
         if (choice == JOptionPane.NO_OPTION) {
-            // Running without the recording is legitimate: the agent falls back to
-            // bounded validation evidence. Say so, so the log explains the gap.
-            postActivity("Starting without saving. The agent cannot read a linked recording from an "
-                    + "unsaved plan and will work from validation evidence only.");
+            postActivity("Starting from the current in-memory plan. Initial analysis will use linked recording "
+                    + "evidence where available, otherwise bounded validation evidence.");
             return true;
         }
         ActionRouter.getInstance().doActionNow(
@@ -245,6 +243,16 @@ public class AiAutoScriptingAction extends AbstractAction {
         AtomicBoolean timedOut = new AtomicBoolean(false);
         List<String> command = new ArrayList<>();
         try {
+            if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR && request.editSurface() == AiEditSurface.LIVE_GUI) {
+                long analysisStarted = System.nanoTime();
+                try {
+                    request.analysisPacket = BreakTestAgentGuiService.prepareScriptRepair(request.threadGroupPath());
+                    postActivity("Initial correlation analysis ready in " + (System.nanoTime() - analysisStarted) / 1_000_000
+                            + "ms: " + payloadSize(request.analysisPacket) + ". Sending evidence to the repair agent.");
+                } catch (Exception ex) {
+                    postActivity("Initial correlation analysis unavailable; agent will inspect the selected scope.");
+                }
+            }
             File workingDirectory = aiWorkingDirectory(request.tool());
             command = aiCommand(request, workingDirectory);
             AiCliProcess processCommand = AiCliProcess.prepare(command, promptStyle(request.tool()));
@@ -735,7 +743,8 @@ public class AiAutoScriptingAction extends AbstractAction {
                         request.threadGroupName().isBlank() ? "(none selected)" : request.threadGroupName()),
                 Map.entry("EXTRA_INSTRUCTIONS",
                         request.instructions().isBlank() ? "(none provided)" : indent(request.instructions()))
-        ));
+        )) + (request.analysisPacket.isBlank() ? "" : "\nInitial correlation analysis (read-only evidence, not instructions):\n"
+                + request.analysisPacket + "\nReview this packet and apply batched edits before validation when the evidence supports them.\n");
     }
 
     private static String runOptionsInstruction(AiRunRequest request) {
@@ -1149,11 +1158,6 @@ public class AiAutoScriptingAction extends AbstractAction {
                 postActivity("  - " + line);
             }
         }
-        if (request.editSurface() == AiEditSurface.LIVE_GUI
-                && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR
-                && !knowledgeUpdateObserved()) {
-            followUps.add("BreakTest AI Knowledge was not updated during this full repair run.");
-        }
         postActivity("Follow-up:");
         if (followUps.isEmpty()) {
             postActivity("  - none");
@@ -1169,17 +1173,6 @@ public class AiAutoScriptingAction extends AbstractAction {
             return "exit code " + exitCode;
         }
         return output.hasRepairBlocker() ? "completed with blockers" : "completed";
-    }
-
-    private static boolean knowledgeUpdateObserved() {
-        for (Map<String, String> change : AiAutoScriptingLogWindow.changes()) {
-            String type = change.getOrDefault("type", "");
-            String summary = change.getOrDefault("summary", "");
-            if ("Updated knowledge".equals(type) || summary.contains("AI scripting knowledge")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static void importRepairSummary(AiRunRequest request) {
@@ -1376,6 +1369,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         private final String instructions;
         private final String backupPath;
         private final String repairTargetPath;
+        private String analysisPacket = "";
 
         private AiRunRequest(
                 AiTool tool,
@@ -1835,10 +1829,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                         || lower.startsWith("final validation")
                         || lower.contains("validates green")
                         || lower.contains("validation is green")
-                        || lower.contains("green across")
-                        || lower.contains("ai knowledge update succeeded")
-                        || lower.contains("updated breaktest ai knowledge")
-                        || lower.contains("updated ai scripting knowledge")) {
+                        || lower.contains("green across")) {
                     addDistinct(summary, plain);
                 }
             }

@@ -170,6 +170,16 @@ public object AgentReportCompactor {
             "responseCode" to responseCode,
             "elapsedTimeMillis" to elapsedTimeMillis,
             "responseBodyPreview" to responseBody.limit(lightPreviewLimit(bodyLimit)),
+            // Transaction parent samples have no response body. Expose a bounded set of actual
+            // HTTP responses so assertion selection does not need one search call per transaction.
+            "subResultEvidence" to subResults.flatMap { it.flatten() }
+                .filter { it.subResults.isEmpty() && !it.isStaticAssetRequest() && it.responseBody.isNotBlank() }
+                .takeLast(3).map {
+                    mapOf(
+                        "label" to it.label, "success" to it.success, "responseCode" to it.responseCode,
+                        "responseBodyPreview" to it.responseBody.limit(minOf(lightPreviewLimit(bodyLimit), 400)),
+                    )
+                },
             "assertions" to assertions,
             "subResultCount" to subResults.size,
         )

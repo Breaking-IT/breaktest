@@ -40,7 +40,8 @@ public object BreakTestAgentToolCli {
         val invocation = parseInvocation(args)
         BreakTestAgentMcpServer.initializeForCli(invocation.jmeterHome)
         if (invocation.tool == "tools" || invocation.tool == "tools/list") {
-            print(BreakTestAgentMcpServer.toolsListForCli())
+            val names = mapper.readTree(invocation.argumentsJson).path("names")
+            print(if (names.isArray) BreakTestAgentMcpServer.toolsListForCli(names.map { it.asText() }) else BreakTestAgentMcpServer.toolsListForCli())
             println()
             return
         }

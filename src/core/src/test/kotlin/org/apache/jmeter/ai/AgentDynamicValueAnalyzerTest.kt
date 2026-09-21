@@ -27,6 +27,29 @@ import org.junit.jupiter.api.Test
 
 class AgentDynamicValueAnalyzerTest : JMeterTestCase() {
     @Test
+    fun `parameterized credential is not flagged as a literal credential`() {
+        val sampler = ScriptRepairSampler("Request").apply {
+            setProperty("requestBody", "email=\${credential}")
+        }
+        val tree = testTree { TestPlan::class { oneRequest { +sampler } } }
+        assertTrue(AgentDynamicValueAnalyzer().analyze(tree, 100).isEmpty())
+    }
+
+    @Test
+    fun `recording metadata is excluded while identical transmitted values remain candidates`() {
+        val token = "12345678-1234-1234-1234-123456789abc"
+        val sampler = ScriptRepairSampler("Request").apply {
+            setProperty("BreakTest.recording.exchangeId", token)
+            setProperty("BreakTest.har.requestUrl", "/archived/$token")
+            setProperty("HTTPSampler.path", "/live/$token")
+        }
+        val tree = testTree { TestPlan::class { oneRequest { +sampler } } }
+        val candidates = AgentDynamicValueAnalyzer().analyze(tree, 100)
+        assertTrue(candidates.any { it.literal == token && it.propertyName == "HTTPSampler.path" })
+        assertTrue(candidates.none { it.propertyName.startsWith("BreakTest.") })
+    }
+
+    @Test
     fun `long hex path segment is flagged as high-confidence hex id`() {
         val hexId = "052667f52d1aef11129d17517615ff9abdfa68d16430ef08b3d1a0307f4e02e074462f340bf8a8b0896018e2d7744e92"
         val sampler = ScriptRepairSampler("POST /bestelling/verwerken").apply {

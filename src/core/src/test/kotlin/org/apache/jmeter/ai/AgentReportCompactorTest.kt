@@ -53,6 +53,20 @@ class AgentReportCompactorTest {
     }
 
     @Test
+    fun `green transaction includes bounded child response markers without request bodies`() {
+        val children = (0 until 6).map { sample(it, "request-$it") }
+        val parent = sample(0, "Checkout transaction").copy(responseBody = "", subResults = children)
+        val packet = com.fasterxml.jackson.databind.ObjectMapper().valueToTree<com.fasterxml.jackson.databind.JsonNode>(
+            AgentReportCompactor.compactForRepair(report(listOf(parent))),
+        )
+        val evidence = packet.path("validation").path("evidenceSamples")[0].path("subResultEvidence")
+        assertEquals(3, evidence.size())
+        assertEquals("request-3", evidence[0].path("label").asText())
+        assertTrue(evidence[2].path("responseBodyPreview").asText().contains("request-5 marker"))
+        assertFalse(evidence[0].has("requestBody"))
+    }
+
+    @Test
     fun `green run returns only light evidence`() {
         val samples = (0 until 6).map { sample(it, "req-$it") }
         val compact = AgentReportCompactor.compactForRepair(report(samples))

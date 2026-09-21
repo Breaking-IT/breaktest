@@ -121,6 +121,10 @@ public class AgentDynamicValueAnalyzer(
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
     ) {
+        // Recording identifiers and cached exchanges are provenance, never transmitted request values.
+        if (property.name.startsWith("BreakTest.recording.") || property.name.startsWith("BreakTest.har.") ||
+            property.name in setOf(TestElement.NAME, TestElement.COMMENTS, TestElement.GUI_CLASS, TestElement.TEST_CLASS)
+        ) return
         if (visitedProperties.put(property, true) != null) {
             return
         }
@@ -298,7 +302,7 @@ public class AgentDynamicValueAnalyzer(
 
     private fun String.isCandidateToken(kind: String): Boolean =
         length >= (if (kind == "numeric-id") 4 else 8) &&
-            !contains("__") &&
+            !contains("__") && !contains("\${") &&
             LOW_VALUE_TOKENS.none { contains(it, ignoreCase = true) } &&
             !startsWith("http", ignoreCase = true)
 
