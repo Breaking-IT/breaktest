@@ -289,6 +289,9 @@ public class AiAutoScriptingAction extends AbstractAction {
                 processCommand.writePrompt(process);
             }
             output = streamOutput(process.getInputStream(), request.tool());
+            if (request.tool() == AiTool.PI && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR) {
+                output.requireRepairCompletionStatus();
+            }
             int exitCode = process.waitFor();
             boolean stopped = STOP_REQUESTED.get();
             if (timedOut.get()) {
@@ -538,7 +541,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("--approve");
         command.add("--no-session");
         command.add("--mode");
-        command.add("text");
+        command.add("json");
 
         String provider = JMeterUtils.getProperty("breaktest.pi.provider");
         if (provider != null && !provider.isBlank()) {
@@ -1127,7 +1130,9 @@ public class AiAutoScriptingAction extends AbstractAction {
             while ((line = reader.readLine()) != null) {
                 String display = filter.displayLine(line);
                 if (display != null) {
-                    postActivity(tool.displayName() + ": " + display);
+                    for (String displayLine : display.split("\\R")) {
+                        postActivity(tool.displayName() + ": " + displayLine);
+                    }
                 }
             }
         }
@@ -1147,6 +1152,11 @@ public class AiAutoScriptingAction extends AbstractAction {
         postActivity("Token usage: input=" + output.inputTokensText()
                 + ", output=" + output.outputTokensText()
                 + ", total=" + output.totalTokensText());
+        if (output.piUsageMessages > 0) {
+            postActivity("Pi usage: model responses=" + output.piUsageMessages
+                    + ", cached input=" + output.piCachedInputTokens
+                    + ", reasoning=" + output.piReasoningTokens + " (included in output tokens).");
+        }
         int changeCount = AiAutoScriptingLogWindow.changes().size();
         if (changeCount > 0) {
             postActivity("Recorded changes: " + changeCount + " (see the changes table)");
@@ -1520,6 +1530,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         private boolean suppressGeminiErrorDetails;
         private final Set<String> displayedFinalLines = new HashSet<>();
         private final AiRunOutput output = new AiRunOutput();
+        private long piRequestStarted;
+        private long piLastProgress;
+        private int piRequests;
 
         AiOutputFilter(AiTool tool) {
             this.tool = tool;
@@ -1530,6 +1543,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         String displayLine(String rawLine) {
             String line = stripAnsi(rawLine);
+            if (tool == AiTool.PI && line.stripLeading().startsWith("{")) {
+                return displayPiEvent(line);
+            }
             String display = null;
             String trimmed = line.trim();
             if (!line.isBlank()) {
@@ -1597,6 +1613,70 @@ public class AiAutoScriptingAction extends AbstractAction {
                 output.captureFinalResponse(display);
             }
             return display;
+        }
+
+        private String displayPiEvent(String line) {
+            final JsonNode event;
+            try {
+                event = JSON.readTree(line);
+            } catch (IOException ex) {
+                return null;
+            }
+            String type = event.path("type").asText();
+            JsonNode message = event.path("message");
+            if ("message_start".equals(type) && "assistant".equals(message.path("role").asText())) {
+                piRequestStarted = System.nanoTime();
+                piLastProgress = piRequestStarted;
+                piRequests++;
+                return "Model request " + piRequests + ": " + message.path("provider").asText()
+                        + "/" + message.path("model").asText();
+            }
+            if ("message_update".equals(type)) {
+                // Display activity, never raw reasoning, tool arguments, or echoed context.
+                long now = System.nanoTime();
+                if (piRequestStarted != 0 && now - piLastProgress >= TimeUnit.SECONDS.toNanos(15)) {
+                    piLastProgress = now;
+                    return "Model request " + piRequests + " still generating ("
+                            + TimeUnit.NANOSECONDS.toSeconds(now - piRequestStarted) + "s).";
+                }
+                return null;
+            }
+            if ("message_end".equals(type) && "assistant".equals(message.path("role").asText())) {
+                output.capturePiUsage(message.path("usage"));
+                String stopReason = message.path("stopReason").asText();
+                List<String> lines = new ArrayList<>();
+                long elapsedMs = piRequestStarted == 0 ? 0
+                        : TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - piRequestStarted);
+                lines.add("Model request " + piRequests + " finished in " + elapsedMs + "ms: output="
+                        + message.path("usage").path("output").asLong() + ", reasoning="
+                        + message.path("usage").path("reasoning").asLong() + " tokens.");
+                if ("error".equals(stopReason) || "aborted".equals(stopReason)) {
+                    lines.add("Model request " + stopReason + ": " + message.path("errorMessage").asText());
+                    // Pi can exit zero after an API error. A later successful final response replaces this block.
+                    output.startFinalResponseBlock();
+                    output.captureFinalResponse("Status: blocked");
+                } else if ("stop".equals(stopReason)) {
+                    output.startFinalResponseBlock();
+                    for (JsonNode content : message.path("content")) {
+                        if ("text".equals(content.path("type").asText())) {
+                            for (String text : content.path("text").asText().split("\\R")) {
+                                if (!text.isBlank()) {
+                                    output.captureFinalResponse(text);
+                                    lines.add(text);
+                                }
+                            }
+                        }
+                    }
+                }
+                return String.join("\n", lines);
+            }
+            if ("tool_execution_start".equals(type)) {
+                return "Running " + event.path("toolName").asText("tool") + ".";
+            }
+            if ("auto_retry_start".equals(type)) {
+                return "Retrying model request: " + event.path("errorMessage").asText();
+            }
+            return null;
         }
 
         private static String stripAnsi(String line) {
@@ -1754,8 +1834,26 @@ public class AiAutoScriptingAction extends AbstractAction {
         private Long inputTokens;
         private Long outputTokens;
         private Long totalTokens;
+        private long piCachedInputTokens;
+        private long piReasoningTokens;
+        private int piUsageMessages;
         private boolean nextLineIsTotalTokens;
         private final List<String> finalResponseLines = new ArrayList<>();
+
+        private void capturePiUsage(JsonNode usage) {
+            if (!usage.isObject()) {
+                return;
+            }
+            long input = usage.path("input").asLong() + usage.path("cacheRead").asLong()
+                    + usage.path("cacheWrite").asLong();
+            long completion = usage.path("output").asLong();
+            piUsageMessages++;
+            piCachedInputTokens += usage.path("cacheRead").asLong();
+            piReasoningTokens += usage.path("reasoning").asLong();
+            inputTokens = (inputTokens == null ? 0 : inputTokens) + input;
+            outputTokens = (outputTokens == null ? 0 : outputTokens) + completion;
+            totalTokens = inputTokens + outputTokens;
+        }
 
         private void captureTokenLine(String line) {
             String lower = line.toLowerCase(Locale.ROOT);
@@ -1764,16 +1862,26 @@ public class AiAutoScriptingAction extends AbstractAction {
                 return;
             }
             if (nextLineIsTotalTokens) {
-                parseTokenNumber(line).ifPresent(value -> totalTokens = value);
+                if (line.strip().matches("[0-9][0-9,.]*")) {
+                    parseTokenNumber(line).ifPresent(value -> totalTokens = value);
+                }
                 nextLineIsTotalTokens = false;
                 return;
             }
-            if (lower.contains("input") && lower.contains("token")) {
-                parseTokenNumber(line).ifPresent(value -> inputTokens = value);
-            } else if ((lower.contains("output") || lower.contains("completion")) && lower.contains("token")) {
-                parseTokenNumber(line).ifPresent(value -> outputTokens = value);
-            } else if (lower.contains("total") && lower.contains("token")) {
-                parseTokenNumber(line).ifPresent(value -> totalTokens = value);
+            // Tool payloads and model prose also contain words such as "input" and "token".
+            // Accept only explicit standalone usage labels, never arbitrary lines with numbers.
+            java.util.regex.Matcher usage = java.util.regex.Pattern.compile(
+                    "^(input|output|completion|total)[ _]tokens?\\s*[:=]\\s*([0-9][0-9,.]*)$",
+                    java.util.regex.Pattern.CASE_INSENSITIVE).matcher(line.strip());
+            if (usage.matches()) {
+                parseTokenNumber(usage.group(2)).ifPresent(value -> {
+                    switch (usage.group(1).toLowerCase(Locale.ROOT)) {
+                        case "input" -> inputTokens = value;
+                        case "output", "completion" -> outputTokens = value;
+                        case "total" -> totalTokens = value;
+                        default -> { }
+                    }
+                });
             }
         }
 
@@ -1797,6 +1905,15 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private void captureFinalResponse(String line) {
             finalResponseLines.add(line);
+        }
+
+        private void requireRepairCompletionStatus() {
+            boolean hasStatus = finalResponseLines.stream().map(AiRunOutput::plainText)
+                    .map(line -> line.toLowerCase(Locale.ROOT))
+                    .anyMatch(line -> line.startsWith("status: completed") || line.startsWith("status: blocked"));
+            if (!hasStatus) {
+                finalResponseLines.add("Status: blocked - Agent ended without a repair completion status; validation is unconfirmed.");
+            }
         }
 
         private String inputTokensText() {
@@ -1851,7 +1968,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                     continue;
                 }
                 String plain = plainText(line);
-                String lower = plain.toLowerCase(Locale.ROOT);
+                String lower = stripNegatedBlockers(plain.toLowerCase(Locale.ROOT));
                 if (plain.isBlank() || reportsNoFollowUp(lower) || reportsSuccess(lower)) {
                     continue;
                 }
@@ -1873,7 +1990,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 if (isMarkdownTableLine(line)) {
                     continue;
                 }
-                String lower = plainText(line).toLowerCase(Locale.ROOT);
+                String lower = stripNegatedBlockers(plainText(line).toLowerCase(Locale.ROOT));
                 if (reportsNoFollowUp(lower) || reportsSuccess(lower)) {
                     continue;
                 }
@@ -1882,6 +1999,15 @@ public class AiAutoScriptingAction extends AbstractAction {
                 }
             }
             return false;
+        }
+
+        private static String stripNegatedBlockers(String lower) {
+            // Negation can govern a list: "without truncation, ignored failures, or remaining blockers".
+            // Remove only that negative phrase, so a separate failure in the same line still counts.
+            // Do not treat "without resolving remaining blockers" as a successful outcome.
+            return lower.replaceAll("\\bwithout\\s+"
+                    + "(?:(?:truncation|(?:ignored\\s+)?(?:static\\s+)?failures|errors)\\s*(?:,\\s*|(?:and|or)\\s+))*"
+                    + "(?:(?:and|or)\\s+)?(?:any\\s+)?(?:remaining|unresolved)\\s+blockers?\\b", "");
         }
 
         private static boolean reportsRepairBlocker(String lower) {
