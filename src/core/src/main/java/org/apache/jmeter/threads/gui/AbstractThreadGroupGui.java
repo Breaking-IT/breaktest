@@ -33,6 +33,7 @@ import javax.swing.JRadioButton;
 import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.testelement.TestElement;
@@ -75,7 +76,9 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             pop.add(createMenuItem("add_think_times", ActionNames.ADD_THINK_TIME_BETWEEN_EACH_STEP));
             pop.add(createMenuItem("run_threadgroup", ActionNames.RUN_TG));
             pop.add(createMenuItem("run_threadgroup_no_timers", ActionNames.RUN_TG_NO_TIMERS));
-            pop.add(createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG));
+            JMenuItem validate = createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG);
+            validate.setAccelerator(KeyStrokes.VALIDATE);
+            pop.add(validate);
         }
 
         MenuFactory.addEditMenu(pop, true);

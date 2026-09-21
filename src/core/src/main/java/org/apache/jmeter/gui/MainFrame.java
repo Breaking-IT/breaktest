@@ -1665,6 +1665,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
     @Override
     public void clearData() {
         logPanel.clear();
+        AiAutoScriptingLogWindow.clear();
         errorsAndFatalsCounterLogTarget.clearData();
     }
 
