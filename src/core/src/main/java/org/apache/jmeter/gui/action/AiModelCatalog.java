@@ -39,7 +39,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 final class AiModelCatalog {
     private static final int MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
-    record Result(List<String> models, String status) {
+    enum Status {
+        NO_CACHE, CACHE, CONFIGURED, LOADED, CANCELLED, FAILED;
+
+        String description() {
+            return JMeterUtils.getResString("ai_model_status_" + name().toLowerCase(java.util.Locale.ROOT));
+        }
+
+        boolean unavailable() {
+            return this == CANCELLED || this == FAILED;
+        }
+    }
+
+    record Result(List<String> models, Status status) {
         Result {
             models = List.copyOf(models);
         }
@@ -64,8 +76,8 @@ final class AiModelCatalog {
                     models.addAll(parseCodexCache(Files.readString(cache)));
                 }
                 return new Result(new ArrayList<>(models), models.isEmpty()
-                        ? "No cached models found. Enter a model ID or use Agent default."
-                        : "Models from local Codex settings/cache. You can also enter a model ID.");
+                        ? Status.NO_CACHE
+                        : Status.CACHE);
             }
             List<String> arguments = switch (tool) {
                 case "pi" -> List.of("--offline", "--list-models");
@@ -74,7 +86,7 @@ final class AiModelCatalog {
                 default -> List.of();
             };
             if (arguments.isEmpty()) {
-                return new Result(new ArrayList<>(models), "Configured models only. Enter another model ID or use Agent default.");
+                return new Result(new ArrayList<>(models), Status.CONFIGURED);
             }
             String executable = JMeterUtils.getPropDefault("breaktest." + tool + ".command",
                     "cursor".equals(tool) ? "cursor-agent" : tool);
@@ -82,13 +94,13 @@ final class AiModelCatalog {
             command.add(executable);
             command.addAll(arguments);
             models.addAll(parseOutput(tool, query(command, workingDirectory, 8)));
-            return new Result(new ArrayList<>(models), "Model list loaded. Availability depends on your account; you can also enter an ID.");
+            return new Result(new ArrayList<>(models), Status.LOADED);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            return new Result(new ArrayList<>(models), "Model lookup cancelled. Enter a model ID or use Agent default.");
+            return new Result(new ArrayList<>(models), Status.CANCELLED);
         } catch (Exception ex) {
             // CLI errors can contain account details. Keep raw output out of the popup.
-            return new Result(new ArrayList<>(models), "Could not load model list. Retry Refresh, enter an ID, or use Agent default.");
+            return new Result(new ArrayList<>(models), Status.FAILED);
         }
     }
 

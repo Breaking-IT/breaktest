@@ -115,12 +115,24 @@ final class AiRunOutput {
     }
 
     void requireRepairCompletionStatus() {
-        boolean hasStatus = finalResponseLines.stream().map(AiRunOutput::plainText)
-                .map(line -> line.toLowerCase(Locale.ROOT))
-                .anyMatch(line -> line.startsWith("status: completed") || line.startsWith("status: blocked"));
-        if (!hasStatus) {
+        if (completionStatus() == null) {
             finalResponseLines.add("Status: blocked - Agent ended without a repair completion status; validation is unconfirmed.");
         }
+    }
+
+    private String completionStatus() {
+        // Only a standalone status declaration controls the outcome. Later declarations
+        // supersede earlier ones in the final response; prose remains display-only.
+        String status = null;
+        for (String line : finalResponseLines) {
+            var matcher = java.util.regex.Pattern.compile(
+                    "^status:\\s*(completed|blocked|failed)(?:$|[\\s.:-].*)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE).matcher(plainText(line));
+            if (matcher.matches()) {
+                status = matcher.group(1).toLowerCase(Locale.ROOT);
+            }
+        }
+        return status;
     }
 
     String inputTokensText() {
@@ -190,22 +202,8 @@ final class AiRunOutput {
     }
 
     boolean hasRepairBlocker() {
-        for (String line : finalResponseLines) {
-            if (remainingBlockerFromTable(line, false) != null) {
-                return true;
-            }
-            if (isMarkdownTableLine(line)) {
-                continue;
-            }
-            String lower = stripNegatedBlockers(plainText(line).toLowerCase(Locale.ROOT));
-            if (reportsNoFollowUp(lower) || reportsSuccess(lower)) {
-                continue;
-            }
-            if (reportsRepairBlocker(lower)) {
-                return true;
-            }
-        }
-        return false;
+        String status = completionStatus();
+        return "blocked".equals(status) || "failed".equals(status);
     }
 
     private static String stripNegatedBlockers(String lower) {
@@ -221,8 +219,6 @@ final class AiRunOutput {
         return lower.startsWith("status: blocked")
                 || lower.startsWith("status: failed")
                 || lower.contains("not fully green")
-                || lower.contains("validation is not fully green")
-                || lower.contains("validation remains blocked")
                 || lower.contains("validation remains")
                 || lower.contains("not validated past")
                 || lower.contains("not reached due")

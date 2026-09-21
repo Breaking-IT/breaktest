@@ -33,9 +33,11 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
 
+import org.apache.jmeter.util.JMeterUtils;
+
 /** Per-dialog, asynchronous model picker. All UI access stays on the EDT. */
 final class AiModelSelector extends JPanel {
-    private static final String DEFAULT = "Agent default";
+    private static final String DEFAULT = JMeterUtils.getResString("ai_model_default");
     private final JComboBox<String> model = new JComboBox<>(new String[] { DEFAULT });
     private final JLabel status = new JLabel(" ");
     private final Map<String, AiModelCatalog.Result> cache = new HashMap<>();
@@ -58,13 +60,13 @@ final class AiModelSelector extends JPanel {
         // Long provider/model IDs must not force the dialog wider.
         model.setPrototypeDisplayValue("openrouter/provider/model-name");
         model.setMinimumSize(new Dimension(160, model.getPreferredSize().height));
-        model.setToolTipText("Choose a model or enter its ID. For Pi and OpenCode, use provider/model. Applies to this run only.");
-        JButton refresh = new JButton("Refresh");
+        model.setToolTipText(JMeterUtils.getResString("ai_model_tooltip"));
+        JButton refresh = new JButton(JMeterUtils.getResString("ai_model_refresh"));
         refresh.addActionListener(event -> load(true));
         JPanel controls = new JPanel(new BorderLayout(8, 0));
         controls.add(model, BorderLayout.CENTER);
         controls.add(refresh, BorderLayout.EAST);
-        JLabel label = new JLabel("Model");
+        JLabel label = new JLabel(JMeterUtils.getResString("ai_model_label"));
         label.setLabelFor(model);
         status.setFont(status.getFont().deriveFont(Math.max(10f, status.getFont().getSize2D() - 1)));
         JPanel heading = new JPanel(new BorderLayout(8, 0));
@@ -100,7 +102,7 @@ final class AiModelSelector extends JPanel {
             display(cache.get(tool));
             return;
         }
-        setStatus("Loading models…", "You can keep Agent default or enter a model ID while the list loads.");
+        setStatus(JMeterUtils.getResString("ai_model_loading"), JMeterUtils.getResString("ai_model_loading_help"));
         int requestGeneration = generation;
         String requestedTool = tool;
         File requestedDirectory = directory;
@@ -122,7 +124,7 @@ final class AiModelSelector extends JPanel {
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException | CancellationException ex) {
-                    setStatus("Lookup unavailable · enter a model ID", "Could not load models. Enter an ID or use Agent default.");
+                    setStatus(JMeterUtils.getResString("ai_model_unavailable"), JMeterUtils.getResString("ai_model_unavailable_help"));
                 }
             }
         };
@@ -137,14 +139,14 @@ final class AiModelSelector extends JPanel {
         model.setModel(choices);
         model.setSelectedItem(selected.isBlank() ? DEFAULT : selected);
         String summary;
-        if (result.status().startsWith("Could not") || result.status().contains("cancelled")) {
-            summary = "Lookup unavailable · enter a model ID";
+        if (result.status().unavailable()) {
+            summary = JMeterUtils.getResString("ai_model_unavailable");
         } else if (result.models().isEmpty()) {
-            summary = "Enter a model ID or use Agent default";
+            summary = JMeterUtils.getResString("ai_model_empty");
         } else {
-            summary = result.models().size() + (result.models().size() == 1 ? " model" : " models") + " · select or type an ID";
+            summary = java.text.MessageFormat.format(JMeterUtils.getResString("ai_model_count"), result.models().size());
         }
-        setStatus(summary, result.status());
+        setStatus(summary, result.status().description());
     }
 
     private void setStatus(String summary, String detail) {

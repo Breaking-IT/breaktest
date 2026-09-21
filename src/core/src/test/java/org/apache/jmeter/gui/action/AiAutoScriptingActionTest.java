@@ -219,6 +219,34 @@ class AiAutoScriptingActionTest {
         return (String) method.invoke(filter, rawLine);
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = { "PI", "CLAUDE", "CODEX", "GEMINI", "CURSOR", "OPENCODE", "COPILOT" })
+    void everyFullRepairToolRequiresAnExplicitStatus(String tool) throws Exception {
+        Object request = newRunRequest(tool);
+        Method enforce = AiAutoScriptingAction.class.getDeclaredMethod(
+                "enforceRepairCompletionStatus", request.getClass(), AiRunOutput.class);
+        enforce.setAccessible(true);
+        AiRunOutput output = new AiRunOutput();
+        output.captureFinalResponse("Final validation is green.");
+        enforce.invoke(null, request, output);
+        assertTrue(output.hasRepairBlocker());
+        output.startFinalResponseBlock();
+        output.captureFinalResponse("Status: completedness");
+        enforce.invoke(null, request, output);
+        assertTrue(output.hasRepairBlocker());
+        output.startFinalResponseBlock();
+        output.captureFinalResponse("Status: completed");
+        output.captureFinalResponse("Could not validate the legacy flow.");
+        output.captureFinalResponse("| transaction | x | x | x | remaining blocker |");
+        enforce.invoke(null, request, output);
+        assertFalse(output.hasRepairBlocker());
+        assertFalse(output.followUpLines().isEmpty());
+        output.captureFinalResponse("Status: blocked");
+        assertTrue(output.hasRepairBlocker());
+        output.captureFinalResponse("Status: completed");
+        assertFalse(output.hasRepairBlocker());
+    }
+
     @Test
     void explicitBlockedStatusIsNotReportedAsSuccess() throws Exception {
         assertTrue(hasRepairBlocker("Status: blocked"));
@@ -226,9 +254,9 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
-    void recoveryAndValidationFailuresAreRepairBlockers() throws Exception {
-        assertTrue(hasRepairBlocker("The GUI plan could not be restored or validated."));
-        assertTrue(hasRepairBlocker("Stopped after a GUI bridge failure."));
+    void proseDoesNotDetermineRepairStatus() throws Exception {
+        assertFalse(hasRepairBlocker("The GUI plan could not be restored or validated."));
+        assertFalse(hasRepairBlocker("Stopped after a GUI bridge failure."));
     }
 
     @Test
@@ -262,9 +290,9 @@ class AiAutoScriptingActionTest {
     @Test
     void negatedBlockerPhraseDoesNotHideOtherFailures() throws Exception {
         assertTrue(hasRepairBlocker("Status: blocked. Ran without remaining blockers, but the GUI plan could not be restored."));
-        assertTrue(hasRepairBlocker("Initial audit completed without remaining blockers. Remaining blocker: payment validation failed."));
-        assertTrue(hasRepairBlocker("Stopped without resolving remaining blockers."));
-        assertTrue(hasRepairBlocker("Status: completed", "Remaining blocker: final validation could not be completed."));
+        assertFalse(hasRepairBlocker("Initial audit completed without remaining blockers. Remaining blocker: payment validation failed."));
+        assertFalse(hasRepairBlocker("Stopped without resolving remaining blockers."));
+        assertFalse(hasRepairBlocker("Status: completed", "Remaining blocker: final validation could not be completed."));
     }
 
     @Test

@@ -54,7 +54,7 @@ class AiModelSelectorTest {
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 }
-                return new AiModelCatalog.Result(List.of(tool + "/listed"), "loaded");
+                return new AiModelCatalog.Result(List.of(tool + "/listed"), AiModelCatalog.Status.LOADED);
             });
             picker.set(selector);
             selector.selectTool("pi", new File("."));
@@ -98,7 +98,7 @@ class AiModelSelectorTest {
                         cancelled.countDown();
                     }
                 }
-                return new AiModelCatalog.Result(List.of(tool + "/listed"), "loaded");
+                return new AiModelCatalog.Result(List.of(tool + "/listed"), AiModelCatalog.Status.LOADED);
             });
             picker.set(selector);
             selector.selectTool("pi", new File("."));

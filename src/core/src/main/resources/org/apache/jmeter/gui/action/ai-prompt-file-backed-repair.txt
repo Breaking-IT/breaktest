@@ -3,6 +3,7 @@
 {{TASK_SCOPE}}
 
 Requirements:
+- End with a concise plain-text final report starting exactly `Status: completed` if fully validated, otherwise `Status: blocked`.
 - {{START_ACTIVITY_INSTRUCTION}} so progress is visible in the BreakTest AI Auto Scripting window.
 - This is the native BreakTest JMX file repair workflow. BreakTest saved the current GUI state, created an immutable backup, and selected the active saved JMX as the repair target. The launcher reloads that active JMX after the agent finishes.
 - Edit only the active JMX: `{{REPAIR_TARGET}}`. Never edit the backup file.

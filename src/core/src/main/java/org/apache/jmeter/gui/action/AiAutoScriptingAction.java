@@ -291,9 +291,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 processCommand.writePrompt(process);
             }
             output = streamOutput(process.getInputStream(), request.tool());
-            if (request.tool() == AiTool.PI && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR) {
-                output.requireRepairCompletionStatus();
-            }
+            enforceRepairCompletionStatus(request, output);
             int exitCode = process.waitFor();
             boolean stopped = STOP_REQUESTED.get();
             if (timedOut.get()) {
@@ -1233,6 +1231,12 @@ public class AiAutoScriptingAction extends AbstractAction {
             for (String line : followUps) {
                 postActivity("  - " + line);
             }
+        }
+    }
+
+    private static void enforceRepairCompletionStatus(AiRunRequest request, AiRunOutput output) {
+        if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR) {
+            output.requireRepairCompletionStatus();
         }
     }
 
