@@ -238,9 +238,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private String selectedLabel;
     private boolean updatingResultFilters;
 
-    /**
-     * Constructor
-     */
     public ViewResultsFullVisualizer() {
         super();
         this.maxResults = JMeterUtils.getPropDefault("view.results.tree.max_results", 500);
@@ -248,7 +245,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         new Timer(REFRESH_PERIOD, e -> updateGui()).start();
     }
 
-    /** {@inheritDoc} */
     @Override
     public void add(final SampleResult sample) {
         synchronized (buffer) {
@@ -261,7 +257,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
     }
 
-    /** {@inheritDoc} */
     @Override
     public void add(final SampleEvent event) {
         SampleResult sample = event.getResult();
@@ -457,7 +452,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return new TreePath(result);
     }
 
-    /** {@inheritDoc} */
     @Override
     public void clearData() {
         synchronized (buffer) {
@@ -490,7 +484,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         renderedResponseObject = null;
     }
 
-    /** {@inheritDoc} */
     @Override
     public String getLabelResource() {
         return "view_results_tree_title"; // $NON-NLS-1$
@@ -875,7 +868,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 .orElse(null);
     }
 
-    /** {@inheritDoc} */
     @Override
     public void valueChanged(TreeSelectionEvent e) {
         valueChanged(e, false);
@@ -1679,7 +1671,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return name;
     }
 
-    /** {@inheritDoc} */
     @Override
     public void actionPerformed(ActionEvent event) {
         String command = event.getActionCommand();
