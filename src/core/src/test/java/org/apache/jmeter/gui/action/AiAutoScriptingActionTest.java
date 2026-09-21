@@ -39,7 +39,7 @@ class AiAutoScriptingActionTest {
 
     @Test
     void tokenMetricsIgnoreToolDataAndAcceptExplicitUsage() throws Exception {
-        Class<?> type = nestedClass("AiRunOutput");
+        Class<?> type = AiRunOutput.class;
         var constructor = type.getDeclaredConstructor();
         constructor.setAccessible(true);
         Object output = constructor.newInstance();
@@ -114,7 +114,7 @@ class AiAutoScriptingActionTest {
 
     @Test
     void piFullRepairWithoutCompletionStatusIsBlocked() throws Exception {
-        Class<?> type = nestedClass("AiRunOutput");
+        Class<?> type = AiRunOutput.class;
         var constructor = type.getDeclaredConstructor();
         constructor.setAccessible(true);
         Object output = constructor.newInstance();
@@ -723,7 +723,7 @@ class AiAutoScriptingActionTest {
     }
 
     private static Object capturedOutput(String... lines) throws Exception {
-        Class<?> outputClass = Class.forName(AiAutoScriptingAction.class.getName() + "$AiRunOutput");
+        Class<?> outputClass = AiRunOutput.class;
         Constructor<?> constructor = outputClass.getDeclaredConstructor();
         constructor.setAccessible(true);
         Object output = constructor.newInstance();

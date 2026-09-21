@@ -77,7 +77,8 @@ class AiModelCatalogTest {
 
     private static List<String> fixtureCommand(String action) throws Exception {
         return List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-cp", Path.of(CatalogProcess.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString(), CatalogProcess.class.getName(), action);
+                "-cp", Path.of(CatalogProcess.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString(),
+                CatalogProcess.class.getName(), action);
     }
 
     public static class CatalogProcess {
