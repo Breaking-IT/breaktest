@@ -55,7 +55,6 @@ import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 import org.apache.jmeter.JMeter;
-import org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge;
 import org.apache.jmeter.engine.util.TestElementPropertyTransformer;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollectorHelper;
@@ -400,16 +399,9 @@ public class SaveService {
         }
     }
 
-    @SuppressWarnings("deprecation") // Recognize legacy elements specifically to retire them on save.
     private static HashTree cloneAndNormalizeTree(HashTree tree) {
         ListedHashTree result = new ListedHashTree();
         for (Object node : tree.list()) {
-            if (node instanceof BreakTestAiKnowledge) {
-                // Load legacy notes for compatibility, but never persist them again.
-                // Retain any child elements and their order without changing the live tree.
-                result.add(cloneAndNormalizeTree(tree.getTree(node)));
-                continue;
-            }
             Object serializableNode = node;
             if (node instanceof TestElement element) {
                 TestElement clonedElement = (TestElement) element.clone();
