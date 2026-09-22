@@ -26,7 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JMenuItem;
 import javax.swing.JTree;
@@ -185,6 +187,7 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
         groupNode.add(new JMeterTreeNode(module, treeModel));
         TestFragmentController fragment = new TestFragmentController();
         fragment.setName("Shared fragment");
+        fragment.setEnabled(false);
         JMeterTreeNode fragmentNode = new JMeterTreeNode(fragment, treeModel);
         root.add(fragmentNode);
         module.setSelectedNode(fragmentNode);
@@ -226,6 +229,7 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
         moduleController.setName("Shared module");
         TestFragmentController fragment = new TestFragmentController();
         fragment.setName("Shared fragment");
+        fragment.setEnabled(false);
         DebugSampler sampler = new DebugSampler();
         sampler.setName("Shared request");
 
@@ -309,6 +313,153 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
         assertNull(SampleResultNodeResolver.findForNavigation(orphan));
         assertFalse(ViewResultsFullVisualizer.createJumpToMenuItem(orphan).isEnabled());
         assertNull(SampleResultNodeResolver.findForNavigation(null));
+    }
+
+    @Test
+    public void jumpToKeepsFailedResultLinkedAfterRenameAndMove() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        JMeterTreeListener listener = new JMeterTreeListener(treeModel);
+        JTree testPlanTree = new JTree(treeModel);
+        listener.setJTree(testPlanTree);
+        GuiPackage.initInstance(listener, treeModel);
+        JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName("GET /api/users");
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        root.add(samplerNode);
+        SampleResult result = replayResult("error");
+        result.setSuccessful(false);
+        SampleResult child = new SampleResult();
+        child.setSampleLabel("redirect");
+        result.addSubResult(child, false);
+
+        SampleResultNodeResolver.rememberNavigationTargets(result);
+        sampler.setName("Renamed request");
+        ThreadGroup group = new ThreadGroup();
+        group.setName("Moved group");
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+        root.add(groupNode);
+        groupNode.add(samplerNode);
+        DebugSampler replacement = new DebugSampler();
+        replacement.setName(result.getSampleLabel());
+        root.add(new JMeterTreeNode(replacement, treeModel));
+
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(result));
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(child));
+        assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+        SwingUtilities.invokeAndWait(() -> ViewResultsFullVisualizer.createJumpToMenuItem(result).doClick());
+        assertSame(samplerNode, testPlanTree.getLastSelectedPathComponent());
+
+        samplerNode.removeFromParent();
+        assertFalse(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled(),
+                "Deleted targets must not resolve to a different sampler with the old name");
+    }
+
+    @Test
+    public void jumpToRetriesResultsThatInitiallyHaveNoTarget() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        SampleResult result = replayResult("error");
+        SampleResultNodeResolver.rememberNavigationTargets(result);
+        assertFalse(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName(result.getSampleLabel());
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(samplerNode);
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(result));
+    }
+
+    @Test
+    public void jumpToUsesEnabledDuplicateThreadGroupAndSiblingOccurrences() {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+        JMeterTreeNode expected = null;
+        for (boolean enabled : new boolean[] {false, true}) {
+            ThreadGroup group = new ThreadGroup();
+            group.setName("SHP_W01_Buy3Ticket");
+            group.setEnabled(enabled);
+            JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+            root.add(groupNode);
+            for (String name : new String[] {"Earlier transaction", "SHP_W01_13_NaarAfrekenen"}) {
+                TransactionController transaction = new TransactionController();
+                transaction.setName(name);
+                JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, treeModel);
+                groupNode.add(transactionNode);
+                for (int i = 0; i < 3; i++) {
+                    DebugSampler sampler = new DebugSampler();
+                    sampler.setName("/api/v1/productorder/verify");
+                    sampler.setEnabled(i != 0);
+                    JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+                    transactionNode.add(samplerNode);
+                    if (enabled && i == 2) {
+                        expected = samplerNode;
+                    }
+                }
+            }
+        }
+        SampleResult result = new SampleResult();
+        result.setSampleLabel("/api/v1/productorder/verify");
+        result.setThreadName("SHP_W01_Buy3Ticket 1-1");
+        result.setSourceTestElementPath(java.util.List.of(
+                new SampleResult.TestElementPathEntry(ThreadGroup.class.getName(), "SHP_W01_Buy3Ticket", 0),
+                new SampleResult.TestElementPathEntry(
+                        TransactionController.class.getName(), "SHP_W01_13_NaarAfrekenen", 0),
+                new SampleResult.TestElementPathEntry(DebugSampler.class.getName(), result.getSampleLabel(), 1)));
+
+        assertSame(expected, SampleResultNodeResolver.find(result));
+        assertSame(expected, SampleResultNodeResolver.findForNavigation(result));
+        assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+    }
+
+    @Test
+    public void refreshDoesNotRetryUnresolvedBufferedResults() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        AtomicInteger lookups = new AtomicInteger();
+        SampleResult unresolved = new SampleResult() {
+            @Override
+            public List<TestElementPathEntry> getSourceTestElementPath() {
+                lookups.incrementAndGet();
+                return super.getSourceTestElementPath();
+            }
+        };
+        unresolved.setSampleLabel("unresolved redirect");
+        SampleResult parent = new SampleResult();
+        parent.setSampleLabel("unresolved parent");
+        parent.addSubResult(unresolved, false);
+        var refresh = ViewResultsFullVisualizer.class.getDeclaredMethod("updateGui");
+        refresh.setAccessible(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                visualizer.add(parent);
+                visualizer.add(new SampleResult());
+                refresh.invoke(visualizer);
+                assertEquals(1, lookups.get());
+                for (int i = 0; i < 5; i++) {
+                    visualizer.add(new SampleResult());
+                    refresh.invoke(visualizer);
+                }
+                assertEquals(1, lookups.get(), "Refreshes must not retry old unresolved subresults");
+
+                DebugSampler sampler = new DebugSampler();
+                sampler.setName(unresolved.getSampleLabel());
+                JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+                ((JMeterTreeNode) treeModel.getRoot()).add(samplerNode);
+                assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(unresolved));
+                assertEquals(2, lookups.get(), "Explicit navigation must still retry an unresolved result");
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
     }
 
     private static SampleResult replayResult(String body) throws Exception {
