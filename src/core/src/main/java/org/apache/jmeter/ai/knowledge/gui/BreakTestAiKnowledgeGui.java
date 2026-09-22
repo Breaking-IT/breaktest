@@ -18,27 +18,24 @@
 package org.apache.jmeter.ai.knowledge.gui;
 
 import java.awt.BorderLayout;
-import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge;
 import org.apache.jmeter.config.gui.AbstractConfigGui;
-import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
-import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
- * GUI for project-local AI scripting knowledge stored in the JMX.
+ * Compatibility display for legacy knowledge nodes. Repairs no longer use these notes.
  */
-@GUIMenuSortOrder(20)
-@TestElementMetadata(labelResource = "breaktest_ai_knowledge_title", actionGroups = MenuFactory.CONFIG_ELEMENTS)
+@TestElementMetadata(labelResource = "breaktest_ai_knowledge_title", actionGroups = "")
 public class BreakTestAiKnowledgeGui extends AbstractConfigGui {
     private static final long serialVersionUID = 1L;
 
@@ -55,21 +52,25 @@ public class BreakTestAiKnowledgeGui extends AbstractConfigGui {
 
     @Override
     public Collection<String> getMenuCategories() {
-        return Arrays.asList(MenuFactory.CONFIG_ELEMENTS);
+        return Collections.emptyList(); // Legacy files remain loadable, but this element cannot be added from menus.
     }
 
     @Override
+    @SuppressWarnings("deprecation")
     public void configure(TestElement element) {
         super.configure(element);
-        if (element instanceof BreakTestAiKnowledge knowledge) {
-            knowledgeJson.setText(knowledge.getKnowledgeJson());
-        } else {
-            knowledgeJson.setText(BreakTestAiKnowledge.DEFAULT_JSON);
-        }
+        knowledgeJson.setText(element instanceof BreakTestAiKnowledge knowledge ? knowledge.getKnowledgeJson() : "");
         knowledgeJson.setCaretPosition(0);
     }
 
     @Override
+    public void clearGui() {
+        super.clearGui();
+        knowledgeJson.setText("");
+    }
+
+    @Override
+    @SuppressWarnings("deprecation") // Required by the GUI loader for existing JMX elements.
     public TestElement createTestElement() {
         BreakTestAiKnowledge element = new BreakTestAiKnowledge();
         modifyTestElement(element);
@@ -79,16 +80,7 @@ public class BreakTestAiKnowledgeGui extends AbstractConfigGui {
     @Override
     public void modifyTestElement(TestElement element) {
         super.configureTestElement(element);
-        if (element instanceof BreakTestAiKnowledge knowledge) {
-            knowledge.setKnowledgeJson(knowledgeJson.getText());
-        }
-    }
-
-    @Override
-    public void clearGui() {
-        super.clearGui();
-        knowledgeJson.setText(BreakTestAiKnowledge.DEFAULT_JSON);
-        knowledgeJson.setCaretPosition(0);
+        // Preserve the stored JSON unchanged when a legacy node is selected or saved.
     }
 
     private void init() {
@@ -98,6 +90,7 @@ public class BreakTestAiKnowledgeGui extends AbstractConfigGui {
 
         JPanel body = new JPanel(new BorderLayout(0, 6));
         body.add(new JLabel(JMeterUtils.getResString("breaktest_ai_knowledge_description")), BorderLayout.NORTH);
+        knowledgeJson.setEditable(false);
         body.add(JTextScrollPane.getInstance(knowledgeJson), BorderLayout.CENTER);
         add(body, BorderLayout.CENTER);
     }

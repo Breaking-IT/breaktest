@@ -24,8 +24,11 @@ import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.NonTestElement;
 
 /**
- * Stores project-local AI scripting learnings inside the test plan.
+ * Loads legacy project notes. AI repair does not use this element and saving removes it.
+ *
+ * @deprecated Retained only for loading existing JMX files.
  */
+@Deprecated
 public class BreakTestAiKnowledge extends AbstractTestElement implements NonTestElement, NoThreadClone, Serializable {
     private static final long serialVersionUID = 1L;
 
