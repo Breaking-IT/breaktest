@@ -38,6 +38,7 @@ final class CsvFileEditor {
     private final Charset charset;
     private final String content;
     private final byte[] prefix;
+    private boolean newFile;
 
     private CsvFileEditor(Path path, Charset charset, String content, byte[] prefix) {
         this.path = path;
@@ -74,6 +75,12 @@ final class CsvFileEditor {
         try (var input = Files.newInputStream(path)) {
             return fromBytes(path, encoding, readEditableContent(input));
         }
+    }
+
+    static CsvFileEditor create(Path path, String encoding) throws IOException {
+        CsvFileEditor file = fromBytes(path, encoding, new byte[0]);
+        file.newFile = true;
+        return file;
     }
 
     static CsvFileEditor fromBytes(Path path, String encoding, byte[] original) throws IOException {
@@ -136,7 +143,9 @@ final class CsvFileEditor {
     }
 
     void save(String updatedContent) throws IOException {
-        Files.write(path, encode(updatedContent), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+        Files.write(path, encode(updatedContent), StandardOpenOption.WRITE,
+                newFile ? StandardOpenOption.CREATE_NEW : StandardOpenOption.TRUNCATE_EXISTING);
+        newFile = false;
     }
 
     byte[] encode(String updatedContent) throws IOException {

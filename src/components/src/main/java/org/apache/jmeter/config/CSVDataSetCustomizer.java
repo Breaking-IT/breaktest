@@ -38,6 +38,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.ResourceBundle;
@@ -137,24 +138,10 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
             saveGuiFields();
             try {
                 CSVDataSet csv = createCsvDataSet();
-                if (csv.isUseCsvFromArchive()) {
-                    CsvFileEditor.checkEditableSize(csv.readCsvContent().length);
+                LoadedEditor loaded = loadEditor(csv, bundle);
+                if (loaded == null) {
+                    return;
                 }
-                Callable<InputStream> source = csvInput(csv);
-                Path path = csv.isUseCsvFromArchive()
-                        ? Path.of(csv.getCsvArchiveEntry().isEmpty()
-                                ? CsvArchiveSupport.entryName(csv.getFilename()) : csv.getCsvArchiveEntry())
-                        : csv.resolveCsvFile();
-                LoadedEditor loaded = loadInBackground(editButton.getText(), () -> {
-                    if (!csv.isUseCsvFromArchive()) {
-                        CsvFileEditor.checkEditableSize(Files.size(path));
-                    }
-                    try (InputStream input = source.call()) {
-                        CsvFileEditor file = CsvFileEditor.fromBytes(path, csv.getFileEncoding(),
-                                CsvFileEditor.readEditableContent(input));
-                        return new LoadedEditor(file, file.getEditorText());
-                    }
-                });
                 showEditor(loaded.file(), loaded.text(), csv, bundle, previewButton);
             } catch (IOException | RuntimeException ex) {
                 JOptionPane.showMessageDialog(this, ex.getMessage(), bundle.getString("editCsv.error"),
@@ -225,7 +212,63 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
         return () -> Files.newInputStream(path);
     }
 
-    private record LoadedEditor(CsvFileEditor file, String text) {
+    LoadedEditor loadEditor(CSVDataSet csv, ResourceBundle bundle) throws IOException {
+        if (csv.getFilename().isBlank()) {
+            throw new IllegalArgumentException("Filename must not be empty");
+        }
+        String archiveEntry = csv.isUseCsvFromArchive() ? csv.archiveEntry() : "";
+        Path path = csv.isUseCsvFromArchive()
+                ? Path.of(ArchiveFiles.entryName(archiveEntry))
+                : csv.resolveCsvFile();
+        Callable<InputStream> source;
+        if (csv.isUseCsvFromArchive()) {
+            // Offer creation only for an entry the archive does not hold. One that exists but
+            // cannot be read must surface its own error instead, so accepting the prompt can
+            // never replace real content with an empty file.
+            if (CsvArchiveSupport.isAbsent(archiveEntry, csv.getCsvArchiveChecksum())) {
+                return createEditor(path, csv, bundle, missingMessage(bundle, path));
+            }
+            byte[] content = csv.readCsvContent();
+            CsvFileEditor.checkEditableSize(content.length);
+            source = () -> new ByteArrayInputStream(content);
+        } else {
+            if (Files.notExists(path)) {
+                return createEditor(path, csv, bundle, missingMessage(bundle, path));
+            }
+            source = () -> Files.newInputStream(path);
+        }
+        return loadInBackground(bundle.getString("editCsv.displayName"), () -> {
+            if (!csv.isUseCsvFromArchive()) {
+                CsvFileEditor.checkEditableSize(Files.size(path));
+            }
+            try (InputStream input = source.call()) {
+                CsvFileEditor file = CsvFileEditor.fromBytes(path, csv.getFileEncoding(),
+                        CsvFileEditor.readEditableContent(input));
+                return new LoadedEditor(file, file.getEditorText());
+            }
+        });
+    }
+
+    private static String missingMessage(ResourceBundle bundle, Path path) {
+        return MessageFormat.format(bundle.getString("editCsv.missing"), path);
+    }
+
+    private LoadedEditor createEditor(Path path, CSVDataSet csv, ResourceBundle bundle, String message)
+            throws IOException {
+        if (!confirmCreateCsv(message, bundle)) {
+            return null;
+        }
+        CsvFileEditor file = CsvFileEditor.create(path, csv.getFileEncoding());
+        return new LoadedEditor(file, file.getEditorText());
+    }
+
+    boolean confirmCreateCsv(String message, ResourceBundle bundle) {
+        return JOptionPane.showConfirmDialog(this, message + "\n\n" + bundle.getString("editCsv.create"),
+                bundle.getString("editCsv.displayName"), JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+    }
+
+    record LoadedEditor(CsvFileEditor file, String text) {
     }
 
     <T> T loadInBackground(String title, Callable<T> operation) throws IOException {

@@ -35,6 +35,25 @@ class CsvFileEditorTest {
     Path directory;
 
     @Test
+    void newFileIsCreatedOnlyOnSaveAndUsesConfiguredEncoding() throws Exception {
+        Path path = directory.resolve("new.csv");
+        CsvFileEditor file = CsvFileEditor.create(path, "UTF-16LE");
+        assertEquals("", file.getEditorText());
+        org.junit.jupiter.api.Assertions.assertFalse(Files.exists(path));
+        file.save(file.toFileText("name,value\nAndré,1\n"));
+        assertEquals("name,value\nAndré,1\n", Files.readString(path, StandardCharsets.UTF_16LE));
+    }
+
+    @Test
+    void newFileDoesNotOverwriteAFileCreatedWhileEditing() throws Exception {
+        Path path = directory.resolve("new.csv");
+        CsvFileEditor file = CsvFileEditor.create(path, "UTF-8");
+        Files.writeString(path, "other content");
+        assertThrows(java.nio.file.FileAlreadyExistsException.class, () -> file.save("new content"));
+        assertEquals("other content", Files.readString(path));
+    }
+
+    @Test
     void editorSizeLimitRejectsOversizedFilesBeforeReading() throws Exception {
         long limit = CsvFileEditor.maxEditableBytes();
         CsvFileEditor.checkEditableSize(limit);

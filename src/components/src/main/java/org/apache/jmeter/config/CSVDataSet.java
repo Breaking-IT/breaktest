@@ -294,7 +294,8 @@ public class CSVDataSet extends ConfigTestElement
         setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, checksum);
     }
 
-    private String archiveEntry() {
+    // Package-private so the customizer can ask about the very entry a read would use.
+    String archiveEntry() {
         return getCsvArchiveEntry().isEmpty()
                 ? CsvArchiveSupport.entryName(getFilename()) : getCsvArchiveEntry();
     }
