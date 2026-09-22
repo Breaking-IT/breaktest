@@ -30,6 +30,7 @@ import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
@@ -51,6 +52,36 @@ class BreakTestAgentGuiServiceTest {
         val field: Field = GuiPackage::class.java.getDeclaredField("guiPack")
         field.isAccessible = true
         field.set(null, null)
+    }
+
+    @Test
+    fun `HTTP2 pseudo headers do not become csrf values while multiline body values remain`() {
+        for (newline in listOf("\n", "\r\n")) {
+            val request = listOf(
+                "POST /api/csrf HTTP/2", ":path: /api/csrf", ":scheme: https", ":authority: example.test",
+                "X-CSRF-Token: real-csrf-value", "", "{\"paymentToken\":", "\"payment-real-value\"}",
+            ).joinToString(newline)
+            val candidates = invokePrivateResult("harRequestCandidates", request) as List<*>
+            val literals = candidates.map { ObjectMapper().valueToTree<JsonNode>(it).path("literal").asText() }
+            assertFalse(literals.contains("scheme:"))
+            assertFalse(literals.contains("authority:"))
+            assertTrue(literals.contains("real-csrf-value"))
+            assertTrue(literals.contains("payment-real-value"))
+        }
+    }
+
+    @Test
+    fun `planner includes csrf and conditional cache headers with response evidence`() {
+        val request = "GET /api HTTP/1.1\r\nX-CSRF-Token: csrf-rotating-value\r\nIf-None-Match: \"etag-value-123\"\r\n\r\n"
+        val candidates = invokePrivateResult("harRequestCandidates", request) as List<*>
+        val mapper = ObjectMapper()
+        val etag = candidates.first { mapper.valueToTree<JsonNode>(it).path("kind").asText() == "cache-validator" }!!
+        val csrf = candidates.first { mapper.valueToTree<JsonNode>(it).path("kind").asText() == "csrf-token" }!!
+        val response = "HTTP/1.1 200 OK\r\nETag: \"etag-value-123\"\r\nX-CSRF-Token: csrf-rotating-value\r\n\r\n{}"
+        for ((candidate, value) in listOf(etag to "etag-value-123", csrf to "csrf-rotating-value")) {
+            val regex = invokePrivateResult("regexForHarCandidate", response, candidate, value, response.indexOf(value)) as String
+            assertEquals(value, AgentRegexSupport.oroFirstCapture(regex, response))
+        }
     }
 
     @Test

@@ -35,10 +35,20 @@ final class AiEngineDescription {
     }
 
     static String describe(String toolId, String displayName) {
+        return describe(toolId, displayName, null);
+    }
+
+    static String describe(String toolId, String displayName, String thinkingOverride) {
+        return describe(toolId, displayName, thinkingOverride, null);
+    }
+
+    static String describe(String toolId, String displayName, String thinkingOverride, String modelOverride) {
         String normalizedToolId = toolId.toLowerCase(Locale.ROOT);
         String prefix = "breaktest." + normalizedToolId;
-        String model = JMeterUtils.getProperty(prefix + ".model");
-        String modelSource = model != null && !model.isBlank() ? prefix + ".model property" : null;
+        boolean override = modelOverride != null && !modelOverride.isBlank();
+        String model = override ? modelOverride : JMeterUtils.getProperty(prefix + ".model");
+        String modelSource = override ? "requested for this run"
+                : model != null && !model.isBlank() ? prefix + ".model property" : null;
         String reasoning = null;
         String fastMode = null;
         File home = new File(System.getProperty("user.home"));
@@ -83,14 +93,14 @@ final class AiEngineDescription {
                 model = settings.get("defaultModel").asText();
                 modelSource = piSettingsSource();
             }
-            if (model != null && !model.isBlank() && !model.contains("/")
-                    && provider != null && !provider.isBlank()) {
+            if (!override && model != null && !model.isBlank() && provider != null && !provider.isBlank()
+                    && !model.startsWith(provider + "/")) {
                 model = provider + "/" + model;
             }
             reasoning = JMeterUtils.getProperty("breaktest.pi.thinking");
             if ((reasoning == null || reasoning.isBlank())
-                    && settings != null && settings.hasNonNull("defaultThinkingLevel")) {
-                reasoning = settings.get("defaultThinkingLevel").asText();
+                    && settings != null) {
+                reasoning = piThinkingSetting(settings, model);
             }
         } else if ("gemini".equals(normalizedToolId)) {
             JsonNode settings = readJsonFile(new File(geminiHome(home), "settings.json"));
@@ -102,10 +112,19 @@ final class AiEngineDescription {
                 }
             }
         }
+        if (thinkingOverride != null && !thinkingOverride.isBlank()) {
+            reasoning = thinkingOverride + " [requested for this run]";
+        }
         return description(displayName, model, modelSource, reasoning, fastMode);
     }
 
-    private static File geminiHome(File home) {
+    static String piThinkingSetting(JsonNode settings, String model) {
+        JsonNode perModel = model == null ? null : settings.path("modelThinkingLevels").get(model);
+        return perModel != null && perModel.isTextual() && !perModel.asText().isBlank()
+                ? perModel.asText() : settings.path("defaultThinkingLevel").asText(null);
+    }
+
+    static File geminiHome(File home) {
         String configured = System.getenv("GEMINI_CLI_HOME");
         File root = configured == null || configured.isBlank() ? home : new File(configured);
         return new File(root, ".gemini");
@@ -118,7 +137,7 @@ final class AiEngineDescription {
                 : "GEMINI_CLI_HOME/.gemini/settings.json";
     }
 
-    private static File piHome(File home) {
+    static File piHome(File home) {
         String configured = System.getenv("PI_CODING_AGENT_DIR");
         if (configured != null && !configured.isBlank()) {
             return new File(configured);
@@ -133,7 +152,7 @@ final class AiEngineDescription {
                 : "PI_CODING_AGENT_DIR/settings.json";
     }
 
-    private static File copilotHome(File home) {
+    static File copilotHome(File home) {
         String configured = System.getenv("COPILOT_HOME");
         if (configured != null && !configured.isBlank()) {
             return new File(configured);
@@ -185,7 +204,7 @@ final class AiEngineDescription {
         return text.toString();
     }
 
-    private static Map<String, String> readTopLevelToml(File file) {
+    static Map<String, String> readTopLevelToml(File file) {
         Map<String, String> values = new HashMap<>();
         if (!file.isFile()) {
             return values;
@@ -208,7 +227,7 @@ final class AiEngineDescription {
         return values;
     }
 
-    private static JsonNode readJsonFile(File file) {
+    static JsonNode readJsonFile(File file) {
         if (!file.isFile()) {
             return null;
         }

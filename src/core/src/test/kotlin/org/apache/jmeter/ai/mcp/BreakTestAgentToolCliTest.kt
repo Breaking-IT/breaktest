@@ -25,6 +25,34 @@ import java.nio.file.Path
 
 class BreakTestAgentToolCliTest {
     @Test
+    fun `assertion batch embeds the complete single assertion schema`() {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val tools = mapper.readTree(
+            BreakTestAgentMcpServer.toolsListForCli(
+                listOf("add_response_assertions_open_plan", "add_response_assertion_open_plan")
+            )
+        ).path("tools")
+        val batch = tools[0].path("inputSchema").path("properties")
+        assertEquals(tools[1].path("inputSchema"), batch.path("assertions").path("items"))
+        assertEquals("boolean", batch.path("compact").path("type").asText())
+    }
+
+    @Test
+    fun `named schemas omit unrelated tools and reject unknown names`() {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val packet = mapper.readTree(BreakTestAgentMcpServer.toolsListForCli(listOf("validate_open_plan", "apply_repair_actions_open_plan")))
+        assertEquals(2, packet.path("tools").size())
+        for (retired in listOf("get_ai_knowledge_open_plan", "update_ai_knowledge_open_plan")) {
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+                BreakTestAgentMcpServer.toolsListForCli(listOf(retired))
+            }
+        }
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            BreakTestAgentMcpServer.toolsListForCli(listOf("not_a_tool"))
+        }
+    }
+
+    @Test
     fun readsComplexJsonFromArgumentsFileUnderPathWithSpaces(@TempDir temp: Path) {
         val argumentsFile = temp.resolve("agent arguments.json")
         val json = """{"regex":"token\\s*=\\s*\"([^\"]+)\"","path":"C:\\Test Plan\\$1"}"""

@@ -121,6 +121,10 @@ public class AgentDynamicValueAnalyzer(
         visitedElements: IdentityHashMap<TestElement, Boolean>,
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
     ) {
+        // Recording identifiers and cached exchanges are provenance, never transmitted request values.
+        if (property.name.startsWith("BreakTest.recording.") || property.name.startsWith("BreakTest.har.") ||
+            property.name in METADATA_PROPERTIES
+        ) return
         if (visitedProperties.put(property, true) != null) {
             return
         }
@@ -298,7 +302,7 @@ public class AgentDynamicValueAnalyzer(
 
     private fun String.isCandidateToken(kind: String): Boolean =
         length >= (if (kind == "numeric-id") 4 else 8) &&
-            !contains("__") &&
+            !contains("__") && !contains("\${") &&
             LOW_VALUE_TOKENS.none { contains(it, ignoreCase = true) } &&
             !startsWith("http", ignoreCase = true)
 
@@ -387,6 +391,7 @@ public class AgentDynamicValueAnalyzer(
     }
 
     private companion object {
+        val METADATA_PROPERTIES = setOf(TestElement.NAME, TestElement.COMMENTS, TestElement.GUI_CLASS, TestElement.TEST_CLASS)
         val UUID_REGEX: Regex =
             Regex("""(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b""")
         val EPOCH_MS_REGEX: Regex = Regex("""(?<!\d)1[6-9]\d{11}(?!\d)""")

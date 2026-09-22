@@ -18,6 +18,9 @@
 package org.apache.jmeter.ai.gui
 
 import org.apache.jmeter.gui.GuiPackage
+import org.apache.jmeter.gui.action.ActionNames
+import org.apache.jmeter.gui.action.ActionRouter
+import org.apache.jmeter.gui.action.KeyStrokes
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.EscapeDialog
 import org.apache.jorphan.gui.JFactory
@@ -25,13 +28,16 @@ import java.awt.BorderLayout
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Insets
+import java.awt.event.ActionEvent
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.swing.AbstractAction
 import javax.swing.BorderFactory
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JProgressBar
@@ -294,6 +300,18 @@ public object AiAutoScriptingLogWindow {
                 },
                 BorderLayout.CENTER,
             )
+        }
+        val clearAll = object : AbstractAction() {
+            override fun actionPerformed(event: ActionEvent) {
+                ActionRouter.getInstance().doActionNow(ActionEvent(event.source, event.id, ActionNames.CLEAR_ALL))
+            }
+        }
+        // Keep Clear All available in the detached log and override text/table editing bindings.
+        panel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStrokes.CLEAR_ALL, ActionNames.CLEAR_ALL)
+        panel.actionMap.put(ActionNames.CLEAR_ALL, clearAll)
+        for (component in listOf(ensureTextArea(), ensureChangeTable())) {
+            component.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStrokes.CLEAR_ALL, ActionNames.CLEAR_ALL)
+            component.actionMap.put(ActionNames.CLEAR_ALL, clearAll)
         }
         contentPanel = panel
         return panel

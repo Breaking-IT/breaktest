@@ -28,6 +28,10 @@ final class CursorAgentCommand {
     }
 
     static List<String> build(String prompt, File workingDirectory) {
+        return build(prompt, workingDirectory, "");
+    }
+
+    static List<String> build(String prompt, File workingDirectory, String modelOverride) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.cursor.command", "cursor-agent"));
         command.add("--print");
@@ -41,7 +45,8 @@ final class CursorAgentCommand {
         command.add("--workspace");
         command.add(workingDirectory.getAbsoluteFile().toPath().normalize().toString());
 
-        String model = JMeterUtils.getProperty("breaktest.cursor.model");
+        String model = modelOverride == null || modelOverride.isBlank()
+                ? JMeterUtils.getProperty("breaktest.cursor.model") : modelOverride;
         if (model != null && !model.isBlank()) {
             command.add("--model");
             command.add(model);
