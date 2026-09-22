@@ -151,22 +151,33 @@ public class TransactionSampler extends AbstractSampler {
             if (end == 0) {
                 end = transactionSampleResult.currentTimeInMillis();
             }
-            transactionSampleResult.setIdleTime(getMergedTimerPauseTime());
+            // Only pauses inside [start, end] count: a trailing timer (e.g. a Flow Control Action
+            // think time as last child) runs after the last sub-result, which set the end time
+            transactionSampleResult.setIdleTime(
+                    getMergedTimerPauseTime(transactionSampleResult.getStartTime(), end));
             transactionSampleResult.setEndTime(end);
         }
         transactionSampleResult.setConnectTime(totalConnectTime);
     }
 
-    private long getMergedTimerPauseTime() {
-        if (timerPauses.isEmpty()) {
+    private long getMergedTimerPauseTime(long windowStart, long windowEnd) {
+        List<long[]> clamped = new ArrayList<>(timerPauses.size());
+        for (long[] interval : timerPauses) {
+            long start = Math.max(interval[0], windowStart);
+            long end = Math.min(interval[1], windowEnd);
+            if (end > start) {
+                clamped.add(new long[] { start, end });
+            }
+        }
+        if (clamped.isEmpty()) {
             return 0;
         }
-        timerPauses.sort(Comparator.comparingLong(interval -> interval[0]));
+        clamped.sort(Comparator.comparingLong(interval -> interval[0]));
         long pause = 0;
-        long currentStart = timerPauses.get(0)[0];
-        long currentEnd = timerPauses.get(0)[1];
-        for (int i = 1; i < timerPauses.size(); i++) {
-            long[] interval = timerPauses.get(i);
+        long currentStart = clamped.get(0)[0];
+        long currentEnd = clamped.get(0)[1];
+        for (int i = 1; i < clamped.size(); i++) {
+            long[] interval = clamped.get(i);
             if (interval[0] <= currentEnd) {
                 currentEnd = Math.max(currentEnd, interval[1]);
             } else {
