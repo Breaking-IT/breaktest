@@ -20,7 +20,9 @@ package org.apache.jmeter.gui.action;
 import java.awt.event.ActionEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -35,6 +37,7 @@ import org.apache.jmeter.engine.TreeClonerNoTimer;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.validation.TreeClonerForValidation;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.testelement.TestElement;
@@ -95,6 +98,7 @@ public class Start extends AbstractAction {
     }
 
     private StandardJMeterEngine engine;
+    private static AbstractThreadGroup[] lastValidationThreadGroups = new AbstractThreadGroup[0];
     private static volatile AbstractThreadGroup[] activeValidationThreadGroups;
 
     /**
@@ -121,6 +125,14 @@ public class Start extends AbstractAction {
      */
     public static AbstractThreadGroup[] getActiveValidationThreadGroups() {
         return activeValidationThreadGroups == null ? null : activeValidationThreadGroups.clone();
+    }
+
+    /**
+     * Release remembered validation targets when the GUI clears or replaces its test plan.
+     */
+    public static void clearValidationThreadGroups() {
+        lastValidationThreadGroups = new AbstractThreadGroup[0];
+        activeValidationThreadGroups = null;
     }
 
     /**
@@ -166,11 +178,7 @@ public class Start extends AbstractAction {
                 || e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
             boolean noTimers = e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS);
             boolean isValidation = e.getActionCommand().equals(ActionNames.VALIDATE_TG);
-            // Validation runs from the in-memory tree. Rewriting an existing JMX
-            // archive here only blocks the EDT, particularly when recordings are
-            // embedded. Keep the prompt for a new plan so relative paths still
-            // get a base directory.
-            if (!isValidation || GuiPackage.getInstance().getTestPlanFile() == null) {
+            if (!isValidation) {
                 popupShouldSave(e);
             }
             RunMode runMode = null;
@@ -189,16 +197,64 @@ public class Start extends AbstractAction {
             } else {
                 JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
                 nodes = treeListener.getSelectedNodes();
-                nodes = Copy.keepOnlyAncestors(nodes);
-                tg = keepOnlyThreadGroups(nodes);
+                if (isValidation) {
+                    tg = findValidationThreadGroups(nodes);
+                } else {
+                    nodes = Copy.keepOnlyAncestors(nodes);
+                    tg = keepOnlyThreadGroups(nodes);
+                }
             }
-            if((hasExplicitThreadGroups && tg != null && tg.length > 0) || (!hasExplicitThreadGroups && nodes.length > 0)) {
+            if (isValidation) {
+                tg = resolveValidationThreadGroups(tg,
+                        hasExplicitThreadGroups ? new AbstractThreadGroup[0] : lastValidationThreadGroups,
+                        GuiPackage.getInstance().getTreeModel());
+                if (tg.length == 0) {
+                    JMeterUtils.reportErrorToUser("Select a thread group to validate first.");
+                    return;
+                }
+                // Resolve the target before prompting to save a new plan for relative paths.
+                // Existing plans can be validated directly from the in-memory tree.
+                if (GuiPackage.getInstance().getTestPlanFile() == null) {
+                    popupShouldSave(e);
+                }
+                startEngine(tg, runMode);
+            } else if((hasExplicitThreadGroups && tg != null && tg.length > 0) || (!hasExplicitThreadGroups && nodes.length > 0)) {
                 startEngine(tg, runMode);
             }
             else {
                 log.warn("No thread group selected the test will not be started");
             }
         }
+    }
+
+    static AbstractThreadGroup[] findValidationThreadGroups(JMeterTreeNode[] selectedNodes) {
+        List<AbstractThreadGroup> groups = new ArrayList<>();
+        Set<AbstractThreadGroup> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (JMeterTreeNode selectedNode : selectedNodes) {
+            for (JMeterTreeNode node = selectedNode; node != null; node = (JMeterTreeNode) node.getParent()) {
+                if (node.getTestElement() instanceof AbstractThreadGroup group) {
+                    // Test elements can compare equal even when they belong to different groups.
+                    if (seen.add(group)) {
+                        groups.add(group);
+                    }
+                    break;
+                }
+            }
+        }
+        return groups.toArray(new AbstractThreadGroup[0]);
+    }
+
+    static AbstractThreadGroup[] resolveValidationThreadGroups(AbstractThreadGroup[] selected,
+            AbstractThreadGroup[] previous, JMeterTreeModel treeModel) {
+        AbstractThreadGroup[] candidates = selected != null && selected.length > 0 ? selected : previous;
+        List<AbstractThreadGroup> available = new ArrayList<>();
+        for (AbstractThreadGroup threadGroup : candidates) {
+            // A deleted group or a group from a previous plan must never turn into a full-plan run.
+            if (treeModel.getNodeOf(threadGroup) != null) {
+                available.add(threadGroup);
+            }
+        }
+        return available.toArray(new AbstractThreadGroup[0]);
     }
 
     /**
@@ -250,6 +306,9 @@ public class Start extends AbstractAction {
             engine.configure(clonedTree);
             try {
                 engine.runTest();
+                if (runMode == RunMode.VALIDATION) {
+                    lastValidationThreadGroups = threadGroupsToRun.clone();
+                }
             } catch (JMeterEngineException e) {
                 JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
                         JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
