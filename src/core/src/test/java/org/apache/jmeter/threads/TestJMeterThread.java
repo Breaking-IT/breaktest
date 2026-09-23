@@ -1622,8 +1622,12 @@ class TestJMeterThread {
     }
 
     @ParameterizedTest
-    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
-    void testStopReportsInterruptedTransactionOnce(boolean startNextLoopOnError, boolean nested)
+    @CsvSource({
+        "false, false, true", "true, false, true", "false, true, true", "true, true, true",
+        "false, false, false", "true, false, false", "false, true, false", "true, true, false"
+    })
+    void testStopReportsInterruptedTransactionOnce(
+            boolean startNextLoopOnError, boolean nested, boolean generateParentSample)
             throws InterruptedException {
         LoopController loop = new LoopController();
         loop.setLoops(2);
@@ -1631,7 +1635,7 @@ class TestJMeterThread {
         loop.setEnabled(true);
         TransactionController transaction = new TransactionController();
         transaction.setName("transaction");
-        transaction.setGenerateParentSample(true);
+        transaction.setGenerateParentSample(generateParentSample);
         InterruptibleFailureSampler sampler = new InterruptibleFailureSampler();
         RecordingSampleListener listener = new RecordingSampleListener("results");
         AtomicInteger subsequentCalls = new AtomicInteger();
@@ -1642,7 +1646,7 @@ class TestJMeterThread {
         if (nested) {
             TransactionController inner = new TransactionController();
             inner.setName("inner-transaction");
-            inner.setGenerateParentSample(true);
+            inner.setGenerateParentSample(generateParentSample);
             transactionTree = transactionTree.add(inner);
         }
         transactionTree.add(sampler);
@@ -1672,6 +1676,22 @@ class TestJMeterThread {
 
         assertEquals(0, subsequentCalls.get(), "Stop must not start another request");
         List<SampleEvent> events = listener.events();
+        if (!generateParentSample) {
+            assertEquals(nested
+                    ? List.of("interrupted-request", "inner-transaction", "transaction")
+                    : List.of("interrupted-request", "transaction"),
+                    events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
+                    "Non-parent mode must report the request and each transaction exactly once");
+            for (SampleEvent event : events) {
+                assertFalse(event.getResult().isSuccessful());
+            }
+            for (SampleEvent event : listener.transactionEvents()) {
+                assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+                        event.getResult().getResponseMessage());
+            }
+            assertEquals(nested ? 2 : 1, listener.transactionEvents().size());
+            return;
+        }
         assertEquals(1, events.size(), "All listeners should receive the interrupted transaction only once");
         SampleResult result = events.get(0).getResult();
         assertEquals("transaction", result.getSampleLabel());
