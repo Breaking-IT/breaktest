@@ -129,6 +129,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     /**
      * Headers the JDK HttpClient refuses to set on a request, plus hop-by-hop headers
      * that are meaningless for HTTP/3 (the HTTP/2 implementation strips the same set).
+     * {@code TE} is the exception when its value is {@code trailers} (RFC 9114 section 4.2).
      */
     private static final Set<String> DISALLOWED_HEADERS = Set.of(
             "connection", //$NON-NLS-1$
@@ -563,7 +564,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             org.apache.jmeter.protocol.http.control.Header header =
                     (org.apache.jmeter.protocol.http.control.Header) jMeterProperty.getObjectValue();
             String name = header.getName();
-            if (StringUtilities.isBlank(name) || DISALLOWED_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+            if (StringUtilities.isBlank(name) || isDisallowedHeader(name, header.getValue())) {
                 continue;
             }
             builder.header(name, header.getValue());
@@ -573,6 +574,14 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
         }
         return hasContentTypeHeader;
+    }
+
+    static boolean isDisallowedHeader(String name, @Nullable String value) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        if ("te".equals(lower) && HTTPHC5H2Impl.isTeTrailers(value)) { //$NON-NLS-1$
+            return false;
+        }
+        return DISALLOWED_HEADERS.contains(lower);
     }
 
     private void setConnectionCookie(HttpRequest.Builder builder, URL url, HTTPSampleResult res) {

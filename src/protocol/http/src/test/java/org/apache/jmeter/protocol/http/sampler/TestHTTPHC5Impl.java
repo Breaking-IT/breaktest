@@ -179,6 +179,24 @@ public class TestHTTPHC5Impl {
     }
 
     @Test
+    public void http2KeepsTeTrailersAndDropsOtherTeValues() throws Exception {
+        HttpGet trailers = new HttpGet(new URI("https://example.test/resource"));
+        trailers.addHeader(HTTPConstants.HEADER_CONNECTION, "keep-alive, TE");
+        trailers.addHeader("te", "trailers");
+
+        HTTPHC5H2Impl.removeHeadersUnsupportedByHttp2(trailers);
+
+        assertEquals("trailers", trailers.getFirstHeader("TE").getValue());
+
+        HttpGet gzip = new HttpGet(new URI("https://example.test/resource"));
+        gzip.addHeader("TE", "trailers, gzip");
+
+        HTTPHC5H2Impl.removeHeadersUnsupportedByHttp2(gzip);
+
+        assertFalse(gzip.containsHeader("TE"));
+    }
+
+    @Test
     public void http2AddsContentLengthForKnownFileEntity() throws Exception {
         Path file = Files.createTempFile("jmeter-http2-content-length", ".txt");
         Files.writeString(file, "body", StandardCharsets.UTF_8);

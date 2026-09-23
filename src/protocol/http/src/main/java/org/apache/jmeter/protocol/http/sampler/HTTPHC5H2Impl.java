@@ -139,6 +139,7 @@ import org.apache.jmeter.util.JsseSSLManager;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -192,8 +193,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             "keep-alive",
             "proxy-connection",
             "transfer-encoding",
-            "upgrade",
-            "te");
+            "upgrade");
+
+    private static final String HEADER_TE = "te";
 
     private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
@@ -1291,7 +1293,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         for (Header connectionHeader : request.getHeaders(HTTPConstants.HEADER_CONNECTION)) {
             for (String token : connectionHeader.getValue().split(",")) {
                 String headerName = token.trim();
-                if (!headerName.isEmpty()) {
+                if (!headerName.isEmpty() && !HEADER_TE.equalsIgnoreCase(headerName)) {
                     request.removeHeaders(headerName);
                 }
             }
@@ -1299,10 +1301,21 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         for (String headerName : HOP_BY_HOP_HEADERS) {
             request.removeHeaders(headerName);
         }
+        // RFC 9113 section 8.2.2: TE is connection-specific, but "TE: trailers" is explicitly
+        // allowed in HTTP/2 (browsers and gRPC clients send it). Drop any other TE value.
+        for (Header te : request.getHeaders(HEADER_TE)) {
+            if (!isTeTrailers(te.getValue())) {
+                request.removeHeader(te);
+            }
+        }
         // HttpClient sets HTTP/2 :authority from the request URI. Replaying a HAR Host
         // header as a regular field creates a duplicate authority signal and some
         // front doors reject it with HTTP 400.
         request.removeHeaders(HEADER_HOST);
+    }
+
+    static boolean isTeTrailers(@Nullable String value) {
+        return value != null && "trailers".equalsIgnoreCase(value.trim());
     }
 
     private static void updateUrlAfterRedirect(HttpClientContext clientContext, HTTPSampleResult res) {
