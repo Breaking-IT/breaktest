@@ -23,7 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
+import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.FocusAdapter;
@@ -34,10 +36,11 @@ import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.DefaultCellEditor;
 import javax.swing.JFrame;
+import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -47,9 +50,11 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import org.apache.jmeter.gui.util.ParameterCompletionCatalog.Suggestion;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.themes.FlatMacLightLaf;
@@ -58,77 +63,177 @@ import com.formdev.flatlaf.util.SystemInfo;
 /** Exercises JTable's actual editing and focus transfer with real Swing focus, without OS key synthesis. */
 @Isolated
 class ParameterCompletionTableTest {
-    @ParameterizedTest
-    @ValueSource(ints = {KeyEvent.VK_ENTER, KeyEvent.VK_TAB})
-    void typingIntoSelectedCellTransfersFocusAndAcceptsCompletion(int acceptKey) throws Exception {
+    private static JFrame frame;
+    private static LookAndFeel originalLookAndFeel;
+
+    @BeforeAll
+    static void openWindow() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless(), "Requires a display for real Swing focus");
-        AtomicReference<JFrame> frame = new AtomicReference<>();
-        AtomicReference<JTable> table = new AtomicReference<>();
-        AtomicReference<JTextField> editor = new AtomicReference<>();
-        AtomicReference<LookAndFeel> originalLookAndFeel = new AtomicReference<>();
-        CountDownLatch tableFocused = new CountDownLatch(1);
-        CountDownLatch editorFocused = new CountDownLatch(1);
-        try {
+        SwingUtilities.invokeAndWait(() -> {
+            originalLookAndFeel = UIManager.getLookAndFeel();
+            assertDoesNotThrow(() -> UIManager.setLookAndFeel(
+                    SystemInfo.isMacOS ? new FlatMacLightLaf() : new FlatLightLaf()));
+            frame = new JFrame("Parameter completion focus test");
+            frame.setSize(400, 200);
+        });
+    }
+
+    @AfterAll
+    static void closeWindow() throws Exception {
+        if (frame != null) {
             SwingUtilities.invokeAndWait(() -> {
-                originalLookAndFeel.set(UIManager.getLookAndFeel());
-                assertDoesNotThrow(() -> UIManager.setLookAndFeel(
-                        SystemInfo.isMacOS ? new FlatMacLightLaf() : new FlatLightLaf()));
-                JTable cells = new JTable(new Object[][] {{""}}, new String[] {"Value"});
-                JTextField field = new JTextField();
-                cells.setDefaultEditor(Object.class, new DefaultCellEditor(field));
-                cells.addFocusListener(focusLatch(tableFocused));
-                field.addFocusListener(focusLatch(editorFocused));
-                ParameterCompletion.install(cells, () -> List.of(Suggestion.variable("username")));
-                JFrame window = new JFrame("Parameter completion table test");
-                frame.set(window);
-                table.set(cells);
-                editor.set(field);
-                window.add(new JScrollPane(cells));
-                window.setSize(400, 200);
-                window.addWindowFocusListener(new WindowAdapter() {
-                    @Override
-                    public void windowGainedFocus(WindowEvent event) {
-                        if (!cells.isEditing()) {
-                            cells.requestFocusInWindow();
-                        }
-                    }
-                });
-                cells.changeSelection(0, 0, false, false);
-                window.setVisible(true);
-                window.toFront();
-                cells.requestFocusInWindow();
+                frame.dispose();
+                assertDoesNotThrow(() -> UIManager.setLookAndFeel(originalLookAndFeel));
             });
-            assertTrue(tableFocused.await(5, TimeUnit.SECONDS), "Table must own real focus before typing");
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"10,false", "9,false", "10,true", "9,true"})
+    void typingIntoSelectedCellTransfersFocusAndAcceptsCompletion(int acceptKey, boolean typeBeforeFocus)
+            throws Exception {
+        try (EditorWindow window = new EditorWindow("", false)) {
+            window.awaitTableFocus();
             SwingUtilities.invokeAndWait(() -> {
-                assertTrue(table.get().isFocusOwner());
+                assertTrue(window.table.isFocusOwner());
                 type('$');
+                if (typeBeforeFocus) {
+                    type('{');
+                    type('u');
+                    assertTrue(window.table.isFocusOwner(), "Exercise typing before focus transfer finishes");
+                }
             });
-            assertTrue(editorFocused.await(5, TimeUnit.SECONDS), "Typing must transfer real focus to the cell editor");
+            window.awaitEditorFocus();
             SwingUtilities.invokeAndWait(() -> {
-                assertTrue(editor.get().isFocusOwner());
-                type('{');
-                type('u');
+                assertTrue(window.editor.isFocusOwner());
+                if (!typeBeforeFocus) {
+                    type('{');
+                    type('u');
+                }
             });
             // Drain the deferred document/caret refresh before checking the real popup and key routing.
             SwingUtilities.invokeAndWait(() -> {
-                assertEquals("${u", editor.get().getText());
+                assertEquals("${u", window.editor.getText());
                 assertTrue(MenuSelectionManager.defaultManager().getSelectedPath().length > 0);
-                assertTrue(editor.get().isFocusOwner());
+                assertTrue(window.editor.isFocusOwner());
                 press(acceptKey);
-                assertEquals("${username}", editor.get().getText());
-                assertTrue(table.get().isEditing(), "Completion must not commit or navigate the cell");
+                assertEquals("${userId}", window.editor.getText());
+                assertTrue(window.table.isEditing(), "Completion must not commit or navigate the cell");
                 assertEquals(0, MenuSelectionManager.defaultManager().getSelectedPath().length);
                 press(KeyEvent.VK_ENTER);
-                assertFalse(table.get().isEditing());
-                assertEquals("${username}", table.get().getValueAt(0, 0));
+                assertFalse(window.table.isEditing());
+                assertEquals("${userId}", window.table.getValueAt(0, 0));
             });
-        } finally {
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"10,false", "9,false", "10,true", "9,true"})
+    void focusingExistingExpressionPreservesTextAndNormalKeys(int key, boolean standalone) throws Exception {
+        try (EditorWindow window = new EditorWindow("${username}", standalone)) {
+            window.awaitTableFocus();
+            AtomicInteger submissions = new AtomicInteger();
+            CountDownLatch editorLostFocus = new CountDownLatch(1);
+            SwingUtilities.invokeAndWait(() -> {
+                window.editor.addActionListener(event -> submissions.incrementAndGet());
+                window.editor.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusGained(FocusEvent event) {
+                        // Position the caret as a click between 'user' and 'name' would.
+                        window.editor.setCaretPosition(6);
+                    }
+
+                    @Override
+                    public void focusLost(FocusEvent event) {
+                        editorLostFocus.countDown();
+                    }
+                });
+                if (!standalone) {
+                    assertTrue(window.table.editCellAt(0, 0));
+                }
+                window.editor.requestFocusInWindow();
+            });
+            window.awaitEditorFocus();
+            SwingUtilities.invokeAndWait(() -> {
+                assertTrue(window.editor.isFocusOwner());
+                assertEquals(6, window.editor.getCaretPosition());
+                assertEquals(0, MenuSelectionManager.defaultManager().getSelectedPath().length,
+                        "Focus alone must not open completion or intercept Enter/Tab");
+                press(key);
+                assertEquals("${username}", window.editor.getText());
+                if (!standalone) {
+                    assertFalse(window.table.isEditing(), "Enter/Tab must commit normally");
+                    assertEquals("${username}", window.table.getValueAt(0, 0));
+                } else if (key == KeyEvent.VK_ENTER) {
+                    assertEquals(1, submissions.get(), "Enter must invoke the normal field action");
+                }
+            });
+            if (standalone && key == KeyEvent.VK_TAB) {
+                assertTrue(editorLostFocus.await(5, TimeUnit.SECONDS), "Tab must move focus normally");
+            }
+        }
+    }
+
+    private static final class EditorWindow implements AutoCloseable {
+        private JTable table;
+        private JTextField editor;
+        private WindowAdapter focusListener;
+        private final CountDownLatch tableFocused = new CountDownLatch(1);
+        private final CountDownLatch editorFocused = new CountDownLatch(1);
+
+        EditorWindow(String initialValue, boolean standalone) throws Exception {
+            SwingUtilities.invokeAndWait(() -> {
+                table = new JTable(new Object[][] {{initialValue}}, new String[] {"Value"});
+                editor = new JTextField(initialValue);
+                if (!standalone) {
+                    table.setDefaultEditor(Object.class, new DefaultCellEditor(editor));
+                }
+                table.addFocusListener(focusLatch(tableFocused));
+                editor.addFocusListener(focusLatch(editorFocused));
+                // Keep the native window alive across cases to avoid desktop activation races.
+                frame.setContentPane(new JPanel(new BorderLayout()));
+                frame.add(new JScrollPane(table));
+                if (standalone) {
+                    frame.add(editor, BorderLayout.SOUTH);
+                }
+                ParameterCompletion.install(frame.getContentPane(), () -> List.of(
+                        Suggestion.variable("username"), Suggestion.variable("userId")));
+                focusListener = new WindowAdapter() {
+                    @Override
+                    public void windowGainedFocus(WindowEvent event) {
+                        if (!table.isEditing()) {
+                            table.requestFocusInWindow();
+                        }
+                    }
+                };
+                frame.addWindowFocusListener(focusListener);
+                table.changeSelection(0, 0, false, false);
+                frame.setVisible(true);
+                frame.validate();
+                frame.toFront();
+                if (Desktop.isDesktopSupported()
+                        && Desktop.getDesktop().isSupported(Desktop.Action.APP_REQUEST_FOREGROUND)) {
+                    Desktop.getDesktop().requestForeground(true);
+                }
+                frame.requestFocus();
+                table.requestFocusInWindow();
+            });
+        }
+
+        void awaitTableFocus() throws InterruptedException {
+            assertTrue(tableFocused.await(5, TimeUnit.SECONDS), "Table must own real focus before typing");
+        }
+
+        void awaitEditorFocus() throws InterruptedException {
+            assertTrue(editorFocused.await(5, TimeUnit.SECONDS), "Editor must receive real focus");
+        }
+
+        @Override
+        public void close() throws Exception {
             SwingUtilities.invokeAndWait(() -> {
                 MenuSelectionManager.defaultManager().clearSelectedPath();
-                if (frame.get() != null) {
-                    frame.get().dispose();
-                }
-                assertDoesNotThrow(() -> UIManager.setLookAndFeel(originalLookAndFeel.get()));
+                frame.removeWindowFocusListener(focusListener);
+                frame.setContentPane(new JPanel());
             });
         }
     }

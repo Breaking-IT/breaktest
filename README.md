@@ -354,7 +354,7 @@ referenced script files are not scanned.
 For extractors that return all matches, `_n` inserts `_1` with the index selected
 for editing. Available suffixes depend on the extractor, including `_matchNr`,
 regular-expression `_rand` and capture groups, and JSON `_ALL` when configured.
-JSON match-all mode omits the bare reference name because it is only a fallback,
+JSON and JMESPath match-all modes omit the bare reference name because it is only a fallback,
 not an extracted match. Names defined independently (for example by CSV) remain available.
 
 Built-in functions appear only after `${_`. Functions with arguments insert

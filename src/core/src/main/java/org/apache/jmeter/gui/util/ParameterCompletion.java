@@ -21,12 +21,14 @@ import java.awt.AWTKeyStroke;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.EventQueue;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.ActionEvent;
 import java.awt.event.ContainerAdapter;
 import java.awt.event.ContainerEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
@@ -69,6 +71,7 @@ public final class ParameterCompletion {
     private Set<AWTKeyStroke> savedTraversalKeys;
     private List<Suggestion> variables = List.of();
     private boolean pending;
+    private boolean refreshOnFocus;
     private boolean accepting;
     private int expressionStart = -1;
 
@@ -166,17 +169,17 @@ public final class ParameterCompletion {
         DocumentListener listener = new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent event) {
-                schedule();
+                documentChanged();
             }
 
             @Override
             public void removeUpdate(DocumentEvent event) {
-                schedule();
+                documentChanged();
             }
 
             @Override
             public void changedUpdate(DocumentEvent event) {
-                schedule();
+                documentChanged();
             }
         };
         editor.getDocument().addDocumentListener(listener);
@@ -185,6 +188,8 @@ public final class ParameterCompletion {
             ((javax.swing.text.Document) event.getNewValue()).addDocumentListener(listener);
             popup.setVisible(false);
             expressionStart = -1;
+            refreshOnFocus = false;
+            pending = false;
         });
         editor.addCaretListener(event -> {
             if (popup.isVisible()) {
@@ -196,20 +201,40 @@ public final class ParameterCompletion {
             public void focusGained(FocusEvent event) {
                 expressionStart = -1;
                 // The first table-edit keystroke can update the document before focus transfer completes.
-                schedule();
+                if (refreshOnFocus) {
+                    refreshOnFocus = false;
+                    schedule();
+                }
             }
 
             @Override
             public void focusLost(FocusEvent event) {
                 popup.setVisible(false);
                 expressionStart = -1;
+                refreshOnFocus = false;
+                pending = false;
             }
         });
         editor.addHierarchyListener(event -> {
             if (!editor.isShowing()) {
                 popup.setVisible(false);
+                refreshOnFocus = false;
+                pending = false;
             }
         });
+    }
+
+    private void documentChanged() {
+        if (editor.isFocusOwner()) {
+            schedule();
+        } else {
+            // Loading a value or clicking into an expression must not arm completion.
+            // JTable forwards typed keys to the editor before the focus event is delivered.
+            refreshOnFocus = EventQueue.getCurrentEvent() instanceof KeyEvent key
+                    && key.getID() == KeyEvent.KEY_TYPED
+                    && (key.getSource() == editor
+                        || key.getSource() == SwingUtilities.getAncestorOfClass(JTable.class, editor));
+        }
     }
 
     private void schedule() {
@@ -218,6 +243,9 @@ public final class ParameterCompletion {
         }
         pending = true;
         SwingUtilities.invokeLater(() -> {
+            if (!pending) {
+                return;
+            }
             pending = false;
             refresh();
         });

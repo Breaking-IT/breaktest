@@ -26,9 +26,11 @@ import java.awt.AWTKeyStroke;
 import java.awt.Component;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.ActionEvent;
+import java.awt.event.FocusEvent;
 import java.awt.geom.Rectangle2D;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -252,6 +254,51 @@ class ParameterCompletionTest {
             assertEquals(!inheritTraversal, field.get().areFocusTraversalKeysSet(forward));
             assertFalse(menu.get().isVisible());
             assertEquals(originalEnter.get(), field.get().getInputMap().get(KeyStroke.getKeyStroke("ENTER")));
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void focusWithoutTypingDoesNotOpenCompletion(boolean loadAfterInstallation) throws Exception {
+        AtomicBoolean focused = new AtomicBoolean();
+        AtomicReference<JPopupMenu> menu = new AtomicReference<>();
+        AtomicInteger snapshots = new AtomicInteger();
+        SwingUtilities.invokeAndWait(() -> {
+            JTextField editor = new JTextField(loadAfterInstallation ? "" : "${username}") {
+                @Override
+                public boolean isFocusOwner() {
+                    return focused.get();
+                }
+
+                @Override
+                public boolean isShowing() {
+                    return true;
+                }
+
+                @Override
+                public Rectangle2D modelToView2D(int position) {
+                    return new Rectangle2D.Double(0, 0, 1, 20);
+                }
+            };
+            TestPopup popup = new TestPopup();
+            menu.set(popup);
+            new ParameterCompletion(editor, () -> {
+                snapshots.incrementAndGet();
+                return List.of(Suggestion.variable("username"), Suggestion.variable("userId"));
+            }, popup);
+            if (loadAfterInstallation) {
+                editor.setText("${username}");
+            }
+            editor.setCaretPosition(6);
+            focused.set(true);
+            FocusEvent event = new FocusEvent(editor, FocusEvent.FOCUS_GAINED);
+            for (var listener : editor.getFocusListeners()) {
+                listener.focusGained(event);
+            }
+        });
+        SwingUtilities.invokeAndWait(() -> {
+            assertFalse(menu.get().isVisible(), "Loading or focusing an existing value must not open completion");
+            assertEquals(0, snapshots.get());
         });
     }
 
