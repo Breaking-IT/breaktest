@@ -13,6 +13,53 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.23 — Variable Autocomplete, Reliable Validation, and Replay Recovery
+
+This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. AI script repair is now significantly faster and uses fewer tokens, with improved prompts, repair logic, controls, and reporting. CSV editing and correlation rule organization also improve.
+
+## AI Repair
+
+- Significantly reduce the total time spent on AI script repair and use fewer tokens through improved prompts and repair logic.
+- Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.
+- Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.
+- Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.
+
+Sources: [#163](https://github.com/Breaking-IT/breaktest/pull/163), [#164](https://github.com/Breaking-IT/breaktest/pull/164).
+
+## Test Plan Editing
+
+- Get inline variable suggestions by typing `${` in component fields, table cells, multiline editors, and expanded dialogs. Suggestions use enabled definitions in the test plan and current thread group, including configured CSV variable names, extractors, counters, User Parameters, and literal inline JSR223 `vars.put()` names. Type `${_` for installed functions; use Up/Down to select, Enter or Tab to accept, and Escape to dismiss.
+- Completion preserves surrounding text and supports extractor match counts, indexed matches, and capture groups. JSR223 script bodies are excluded; CSV header inference, external script files, and computed script variable names are not supported.
+- Create a missing local or archived CSV directly from CSV Data Set Config → Edit CSV. The file is created only when saved; cancelling leaves it uncreated.
+- Choose an existing custom correlation group from an editable dropdown when saving an extractor as a predefined correlation, or enter a new group name.
+
+Sources: [#167](https://github.com/Breaking-IT/breaktest/pull/167), [#160](https://github.com/Breaking-IT/breaktest/pull/160), [#159](https://github.com/Breaking-IT/breaktest/pull/159).
+
+## Validation and Transaction Accuracy
+
+- Validate the selected thread group or the group containing the selected element. When selection is outside a thread group, the validation shortcut and toolbar button reuse the last valid validation target instead of running every group. Deleted targets and targets from a previous plan are discarded.
+- End an open-model user's journey after an error triggers Start next thread loop, preventing unscheduled repeated transactions and inflated request throughput. Subsequent scheduled arrivals continue normally.
+- Correct timer exclusion in transaction measurements: trailing pauses outside a parent transaction's time window no longer produce negative or understated durations, and waits inside Synchronizing Timer or JSR223 Timer evaluation are now excluded.
+- Avoid duplicate parent transaction results when stopping an in-flight request with Start next thread loop on error enabled. Preserve separate results for non-parent transactions.
+
+Sources: [#168](https://github.com/Breaking-IT/breaktest/pull/168), [#162](https://github.com/Breaking-IT/breaktest/pull/162), [#166](https://github.com/Breaking-IT/breaktest/pull/166), [#170](https://github.com/Breaking-IT/breaktest/pull/170).
+
+## Results and HTTP Replay
+
+- Store new replay request/response data even when the previous recording is absent. If the recording is missing only from memory, recover its complete bundle from the saved test plan before updating it, preserving other samplers' recordings. Checksum mismatches and incomplete bundles stop the update rather than silently replacing data.
+- Fix Jump to navigation with disabled duplicate elements and preserve buffered result links when their source elements are renamed or moved. Deleted targets no longer redirect to another sampler with the old name.
+- Preserve `TE: trailers` on HTTP/2 and HTTP/3 requests, including HAR replay. Other unsupported TE values continue to be removed.
+
+Sources: [#171](https://github.com/Breaking-IT/breaktest/pull/171), [#161](https://github.com/Breaking-IT/breaktest/pull/161), [#169](https://github.com/Breaking-IT/breaktest/pull/169).
+
+## Upgrade Notes
+
+- **Copy any legacy AI Knowledge notes you need before saving a plan.** Existing plans still open and display the notes as read-only, selectable text, but saving omits AI Knowledge elements and their notes. Their child elements are preserved in order. AI repair no longer reads or writes Knowledge.
+- Transaction measurements that exclude timers may change because timer waits and trailing pauses are now accounted for correctly. Open-model error handling no longer generates extra unscheduled iterations.
+- Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.
+
+[Full changelog since 2026.09.16](https://github.com/Breaking-IT/breaktest/compare/2026.09.16...2026.09.23)
+
 # BreakTest 2026.09.16 — Correlation Rule Management, Broader Token Detection, and Authentication Fixes
 
 This release adds persistent correlation rule controls and broader automatic token detection, improves HAR imports and authentication across negotiated HTTP protocols, and reduces unnecessary work during command-line execution.
