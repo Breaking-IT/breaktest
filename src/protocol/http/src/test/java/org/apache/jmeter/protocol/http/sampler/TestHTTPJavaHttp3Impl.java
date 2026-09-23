@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.URI;
 import java.net.URL;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
@@ -117,6 +118,17 @@ public class TestHTTPJavaHttp3Impl {
         assertEquals(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_3, sampler.getHttpProtocol());
         assertFalse(sampler.isHttp2Protocol());
         assertFalse(sampler.isHttp11Protocol());
+    }
+
+    @Test
+    public void http3AllowsTeTrailersOnly() {
+        assertFalse(HTTPJavaHttp3Impl.isDisallowedHeader("te", "trailers"));
+        assertFalse(HTTPJavaHttp3Impl.isDisallowedHeader("TE", " Trailers "));
+        assertTrue(HTTPJavaHttp3Impl.isDisallowedHeader("te", "trailers, gzip"));
+        assertTrue(HTTPJavaHttp3Impl.isDisallowedHeader("Connection", "keep-alive"));
+        assertFalse(HTTPJavaHttp3Impl.isDisallowedHeader("Accept", "*/*"));
+        // The JDK client must accept the header we now let through.
+        HttpRequest.newBuilder(URI.create("https://example.test/")).header("te", "trailers").build();
     }
 
     @Test
