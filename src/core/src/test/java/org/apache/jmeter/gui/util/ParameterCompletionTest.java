@@ -33,8 +33,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.swing.AbstractAction;
+import javax.swing.InputMap;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
@@ -200,36 +202,7 @@ class ParameterCompletionTest {
                 }
             };
             // Exercise the real popup lifecycle and editor bindings without a native desktop.
-            JPopupMenu popup = new JPopupMenu() {
-                private boolean showing;
-
-                @Override
-                public boolean isVisible() {
-                    return showing;
-                }
-
-                @Override
-                public void show(Component invoker, int x, int y) {
-                    setVisible(true);
-                }
-
-                @Override
-                public void pack() {
-                }
-
-                @Override
-                public void setVisible(boolean visible) {
-                    if (showing == visible) {
-                        return;
-                    }
-                    if (visible) {
-                        firePopupMenuWillBecomeVisible();
-                    } else {
-                        firePopupMenuWillBecomeInvisible();
-                    }
-                    showing = visible;
-                }
-            };
+            JPopupMenu popup = new TestPopup();
             editor.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "original-enter");
             editor.getActionMap().put("original-enter", new AbstractAction() {
                 @Override
@@ -282,9 +255,96 @@ class ParameterCompletionTest {
         });
     }
 
+    @Test
+    void enablesFocusTransferForTablesAddedAfterInstallation() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JPanel panel = new JPanel();
+            ParameterCompletion.install(panel);
+            JTable table = new JTable(1, 1);
+            assertFalse(table.getSurrendersFocusOnKeystroke());
+            panel.add(table);
+            assertTrue(table.getSurrendersFocusOnKeystroke());
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"accept", "dismiss", "cancel"})
+    void restoresLocalBindingsWithoutCopyingThemeDefaults(String close) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextField editor = new JTextField("${u");
+            editor.setCaretPosition(3);
+            InputMap local = editor.getInputMap();
+            local.clear();
+            InputMap oldTheme = new InputMap();
+            InputMap newTheme = new InputMap();
+            for (String key : List.of("ENTER", "TAB", "UP", "DOWN", "ESCAPE")) {
+                oldTheme.put(KeyStroke.getKeyStroke(key), "old-" + key);
+                newTheme.put(KeyStroke.getKeyStroke(key), "new-" + key);
+            }
+            local.setParent(oldTheme);
+            local.put(KeyStroke.getKeyStroke("DOWN"), "custom-down");
+            TestPopup popup = new TestPopup();
+            ParameterCompletion helper = new ParameterCompletion(editor, List::of, popup);
+            popup.setVisible(true);
+            local.setParent(newTheme);
+            switch (close) {
+            case "accept":
+                helper.accept(Suggestion.variable("username"));
+                break;
+            case "cancel":
+                popup.cancel();
+                popup.setVisible(false);
+                break;
+            default:
+                press(editor, "ESCAPE");
+                break;
+            }
+            assertEquals(1, local.size());
+            assertEquals("custom-down", local.get(KeyStroke.getKeyStroke("DOWN")));
+            for (String key : List.of("ENTER", "TAB", "UP", "ESCAPE")) {
+                assertEquals("new-" + key, local.get(KeyStroke.getKeyStroke(key)), key);
+            }
+        });
+    }
+
     private static void press(JTextField editor, String key) {
         Object action = editor.getInputMap().get(KeyStroke.getKeyStroke(key));
         editor.getActionMap().get(action).actionPerformed(new ActionEvent(editor, ActionEvent.ACTION_PERFORMED, key));
+    }
+
+    private static final class TestPopup extends JPopupMenu {
+        void cancel() {
+            firePopupMenuCanceled();
+        }
+
+        private boolean showing;
+
+        @Override
+        public boolean isVisible() {
+            return showing;
+        }
+
+        @Override
+        public void show(Component invoker, int x, int y) {
+            setVisible(true);
+        }
+
+        @Override
+        public void pack() {
+        }
+
+        @Override
+        public void setVisible(boolean visible) {
+            if (showing == visible) {
+                return;
+            }
+            if (visible) {
+                firePopupMenuWillBecomeVisible();
+            } else {
+                firePopupMenuWillBecomeInvisible();
+            }
+            showing = visible;
+        }
     }
 
 }

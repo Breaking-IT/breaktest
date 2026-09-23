@@ -19,6 +19,7 @@ package org.apache.jmeter.gui.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -39,10 +40,16 @@ import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.modifiers.JSR223PreProcessor;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.JMeterContext;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ParameterCompletionCatalogTest extends JMeterTestCase {
     @Test
@@ -126,7 +133,8 @@ class ParameterCompletionCatalogTest extends JMeterTestCase {
         jmes.setMatchNumber("-1");
         add(group, jmes);
         for (String name : List.of("boundary", "html", "xpath", "xpath2", "jmes")) {
-            assertTrue(names(group).containsAll(List.of(name, name + "_n", name + "_matchNr")), name);
+            assertTrue(names(group).containsAll(List.of(name + "_n", name + "_matchNr")), name);
+            assertEquals(!name.equals("jmes"), names(group).contains(name), name);
             assertFalse(names(group).contains(name + "_rand"), name);
         }
         jmes.setMatchNumber("1");
@@ -148,10 +156,71 @@ class ParameterCompletionCatalogTest extends JMeterTestCase {
         List<String> names = names(group);
         assertTrue(names.containsAll(List.of("products_n", "products_matchNr", "products_ALL", "user",
                 "user_matchNr", "random")));
+        assertFalse(names.contains("products"));
         assertFalse(names.contains("user_n"));
         assertFalse(names.contains("user_ALL"));
         assertFalse(names.contains("random_matchNr"));
         assertFalse(names.contains("products_rand"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "0", "1"})
+    void jmesMatchCountSuggestionMatchesSuccessfulRuntimeExtraction(String match) {
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables previousVariables = context.getVariables();
+        SampleResult previousResult = context.getPreviousResult();
+        try {
+            JMeterVariables variables = new JMeterVariables();
+            SampleResult response = new SampleResult();
+            response.setResponseData("[1,2]", "UTF-8");
+            context.setVariables(variables);
+            context.setPreviousResult(response);
+            JMESPathExtractor extractor = new JMESPathExtractor();
+            extractor.setThreadContext(context);
+            extractor.setRefName("items");
+            extractor.setJmesPathExpression("[*]");
+            extractor.setMatchNumber(match);
+            JMeterTreeNode group = node(new ThreadGroup());
+            add(group, extractor);
+            extractor.process();
+            assertEquals("2", variables.get("items_matchNr"));
+            assertTrue(names(group).contains("items_matchNr"));
+            assertEquals(!match.equals("-1"), names(group).contains("items"));
+        } finally {
+            context.setVariables(previousVariables);
+            context.setPreviousResult(previousResult);
+        }
+    }
+
+    @Test
+    void jsonMatchAllSuggestsSuccessfulOutputsAndPreservesIndependentDefinitions() {
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables previousVariables = context.getVariables();
+        SampleResult previousResult = context.getPreviousResult();
+        try {
+            JMeterVariables variables = new JMeterVariables();
+            SampleResult response = new SampleResult();
+            response.setResponseData("[1,2]", "UTF-8");
+            context.setVariables(variables);
+            context.setPreviousResult(response);
+            JSONPostProcessor extractor = new JSONPostProcessor();
+            extractor.setThreadContext(context);
+            extractor.setRefNames("items");
+            extractor.setJsonPathExpressions("$[*]");
+            extractor.setMatchNumbers("-1");
+            extractor.setDefaultValues("fallback");
+            JMeterTreeNode group = node(new ThreadGroup());
+            add(group, extractor);
+            extractor.process();
+            assertEquals("1", variables.get("items_1"));
+            assertNull(variables.get("items"));
+            assertFalse(names(group).contains("items"));
+            add(group, csv("items"));
+            assertTrue(names(group).contains("items"));
+        } finally {
+            context.setVariables(previousVariables);
+            context.setPreviousResult(previousResult);
+        }
     }
 
     private static List<String> names(JMeterTreeNode node) {

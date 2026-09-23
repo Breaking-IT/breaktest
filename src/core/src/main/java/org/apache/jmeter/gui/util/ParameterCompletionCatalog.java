@@ -137,12 +137,16 @@ public final class ParameterCompletionCatalog {
                 if (!validName(name)) {
                     continue;
                 }
-                add(names, name);
                 String match = i < matches.length ? matches[i].trim() : "";
                 boolean all = negative(match);
                 boolean xpath = extractor[0].startsWith("XPath");
                 boolean json = extractor[0].startsWith("JSONPostProcessor");
-                if (all || xpath || extractor[0].startsWith("JMES")
+                boolean jmes = extractor[0].startsWith("JMES");
+                // JSON match-all results live in indexed variables; the bare name is only a fallback/default.
+                if (!all || !(json || jmes)) {
+                    add(names, name);
+                }
+                if (all || xpath || jmes
                         || json && !match.isEmpty() && !match.equals("0")) {
                     add(names, name + "_matchNr");
                 }

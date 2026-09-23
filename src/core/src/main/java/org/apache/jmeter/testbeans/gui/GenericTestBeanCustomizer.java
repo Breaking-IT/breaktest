@@ -38,18 +38,21 @@ import java.util.ResourceBundle;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingConstants;
 
 import org.apache.jmeter.gui.ClearGui;
+import org.apache.jmeter.gui.util.ParameterCompletion;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.property.IntegerProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.LongProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.util.JSR223TestElement;
 import org.apache.jorphan.locale.ResourceKeyed;
 import org.apache.jorphan.util.EnumUtils;
 import org.apiguardian.api.API;
@@ -285,6 +288,11 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
                 testBeanPropertyEditor.setDescriptor(descriptor);
             }
 
+            if (name.equals("script") && JSR223TestElement.class
+                    .isAssignableFrom(beanInfo.getBeanDescriptor().getBeanClass())
+                    && propertyEditor.getCustomEditor() instanceof JComponent scriptEditor) {
+                ParameterCompletion.exclude(scriptEditor);
+            }
             if (propertyEditor instanceof TextAreaEditor) {
                 textAreaEditorIndex = i;
             }

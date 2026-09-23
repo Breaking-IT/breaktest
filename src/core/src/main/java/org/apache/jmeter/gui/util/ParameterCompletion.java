@@ -30,6 +30,7 @@ import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Rectangle2D;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,6 +43,7 @@ import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JTable;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
@@ -58,6 +60,7 @@ import org.apache.jmeter.gui.util.ParameterCompletionCatalog.Suggestion;
 /** In-place ${...} completion for text fields, text areas and temporary table editors. */
 public final class ParameterCompletion {
     private static final String INSTALLED = ParameterCompletion.class.getName();
+    private static final String EXCLUDED = INSTALLED + ".excluded";
     private final JTextComponent editor;
     private final Supplier<List<Suggestion>> source;
     private final JPopupMenu popup;
@@ -69,28 +72,41 @@ public final class ParameterCompletion {
     private boolean accepting;
     private int expressionStart = -1;
 
+    /** Excludes a component subtree from subsequent completion installation. */
+    public static void exclude(JComponent component) {
+        component.putClientProperty(EXCLUDED, true);
+    }
+
     /** Installs once, including on children added later (for example JTable cell editors). */
     public static void install(Component component) {
+        install(component, () -> {
+            GuiPackage gui = GuiPackage.getInstance();
+            return gui == null ? List.of() : ParameterCompletionCatalog.variables(gui.getCurrentNode());
+        });
+    }
+
+    static void install(Component component, Supplier<List<Suggestion>> source) {
         if (component instanceof JComponent jc) {
-            if (jc.getClientProperty(INSTALLED) != null) {
+            if (Boolean.TRUE.equals(jc.getClientProperty(EXCLUDED)) || jc.getClientProperty(INSTALLED) != null) {
                 return;
             }
             jc.putClientProperty(INSTALLED, true);
         }
+        if (component instanceof JTable table) {
+            // JTable otherwise forwards typing while retaining focus, bypassing the editor's completion bindings.
+            table.setSurrendersFocusOnKeystroke(true);
+        }
         if (component instanceof JTextComponent text) {
-            new ParameterCompletion(text, () -> {
-                GuiPackage gui = GuiPackage.getInstance();
-                return gui == null ? List.of() : ParameterCompletionCatalog.variables(gui.getCurrentNode());
-            });
+            new ParameterCompletion(text, source);
         }
         if (component instanceof Container container) {
             for (Component child : container.getComponents()) {
-                install(child);
+                install(child, source);
             }
             container.addContainerListener(new ContainerAdapter() {
                 @Override
                 public void componentAdded(ContainerEvent event) {
-                    install(event.getChild());
+                    install(event.getChild(), source);
                 }
             });
         }
@@ -179,6 +195,8 @@ public final class ParameterCompletion {
             @Override
             public void focusGained(FocusEvent event) {
                 expressionStart = -1;
+                // The first table-edit keystroke can update the document before focus transfer completes.
+                schedule();
             }
 
             @Override
@@ -318,7 +336,9 @@ public final class ParameterCompletion {
     private void bind(String key, Runnable action) {
         KeyStroke stroke = KeyStroke.getKeyStroke(key);
         String name = INSTALLED + key;
-        savedBindings.put(stroke, editor.getInputMap().get(stroke));
+        KeyStroke[] localKeys = editor.getInputMap().keys();
+        savedBindings.put(stroke, localKeys != null && Arrays.asList(localKeys).contains(stroke)
+                ? editor.getInputMap().get(stroke) : null);
         editor.getInputMap().put(stroke, name);
         editor.getActionMap().put(name, new AbstractAction() {
             @Override

@@ -337,7 +337,9 @@ automatically unless the build is run with `-Prelease` or `-Prc=<number>`.
 
 Type `${` in a test component editor to see available variable names. Keep typing
 to filter the list, use Up/Down to select, Enter or Tab to insert, or Escape to dismiss.
-This also works in table cells, multiline editors, and expanded text dialogs.
+This also works when typing into a selected table cell, in multiline editors, and
+in expanded text dialogs. JSR223 script bodies are excluded so Groovy string
+interpolation and normal script editing keys keep their original behavior.
 
 Suggestions include configured CSV variable names and user-defined variables at
 test-plan level and in the current thread group, plus extractor outputs, counters,
@@ -352,6 +354,8 @@ referenced script files are not scanned.
 For extractors that return all matches, `_n` inserts `_1` with the index selected
 for editing. Available suffixes depend on the extractor, including `_matchNr`,
 regular-expression `_rand` and capture groups, and JSON `_ALL` when configured.
+JSON match-all mode omits the bare reference name because it is only a fallback,
+not an extracted match. Names defined independently (for example by CSV) remain available.
 
 Built-in functions appear only after `${_`. Functions with arguments insert
 parentheses with the caret inside. See the
