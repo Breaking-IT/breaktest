@@ -33,6 +33,7 @@ import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.test.samplers.CollectSamplesListener;
+import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
@@ -42,6 +43,7 @@ import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.TestCompiler;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.timers.Timer;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
@@ -129,6 +131,69 @@ public class TestTransactionController extends JMeterTestCase {
                 "Must one transaction samples with parent debug sample");
         assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
                 listener.getEvents().get(0).getResult().getResponseMessage());
+    }
+
+    @Test
+    public void testTimingModeExcludeTimersExcludesTimerBlockingInsideDelay() throws Exception {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+
+        CollectSamplesListener listener = new CollectSamplesListener();
+
+        TransactionController transactionController = new TransactionController();
+        transactionController.setGenerateParentSample(true);
+        transactionController.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
+
+        DebugSampler debugSampler = new DebugSampler();
+        // Like the Synchronizing Timer: waits inside delay() and returns no delay
+        BlockingTimer timer = new BlockingTimer(300);
+
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+
+        ListedHashTree hashTree = new ListedHashTree();
+        hashTree.add(loop);
+        hashTree.add(loop, transactionController);
+        hashTree.add(transactionController, debugSampler);
+        hashTree.add(transactionController, listener);
+        hashTree.add(debugSampler, timer);
+
+        TestCompiler compiler = new TestCompiler(hashTree);
+        hashTree.traverse(compiler);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setNumThreads(1);
+
+        JMeterThread thread = new JMeterThread(hashTree, threadGroup, new ListenerNotifier());
+        thread.setThreadGroup(threadGroup);
+        thread.setOnErrorStopThread(true);
+        thread.run();
+
+        assertEquals(1, listener.getEvents().size());
+        SampleResult transaction = listener.getEvents().get(0).getResult();
+        assertTrue(transaction.getIdleTime() >= 300,
+                () -> "Blocking timer wait must be idle time, got " + transaction.getIdleTime());
+        assertTrue(transaction.getTime() < 300,
+                () -> "Blocking timer wait must not count as transaction time, got " + transaction.getTime());
+    }
+
+    private static class BlockingTimer extends AbstractTestElement implements Timer {
+        private static final long serialVersionUID = 1L;
+        private final long blockMillis;
+
+        BlockingTimer(long blockMillis) {
+            this.blockMillis = blockMillis;
+        }
+
+        @Override
+        public long delay() {
+            try {
+                Thread.sleep(blockMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return 0;
+        }
     }
 
     @Test
@@ -319,6 +384,39 @@ public class TestTransactionController extends JMeterTestCase {
 
         assertEquals(125, sampler.getTransactionResult().getIdleTime());
         assertEquals(100, sampler.getTransactionResult().getTime());
+    }
+
+    @Test
+    public void testTimingModeExcludeTimersIgnoresTrailingPauseAfterLastSubResult() {
+        TransactionController controller = new TransactionController();
+        controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
+        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
+        long transactionStart = sampler.getTransactionResult().getStartTime();
+        SampleResult child = SampleResult.createTestSample(transactionStart, transactionStart + 1000);
+
+        sampler.addSubSamplerResult(child);
+        // Think time as the last child: timer runs, but the sampler produces no result
+        sampler.addTimerPause(transactionStart + 1000, transactionStart + 4000);
+        sampler.setTransactionDone();
+
+        assertEquals(0, sampler.getTransactionResult().getIdleTime());
+        assertEquals(1000, sampler.getTransactionResult().getTime());
+    }
+
+    @Test
+    public void testTimingModeExcludeTimersClampsPauseStraddlingEnd() {
+        TransactionController controller = new TransactionController();
+        controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
+        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
+        long transactionStart = sampler.getTransactionResult().getStartTime();
+
+        sampler.addTimerPause(transactionStart, transactionStart + 200);
+        sampler.addSubSamplerResult(SampleResult.createTestSample(transactionStart + 200, transactionStart + 500));
+        sampler.addTimerPause(transactionStart + 400, transactionStart + 3000);
+        sampler.setTransactionDone();
+
+        assertEquals(300, sampler.getTransactionResult().getIdleTime());
+        assertEquals(200, sampler.getTransactionResult().getTime());
     }
 
     private static long computeTransactionDelay(TransactionController controller) throws Exception {
