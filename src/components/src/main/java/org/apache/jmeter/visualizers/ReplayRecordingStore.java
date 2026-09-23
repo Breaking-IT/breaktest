@@ -18,6 +18,7 @@
 package org.apache.jmeter.visualizers;
 
 import java.awt.Component;
+import java.io.File;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -35,6 +36,7 @@ import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
@@ -76,6 +78,14 @@ final class ReplayRecordingStore {
     }
 
     static void store(Map<JMeterTreeNode, SampleResult> replayedSamples, RecordingStorageMode storageMode) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        String testPlanFile = guiPackage == null ? null : guiPackage.getTestPlanFile();
+        store(replayedSamples, storageMode,
+                testPlanFile == null || testPlanFile.isEmpty() ? null : new File(testPlanFile));
+    }
+
+    static void store(Map<JMeterTreeNode, SampleResult> replayedSamples, RecordingStorageMode storageMode,
+            File testPlanFile) {
         if (replayedSamples.isEmpty()) {
             JMeterUtils.reportErrorToUser(
                     JMeterUtils.getResString("view_results_store_replay_no_results")); // $NON-NLS-1$
@@ -109,10 +119,15 @@ final class ReplayRecordingStore {
                 String checksum = recordingSource.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY);
                 Map<String, byte[]> entries = manifestEntryName.isEmpty()
                         ? Map.of()
-                        : JmxArchiveEntryStore.findBundle(manifestEntryName, checksum)
-                                .orElseThrow(() -> new IOException(
-                                        JMeterUtils.getResString(
-                                                "view_results_store_replay_missing_recording"))); // $NON-NLS-1$
+                        : JmxArchiveEntryStore.findBundle(manifestEntryName, checksum).orElse(Map.of());
+                if (entries.isEmpty() && !manifestEntryName.isEmpty()) {
+                    entries = SaveService.readRecordingBundle(testPlanFile, manifestEntryName, checksum)
+                            .orElse(Map.of());
+                }
+                // A stale reference must not prevent creating a recording from new replay results.
+                if (entries.isEmpty()) {
+                    manifestEntryName = ""; // $NON-NLS-1$
+                }
                 Map<JMeterTreeNode, String> exchangeIds = new LinkedHashMap<>();
                 Map<String, SampleResult> resultsByExchangeId = new LinkedHashMap<>();
                 for (Map.Entry<JMeterTreeNode, SampleResult> samplerResult : threadGroupSamples.getValue().entrySet()) {
@@ -125,7 +140,7 @@ final class ReplayRecordingStore {
                         exchangeId = UUID.randomUUID().toString();
                     }
                     exchangeIds.put(samplerResult.getKey(), storeSample ? exchangeId : null);
-                    if (!exchangeId.isEmpty()) {
+                    if (!exchangeId.isEmpty() && (storeSample || !entries.isEmpty())) {
                         resultsByExchangeId.put(exchangeId, samplerResult.getValue());
                     }
                 }

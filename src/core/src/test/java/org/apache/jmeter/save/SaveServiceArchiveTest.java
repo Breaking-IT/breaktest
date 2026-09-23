@@ -431,6 +431,33 @@ class SaveServiceArchiveTest extends JMeterTestCase implements JMeterSerialTest 
     }
 
     @Test
+    void recordingDiskFallbackRejectsMismatchedAndIncompleteBundles() throws Exception {
+        byte[] har = ("{\"log\":{\"entries\":[{\"request\":{\"method\":\"GET\","
+                + "\"url\":\"https://example.invalid/api\"},"
+                + "\"response\":{\"status\":200,\"content\":{\"text\":\"body\"}}}]}}")
+                        .getBytes(StandardCharsets.UTF_8);
+        var recording = RecordedExchangeStore.fromHar(har, "source.har");
+        Path file = tempDir.resolve("recording.jmx");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(file))) {
+            zip.putNextEntry(new ZipEntry(recording.manifestEntryName()));
+            zip.write(recording.entries().get(recording.manifestEntryName()));
+            zip.closeEntry();
+        }
+        assertThrows(IOException.class, () -> SaveService.readRecordingBundle(
+                file.toFile(), recording.manifestEntryName(), "wrong-checksum"));
+        assertThrows(IOException.class, () -> SaveService.readRecordingBundle(
+                file.toFile(), recording.manifestEntryName(), recording.checksum()));
+        assertTrue(SaveService.readRecordingBundle(
+                file.toFile(), "recordings/manifests/absent.json", "").isEmpty());
+        assertTrue(SaveService.readRecordingBundle(
+                tempDir.resolve("absent.jmx").toFile(), recording.manifestEntryName(), recording.checksum()).isEmpty());
+        Path legacy = tempDir.resolve("legacy.jmx");
+        Files.writeString(legacy, "<?xml version=\"1.0\"?><jmeterTestPlan/>");
+        assertTrue(SaveService.readRecordingBundle(
+                legacy.toFile(), recording.manifestEntryName(), recording.checksum()).isEmpty());
+    }
+
+    @Test
     void nativeRecordingBundleSurvivesSaveLoadAndIsRemovedWithItsReference() throws Exception {
         byte[] har = ("{\"log\":{\"entries\":[{"
                 + "\"request\":{\"method\":\"POST\",\"url\":\"https://example.invalid/api\","

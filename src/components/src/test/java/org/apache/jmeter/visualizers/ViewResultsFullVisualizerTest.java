@@ -25,10 +25,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import javax.swing.JMenuItem;
 import javax.swing.JTree;
@@ -43,17 +47,24 @@ import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.SampleResultNodeResolver;
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
-public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
+public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMeterSerialTest {
 
     private GuiPackage previousGui;
 
@@ -170,6 +181,97 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
 
         assertTrue(sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY).isEmpty());
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+    }
+
+    @ParameterizedTest
+    @EnumSource(RecordingStorageMode.class)
+    public void storesReplayWhenPreviousRecordingIsUnavailable(RecordingStorageMode mode) throws Exception {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recordings/manifests/missing.json");
+        threadGroup.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "missing-checksum");
+        DebugSampler sampler = new DebugSampler();
+        sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "existing-exchange");
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode groupNode = new JMeterTreeNode(threadGroup, treeModel);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(groupNode);
+        groupNode.add(samplerNode);
+        SampleResult replay = replayResult("new-response");
+        replay.setURL(URI.create("https://example.invalid/application.js").toURL());
+        replay.setContentType("application/javascript");
+
+        ReplayRecordingStore.store(Map.of(samplerNode, replay), mode);
+
+        if (mode == RecordingStorageMode.NONE || mode == RecordingStorageMode.OMIT_STATICS) {
+            assertEquals("", sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+            assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+            assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+        } else {
+            assertEquals("existing-exchange", sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+            var exchange = RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().orElseThrow();
+            assertEquals(mode == RecordingStorageMode.ALL ? "new-response" : "",
+                    exchange.responseBody());
+            assertEquals("https://example.invalid/application.js", exchange.requestUrl());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(RecordingStorageMode.class)
+    public void preservesSiblingRecordingFromDiskWhenStoringReplay(
+            RecordingStorageMode mode, @TempDir Path tempDir) throws Exception {
+        var recording = RecordedExchangeStore.storeReplays("", Map.of(), Map.of(
+                "replayed", replayResult("old-response"), "sibling", replayResult("sibling-response")));
+        Path original = tempDir.resolve("original.jmx");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(original))) {
+            for (var entry : recording.entries().entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue());
+                zip.closeEntry();
+            }
+        }
+        assertTrue(JmxArchiveEntryStore.findBundle(recording.manifestEntryName(), recording.checksum()).isEmpty());
+        ThreadGroup group = new ThreadGroup();
+        group.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, recording.manifestEntryName());
+        group.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum());
+        DebugSampler sampler = new DebugSampler();
+        sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "replayed");
+        DebugSampler sibling = new DebugSampler();
+        sibling.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "sibling");
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        groupNode.add(samplerNode);
+        groupNode.add(new JMeterTreeNode(sibling, treeModel));
+        ((JMeterTreeNode) treeModel.getRoot()).add(groupNode);
+        SampleResult replay = replayResult("new-response");
+        replay.setURL(URI.create("https://example.invalid/application.js").toURL());
+        replay.setContentType("application/javascript");
+
+        ReplayRecordingStore.store(Map.of(samplerNode, replay), mode, original.toFile());
+
+        assertEquals(recording.manifestEntryName(), group.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        assertEquals("sibling", sibling.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+        var tree = new ListedHashTree();
+        tree.add(group).add(sampler);
+        tree.getTree(group).add(sibling);
+        Path saved = tempDir.resolve("saved.jmx");
+        SaveService.saveTreeToFile(tree, saved);
+        byte[] manifest = SaveService.readArchiveEntry(saved.toFile(), recording.manifestEntryName()).orElseThrow();
+        var siblingExchange = RecordedExchangeStore.resolveExchange(manifest, "sibling",
+                entry -> SaveService.readArchiveEntry(saved.toFile(), entry)).orElseThrow();
+        assertEquals("sibling-response", siblingExchange.path("response").path("content").path("text").asText());
+        var replayExchange = RecordedExchangeStore.resolveExchange(manifest, "replayed",
+                entry -> SaveService.readArchiveEntry(saved.toFile(), entry));
+        if (mode == RecordingStorageMode.NONE || mode == RecordingStorageMode.OMIT_STATICS) {
+            assertTrue(replayExchange.isEmpty());
+        } else {
+            assertEquals(mode == RecordingStorageMode.ALL ? "new-response" : "",
+                    replayExchange.orElseThrow().path("response").path("content").path("text").asText());
+        }
     }
 
     @Test
