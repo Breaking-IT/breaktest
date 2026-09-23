@@ -359,6 +359,13 @@ public class JMeterThread implements Runnable, Interruptible {
                     processSampler(sam, null, threadContext);
                     threadContext.cleanAfterSample();
 
+                    // processSampler already reports unfinished transactions when stopping.
+                    // Do not unwind them again through an error or loop action, or advance
+                    // controllers to another sampler after the thread has stopped.
+                    if (!running) {
+                        break;
+                    }
+
                     boolean lastSampleOk = TRUE.equals(threadContext.getVariables().get(LAST_SAMPLE_OK));
                     // restart of the next loop
                     // - was requested through threadContext

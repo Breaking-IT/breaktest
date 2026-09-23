@@ -54,6 +54,7 @@ import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
+import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -69,6 +70,8 @@ import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.HashTreeTraverser;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class TestJMeterThread {
 
@@ -359,6 +362,39 @@ class TestJMeterThread {
         @Override
         public void stop() {
             stopped.countDown();
+        }
+    }
+
+    private static final class InterruptibleFailureSampler extends AbstractSampler implements Interruptible {
+        private static final long serialVersionUID = 1L;
+
+        private final CountDownLatch started = new CountDownLatch(1);
+        private final CountDownLatch interrupted = new CountDownLatch(1);
+
+        private InterruptibleFailureSampler() {
+            setName("interrupted-request");
+        }
+
+        @Override
+        public SampleResult sample(Entry entry) {
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            started.countDown();
+            try {
+                interrupted.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            result.setSuccessful(false);
+            result.sampleEnd();
+            return result;
+        }
+
+        @Override
+        public boolean interrupt() {
+            interrupted.countDown();
+            return true;
         }
     }
 
@@ -1583,6 +1619,71 @@ class TestJMeterThread {
         jMeterThread.stop();
 
         assertTrue(sampler.stopped.get(), "Clean shutdown should notify samplers that opt into stop handling");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    void testStopReportsInterruptedTransactionOnce(boolean startNextLoopOnError, boolean nested)
+            throws InterruptedException {
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        transaction.setGenerateParentSample(true);
+        InterruptibleFailureSampler sampler = new InterruptibleFailureSampler();
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        AtomicInteger subsequentCalls = new AtomicInteger();
+
+        HashTree testTree = new ListedHashTree();
+        HashTree loopTree = testTree.add(loop);
+        HashTree transactionTree = loopTree.add(transaction);
+        if (nested) {
+            TransactionController inner = new TransactionController();
+            inner.setName("inner-transaction");
+            inner.setGenerateParentSample(true);
+            transactionTree = transactionTree.add(inner);
+        }
+        transactionTree.add(sampler);
+        loopTree.add(new ResultStatusSampler("subsequent-request", true, subsequentCalls));
+        loopTree.add(listener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("interrupted-transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.setOnErrorStartNextLoop(startNextLoopOnError);
+        Thread runner = new Thread(jMeterThread, "interrupted-transaction-test");
+        runner.start();
+        try {
+            assertTrue(sampler.started.await(5, TimeUnit.SECONDS), "Request should start before stopping");
+            jMeterThread.stop();
+            assertTrue(jMeterThread.interrupt(), "Stop should interrupt the active request");
+            runner.join(5000);
+            assertFalse(runner.isAlive(), "Stopped virtual user should finish");
+        } finally {
+            jMeterThread.stop();
+            sampler.interrupt();
+            runner.join(5000);
+        }
+
+        assertEquals(0, subsequentCalls.get(), "Stop must not start another request");
+        List<SampleEvent> events = listener.events();
+        assertEquals(1, events.size(), "All listeners should receive the interrupted transaction only once");
+        SampleResult result = events.get(0).getResult();
+        assertEquals("transaction", result.getSampleLabel());
+        assertFalse(result.isSuccessful());
+        assertEquals(1, result.getSubResults().length);
+        if (nested) {
+            result = result.getSubResults()[0];
+            assertEquals("inner-transaction", result.getSampleLabel());
+            assertEquals(1, result.getSubResults().length);
+        }
+        assertEquals("interrupted-request", result.getSubResults()[0].getSampleLabel());
+        assertFalse(result.getSubResults()[0].isSuccessful());
     }
 
     @Test
