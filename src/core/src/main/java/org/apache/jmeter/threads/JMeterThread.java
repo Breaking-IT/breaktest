@@ -359,6 +359,13 @@ public class JMeterThread implements Runnable, Interruptible {
                     processSampler(sam, null, threadContext);
                     threadContext.cleanAfterSample();
 
+                    // processSampler already reports unfinished parent transactions when stopping.
+                    // Do not unwind them again through an error or loop action. Non-parent
+                    // transactions still need loop handling below to report their results.
+                    if (!running && sam instanceof TransactionSampler) {
+                        break;
+                    }
+
                     boolean lastSampleOk = TRUE.equals(threadContext.getVariables().get(LAST_SAMPLE_OK));
                     // restart of the next loop
                     // - was requested through threadContext
@@ -679,6 +686,11 @@ public class JMeterThread implements Runnable, Interruptible {
                 && transactionResult == null
                 && transactionSampler != null
                 && transactionPack != null) {
+            // A stopped thread will not advance the controller to finalize this transaction.
+            // Complete its counts and timing before listeners see the result.
+            if (!transactionSampler.isTransactionDone()) {
+                transactionSampler.setTransactionDone();
+            }
             transactionResult = doEndTransactionSampler(
                     transactionSampler, parent, transactionPack, threadContext, sourceTransactionController,
                     recoverControllers);
