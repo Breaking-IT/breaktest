@@ -24,6 +24,46 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.09.23 — Variable Autocomplete, Reliable Validation, and Replay Recovery</h1>
+<p>This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. It also improves AI repair controls and reporting, CSV editing, and correlation rule organization.</p>
+<ch_section>Test Plan Editing</ch_section>
+<ul>
+<li>Get inline variable suggestions by typing <code>${</code> in component fields, table cells, multiline editors, and expanded dialogs. Suggestions use enabled definitions in the test plan and current thread group, including configured CSV variable names, extractors, counters, User Parameters, and literal inline JSR223 <code>vars.put()</code> names. Type <code>${_</code> for installed functions; use Up/Down to select, Enter or Tab to accept, and Escape to dismiss.</li>
+<li>Completion preserves surrounding text and supports extractor match counts, indexed matches, and capture groups. JSR223 script bodies are excluded; CSV header inference, external script files, and computed script variable names are not supported.</li>
+<li>Create a missing local or archived CSV directly from CSV Data Set Config → Edit CSV. The file is created only when saved; cancelling leaves it uncreated.</li>
+<li>Choose an existing custom correlation group from an editable dropdown when saving an extractor as a predefined correlation, or enter a new group name.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/167">#167</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/160">#160</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/159">#159</a>.</p>
+<ch_section>Validation and Transaction Accuracy</ch_section>
+<ul>
+<li>Validate the selected thread group or the group containing the selected element. When selection is outside a thread group, the validation shortcut and toolbar button reuse the last valid validation target instead of running every group. Deleted targets and targets from a previous plan are discarded.</li>
+<li>End an open-model user's journey after an error triggers Start next thread loop, preventing unscheduled repeated transactions and inflated request throughput. Subsequent scheduled arrivals continue normally.</li>
+<li>Correct timer exclusion in transaction measurements: trailing pauses outside a parent transaction's time window no longer produce negative or understated durations, and waits inside Synchronizing Timer or JSR223 Timer evaluation are now excluded.</li>
+<li>Avoid duplicate parent transaction results when stopping an in-flight request with Start next thread loop on error enabled. Preserve separate results for non-parent transactions.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/168">#168</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/162">#162</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/166">#166</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/170">#170</a>.</p>
+<ch_section>Results and HTTP Replay</ch_section>
+<ul>
+<li>Store new replay request/response data even when the previous recording is absent. If the recording is missing only from memory, recover its complete bundle from the saved test plan before updating it, preserving other samplers' recordings. Checksum mismatches and incomplete bundles stop the update rather than silently replacing data.</li>
+<li>Fix Jump to navigation with disabled duplicate elements and preserve buffered result links when their source elements are renamed or moved. Deleted targets no longer redirect to another sampler with the old name.</li>
+<li>Preserve <code>TE: trailers</code> on HTTP/2 and HTTP/3 requests, including HAR replay. Other unsupported TE values continue to be removed.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/171">#171</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/161">#161</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/169">#169</a>.</p>
+<ch_section>AI Repair</ch_section>
+<ul>
+<li>Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.</li>
+<li>Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.</li>
+<li>Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/163">#163</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/164">#164</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<ul>
+<li><b>Copy any legacy AI Knowledge notes you need before saving a plan.</b> Existing plans still open and display the notes as read-only, selectable text, but saving omits AI Knowledge elements and their notes. Their child elements are preserved in order. AI repair no longer reads or writes Knowledge.</li>
+<li>Transaction measurements that exclude timers may change because timer waits and trailing pauses are now accounted for correctly. Open-model error handling no longer generates extra unscheduled iterations.</li>
+<li>Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.</li>
+</ul>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.09.16...2026.09.23">Full changelog since 2026.09.16</a></p>
+
 <h1>BreakTest 2026.09.16 — Correlation Rule Management, Broader Token Detection, and Authentication Fixes</h1>
 <p>This release adds persistent correlation rule controls and broader automatic token detection, improves HAR imports and authentication across negotiated HTTP protocols, and reduces unnecessary work during command-line execution.</p>
 <ch_section>Correlation Rules and HAR Import</ch_section>
