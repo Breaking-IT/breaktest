@@ -52,6 +52,8 @@ import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
 
@@ -170,6 +172,40 @@ public class ViewResultsFullVisualizerTest implements JMeterSerialTest {
 
         assertTrue(sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY).isEmpty());
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+    }
+
+    @ParameterizedTest
+    @EnumSource(RecordingStorageMode.class)
+    public void storesReplayWhenPreviousRecordingIsUnavailable(RecordingStorageMode mode) throws Exception {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recordings/manifests/missing.json");
+        threadGroup.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "missing-checksum");
+        DebugSampler sampler = new DebugSampler();
+        sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "existing-exchange");
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode groupNode = new JMeterTreeNode(threadGroup, treeModel);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(groupNode);
+        groupNode.add(samplerNode);
+        SampleResult replay = replayResult("new-response");
+        replay.setURL(URI.create("https://example.invalid/application.js").toURL());
+        replay.setContentType("application/javascript");
+
+        ReplayRecordingStore.store(Map.of(samplerNode, replay), mode);
+
+        if (mode == RecordingStorageMode.NONE || mode == RecordingStorageMode.OMIT_STATICS) {
+            assertEquals("", sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+            assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+            assertEquals("", threadGroup.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+        } else {
+            assertEquals("existing-exchange", sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+            var exchange = RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().orElseThrow();
+            assertEquals(mode == RecordingStorageMode.ALL ? "new-response" : "",
+                    exchange.responseBody());
+            assertEquals("https://example.invalid/application.js", exchange.requestUrl());
+        }
     }
 
     @Test
