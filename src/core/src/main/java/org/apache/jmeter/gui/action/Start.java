@@ -98,7 +98,7 @@ public class Start extends AbstractAction {
     }
 
     private StandardJMeterEngine engine;
-    private AbstractThreadGroup[] lastValidationThreadGroups = new AbstractThreadGroup[0];
+    private static AbstractThreadGroup[] lastValidationThreadGroups = new AbstractThreadGroup[0];
     private static volatile AbstractThreadGroup[] activeValidationThreadGroups;
 
     /**
@@ -125,6 +125,14 @@ public class Start extends AbstractAction {
      */
     public static AbstractThreadGroup[] getActiveValidationThreadGroups() {
         return activeValidationThreadGroups == null ? null : activeValidationThreadGroups.clone();
+    }
+
+    /**
+     * Release remembered validation targets when the GUI clears or replaces its test plan.
+     */
+    public static void clearValidationThreadGroups() {
+        lastValidationThreadGroups = new AbstractThreadGroup[0];
+        activeValidationThreadGroups = null;
     }
 
     /**
@@ -170,11 +178,7 @@ public class Start extends AbstractAction {
                 || e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
             boolean noTimers = e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS);
             boolean isValidation = e.getActionCommand().equals(ActionNames.VALIDATE_TG);
-            // Validation runs from the in-memory tree. Rewriting an existing JMX
-            // archive here only blocks the EDT, particularly when recordings are
-            // embedded. Keep the prompt for a new plan so relative paths still
-            // get a base directory.
-            if (!isValidation || GuiPackage.getInstance().getTestPlanFile() == null) {
+            if (!isValidation) {
                 popupShouldSave(e);
             }
             RunMode runMode = null;
@@ -207,6 +211,11 @@ public class Start extends AbstractAction {
                 if (tg.length == 0) {
                     JMeterUtils.reportErrorToUser("Select a thread group to validate first.");
                     return;
+                }
+                // Resolve the target before prompting to save a new plan for relative paths.
+                // Existing plans can be validated directly from the in-memory tree.
+                if (GuiPackage.getInstance().getTestPlanFile() == null) {
+                    popupShouldSave(e);
                 }
                 startEngine(tg, runMode);
             } else if((hasExplicitThreadGroups && tg != null && tg.length > 0) || (!hasExplicitThreadGroups && nodes.length > 0)) {

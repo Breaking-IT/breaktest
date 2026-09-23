@@ -59,6 +59,7 @@ import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.UndoHistory.HistoryListener;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.action.TreeNodeNamingPolicy;
 import org.apache.jmeter.gui.action.impl.DefaultTreeNodeNamingPolicy;
 import org.apache.jmeter.gui.logging.GuiLogEventBus;
@@ -955,6 +956,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * Clears the test plan file name.
      */
     public void clearTestPlan() {
+        Start.clearValidationThreadGroups();
         testPlanListeners.stream().forEach(TestPlanListener::beforeTestPlanCleared);
         getTreeModel().clearTestPlan();
         nodesToGui.clear();
@@ -970,6 +972,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * @param element to clear
      */
     public void clearTestPlan(TestElement element) {
+        Start.clearValidationThreadGroups();
         getTreeModel().clearTestPlan(element);
         removeNode(element);
         undoHistory.clear();

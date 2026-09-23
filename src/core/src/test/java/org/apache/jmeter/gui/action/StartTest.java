@@ -18,8 +18,13 @@
 package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+import java.lang.reflect.Field;
 
 import org.apache.jmeter.control.GenericController;
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
@@ -102,6 +107,31 @@ class StartTest {
         assertArrayEquals(new AbstractThreadGroup[] {first}, Start.resolveValidationThreadGroups(
                 Start.findValidationThreadGroups(new JMeterTreeNode[] {outside}),
                 new AbstractThreadGroup[] {first}, model));
+    }
+
+    @Test
+    void replacingPlanReleasesValidationTargets() throws Exception {
+        Field lastTargets = Start.class.getDeclaredField("lastValidationThreadGroups");
+        lastTargets.setAccessible(true);
+        Field activeTargets = Start.class.getDeclaredField("activeValidationThreadGroups");
+        activeTargets.setAccessible(true);
+        Field guiInstance = GuiPackage.class.getDeclaredField("guiPack");
+        guiInstance.setAccessible(true);
+        Object previousGui = guiInstance.get(null);
+        try {
+            lastTargets.set(null, new AbstractThreadGroup[] {first});
+            activeTargets.set(null, new AbstractThreadGroup[] {first});
+            guiInstance.set(null, null);
+            GuiPackage.initInstance(new JMeterTreeListener(model), model);
+
+            GuiPackage.getInstance().clearTestPlan(new TestPlan());
+
+            assertArrayEquals(new AbstractThreadGroup[0], (AbstractThreadGroup[]) lastTargets.get(null));
+            assertNull(Start.getActiveValidationThreadGroups());
+        } finally {
+            Start.clearValidationThreadGroups();
+            guiInstance.set(null, previousGui);
+        }
     }
 
     private JMeterTreeNode addChild(TestElement element, JMeterTreeNode parent) {
