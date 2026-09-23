@@ -148,6 +148,26 @@ public class HarConverterTest {
     }
 
     @Test
+    void keepsTeTrailersRequestHeader() throws Exception {
+        // HTTP/2 and HTTP/3 allow "TE: trailers" and some services require it, so the
+        // importer must carry it into the plan (the samplers keep it on the wire).
+        String har = "{\"log\":{\"entries\":["
+                + entry("2024-01-01T00:00:00.000Z", 10, "POST", "https://api.example.com/rpc", "[]",
+                        commonHeaders("te", "trailers"), null, 200) + ","
+                + entry("2024-01-01T00:00:01.000Z", 10, "GET", "https://api.example.com/home", "[]",
+                        commonHeadersOnly(), null, 200)
+                + "]}}";
+        HashTree converted = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)),
+                new HarImportOptions(), "grpc.har", "md5").convert(Set.of("api.example.com"));
+
+        HTTPSamplerProxy rpc = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertTrue(rpc.getNativeHeaderList().stream()
+                .anyMatch(header -> "te".equals(header.getName()) && "trailers".equals(header.getValue())),
+                "te: trailers must survive the import");
+    }
+
+    @Test
     void buildsTestPlanLevelConfigElements() {
         assertNotNull(findByType(tree, ResultCollector.class), "View Results Tree");
         TestElement defaults = findByName(tree, "HTTP Request Defaults");
