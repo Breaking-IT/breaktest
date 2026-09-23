@@ -275,7 +275,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 if (shouldRetryClosedSessionFailure(e, method, attempt)) {
                     attempt++;
                     currentRequest = null;
-                    clientState.getConnectionManager().closeConnections();
+                    // Other requests of this virtual user may still use the manager's connections
+                    clientState.getConnectionManager().closeConnections(CloseMode.GRACEFUL);
                     log.debug("Retrying HTTP/2 sample after closed session failure; attempt {}/{} {} {}",
                             attempt, CLOSED_SESSION_RETRY_COUNT, method, url, e);
                     continue;
@@ -544,6 +545,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                         public void completed(ManagedAsyncClientConnection result) {
                             connectEnd(context);
                             rememberNetworkEndpoint(endpointHost, context, result);
+                            trackConnection(context, result);
                             callback.completed(result);
                         }
 
@@ -566,6 +568,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
         private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
+        // Connections opened through this manager, so that a reset can close idle pooled ones at once
+        private final Set<ManagedAsyncClientConnection> connections = ConcurrentHashMap.newKeySet();
 
         private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate, String authority) {
             this.delegate = delegate;
@@ -760,13 +764,25 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             delegate.close(closeMode);
         }
 
-        void closeConnections() {
+        /**
+         * Closes this virtual user's connections. Use {@link CloseMode#IMMEDIATE} when no request is
+         * in flight: a graceful close waits for the server to confirm, and HttpCore keeps the I/O
+         * thread busy until the reply arrives, which costs CPU for a full round trip.
+         */
+        void closeConnections(CloseMode closeMode) {
             for (AsyncConnectionEndpoint endpoint : endpointRoutes.keySet()) {
                 warnConnectionClosureDebug(
                         "manager closeConnections endpoint-close localClose=true authority={} route={} endpoint={} closeMode={} thread={}",
-                        authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), CloseMode.GRACEFUL,
+                        authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), closeMode,
                         Thread.currentThread().getName());
-                endpoint.close(CloseMode.GRACEFUL);
+                endpoint.close(closeMode);
+            }
+            if (closeMode == CloseMode.IMMEDIATE) {
+                // The pool closes idle connections gracefully, so close them here first
+                for (ManagedAsyncClientConnection connection : connections) {
+                    connection.close(CloseMode.IMMEDIATE);
+                }
+                connections.clear();
             }
             warnConnectionClosureDebug(
                     "manager closeConnections closeIdle localClose=true authority={} endpointCount={} routeCount={} thread={}",
@@ -775,6 +791,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             routeStates.clear();
             endpointRoutes.clear();
             networkEndpointsByFirstHop.clear();
+        }
+
+        void trackConnection(ManagedAsyncClientConnection connection) {
+            connections.removeIf(tracked -> !tracked.isOpen());
+            connections.add(connection);
         }
 
         void rememberNetworkEndpoint(HttpHost firstHop, NetworkEndpoint endpoint) {
@@ -786,6 +807,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         NetworkEndpoint networkEndpointFor(RouteInfo route) {
             HttpHost firstHop = firstHop(route);
             return firstHop == null ? null : networkEndpointsByFirstHop.get(endpointKey(firstHop));
+        }
+    }
+
+    private static void trackConnection(HttpContext context, ManagedAsyncClientConnection connection) {
+        Object manager = context == null ? null : context.getAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER);
+        if (manager instanceof H2RouteReuseConnectionManager connectionManager) {
+            connectionManager.trackConnection(connection);
         }
     }
 
@@ -1440,7 +1468,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
         synchronized (clients) {
             for (HttpClientState clientState : clients.values()) {
-                clientState.getConnectionManager().closeConnections();
+                // A new visitor starts: the previous visitor's requests have all completed
+                clientState.getConnectionManager().closeConnections(CloseMode.IMMEDIATE);
             }
         }
     }
@@ -1454,7 +1483,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             for (HttpClientState clientState : clients.values()) {
                 // The classic facade owns and closes its backing async client. Closing both here
                 // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
-                JOrphanUtils.closeQuietly(clientState.getClient());
+                // A graceful close would wait for the server to confirm, blocking this thread up to
+                // the shutdown timeout while the I/O thread stays busy.
+                clientState.getClient().close(CloseMode.IMMEDIATE);
             }
         }
     }
