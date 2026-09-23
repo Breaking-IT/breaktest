@@ -15,7 +15,16 @@ specific language governing permissions and limitations under the License.
 
 # BreakTest 2026.09.23 — Variable Autocomplete, Reliable Validation, and Replay Recovery
 
-This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. It also improves AI repair controls and reporting, CSV editing, and correlation rule organization.
+This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. AI script repair is now significantly faster and uses fewer tokens, with improved prompts, repair logic, controls, and reporting. CSV editing and correlation rule organization also improve.
+
+## AI Repair
+
+- Significantly reduce the total time spent on AI script repair and use fewer tokens through improved prompts and repair logic.
+- Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.
+- Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.
+- Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.
+
+Sources: [#163](https://github.com/Breaking-IT/breaktest/pull/163), [#164](https://github.com/Breaking-IT/breaktest/pull/164).
 
 ## Test Plan Editing
 
@@ -42,14 +51,6 @@ Sources: [#168](https://github.com/Breaking-IT/breaktest/pull/168), [#162](https
 - Preserve `TE: trailers` on HTTP/2 and HTTP/3 requests, including HAR replay. Other unsupported TE values continue to be removed.
 
 Sources: [#171](https://github.com/Breaking-IT/breaktest/pull/171), [#161](https://github.com/Breaking-IT/breaktest/pull/161), [#169](https://github.com/Breaking-IT/breaktest/pull/169).
-
-## AI Repair
-
-- Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.
-- Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.
-- Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.
-
-Sources: [#163](https://github.com/Breaking-IT/breaktest/pull/163), [#164](https://github.com/Breaking-IT/breaktest/pull/164).
 
 ## Upgrade Notes
 

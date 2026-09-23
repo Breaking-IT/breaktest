@@ -25,7 +25,15 @@
 <section name="Release Notes">
 
 <h1>BreakTest 2026.09.23 — Variable Autocomplete, Reliable Validation, and Replay Recovery</h1>
-<p>This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. It also improves AI repair controls and reporting, CSV editing, and correlation rule organization.</p>
+<p>This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. AI script repair is now significantly faster and uses fewer tokens, with improved prompts, repair logic, controls, and reporting. CSV editing and correlation rule organization also improve.</p>
+<ch_section>AI Repair</ch_section>
+<ul>
+<li>Significantly reduce the total time spent on AI script repair and use fewer tokens through improved prompts and repair logic.</li>
+<li>Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.</li>
+<li>Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.</li>
+<li>Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/163">#163</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/164">#164</a>.</p>
 <ch_section>Test Plan Editing</ch_section>
 <ul>
 <li>Get inline variable suggestions by typing <code>${</code> in component fields, table cells, multiline editors, and expanded dialogs. Suggestions use enabled definitions in the test plan and current thread group, including configured CSV variable names, extractors, counters, User Parameters, and literal inline JSR223 <code>vars.put()</code> names. Type <code>${_</code> for installed functions; use Up/Down to select, Enter or Tab to accept, and Escape to dismiss.</li>
@@ -49,13 +57,6 @@
 <li>Preserve <code>TE: trailers</code> on HTTP/2 and HTTP/3 requests, including HAR replay. Other unsupported TE values continue to be removed.</li>
 </ul>
 <p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/171">#171</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/161">#161</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/169">#169</a>.</p>
-<ch_section>AI Repair</ch_section>
-<ul>
-<li>Choose model and thinking settings per repair run. Improve Pi progress and usage reporting, and clear AI logs with Clear All.</li>
-<li>Supply correlation preflight evidence, batch edits and assertions, and compact validation results to reduce repeated analysis and oversized tool responses.</li>
-<li>Require an explicit structured completion status from every supported agent in GUI and file-backed repair. Missing or malformed status is reported as blocked, and failed agent processes remain failures.</li>
-</ul>
-<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/163">#163</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/164">#164</a>.</p>
 <ch_section>Upgrade Notes</ch_section>
 <ul>
 <li><b>Copy any legacy AI Knowledge notes you need before saving a plan.</b> Existing plans still open and display the notes as read-only, selectable text, but saving omits AI Knowledge elements and their notes. Their child elements are preserved in order. AI repair no longer reads or writes Knowledge.</li>
