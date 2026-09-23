@@ -129,7 +129,10 @@ public class TransactionSampler extends AbstractSampler {
         }
     }
 
-    protected void setTransactionDone() {
+    /**
+     * Finalizes the transaction statistics after its children have completed or the thread has stopped.
+     */
+    public void setTransactionDone() {
         this.transactionDone = true;
         // Set the overall status for the transaction sample
         // TODO: improve, e.g. by adding counts to the SampleResult class

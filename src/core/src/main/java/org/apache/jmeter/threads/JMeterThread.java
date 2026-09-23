@@ -686,6 +686,11 @@ public class JMeterThread implements Runnable, Interruptible {
                 && transactionResult == null
                 && transactionSampler != null
                 && transactionPack != null) {
+            // A stopped thread will not advance the controller to finalize this transaction.
+            // Complete its counts and timing before listeners see the result.
+            if (!transactionSampler.isTransactionDone()) {
+                transactionSampler.setTransactionDone();
+            }
             transactionResult = doEndTransactionSampler(
                     transactionSampler, parent, transactionPack, threadContext, sourceTransactionController,
                     recoverControllers);

@@ -1676,10 +1676,14 @@ class TestJMeterThread {
         SampleResult result = events.get(0).getResult();
         assertEquals("transaction", result.getSampleLabel());
         assertFalse(result.isSuccessful());
+        assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+                result.getResponseMessage());
         assertEquals(1, result.getSubResults().length);
         if (nested) {
             result = result.getSubResults()[0];
             assertEquals("inner-transaction", result.getSampleLabel());
+            assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+                    result.getResponseMessage());
             assertEquals(1, result.getSubResults().length);
         }
         assertEquals("interrupted-request", result.getSubResults()[0].getSampleLabel());
