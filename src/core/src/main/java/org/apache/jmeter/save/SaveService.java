@@ -806,6 +806,33 @@ public class SaveService {
         }
     }
 
+    /**
+     * Reads a recording and all its dependencies without loading the test plan or changing the cache.
+     * Missing files or manifests and legacy XML plans return empty; damaged recordings fail the read.
+     */
+    public static Optional<Map<String, byte[]>> readRecordingBundle(
+            File file, String manifestEntryName, String expectedChecksum) throws IOException {
+        if (file == null || !file.isFile() || !JmxArchiveEntryStore.isSafeEntryName(manifestEntryName)) {
+            return Optional.empty();
+        }
+        try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(file))) {
+            if (!hasZipSignature(input)) {
+                return Optional.empty();
+            }
+        }
+        try (ZipFile zip = new ZipFile(file)) {
+            Optional<byte[]> manifest = readZipEntry(zip, manifestEntryName);
+            if (manifest.isEmpty()) {
+                return Optional.empty();
+            }
+            if (expectedChecksum != null && !expectedChecksum.isEmpty()
+                    && !expectedChecksum.equalsIgnoreCase(RecordedExchangeStore.sha256Hex(manifest.get()))) {
+                throw new IOException("Recording manifest checksum does not match the test plan metadata");
+            }
+            return Optional.of(readRecordingBundle(zip, manifestEntryName));
+        }
+    }
+
     private static Map<String, byte[]> readRecordingBundle(ZipFile zipFile, String manifestEntryName)
             throws IOException {
         Map<String, byte[]> loaded = new LinkedHashMap<>();
