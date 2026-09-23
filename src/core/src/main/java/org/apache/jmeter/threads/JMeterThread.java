@@ -1699,6 +1699,9 @@ public class JMeterThread implements Runnable, Interruptible {
             currentForkTimersForInterruption.add(timers);
         }
         try {
+            // Timers such as the Synchronizing Timer block inside delay() and return 0, so the
+            // pause starts before the timers are evaluated, not when the sleep starts
+            long start = System.currentTimeMillis();
             long totalDelay = 0;
             for (Timer timer : timers) {
                 TestBeanHelper.prepare((TestElement) timer);
@@ -1724,8 +1727,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                 }
                 // Use granular sleeps to allow quick response to shutdown
-                long start = System.currentTimeMillis();
-                long end = start + totalDelay;
+                long end = System.currentTimeMillis() + totalDelay;
                 long now;
                 long pause = TIMER_GRANULARITY;
                 while (running && !isCurrentForkStopRequested() && (now = System.currentTimeMillis()) < end) {
@@ -1738,15 +1740,15 @@ public class JMeterThread implements Runnable, Interruptible {
                     } catch (InterruptedException e) {
                         if (log.isDebugEnabled() && running && !isCurrentForkStopRequested()) {
                             log.debug("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
-                                    threadName, System.currentTimeMillis() - start, totalDelay);
+                                    threadName, end - System.currentTimeMillis(), totalDelay);
                         }
                         Thread.currentThread().interrupt();
                         break;
                     }
                 }
-                return new TimerPause(start, System.currentTimeMillis());
             }
-            return null;
+            long pauseEnd = System.currentTimeMillis();
+            return pauseEnd > start ? new TimerPause(start, pauseEnd) : null;
         } finally {
             currentTimersForInterruption = null;
             // Remove by identity: List#remove uses equals(), and equally-configured timer lists
