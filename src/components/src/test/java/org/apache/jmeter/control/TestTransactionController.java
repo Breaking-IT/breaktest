@@ -171,7 +171,9 @@ public class TestTransactionController extends JMeterTestCase {
 
         assertEquals(1, listener.getEvents().size());
         SampleResult transaction = listener.getEvents().get(0).getResult();
-        assertTrue(transaction.getIdleTime() >= 300,
+        // Timer pauses use millisecond timestamps, while sample boundaries can use the nano clock.
+        // Their intersection can be slightly shorter than the requested sleep (299 ms in CI).
+        assertTrue(transaction.getIdleTime() >= 290,
                 () -> "Blocking timer wait must be idle time, got " + transaction.getIdleTime());
         assertTrue(transaction.getTime() < 300,
                 () -> "Blocking timer wait must not count as transaction time, got " + transaction.getTime());

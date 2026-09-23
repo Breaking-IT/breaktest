@@ -107,6 +107,9 @@ public class TextBoxDialoger implements ActionListener {
 
         textBox = new JEditorPane();
         textBox.setEditable(editable);
+        if (editable) {
+            ParameterCompletion.install(textBox);
+        }
 
         JScrollPane textBoxScrollPane = GuiUtils.makeScrollPane(textBox);
 

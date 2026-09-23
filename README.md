@@ -333,6 +333,35 @@ breaktest.version=2026.09.16
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix
 automatically unless the build is run with `-Prelease` or `-Prc=<number>`.
 
+## Parameter completion
+
+Type `${` in a test component editor to see available variable names. Keep typing
+to filter the list, use Up/Down to select, Enter or Tab to insert, or Escape to dismiss.
+This also works when typing into a selected table cell, in multiline editors, and
+in expanded text dialogs. JSR223 script bodies are excluded so Groovy string
+interpolation and normal script editing keys keep their original behavior.
+
+Suggestions include configured CSV variable names and user-defined variables at
+test-plan level and in the current thread group, plus extractor outputs, counters,
+User Parameters, and literal names in inline JSR223 `vars.put()` calls. Disabled
+elements and other thread groups are excluded.
+Names are cached in memory while completing an expression; no test is run and
+variable values are never shown. CSV columns need explicit Variable Names; names
+computed dynamically by scripts or read from CSV headers are not inferred.
+Script discovery skips comments and quoted examples and never executes code;
+referenced script files are not scanned.
+
+For extractors that return all matches, `_n` inserts `_1` with the index selected
+for editing. Available suffixes depend on the extractor, including `_matchNr`,
+regular-expression `_rand` and capture groups, and JSON `_ALL` when configured.
+JSON and JMESPath match-all modes omit the bare reference name because it is only a fallback,
+not an extracted match. Names defined independently (for example by CSV) remain available.
+
+Built-in functions appear only after `${_`. Functions with arguments insert
+parentheses with the caret inside. See the
+[JMeter function reference](https://jmeter.apache.org/usermanual/functions.html)
+for argument syntax and escaping.
+
 ## Documentation
 
 Generated distribution documentation is included under `docs/` in release
