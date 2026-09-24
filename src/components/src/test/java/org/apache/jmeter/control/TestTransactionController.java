@@ -18,13 +18,21 @@
 package org.apache.jmeter.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.engine.util.CompoundVariable;
@@ -32,10 +40,12 @@ import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.test.samplers.CollectSamplesListener;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.NullProperty;
 import org.apache.jmeter.testelement.property.StringProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
@@ -44,11 +54,15 @@ import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.TestCompiler;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.timers.Timer;
+import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 
 public class TestTransactionController extends JMeterTestCase {
+
+    private static final String GENERATE_PARENT_SAMPLE = "TransactionController.parent";
 
     private static final Method COMPUTE_TRANSACTION_DELAY;
 
@@ -93,7 +107,7 @@ public class TestTransactionController extends JMeterTestCase {
         CollectSamplesListener listener = new CollectSamplesListener();
 
         TransactionController transactionController = new TransactionController();
-        transactionController.setGenerateParentSample(true);
+        transactionController.setName("transaction");
 
         ResponseAssertion assertion = new ResponseAssertion();
         assertion.setTestFieldResponseCode();
@@ -108,11 +122,9 @@ public class TestTransactionController extends JMeterTestCase {
         loop.setContinueForever(false);
 
         ListedHashTree hashTree = new ListedHashTree();
-        hashTree.add(loop);
-        hashTree.add(loop, transactionController);
-        hashTree.add(transactionController, debugSampler);
-        hashTree.add(transactionController, listener);
-        hashTree.add(debugSampler, assertion);
+        HashTree transactionTree = hashTree.add(loop).add(transactionController);
+        transactionTree.add(debugSampler).add(assertion);
+        transactionTree.add(listener);
 
         TestCompiler compiler = new TestCompiler(hashTree);
         hashTree.traverse(compiler);
@@ -127,10 +139,14 @@ public class TestTransactionController extends JMeterTestCase {
         thread.setOnErrorStopThread(true);
         thread.run();
 
-        assertEquals(1, listener.getEvents().size(),
-                "Must one transaction samples with parent debug sample");
+        assertEquals(2, listener.getEvents().size(),
+                "Must receive the failing debug sample and the transaction stopped by it");
+        SampleResult debugResult = listener.getEvents().get(0).getResult();
+        SampleResult transaction = listener.getEvents().get(1).getResult();
+        assertTrue(transaction.isTransaction());
+        assertEquals(transaction.getTransaction(), debugResult.getParentTransaction());
         assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
-                listener.getEvents().get(0).getResult().getResponseMessage());
+                transaction.getResponseMessage());
     }
 
     @Test
@@ -140,7 +156,6 @@ public class TestTransactionController extends JMeterTestCase {
         CollectSamplesListener listener = new CollectSamplesListener();
 
         TransactionController transactionController = new TransactionController();
-        transactionController.setGenerateParentSample(true);
         transactionController.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
 
         DebugSampler debugSampler = new DebugSampler();
@@ -152,11 +167,9 @@ public class TestTransactionController extends JMeterTestCase {
         loop.setContinueForever(false);
 
         ListedHashTree hashTree = new ListedHashTree();
-        hashTree.add(loop);
-        hashTree.add(loop, transactionController);
-        hashTree.add(transactionController, debugSampler);
-        hashTree.add(transactionController, listener);
-        hashTree.add(debugSampler, timer);
+        HashTree transactionTree = hashTree.add(loop).add(transactionController);
+        transactionTree.add(debugSampler).add(timer);
+        transactionTree.add(listener);
 
         TestCompiler compiler = new TestCompiler(hashTree);
         hashTree.traverse(compiler);
@@ -169,8 +182,9 @@ public class TestTransactionController extends JMeterTestCase {
         thread.setOnErrorStopThread(true);
         thread.run();
 
-        assertEquals(1, listener.getEvents().size());
-        SampleResult transaction = listener.getEvents().get(0).getResult();
+        assertEquals(2, listener.getEvents().size());
+        SampleResult transaction = listener.getEvents().get(1).getResult();
+        assertTrue(transaction.isTransaction());
         // Timer pauses use millisecond timestamps, while sample boundaries can use the nano clock.
         // Their intersection can be slightly shorter than the requested sleep (299 ms in CI).
         assertTrue(transaction.getIdleTime() >= 290,
@@ -375,50 +389,160 @@ public class TestTransactionController extends JMeterTestCase {
     public void testTimingModeCanExcludeMergedTimerPauses() {
         TransactionController controller = new TransactionController();
         controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
-        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
-        long transactionStart = sampler.getTransactionResult().getStartTime();
-        SampleResult child = SampleResult.createTestSample(transactionStart + 25, transactionStart + 225);
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
 
-        sampler.addSubSamplerResult(child);
-        sampler.addTimerPause(transactionStart + 50, transactionStart + 125);
-        sampler.addTimerPause(transactionStart + 100, transactionStart + 175);
-        sampler.setTransactionDone();
+        transaction.addSample(successfulSample(transactionStart + 25, transactionStart + 225));
+        transaction.addTimerPause(transactionStart + 50, transactionStart + 125);
+        transaction.addTimerPause(transactionStart + 100, transactionStart + 175);
+        SampleResult result = transaction.finish(transactionStart + 225, true);
 
-        assertEquals(125, sampler.getTransactionResult().getIdleTime());
-        assertEquals(100, sampler.getTransactionResult().getTime());
+        assertEquals(125, result.getIdleTime());
+        assertEquals(100, result.getTime());
     }
 
     @Test
-    public void testTimingModeExcludeTimersIgnoresTrailingPauseAfterLastSubResult() {
+    public void testTimingModeExcludeTimersExcludesTrailingThinkTime() {
         TransactionController controller = new TransactionController();
         controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
-        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
-        long transactionStart = sampler.getTransactionResult().getStartTime();
-        SampleResult child = SampleResult.createTestSample(transactionStart, transactionStart + 1000);
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
 
-        sampler.addSubSamplerResult(child);
-        // Think time as the last child: timer runs, but the sampler produces no result
-        sampler.addTimerPause(transactionStart + 1000, transactionStart + 4000);
-        sampler.setTransactionDone();
+        transaction.addSample(successfulSample(transactionStart, transactionStart + 1000));
+        // Think time as the last child: the transaction ends after it, but it is excluded
+        transaction.addTimerPause(transactionStart + 1000, transactionStart + 4000);
+        SampleResult result = transaction.finish(transactionStart + 4000, true);
 
-        assertEquals(0, sampler.getTransactionResult().getIdleTime());
-        assertEquals(1000, sampler.getTransactionResult().getTime());
+        assertEquals(3000, result.getIdleTime());
+        assertEquals(1000, result.getTime());
     }
 
     @Test
     public void testTimingModeExcludeTimersClampsPauseStraddlingEnd() {
         TransactionController controller = new TransactionController();
         controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_EXCLUDE_TIMERS);
-        TransactionSampler sampler = new TransactionSampler(controller, "transaction");
-        long transactionStart = sampler.getTransactionResult().getStartTime();
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
 
-        sampler.addTimerPause(transactionStart, transactionStart + 200);
-        sampler.addSubSamplerResult(SampleResult.createTestSample(transactionStart + 200, transactionStart + 500));
-        sampler.addTimerPause(transactionStart + 400, transactionStart + 3000);
-        sampler.setTransactionDone();
+        transaction.addTimerPause(transactionStart, transactionStart + 200);
+        transaction.addSample(successfulSample(transactionStart + 200, transactionStart + 500));
+        transaction.addTimerPause(transactionStart + 400, transactionStart + 3000);
+        SampleResult result = transaction.finish(transactionStart + 500, true);
 
-        assertEquals(300, sampler.getTransactionResult().getIdleTime());
-        assertEquals(200, sampler.getTransactionResult().getTime());
+        assertEquals(300, result.getIdleTime());
+        assertEquals(200, result.getTime());
+    }
+
+    @Test
+    public void testTimingModeSumChildSamplesExcludesGaps() {
+        TransactionController controller = new TransactionController();
+        controller.setTimingMode(TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES);
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
+
+        transaction.addSample(successfulSample(transactionStart + 100, transactionStart + 250));
+        transaction.addSample(successfulSample(transactionStart + 400, transactionStart + 450));
+        SampleResult result = transaction.finish(transactionStart + 600, true);
+
+        assertEquals(200, result.getTime());
+        assertEquals("Number of samples in transaction : 2, number of failing samples : 0",
+                result.getResponseMessage());
+        assertTrue(result.isSuccessful());
+    }
+
+    @Test
+    public void testTimingModeIncludeTimersMeasuresWholeTransaction() {
+        TransactionController controller = new TransactionController();
+        controller.setTimingMode(TransactionController.TIMING_MODE_TOTAL_INCLUDE_TIMERS);
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
+
+        transaction.addSample(successfulSample(transactionStart + 100, transactionStart + 250));
+        transaction.addTimerPause(transactionStart, transactionStart + 100);
+        SampleResult result = transaction.finish(transactionStart + 600, true);
+
+        assertEquals(600, result.getTime());
+    }
+
+    @Test
+    public void testTransactionFailsWhenASampleFailsAndIgnoresSamplesAfterItEnds() {
+        TransactionController controller = new TransactionController();
+        RunningTransaction transaction = startTransaction(controller);
+        long transactionStart = transaction.createStartedResult().getStartTime();
+        SampleResult failed = successfulSample(transactionStart, transactionStart + 10);
+        failed.setSuccessful(false);
+
+        transaction.addSample(failed);
+        SampleResult result = transaction.finish(transactionStart + 20, true);
+        transaction.addSample(successfulSample(transactionStart + 20, transactionStart + 30));
+
+        assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+                result.getResponseMessage());
+        assertEquals(null, transaction.finish(transactionStart + 40, true), "A transaction ends only once");
+        assertTrue(TransactionController.isFromTransactionController(result));
+        assertTrue(result.isTransaction());
+        assertEquals(transaction.getRef(), result.getTransaction());
+    }
+
+    @Test
+    public void testGenerateParentSamplePropertyIsDropped() {
+        TransactionController controller = new TransactionController();
+        controller.setProperty(new BooleanProperty(GENERATE_PARENT_SAMPLE, true));
+
+        assertTrue(controller.getProperty(GENERATE_PARENT_SAMPLE) instanceof NullProperty);
+    }
+
+    @Test
+    public void testGenerateParentSampleIsNotSavedAgain(@TempDir Path directory) throws Exception {
+        String oldJmx = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <jmeterTestPlan version="1.2" properties="5.0">
+                  <hashTree>
+                    <TransactionController guiclass="TransactionControllerGui" testclass="TransactionController" testname="transaction">
+                      <boolProp name="TransactionController.parent">true</boolProp>
+                      <boolProp name="TransactionController.includeTimers">false</boolProp>
+                    </TransactionController>
+                    <hashTree/>
+                  </hashTree>
+                </jmeterTestPlan>
+                """;
+        Path oldPlan = Files.writeString(directory.resolve("old.jmx"), oldJmx);
+
+        HashTree loaded = SaveService.loadTree(oldPlan.toFile());
+        TransactionController loadedController = (TransactionController) loaded.getArray()[0];
+        Path resaved = directory.resolve("resaved.jmx");
+        try (OutputStream out = Files.newOutputStream(resaved)) {
+            SaveService.saveTree(loaded, out);
+        }
+        String savedJmx = readPlanXml(resaved);
+
+        assertTrue(loadedController.getProperty(GENERATE_PARENT_SAMPLE) instanceof NullProperty);
+        assertEquals(TransactionController.TIMING_MODE_SUM_CHILD_SAMPLES, loadedController.getTimingMode(),
+                "Other properties must load as before");
+        assertFalse(savedJmx.contains(GENERATE_PARENT_SAMPLE), savedJmx);
+        assertTrue(savedJmx.contains("TransactionController.includeTimers"), savedJmx);
+    }
+
+    /** Saved plans are archives holding the plan XML, older plans are plain XML */
+    private static String readPlanXml(Path plan) throws IOException {
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(plan))) {
+            for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                if (entry.getName().endsWith(".jmx")) {
+                    return new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            }
+        }
+        return Files.readString(plan, StandardCharsets.UTF_8);
+    }
+
+    private static SampleResult successfulSample(long start, long end) {
+        SampleResult sample = SampleResult.createTestSample(start, end);
+        sample.setSuccessful(true);
+        return sample;
+    }
+
+    private static RunningTransaction startTransaction(TransactionController controller) {
+        return new RunningTransaction(controller, "transaction", controller.getTimingMode(), null);
     }
 
     private static long computeTransactionDelay(TransactionController controller) throws Exception {

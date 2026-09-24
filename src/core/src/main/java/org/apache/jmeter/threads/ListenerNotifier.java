@@ -19,6 +19,7 @@ package org.apache.jmeter.threads;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -56,6 +57,57 @@ public class ListenerNotifier implements Serializable {
             try {
                 TestBeanHelper.prepare((TestElement) sampleListener);
                 sampleListener.sampleOccurred(res);
+            } catch (RuntimeException e) {
+                log.error("Detected problem in Listener.", e);
+                log.info("Continuing to process further listeners");
+            }
+        }
+    }
+
+    /**
+     * Notify a list of listeners that a transaction has started.
+     *
+     * @param event
+     *            the event holding the unfinished transaction. Must be non-null.
+     * @param listeners
+     *            the listeners which should be notified
+     * @see SampleListener#transactionStarted(SampleEvent)
+     */
+    public void notifyTransactionStarted(SampleEvent event, List<SampleListener> listeners) {
+        notifyStartEvent(event, listeners, SampleListener::transactionStarted);
+    }
+
+    /**
+     * Notify the listeners that asked for start events that a sampler is about to send its request.
+     *
+     * @param event     the event holding the unfinished sample
+     * @param listeners the listeners in scope of the sampler
+     * @see SampleListener#sampleStarted(SampleEvent)
+     */
+    public void notifySampleStarted(SampleEvent event, List<SampleListener> listeners) {
+        notifyStartEvent(event, listeners, SampleListener::sampleStarted);
+    }
+
+    /**
+     * Notify the listeners that asked for start events that a started sampler has finished.
+     *
+     * @param event     the event holding the placeholder sent when the sampler started
+     * @param listeners the listeners in scope of the sampler
+     * @see SampleListener#sampleStopped(SampleEvent)
+     */
+    public void notifySampleStopped(SampleEvent event, List<SampleListener> listeners) {
+        notifyStartEvent(event, listeners, SampleListener::sampleStopped);
+    }
+
+    private static void notifyStartEvent(SampleEvent event, List<SampleListener> listeners,
+            BiConsumer<SampleListener, SampleEvent> callback) {
+        for (SampleListener sampleListener : listeners) {
+            if (!sampleListener.needsStartEvents()) {
+                continue;
+            }
+            try {
+                TestBeanHelper.prepare((TestElement) sampleListener);
+                callback.accept(sampleListener, event);
             } catch (RuntimeException e) {
                 log.error("Detected problem in Listener.", e);
                 log.info("Continuing to process further listeners");

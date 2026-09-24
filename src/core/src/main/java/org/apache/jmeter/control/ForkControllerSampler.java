@@ -17,8 +17,6 @@
 
 package org.apache.jmeter.control;
 
-import java.util.IdentityHashMap;
-
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
@@ -31,17 +29,14 @@ public class ForkControllerSampler extends AbstractSampler {
 
     private final ForkController sourceController;
     private final Controller controller;
-    private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
 
     public ForkControllerSampler() {
-        this(null, "", new GenericController(), new IdentityHashMap<>());
+        this(null, "", new GenericController());
     }
 
-    ForkControllerSampler(ForkController sourceController, String name, Controller controller,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    ForkControllerSampler(ForkController sourceController, String name, Controller controller) {
         this.sourceController = sourceController;
         this.controller = controller;
-        this.sourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
@@ -51,10 +46,6 @@ public class ForkControllerSampler extends AbstractSampler {
 
     public Controller getController() {
         return controller;
-    }
-
-    public TransactionController getSourceTransactionController(TransactionController controller) {
-        return sourceTransactionControllers.getOrDefault(controller, controller);
     }
 
     @Override

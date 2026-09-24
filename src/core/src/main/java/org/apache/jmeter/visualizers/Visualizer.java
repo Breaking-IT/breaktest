@@ -53,6 +53,46 @@ public interface Visualizer extends SampleResultMetadataConsumer {
     }
 
     /**
+     * This method is called by sampling thread when a Transaction Controller starts a transaction.
+     * The event holds an unfinished placeholder that must not be treated as a sample; see
+     * {@link org.apache.jmeter.samplers.SampleListener#transactionStarted(SampleEvent)}.
+     *
+     * @param event
+     *            the event holding the unfinished transaction
+     */
+    default void addStartedTransaction(SampleEvent event) {
+    }
+
+    /**
+     * This method is called by sampling thread when a sampler is about to send its request. The
+     * event holds an unfinished placeholder; see
+     * {@link org.apache.jmeter.samplers.SampleListener#sampleStarted(SampleEvent)}.
+     *
+     * @param event
+     *            the event holding the unfinished sample
+     */
+    default void addStartedSample(SampleEvent event) {
+    }
+
+    /**
+     * This method is called by sampling thread when a sampler given to
+     * {@link #addStartedSample(SampleEvent)} has finished, whether or not it produced a sample.
+     *
+     * @param event
+     *            the event holding the placeholder
+     */
+    default void removeStartedSample(SampleEvent event) {
+    }
+
+    /**
+     * @return {@code true} to receive {@link #addStartedTransaction(SampleEvent)},
+     * {@link #addStartedSample(SampleEvent)} and {@link #removeStartedSample(SampleEvent)}
+     */
+    default boolean needsStartedResults() {
+        return false;
+    }
+
+    /**
      * @return true when this visualizer needs rich metadata attached to
      * {@link SampleResult} instances, such as variable snapshots or source tree paths
      */

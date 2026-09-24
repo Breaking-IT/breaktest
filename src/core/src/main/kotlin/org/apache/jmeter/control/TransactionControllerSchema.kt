@@ -29,9 +29,6 @@ import org.apiguardian.api.API
 public abstract class TransactionControllerSchema : GenericControllerSchema() {
     public companion object INSTANCE : TransactionControllerSchema()
 
-    public val genearteParentSample: BooleanPropertyDescriptor<TransactionControllerSchema>
-        by boolean("TransactionController.parent")
-
     public val includeTimers: BooleanPropertyDescriptor<TransactionControllerSchema>
         by boolean("TransactionController.includeTimers", default = true)
 

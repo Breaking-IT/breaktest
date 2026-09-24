@@ -49,6 +49,7 @@ import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.SampleSaveConfiguration;
 import org.apache.jmeter.samplers.StatisticalSampleResult;
+import org.apache.jmeter.samplers.TransactionRef;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.Visualizer;
 import org.apache.jorphan.reflect.Functor;
@@ -106,6 +107,8 @@ public final class CSVSaveService {
     public static final String CSV_ENCODING = "Encoding"; // $NON-NLS-1$
     public static final String CSV_HOSTNAME = "Hostname"; // $NON-NLS-1$
     public static final String CSV_IDLETIME = "IdleTime"; // $NON-NLS-1$
+    public static final String CSV_TRANSACTION_ID = "transactionId"; // $NON-NLS-1$
+    public static final String CSV_PARENT_TRANSACTION_ID = "parentTransactionId"; // $NON-NLS-1$
 
     // Used to enclose variable name labels, to distinguish from any of the
     // above labels
@@ -384,6 +387,14 @@ public final class CSVSaveService {
                 result.setConnectTime(Long.parseLong(text));
             }
 
+            if (saveConfig.saveTransactionIds()) {
+                field = CSV_TRANSACTION_ID;
+                String transactionId = parts[i++];
+                field = CSV_PARENT_TRANSACTION_ID;
+                String parentTransactionId = parts[i++];
+                setTransactionIds(result, transactionId, parentTransactionId);
+            }
+
             if (i + saveConfig.getVarCount() < parts.length) {
                 log.warn("Line: {}. Found {} fields, expected {}. Extra fields have been ignored.", lineNumber,
                         parts.length, i);
@@ -399,6 +410,43 @@ public final class CSVSaveService {
             throw new JMeterError(e);
         }
         return new SampleEvent(result, "", hostname);
+    }
+
+    /**
+     * Restores the transaction references of a sample read from a results file. Only ids are
+     * saved, so the name of the enclosing transaction is unknown.
+     *
+     * @param result              the sample
+     * @param transactionId       id of the transaction the sample represents, or empty
+     * @param parentTransactionId id of the transaction the sample ran in, or empty
+     */
+    public static void setTransactionIds(SampleResult result, String transactionId, String parentTransactionId) {
+        TransactionRef parent = parentTransactionId == null || parentTransactionId.isEmpty()
+                ? null
+                : new TransactionRef(Long.parseLong(parentTransactionId), "", null);
+        if (transactionId != null && !transactionId.isEmpty()) {
+            result.setTransaction(new TransactionRef(Long.parseLong(transactionId), result.getSampleLabel(), parent));
+        } else {
+            result.setParentTransaction(parent);
+        }
+    }
+
+    /**
+     * @param result the sample
+     * @return id of the transaction the sample represents, or an empty string
+     */
+    public static String transactionId(SampleResult result) {
+        TransactionRef transaction = result.getTransaction();
+        return transaction == null ? "" : Long.toString(transaction.getId());
+    }
+
+    /**
+     * @param result the sample
+     * @return id of the transaction the sample ran in, or an empty string
+     */
+    public static String parentTransactionId(SampleResult result) {
+        TransactionRef parent = result.getParentTransaction();
+        return parent == null ? "" : Long.toString(parent.getId());
     }
 
     /**
@@ -442,6 +490,7 @@ public final class CSVSaveService {
         appendFields(saveConfig.saveHostname(), text, delim, CSV_HOSTNAME);
         appendFields(saveConfig.saveIdleTime(), text, delim, CSV_IDLETIME);
         appendFields(saveConfig.saveConnectTime(), text, delim, CSV_CONNECT_TIME);
+        appendFields(saveConfig.saveTransactionIds(), text, delim, CSV_TRANSACTION_ID, CSV_PARENT_TRANSACTION_ID);
 
         for (int i = 0; i < SampleEvent.getVarCount(); i++) {
             text.append(VARIABLE_NAME_QUOTE_CHAR);
@@ -508,6 +557,9 @@ public final class CSVSaveService {
         headerLabelMethods.put(CSV_HOSTNAME, new Functor("setHostname"));
         headerLabelMethods.put(CSV_IDLETIME, new Functor("setIdleTime"));
         headerLabelMethods.put(CSV_CONNECT_TIME, new Functor("setConnectTime"));
+        // Both these are needed in the list even though they set the same variable
+        headerLabelMethods.put(CSV_TRANSACTION_ID, new Functor("setTransactionIds"));
+        headerLabelMethods.put(CSV_PARENT_TRANSACTION_ID, new Functor("setTransactionIds"));
         int pos = 0;
         for (String key : headerLabelMethods.keySet()) {
             headerLabelPositions.put(key, pos++);
@@ -952,6 +1004,11 @@ public final class CSVSaveService {
 
         if (saveConfig.saveConnectTime()) {
             text.append(sample.getConnectTime());
+        }
+
+        if (saveConfig.saveTransactionIds()) {
+            text.append(transactionId(sample));
+            text.append(parentTransactionId(sample));
         }
 
         for (int i = 0; i < SampleEvent.getVarCount(); i++) {

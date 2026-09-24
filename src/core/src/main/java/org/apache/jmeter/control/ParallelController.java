@@ -82,62 +82,50 @@ public class ParallelController extends GenericController implements Serializabl
         }
 
         samplerReturned = true;
-        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
-                new IdentityHashMap<>();
-        return new ParallelControllerSampler(
-                this,
-                getName(),
-                getMaxParallel(),
-                createParallelBranches(sourceTransactionControllers),
-                sourceTransactionControllers);
+        return new ParallelControllerSampler(this, getName(), getMaxParallel(), createParallelBranches());
     }
 
-    private List<Controller> createParallelBranches(
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    private List<Controller> createParallelBranches() {
         List<Controller> branches = new ArrayList<>();
         for (TestElement child : getSubControllers()) {
-            branches.add(createParallelBranch(child, sourceTransactionControllers));
+            branches.add(createParallelBranch(child));
         }
         return branches;
     }
 
-    private static Controller createParallelBranch(TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    private static Controller createParallelBranch(TestElement child) {
         if (child instanceof GenericController controller) {
-            GenericController clone = cloneController(controller, sourceTransactionControllers, null);
+            GenericController clone = cloneController(controller, null);
             clone.initialize();
             return clone;
         }
         GenericController branch = new GenericController();
         branch.setName(child.getName());
-        addParallelChild(branch, child, sourceTransactionControllers);
+        addParallelChild(branch, child);
         branch.initialize();
         return branch;
     }
 
     private static GenericController cloneController(GenericController controller,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers,
             IdentityHashMap<Sampler, Sampler> sourceSamplers) {
         GenericController clone = (GenericController) controller.clone();
         if (clone instanceof TransactionController parallelTransactionController
                 && controller instanceof TransactionController sourceTransactionController) {
-            sourceTransactionControllers.put(parallelTransactionController, sourceTransactionController);
             parallelTransactionController.setSourceController(sourceTransactionController);
         }
         for (TestElement nestedChild : controller.getSubControllers()) {
-            addParallelChild(clone, nestedChild, sourceTransactionControllers, sourceSamplers);
+            addParallelChild(clone, nestedChild, sourceSamplers);
         }
         return clone;
     }
 
     /**
-     * Adds a child to a synthetic parallel branch using the same cloning and
-     * transaction-source tracking rules as {@link ParallelController}. The child subtree is
-     * assumed to run in exactly one branch, so samplers are shared, not cloned.
+     * Adds a child to a synthetic parallel branch using the same cloning rules as
+     * {@link ParallelController}. The child subtree is assumed to run in exactly one branch,
+     * so samplers are shared, not cloned.
      */
-    public static void addParallelChild(GenericController parent, TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
-        addParallelChild(parent, child, sourceTransactionControllers, null);
+    public static void addParallelChild(GenericController parent, TestElement child) {
+        addParallelChild(parent, child, null);
     }
 
     /**
@@ -148,20 +136,17 @@ public class ParallelController extends GenericController implements Serializabl
      * so the compiled sample package can be resolved.
      */
     public static void addParallelChild(GenericController parent, TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers,
             IdentityHashMap<Sampler, Sampler> sourceSamplers) {
-        TestElement parallelChild = parallelChild(child, sourceTransactionControllers, sourceSamplers);
+        TestElement parallelChild = parallelChild(child, sourceSamplers);
         parent.addTestElement(parallelChild);
         if (parallelChild instanceof LoopIterationListener listener) {
             parent.addIterationListener(listener);
         }
     }
 
-    private static TestElement parallelChild(TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers,
-            IdentityHashMap<Sampler, Sampler> sourceSamplers) {
+    private static TestElement parallelChild(TestElement child, IdentityHashMap<Sampler, Sampler> sourceSamplers) {
         if (child instanceof GenericController controller) {
-            return cloneController(controller, sourceTransactionControllers, sourceSamplers);
+            return cloneController(controller, sourceSamplers);
         }
         if (sourceSamplers != null && child instanceof Sampler sampler && !(child instanceof NoThreadClone)) {
             TestElement clonedChild = TreeCloner.cloneTestElement(sampler);

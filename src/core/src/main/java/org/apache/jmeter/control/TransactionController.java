@@ -18,48 +18,43 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.jmeter.samplers.SampleEvent;
-import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
-import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
-import org.apache.jmeter.threads.JMeterVariables;
-import org.apache.jmeter.threads.ListenerNotifier;
-import org.apache.jmeter.threads.SamplePackage;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.JMeterStopThreadException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Transaction Controller to measure transaction times
- *
- * There are two different modes for the controller:
- * - generate additional total sample after nested samples (as in JMeter 2.2)
- * - generate parent sampler containing the nested samples
- *
+ * Transaction Controller to measure transaction times.
+ * <p>
+ * Every sample inside the transaction is sent to its listeners as soon as it completes, carrying a
+ * reference to the transaction it ran in ({@link SampleResult#getParentTransaction()}). Listeners are
+ * told when the transaction starts ({@link org.apache.jmeter.samplers.SampleListener#transactionStarted})
+ * and receive the transaction sample when it ends ({@link SampleResult#getTransaction()}). The
+ * transaction only keeps running totals of its samples, never the samples themselves.
  */
-public class TransactionController extends GenericController implements SampleListener, Controller, Serializable {
+public class TransactionController extends GenericController implements Controller, Serializable {
     /**
-     * Used to identify Transaction Controller Parent Sampler
+     * Start of the response message of every transaction sample, used to identify transaction
+     * samples that only keep their message, such as samples read from a results file or summaries
      */
-    static final String NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX = "Number of samples in transaction : ";
+    public static final String NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX = "Number of samples in transaction : ";
 
     private static final long serialVersionUID = 234L;
 
     private static final String TRUE = Boolean.toString(true); // i.e. "true"
 
-    private static final String ACTIVE_NON_PARENT_TRANSACTIONS =
-            "TransactionController.activeNonParentTransactions"; // $NON-NLS-1$
+    /**
+     * Property of the removed "Generate parent sample" option. It is dropped when a plan is loaded,
+     * so it is not saved again.
+     */
+    private static final String GENERATE_PARENT_SAMPLE = "TransactionController.parent"; // $NON-NLS-1$
 
     private static final int TIMER_GRANULARITY =
             JMeterUtils.getPropDefault("jmeterthread.timer.granularity", 1000); // $NON-NLS-1$
@@ -78,46 +73,10 @@ public class TransactionController extends GenericController implements SampleLi
 
     public static final String TIMING_MODE_TOTAL_EXCLUDE_TIMERS = "total_exclude_timers"; // $NON-NLS-1$
 
-    private static final Logger log = LoggerFactory.getLogger(TransactionController.class);
-
     /**
-     * Only used in parent Mode
+     * The transaction this controller is running, {@code null} between transactions
      */
-    private transient TransactionSampler transactionSampler;
-
-    /**
-     * Only used in NON parent Mode
-     */
-    private transient ListenerNotifier lnf;
-
-    /**
-     * Only used in NON parent Mode
-     */
-    private transient SampleResult res;
-
-    /**
-     * Only used in NON parent Mode
-     */
-    private transient int calls;
-
-    /**
-     * Only used in NON parent Mode
-     */
-    private transient int noFailingSamples;
-
-    /**
-     * Cumulated pause time to exclude timer and post/pre processor times
-     * Only used in NON parent Mode
-     */
-    private transient long pauseTime;
-
-    private transient List<long[]> timerPauses = new ArrayList<>();
-
-    /**
-     * Previous end time
-     * Only used in NON parent Mode
-     */
-    private transient long prevEndTime;
+    private transient RunningTransaction runningTransaction;
 
     /**
      * Next scheduled transaction start time, used to calculate start-to-start pacing without drift.
@@ -136,12 +95,12 @@ public class TransactionController extends GenericController implements SampleLi
      * Creates a Transaction Controller
      */
     public TransactionController() {
-        lnf = new ListenerNotifier();
     }
 
     @Override
     public void initialize() {
         nextPacingStartTime = -1;
+        runningTransaction = null;
         super.initialize();
     }
 
@@ -156,10 +115,11 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     @Override
-    protected Object readResolve(){
-        super.readResolve();
-        lnf = new ListenerNotifier();
-        return this;
+    public void setProperty(JMeterProperty property) {
+        if (GENERATE_PARENT_SAMPLE.equals(property.getName())) {
+            return;
+        }
+        super.setProperty(property);
     }
 
     /**
@@ -177,296 +137,87 @@ public class TransactionController extends GenericController implements SampleLi
     }
 
     /**
-     * @param generateParent flag whether a parent sample should be generated.
+     * The "Generate parent sample" option has been removed: samples are always sent to listeners
+     * as they complete and point to their transaction.
+     *
+     * @param generateParent ignored
+     * @deprecated has no effect
      */
+    @Deprecated
     public void setGenerateParentSample(boolean generateParent) {
-        set(getSchema().getGenearteParentSample(), generateParent);
+        // The option was removed, see class documentation
     }
 
     /**
-     * @return {@code true} if a parent sample will be generated
+     * @return always {@code false}
+     * @deprecated the "Generate parent sample" option has been removed
      */
+    @Deprecated
     public boolean isGenerateParentSample() {
-        return get(getSchema().getGenearteParentSample());
+        return false;
     }
 
     /**
      * @see org.apache.jmeter.control.Controller#next()
      */
     @Override
-    public Sampler next(){
-        if (isGenerateParentSample()){
-            return nextWithTransactionSampler();
-        }
-        return nextWithoutTransactionSampler();
-    }
-
-///////////////// Transaction Controller - parent ////////////////
-
-    private Sampler nextWithTransactionSampler() {
-        // Check if transaction is done
-        if(transactionSampler != null && transactionSampler.isTransactionDone()) {
-            if (log.isDebugEnabled()) {
-                log.debug("End of transaction {}", getName());
-            }
-            // This transaction is done
-            transactionSampler = null;
-            return null;
-        }
-
-        // Check if it is the start of a new transaction
-        if (isFirst()) // must be the start of the subtree
-        {
-            if (log.isDebugEnabled()) {
-                log.debug("Start of transaction {}", getName());
-            }
+    public Sampler next() {
+        if (isFirst()) { // must be the start of the subtree
             applyTransactionPacing();
             applyTransactionDelay();
             recordTransactionStart(System.currentTimeMillis());
-            transactionSampler = new TransactionSampler(this, getName());
+            startTransaction();
         }
-
-        // Sample the children of the transaction
-        Sampler subSampler = super.next();
-        transactionSampler.setSubSampler(subSampler);
-        // If we do not get any sub samplers, the transaction is done
-        if (subSampler == null) {
-            transactionSampler.setTransactionDone();
-        }
-        return transactionSampler;
-    }
-
-    @Override
-    protected Sampler nextIsAController(Controller controller) throws NextIsNullException {
-        if (!isGenerateParentSample()) {
-            return super.nextIsAController(controller);
-        }
-        Sampler returnValue;
-        Sampler sampler = controller.next();
-        if (sampler == null) {
-            currentReturnedNull(controller);
-            // We need to call the super.next, instead of this.next, which is done in GenericController,
-            // because if we call this.next(), it will return the TransactionSampler, and we do not want that.
-            // We need to get the next real sampler or controller
-            returnValue = super.next();
-        } else {
-            returnValue = sampler;
-        }
-        return returnValue;
-    }
-
-////////////////////// Transaction Controller - additional sample //////////////////////////////
-
-    private Sampler nextWithoutTransactionSampler() {
-        if (isFirst()) // must be the start of the subtree
-        {
-            applyTransactionPacing();
-            applyTransactionDelay();
-            recordTransactionStart(System.currentTimeMillis());
-            calls = 0;
-            noFailingSamples = 0;
-            res = new SampleResult();
-            res.setSampleLabel(getName());
-            // Assume success
-            res.setSuccessful(true);
-            res.sampleStart();
-            prevEndTime = res.getStartTime();//???
-            pauseTime = 0;
-            timerPauses = new ArrayList<>();
-            registerActiveNonParentTransaction();
-        }
-        boolean isLast = current==super.subControllersAndSamplers.size();
+        boolean isLast = current == super.subControllersAndSamplers.size();
         Sampler returnValue = super.next();
-        if (returnValue == null && isLast) // Must be the end of the controller
-        {
-            if (res != null) {
-                // See BUG 55816
-                if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(getTimingMode())) {
-                    long processingTimeOfLastChild = res.currentTimeInMillis() - prevEndTime;
-                    pauseTime += processingTimeOfLastChild;
-                } else if (TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(getTimingMode())) {
-                    pauseTime += getMergedTimerPauseTime();
-                }
-                res.setIdleTime(pauseTime+res.getIdleTime());
-                res.sampleEnd();
-                res.setResponseMessage(
-                        TransactionController.NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX
-                                + calls + ", number of failing samples : "
-                                + noFailingSamples);
-                if(res.isSuccessful()) {
-                    res.setResponseCodeOK();
-                }
-                notifyListeners();
-                unregisterActiveNonParentTransaction();
-            }
+        if (returnValue == null && isLast) { // Must be the end of the controller
+            endTransaction(true);
         }
-        else {
-            // We have sampled one of our children
-            calls++;
-        }
-
         return returnValue;
+    }
+
+    private void startTransaction() {
+        if (runningTransaction != null) {
+            // The previous execution never reached its end, e.g. an enclosing loop restarted
+            // without ending this controller: report it before starting the next one
+            endTransaction(true);
+        }
+        // Not getThreadContext(): it can return a context cached for an earlier virtual user when a
+        // thread is reused, while JMeterContextService holds the context of the flow running now,
+        // including parallel and fork workers
+        runningTransaction = JMeterContextService.getContext().startTransaction(this, getTimingMode());
+    }
+
+    private void endTransaction(boolean successful) {
+        RunningTransaction transaction = runningTransaction;
+        if (transaction != null) {
+            runningTransaction = null;
+            JMeterContextService.getContext().endTransaction(transaction, successful);
+        }
     }
 
     /**
      * @param res {@link SampleResult}
-     * @return true if res is the ParentSampler transactions
+     * @return true if res is the sample generated by a Transaction Controller
      */
     public static boolean isFromTransactionController(SampleResult res) {
-        return res.getResponseMessage() != null &&
-                res.getResponseMessage().startsWith(
-                        TransactionController.NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX);
+        // Samples read back from a results file only have the response message
+        return res.isTransaction()
+                || res.getResponseMessage() != null
+                && res.getResponseMessage().startsWith(NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX);
     }
 
     /**
+     * Ends the running transaction when an error or a Flow Control Action leaves this controller
+     * early. The transaction fails when the sample that caused it failed.
+     *
      * @see org.apache.jmeter.control.GenericController#triggerEndOfLoop()
      */
     @Override
     public void triggerEndOfLoop() {
-        if(!isGenerateParentSample()) {
-            if (res != null) {
-                if (TIMING_MODE_TOTAL_EXCLUDE_TIMERS.equals(getTimingMode())) {
-                    pauseTime += getMergedTimerPauseTime();
-                }
-                res.setIdleTime(pauseTime + res.getIdleTime());
-                res.sampleEnd();
-                res.setSuccessful(TRUE.equals(JMeterContextService.getContext().getVariables().get(JMeterThread.LAST_SAMPLE_OK)));
-                res.setResponseMessage(
-                        TransactionController.NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX
-                                + calls + ", number of failing samples : "
-                                + noFailingSamples);
-                notifyListeners();
-                unregisterActiveNonParentTransaction();
-            }
-        } else if (transactionSampler != null) {
-            Sampler subSampler = transactionSampler.getSubSampler();
-            // See Bug 56811
-            // triggerEndOfLoop is called when error occurs to end Main Loop
-            // in this case normal workflow doesn't happen, so we need
-            // to notify the children of TransactionController and
-            // update them with SubSamplerResult
-            if(subSampler instanceof TransactionSampler tc) {
-                transactionSampler.addSubSamplerResult(tc.getTransactionResult());
-            }
-            transactionSampler.setTransactionDone();
-            // This transaction is done
-            transactionSampler = null;
-        }
+        endTransaction(TRUE.equals(
+                JMeterContextService.getContext().getVariables().get(JMeterThread.LAST_SAMPLE_OK)));
         super.triggerEndOfLoop();
-    }
-
-    /**
-     * Create additional SampleEvent in NON Parent Mode
-     */
-    protected void notifyListeners() {
-        // TODO could these be done earlier (or just once?)
-        JMeterContext threadContext = getThreadContext();
-        JMeterVariables threadVars = threadContext.getVariables();
-        SamplePackage pack = (SamplePackage) threadVars.getObject(JMeterThread.PACKAGE_OBJECT);
-        if (pack == null) {
-            // If child of TransactionController is a ThroughputController and TPC does
-            // not sample its children, then we will have this
-            // TODO Should this be at warn level ?
-            log.warn("Could not fetch SamplePackage");
-        } else {
-            SampleEvent event = new SampleEvent(res, threadContext.getThreadGroup().getName(),threadVars, true);
-            // We must set res to null now, before sending the event for the transaction,
-            // so that we can ignore that event in our sampleOccurred method
-            res = null;
-            lnf.notifyListeners(event, pack.getSampleListeners());
-        }
-    }
-
-    @Override
-    public void sampleOccurred(SampleEvent se) {
-        if (!isGenerateParentSample()) {
-            // Check if we are still sampling our children
-            if(res != null && !se.isTransactionSampleEvent()) {
-                SampleResult sampleResult = se.getResult();
-                res.setThreadName(sampleResult.getThreadName());
-                res.setBytes(res.getBytesAsLong() + sampleResult.getBytesAsLong());
-                res.setSentBytes(res.getSentBytes() + sampleResult.getSentBytes());
-                if (TIMING_MODE_SUM_CHILD_SAMPLES.equals(getTimingMode())) {// Accumulate waiting time for later
-                    pauseTime += sampleResult.getEndTime() - sampleResult.getTime() - prevEndTime;
-                    prevEndTime = sampleResult.getEndTime();
-                }
-                if(!sampleResult.isSuccessful()) {
-                    res.setSuccessful(false);
-                    noFailingSamples++;
-                }
-                res.setAllThreads(sampleResult.getAllThreads());
-                res.setGroupThreads(sampleResult.getGroupThreads());
-                res.setLatency(res.getLatency() + sampleResult.getLatency());
-                res.setConnectTime(res.getConnectTime() + sampleResult.getConnectTime());
-            }
-        }
-    }
-
-    @Override
-    public void sampleStarted(SampleEvent e) {
-    }
-
-    @Override
-    public void sampleStopped(SampleEvent e) {
-    }
-
-    public static void addTimerPauseToActiveTransactions(JMeterVariables variables, long startTime, long endTime) {
-        Object activeTransactions = variables.getObject(ACTIVE_NON_PARENT_TRANSACTIONS);
-        if (!(activeTransactions instanceof List<?> transactions)) {
-            return;
-        }
-        for (Object transaction : transactions) {
-            if (transaction instanceof TransactionController transactionController) {
-                transactionController.addTimerPause(startTime, endTime);
-            }
-        }
-    }
-
-    private void addTimerPause(long startTime, long endTime) {
-        if (endTime > startTime) {
-            timerPauses.add(new long[] { startTime, endTime });
-        }
-    }
-
-    private long getMergedTimerPauseTime() {
-        if (timerPauses.isEmpty()) {
-            return 0;
-        }
-        timerPauses.sort(Comparator.comparingLong(interval -> interval[0]));
-        long pause = 0;
-        long currentStart = timerPauses.get(0)[0];
-        long currentEnd = timerPauses.get(0)[1];
-        for (int i = 1; i < timerPauses.size(); i++) {
-            long[] interval = timerPauses.get(i);
-            if (interval[0] <= currentEnd) {
-                currentEnd = Math.max(currentEnd, interval[1]);
-            } else {
-                pause += currentEnd - currentStart;
-                currentStart = interval[0];
-                currentEnd = interval[1];
-            }
-        }
-        return pause + currentEnd - currentStart;
-    }
-
-    private void registerActiveNonParentTransaction() {
-        activeNonParentTransactions().add(this);
-    }
-
-    private void unregisterActiveNonParentTransaction() {
-        activeNonParentTransactions().remove(this);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<TransactionController> activeNonParentTransactions() {
-        JMeterVariables variables = getThreadContext().getVariables();
-        Object activeTransactions = variables.getObject(ACTIVE_NON_PARENT_TRANSACTIONS);
-        if (activeTransactions instanceof List<?>) {
-            return (List<TransactionController>) activeTransactions;
-        }
-        List<TransactionController> transactions = new ArrayList<>();
-        variables.putObject(ACTIVE_NON_PARENT_TRANSACTIONS, transactions);
-        return transactions;
     }
 
     /**

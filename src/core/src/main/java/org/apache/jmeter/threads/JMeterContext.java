@@ -21,6 +21,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.jmeter.control.RunningTransaction;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
@@ -53,6 +55,7 @@ public class JMeterContext {
     private TestLogicalAction testLogicalAction = TestLogicalAction.CONTINUE;
     private final ConcurrentHashMap<String, Object> samplerContext = new ConcurrentHashMap<>(5);
     private boolean recording;
+    private RunningTransaction currentTransaction;
 
     JMeterContext() {
         clear0();
@@ -74,6 +77,7 @@ public class JMeterContext {
         threadNum = 0;
         thread = null;
         recording = false;
+        currentTransaction = null;
         samplerContext.clear();
     }
 
@@ -291,5 +295,90 @@ public class JMeterContext {
 
     public boolean isRecording() {
         return recording;
+    }
+
+    /**
+     * @return the innermost running transaction of this context, or {@code null} outside any transaction
+     */
+    public RunningTransaction getCurrentTransaction() {
+        return currentTransaction;
+    }
+
+    /**
+     * Internally called by JMeter, never call it directly
+     *
+     * @param transaction the innermost running transaction inherited by a parallel or fork worker
+     */
+    public void setCurrentTransaction(RunningTransaction transaction) {
+        this.currentTransaction = transaction;
+    }
+
+    /**
+     * Starts a transaction nested in the current one and notifies the listeners in scope of the
+     * controller. Internally called by {@link TransactionController}, never call it directly.
+     *
+     * @param controller the controller running the transaction
+     * @param timingMode one of the {@code TransactionController.TIMING_MODE_*} values
+     * @return the started transaction
+     */
+    public RunningTransaction startTransaction(TransactionController controller, String timingMode) {
+        RunningTransaction transaction =
+                new RunningTransaction(controller, controller.getName(), timingMode, currentTransaction);
+        currentTransaction = transaction;
+        if (thread != null) {
+            thread.notifyTransactionStarted(transaction);
+        }
+        return transaction;
+    }
+
+    /**
+     * Ends a running transaction and sends the transaction sample to the listeners in scope of its
+     * controller. Transactions still running inside it end first, so listeners always receive the
+     * innermost transaction before the ones enclosing it. Does nothing if it has already ended.
+     * Internally called by JMeter, never call it directly.
+     *
+     * @param transaction the transaction to end
+     * @param successful  {@code false} to fail the transaction even if none of its samples failed
+     */
+    public void endTransaction(RunningTransaction transaction, boolean successful) {
+        if (transaction.isFinished()) {
+            return;
+        }
+        if (isRunningInThisContext(transaction)) {
+            endTransactionsUntil(transaction);
+            currentTransaction = transaction.getEnclosing();
+        }
+        finish(transaction, successful);
+    }
+
+    /**
+     * Ends the running transactions of this context that are nested in {@code boundary}, innermost
+     * first. Used when a thread stops, or a parallel or fork worker ends, in the middle of a
+     * transaction. Internally called by JMeter, never call it directly.
+     *
+     * @param boundary the transaction to keep running, or {@code null} to end all of them
+     */
+    public void endTransactionsUntil(RunningTransaction boundary) {
+        while (currentTransaction != null && currentTransaction != boundary) {
+            RunningTransaction transaction = currentTransaction;
+            currentTransaction = transaction.getEnclosing();
+            finish(transaction, true);
+        }
+    }
+
+    private boolean isRunningInThisContext(RunningTransaction transaction) {
+        for (RunningTransaction t = currentTransaction; t != null; t = t.getEnclosing()) {
+            if (t == transaction) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void finish(RunningTransaction transaction, boolean successful) {
+        SampleResult result = transaction.finish(successful);
+        if (result != null && thread != null) {
+            thread.notifyTransactionFinished(transaction, result);
+        }
     }
 }

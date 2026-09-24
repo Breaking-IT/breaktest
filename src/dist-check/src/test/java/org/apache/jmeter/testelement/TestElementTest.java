@@ -51,10 +51,6 @@ public class TestElementTest extends JMeterTestCase {
         if (name.startsWith("org.apache.jmeter.examples.")){
             return;
         }
-        if (name.equals("org.apache.jmeter.control.TransactionSampler")){
-            return; // Not a real sampler
-        }
-
         checkElementAlias(testItem);
     }
 

@@ -37,20 +37,17 @@ public class ParallelControllerSampler extends AbstractSampler {
     private final int branchCount;
     private final List<Controller> branches;
     private final transient IntFunction<ParallelBranch> branchFactory;
-    private final IdentityHashMap<TransactionController, TransactionController> eagerSourceTransactionControllers;
 
     public ParallelControllerSampler() {
-        this(null, "", 1, List.of(), new IdentityHashMap<>());
+        this(null, "", 1, List.of());
     }
 
-    ParallelControllerSampler(Controller controller, String name, int maxParallel, List<Controller> branches,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    ParallelControllerSampler(Controller controller, String name, int maxParallel, List<Controller> branches) {
         this.controller = controller;
         this.maxParallel = maxParallel;
         this.branchCount = branches.size();
         this.branches = List.copyOf(branches);
         this.branchFactory = null;
-        this.eagerSourceTransactionControllers = new IdentityHashMap<>(sourceTransactionControllers);
         setName(name);
     }
 
@@ -61,7 +58,6 @@ public class ParallelControllerSampler extends AbstractSampler {
         this.branchCount = branchCount;
         this.branches = List.of();
         this.branchFactory = branchFactory;
-        this.eagerSourceTransactionControllers = new IdentityHashMap<>();
         setName(name);
     }
 
@@ -83,7 +79,7 @@ public class ParallelControllerSampler extends AbstractSampler {
         }
         if (branchFactory == null) {
             if (!branches.isEmpty()) {
-                return new ParallelBranch(branches.get(index), eagerSourceTransactionControllers);
+                return new ParallelBranch(branches.get(index));
             }
             throw new IllegalStateException("Parallel branches are no longer available");
         }
@@ -100,34 +96,26 @@ public class ParallelControllerSampler extends AbstractSampler {
     }
 
     /**
-     * A materialized parallel branch and the element mappings required only while that branch
-     * executes: cloned transaction controllers and cloned samplers are mapped back to their
-     * source elements from the compiled test tree.
+     * A materialized parallel branch and the sampler mapping required only while that branch
+     * executes: cloned samplers are mapped back to their source samplers from the compiled test tree.
+     * Cloned transaction controllers know their source themselves, see
+     * {@link TransactionController#getSourceController()}.
      */
     public static final class ParallelBranch {
         private final Controller controller;
-        private final IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers;
         private final IdentityHashMap<Sampler, Sampler> sourceSamplers;
 
-        ParallelBranch(Controller controller,
-                IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
-            this(controller, sourceTransactionControllers, null);
+        ParallelBranch(Controller controller) {
+            this(controller, null);
         }
 
-        ParallelBranch(Controller controller,
-                IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers,
-                IdentityHashMap<Sampler, Sampler> sourceSamplers) {
+        ParallelBranch(Controller controller, IdentityHashMap<Sampler, Sampler> sourceSamplers) {
             this.controller = controller;
-            this.sourceTransactionControllers = sourceTransactionControllers;
             this.sourceSamplers = sourceSamplers;
         }
 
         public Controller getController() {
             return controller;
-        }
-
-        public TransactionController getSourceTransactionController(TransactionController controller) {
-            return sourceTransactionControllers.getOrDefault(controller, controller);
         }
 
         /**

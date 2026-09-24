@@ -18,18 +18,28 @@
 package org.apache.jmeter.save;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.MalformedURLException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.SampleSaveConfiguration;
+import org.apache.jmeter.samplers.TransactionRef;
+import org.apache.jmeter.visualizers.Visualizer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TestCSVSaveService extends JMeterTestCase {
 
@@ -180,5 +190,56 @@ public class TestCSVSaveService extends JMeterTestCase {
         result.setConnectTime(14);
 
         assertEquals(RESULT, CSVSaveService.resultToDelimitedString(new SampleEvent(result,"")), "Result text has changed");
+    }
+
+    @Test
+    public void testTransactionIdsRoundTrip(@TempDir Path directory) throws Exception {
+        SampleSaveConfiguration config = new SampleSaveConfiguration();
+        config.setTransactionIds(true);
+        TransactionRef outer = TransactionRef.start("outer", null);
+        TransactionRef inner = TransactionRef.start("inner", outer);
+        SampleResult child = transactionTestSample("child", config);
+        child.setParentTransaction(inner);
+        SampleResult innerTransaction = transactionTestSample("inner", config);
+        innerTransaction.setTransaction(inner);
+        SampleResult outside = transactionTestSample("outside", config);
+
+        String header = CSVSaveService.printableFieldNamesToString(config);
+        assertTrue(header.endsWith(",Connect,transactionId,parentTransactionId"), header);
+        Path file = Files.write(directory.resolve("results.csv"), List.of(
+                header,
+                CSVSaveService.resultToDelimitedString(new SampleEvent(child, ""), ","),
+                CSVSaveService.resultToDelimitedString(new SampleEvent(innerTransaction, ""), ","),
+                CSVSaveService.resultToDelimitedString(new SampleEvent(outside, ""), ",")));
+
+        List<SampleResult> read = new ArrayList<>();
+        CSVSaveService.processSamples(file.toString(), new Visualizer() {
+            @Override
+            public void add(SampleResult sample) {
+                read.add(sample);
+            }
+
+            @Override
+            public boolean isStats() {
+                return false;
+            }
+        }, new ResultCollector());
+
+        assertEquals(3, read.size());
+        assertEquals(inner.getId(), read.get(0).getParentTransaction().getId());
+        assertEquals(inner.getId(), read.get(1).getTransaction().getId());
+        assertEquals("inner", read.get(1).getTransaction().getName());
+        assertEquals(outer.getId(), read.get(1).getParentTransaction().getId());
+        assertNull(read.get(2).getParentTransaction());
+        assertNull(read.get(2).getTransaction());
+    }
+
+    private static SampleResult transactionTestSample(String label, SampleSaveConfiguration config) {
+        SampleResult result = new SampleResult();
+        result.setSaveConfig(config);
+        result.setStampAndTime(1, 2);
+        result.setSampleLabel(label);
+        result.setSuccessful(true);
+        return result;
     }
 }
