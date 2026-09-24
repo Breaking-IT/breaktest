@@ -37,8 +37,8 @@ import org.apache.jmeter.samplers.TransactionRef;
  * transaction sample takes the place of the running one.
  * <p>
  * Samples are attached through {@link SampleResult#getParentTransaction()}, so the tree is also
- * built when a start event was missed: the running transaction is then created from the first
- * sample that points to it.
+ * built when a start event was missed: a grouping placeholder is created from the first
+ * sample that points to it, without assuming that the transaction is still running.
  * <p>
  * Not thread-safe: the visualizer guards it with the lock of its result buffer.
  */
@@ -46,7 +46,9 @@ final class TransactionResultTree {
 
     private final List<SampleResult> roots;
 
-    private final int maxRoots;
+    private final int maxResults;
+
+    private int retainedResults;
 
     private final Map<Long, Node> nodesById = new HashMap<>();
 
@@ -64,37 +66,49 @@ final class TransactionResultTree {
         private Node parent;
         private final List<SampleResult> children = new ArrayList<>();
         private boolean running;
+        private boolean placeholder;
 
         private Node(long id, SampleResult result, boolean running) {
             this.id = id;
             this.result = result;
             this.running = running;
+            this.placeholder = running;
         }
     }
 
     /**
      * @param roots    the top level results, owned by the caller
-     * @param maxRoots maximum number of top level results to keep, or 0 for no limit
+     * @param maxResults maximum number of results (including transaction children) to keep, or 0 for no limit
      */
-    TransactionResultTree(List<SampleResult> roots, int maxRoots) {
+    TransactionResultTree(List<SampleResult> roots, int maxResults) {
         this.roots = roots;
-        this.maxRoots = maxRoots;
+        this.maxResults = maxResults;
     }
 
     /**
      * Adds a transaction that has started.
      *
      * @param started the unfinished transaction sample
-     * @return the top level results removed to stay within the limit
+     * @return the results removed to stay within the limit
      */
     List<SampleResult> addStarted(SampleResult started) {
         TransactionRef transaction = started.getTransaction();
-        if (transaction == null || nodesById.containsKey(transaction.getId())) {
+        if (transaction == null) {
+            return List.of();
+        }
+        Node existing = nodesById.get(transaction.getId());
+        if (existing != null) {
+            if (existing.placeholder && !existing.running) {
+                finish(existing, started);
+                existing.running = true;
+                existing.placeholder = true;
+            }
             return List.of();
         }
         List<SampleResult> evicted = new ArrayList<>();
         Node node = createNode(transaction, started, true);
-        place(node, transaction.getParent(), started, evicted);
+        place(node, transaction.getParent(), started);
+        trim(evicted);
         return evicted;
     }
 
@@ -102,21 +116,21 @@ final class TransactionResultTree {
      * Adds a sampler that has started sending its request.
      *
      * @param started the unfinished sample
-     * @return the top level results removed to stay within the limit
+     * @return the results removed to stay within the limit
      */
     List<SampleResult> addStartedSample(SampleResult started) {
         List<SampleResult> evicted = new ArrayList<>();
         TransactionRef parent = started.getParentTransaction();
         if (parent == null) {
-            addRoot(started, evicted);
-            if (!evicted.contains(started)) {
-                runningSamples.put(started, roots);
-            }
+            addRoot(started);
+            runningSamples.put(started, roots);
         } else {
-            Node node = ensureNode(parent, started, evicted);
+            Node node = ensureNode(parent, started);
             node.children.add(started);
+            retainedResults++;
             runningSamples.put(started, node.children);
         }
+        trim(evicted);
         return evicted;
     }
 
@@ -125,7 +139,7 @@ final class TransactionResultTree {
      *
      * @param started the placeholder given to {@link #addStartedSample(SampleResult)}
      * @param result  the finished sample
-     * @return the top level results removed to stay within the limit
+     * @return the results removed to stay within the limit
      */
     List<SampleResult> finishSample(SampleResult started, SampleResult result) {
         List<SampleResult> container = runningSamples.remove(started);
@@ -144,14 +158,18 @@ final class TransactionResultTree {
      */
     boolean removeStartedSample(SampleResult started) {
         List<SampleResult> container = runningSamples.remove(started);
-        return container != null && removeIdentity(container, started);
+        if (container != null && removeIdentity(container, started)) {
+            retainedResults--;
+            return true;
+        }
+        return false;
     }
 
     /**
      * Adds a completed sample or a finished transaction.
      *
      * @param result the sample
-     * @return the top level results removed to stay within the limit
+     * @return the results removed to stay within the limit
      */
     List<SampleResult> add(SampleResult result) {
         List<SampleResult> evicted = new ArrayList<>();
@@ -159,23 +177,28 @@ final class TransactionResultTree {
         if (transaction == null) {
             TransactionRef parent = result.getParentTransaction();
             if (parent == null) {
-                addRoot(result, evicted);
+                addRoot(result);
             } else {
-                ensureNode(parent, result, evicted).children.add(result);
+                ensureNode(parent, result).children.add(result);
+                retainedResults++;
             }
+            trim(evicted);
             return evicted;
         }
         Node node = nodesById.get(transaction.getId());
         if (node == null) {
-            place(createNode(transaction, result, false), transaction.getParent(), result, evicted);
+            place(createNode(transaction, result, false), transaction.getParent(), result);
+            trim(evicted);
             return evicted;
         }
         finish(node, result);
         if (node.parent == null && transaction.getParent() != null) {
             // Created before its enclosing transaction was known: move it below it
             removeIdentity(roots, node.result);
-            place(node, transaction.getParent(), result, evicted);
+            retainedResults--;
+            place(node, transaction.getParent(), result);
         }
+        trim(evicted);
         return evicted;
     }
 
@@ -241,7 +264,20 @@ final class TransactionResultTree {
         return result;
     }
 
+    /** Results without final measurements, including ancestors inferred from child samples. */
+    Set<SampleResult> unmeasuredResults() {
+        Set<SampleResult> unmeasured = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Node node : nodesByResult.values()) {
+            if (node.placeholder) {
+                unmeasured.add(node.result);
+            }
+        }
+        unmeasured.addAll(runningSamples.keySet());
+        return unmeasured;
+    }
+
     void clear() {
+        retainedResults = 0;
         nodesById.clear();
         nodesByResult.clear();
         runningSamples.clear();
@@ -255,21 +291,23 @@ final class TransactionResultTree {
         return node;
     }
 
-    private void place(Node node, TransactionRef parentRef, SampleResult timeSource, List<SampleResult> evicted) {
+    private void place(Node node, TransactionRef parentRef, SampleResult timeSource) {
         if (parentRef == null) {
-            addRoot(node.result, evicted);
+            addRoot(node.result);
             return;
         }
-        Node parent = ensureNode(parentRef, timeSource, evicted);
+        Node parent = ensureNode(parentRef, timeSource);
         parent.children.add(node.result);
+        retainedResults++;
         node.parent = parent;
     }
 
     /**
-     * Finds the node of a transaction, creating a running one from a sample that points to it when
-     * its start was not seen.
+     * Finds the node of a transaction, creating a grouping placeholder when its start was not seen.
+     * Its completion may be filtered out or outside the listener's scope, so an inferred ancestor
+     * must not be presented as a live transaction.
      */
-    private Node ensureNode(TransactionRef transaction, SampleResult timeSource, List<SampleResult> evicted) {
+    private Node ensureNode(TransactionRef transaction, SampleResult timeSource) {
         Node node = nodesById.get(transaction.getId());
         if (node != null) {
             return node;
@@ -280,8 +318,9 @@ final class TransactionResultTree {
         started.setStampAndTime(timeSource.getStartTime(), 0);
         started.setSuccessful(true);
         started.setTransaction(transaction);
-        node = createNode(transaction, started, true);
-        place(node, transaction.getParent(), timeSource, evicted);
+        node = createNode(transaction, started, false);
+        node.placeholder = true;
+        place(node, transaction.getParent(), timeSource);
         return node;
     }
 
@@ -289,6 +328,7 @@ final class TransactionResultTree {
         SampleResult previous = node.result;
         node.result = result;
         node.running = false;
+        node.placeholder = false;
         nodesByResult.remove(previous);
         nodesByResult.put(result, node);
         replaceIdentity(node.parent == null ? roots : node.parent.children, previous, result);
@@ -304,24 +344,39 @@ final class TransactionResultTree {
         replacements.put(previous, result);
     }
 
-    private void addRoot(SampleResult result, List<SampleResult> evicted) {
+    private void addRoot(SampleResult result) {
         roots.add(result);
-        while (maxRoots > 0 && roots.size() > maxRoots) {
-            SampleResult removed = roots.remove(0);
-            evicted.add(removed);
-            forget(removed, evicted);
+        retainedResults++;
+    }
+
+    private void trim(List<SampleResult> evicted) {
+        while (maxResults > 0 && retainedResults > maxResults) {
+            // Keep the ancestor of the retained children so it can still be completed in place.
+            // Discard the oldest leaf, then its empty ancestors on subsequent evictions.
+            List<SampleResult> container = roots;
+            SampleResult oldest = container.get(0);
+            Node node = nodesByResult.get(oldest);
+            while (node != null && !node.children.isEmpty()) {
+                container = node.children;
+                oldest = container.get(0);
+                node = nodesByResult.get(oldest);
+            }
+            container.remove(0);
+            evicted.add(oldest);
+            forget(oldest, evicted);
         }
     }
 
     /** Drops the transaction nodes of a removed result and collects the samples shown below it */
     private void forget(SampleResult result, List<SampleResult> removed) {
+        retainedResults--;
         runningSamples.remove(result);
+        replacements.entrySet().removeIf(entry -> entry.getKey() == result || entry.getValue() == result);
         Node node = nodesByResult.remove(result);
         if (node == null) {
             return;
         }
         nodesById.remove(node.id);
-        replacements.values().remove(result);
         for (SampleResult child : node.children) {
             removed.add(child);
             forget(child, removed);

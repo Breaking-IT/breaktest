@@ -241,8 +241,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     @Override
     public void add(final SampleResult sample) {
         synchronized (buffer) {
-            transactions.add(sample).forEach(pendingNavigationTargets::remove);
             pendingNavigationTargets.add(sample);
+            transactions.add(sample).forEach(pendingNavigationTargets::remove);
             dataChanged = true;
         }
     }
@@ -261,8 +261,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     @Override
     public void addStartedSample(SampleEvent event) {
         synchronized (buffer) {
-            transactions.addStartedSample(event.getResult()).forEach(pendingNavigationTargets::remove);
             pendingNavigationTargets.add(event.getResult());
+            transactions.addStartedSample(event.getResult()).forEach(pendingNavigationTargets::remove);
             dataChanged = true;
         }
     }
@@ -285,8 +285,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
         detachForValidationIfNeeded();
         synchronized (buffer) {
-            transactions.addStarted(started).forEach(pendingNavigationTargets::remove);
             pendingNavigationTargets.add(started);
+            transactions.addStarted(started).forEach(pendingNavigationTargets::remove);
             dataChanged = true;
         }
     }
@@ -305,9 +305,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
             synchronized (buffer) {
                 // The finished sample takes the place of the running one
-                transactions.finishSample(event.getStartedSample(), sample).forEach(pendingNavigationTargets::remove);
                 pendingNavigationTargets.remove(event.getStartedSample());
                 pendingNavigationTargets.add(sample);
+                transactions.finishSample(event.getStartedSample(), sample).forEach(pendingNavigationTargets::remove);
                 dataChanged = true;
             }
         }
@@ -378,6 +378,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
             treeModel.nodeStructureChanged(root);
             resultTableModel.setRunningResults(runningResults, ResultStatusIcons.RUNNING);
+            resultTableModel.setUnmeasuredResults(transactions.unmeasuredResults());
             resultTableModel.setRows(tableRows);
             dataChanged = false;
         }

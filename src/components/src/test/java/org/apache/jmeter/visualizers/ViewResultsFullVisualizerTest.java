@@ -53,6 +53,7 @@ import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.recording.RecordingStorageMode;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
@@ -651,12 +652,40 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
             try {
                 visualizer.add(childSample("first", inner));
                 refresh(visualizer);
-                assertEquals("[outer (running)[inner (running)[first]]]", describeTree(visualizer));
+                assertEquals("[outer[inner[first]]]", describeTree(visualizer));
 
                 visualizer.add(transactionSample(inner));
                 visualizer.add(transactionSample(outer));
                 refresh(visualizer);
                 assertEquals("[outer[inner[first]]]", describeTree(visualizer));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void filteredTransactionCompletionDoesNotLeaveRunningAncestor() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            ResultCollector collector = new ResultCollector();
+            collector.setListener(visualizer);
+            collector.setSuccessOnlyLogging(true);
+            TransactionRef transaction = TransactionRef.start("mixed", null);
+            try {
+                collector.sampleOccurred(new SampleEvent(childSample("success", transaction), "tg"));
+                SampleResult failed = transactionSample(transaction);
+                failed.setSuccessful(false);
+                collector.sampleOccurred(new SampleEvent(failed, "tg"));
+                refresh(visualizer);
+                assertEquals("[mixed[success]]", describeTree(visualizer));
+                var tableField = ViewResultsFullVisualizer.class.getDeclaredField("resultTableModel");
+                tableField.setAccessible(true);
+                ResultTableModel table = (ResultTableModel) tableField.get(visualizer);
+                assertNull(table.getValueAt(0, ResultTableModel.TIME),
+                        "An inferred ancestor has no known final measurements");
             } catch (ReflectiveOperationException ex) {
                 throw new AssertionError(ex);
             } finally {

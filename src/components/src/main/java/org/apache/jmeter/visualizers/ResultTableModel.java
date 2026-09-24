@@ -78,6 +78,7 @@ class ResultTableModel extends AbstractTableModel {
     private boolean responseBodyDiffEnabled;
     private Set<SampleResult> runningResults = Set.of();
     private Icon runningIcon;
+    private Set<SampleResult> unmeasuredResults = Set.of();
 
     ResultTableModel(Icon successIcon, Icon failureIcon, DateTimeFormatter timestampFormat) {
         this(successIcon, failureIcon, timestampFormat, ResultTableModel::recordedResponseBody);
@@ -98,6 +99,11 @@ class ResultTableModel extends AbstractTableModel {
     void setRunningResults(Set<SampleResult> running, Icon icon) {
         this.runningResults = running;
         this.runningIcon = icon;
+    }
+
+    /** Keeps inferred transaction groups blank until their completed result is received. */
+    void setUnmeasuredResults(Set<SampleResult> results) {
+        unmeasuredResults = results;
     }
 
     @Override
@@ -130,6 +136,7 @@ class ResultTableModel extends AbstractTableModel {
         ResultTableRow row = rows.get(rowIndex);
         SampleResult sample = row.sample();
         boolean running = runningResults.contains(sample);
+        boolean unmeasured = running || unmeasuredResults.contains(sample);
         return switch (columnIndex) {
         case STATUS -> running ? runningIcon
                 : sample.isSuccessful() ? successIcon : failureIcon;
@@ -137,12 +144,12 @@ class ResultTableModel extends AbstractTableModel {
         case THREAD_GROUP -> ViewResultsFullVisualizer.threadGroupName(sample.getThreadName());
         case THREAD_NAME -> sample.getThreadName();
         case LABEL -> row.label();
-        // A running transaction has no measurements yet
-        case TIME -> running ? null : sample.getTime();
-        case LATENCY -> running ? null : sample.getLatency();
-        case CONNECT_TIME -> running ? null : sample.getConnectTime();
-        case REQUEST_SIZE -> running ? null : sample.getSentBytes();
-        case RECEIVED_BYTES -> running ? null : sample.getBytesAsLong();
+        // Running samples and inferred transaction groups have no final measurements
+        case TIME -> unmeasured ? null : sample.getTime();
+        case LATENCY -> unmeasured ? null : sample.getLatency();
+        case CONNECT_TIME -> unmeasured ? null : sample.getConnectTime();
+        case REQUEST_SIZE -> unmeasured ? null : sample.getSentBytes();
+        case RECEIVED_BYTES -> unmeasured ? null : sample.getBytesAsLong();
         case COMPRESSION -> compressionType(sample);
         case DIFF_PERCENT -> responseBodyDiffEnabled
                 ? responseBodyDiffs.computeIfAbsent(sample, this::calculateResponseBodyDiff).orElse(null)
