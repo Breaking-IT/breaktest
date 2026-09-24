@@ -1481,11 +1481,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
         synchronized (clients) {
             for (HttpClientState clientState : clients.values()) {
+                // Close the connections first: a graceful client close would wait for the server to
+                // confirm each one, blocking this thread while the I/O thread stays busy. Closing the
+                // client itself immediately instead makes HttpCore log a ClosedSelectorException.
+                H2RouteReuseConnectionManager connectionManager = clientState.getConnectionManager();
+                if (connectionManager != null) {
+                    connectionManager.closeConnections(CloseMode.IMMEDIATE);
+                }
                 // The classic facade owns and closes its backing async client. Closing both here
                 // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
-                // A graceful close would wait for the server to confirm, blocking this thread up to
-                // the shutdown timeout while the I/O thread stays busy.
-                clientState.getClient().close(CloseMode.IMMEDIATE);
+                JOrphanUtils.closeQuietly(clientState.getClient());
             }
         }
     }
