@@ -37,11 +37,12 @@ import kotlin.jvm.Throws
  * rate(1/sec) rate(2/sec) even_arrival(1 min) rate(3/sec) rate(4/sec) even_arrival(2 min) rate(5/sec)...
  *   means 2/sec..3/sec during 1min, then 4/sec..5/sec during 2min
  *
- * constantThreadsPerMinDuring(120, 30)
+ * constantThreadsPerMinDuring(120, 30, false)
  *   means a constant 120 threads/minute during 30 seconds
  *
- * rampThreadsPerMinDuring(60, 120, 30)
- *   means a ramp from 60 threads/minute to 120 threads/minute during 30 seconds
+ * rampThreadsPerMinDuring(60, 120, 30, true)
+ *   means a ramp from 60 threads/minute to 120 threads/minute during 30 seconds with random arrivals.
+ * The optional final boolean selects random (true) or even (false, the default) arrivals.
  */
 @API(status = API.Status.EXPERIMENTAL, since = "5.5")
 public interface ThreadSchedule {
@@ -127,17 +128,19 @@ internal class ScheduleParser(private val schedule: String) {
     private fun throwParseException(message: String): Nothing =
         throw ParserException(schedule, if (pos >= tokens.size) 0 else tokens[pos].pos, message)
 
-    fun parse(): ThreadSchedule {
+    fun parse(onExpression: ((Int, List<ThreadScheduleStep>) -> Unit)? = null): ThreadSchedule {
         val steps = mutableListOf<ThreadScheduleStep>()
         while (pos < tokens.size) {
             val pauseSteps = parsePause()
             if (pauseSteps != null) {
                 steps += pauseSteps
+                onExpression?.invoke(tokens[pos - 1].pos + 1, pauseSteps)
                 continue
             }
             val rateWindowSteps = parseRateWindow()
             if (rateWindowSteps != null) {
                 steps += rateWindowSteps
+                onExpression?.invoke(tokens[pos - 1].pos + 1, rateWindowSteps)
                 lastRate = rateWindowSteps.last() as ThreadScheduleStep.RateStep
                 continue
             }
@@ -150,6 +153,7 @@ internal class ScheduleParser(private val schedule: String) {
                         "constantThreadsPerMinDuring, rampThreadsPerMinDuring, or pause)"
                 )
             steps += step
+            onExpression?.invoke(tokens[pos - 1].pos + 1, listOf(step))
             if (step is ThreadScheduleStep.RateStep) {
                 lastRate = step
             }
@@ -199,11 +203,12 @@ internal class ScheduleParser(private val schedule: String) {
         val rate = parseThreadsPerMinuteArgument()
         consume(Tokenizer.CommaToken)
         val duration = parseSecondsArgument()
+        val arrivalType = parseOptionalRandomArgument()
         consume(Tokenizer.CloseParenthesisToken)
         val rateStep = ThreadScheduleStep.RateStep(rate)
         return listOf(
             rateStep,
-            ThreadScheduleStep.ArrivalsStep(ArrivalType.EVEN, duration),
+            ThreadScheduleStep.ArrivalsStep(arrivalType, duration),
             rateStep
         )
     }
@@ -219,12 +224,26 @@ internal class ScheduleParser(private val schedule: String) {
         val endRate = parseThreadsPerMinuteArgument()
         consume(Tokenizer.CommaToken)
         val duration = parseSecondsArgument()
+        val arrivalType = parseOptionalRandomArgument()
         consume(Tokenizer.CloseParenthesisToken)
         return listOf(
             ThreadScheduleStep.RateStep(beginRate),
-            ThreadScheduleStep.ArrivalsStep(ArrivalType.EVEN, duration),
+            ThreadScheduleStep.ArrivalsStep(arrivalType, duration),
             ThreadScheduleStep.RateStep(endRate)
         )
+    }
+
+    private fun parseOptionalRandomArgument(): ArrivalType {
+        if (token != Tokenizer.CommaToken) {
+            return ArrivalType.EVEN
+        }
+        consume(Tokenizer.CommaToken)
+        val value = consume<Tokenizer.IdentifierToken>("true or false for random arrivals")
+        return when {
+            value.image.equals("true", ignoreCase = true) -> ArrivalType.RANDOM
+            value.image.equals("false", ignoreCase = true) -> ArrivalType.EVEN
+            else -> throwParseException("Expected true or false for random arrivals")
+        }
     }
 
     private fun parseThreadsPerMinuteArgument(): Double =

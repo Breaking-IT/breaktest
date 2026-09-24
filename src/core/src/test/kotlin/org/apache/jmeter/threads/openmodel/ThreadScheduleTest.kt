@@ -18,6 +18,8 @@
 package org.apache.jmeter.threads.openmodel
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 
@@ -29,6 +31,22 @@ class ThreadScheduleTest {
     companion object {
         @JvmStatic
         fun data() = listOf(
+            Case(
+                "constantThreadsPerMinDuring(120, 30, true)",
+                "[Rate(2), Arrivals(type=RANDOM, duration=30), Rate(2)]"
+            ),
+            Case(
+                "constantThreadsPerMinDuring(120, 30, false)",
+                "[Rate(2), Arrivals(type=EVEN, duration=30), Rate(2)]"
+            ),
+            Case(
+                "rampThreadsPerMinDuring(60, 120, 30, TRUE)",
+                "[Rate(1), Arrivals(type=RANDOM, duration=30), Rate(2)]"
+            ),
+            Case(
+                "rampThreadsPerMinDuring(60, 120, 30, false)",
+                "[Rate(1), Arrivals(type=EVEN, duration=30), Rate(2)]"
+            ),
             Case("rate(0/min)", "[Rate(0)]"),
             Case("rate(36000/hour)", "[Rate(10)]"),
             Case("random_arrivals(0) /* 0 does not require time unit */", "[Arrivals(type=RANDOM, duration=0)]"),
@@ -63,6 +81,15 @@ class ThreadScheduleTest {
                 "[Rate(0), Arrivals(type=EVEN, duration=1800), Rate(0.8), Arrivals(type=RANDOM, duration=240), Rate(3.3), Arrivals(type=RANDOM, duration=10)]"
             )
         )
+    }
+
+    @Test
+    fun rejectsInvalidRandomFlags() {
+        for (flag in listOf("1", "yes", "", "true, false")) {
+            for (expression in listOf("constantThreadsPerMinDuring(120, 30", "rampThreadsPerMinDuring(60, 120, 30")) {
+                assertThrows(ParserException::class.java) { ThreadSchedule("$expression, $flag)") }
+            }
+        }
     }
 
     @ParameterizedTest
