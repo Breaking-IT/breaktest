@@ -19,6 +19,8 @@ package org.apache.jmeter.threads.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -26,6 +28,7 @@ import java.awt.Container;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -69,12 +72,12 @@ class ScheduleTablePanelTest {
             assertEquals("0", table.getValueAt(1, 0));
             table.setValueAt(false, 0, 3);
             table.setValueAt("25", 0, 0);
-            assertTrue(panel.getText().contains("rampThreadsPerMinDuring(25, 180, 70, false)"));
+            assertTrue(panel.getText().contains("rampThreadsPerMinDuring(25, 180, 70)"));
             assertTrue(table.editCellAt(0, 0));
             assertTrue(table.getEditorComponent() instanceof JTextField);
             table.getCellEditor().cancelCellEditing();
             table.setValueAt("", 0, 1);
-            assertTrue(panel.getText().contains("rampThreadsPerMinDuring(25, 25, 70, false)"));
+            assertTrue(panel.getText().contains("constantThreadsPerMinDuring(25, 70)"));
             table.setValueAt(true, 0, 3);
             table.setValueAt("50", 0, 1);
             assertTrue(panel.getText().contains("rampThreadsPerMinDuring(25, 50, 70, true)"));
@@ -87,23 +90,23 @@ class ScheduleTablePanelTest {
     }
 
     @Test
-    void constantSchedulesAndBlankTargetsSaveAsRamps() throws Exception {
+    void constantSchedulesAndBlankTargetsKeepCompactSyntax() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             ScheduleTablePanel panel = new ScheduleTablePanel(true);
             panel.setText("constantThreadsPerMinDuring(120, 30, true)");
             JTable table = find(panel, JTable.class);
             assertEquals("", table.getValueAt(0, 1));
-            assertEquals("rampThreadsPerMinDuring(120, 120, 30, true)", panel.getText());
+            assertEquals("constantThreadsPerMinDuring(120, 30, true)", panel.getText());
             table.setValueAt("60", 0, 0);
-            assertEquals("rampThreadsPerMinDuring(60, 60, 30, true)", panel.getText());
+            assertEquals("constantThreadsPerMinDuring(60, 30, true)", panel.getText());
             table.setValueAt("   ", 0, 1);
-            assertEquals("rampThreadsPerMinDuring(60, 60, 30, true)", panel.getText());
+            assertEquals("constantThreadsPerMinDuring(60, 30, true)", panel.getText());
             table.setValueAt("60", 0, 1);
-            assertEquals("rampThreadsPerMinDuring(60, 60, 30, true)", panel.getText());
+            assertEquals("constantThreadsPerMinDuring(60, 30, true)", panel.getText());
             String saved = panel.getText();
             panel.setText(saved);
             assertEquals(saved, panel.getText());
-            assertEquals("60", table.getValueAt(0, 1));
+            assertEquals("", table.getValueAt(0, 1));
             JCheckBox mode = find(panel, JCheckBox.class);
             mode.doClick();
             assertEquals(saved, find(panel, JTextArea.class).getText());
@@ -112,7 +115,90 @@ class ScheduleTablePanelTest {
             panel.setText("");
             click(panel, "add");
             assertEquals("", table.getValueAt(0, 1));
-            assertEquals("rampThreadsPerMinDuring(20, 20, 15, false)", panel.getText());
+            assertEquals("constantThreadsPerMinDuring(20, 15)", panel.getText());
+        });
+    }
+
+    @Test
+    void viewingSwitchingModesAndUnchangedCellCommitsPreserveExactText() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ScheduleTablePanel panel = new ScheduleTablePanel(true);
+            for (String schedule : new String[] {
+                "constantThreadsPerMinDuring(120, 10, true)",
+                "constantThreadsPerMinDuring(20, 15)",
+                "rampThreadsPerMinDuring(10, 20, 30)",
+                "rate(7/hour) even_arrivals(1 hour)",
+                "  rampThreadsPerMinDuring(10, 20, 30, false)  "
+            }) {
+                panel.setText(schedule);
+                JTable table = find(panel, JTable.class);
+                assertEquals(schedule, panel.getText());
+                assertTrue(table.editCellAt(0, 0));
+                assertTrue(panel.stopEditing());
+                assertEquals(schedule, panel.getText());
+                JCheckBox mode = find(panel, JCheckBox.class);
+                mode.doClick();
+                assertEquals(schedule, find(panel, JTextArea.class).getText());
+                mode.doClick();
+                assertEquals(schedule, panel.getText());
+            }
+        });
+    }
+
+    @Test
+    void cellEditorsRejectInvalidNumbersWithoutSavingThem() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (boolean open : new boolean[] {true, false}) {
+                ScheduleTablePanel panel = new ScheduleTablePanel(open);
+                String schedule = open ? "constantThreadsPerMinDuring(20, 15)" : "threadsPhase(20, 15)";
+                panel.setText(schedule);
+                JTable table = find(panel, JTable.class);
+                for (int column : new int[] {0, open ? 2 : 1}) {
+                    for (String invalid : new String[] {"", "abc", "1,5", "-1", "1e309"}) {
+                        assertTrue(table.editCellAt(0, column));
+                        JTextField editor = (JTextField) table.getEditorComponent();
+                        editor.setText(invalid);
+                        assertFalse(panel.stopEditing(), invalid);
+                        assertNotNull(editor.getToolTipText());
+                        assertEquals(schedule, panel.getText());
+                        click(panel, "add");
+                        assertEquals(1, table.getRowCount());
+                        table.getCellEditor().cancelCellEditing();
+                    }
+                }
+                if (!open) {
+                    for (String invalid : new String[] {"1.5", "9223372036854775808"}) {
+                        assertTrue(table.editCellAt(0, 0));
+                        ((JTextField) table.getEditorComponent()).setText(invalid);
+                        assertFalse(panel.stopEditing());
+                        assertEquals(schedule, panel.getText());
+                        table.getCellEditor().cancelCellEditing();
+                    }
+                }
+                assertTrue(table.editCellAt(0, 0));
+                ((JTextField) table.getEditorComponent()).setText(open ? "1.5" : "2");
+                assertTrue(panel.stopEditing());
+                assertEquals(open ? "constantThreadsPerMinDuring(1.5, 15)" : "threadsPhase(2, 15)", panel.getText());
+            }
+        });
+    }
+
+    @Test
+    void labelTracksTheActiveEditorAndEqualNumericRatesUseConstantSyntax() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ScheduleTablePanel panel = new ScheduleTablePanel(true);
+            JLabel label = panel.createLabel("openmodelthreadgroup_schedule_string");
+            panel.setText("rampThreadsPerMinDuring(20, 30, 15, false)");
+            JTable table = find(panel, JTable.class);
+            assertSame(table, label.getLabelFor());
+            assertEquals(label.getText(), table.getAccessibleContext().getAccessibleName());
+            table.setValueAt("20.0", 0, 1);
+            assertEquals("constantThreadsPerMinDuring(20, 15)", panel.getText());
+            JCheckBox mode = find(panel, JCheckBox.class);
+            mode.doClick();
+            assertSame(find(panel, JTextArea.class), label.getLabelFor());
+            mode.doClick();
+            assertSame(table, label.getLabelFor());
         });
     }
 
@@ -151,7 +237,7 @@ class ScheduleTablePanelTest {
             mode.doClick();
             assertFalse(mode.isSelected());
             assertEquals(1, find(panel, JTable.class).getRowCount());
-            assertEquals("rampThreadsPerMinDuring(0, 0, 10, false)", panel.getText());
+            assertEquals("rate(2/sec) pause(10 sec)", panel.getText());
             panel.setText("");
             assertEquals(0, find(panel, JTable.class).getRowCount());
             assertEquals("", panel.getText());

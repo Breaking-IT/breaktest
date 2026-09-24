@@ -648,7 +648,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private JPanel createCustomClosedModelPanel() {
         JPanel panel = new JPanel(new MigLayout("insets 0, fillx, wrap 2", "[][fill,grow]"));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_phases")));
+        panel.add(closedModelSchedule.createLabel("thread_group_closed_model_phases"));
         panel.add(createClosedModelPhasePanel(), "growx");
         return panel;
     }
@@ -661,7 +661,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         JPanel panel = new JPanel(new MigLayout("fillx, wrap 1", "[fill,grow]"));
         panel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("thread_group_model_open")));
 
-        panel.add(labelFor(openModelSchedule, "openmodelthreadgroup_schedule_string"));
+        panel.add(openModelSchedule.createLabel("openmodelthreadgroup_schedule_string"));
         panel.add(openModelSchedule, "growx");
 
         JPanel randomSeedPanel = new JPanel(new MigLayout("insets 0", "[][fill]"));

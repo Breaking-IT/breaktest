@@ -117,12 +117,14 @@ debugging, and migration work that has landed across the BreakTest PR series.
 The schedule table has **From (threads/min)**, **To (threads/min)**,
 **Duration (seconds)**, and **Random arrivals** columns. Leave **To** blank to use
 the **From** rate, or enter the same value for a constant rate. Different values
-produce a ramp. Each table row is saved as a ramp function:
+produce a ramp. Viewing a schedule or switching between table and text views
+preserves its original text. After a table edit, equal rates use a constant
+function, and the optional flag is written only for random arrivals:
 
 ```text
-rampThreadsPerMinDuring(120, 120, 30, false)
+constantThreadsPerMinDuring(120, 30)
 rampThreadsPerMinDuring(120, 300, 60, true)
-rampThreadsPerMinDuring(0, 0, 10, false)
+constantThreadsPerMinDuring(0, 10)
 ```
 
 Rates are threads per minute; durations are seconds. The final flag selects even
@@ -131,7 +133,14 @@ arrival count for each phase and distributes its start times according to the
 constant or ramping rate. Use a nonzero random seed to reproduce the same timing.
 A zero-rate phase pauses new arrivals while existing threads finish naturally.
 Existing constant functions still load correctly. Omitting the flag in older
-constant/ramp functions still means even arrivals.
+constant/ramp functions still means even arrivals. Even-arrival edits retain the
+syntax supported by earlier BreakTest releases. The random flag requires this
+version; compatibility with standard Apache JMeter is not implied.
+
+Numeric table cells reject empty required values, negative numbers, decimal commas,
+and other invalid input. Closed-model cells require whole numbers. Converted rates
+retain their full precision to preserve arrival timing. Comments and advanced
+expressions use the text view, which is selected automatically when needed.
 
 When opening a JMX, BreakTest converts literal legacy `rate`, `even_arrival`,
 `random_arrival`, and `pause` schedules into these phases, preserving their timing

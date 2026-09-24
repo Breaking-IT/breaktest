@@ -271,7 +271,7 @@ class ThreadGroupGuiTest {
             assertTrue(table.editCellAt(0, 0));
             ((JTextField) table.getEditorComponent()).setText("30");
             gui.modifyTestElement(group);
-            assertEquals("rampThreadsPerMinDuring(30, 30, 15, false)", group.getOpenModelSchedule());
+            assertEquals("constantThreadsPerMinDuring(30, 15)", group.getOpenModelSchedule());
 
             OpenModelThreadGroup legacy = new OpenModelThreadGroup();
             legacy.setScheduleString("rate(2/sec) even_arrival(10 sec) rate(2/sec)");
@@ -282,7 +282,33 @@ class ThreadGroupGuiTest {
             legacyTable.setValueAt("20", 0, 2);
             legacyTable.setValueAt(true, 0, 3);
             legacyGui.modifyTestElement(legacy);
-            assertEquals("rampThreadsPerMinDuring(120, 120, 20, true)", legacy.getScheduleString());
+            assertEquals("constantThreadsPerMinDuring(120, 20, true)", legacy.getScheduleString());
+        });
+    }
+
+    @Test
+    void viewingOpenModelGroupsDoesNotRewriteSchedules() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (String schedule : new String[] {
+                "constantThreadsPerMinDuring(120, 10, true)",
+                "constantThreadsPerMinDuring(20, 15)",
+                "rampThreadsPerMinDuring(10, 20, 30)",
+                "rate(7/hour) even_arrivals(1 hour)"
+            }) {
+                ThreadGroup group = threadGroupWithLoops(1);
+                group.setThreadGroupModel(ThreadGroup.MODEL_OPEN);
+                group.setOpenModelSchedule(schedule);
+                ThreadGroupGui gui = new ThreadGroupGui();
+                gui.configure(group);
+                gui.modifyTestElement(group);
+                assertEquals(schedule, group.getOpenModelSchedule());
+                OpenModelThreadGroup legacy = new OpenModelThreadGroup();
+                legacy.setScheduleString(schedule);
+                OpenModelThreadGroupGui legacyGui = new OpenModelThreadGroupGui();
+                legacyGui.configure(legacy);
+                legacyGui.modifyTestElement(legacy);
+                assertEquals(schedule, legacy.getScheduleString());
+            }
         });
     }
 

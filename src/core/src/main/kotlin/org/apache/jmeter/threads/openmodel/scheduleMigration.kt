@@ -61,7 +61,7 @@ private fun number(value: Double): String = BigDecimal.valueOf(value).stripTrail
 
 private fun migrateLiteralSchedule(source: String): String {
     val parser = ScheduleParser(source)
-    // Preserve already explicit modern windows byte-for-byte, including formatting and comments.
+    // Preserve modern windows byte-for-byte, including omitted flags, formatting, and comments.
     val expressions = parser.tokens.windowed(2).filter { it[1].token == Tokenizer.OpenParenthesisToken }
     if (expressions.isEmpty()) {
         return source
@@ -70,10 +70,7 @@ private fun migrateLiteralSchedule(source: String): String {
         it[0].token.image.equals("constantThreadsPerMinDuring", ignoreCase = true) ||
             it[0].token.image.equals("rampThreadsPerMinDuring", ignoreCase = true)
     }
-    val flags = parser.tokens.count {
-        it.token == Tokenizer.IdentifierToken("true") || it.token == Tokenizer.IdentifierToken("false")
-    }
-    if (modernOnly && flags == expressions.size) {
+    if (modernOnly) {
         return source
     }
     val ends = mutableListOf<Int>()
@@ -94,11 +91,11 @@ private fun migrateLiteralSchedule(source: String): String {
         }
         val from = number(window.from * 60)
         val duration = number(window.arrivals.duration)
-        val random = window.arrivals.type == ArrivalType.RANDOM
+        val random = if (window.arrivals.type == ArrivalType.RANDOM) ", true" else ""
         lines += if (window.from == window.to) {
-            "constantThreadsPerMinDuring($from, $duration, $random)"
+            "constantThreadsPerMinDuring($from, $duration$random)"
         } else {
-            "rampThreadsPerMinDuring($from, ${number(window.to * 60)}, $duration, $random)"
+            "rampThreadsPerMinDuring($from, ${number(window.to * 60)}, $duration$random)"
         }
     }
     while (comment != null) {

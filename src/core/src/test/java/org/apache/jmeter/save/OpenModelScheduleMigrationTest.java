@@ -48,6 +48,26 @@ class OpenModelScheduleMigrationTest extends JMeterTestCase implements JMeterSer
     Path directory;
 
     @ParameterizedTest
+    @ValueSource(strings = {
+        "constantThreadsPerMinDuring(120, 10, true)",
+        "constantThreadsPerMinDuring(20, 15)",
+        "rampThreadsPerMinDuring(10, 20, 30)",
+        "  rampThreadsPerMinDuring(10, 20, 30, false)  "
+    })
+    void loadingDoesNotNormalizeExistingRateWindows(String schedule) throws Exception {
+        ThreadGroup group = new ThreadGroup();
+        group.setProperty(TestElement.GUI_CLASS, ThreadGroupGui.class.getName());
+        group.setThreadGroupModel(ThreadGroup.MODEL_OPEN);
+        group.setOpenModelSchedule(schedule);
+        HashTree tree = new ListedHashTree();
+        tree.add(group);
+        Path path = directory.resolve("unchanged.jmx");
+        SaveService.saveTreeToFile(tree, path);
+        ThreadGroup loaded = (ThreadGroup) SaveService.loadTree(path.toFile()).getArray()[0];
+        assertEquals(schedule, loaded.getOpenModelSchedule());
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void loadingMigratesCurrentAndLegacyGroupsInPlainAndArchivedJmx(boolean archive) throws Exception {
         ThreadGroup current = new ThreadGroup();
@@ -91,9 +111,9 @@ class OpenModelScheduleMigrationTest extends JMeterTestCase implements JMeterSer
         Object[] groups = loaded.getTree(loaded.getArray()[0]).getArray();
         ThreadGroup migratedCurrent = (ThreadGroup) groups[0];
         OpenModelThreadGroup migratedLegacy = (OpenModelThreadGroup) groups[1];
-        assertEquals("constantThreadsPerMinDuring(120, 10, true)\nconstantThreadsPerMinDuring(0, 3, false)",
+        assertEquals("constantThreadsPerMinDuring(120, 10, true)\nconstantThreadsPerMinDuring(0, 3)",
                 migratedCurrent.getOpenModelSchedule());
-        assertEquals("rampThreadsPerMinDuring(60, 120, 10, false)", migratedLegacy.getScheduleString());
+        assertEquals("rampThreadsPerMinDuring(60, 120, 10)", migratedLegacy.getScheduleString());
         assertEquals("42", migratedCurrent.getOpenModelRandomSeedString());
         assertEquals("24", migratedLegacy.getRandomSeedString());
         assertEquals("threadsPhase(10, 20)", migratedCurrent.getClosedModelSchedule());

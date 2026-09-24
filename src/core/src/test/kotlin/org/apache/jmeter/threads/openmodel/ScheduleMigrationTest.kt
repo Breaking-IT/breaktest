@@ -29,9 +29,9 @@ class ScheduleMigrationTest {
         assertMigration(
             "rate(1/sec) even_arrival(2 sec) rate(2/sec) random_arrival(3 sec) pause(4 sec) random_arrival(5 sec) rate(3/sec)",
             """
-            rampThreadsPerMinDuring(60, 120, 2, false)
+            rampThreadsPerMinDuring(60, 120, 2)
             constantThreadsPerMinDuring(120, 3, true)
-            constantThreadsPerMinDuring(0, 4, false)
+            constantThreadsPerMinDuring(0, 4)
             rampThreadsPerMinDuring(120, 180, 5, true)
             """.trimIndent()
         )
@@ -41,11 +41,11 @@ class ScheduleMigrationTest {
     fun preservesConsecutiveRateAndArrivalSemantics() {
         assertMigration(
             "rate(1/sec) rate(2/sec) even_arrival(2 sec) rate(3/sec) rate(4/sec) random_arrival(2 sec) rate(5/sec)",
-            "rampThreadsPerMinDuring(120, 180, 2, false)\nrampThreadsPerMinDuring(240, 300, 2, true)"
+            "rampThreadsPerMinDuring(120, 180, 2)\nrampThreadsPerMinDuring(240, 300, 2, true)"
         )
         assertMigration(
             "rate(1/sec) even_arrival(2 sec) random_arrival(3 sec) rate(2/sec)",
-            "constantThreadsPerMinDuring(60, 2, false)\nrampThreadsPerMinDuring(60, 120, 3, true)"
+            "constantThreadsPerMinDuring(60, 2)\nrampThreadsPerMinDuring(60, 120, 3, true)"
         )
     }
 
@@ -53,15 +53,15 @@ class ScheduleMigrationTest {
     fun convertsUnitsAndLegacyDefaultFlags() {
         assertMigration(
             "RATE(3600 per hour) RANDOM_ARRIVALS(1 min 500 ms) pause(0)",
-            "constantThreadsPerMinDuring(60, 60.5, true)\nconstantThreadsPerMinDuring(0, 0, false)"
+            "constantThreadsPerMinDuring(60, 60.5, true)\nconstantThreadsPerMinDuring(0, 0)"
         )
         assertMigration(
             "constantThreadsPerMinDuring(120, 30) rampThreadsPerMinDuring(120, 60, 10)",
-            "constantThreadsPerMinDuring(120, 30, false)\nrampThreadsPerMinDuring(120, 60, 10, false)"
+            "constantThreadsPerMinDuring(120, 30) rampThreadsPerMinDuring(120, 60, 10)"
         )
         assertMigration(
             "constantThreadsPerMinDuring(120, 3, true) even_arrival(2 sec) rate(3/sec)",
-            "constantThreadsPerMinDuring(120, 3, true)\nrampThreadsPerMinDuring(120, 180, 2, false)"
+            "constantThreadsPerMinDuring(120, 3, true)\nrampThreadsPerMinDuring(120, 180, 2)"
         )
     }
 
@@ -74,7 +74,7 @@ class ScheduleMigrationTest {
             /* steady */
             constantThreadsPerMinDuring(60, 60, true)
             // cool
-            constantThreadsPerMinDuring(0, 2, false)
+            constantThreadsPerMinDuring(0, 2)
             /* end */
             """.trimIndent()
         )
@@ -90,6 +90,9 @@ class ScheduleMigrationTest {
             "rate(${'$'}{rate}/sec) random_arrival(10 sec)",
             "${'$'}{__groovy(props.get('schedule'))}",
             "constantThreadsPerMinDuring(120, 30, maybe)",
+            "constantThreadsPerMinDuring(20, 15)",
+            "rampThreadsPerMinDuring(10, 20, 30)",
+            "rampThreadsPerMinDuring(10, 20, 30, false)",
             " /* keep formatting */ constantThreadsPerMinDuring(120, 30, true)  ",
         ]
     )
