@@ -94,8 +94,8 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Fork Controller runs a child branch asynchronously while the main virtual-user
   flow continues, sharing the same context and variables.
 - Standard Thread Group can switch between closed and open workload models.
-- Open model scheduling includes helper syntax, even-arrival scheduling, maximum
-  active thread limits, and graph preview support.
+- Open model scheduling offers constant and ramp phases with even or random
+  arrivals, maximum active thread limits, and graph preview support.
 - Closed model phases let you combine different ramp-up speeds, hold periods,
   and thread targets, making it possible to shape almost any closed workload
   model from one schedule.
@@ -111,6 +111,35 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Shutdown is quicker because it no longer waits for timers to complete. It
   still waits for in-flight server responses, so active requests can finish
   cleanly.
+
+### Open Model Schedules
+
+The schedule table has **From (threads/min)**, **To (threads/min)**,
+**Duration (seconds)**, and **Random arrivals** columns. Leave **To** blank to use
+the **From** rate, or enter the same value for a constant rate. Different values
+produce a ramp. Each table row is saved as a ramp function:
+
+```text
+rampThreadsPerMinDuring(120, 120, 30, false)
+rampThreadsPerMinDuring(120, 300, 60, true)
+rampThreadsPerMinDuring(0, 0, 10, false)
+```
+
+Rates are threads per minute; durations are seconds. The final flag selects even
+arrivals (`false`) or random start times (`true`). Random mode keeps the planned
+arrival count for each phase and distributes its start times according to the
+constant or ramping rate. Use a nonzero random seed to reproduce the same timing.
+A zero-rate phase pauses new arrivals while existing threads finish naturally.
+Existing constant functions still load correctly. Omitting the flag in older
+constant/ramp functions still means even arrivals.
+
+When opening a JMX, BreakTest converts literal legacy `rate`, `even_arrival`,
+`random_arrival`, and `pause` schedules into these phases, preserving their timing
+and arrival distribution. Comments remain available in **Edit as text**. Migration
+runs for both current and legacy open-model thread groups, including headless
+loads, and does not rewrite the source file until you save. Unresolved variables,
+invalid schedules, and schedules that cannot be converted without changing the
+workload remain unchanged; the runtime still accepts legacy syntax.
 
 ### GUI Workflow Improvements
 

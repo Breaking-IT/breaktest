@@ -32,12 +32,9 @@ import java.util.List;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
-import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -60,7 +57,6 @@ import org.apache.jmeter.threads.openmodel.ThreadScheduleUtils;
 import org.apache.jmeter.threads.openmodel.gui.TargetRateChart;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
-import org.apache.jorphan.gui.JFactory;
 
 import net.miginfocom.swing.MigLayout;
 
@@ -77,30 +73,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private static final String PREVIEW_CLOSED_CARD = "previewClosed"; // $NON-NLS-1$
 
     private static final String PREVIEW_OPEN_CARD = "previewOpen"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CONSTANT = "constantThreadsPerMinDuring"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_RAMP = "rampThreadsPerMinDuring"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_RATE = "rate"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_EVEN = "even_arrival"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_RANDOM = "random_arrival"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_PAUSE = "pause"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_COMMENT = "comment"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CARD_CONSTANT = "constant"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CARD_RAMP = "ramp"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CARD_RATE = "rate"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CARD_DURATION = "duration"; // $NON-NLS-1$
-
-    private static final String SCHEDULE_HELPER_CARD_EMPTY = "empty"; // $NON-NLS-1$
 
     private final JTextField threadInput = new JTextField();
 
@@ -138,13 +110,9 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     private final TargetRateChart openModelPreview = new TargetRateChart();
 
-    private final JTextArea closedModelSchedule = JFactory.tabMovesFocus(new JTextArea(4, 42));
+    private final ScheduleTablePanel closedModelSchedule = new ScheduleTablePanel(false);
 
-    private final JTextField closedModelPhaseThreads = new JTextField("10", 6); // $NON-NLS-1$
-
-    private final JTextField closedModelPhaseTime = new JTextField("10", 6); // $NON-NLS-1$
-
-    private final JTextArea openModelSchedule = JFactory.tabMovesFocus(new JTextArea(8, 42));
+    private final ScheduleTablePanel openModelSchedule = new ScheduleTablePanel(true);
 
     private final JTextField openModelRandomSeed = new JTextField(12);
 
@@ -154,38 +122,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             openModelMaxThreadsScopeThreadGroupLabel(),
             openModelMaxThreadsScopeAllOpenModelLabel()
     });
-
-    private final JComboBox<String> openModelScheduleFunction = new JComboBox<>(new String[] {
-            SCHEDULE_HELPER_CONSTANT,
-            SCHEDULE_HELPER_RAMP,
-            SCHEDULE_HELPER_RATE,
-            SCHEDULE_HELPER_EVEN,
-            SCHEDULE_HELPER_RANDOM,
-            SCHEDULE_HELPER_PAUSE,
-            SCHEDULE_HELPER_COMMENT
-    });
-
-    private final JPanel openModelScheduleFunctionCards = new JPanel(new CardLayout());
-
-    private final JTextField openModelConstantRate = new JTextField("20", 6); // $NON-NLS-1$
-
-    private final JTextField openModelConstantDuration = new JTextField("15", 6); // $NON-NLS-1$
-
-    private final JTextField openModelRampFromRate = new JTextField("10", 6); // $NON-NLS-1$
-
-    private final JTextField openModelRampToRate = new JTextField("20", 6); // $NON-NLS-1$
-
-    private final JTextField openModelRampDuration = new JTextField("10", 6); // $NON-NLS-1$
-
-    private final JTextField openModelRateValue = new JTextField("1", 6); // $NON-NLS-1$
-
-    private final JComboBox<String> openModelRateUnit = new JComboBox<>(
-            new String[] {"min", "sec", "hour"}); // $NON-NLS-1$ // $NON-NLS-2$ // $NON-NLS-3$
-
-    private final JTextField openModelDurationValue = new JTextField("10", 6); // $NON-NLS-1$
-
-    private final JComboBox<String> openModelDurationUnit = new JComboBox<>(
-            new String[] {"min", "sec", "hour"}); // $NON-NLS-1$ // $NON-NLS-2$ // $NON-NLS-3$
 
     private final JComboBox<String> pacingMode = new JComboBox<>(new String[] {
             AbstractThreadGroup.PACING_DISABLED,
@@ -322,6 +258,8 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     @Override
     @SuppressWarnings("deprecation")
     public void modifyTestElement(TestElement tg) {
+        closedModelSchedule.stopEditing();
+        openModelSchedule.stopEditing();
         if (tg instanceof OpenModelThreadGroup openModelThreadGroup) {
             openModelThreadGroup.clear();
             configureTestElement(openModelThreadGroup);
@@ -635,8 +573,8 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         addPreviewDocumentListener(rampInput);
         addPreviewDocumentListener(duration);
         addPreviewDocumentListener(delay);
-        closedModelSchedule.getDocument().addDocumentListener(new PreviewDocumentListener());
-        openModelSchedule.getDocument().addDocumentListener(new PreviewDocumentListener());
+        closedModelSchedule.addChangeListener(this::updatePreviewGraph);
+        openModelSchedule.addChangeListener(this::updatePreviewGraph);
         add(contentPanel, BorderLayout.CENTER);
     }
 
@@ -716,34 +654,15 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private JPanel createClosedModelPhasePanel() {
-        JPanel phasePanel = new JPanel(new MigLayout("insets 0, fillx, wrap 1", "[fill,grow]"));
-        JPanel actionsPanel = new JPanel(new MigLayout("insets 0", "[][pref!][3][][6][][pref!][3][][6][]"));
-        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_add_phase")));
-        actionsPanel.add(closedModelPhaseThreads, "w 48!, growx 0");
-        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_threads")));
-        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_closed_model_for")));
-        actionsPanel.add(closedModelPhaseTime, "w 48!, growx 0");
-        actionsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_seconds_lower")));
-        JButton addPhaseButton = new JButton("+"); // $NON-NLS-1$
-        addPhaseButton.setRequestFocusEnabled(false);
-        addPhaseButton.setToolTipText(JMeterUtils.getResString("thread_group_closed_model_add_phase"));
-        addPhaseButton.addActionListener(event -> insertClosedModelPhaseExpression(buildClosedModelPhaseExpression()));
-        actionsPanel.add(addPhaseButton, "w pref!, growx 0");
-        phasePanel.add(actionsPanel, "growx");
-        phasePanel.add(new JScrollPane(closedModelSchedule), "w 720!, h 96!, growx 0");
-        return phasePanel;
+        return closedModelSchedule;
     }
 
     private JPanel createOpenModelPanel() {
         JPanel panel = new JPanel(new MigLayout("fillx, wrap 1", "[fill,grow]"));
         panel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("thread_group_model_open")));
 
-        JPanel scheduleHeader = new JPanel(new MigLayout("insets 0, fillx", "[][6][fill,grow]"));
-        scheduleHeader.add(labelFor(openModelSchedule, "openmodelthreadgroup_schedule_string"), "grow 0");
-        scheduleHeader.add(createScheduleHelperPanel(), "growx");
-        panel.add(scheduleHeader, "growx");
-
-        panel.add(new JScrollPane(openModelSchedule), "w 720!, growx 0");
+        panel.add(labelFor(openModelSchedule, "openmodelthreadgroup_schedule_string"));
+        panel.add(openModelSchedule, "growx");
 
         JPanel randomSeedPanel = new JPanel(new MigLayout("insets 0", "[][fill]"));
         randomSeedPanel.add(labelFor(openModelRandomSeed, "openmodelthreadgroup_random_seed"), "grow 0");
@@ -757,131 +676,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         maxThreadsPanel.add(openModelMaxThreadsScope, "w pref!, growx 0");
         panel.add(maxThreadsPanel, "growx");
         return panel;
-    }
-
-    private JPanel createScheduleHelperPanel() {
-        JPanel helperPanel = new JPanel(new MigLayout("insets 0, fillx", "[][6][][6][]push"));
-        helperPanel.add(openModelScheduleFunction, "w 260!, growx 0");
-        helperPanel.add(openModelScheduleFunctionCards, "growx 0");
-        JButton addButton = new JButton(JMeterUtils.getResString("add")); // $NON-NLS-1$
-        addButton.setRequestFocusEnabled(false);
-        addButton.addActionListener(event -> insertOpenModelScheduleExpression(buildOpenModelScheduleExpression()));
-        helperPanel.add(addButton, "w pref!, growx 0");
-
-        openModelScheduleFunctionCards.add(createConstantScheduleFields(), SCHEDULE_HELPER_CARD_CONSTANT);
-        openModelScheduleFunctionCards.add(createRampScheduleFields(), SCHEDULE_HELPER_CARD_RAMP);
-        openModelScheduleFunctionCards.add(createRateScheduleFields(), SCHEDULE_HELPER_CARD_RATE);
-        openModelScheduleFunctionCards.add(createDurationScheduleFields(), SCHEDULE_HELPER_CARD_DURATION);
-        openModelScheduleFunctionCards.add(new JPanel(new MigLayout("insets 0")), SCHEDULE_HELPER_CARD_EMPTY);
-        openModelScheduleFunction.addActionListener(event -> updateScheduleHelperFields());
-        updateScheduleHelperFields();
-        return helperPanel;
-    }
-
-    private JPanel createConstantScheduleFields() {
-        JPanel panel = new JPanel(new MigLayout("insets 0", "[][pref!][3][][6][][pref!][3][]"));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_at")));
-        panel.add(openModelConstantRate, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_threads_per_min")));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_in")));
-        panel.add(openModelConstantDuration, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_seconds_lower")));
-        return panel;
-    }
-
-    private JPanel createRampScheduleFields() {
-        JPanel panel = new JPanel(new MigLayout("insets 0", "[][pref!][3][][6][][pref!][3][][6][][pref!][3][]"));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_from")));
-        panel.add(openModelRampFromRate, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_threads_per_min")));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_to")));
-        panel.add(openModelRampToRate, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_threads_per_min")));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_in")));
-        panel.add(openModelRampDuration, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_seconds_lower")));
-        return panel;
-    }
-
-    private JPanel createRateScheduleFields() {
-        JPanel panel = new JPanel(new MigLayout("insets 0", "[][pref!][8][][pref!]"));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_rate")));
-        panel.add(openModelRateValue, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_unit")));
-        panel.add(openModelRateUnit, "w 76!, growx 0");
-        return panel;
-    }
-
-    private JPanel createDurationScheduleFields() {
-        JPanel panel = new JPanel(new MigLayout("insets 0", "[][pref!][8][][pref!]"));
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_duration")));
-        panel.add(openModelDurationValue, "w 48!, growx 0");
-        panel.add(new JLabel(JMeterUtils.getResString("thread_group_schedule_unit")));
-        panel.add(openModelDurationUnit, "w 76!, growx 0");
-        return panel;
-    }
-
-    private void updateScheduleHelperFields() {
-        String function = (String) openModelScheduleFunction.getSelectedItem();
-        String card;
-        if (SCHEDULE_HELPER_CONSTANT.equals(function)) {
-            card = SCHEDULE_HELPER_CARD_CONSTANT;
-        } else if (SCHEDULE_HELPER_RAMP.equals(function)) {
-            card = SCHEDULE_HELPER_CARD_RAMP;
-        } else if (SCHEDULE_HELPER_RATE.equals(function)) {
-            card = SCHEDULE_HELPER_CARD_RATE;
-        } else if (SCHEDULE_HELPER_COMMENT.equals(function)) {
-            card = SCHEDULE_HELPER_CARD_EMPTY;
-        } else {
-            card = SCHEDULE_HELPER_CARD_DURATION;
-        }
-        ((CardLayout) openModelScheduleFunctionCards.getLayout()).show(openModelScheduleFunctionCards, card);
-        openModelScheduleFunctionCards.revalidate();
-        openModelScheduleFunctionCards.repaint();
-    }
-
-    private String buildOpenModelScheduleExpression() {
-        String function = (String) openModelScheduleFunction.getSelectedItem();
-        if (SCHEDULE_HELPER_RAMP.equals(function)) {
-            return SCHEDULE_HELPER_RAMP + "(" + helperValue(openModelRampFromRate, "10") + ", " // $NON-NLS-1$ // $NON-NLS-2$
-                    + helperValue(openModelRampToRate, "20") + ", " // $NON-NLS-1$ // $NON-NLS-2$
-                    + helperValue(openModelRampDuration, "10") + ")"; // $NON-NLS-1$ // $NON-NLS-2$
-        }
-        if (SCHEDULE_HELPER_RATE.equals(function)) {
-            return SCHEDULE_HELPER_RATE + "(" + helperValue(openModelRateValue, "1") + "/" // $NON-NLS-1$ // $NON-NLS-2$ // $NON-NLS-3$
-                    + openModelRateUnit.getSelectedItem() + ")"; // $NON-NLS-1$
-        }
-        if (SCHEDULE_HELPER_EVEN.equals(function) || SCHEDULE_HELPER_RANDOM.equals(function)
-                || SCHEDULE_HELPER_PAUSE.equals(function)) {
-            return function + "(" + helperValue(openModelDurationValue, "10") + " " // $NON-NLS-1$ // $NON-NLS-2$ // $NON-NLS-3$
-                    + openModelDurationUnit.getSelectedItem() + ")"; // $NON-NLS-1$
-        }
-        if (SCHEDULE_HELPER_COMMENT.equals(function)) {
-            return "/* comment */"; // $NON-NLS-1$
-        }
-        return SCHEDULE_HELPER_CONSTANT + "(" + helperValue(openModelConstantRate, "20") + ", " // $NON-NLS-1$ // $NON-NLS-2$
-                + helperValue(openModelConstantDuration, "15") + ")"; // $NON-NLS-1$ // $NON-NLS-2$
-    }
-
-    private static String helperValue(JTextField field, String defaultValue) {
-        String value = field.getText().trim();
-        return value.isEmpty() ? defaultValue : value;
-    }
-
-    private void insertOpenModelScheduleExpression(String expression) {
-        String originalText = openModelSchedule.getText();
-        String replacement = expression;
-        int selectionStart = openModelSchedule.getSelectionStart();
-        int selectionEnd = openModelSchedule.getSelectionEnd();
-        if (selectionStart == selectionEnd) {
-            if (selectionStart > 0 && originalText.charAt(selectionStart - 1) != '\n') {
-                replacement = "\n" + replacement; // $NON-NLS-1$
-            }
-            if (selectionEnd < originalText.length() && originalText.charAt(selectionEnd) != '\n') {
-                replacement = replacement + "\n"; // $NON-NLS-1$
-            }
-        }
-        openModelSchedule.replaceSelection(replacement);
     }
 
     private void updateModelFields() {
@@ -1035,22 +829,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             phaseEndTimes[i] = phaseEndSeconds;
         }
         return phaseEndTimes;
-    }
-
-    private String buildClosedModelPhaseExpression() {
-        return "threadsPhase(" + helperValue(closedModelPhaseThreads, "1") + ", " // $NON-NLS-1$ // $NON-NLS-2$
-                + helperValue(closedModelPhaseTime, "10") + ")"; // $NON-NLS-1$ // $NON-NLS-2$
-    }
-
-    private void insertClosedModelPhaseExpression(String expression) {
-        String originalText = closedModelSchedule.getText();
-        String replacement = expression + "\n"; // $NON-NLS-1$
-        if (originalText.isEmpty() || originalText.endsWith("\n")) { // $NON-NLS-1$
-            closedModelSchedule.append(replacement);
-        } else {
-            closedModelSchedule.append("\n" + replacement); // $NON-NLS-1$
-        }
-        closedModelSchedule.setCaretPosition(closedModelSchedule.getDocument().getLength());
     }
 
     private static double[] toDoubleArray(List<Double> values) {

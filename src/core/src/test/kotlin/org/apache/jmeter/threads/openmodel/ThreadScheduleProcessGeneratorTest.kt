@@ -18,6 +18,9 @@
 package org.apache.jmeter.threads.openmodel
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.MethodSource
 import java.text.DecimalFormat
@@ -153,6 +156,39 @@ class ThreadScheduleProcessGeneratorTest {
                 """.trimIndent()
             ),
         )
+    }
+
+    @Test
+    fun randomFlagControlsActualEventTimesForBothWindowFunctions() {
+        for (
+            (window, legacy) in listOf(
+                "constantThreadsPerMinDuring(120, 30" to "rate(2/sec) ARRIVAL(30 sec) rate(2/sec)",
+                "rampThreadsPerMinDuring(60, 180, 30" to "rate(1/sec) ARRIVAL(30 sec) rate(3/sec)"
+            )
+        ) {
+            fun events(source: String, seed: Long = 42) =
+                ThreadScheduleProcessGenerator(Random(seed), ThreadSchedule(source)).asSequence().toList()
+            val even = events("$window, false)")
+            val random = events("$window, true)")
+            assertEquals(events(legacy.replace("ARRIVAL", "even_arrival")), even)
+            assertEquals(events(legacy.replace("ARRIVAL", "random_arrival")), random)
+            assertEquals(60, random.size)
+            assertEquals(even.size, random.size)
+            assertEquals(random, events("$window, true)"))
+            assertNotEquals(random, events("$window, true)", 43))
+            assertNotEquals(even, random)
+            assertTrue(random.zipWithNext().all { (a, b) -> a <= b })
+            assertTrue(random.all { it >= 0 && it < 30 })
+        }
+    }
+
+    @ParameterizedTest
+    @MethodSource("data")
+    fun migrationPreservesGeneratedEvents(case: Case) {
+        val migrated = migrateOpenModelSchedule(case.schedule)
+        val originalEvents = ThreadScheduleProcessGenerator(Random(0), ThreadSchedule(case.schedule)).asSequence().toList()
+        val migratedEvents = ThreadScheduleProcessGenerator(Random(0), ThreadSchedule(migrated)).asSequence().toList()
+        assertEquals(originalEvents, migratedEvents, migrated)
     }
 
     @ParameterizedTest

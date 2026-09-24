@@ -29,6 +29,7 @@ import java.util.List;
 
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
+import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
@@ -36,6 +37,8 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ThreadGroupSchema;
+import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup;
+import org.apache.jmeter.threads.openmodel.gui.OpenModelThreadGroupGui;
 import org.junit.jupiter.api.Test;
 
 class ThreadGroupGuiTest {
@@ -253,6 +256,34 @@ class ThreadGroupGuiTest {
         assertFalse(closedModelSettings.isVisible());
         assertTrue(openModelSettings.isVisible());
         assertEquals(openModelSettings.getPreferredSize().height, modelSettings.getPreferredSize().height);
+    }
+
+    @Test
+    void openModelTablesSaveBothCurrentAndLegacyThreadGroups() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ThreadGroup group = threadGroupWithLoops(1);
+            group.setThreadGroupModel(ThreadGroup.MODEL_OPEN);
+            group.setOpenModelSchedule("constantThreadsPerMinDuring(20, 15)");
+            ThreadGroupGui gui = new ThreadGroupGui();
+            gui.configure(group);
+            JTable table = findNamedComponent(gui, JTable.class, "openModelScheduleTable");
+            assertNotNull(table);
+            assertTrue(table.editCellAt(0, 0));
+            ((JTextField) table.getEditorComponent()).setText("30");
+            gui.modifyTestElement(group);
+            assertEquals("rampThreadsPerMinDuring(30, 30, 15, false)", group.getOpenModelSchedule());
+
+            OpenModelThreadGroup legacy = new OpenModelThreadGroup();
+            legacy.setScheduleString("rate(2/sec) even_arrival(10 sec) rate(2/sec)");
+            OpenModelThreadGroupGui legacyGui = new OpenModelThreadGroupGui();
+            legacyGui.configure(legacy);
+            JTable legacyTable = findNamedComponent(legacyGui, JTable.class, "openModelScheduleTable");
+            assertNotNull(legacyTable);
+            legacyTable.setValueAt("20", 0, 2);
+            legacyTable.setValueAt(true, 0, 3);
+            legacyGui.modifyTestElement(legacy);
+            assertEquals("rampThreadsPerMinDuring(120, 120, 20, true)", legacy.getScheduleString());
+        });
     }
 
     private static ThreadGroup threadGroupWithLoops(int loops) {
