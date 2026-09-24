@@ -72,6 +72,9 @@ public class SampleEvent implements Serializable {
 
     private final boolean isTransactionSampleEvent;
 
+    /** Placeholder sent to {@link SampleListener#sampleStarted(SampleEvent)} for this sample, if any */
+    private transient SampleResult startedSample;
+
     /**
      * Constructor used for Unit tests only. Uses <code>null</code> for the
      * associated {@link SampleResult} and the <code>threadGroup</code>-name.
@@ -222,6 +225,23 @@ public class SampleEvent implements Serializable {
      */
     public boolean isTransactionSampleEvent() {
         return isTransactionSampleEvent;
+    }
+
+    /**
+     * @return the placeholder that was sent to {@link SampleListener#sampleStarted(SampleEvent)} for
+     * this sample, or {@code null} when no start event was sent
+     */
+    public SampleResult getStartedSample() {
+        return startedSample;
+    }
+
+    /**
+     * Internally called by JMeter, never call it directly
+     *
+     * @param startedSample the placeholder sent when the sample started
+     */
+    public void setStartedSample(SampleResult startedSample) {
+        this.startedSample = startedSample;
     }
 
     @Override

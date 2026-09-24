@@ -30,14 +30,13 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.params.ParameterizedTest
-import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import kotlin.time.Duration.Companion.seconds
 
 class OpenModelErrorHandlingTest : JMeterTestCase() {
     @ParameterizedTest
-    @CsvSource("false, false", "false, true", "true, false", "true, true")
-    fun `start next loop on error ends only the failed arrival`(legacy: Boolean, parentSample: Boolean) {
+    @ValueSource(booleans = [false, true])
+    fun `start next loop on error ends only the failed arrival`(legacy: Boolean) {
         val events = executePlanAndCollectEvents(10.seconds) {
             val group: AbstractThreadGroup = if (legacy) {
                 OpenModelThreadGroup().apply {
@@ -51,10 +50,10 @@ class OpenModelErrorHandlingTest : JMeterTestCase() {
             }
             group.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP)
             group {
-                transaction("Homepage", parentSample) {
+                transaction("Homepage") {
                     +BoundedSampler("homepage-request")
                 }
-                transaction("EnterEmailAddress", parentSample) {
+                transaction("EnterEmailAddress") {
                     +BoundedSampler("email-preflight")
                     +BoundedSampler("email-check", fail = true)
                     +BoundedSampler("after-failure")
@@ -93,10 +92,9 @@ class OpenModelErrorHandlingTest : JMeterTestCase() {
         assertNull(controller.next())
     }
 
-    private fun TreeBuilder.transaction(name: String, parentSample: Boolean, body: TreeBuilder.() -> Unit) {
+    private fun TreeBuilder.transaction(name: String, body: TreeBuilder.() -> Unit) {
         TransactionController::class {
             this.name = name
-            setGenerateParentSample(parentSample)
             body()
         }
     }

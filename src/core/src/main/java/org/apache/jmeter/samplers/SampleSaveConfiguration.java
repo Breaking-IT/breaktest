@@ -218,6 +218,8 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
 
     private static final String SAVE_IDLE_TIME       = "jmeter.save.saveservice.idle_time"; // $NON_NLS-1$
 
+    private static final String SAVE_TRANSACTION_IDS = "jmeter.save.saveservice.transaction_ids"; // $NON_NLS-1$
+
     // Defaults from properties:
     private static final boolean TIME;
     private static final boolean TIMESTAMP;
@@ -277,6 +279,8 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
     private static final String DELIMITER;
 
     private static final boolean IDLE_TIME;
+
+    private static final boolean TRANSACTION_IDS;
 
     public static final String DEFAULT_DELIMITER = ","; // $NON_NLS-1$
 
@@ -382,6 +386,8 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
         SAMPLE_COUNT=TRUE.equalsIgnoreCase(props.getProperty(SAVE_SAMPLE_COUNT, FALSE));
 
         IDLE_TIME=TRUE.equalsIgnoreCase(props.getProperty(SAVE_IDLE_TIME, TRUE));
+
+        TRANSACTION_IDS=TRUE.equalsIgnoreCase(props.getProperty(SAVE_TRANSACTION_IDS, FALSE));
     }
 
     private static final SampleSaveConfiguration STATIC_SAVE_CONFIGURATION = new SampleSaveConfiguration();
@@ -427,6 +433,7 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
         "ResponseData", // XML
         "Subresults", // XML
         "Assertions", // XML
+        "TransactionIds", // transaction and parent transaction ids
     }));
     // N.B. Remember to update the equals and hashCode methods when adding new variables.
 
@@ -466,6 +473,8 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
     private boolean sampleCount = SAMPLE_COUNT;
 
     private boolean idleTime = IDLE_TIME;
+
+    private boolean transactionIds = TRANSACTION_IDS;
 
     // This is serialized as instance state and restored by XStream.
     // It must remain mutable so deserialization does not require final-field mutation access.
@@ -528,6 +537,7 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
         threadName = value;
         time = value;
         timestamp = value;
+        transactionIds = value;
         url = value;
         xml = value;
     }
@@ -658,6 +668,7 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
             s.hostname == hostname &&
             s.sampleCount == sampleCount &&
             s.idleTime == idleTime &&
+            s.transactionIds == transactionIds &&
             s.threadCounts == threadCounts;
 
         boolean stringValues = false;
@@ -708,6 +719,7 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
         hash = 31 * hash + (dateFormat != null  ? dateFormat.hashCode() : 0);
         hash = 31 * hash + (sampleCount ? 1 : 0);
         hash = 31 * hash + (idleTime ? 1 : 0);
+        hash = 31 * hash + (transactionIds ? 1 : 0);
 
         return hash;
     }
@@ -1017,5 +1029,16 @@ public class SampleSaveConfiguration implements Cloneable, Serializable {
 
     public void setIdleTime(boolean save) {
         idleTime = save;
+    }
+
+    /**
+     * @return whether to save the id of a transaction sample and the id of the transaction a sample ran in
+     */
+    public boolean saveTransactionIds() {
+        return transactionIds;
+    }
+
+    public void setTransactionIds(boolean save) {
+        transactionIds = save;
     }
 }

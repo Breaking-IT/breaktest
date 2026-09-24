@@ -432,6 +432,48 @@ class AgentValidationRunnerTest : JMeterTestCase() {
     }
 
     @Test
+    fun `transaction sample does not count as its own failure`() {
+        val result = AgentValidationResult(
+            timedOut = false,
+            ignoreStaticAssetFailures = true,
+            samples = listOf(
+                AgentSampleSummary(
+                    index = 0,
+                    label = "GET /fonts/app.woff2",
+                    success = false,
+                    responseCode = "404",
+                    responseMessage = "Not Found",
+                    elapsedTimeMillis = 1,
+                    requestHeaders = "GET /fonts/app.woff2 HTTP/1.1",
+                    requestBody = "",
+                    responseHeaders = "",
+                    responseBody = "",
+                    assertions = emptyList(),
+                ),
+                AgentSampleSummary(
+                    index = 1,
+                    label = "02_Transaction",
+                    success = false,
+                    responseCode = "404",
+                    responseMessage = "Number of samples in transaction : 1, number of failing samples : 1",
+                    elapsedTimeMillis = 1,
+                    requestHeaders = "",
+                    requestBody = "",
+                    responseHeaders = "",
+                    responseBody = "",
+                    assertions = emptyList(),
+                ),
+            ),
+        )
+
+        val analysis = AgentFailureAnalyzer().analyze(result)
+
+        assertNull(result.firstFailureIndex, "The transaction only failed because of an ignored static asset")
+        assertEquals(1, result.ignoredStaticFailureCount)
+        assertEquals(AgentFailureKind.NO_FAILURE, analysis.kind)
+    }
+
+    @Test
     fun `stopped early validation is not successful even when captured samples passed`() {
         val result = AgentValidationResult(
             timedOut = false,

@@ -51,6 +51,7 @@ public class SampleSaveConfigurationConverter  extends ReflectionConverter {
     private static final String NODE_SAMPLE_COUNT = "sampleCount"; // $NON-NLS-1$
     private static final String NODE_IDLE_TIME = "idleTime"; // $NON-NLS-1$
     private static final String NODE_CONNECT_TIME = "connectTime"; // $NON-NLS-1$
+    private static final String NODE_TRANSACTION_IDS = "transactionIds"; // $NON-NLS-1$
 
     // Additional member names which are currently not written out
     private static final String NODE_DELIMITER = "delimiter"; // $NON-NLS-1$
@@ -76,7 +77,7 @@ public class SampleSaveConfigurationConverter  extends ReflectionConverter {
             return switch (fieldName) {
                 case NODE_BYTES, NODE_SENT_BYTES, NODE_URL, NODE_FILENAME,
                      NODE_HOSTNAME, NODE_THREAD_COUNT, NODE_SAMPLE_COUNT,
-                     NODE_IDLE_TIME, NODE_CONNECT_TIME,
+                     NODE_IDLE_TIME, NODE_CONNECT_TIME, NODE_TRANSACTION_IDS,
                      // The two fields below are not currently saved or restored
                      NODE_DELIMITER, NODE_PRINTMS -> false;
                 default -> true;
@@ -122,6 +123,7 @@ public class SampleSaveConfigurationConverter  extends ReflectionConverter {
         createNode(writer,prop.saveSampleCount(),NODE_SAMPLE_COUNT);
         createNode(writer,prop.saveIdleTime(),NODE_IDLE_TIME);
         createNode(writer, prop.saveConnectTime(), NODE_CONNECT_TIME);
+        createNode(writer, prop.saveTransactionIds(), NODE_TRANSACTION_IDS);
     }
 
     // Helper method to simplify marshall routine. Save if and only if true.

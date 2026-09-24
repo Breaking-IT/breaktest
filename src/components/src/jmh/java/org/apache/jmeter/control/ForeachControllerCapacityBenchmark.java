@@ -166,7 +166,6 @@ public class ForeachControllerCapacityBenchmark {
         if (transactionRetentionScenario) {
             TransactionController transaction = new TransactionController();
             transaction.setName("transaction");
-            transaction.setGenerateParentSample(true);
             transaction.setEnabled(true);
             foreach.addTestElement(transaction);
             testTree.add(foreach, transaction);

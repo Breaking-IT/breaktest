@@ -72,6 +72,7 @@ import org.apache.jmeter.gui.ReplaceableField;
 import org.apache.jmeter.gui.Searchable;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.ParameterCompletion;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
@@ -240,6 +241,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         this.getContentPane().setLayout(new BorderLayout(10,10));
 
         searchTF = new JTextField(32);
+        ParameterCompletion.install(searchTF);
         searchTF.setAlignmentY(TOP_ALIGNMENT);
         if (lastSearchConditions != null) {
             searchTF.setText(lastSearchConditions.word());
@@ -248,6 +250,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         }
 
         replaceTF = new JTextField(32);
+        ParameterCompletion.install(replaceTF);
         replaceTF.setAlignmentX(TOP_ALIGNMENT);
         scopeComboBox = new JComboBox<>();
         scopeComboBox.addActionListener(e -> {

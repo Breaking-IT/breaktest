@@ -31,7 +31,6 @@ import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.TransactionController;
-import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.engine.util.ConfigMergabilityIndicator;
 import org.apache.jmeter.engine.util.NoConfigMerge;
@@ -52,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * HashTreeTraverser implementation that traverses the Test Tree to build:
  * <ul>
  *  <li>A map with key Sampler and as value the associated SamplePackage</li>
- *  <li>A map with key TransactionController and as value the associated SamplePackage</li>
+ *  <li>A map with key TransactionController and as value the listeners in its scope</li>
  * </ul>
  */
 @SuppressWarnings("JdkObsolete")
@@ -144,77 +143,36 @@ public class TestCompiler implements HashTreeTraverser {
     }
 
     /**
-     * Configures Transaction Sampler from SamplePackage extracted from Test plan and returns it
-     * @param transactionSampler {@link TransactionSampler}
-     * @return {@link SamplePackage}
+     * Returns the compiled package of a transaction controller: the listeners in its scope and its
+     * source path. Per-branch clones made for parallel and fork execution resolve to the controller
+     * in the compiled test tree through {@link TransactionController#getSourceController()}.
+     *
+     * @param controller controller from the test tree, or a per-branch clone of one
+     * @return the package, or {@code null} if the controller was not compiled
      */
-    public SamplePackage configureTransactionSampler(TransactionSampler transactionSampler) {
-        return configureTransactionSampler(transactionSampler, Function.identity());
-    }
-
-    public SamplePackage configureTransactionSampler(TransactionSampler transactionSampler,
-            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
-        TransactionController controller = transactionSampler.getTransactionController();
-        SamplePackage pack = findTransactionControllerPackage(controller, sourceControllerResolver);
-        if (pack == null) {
-            throw new IllegalStateException(
-                    "Unable to find compiled sample package for transaction controller " + controller.getName());
-        }
-        pack.setSampler(transactionSampler);
-        return pack;
-    }
-
-    /**
-     * Finds the compiled package for a transaction controller that may be a per-branch clone made
-     * for parallel or fork execution. The resolver only knows the clones of the branch currently
-     * executing, but the shared package can hold a sampler from a sibling branch (both branches
-     * configure the same source package concurrently), so as a last resort walk the clone's own
-     * source-controller chain up to the controller in the compiled tree.
-     */
-    private SamplePackage findTransactionControllerPackage(TransactionController controller,
-            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
-        SamplePackage pack = transactionControllerConfigMap.get(controller);
-        if (pack == null) {
-            pack = transactionControllerConfigMap.get(sourceControllerResolver.apply(controller));
-        }
-        TransactionController source = controller;
-        while (pack == null && (source = source.getSourceController()) != null) {
+    public SamplePackage getTransactionControllerPackage(TransactionController controller) {
+        SamplePackage pack = null;
+        for (TransactionController source = controller; pack == null && source != null;
+                source = source.getSourceController()) {
             pack = transactionControllerConfigMap.get(source);
         }
         return pack;
     }
 
     /**
-     * Reset pack to its initial state and clean up transaction results if needed
+     * Reset pack to its initial state
      * @param pack the {@link SamplePackage} to reset
      */
     public void done(SamplePackage pack) {
-        done(pack, Function.identity());
+        done(pack, true);
     }
 
-    public void done(SamplePackage pack,
-            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver) {
-        done(pack, sourceControllerResolver, true);
-    }
-
-    public void done(SamplePackage pack,
-            Function<? super TransactionController, ? extends TransactionController> sourceControllerResolver,
-            boolean recoverControllers) {
-        Sampler sampler = pack.getSampler();
-        if (sampler instanceof TransactionSampler transactionSampler) {
-            TransactionController controller = transactionSampler.getTransactionController();
-            if (transactionSampler.isTransactionDone()) {
-                // Create new sampler for next iteration
-                TransactionSampler newSampler = new TransactionSampler(controller, transactionSampler.getName());
-                SamplePackage newPack = findTransactionControllerPackage(controller, sourceControllerResolver);
-                if (newPack == null) {
-                    throw new IllegalStateException(
-                            "Unable to reset compiled sample package for transaction controller "
-                                    + controller.getName());
-                }
-                newPack.setSampler(newSampler);
-            }
-        }
+    /**
+     * Reset pack to its initial state
+     * @param pack the {@link SamplePackage} to reset
+     * @param recoverControllers whether the parent controllers are recovered too
+     */
+    public void done(SamplePackage pack, boolean recoverControllers) {
         pack.recoverRunningVersion(recoverControllers);
     }
 
@@ -337,28 +295,19 @@ public class TestCompiler implements HashTreeTraverser {
     }
 
     private void saveTransactionControllerConfigs(TransactionController tc) {
-        List<ConfigTestElement> configs = new ArrayList<>();
         List<Controller> controllers = new ArrayList<>();
         List<SampleListener> listeners = new ArrayList<>();
-        List<Timer> timers = new ArrayList<>();
-        List<Assertion> assertions = new ArrayList<>();
-        List<PostProcessor> posts = new ArrayList<>();
-        List<PreProcessor> pres = new ArrayList<>();
         for (int i = stack.size(); i > 0; i--) {
             addDirectParentControllers(controllers, stack.get(i - 1));
             for (Object item : testTree.list(stack.subList(0, i))) {
                 if (item instanceof SampleListener listener) {
                     listeners.add(listener);
                 }
-                if (item instanceof Assertion assertion) {
-                    assertions.add(assertion);
-                }
             }
         }
 
-        SamplePackage pack = new SamplePackage(configs, listeners, timers, assertions,
-                posts, pres, controllers);
-        pack.setSampler(new TransactionSampler(tc, tc.getName()));
+        SamplePackage pack = new SamplePackage(List.of(), listeners, List.of(), List.of(),
+                List.of(), List.of(), controllers);
         pack.setSourceTestElementPath(createTestElementPath(stack));
         pack.setRunningVersion(true);
         transactionControllerConfigMap.put(tc, pack);

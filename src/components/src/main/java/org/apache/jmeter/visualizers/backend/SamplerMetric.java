@@ -141,13 +141,15 @@ public class SamplerMetric {
     }
 
     /**
-     * Increment traffic metrics. A Parent sampler cumulates its children metrics.
+     * Increment traffic metrics. A transaction sample sums the traffic of its samples, which reach
+     * the listener on their own, so it is left out of the overall metric. A transaction with
+     * sub-results comes from the removed "Generate parent sample" mode and still counts.
      * @param result SampleResult
      * @param isCumulated related to the overall sampler metric
      */
     private void addNetworkData(SampleResult result, boolean isCumulated) {
         if (isCumulated && TransactionController.isFromTransactionController(result)
-                && result.getSubResults().length == 0) { // Transaction controller without generate parent sampler
+                && result.getSubResults().length == 0) {
             return;
         }
         sentBytes += result.getSentBytes();
@@ -161,8 +163,9 @@ public class SamplerMetric {
      */
     private void addHits(SampleResult result, boolean isCumulated) {
         SampleResult[] subResults = result.getSubResults();
+        // A transaction sample is not a request: its samples are counted on their own
         if (isCumulated && TransactionController.isFromTransactionController(result)
-                && subResults.length == 0) { // Transaction controller without generate parent sampler
+                && subResults.length == 0) {
             return;
         }
         if (!(TransactionController.isFromTransactionController(result) && subResults.length > 0)) {

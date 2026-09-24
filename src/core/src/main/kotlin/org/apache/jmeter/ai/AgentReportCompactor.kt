@@ -37,7 +37,9 @@ public object AgentReportCompactor {
         val reachedSamples = report.validation.samples.filter { sample ->
             firstFailureIndex == null || sample.index <= firstFailureIndex
         }
+        // Transaction samples carry no request or response of their own
         val evidenceCandidates = reachedSamples
+            .filterNot { sample -> sample.isTransactionSample() }
             .filter { sample -> sample.index == firstFailureIndex || !sample.isStaticAssetRequest() }
             .take(sampleLimit.coerceAtLeast(1))
         // Full request/response evidence is only useful around the failure; samples

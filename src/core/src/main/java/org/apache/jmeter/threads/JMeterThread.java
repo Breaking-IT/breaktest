@@ -51,8 +51,7 @@ import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.IteratingController;
 import org.apache.jmeter.control.ParallelContextModifier;
 import org.apache.jmeter.control.ParallelControllerSampler;
-import org.apache.jmeter.control.TransactionController;
-import org.apache.jmeter.control.TransactionSampler;
+import org.apache.jmeter.control.RunningTransaction;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
@@ -356,13 +355,13 @@ public class JMeterThread implements Runnable, Interruptible {
             while (running) {
                 Sampler sam = threadGroupLoopController.next();
                 while (running && sam != null) {
-                    processSampler(sam, null, threadContext);
+                    processSampler(sam, threadContext);
                     threadContext.cleanAfterSample();
 
-                    // processSampler already reports unfinished parent transactions when stopping.
-                    // Do not unwind them again through an error or loop action. Non-parent
-                    // transactions still need loop handling below to report their results.
-                    if (!running && sam instanceof TransactionSampler) {
+                    // Do not unwind controllers through an error or loop action, or advance them to
+                    // another sampler, once the thread has stopped. Transactions that are still
+                    // running are reported when the thread finishes.
+                    if (!running) {
                         break;
                     }
 
@@ -377,15 +376,15 @@ public class JMeterThread implements Runnable, Interruptible {
                             log.debug("Start Next Thread Loop option is on, Last sample failed, starting next thread loop");
                         }
                         if(onErrorStartNextLoop && !lastSampleOk){
-                            triggerLoopLogicalActionOnParentControllers(sam, threadContext, JMeterThread::continueOnThreadLoop);
+                            triggerLoopLogicalActionOnParentControllers(sam, JMeterThread::continueOnThreadLoop);
                         } else {
                             switch (threadContext.getTestLogicalAction()) {
                                 case BREAK_CURRENT_LOOP ->
-                                        triggerLoopLogicalActionOnParentControllers(sam, threadContext, JMeterThread::breakOnCurrentLoop);
+                                        triggerLoopLogicalActionOnParentControllers(sam, JMeterThread::breakOnCurrentLoop);
                                 case START_NEXT_ITERATION_OF_THREAD ->
-                                        triggerLoopLogicalActionOnParentControllers(sam, threadContext, JMeterThread::continueOnThreadLoop);
+                                        triggerLoopLogicalActionOnParentControllers(sam, JMeterThread::continueOnThreadLoop);
                                 case START_NEXT_ITERATION_OF_CURRENT_LOOP ->
-                                        triggerLoopLogicalActionOnParentControllers(sam, threadContext, JMeterThread::continueOnCurrentLoop);
+                                        triggerLoopLogicalActionOnParentControllers(sam, JMeterThread::continueOnCurrentLoop);
                                 default -> {
                                 }
                             }
@@ -428,6 +427,7 @@ public class JMeterThread implements Runnable, Interruptible {
             throw e; // Must not ignore this one
         } finally {
             waitForForksToFinish();
+            endRunningTransactions(threadContext, null);
             running = false;
             currentSamplerForInterruption = null; // prevent any further interrupts
             currentSamplersForInterruption.clear();
@@ -451,35 +451,18 @@ public class JMeterThread implements Runnable, Interruptible {
     /**
      * Trigger break/continue/switch to next thread Loop  depending on consumer implementation
      * @param sampler Sampler Base sampler
-     * @param threadContext
      * @param consumer Consumer that will process the tree of elements up to root node
      */
-    private void triggerLoopLogicalActionOnParentControllers(Sampler sampler, JMeterContext threadContext,
+    private void triggerLoopLogicalActionOnParentControllers(Sampler sampler,
             Consumer<? super FindTestElementsUpToRootTraverser> consumer) {
-        TransactionSampler transactionSampler = null;
-        if (sampler instanceof TransactionSampler transSampler) {
-            transactionSampler = transSampler;
-        }
-
         Object nodeToFind = findRealSampler(sampler);
-        if (nodeToFind == null && transactionSampler != null) {
-            nodeToFind = transactionSampler.getTransactionController();
-        }
         if (nodeToFind == null) {
             throw new IllegalStateException(
                     "Got null subSampler calling findRealSampler for:" +
                     (sampler != null ? sampler.getName() : "null") + ", sampler:" + sampler);
         }
+        // Transaction Controllers on the path report their transaction when their loop ends (bug 52968)
         consumer.accept(pathToRootTraverser(nodeToFind));
-
-        // bug 52968
-        // When using Start Next Loop option combined to TransactionController.
-        // if an error occurs in a Sample (child of TransactionController)
-        // then we still need to report the Transaction in error (and create the sample result)
-        if (transactionSampler != null) {
-            SamplePackage transactionPack = compiler.configureTransactionSampler(transactionSampler);
-            doEndTransactionSampler(transactionSampler, null, transactionPack, threadContext);
-        }
     }
 
     private FindTestElementsUpToRootTraverser pathToRootTraverser(Object nodeToFind) {
@@ -563,96 +546,40 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     /**
-     * Find the Real sampler (Not TransactionSampler) that really generated an error
-     * The Sampler provided is not always the "real" one, it can be a TransactionSampler,
-     * if there are some other controllers (SimpleController or other implementations) between this TransactionSampler and the real sampler,
-     * triggerEndOfLoop will not be called for those controllers leaving them in "ugly" state.
-     * the following method will try to find the sampler that really generate an error
+     * Find the test tree node of the sampler that generated an error. A synthetic
+     * {@link ParallelControllerSampler} resolves to its {@link org.apache.jmeter.control.ParallelController}.
      * @return tree node that should be used to find the sampler's parent controllers
      */
     private static Object findRealSampler(Sampler sampler) {
-        Sampler realSampler = sampler;
-        while (realSampler instanceof TransactionSampler transSampler) {
-            realSampler = transSampler.getSubSampler();
-        }
-        if (realSampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
+        if (sampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
             return parallelSampler.getController();
         }
-        return realSampler;
+        return sampler;
     }
 
     /**
-     * Process the current sampler, handling transaction samplers.
+     * Process the current sampler.
      *
      * @param current sampler
-     * @param parent sampler
      * @param threadContext
-     * @return SampleResult if a transaction was processed
      */
-    private SampleResult processSampler(Sampler current, Sampler parent, JMeterContext threadContext) {
-        return processSampler(current, parent, threadContext, Function.identity(), Function.identity(), true);
+    private void processSampler(Sampler current, JMeterContext threadContext) {
+        processSampler(current, threadContext, Function.identity(), true);
     }
 
-    private SampleResult processSampler(Sampler current, Sampler parent, JMeterContext threadContext,
-            Function<? super TransactionController, ? extends TransactionController> sourceTransactionController,
+    private void processSampler(Sampler current, JMeterContext threadContext,
             Function<? super Sampler, ? extends Sampler> sourceSampler,
             boolean recoverControllers) {
-        SampleResult transactionResult = null;
-        // Check if we are running a transaction
-        TransactionSampler transactionSampler = null;
-        // Find the package for the transaction
-        SamplePackage transactionPack = null;
         try {
-            if (current instanceof TransactionSampler transSampler) {
-                transactionSampler = transSampler;
-                transactionPack = compiler.configureTransactionSampler(transactionSampler, sourceTransactionController);
-
-                // Check if the transaction is done
-                if (transactionSampler.isTransactionDone()) {
-                    transactionResult = doEndTransactionSampler(transactionSampler,
-                            parent,
-                            transactionPack,
-                            threadContext,
-                            sourceTransactionController,
-                            recoverControllers);
-                    // Transaction is done, we do not have a sampler to sample
-                    current = null;
-                } else {
-                    Sampler prev = current;
-                    // It is the sub sampler of the transaction that will be sampled
-                    current = transactionSampler.getSubSampler();
-                    if (current instanceof TransactionSampler) {
-                        SampleResult res = processSampler(
-                                current, prev, threadContext, sourceTransactionController, sourceSampler,
-                                recoverControllers);// recursive call
-                        threadContext.setCurrentSampler(prev);
-                        current = null;
-                        if (res != null) {
-                            transactionSampler.addSubSamplerResult(res);
-                        }
-                    }
-                }
-            }
-
-            // Check if we have a sampler to sample
-            if (current != null) {
-                if (current instanceof ForkControllerSampler forkSampler) {
-                    startForkSampler(forkSampler, threadContext, sourceSampler);
-                } else if (current instanceof ParallelControllerSampler parallelSampler) {
-                    // The ParallelController is transparent: its children are executed exactly as if
-                    // they were direct children of the ParallelController's parent. The enclosing
-                    // transaction (if any) is handed down so each child is attributed to it and its
-                    // listeners are filtered identically to a sequential child.
-                    processParallelSampler(
-                            parallelSampler, transactionSampler, transactionPack, threadContext, sourceSampler);
-                } else {
-                    SampleResult result = executeSamplePackage(
-                            current, transactionSampler, transactionPack, threadContext, sourceSampler,
-                            recoverControllers);
-                    if (transactionSampler == null) {
-                        transactionResult = result;
-                    }
-                }
+            if (current instanceof ForkControllerSampler forkSampler) {
+                startForkSampler(forkSampler, threadContext, sourceSampler);
+            } else if (current instanceof ParallelControllerSampler parallelSampler) {
+                // The ParallelController is transparent: its children are executed exactly as if
+                // they were direct children of the ParallelController's parent, including the
+                // transaction they run in.
+                processParallelSampler(parallelSampler, threadContext, sourceSampler);
+            } else {
+                executeSamplePackage(current, threadContext, sourceSampler, recoverControllers);
             }
 
             if (scheduler) {
@@ -682,21 +609,6 @@ public class JMeterThread implements Runnable, Interruptible {
                 log.error("Error while processing sampler.", e);
             }
         }
-        if (!running
-                && transactionResult == null
-                && transactionSampler != null
-                && transactionPack != null) {
-            // A stopped thread will not advance the controller to finalize this transaction.
-            // Complete its counts and timing before listeners see the result.
-            if (!transactionSampler.isTransactionDone()) {
-                transactionSampler.setTransactionDone();
-            }
-            transactionResult = doEndTransactionSampler(
-                    transactionSampler, parent, transactionPack, threadContext, sourceTransactionController,
-                    recoverControllers);
-        }
-
-        return transactionResult;
     }
 
     /**
@@ -714,6 +626,8 @@ public class JMeterThread implements Runnable, Interruptible {
         }
 
         ForkController sourceController = forkSampler.getSourceController();
+        // Captured now: the main flow may have left the transaction by the time the fork runs
+        RunningTransaction enclosingTransaction = parentContext.getCurrentTransaction();
         ExecutorService executor = Executors.newThreadPerTaskExecutor(createForkThreadFactory(forkSampler));
         AtomicReference<Future<?>> taskReference = new AtomicReference<>();
         FutureTask<Void> task = new FutureTask<>(() -> {
@@ -721,7 +635,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 FORK_WORKER_THREAD.set(Boolean.TRUE);
                 CURRENT_FORK_TASK.set(taskReference.get());
                 currentForkThreadsForInterruption.add(Thread.currentThread());
-                runForkSampler(forkSampler, parentContext, sourceSampler);
+                runForkSampler(forkSampler, parentContext, enclosingTransaction, sourceSampler);
                 return null;
             } finally {
                 currentForkThreadsForInterruption.remove(Thread.currentThread());
@@ -771,16 +685,14 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void runForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext,
-            Function<? super Sampler, ? extends Sampler> sourceSampler) {
-        JMeterContext workerContext = createParallelContext(parentContext);
+            RunningTransaction enclosingTransaction, Function<? super Sampler, ? extends Sampler> sourceSampler) {
+        JMeterContext workerContext = createParallelContext(parentContext, enclosingTransaction);
         JMeterContextService.replaceContext(workerContext);
         try {
             Controller controller = forkSampler.getController();
             Sampler sampler;
             while (running && !isCurrentForkStopRequested() && (sampler = controller.next()) != null) {
-                processSampler(
-                        sampler, null, workerContext, forkSampler::getSourceTransactionController,
-                        sourceSampler, false);
+                processSampler(sampler, workerContext, sourceSampler, false);
                 workerContext.cleanAfterSample();
                 if (isCurrentForkStopRequested()) {
                     return;
@@ -790,6 +702,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
         } finally {
+            endRunningTransactions(workerContext, enclosingTransaction);
             workerContext.cleanAfterSample();
             JMeterContextService.removeContext();
         }
@@ -849,13 +762,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
     /**
      * Runs every branch of the {@link ParallelControllerSampler} concurrently. Each branch walks
-     * its own controller state, while leaf samplers are executed with the transaction that encloses
-     * the {@link org.apache.jmeter.control.ParallelController} (if any), so the children are
-     * recorded, attributed and filtered exactly as if they were direct, sequential children of that
-     * parent.
+     * its own controller state, while leaf samplers run in the transaction that encloses the
+     * {@link org.apache.jmeter.control.ParallelController} (if any), so the children are recorded
+     * and attributed exactly as if they were direct, sequential children of that parent.
      */
-    private void processParallelSampler(ParallelControllerSampler parallelSampler,
-            TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext,
+    private void processParallelSampler(ParallelControllerSampler parallelSampler, JMeterContext parentContext,
             Function<? super Sampler, ? extends Sampler> enclosingSourceSampler) {
         int branchCount = parallelSampler.getBranchCount();
         if (branchCount == 0) {
@@ -873,10 +784,7 @@ public class JMeterThread implements Runnable, Interruptible {
         try {
             while (nextBranch < branchCount && activeBranches < maxParallel) {
                 completionService.submit(parallelTask(
-                        parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
-                        transactionPack,
-                        parentContext,
-                        enclosingSourceSampler));
+                        parallelSampler.getParallelBranch(nextBranch++), parentContext, enclosingSourceSampler));
                 activeBranches++;
             }
 
@@ -903,10 +811,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 if (running && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
-                            parallelSampler.getParallelBranch(nextBranch++), transactionSampler,
-                            transactionPack,
-                            parentContext,
-                            enclosingSourceSampler));
+                            parallelSampler.getParallelBranch(nextBranch++), parentContext, enclosingSourceSampler));
                     activeBranches++;
                 }
             }
@@ -927,10 +832,10 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private Callable<SampleResult> parallelTask(ParallelControllerSampler.ParallelBranch parallelBranch,
-            TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext parentContext,
-            Function<? super Sampler, ? extends Sampler> enclosingSourceSampler) {
+            JMeterContext parentContext, Function<? super Sampler, ? extends Sampler> enclosingSourceSampler) {
         boolean forkWorker = isForkWorkerThread();
         Future<?> forkTask = CURRENT_FORK_TASK.get();
+        RunningTransaction enclosingTransaction = parentContext.getCurrentTransaction();
         // Resolves this branch's sampler clones to their source and keeps resolving through the
         // enclosing scope, so nested parallel sections map clone-of-clone back to the tree sampler.
         Function<Sampler, Sampler> sourceSampler =
@@ -942,7 +847,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 CURRENT_FORK_TASK.set(forkTask);
                 currentForkThreadsForInterruption.add(Thread.currentThread());
             }
-            JMeterContext workerContext = createParallelContext(parentContext);
+            JMeterContext workerContext = createParallelContext(parentContext, enclosingTransaction);
             if (branch instanceof ParallelContextModifier contextModifier) {
                 contextModifier.prepareParallelContext(workerContext);
             }
@@ -951,9 +856,7 @@ public class JMeterThread implements Runnable, Interruptible {
             try {
                 Sampler sampler;
                 while (running && !isCurrentForkStopRequested() && (sampler = branch.next()) != null) {
-                    SampleResult result = executeParallelBranchSampler(
-                            parallelBranch, sampler, transactionSampler, transactionPack, workerContext,
-                            sourceSampler);
+                    SampleResult result = executeParallelBranchSampler(sampler, workerContext, sourceSampler);
                     if (result != null) {
                         if (branchResult == null || branchResult.isSuccessful()) {
                             branchResult = result;
@@ -972,6 +875,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 return branchResult;
             } finally {
+                endRunningTransactions(workerContext, enclosingTransaction);
                 workerContext.cleanAfterSample();
                 JMeterContextService.removeContext();
                 if (forkWorker) {
@@ -983,29 +887,21 @@ public class JMeterThread implements Runnable, Interruptible {
         };
     }
 
-    private SampleResult executeParallelBranchSampler(ParallelControllerSampler.ParallelBranch parallelBranch,
-            Sampler sampler,
-            TransactionSampler transactionSampler, SamplePackage transactionPack, JMeterContext workerContext,
+    private SampleResult executeParallelBranchSampler(Sampler sampler, JMeterContext workerContext,
             Function<? super Sampler, ? extends Sampler> sourceSampler) {
-        if (sampler instanceof TransactionSampler) {
-            // A nested transaction controller (parent mode) manages its own sub-samples and must not
-            // be folded into the enclosing transaction; run it stand-alone.
-            return processSampler(sampler, null, workerContext,
-                    parallelBranch::getSourceTransactionController, sourceSampler, false);
-        }
         if (sampler instanceof ForkControllerSampler forkSampler) {
             startForkSampler(forkSampler, workerContext, sourceSampler);
             return null;
         }
         if (sampler instanceof ParallelControllerSampler nestedParallelSampler) {
-            processParallelSampler(
-                    nestedParallelSampler, transactionSampler, transactionPack, workerContext, sourceSampler);
+            processParallelSampler(nestedParallelSampler, workerContext, sourceSampler);
             return workerContext.getPreviousResult();
         }
-        return executeSamplePackage(sampler, transactionSampler, transactionPack, workerContext, sourceSampler, false);
+        return executeSamplePackage(sampler, workerContext, sourceSampler, false);
     }
 
-    private static JMeterContext createParallelContext(JMeterContext parentContext) {
+    private static JMeterContext createParallelContext(JMeterContext parentContext,
+            RunningTransaction enclosingTransaction) {
         JMeterContext workerContext = new JMeterContext();
         // Share the virtual user's variables, but keep the engine-internal per-sample keys
         // (current package, last_sample_ok) local to this worker so concurrent workers do not
@@ -1018,6 +914,7 @@ public class JMeterThread implements Runnable, Interruptible {
         workerContext.setEngine(parentContext.getEngine());
         workerContext.setSamplingStarted(parentContext.isSamplingStarted());
         workerContext.setRecording(parentContext.isRecording());
+        workerContext.setCurrentTransaction(enclosingTransaction);
         return workerContext;
     }
 
@@ -1044,8 +941,6 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private SampleResult executeSamplePackage(Sampler current,
-            TransactionSampler transactionSampler,
-            SamplePackage transactionPack,
             JMeterContext threadContext,
             Function<? super Sampler, ? extends Sampler> sourceSampler,
             boolean recoverControllers) {
@@ -1054,30 +949,37 @@ public class JMeterThread implements Runnable, Interruptible {
         // Get the sampler ready to sample
         SamplePackage pack = configureSamplerLocked(current, sourceSampler);
         boolean packageDone = false;
+        SampleResult startedSample = null;
         try {
             runPreProcessors(pack.getPreProcessors());
 
-            // Hack: save the package for any transaction controllers. Written through the
+            // Save the package of the current sampler for elements that need it. Written through the
             // executing context's variables so parallel/fork workers keep it to themselves
             // instead of clobbering the main flow's current package.
             threadContext.getVariables().putObject(PACKAGE_OBJECT, pack);
 
             TimerPause timerPause = delay(pack.getTimers());
-            if (transactionSampler != null && timerPause != null) {
-                synchronized (transactionSampler) {
-                    transactionSampler.addTimerPause(timerPause.startTime, timerPause.endTime);
-                }
-            }
             if (timerPause != null) {
-                TransactionController.addTimerPauseToActiveTransactions(threadVars, timerPause.startTime, timerPause.endTime);
+                for (RunningTransaction transaction = threadContext.getCurrentTransaction(); transaction != null;
+                        transaction = transaction.getEnclosing()) {
+                    transaction.addTimerPause(timerPause.startTime, timerPause.endTime);
+                }
             }
             SampleResult result = null;
             if (running && !isCurrentForkStopRequested()) {
                 Sampler sampler = pack.getSampler();
+                // Only live views ask for this, so it costs a field read otherwise
+                if (pack.needsStartEvents()) {
+                    startedSample = notifySampleStarted(pack, sampler, threadContext);
+                }
                 result = doSampling(threadContext, sampler);
             }
             // If we got any results, then perform processing on the result
             if (result != null) {
+                RunningTransaction currentTransaction = threadContext.getCurrentTransaction();
+                if (currentTransaction != null) {
+                    result.setParentTransaction(currentTransaction.getRef());
+                }
                 if (!result.isIgnore()) {
                     int nbActiveThreadsInThreadGroup = threadGroup.getNumberOfThreads();
                     int nbTotalActiveThreads = JMeterContextService.getNumberOfThreads();
@@ -1093,25 +995,21 @@ public class JMeterThread implements Runnable, Interruptible {
                     JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     // PostProcessors can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
-                        // Do not send subsamples to listeners which receive the transaction sample
-                        List<SampleListener> sampleListeners = getSampleListeners(pack, transactionPack, transactionSampler);
+                        List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
-                        if (needsSourceTestElementPath(metadataRequirements)
-                                || transactionChildSourcePathNeeded(transactionPack, transactionSampler)) {
+                        if (needsSourceTestElementPath(metadataRequirements)) {
                             setSourceTestElementPath(result, pack.getSourceTestElementPath());
                         }
-                        notifyListeners(sampleListeners, result, metadataRequirements);
+                        notifyListeners(sampleListeners, result, metadataRequirements, false, startedSample);
+                        // Transactions only keep running totals, so the result can be released
+                        // as soon as the next sample replaces it as the previous result
+                        for (RunningTransaction transaction = currentTransaction; transaction != null;
+                                transaction = transaction.getEnclosing()) {
+                            transaction.addSample(result);
+                        }
                     }
                     packageDone = true;
                     doneLocked(pack, recoverControllers);
-                    // Add the result as subsample of transaction if we are in a transaction.
-                    // Synchronized because parallel children share one transaction sampler; this is
-                    // uncontended (and therefore cheap) for normal sequential execution.
-                    if (transactionSampler != null && !result.isIgnore()) {
-                        synchronized (transactionSampler) {
-                            transactionSampler.addSubSamplerResult(result);
-                        }
-                    }
                 } else {
                     // This call is done by JMeterThreadAssertions.check(), as we don't call it
                     // for isIgnore, we explictely call it here
@@ -1141,7 +1039,34 @@ public class JMeterThread implements Runnable, Interruptible {
             if (!packageDone) {
                 doneLocked(pack, recoverControllers);
             }
+            if (startedSample != null) {
+                notifier.notifySampleStopped(
+                        new SampleEvent(startedSample, threadGroup.getName(), threadVars), pack.getSampleListeners());
+            }
         }
+    }
+
+    /**
+     * Tells the listeners that asked for start events that the sampler is about to send its request.
+     *
+     * @return the placeholder sent to the listeners
+     */
+    private SampleResult notifySampleStarted(SamplePackage pack, Sampler sampler, JMeterContext threadContext) {
+        SampleResult started = new SampleResult();
+        started.setSampleLabel(sampler.getName());
+        started.setThreadName(threadName);
+        started.setSuccessful(true);
+        RunningTransaction transaction = threadContext.getCurrentTransaction();
+        if (transaction != null) {
+            started.setParentTransaction(transaction.getRef());
+        }
+        List<SampleListener> listeners = pack.getSampleListeners();
+        if (needsSourceTestElementPath(sampleResultMetadataRequirements(listeners))) {
+            setSourceTestElementPath(started, pack.getSourceTestElementPath());
+        }
+        started.sampleStart();
+        notifier.notifySampleStarted(new SampleEvent(started, threadGroup.getName(), threadVars), listeners);
+        return started;
     }
 
     /**
@@ -1165,15 +1090,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * parent controllers, which is not thread-safe when several samplers finish in parallel.
      */
     private void doneLocked(SamplePackage pack, boolean recoverControllers) {
-        doneLocked(pack, Function.identity(), recoverControllers);
-    }
-
-    private void doneLocked(SamplePackage pack,
-            Function<? super TransactionController, ? extends TransactionController> sourceTransactionController,
-            boolean recoverControllers) {
         compilerLock.lock();
         try {
-            compiler.done(pack, sourceTransactionController, recoverControllers);
+            compiler.done(pack, recoverControllers);
         } finally {
             compilerLock.unlock();
         }
@@ -1232,77 +1151,56 @@ public class JMeterThread implements Runnable, Interruptible {
         sampler.setThreadName(threadName);
     }
 
-    private SampleResult doEndTransactionSampler(
-            TransactionSampler transactionSampler, Sampler parent,
-            SamplePackage transactionPack, JMeterContext threadContext) {
-        return doEndTransactionSampler(
-                transactionSampler, parent, transactionPack, threadContext, Function.identity());
-    }
-
-    private SampleResult doEndTransactionSampler(
-            TransactionSampler transactionSampler, Sampler parent,
-            SamplePackage transactionPack, JMeterContext threadContext,
-            Function<? super TransactionController, ? extends TransactionController> sourceTransactionController) {
-        return doEndTransactionSampler(
-                transactionSampler, parent, transactionPack, threadContext, sourceTransactionController, true);
-    }
-
-    private SampleResult doEndTransactionSampler(
-            TransactionSampler transactionSampler, Sampler parent,
-            SamplePackage transactionPack, JMeterContext threadContext,
-            Function<? super TransactionController, ? extends TransactionController> sourceTransactionController,
-            boolean recoverControllers) {
-        // Get the transaction sample result
-        SampleResult transactionResult = transactionSampler.getTransactionResult();
-        fillThreadInformation(transactionResult, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
-
-        // Check assertions for the transaction sample
-        JMeterThreadAssertions.check(transactionPack.getAssertions(), transactionResult, threadContext);
-        // Notify listeners with the transaction sample result
-        if (!(parent instanceof TransactionSampler)) {
-            List<SampleListener> sampleListeners = transactionPack.getSampleListeners();
-            int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
-            if (needsSourceTestElementPath(metadataRequirements)) {
-                setSourceTestElementPath(transactionResult, transactionPack.getSourceTestElementPath());
-            }
-            notifyListeners(sampleListeners, transactionResult, metadataRequirements);
+    /**
+     * Ends the transactions still running in the context, down to {@code boundary}, when the thread,
+     * or a parallel or fork worker, finishes before reaching their end.
+     */
+    private static void endRunningTransactions(JMeterContext context, RunningTransaction boundary) {
+        try {
+            context.endTransactionsUntil(boundary);
+        } catch (RuntimeException e) {
+            log.error("Error while reporting unfinished transactions", e);
         }
-        doneLocked(transactionPack, sourceTransactionController, recoverControllers);
-        return transactionResult;
     }
 
     /**
-     * Get the SampleListeners for the sampler. Listeners who receive transaction sample
-     * will not be in this list.
-     *
-     * @param samplePack
-     * @param transactionPack
-     * @param transactionSampler
-     * @return the listeners who should receive the sample result
+     * Tells the listeners in scope of the transaction controller that a transaction has started.
+     * Called by {@link JMeterContext#startTransaction}.
      */
-    private static List<SampleListener> getSampleListeners(SamplePackage samplePack, SamplePackage transactionPack, TransactionSampler transactionSampler) {
-        List<SampleListener> sampleListeners = samplePack.getSampleListeners();
-        // Do not send subsamples to listeners which receive the transaction sample
-        if(transactionSampler != null) {
-            List<SampleListener> onlySubSamplerListeners = new ArrayList<>();
-            List<SampleListener> transListeners = transactionPack.getSampleListeners();
-            for(SampleListener listener : sampleListeners) {
-                // Check if this instance is present in transaction listener list
-                boolean found = false;
-                for(SampleListener trans : transListeners) {
-                    // Check for the same instance
-                    if(trans == listener) {
-                        found = true;
-                        break;
-                    }
-                }
-                if(!found) {
-                    onlySubSamplerListeners.add(listener);
-                }
-            }
-            sampleListeners = onlySubSamplerListeners;
+    void notifyTransactionStarted(RunningTransaction transaction) {
+        SamplePackage pack = compiler.getTransactionControllerPackage(transaction.getController());
+        if (pack == null) {
+            return;
         }
-        return sampleListeners;
+        if (!pack.needsStartEvents()) {
+            return;
+        }
+        List<SampleListener> listeners = pack.getSampleListeners();
+        SampleResult started = transaction.createStartedResult();
+        fillThreadInformation(started, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
+        if (needsSourceTestElementPath(sampleResultMetadataRequirements(listeners))) {
+            setSourceTestElementPath(started, pack.getSourceTestElementPath());
+        }
+        notifier.notifyTransactionStarted(new SampleEvent(started, threadGroup.getName(), threadVars, true), listeners);
+    }
+
+    /**
+     * Sends the finished transaction sample to the listeners in scope of the transaction controller.
+     * Called by {@link JMeterContext#endTransaction} and {@link JMeterContext#endTransactionsUntil}.
+     */
+    void notifyTransactionFinished(RunningTransaction transaction, SampleResult result) {
+        fillThreadInformation(result, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
+        SamplePackage pack = compiler.getTransactionControllerPackage(transaction.getController());
+        if (pack == null) {
+            log.warn("Could not find the listeners of transaction {}", transaction.getRef().getName());
+            return;
+        }
+        List<SampleListener> listeners = pack.getSampleListeners();
+        int metadataRequirements = sampleResultMetadataRequirements(listeners);
+        if (needsSourceTestElementPath(metadataRequirements)) {
+            setSourceTestElementPath(result, pack.getSourceTestElementPath());
+        }
+        notifyListeners(listeners, result, metadataRequirements, true);
     }
 
     /**
@@ -1324,6 +1222,7 @@ public class JMeterThread implements Runnable, Interruptible {
         threadContext.setThread(this);
         threadContext.setThreadGroup(threadGroup);
         threadContext.setEngine(engine);
+        threadContext.setCurrentTransaction(null);
         testTree.traverse(compiler);
         if (scheduler) {
             // set the scheduler to start
@@ -1881,19 +1780,19 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private void notifyListeners(List<SampleListener> listeners, SampleResult result, int metadataRequirements) {
+    private void notifyListeners(List<SampleListener> listeners, SampleResult result, int metadataRequirements,
+            boolean transaction) {
+        notifyListeners(listeners, result, metadataRequirements, transaction, null);
+    }
+
+    private void notifyListeners(List<SampleListener> listeners, SampleResult result, int metadataRequirements,
+            boolean transaction, SampleResult startedSample) {
         if (needsJMeterVariables(metadataRequirements)) {
             setJMeterVariables(result, snapshotVariables(threadVars));
         }
-        SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars);
+        SampleEvent event = new SampleEvent(result, threadGroup.getName(), threadVars, transaction);
+        event.setStartedSample(startedSample);
         notifier.notifyListeners(event, listeners);
-    }
-
-    private static boolean transactionChildSourcePathNeeded(
-            SamplePackage transactionPack, TransactionSampler transactionSampler) {
-        return transactionSampler != null
-                && transactionPack != null
-                && needsSourceTestElementPath(sampleResultMetadataRequirements(transactionPack.getSampleListeners()));
     }
 
     private static int sampleResultMetadataRequirements(List<SampleListener> listeners) {

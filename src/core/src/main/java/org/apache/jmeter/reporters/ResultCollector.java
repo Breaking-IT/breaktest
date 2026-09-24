@@ -524,12 +524,16 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
 
     @Override
     public void sampleStarted(SampleEvent e) {
-        // NOOP
+        if (needsStartEvents()) {
+            getVisualizer().addStartedSample(e);
+        }
     }
 
     @Override
     public void sampleStopped(SampleEvent e) {
-        // NOOP
+        if (needsStartEvents()) {
+            getVisualizer().removeStartedSample(e);
+        }
     }
 
     /**
@@ -562,6 +566,28 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
         if(summariser != null) {
             summariser.sampleOccurred(event);
         }
+    }
+
+    /**
+     * Forwards a started transaction to the visualizer. Its outcome is not known yet, so it is skipped
+     * when only errors or only successes are wanted. It is never written to the results file.
+     */
+    @Override
+    public void transactionStarted(SampleEvent event) {
+        if (needsStartEvents()) {
+            getVisualizer().addStartedTransaction(event);
+        }
+    }
+
+    /**
+     * Start events go to a live visualizer only, never to the results file. Their outcome is not
+     * known yet, so they are skipped when only errors or only successes are wanted.
+     */
+    @Override
+    public boolean needsStartEvents() {
+        Visualizer visualizer = getVisualizer();
+        return visualizer != null && visualizer.needsStartedResults()
+                && !isErrorLogging() && !isSuccessOnlyLogging();
     }
 
     protected final void sendToVisualizer(SampleEvent event) {

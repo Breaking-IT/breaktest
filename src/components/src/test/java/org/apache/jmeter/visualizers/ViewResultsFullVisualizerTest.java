@@ -27,9 +27,11 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -37,6 +39,7 @@ import java.util.zip.ZipOutputStream;
 import javax.swing.JMenuItem;
 import javax.swing.JTree;
 import javax.swing.SwingUtilities;
+import javax.swing.tree.DefaultMutableTreeNode;
 
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
@@ -50,8 +53,11 @@ import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.recording.RecordingStorageMode;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.sampler.DebugSampler;
+import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.samplers.TransactionRef;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.ThreadGroup;
@@ -562,6 +568,176 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
                 visualizer.clearData();
             }
         });
+    }
+
+    @Test
+    public void transactionShowsWhileRunningAndGroupsItsSamples() throws Exception {
+        TransactionRef outer = TransactionRef.start("outer", null);
+        TransactionRef inner = TransactionRef.start("inner", outer);
+        SampleResult outerStarted = transactionSample(outer);
+        SampleResult innerStarted = transactionSample(inner);
+        SampleResult outerFinished = transactionSample(outer);
+        SampleResult innerFinished = transactionSample(inner);
+        SampleResult outside = new SampleResult();
+        outside.setSampleLabel("outside");
+
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                visualizer.addStartedTransaction(new SampleEvent(outerStarted, "tg"));
+                visualizer.add(childSample("first", outer));
+                visualizer.addStartedTransaction(new SampleEvent(innerStarted, "tg"));
+                refresh(visualizer);
+                assertEquals("[outer (running)[first, inner (running)]]", describeTree(visualizer));
+
+                visualizer.add(childSample("second", inner));
+                visualizer.add(innerFinished);
+                refresh(visualizer);
+                assertEquals("[outer (running)[first, inner[second]]]", describeTree(visualizer));
+
+                visualizer.add(outerFinished);
+                visualizer.add(outside);
+                refresh(visualizer);
+                assertEquals("[outer[first, inner[second]], outside]", describeTree(visualizer));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void runningSamplerIsReplacedByItsSampleOrRemoved() throws Exception {
+        TransactionRef transaction = TransactionRef.start("transaction", null);
+        SampleResult started = childSample("login", transaction);
+        SampleResult finished = childSample("login", transaction);
+        SampleResult startedWithoutResult = childSample("think", transaction);
+
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(transaction), "tg"));
+                visualizer.addStartedSample(new SampleEvent(started, "tg"));
+                refresh(visualizer);
+                assertEquals("[transaction (running)[login (running)]]", describeTree(visualizer));
+
+                SampleEvent finishedEvent = new SampleEvent(finished, "tg");
+                finishedEvent.setStartedSample(started);
+                visualizer.add(finishedEvent);
+                visualizer.removeStartedSample(new SampleEvent(started, "tg"));
+                visualizer.addStartedSample(new SampleEvent(startedWithoutResult, "tg"));
+                refresh(visualizer);
+                assertEquals("[transaction (running)[login, think (running)]]", describeTree(visualizer));
+
+                visualizer.removeStartedSample(new SampleEvent(startedWithoutResult, "tg"));
+                visualizer.add(transactionSample(transaction));
+                refresh(visualizer);
+                assertEquals("[transaction[login]]", describeTree(visualizer));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void samplesOfAnUnseenTransactionCreateItsNode() throws Exception {
+        TransactionRef outer = TransactionRef.start("outer", null);
+        TransactionRef inner = TransactionRef.start("inner", outer);
+
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                visualizer.add(childSample("first", inner));
+                refresh(visualizer);
+                assertEquals("[outer[inner[first]]]", describeTree(visualizer));
+
+                visualizer.add(transactionSample(inner));
+                visualizer.add(transactionSample(outer));
+                refresh(visualizer);
+                assertEquals("[outer[inner[first]]]", describeTree(visualizer));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void filteredTransactionCompletionDoesNotLeaveRunningAncestor() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            ResultCollector collector = new ResultCollector();
+            collector.setListener(visualizer);
+            collector.setSuccessOnlyLogging(true);
+            TransactionRef transaction = TransactionRef.start("mixed", null);
+            try {
+                collector.sampleOccurred(new SampleEvent(childSample("success", transaction), "tg"));
+                SampleResult failed = transactionSample(transaction);
+                failed.setSuccessful(false);
+                collector.sampleOccurred(new SampleEvent(failed, "tg"));
+                refresh(visualizer);
+                assertEquals("[mixed[success]]", describeTree(visualizer));
+                var tableField = ViewResultsFullVisualizer.class.getDeclaredField("resultTableModel");
+                tableField.setAccessible(true);
+                ResultTableModel table = (ResultTableModel) tableField.get(visualizer);
+                assertNull(table.getValueAt(0, ResultTableModel.TIME),
+                        "An inferred ancestor has no known final measurements");
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    private static void refresh(ViewResultsFullVisualizer visualizer) throws ReflectiveOperationException {
+        var refresh = ViewResultsFullVisualizer.class.getDeclaredMethod("updateGui");
+        refresh.setAccessible(true);
+        refresh.invoke(visualizer);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String describeTree(ViewResultsFullVisualizer visualizer) throws ReflectiveOperationException {
+        var rootField = ViewResultsFullVisualizer.class.getDeclaredField("root");
+        rootField.setAccessible(true);
+        var runningField = ViewResultsFullVisualizer.class.getDeclaredField("runningResults");
+        runningField.setAccessible(true);
+        return describeChildren((DefaultMutableTreeNode) rootField.get(visualizer),
+                (Set<SampleResult>) runningField.get(visualizer));
+    }
+
+    private static String describeChildren(DefaultMutableTreeNode node, Set<SampleResult> running) {
+        List<String> children = new ArrayList<>();
+        for (int i = 0; i < node.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+            SampleResult result = (SampleResult) child.getUserObject();
+            String description = result.getSampleLabel() + (running.contains(result) ? " (running)" : "");
+            if (child.getChildCount() > 0) {
+                description += describeChildren(child, running);
+            }
+            children.add(description);
+        }
+        return children.toString();
+    }
+
+    private static SampleResult transactionSample(TransactionRef transaction) {
+        SampleResult result = new SampleResult();
+        result.setSampleLabel(transaction.getName());
+        result.setTransaction(transaction);
+        result.setSuccessful(true);
+        return result;
+    }
+
+    private static SampleResult childSample(String label, TransactionRef parent) {
+        SampleResult result = new SampleResult();
+        result.setSampleLabel(label);
+        result.setParentTransaction(parent);
+        result.setSuccessful(true);
+        return result;
     }
 
     private static SampleResult replayResult(String body) throws Exception {

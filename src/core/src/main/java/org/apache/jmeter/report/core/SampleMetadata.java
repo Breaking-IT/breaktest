@@ -130,6 +130,10 @@ public class SampleMetadata {
         if (saveConfig.saveConnectTime()) {
             configuredColumns.add(CSVSaveService.CSV_CONNECT_TIME);
         }
+        if (saveConfig.saveTransactionIds()) {
+            configuredColumns.add(CSVSaveService.CSV_TRANSACTION_ID);
+            configuredColumns.add(CSVSaveService.CSV_PARENT_TRANSACTION_ID);
+        }
         initialize(saveConfig.getDelimiter().charAt(0), configuredColumns);
     }
 

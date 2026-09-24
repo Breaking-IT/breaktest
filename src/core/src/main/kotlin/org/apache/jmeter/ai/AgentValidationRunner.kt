@@ -18,6 +18,7 @@
 package org.apache.jmeter.ai
 
 import org.apache.jmeter.JMeter
+import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.engine.TreeCloner
 import org.apache.jmeter.engine.TreeClonerNoTimer
@@ -162,6 +163,10 @@ public class AgentCollectSamplesListener() : AbstractListenerElement(), SampleLi
     }
 
     private fun SampleResult.isFailureForAnalysis(runOptions: AgentRunOptions): Boolean {
+        // A transaction fails because one of its samples failed, which was checked on its own
+        if (TransactionController.isFromTransactionController(this) && subResults.isEmpty()) {
+            return false
+        }
         val assertionFailure = assertionResults.any { it.isFailure || it.isError }
         if (assertionFailure) {
             return true

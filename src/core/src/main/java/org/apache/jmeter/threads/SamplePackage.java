@@ -63,6 +63,9 @@ public class SamplePackage {
 
     private List<SampleResult.TestElementPathEntry> sourceTestElementPath = List.of();
 
+    /** Whether a listener wants start events: 0 not evaluated yet, 1 no, 2 yes */
+    private int startEventsNeeded;
+
     public SamplePackage(
             List<ConfigTestElement> configs,
             List<SampleListener> listeners,
@@ -95,7 +98,10 @@ public class SamplePackage {
         setRunningVersion(postProcessors, running);
         setRunningVersion(preProcessors, running);
         setRunningVersion(controllers, running);
-        sampler.setRunningVersion(running);
+        // A transaction controller package has no sampler
+        if (sampler != null) {
+            sampler.setRunningVersion(running);
+        }
     }
 
     private static void setRunningVersion(List<?> list, boolean running) {
@@ -132,7 +138,9 @@ public class SamplePackage {
         if (recoverControllers) {
             recoverRunningVersion(controllers);
         }
-        sampler.recoverRunningVersion();
+        if (sampler != null) {
+            sampler.recoverRunningVersion();
+        }
     }
 
     /**
@@ -216,6 +224,21 @@ public class SamplePackage {
      */
     public void setSampler(Sampler s) {
         sampler = s;
+    }
+
+    /**
+     * @return whether a listener in scope wants start events, see
+     * {@link SampleListener#needsStartEvents()}. Evaluated once, so it costs a field read per sample.
+     */
+    public boolean needsStartEvents() {
+        if (startEventsNeeded == 0) {
+            boolean needed = false;
+            for (SampleListener listener : sampleListeners) {
+                needed |= listener.needsStartEvents();
+            }
+            startEventsNeeded = needed ? 2 : 1;
+        }
+        return startEventsNeeded == 2;
     }
 
     public List<SampleResult.TestElementPathEntry> getSourceTestElementPath() {

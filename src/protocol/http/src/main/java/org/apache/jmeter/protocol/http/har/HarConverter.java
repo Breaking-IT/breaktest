@@ -743,7 +743,6 @@ public final class HarConverter {
         controller.setProperty(TestElement.GUI_CLASS, TransactionControllerGui.class.getName());
         controller.setName(name);
         controller.setIncludeTimers(false);
-        controller.setGenerateParentSample(true);
 
         controller.setProperty("TransactionController.timingMode",
                 hasParallelControllers ? "total_include_timers" : "sum_child_samples");
