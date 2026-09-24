@@ -17,7 +17,6 @@
 
 package org.apache.jmeter.threads;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -48,7 +47,6 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
-import org.apache.jmeter.control.TransactionSampler;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.reporters.ResultCollector;
@@ -270,6 +268,29 @@ class TestJMeterThread {
         }
     }
 
+    private static final class StopAfterFailuresSampler extends AbstractSampler {
+        private static final long serialVersionUID = 1L;
+
+        private final int stopThreadAtCall;
+        private int calls;
+
+        private StopAfterFailuresSampler(String name, int stopThreadAtCall) {
+            setName(name);
+            this.stopThreadAtCall = stopThreadAtCall;
+        }
+
+        @Override
+        public SampleResult sample(Entry e) {
+            SampleResult result = new SampleResult();
+            result.setSampleLabel(getName());
+            result.sampleStart();
+            result.setSuccessful(false);
+            result.setStopThread(++calls >= stopThreadAtCall);
+            result.sampleEnd();
+            return result;
+        }
+    }
+
     private static final class LoopIndexRecordingSampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
 
@@ -297,11 +318,34 @@ class TestJMeterThread {
     }
 
     private static final class MetadataNeedingVisualizer implements Visualizer {
-        private final AtomicReference<SampleResult> result = new AtomicReference<>();
+        private final List<SampleResult> results = Collections.synchronizedList(new ArrayList<>());
+        private final List<SampleResult> startedTransactions = Collections.synchronizedList(new ArrayList<>());
 
         @Override
         public void add(SampleResult sample) {
-            result.set(sample);
+            results.add(sample);
+        }
+
+        @Override
+        public void addStartedTransaction(SampleEvent event) {
+            startedTransactions.add(event.getResult());
+        }
+
+        @Override
+        public boolean needsStartedResults() {
+            return true;
+        }
+
+        List<SampleResult> results() {
+            synchronized (results) {
+                return List.copyOf(results);
+            }
+        }
+
+        List<SampleResult> startedTransactions() {
+            synchronized (startedTransactions) {
+                return List.copyOf(startedTransactions);
+            }
         }
 
         @Override
@@ -559,6 +603,9 @@ class TestJMeterThread {
         private static final long serialVersionUID = 1L;
 
         private final List<SampleEvent> events = Collections.synchronizedList(new ArrayList<>());
+        private final List<SampleEvent> startedEvents = Collections.synchronizedList(new ArrayList<>());
+        private final List<String> startEvents = Collections.synchronizedList(new ArrayList<>());
+        private boolean startEventsNeeded = true;
         private final boolean jMeterVariablesNeeded;
         private final boolean sourceTestElementPathNeeded;
 
@@ -585,9 +632,41 @@ class TestJMeterThread {
             }
         }
 
+        List<SampleEvent> startedEvents() {
+            synchronized (startedEvents) {
+                return List.copyOf(startedEvents);
+            }
+        }
+
+        /** Sampler start, finish and stop events in order, e.g. {@code started:first} */
+        List<String> startEvents() {
+            synchronized (startEvents) {
+                return List.copyOf(startEvents);
+            }
+        }
+
+        RecordingSampleListener withoutStartEvents() {
+            startEventsNeeded = false;
+            return this;
+        }
+
         @Override
         public void sampleOccurred(SampleEvent e) {
             events.add(e);
+            if (startEventsNeeded && e.getStartedSample() != null) {
+                startEvents.add("occurred:" + e.getResult().getSampleLabel()
+                        + (e.getStartedSample().getSampleLabel().equals(e.getResult().getSampleLabel()) ? "" : "!"));
+            }
+        }
+
+        @Override
+        public void transactionStarted(SampleEvent e) {
+            startedEvents.add(e);
+        }
+
+        @Override
+        public boolean needsStartEvents() {
+            return startEventsNeeded;
         }
 
         @Override
@@ -602,10 +681,12 @@ class TestJMeterThread {
 
         @Override
         public void sampleStarted(SampleEvent e) {
+            startEvents.add("started:" + e.getResult().getSampleLabel());
         }
 
         @Override
         public void sampleStopped(SampleEvent e) {
+            startEvents.add("stopped:" + e.getResult().getSampleLabel());
         }
     }
 
@@ -1056,14 +1137,12 @@ class TestJMeterThread {
         Method triggerMethod = JMeterThread.class.getDeclaredMethod(
                 "triggerLoopLogicalActionOnParentControllers",
                 Sampler.class,
-                JMeterContext.class,
                 Consumer.class);
         triggerMethod.setAccessible(true);
 
         triggerMethod.invoke(
                 jMeterThread,
                 parallelSampler,
-                context,
                 (Consumer<FindTestElementsUpToRootTraverser>) traverser -> {
                     List<Controller> controllers = traverser.getControllersToRoot();
                     sawParallelController.set(controllers.contains(parallelController));
@@ -1082,7 +1161,6 @@ class TestJMeterThread {
         loop.setEnabled(true);
         TransactionController transactionController = new TransactionController();
         transactionController.setName("transaction");
-        transactionController.setGenerateParentSample(true);
         ParallelController parallelController = new ParallelController();
         parallelController.setName("parallel");
         parallelController.setMaxParallel(1);
@@ -1111,21 +1189,17 @@ class TestJMeterThread {
         testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
         parallelController.initialize();
         ParallelControllerSampler parallelSampler = (ParallelControllerSampler) parallelController.next();
-        TransactionSampler transactionSampler = new TransactionSampler(transactionController, transactionController.getName());
-        setSubSampler(transactionSampler, parallelSampler);
         AtomicBoolean sawParallelController = new AtomicBoolean();
         AtomicBoolean sawTransactionController = new AtomicBoolean();
         Method triggerMethod = JMeterThread.class.getDeclaredMethod(
                 "triggerLoopLogicalActionOnParentControllers",
                 Sampler.class,
-                JMeterContext.class,
                 Consumer.class);
         triggerMethod.setAccessible(true);
 
         triggerMethod.invoke(
                 jMeterThread,
-                transactionSampler,
-                context,
+                parallelSampler,
                 (Consumer<FindTestElementsUpToRootTraverser>) traverser -> {
                     List<Controller> controllers = traverser.getControllersToRoot();
                     sawParallelController.set(controllers.contains(parallelController));
@@ -1133,7 +1207,7 @@ class TestJMeterThread {
                 });
 
         assertTrue(sawParallelController.get(),
-                "Transaction-wrapped parallel sampler should resolve to the real ParallelController");
+                "Parallel sampler inside a transaction should resolve to the real ParallelController");
         assertTrue(sawTransactionController.get(),
                 "Start Next Thread Loop should unwind the enclosing TransactionController");
     }
@@ -1160,7 +1234,6 @@ class TestJMeterThread {
         Method triggerMethod = JMeterThread.class.getDeclaredMethod(
                 "triggerLoopLogicalActionOnParentControllers",
                 Sampler.class,
-                JMeterContext.class,
                 Consumer.class);
         triggerMethod.setAccessible(true);
 
@@ -1169,8 +1242,8 @@ class TestJMeterThread {
             assertTrue(controllers.stream().anyMatch(parent -> parent == controller));
         };
 
-        triggerMethod.invoke(jMeterThread, sampler, context, assertPathContainsParent);
-        triggerMethod.invoke(jMeterThread, sampler, context, assertPathContainsParent);
+        triggerMethod.invoke(jMeterThread, sampler, assertPathContainsParent);
+        triggerMethod.invoke(jMeterThread, sampler, assertPathContainsParent);
 
         assertEquals(1, testTree.parentPathTraversals(),
                 "Parent controller path should be cached after the first lookup");
@@ -1241,7 +1314,6 @@ class TestJMeterThread {
         forkController.setEnabled(true);
         TransactionController transactionController = new TransactionController();
         transactionController.setName("transaction");
-        transactionController.setGenerateParentSample(false);
         transactionController.setEnabled(true);
         RecordingSampleListener listener = new RecordingSampleListener("transaction-listener");
 
@@ -1296,7 +1368,6 @@ class TestJMeterThread {
         forkController.setEnabled(true);
         TransactionController transactionController = new TransactionController();
         transactionController.setName("fork-transaction");
-        transactionController.setGenerateParentSample(true);
         transactionController.setEnabled(true);
 
         testTree.add(loop);
@@ -1622,12 +1693,8 @@ class TestJMeterThread {
     }
 
     @ParameterizedTest
-    @CsvSource({
-        "false, false, true", "true, false, true", "false, true, true", "true, true, true",
-        "false, false, false", "true, false, false", "false, true, false", "true, true, false"
-    })
-    void testStopReportsInterruptedTransactionOnce(
-            boolean startNextLoopOnError, boolean nested, boolean generateParentSample)
+    @CsvSource({ "false, false", "true, false", "false, true", "true, true" })
+    void testStopReportsInterruptedTransactionOnce(boolean startNextLoopOnError, boolean nested)
             throws InterruptedException {
         LoopController loop = new LoopController();
         loop.setLoops(2);
@@ -1635,7 +1702,6 @@ class TestJMeterThread {
         loop.setEnabled(true);
         TransactionController transaction = new TransactionController();
         transaction.setName("transaction");
-        transaction.setGenerateParentSample(generateParentSample);
         InterruptibleFailureSampler sampler = new InterruptibleFailureSampler();
         RecordingSampleListener listener = new RecordingSampleListener("results");
         AtomicInteger subsequentCalls = new AtomicInteger();
@@ -1646,7 +1712,6 @@ class TestJMeterThread {
         if (nested) {
             TransactionController inner = new TransactionController();
             inner.setName("inner-transaction");
-            inner.setGenerateParentSample(generateParentSample);
             transactionTree = transactionTree.add(inner);
         }
         transactionTree.add(sampler);
@@ -1676,89 +1741,241 @@ class TestJMeterThread {
 
         assertEquals(0, subsequentCalls.get(), "Stop must not start another request");
         List<SampleEvent> events = listener.events();
-        if (!generateParentSample) {
-            assertEquals(nested
-                    ? List.of("interrupted-request", "inner-transaction", "transaction")
-                    : List.of("interrupted-request", "transaction"),
-                    events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
-                    "Non-parent mode must report the request and each transaction exactly once");
-            for (SampleEvent event : events) {
-                assertFalse(event.getResult().isSuccessful());
-            }
-            for (SampleEvent event : listener.transactionEvents()) {
-                assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
-                        event.getResult().getResponseMessage());
-            }
-            assertEquals(nested ? 2 : 1, listener.transactionEvents().size());
-            return;
+        assertEquals(nested
+                ? List.of("interrupted-request", "inner-transaction", "transaction")
+                : List.of("interrupted-request", "transaction"),
+                events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
+                "The request and each transaction must be reported exactly once");
+        for (SampleEvent event : events) {
+            assertFalse(event.getResult().isSuccessful());
         }
-        assertEquals(1, events.size(), "All listeners should receive the interrupted transaction only once");
-        SampleResult result = events.get(0).getResult();
-        assertEquals("transaction", result.getSampleLabel());
-        assertFalse(result.isSuccessful());
-        assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
-                result.getResponseMessage());
-        assertEquals(1, result.getSubResults().length);
-        if (nested) {
-            result = result.getSubResults()[0];
-            assertEquals("inner-transaction", result.getSampleLabel());
+        for (SampleEvent event : listener.transactionEvents()) {
             assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
-                    result.getResponseMessage());
-            assertEquals(1, result.getSubResults().length);
+                    event.getResult().getResponseMessage());
         }
-        assertEquals("interrupted-request", result.getSubResults()[0].getSampleLabel());
-        assertFalse(result.getSubResults()[0].isSuccessful());
+        assertEquals(nested ? 2 : 1, listener.transactionEvents().size());
+        SampleResult request = events.get(0).getResult();
+        SampleResult innermost = events.get(1).getResult();
+        assertEquals(innermost.getTransaction(), request.getParentTransaction(),
+                "The request must point to the innermost transaction");
+        if (nested) {
+            assertEquals(events.get(2).getResult().getTransaction(), innermost.getParentTransaction(),
+                    "The inner transaction must point to the outer transaction");
+        }
     }
 
     @Test
-    void testLogicalActionCanUnwindCompletedTransactionSampler() throws Exception {
-        HashTree testTree = new HashTree();
+    void testTransactionStreamsSamplesAndLinksThemToTheTransaction() {
+        HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        TransactionController transactionController = new TransactionController();
-        transactionController.setName("transaction");
-        transactionController.setGenerateParentSample(true);
-        DummySampler childSampler = createSampler();
+        TransactionController outer = new TransactionController();
+        outer.setName("outer");
+        TransactionController inner = new TransactionController();
+        inner.setName("inner");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        AtomicInteger calls = new AtomicInteger();
 
-        testTree.add(loop);
-        testTree.add(loop, transactionController);
-        testTree.add(transactionController, childSampler);
+        HashTree loopTree = testTree.add(loop);
+        HashTree outerTree = loopTree.add(outer);
+        outerTree.add(new ResultStatusSampler("first", true, calls));
+        outerTree.add(inner).add(new ResultStatusSampler("second", false, calls));
+        loopTree.add(new ResultStatusSampler("outside", true, calls));
+        loopTree.add(listener);
 
         ThreadGroup threadGroup = new ThreadGroup();
         threadGroup.setName("thread group");
         threadGroup.setNumThreads(1);
-
         JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
-        jMeterThread.setThreadName("transaction-thread");
+        jMeterThread.setThreadName("streaming-transaction-thread");
         jMeterThread.setThreadGroup(threadGroup);
-        JMeterContext context = JMeterContextService.getContext();
-        context.setVariables(new JMeterVariables());
-        context.setThread(jMeterThread);
-        context.setThreadGroup(threadGroup);
+        jMeterThread.run();
 
-        Field compilerField = JMeterThread.class.getDeclaredField("compiler");
-        compilerField.setAccessible(true);
-        testTree.traverse((TestCompiler) compilerField.get(jMeterThread));
+        assertEquals(List.of("outer", "inner"),
+                listener.startedEvents().stream().map(event -> event.getResult().getSampleLabel()).toList(),
+                "Listeners must be told when each transaction starts");
+        List<SampleEvent> events = listener.events();
+        assertEquals(List.of("first", "second", "inner", "outer", "outside"),
+                events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
+                "Samples must be sent as they complete, each transaction after its samples");
+        SampleResult first = events.get(0).getResult();
+        SampleResult second = events.get(1).getResult();
+        SampleResult innerResult = events.get(2).getResult();
+        SampleResult outerResult = events.get(3).getResult();
+        SampleResult outside = events.get(4).getResult();
 
-        TransactionSampler transactionSampler = new TransactionSampler(transactionController, transactionController.getName());
-        Method triggerMethod = JMeterThread.class.getDeclaredMethod(
-                "triggerLoopLogicalActionOnParentControllers",
-                Sampler.class,
-                JMeterContext.class,
-                Consumer.class);
-        triggerMethod.setAccessible(true);
+        SampleResult outerStarted = listener.startedEvents().get(0).getResult();
+        SampleResult innerStarted = listener.startedEvents().get(1).getResult();
+        assertEquals(outerResult.getTransaction(), outerStarted.getTransaction());
+        assertEquals(innerResult.getTransaction(), innerStarted.getTransaction());
+        assertTrue(listener.startedEvents().get(0).isTransactionSampleEvent());
 
-        assertDoesNotThrow(() -> triggerMethod.invoke(
-                jMeterThread,
-                transactionSampler,
-                context,
-                (Consumer<FindTestElementsUpToRootTraverser>) traverser -> { }));
+        assertTrue(outerResult.isTransaction());
+        assertTrue(innerResult.isTransaction());
+        assertFalse(first.isTransaction());
+        assertEquals(outerResult.getTransaction(), first.getParentTransaction());
+        assertEquals(innerResult.getTransaction(), second.getParentTransaction());
+        assertEquals(outerResult.getTransaction(), innerResult.getParentTransaction());
+        assertNull(outerResult.getParentTransaction());
+        assertNull(outside.getParentTransaction());
+        assertEquals(List.of("outer", "inner"), second.getParentTransaction().getPath());
+
+        assertEquals(0, first.getSubResults().length);
+        assertEquals(0, outerResult.getSubResults().length, "Transactions must not keep their samples");
+        assertEquals("Number of samples in transaction : 2, number of failing samples : 1",
+                outerResult.getResponseMessage());
+        assertFalse(outerResult.isSuccessful());
+        assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+                innerResult.getResponseMessage());
+        assertTrue(events.get(3).isTransactionSampleEvent());
+        assertFalse(events.get(0).isTransactionSampleEvent());
     }
 
     @Test
-    void testTransactionChildKeepsSamplerSourcePathWhenOnlyParentListenerNeedsMetadata() {
+    void testStartNextLoopOnErrorReportsFailedTransactionEachIteration() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger skippedCalls = new AtomicInteger();
+
+        HashTree loopTree = testTree.add(loop);
+        HashTree transactionTree = loopTree.add(transaction);
+        transactionTree.add(new ResultStatusSampler("first", true, calls));
+        // The test loop restarts on every failure, so stop the thread on the second one
+        transactionTree.add(new StopAfterFailuresSampler("failing", 2));
+        transactionTree.add(new ResultStatusSampler("skipped", true, skippedCalls));
+        loopTree.add(listener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("start-next-loop-transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.setOnErrorStartNextLoop(true);
+        jMeterThread.run();
+
+        assertEquals(0, skippedCalls.get(), "The failing sample must end the iteration");
+        assertEquals(List.of("first", "failing", "transaction", "first", "failing", "transaction"),
+                listener.events().stream().map(event -> event.getResult().getSampleLabel()).toList());
+        List<SampleEvent> transactions = listener.transactionEvents();
+        assertEquals(2, transactions.size());
+        for (SampleEvent event : transactions) {
+            assertFalse(event.getResult().isSuccessful());
+            assertEquals("Number of samples in transaction : 2, number of failing samples : 1",
+                    event.getResult().getResponseMessage());
+        }
+        assertFalse(transactions.get(0).getResult().getTransaction()
+                .equals(transactions.get(1).getResult().getTransaction()),
+                "Each iteration must be a new transaction execution");
+        assertEquals(2, listener.startedEvents().size());
+    }
+
+    @Test
+    void testSamplerStartEventsOnlyReachListenersThatAskForThem() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        RecordingSampleListener live = new RecordingSampleListener("live");
+        RecordingSampleListener writer = new RecordingSampleListener("writer").withoutStartEvents();
+        AtomicInteger calls = new AtomicInteger();
+
+        HashTree loopTree = testTree.add(loop);
+        loopTree.add(transaction).add(new ResultStatusSampler("first", true, calls));
+        loopTree.add(new ResultStatusSampler("second", false, calls));
+        loopTree.add(live);
+        loopTree.add(writer);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("sampler-start-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.run();
+
+        assertEquals(List.of("started:first", "occurred:first", "stopped:first",
+                        "started:second", "occurred:second", "stopped:second"),
+                live.startEvents(),
+                "A started sampler must be followed by its sample, linked to the placeholder, then its stop");
+        assertEquals(List.of(), writer.startEvents(), "Listeners that do not ask for start events get none");
+        assertEquals(List.of(), writer.startedEvents());
+        assertEquals(1, live.startedEvents().size(), "The transaction start still reaches the live listener");
+        assertEquals(3, writer.events().size(), "Samples are delivered as before");
+        SampleEvent first = live.events().get(0);
+        assertEquals(first.getResult().getParentTransaction(), first.getStartedSample().getParentTransaction(),
+                "The placeholder must point to the transaction the sampler runs in");
+    }
+
+    @Test
+    void testParallelChildrenAccumulateIntoEnclosingTransaction() {
+        HashTree testTree = new ListedHashTree();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        loop.setEnabled(true);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        ParallelController parallelController = new ParallelController();
+        parallelController.setName("parallel");
+        parallelController.setMaxParallel(3);
+        parallelController.setEnabled(true);
+        TransactionController branchTransaction = new TransactionController();
+        branchTransaction.setName("branch-transaction");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        AtomicInteger calls = new AtomicInteger();
+
+        HashTree loopTree = testTree.add(loop);
+        HashTree parallelTree = loopTree.add(transaction).add(parallelController);
+        parallelTree.add(new ResultStatusSampler("branch-1", true, calls));
+        parallelTree.add(new ResultStatusSampler("branch-2", true, calls));
+        parallelTree.add(branchTransaction).add(new ResultStatusSampler("branch-3", true, calls));
+        loopTree.add(listener);
+
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("thread group");
+        threadGroup.setNumThreads(1);
+        JMeterThread jMeterThread = new JMeterThread(testTree, threadGroup, new ListenerNotifier());
+        jMeterThread.setThreadName("parallel-transaction-thread");
+        jMeterThread.setThreadGroup(threadGroup);
+        jMeterThread.run();
+
+        List<SampleEvent> events = listener.events();
+        SampleResult transactionResult = events.get(events.size() - 1).getResult();
+        assertEquals("transaction", transactionResult.getSampleLabel());
+        assertEquals("Number of samples in transaction : 3, number of failing samples : 0",
+                transactionResult.getResponseMessage());
+        SampleResult branchTransactionResult = events.stream()
+                .map(SampleEvent::getResult)
+                .filter(result -> "branch-transaction".equals(result.getSampleLabel()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(transactionResult.getTransaction(), branchTransactionResult.getParentTransaction());
+        for (SampleEvent event : events) {
+            SampleResult result = event.getResult();
+            if ("branch-3".equals(result.getSampleLabel())) {
+                assertEquals(branchTransactionResult.getTransaction(), result.getParentTransaction());
+            } else if (result.getSampleLabel().startsWith("branch-")) {
+                assertEquals(transactionResult.getTransaction(), result.getParentTransaction(),
+                        "Parallel children must belong to the transaction around the ParallelController");
+            }
+        }
+    }
+
+    @Test
+    void testTransactionChildKeepsSamplerSourcePathForMetadataListener() {
         HashTree testTree = new ListedHashTree();
         LoopController loop = new LoopController();
         loop.setLoops(1);
@@ -1766,7 +1983,6 @@ class TestJMeterThread {
         loop.setEnabled(true);
         TransactionController transactionController = new TransactionController();
         transactionController.setName("transaction");
-        transactionController.setGenerateParentSample(true);
         AtomicInteger childCalls = new AtomicInteger();
         ResultStatusSampler childSampler = new ResultStatusSampler("har-linked-child", true, childCalls);
         ResultCollector resultCollector = new ResultCollector();
@@ -1787,19 +2003,27 @@ class TestJMeterThread {
         jMeterThread.setThreadGroup(threadGroup);
         jMeterThread.run();
 
-        SampleResult transactionResult = visualizer.result.get();
         assertEquals(1, childCalls.get(), "Child sampler should run once");
-        assertEquals("transaction", transactionResult.getSampleLabel());
-        assertEquals(1, transactionResult.getSubResults().length);
+        List<SampleResult> results = visualizer.results();
+        assertEquals(List.of("har-linked-child", "transaction"),
+                results.stream().map(SampleResult::getSampleLabel).toList(),
+                "A listener in scope of the transaction must receive its samples too");
+        SampleResult childResult = results.get(0);
+        SampleResult transactionResult = results.get(1);
+        assertEquals(transactionResult.getTransaction(), childResult.getParentTransaction());
         assertTrue(transactionResult.hasJMeterVariables(),
                 "The legacy metadata capability should continue requesting variable snapshots");
-        SampleResult childResult = transactionResult.getSubResults()[0];
         List<SampleResult.TestElementPathEntry> childPath = childResult.getSourceTestElementPath();
-
         assertFalse(childPath.isEmpty(), "Transaction child should keep source metadata for visual tree lookup");
         SampleResult.TestElementPathEntry source = childPath.get(childPath.size() - 1);
         assertEquals(childSampler.getClass().getName(), source.className());
         assertEquals(childSampler.getName(), source.name());
+        List<SampleResult.TestElementPathEntry> transactionPath = transactionResult.getSourceTestElementPath();
+        assertEquals(TransactionController.class.getName(),
+                transactionPath.get(transactionPath.size() - 1).className());
+        assertEquals(List.of("transaction"),
+                visualizer.startedTransactions().stream().map(SampleResult::getSampleLabel).toList(),
+                "The visualizer must be told when the transaction starts");
     }
 
     @Test
@@ -1914,19 +2138,11 @@ class TestJMeterThread {
         Method processParallelSampler = JMeterThread.class.getDeclaredMethod(
                 "processParallelSampler",
                 ParallelControllerSampler.class,
-                TransactionSampler.class,
-                SamplePackage.class,
                 JMeterContext.class,
                 Function.class);
         processParallelSampler.setAccessible(true);
-        processParallelSampler.invoke(jMeterThread, parallelSampler, null, null, context, Function.identity());
+        processParallelSampler.invoke(jMeterThread, parallelSampler, context, Function.identity());
         return context;
-    }
-
-    private static void setSubSampler(TransactionSampler transactionSampler, Sampler subSampler) throws Exception {
-        Method setSubSampler = TransactionSampler.class.getDeclaredMethod("setSubSampler", Sampler.class);
-        setSubSampler.setAccessible(true);
-        setSubSampler.invoke(transactionSampler, subSampler);
     }
 
     private static void assertForkBookkeepingEventuallyEmpty(JMeterThread jMeterThread) throws Exception {

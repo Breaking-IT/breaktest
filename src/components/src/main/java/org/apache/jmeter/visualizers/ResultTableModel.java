@@ -76,6 +76,8 @@ class ResultTableModel extends AbstractTableModel {
     private final IdentityHashMap<SampleResult, Optional<Double>> responseBodyDiffs = new IdentityHashMap<>();
     private List<ResultTableRow> rows = Collections.emptyList();
     private boolean responseBodyDiffEnabled;
+    private Set<SampleResult> runningResults = Set.of();
+    private Icon runningIcon;
 
     ResultTableModel(Icon successIcon, Icon failureIcon, DateTimeFormatter timestampFormat) {
         this(successIcon, failureIcon, timestampFormat, ResultTableModel::recordedResponseBody);
@@ -87,6 +89,15 @@ class ResultTableModel extends AbstractTableModel {
         this.failureIcon = failureIcon;
         this.timestampFormat = timestampFormat;
         this.recordedResponseBody = recordedResponseBody;
+    }
+
+    /**
+     * @param running transaction samples that have not finished yet
+     * @param icon    status icon shown for them
+     */
+    void setRunningResults(Set<SampleResult> running, Icon icon) {
+        this.runningResults = running;
+        this.runningIcon = icon;
     }
 
     @Override
@@ -118,17 +129,20 @@ class ResultTableModel extends AbstractTableModel {
     public Object getValueAt(int rowIndex, int columnIndex) {
         ResultTableRow row = rows.get(rowIndex);
         SampleResult sample = row.sample();
+        boolean running = runningResults.contains(sample);
         return switch (columnIndex) {
-        case STATUS -> sample.isSuccessful() ? successIcon : failureIcon;
+        case STATUS -> running ? runningIcon
+                : sample.isSuccessful() ? successIcon : failureIcon;
         case TIMESTAMP -> timestampFormat.format(Instant.ofEpochMilli(sample.getStartTime()));
         case THREAD_GROUP -> ViewResultsFullVisualizer.threadGroupName(sample.getThreadName());
         case THREAD_NAME -> sample.getThreadName();
         case LABEL -> row.label();
-        case TIME -> sample.getTime();
-        case LATENCY -> sample.getLatency();
-        case CONNECT_TIME -> sample.getConnectTime();
-        case REQUEST_SIZE -> sample.getSentBytes();
-        case RECEIVED_BYTES -> sample.getBytesAsLong();
+        // A running transaction has no measurements yet
+        case TIME -> running ? null : sample.getTime();
+        case LATENCY -> running ? null : sample.getLatency();
+        case CONNECT_TIME -> running ? null : sample.getConnectTime();
+        case REQUEST_SIZE -> running ? null : sample.getSentBytes();
+        case RECEIVED_BYTES -> running ? null : sample.getBytesAsLong();
         case COMPRESSION -> compressionType(sample);
         case DIFF_PERCENT -> responseBodyDiffEnabled
                 ? responseBodyDiffs.computeIfAbsent(sample, this::calculateResponseBodyDiff).orElse(null)

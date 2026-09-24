@@ -18,7 +18,6 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
-import java.util.IdentityHashMap;
 
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.samplers.Sampler;
@@ -58,48 +57,38 @@ public class ForkController extends GenericController implements Serializable {
         }
 
         samplerReturned = true;
-        IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers =
-                new IdentityHashMap<>();
-        return new ForkControllerSampler(
-                this,
-                getName(),
-                createForkExecutionController(sourceTransactionControllers),
-                sourceTransactionControllers);
+        return new ForkControllerSampler(this, getName(), createForkExecutionController());
     }
 
-    private Controller createForkExecutionController(
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    private Controller createForkExecutionController() {
         GenericController controller = new GenericController();
         controller.setName(getName());
         for (TestElement child : getSubControllers()) {
-            addForkChild(controller, child, sourceTransactionControllers);
+            addForkChild(controller, child);
         }
         controller.initialize();
         return controller;
     }
 
-    private static void addForkChild(GenericController parent, TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
-        TestElement forkChild = forkChild(child, sourceTransactionControllers);
+    private static void addForkChild(GenericController parent, TestElement child) {
+        TestElement forkChild = forkChild(child);
         parent.addTestElement(forkChild);
         if (forkChild instanceof LoopIterationListener listener) {
             parent.addIterationListener(listener);
         }
     }
 
-    private static TestElement forkChild(TestElement child,
-            IdentityHashMap<TransactionController, TransactionController> sourceTransactionControllers) {
+    private static TestElement forkChild(TestElement child) {
         if (!(child instanceof GenericController controller)) {
             return child;
         }
         GenericController clone = (GenericController) controller.clone();
         if (clone instanceof TransactionController forkTransactionController
                 && controller instanceof TransactionController sourceTransactionController) {
-            sourceTransactionControllers.put(forkTransactionController, sourceTransactionController);
             forkTransactionController.setSourceController(sourceTransactionController);
         }
         for (TestElement nestedChild : controller.getSubControllers()) {
-            addForkChild(clone, nestedChild, sourceTransactionControllers);
+            addForkChild(clone, nestedChild);
         }
         return clone;
     }

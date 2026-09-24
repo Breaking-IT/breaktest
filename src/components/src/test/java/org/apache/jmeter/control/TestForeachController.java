@@ -183,12 +183,11 @@ class TestForeachController extends JMeterTestCase {
     }
 
     @Test
-    void parallelForEachRunsParentTransactionControllerChildren() throws InterruptedException {
+    void parallelForEachRunsTransactionControllerChildren() throws InterruptedException {
         RecordingSampler.reset(3);
         RecordingSampler sampler = new RecordingSampler("transaction-child");
         TransactionController transaction = new TransactionController();
         transaction.setName("transaction");
-        transaction.setGenerateParentSample(true);
         transaction.setEnabled(true);
         transaction.addTestElement(sampler);
 
@@ -276,7 +275,7 @@ class TestForeachController extends JMeterTestCase {
     }
 
     @Test
-    void parallelForEachKeepsTransactionMappingsBranchScoped() {
+    void parallelForEachClonesTransactionControllerPerBranch() {
         ForeachController controller = parallelForEachController();
         TransactionController transaction = new TransactionController();
         transaction.setName("transaction");
@@ -293,11 +292,12 @@ class TestForeachController extends JMeterTestCase {
         ParallelControllerSampler.ParallelBranch firstBranch = parallelSampler.getParallelBranch(0);
         ParallelControllerSampler.ParallelBranch secondBranch = parallelSampler.getParallelBranch(1);
         TransactionController firstClone = firstTransactionController(firstBranch.getController());
+        TransactionController secondClone = firstTransactionController(secondBranch.getController());
 
         assertNotSame(transaction, firstClone);
-        assertSame(transaction, firstBranch.getSourceTransactionController(firstClone));
-        assertSame(firstClone, secondBranch.getSourceTransactionController(firstClone),
-                "A branch must not retain another branch's transaction mappings");
+        assertNotSame(firstClone, secondClone, "Each branch must run its own transaction controller");
+        assertSame(transaction, firstClone.getSourceController());
+        assertSame(transaction, secondClone.getSourceController());
     }
 
     private static TransactionController firstTransactionController(Controller branch) {

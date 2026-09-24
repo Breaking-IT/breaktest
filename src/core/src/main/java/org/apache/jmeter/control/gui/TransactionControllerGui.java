@@ -28,9 +28,7 @@ import javax.swing.JPanel;
 import javax.swing.JTextField;
 
 import org.apache.jmeter.control.TransactionController;
-import org.apache.jmeter.control.TransactionControllerSchema;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
-import org.apache.jmeter.gui.JBooleanPropertyEditor;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
@@ -44,13 +42,6 @@ import org.apache.jorphan.gui.layout.VerticalLayout;
 public class TransactionControllerGui extends AbstractControllerGui {
 
     private static final long serialVersionUID = 240L;
-
-    /** If selected, then generate parent sample, otherwise as per original controller */
-    private final JBooleanPropertyEditor generateParentSample =
-            new JBooleanPropertyEditor(
-                    TransactionControllerSchema.INSTANCE.getGenearteParentSample(),
-                    "transaction_controller_parent",
-                    JMeterUtils::getResString);
 
     private final JComboBox<TimingModeOption> timingMode = new JComboBox<>(TimingModeOption.values());
 
@@ -103,7 +94,6 @@ public class TransactionControllerGui extends AbstractControllerGui {
      */
     public TransactionControllerGui() {
         init();
-        bindingGroup.add(generateParentSample);
     }
 
     @Override
@@ -180,7 +170,6 @@ public class TransactionControllerGui extends AbstractControllerGui {
         setLayout(new VerticalLayout(5, VerticalLayout.BOTH, VerticalLayout.TOP));
         setBorder(makeBorder());
         add(makeTitlePanel());
-        add(generateParentSample);
         add(createTimingModePanel());
         add(createDelayPanel());
         add(createPacingPanel());

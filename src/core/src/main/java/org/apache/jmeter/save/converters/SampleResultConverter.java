@@ -29,6 +29,7 @@ import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.SampleSaveConfiguration;
+import org.apache.jmeter.save.CSVSaveService;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jorphan.util.Converter;
 import org.slf4j.Logger;
@@ -72,6 +73,7 @@ public class SampleResultConverter extends AbstractCollectionConverter {
     private static final String ATT_HOSTNAME          = "hn"; //$NON-NLS-1$
     private static final String ATT_LABEL             = "lb"; //$NON-NLS-1$
     private static final String ATT_LATENCY           = "lt"; //$NON-NLS-1$
+    private static final String ATT_PARENT_TRANSACTION_ID = "ptx"; //$NON-NLS-1$
     private static final String ATT_CONNECT_TIME      = "ct"; //$NON-NLS-1$
 
     private static final String ATT_ALL_THRDS         = "na"; //$NON-NLS-1$
@@ -90,6 +92,7 @@ public class SampleResultConverter extends AbstractCollectionConverter {
     private static final String ATT_IDLETIME          = "it"; //$NON-NLS-1$
     private static final String ATT_THREADNAME        = "tn"; //$NON-NLS-1$
     private static final String ATT_TIME_STAMP        = "ts"; //$NON-NLS-1$
+    private static final String ATT_TRANSACTION_ID    = "tx"; //$NON-NLS-1$
 
     /**
      * Returns the converter version; used to check for possible
@@ -330,6 +333,16 @@ public class SampleResultConverter extends AbstractCollectionConverter {
            writer.addAttribute(ATT_GRP_THRDS, String.valueOf(res.getGroupThreads()));
            writer.addAttribute(ATT_ALL_THRDS, String.valueOf(res.getAllThreads()));
         }
+        if (save.saveTransactionIds()) {
+            String transactionId = CSVSaveService.transactionId(res);
+            if (!transactionId.isEmpty()) {
+                writer.addAttribute(ATT_TRANSACTION_ID, transactionId);
+            }
+            String parentTransactionId = CSVSaveService.parentTransactionId(res);
+            if (!parentTransactionId.isEmpty()) {
+                writer.addAttribute(ATT_PARENT_TRANSACTION_ID, parentTransactionId);
+            }
+        }
         SampleEvent event = (SampleEvent) context.get(SaveService.SAMPLE_EVENT_OBJECT);
         if (event != null) {
             if (save.saveHostname()){
@@ -454,6 +467,8 @@ public class SampleResultConverter extends AbstractCollectionConverter {
         res.setErrorCount(Converter.getInt(reader.getAttribute(ATT_ERROR_COUNT),0)); // default is 0
         res.setGroupThreads(Converter.getInt(reader.getAttribute(ATT_GRP_THRDS)));
         res.setAllThreads(Converter.getInt(reader.getAttribute(ATT_ALL_THRDS)));
+        CSVSaveService.setTransactionIds(res, reader.getAttribute(ATT_TRANSACTION_ID),
+                reader.getAttribute(ATT_PARENT_TRANSACTION_ID));
     }
 
     protected void readFile(String resultFileName, SampleResult res) {

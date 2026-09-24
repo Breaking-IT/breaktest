@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.ai
 
+import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.samplers.SampleResult
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.property.ObjectProperty
@@ -74,7 +75,17 @@ internal object AgentStaticAssetClassifier {
 internal fun AgentSampleSummary.isStaticAssetRequest(): Boolean =
     AgentStaticAssetClassifier.isStaticAsset(this)
 
+/**
+ * A transaction sample fails because one of its samples failed, and that sample is analyzed on its
+ * own. Transaction samples with sub-results come from the removed "Generate parent sample" mode.
+ */
+internal fun AgentSampleSummary.isTransactionSample(): Boolean =
+    subResults.isEmpty() && responseMessage.startsWith(TransactionController.NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX)
+
 internal fun AgentSampleSummary.isFailureForAnalysis(ignoreStaticAssetFailures: Boolean): Boolean {
+    if (isTransactionSample()) {
+        return false
+    }
     if (hasAssertionFailure) {
         return true
     }

@@ -17,15 +17,12 @@
 
 package org.apache.jmeter.visualizers;
 
-import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -34,11 +31,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.image.BufferedImage;
 import java.net.URL;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -51,7 +46,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -65,7 +59,6 @@ import javax.swing.BorderFactory;
 import javax.swing.ComboBoxModel;
 import javax.swing.DefaultComboBoxModel;
 import javax.swing.Icon;
-import javax.swing.ImageIcon;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -87,9 +80,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 import javax.swing.WindowConstants;
-import javax.swing.border.Border;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -97,13 +88,11 @@ import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 
-import org.apache.jmeter.JMeter;
 import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.GuiPackage;
@@ -124,7 +113,6 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
-import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.StringUtilities;
 import org.apache.jorphan.util.StringWrap;
@@ -149,14 +137,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public static final Color SERVER_ERROR_COLOR = Color.red;
     public static final Color CLIENT_ERROR_COLOR = Color.blue;
     public static final Color REDIRECT_COLOR = Color.green;
-    private static final Color SUCCESS_ICON_COLOR = new Color(0x2EAD4F);
-    private static final Color FAILURE_ICON_COLOR = new Color(0xD83A34);
 
     protected static final String COMBO_CHANGE_COMMAND = "change_combo"; // $NON-NLS-1$
 
-    private static final Border RED_BORDER = BorderFactory.createLineBorder(Color.red);
-    private static final Border BLUE_BORDER = BorderFactory.createLineBorder(Color.blue);
-    private static final String ICON_SIZE = JMeterUtils.getPropDefault(JMeter.TREE_ICON_SIZE, JMeter.DEFAULT_TREE_ICON_SIZE);
     private static final Pattern JMETER_THREAD_NAME =
             Pattern.compile("(.+) \\d+-\\d+$"); // $NON-NLS-1$
     private static final DateTimeFormatter RESULT_TABLE_TIMESTAMP_FORMAT =
@@ -180,12 +163,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     private static final int REFRESH_PERIOD = JMeterUtils.getPropDefault("jmeter.gui.refresh_period", 500);
 
+    private static final int RUNNING_REFRESH_PERIOD = 100;
+
     private static final String AUTO_DETACH_ON_VALIDATION =
             "ViewResultsFullVisualizer.auto_detach_on_validation"; // $NON-NLS-1$
-
-    private static final Icon imageSuccess = createStatusIcon(true);
-
-    private static final Icon imageFailure = createStatusIcon(false);
 
     private ResultListSplitPane mainSplit;
     private DefaultMutableTreeNode root;
@@ -227,7 +208,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private Object renderedResponseObject = null;
     private TreeSelectionEvent lastSelectionEvent;
     private JCheckBox autoScrollCB;
-    private final Queue<SampleResult> buffer = new ArrayDeque<>();
+    // Top level results; also the lock guarding the result state below
+    private final List<SampleResult> buffer = new ArrayList<>();
+    // Guarded by buffer
+    private final TransactionResultTree transactions;
     // Guarded by buffer; discard pending work when a result is evicted or cleared.
     private final Set<SampleResult> pendingNavigationTargets =
             Collections.newSetFromMap(new IdentityHashMap<>());
@@ -237,22 +221,72 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private String selectedThreadName;
     private String selectedLabel;
     private boolean updatingResultFilters;
+    // Only used on the event dispatch thread, refreshed with the tree
+    private Set<SampleResult> runningResults = Set.of();
 
     public ViewResultsFullVisualizer() {
         super();
         this.maxResults = JMeterUtils.getPropDefault("view.results.tree.max_results", 500);
+        this.transactions = new TransactionResultTree(buffer, maxResults);
         init();
         new Timer(REFRESH_PERIOD, e -> updateGui()).start();
+        // Keep the elapsed time of running transactions ticking
+        new Timer(RUNNING_REFRESH_PERIOD, e -> {
+            if (!runningResults.isEmpty()) {
+                jTree.repaint();
+            }
+        }).start();
     }
 
     @Override
     public void add(final SampleResult sample) {
         synchronized (buffer) {
-            if (maxResults > 0 && buffer.size() >= maxResults) {
-                pendingNavigationTargets.remove(buffer.remove());
-            }
-            buffer.add(sample);
+            transactions.add(sample).forEach(pendingNavigationTargets::remove);
             pendingNavigationTargets.add(sample);
+            dataChanged = true;
+        }
+    }
+
+    /**
+     * Shows a transaction as soon as it starts, so its samples appear below it as they complete.
+     */
+    @Override
+    public boolean needsStartedResults() {
+        return true;
+    }
+
+    /**
+     * Shows a sampler as soon as it sends its request; the finished sample takes its place.
+     */
+    @Override
+    public void addStartedSample(SampleEvent event) {
+        synchronized (buffer) {
+            transactions.addStartedSample(event.getResult()).forEach(pendingNavigationTargets::remove);
+            pendingNavigationTargets.add(event.getResult());
+            dataChanged = true;
+        }
+    }
+
+    @Override
+    public void removeStartedSample(SampleEvent event) {
+        synchronized (buffer) {
+            if (transactions.removeStartedSample(event.getResult())) {
+                pendingNavigationTargets.remove(event.getResult());
+                dataChanged = true;
+            }
+        }
+    }
+
+    @Override
+    public void addStartedTransaction(SampleEvent event) {
+        SampleResult started = event.getResult();
+        if (started == null) {
+            return;
+        }
+        detachForValidationIfNeeded();
+        synchronized (buffer) {
+            transactions.addStarted(started).forEach(pendingNavigationTargets::remove);
+            pendingNavigationTargets.add(started);
             dataChanged = true;
         }
     }
@@ -265,7 +299,17 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             if (!sample.hasJMeterVariables()) {
                 sample.setJMeterVariables(snapshotVariables(event));
             }
-            add(sample);
+            if (event.getStartedSample() == null) {
+                add(sample);
+                return;
+            }
+            synchronized (buffer) {
+                // The finished sample takes the place of the running one
+                transactions.finishSample(event.getStartedSample(), sample).forEach(pendingNavigationTargets::remove);
+                pendingNavigationTargets.remove(event.getStartedSample());
+                pendingNavigationTargets.add(sample);
+                dataChanged = true;
+            }
         }
     }
 
@@ -288,15 +332,17 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
 
             final Enumeration<TreePath> expandedElements = jTree.getExpandedDescendants(new TreePath(root));
-            oldExpandedElements = extractExpandedObjects(expandedElements);
-            oldSelectedElement = getSelectedObject();
+            oldExpandedElements = new HashSet<>(extractExpandedObjects(expandedElements));
+            oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, getSelectedObject());
+            runningResults = transactions.runningResults();
+            for (SampleResult pending : pendingNavigationTargets) {
+                SampleResultNodeResolver.rememberNavigationTargets(pending);
+            }
+            pendingNavigationTargets.clear();
             root.removeAllChildren();
             updateThreadGroupFilterOptions();
             List<ResultTableModel.ResultTableRow> tableRows = new ArrayList<>();
             for (SampleResult sampler: buffer) {
-                if (pendingNavigationTargets.remove(sampler)) {
-                    SampleResultNodeResolver.rememberNavigationTargets(sampler);
-                }
                 if (!matchesSelectedThreadFilters(sampler) || !sampleOrSubResultMatchesSelectedLabel(sampler)) {
                     continue;
                 }
@@ -331,6 +377,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 }
             }
             treeModel.nodeStructureChanged(root);
+            resultTableModel.setRunningResults(runningResults, ResultStatusIcons.RUNNING);
             resultTableModel.setRows(tableRows);
             dataChanged = false;
         }
@@ -404,12 +451,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             SampleResult res, List<TreeNode> path, Object selectedObject,
             Set<Object> oldExpandedObjects, Set<? super TreePath> newExpandedPaths,
             List<ResultTableModel.ResultTableRow> tableRows, int depth) {
-        SampleResult[] subResults = res.getSubResults();
-
         int leafIndex = 0;
         TreePath result = null;
 
-        for (SampleResult child : subResults) {
+        for (SampleResult child : transactions.childrenOf(res)) {
             log.debug("updateGui1 : child sample result - {}", child);
             if (!sampleOrSubResultMatchesSelectedLabel(child)) {
                 continue;
@@ -456,6 +501,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     public void clearData() {
         synchronized (buffer) {
             buffer.clear();
+            transactions.clear();
+            runningResults = Set.of();
             pendingNavigationTargets.clear();
             dataChanged = true;
         }
@@ -967,7 +1014,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
         treeModel = new DefaultTreeModel(root);
         jTree = new JTree(treeModel);
-        jTree.setCellRenderer(new ResultsNodeRenderer());
+        jTree.setCellRenderer(new ResultsNodeRenderer(() -> runningResults));
         jTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         jTree.addTreeSelectionListener(this);
         jTree.addMouseListener(new MouseAdapter() {
@@ -991,7 +1038,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         JScrollPane treePane = new JScrollPane(jTree);
         treePane.setPreferredSize(new Dimension(200, 300));
 
-        resultTableModel = new ResultTableModel(imageSuccess, imageFailure, RESULT_TABLE_TIMESTAMP_FORMAT);
+        resultTableModel = new ResultTableModel(ResultStatusIcons.SUCCESS, ResultStatusIcons.FAILURE, RESULT_TABLE_TIMESTAMP_FORMAT);
         resultTable = new JTable(resultTableModel) {
             private static final long serialVersionUID = 7261698980341042273L;
 
@@ -1373,7 +1420,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             selectedThreadName = null;
         }
         List<String> labels = buffer.stream()
-                .flatMap(ViewResultsFullVisualizer::sampleAndSubResults)
+                .flatMap(transactions::resultAndChildren)
                 .map(SampleResult::getSampleLabel)
                 .filter(label -> !StringUtilities.isEmpty(label))
                 .distinct()
@@ -1450,7 +1497,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     }
 
     private boolean sampleOrSubResultMatchesSelectedLabel(SampleResult sample) {
-        return sampleOrSubResultMatchesLabel(sample, selectedLabel);
+        return selectedLabel == null
+                || transactions.resultAndChildren(sample)
+                        .anyMatch(result -> selectedLabel.equals(result.getSampleLabel()));
     }
 
     static boolean matchesLabel(SampleResult sample, String label) {
@@ -1553,21 +1602,26 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private void storeReplayResults() {
         Map<JMeterTreeNode, SampleResult> replayedSamples = new LinkedHashMap<>();
         synchronized (buffer) {
-            for (SampleResult sampleResult : buffer) {
-                collectReplayableSamples(sampleResult, replayedSamples);
-            }
+            buffer.stream()
+                    .flatMap(transactions::resultAndChildren)
+                    .forEach(sampleResult -> collectReplayableSample(sampleResult, replayedSamples));
         }
         ReplayRecordingStore.chooseAndStore(jTree, replayedSamples);
     }
 
     static void collectReplayableSamples(
             SampleResult sampleResult, Map<JMeterTreeNode, SampleResult> replayedSamples) {
+        collectReplayableSample(sampleResult, replayedSamples);
+        for (SampleResult subResult : sampleResult.getSubResults()) {
+            collectReplayableSamples(subResult, replayedSamples);
+        }
+    }
+
+    private static void collectReplayableSample(
+            SampleResult sampleResult, Map<JMeterTreeNode, SampleResult> replayedSamples) {
         JMeterTreeNode samplerNode = findTestPlanNode(sampleResult);
         if (canStoreReplay(sampleResult, samplerNode)) {
             replayedSamples.put(samplerNode, sampleResult);
-        }
-        for (SampleResult subResult : sampleResult.getSubResults()) {
-            collectReplayableSamples(subResult, replayedSamples);
         }
     }
 
@@ -1838,46 +1892,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 .toLowerCase(Locale.ROOT);
     }
 
-    private static Icon createStatusIcon(boolean success) {
-        String propertyName = success ? "viewResultsTree.success" : "viewResultsTree.failure"; // $NON-NLS-1$ //$NON-NLS-2$
-        String configuredIcon = JMeterUtils.getProperty(propertyName);
-        if (!StringUtilities.isEmpty(configuredIcon)) {
-            return JMeterUtils.getImage(configuredIcon);
-        }
-
-        int size = Math.max(12, Math.min(20, iconSize()));
-        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = image.createGraphics();
-        try {
-            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            graphics.setColor(success ? SUCCESS_ICON_COLOR : FAILURE_ICON_COLOR);
-            graphics.fillOval(1, 1, size - 2, size - 2);
-            graphics.setColor(Color.WHITE);
-            graphics.setStroke(new BasicStroke(Math.max(1.7f, size / 8f), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
-            if (success) {
-                graphics.drawLine(size / 4, size / 2, size * 5 / 12, size * 2 / 3);
-                graphics.drawLine(size * 5 / 12, size * 2 / 3, size * 3 / 4, size / 3);
-            } else {
-                int inset = Math.max(4, size / 4);
-                graphics.drawLine(inset, inset, size - inset, size - inset);
-                graphics.drawLine(size - inset, inset, inset, size - inset);
-            }
-        } finally {
-            graphics.dispose();
-        }
-        return new ImageIcon(image);
-    }
-
-    private static int iconSize() {
-        int separator = ICON_SIZE.indexOf('x');
-        String size = separator < 0 ? ICON_SIZE : ICON_SIZE.substring(0, separator);
-        try {
-            return Integer.parseInt(size);
-        } catch (NumberFormatException e) {
-            return 16;
-        }
-    }
-
     @API(status = API.Status.INTERNAL, since = "5.5")
     public static String wrapLongLines(String input) {
         if (StringUtilities.isEmpty(input)) {
@@ -1890,42 +1904,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return input;
     }
 
-
-    private static class ResultsNodeRenderer extends DefaultTreeCellRenderer {
-        private static final long serialVersionUID = 4159626601097711565L;
-
-        @Override
-        public Component getTreeCellRendererComponent(JTree tree, Object value,
-                boolean sel, boolean expanded, boolean leaf, int row, boolean focus) {
-            super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, focus);
-            boolean failure = true;
-            Object userObject = ((DefaultMutableTreeNode) value).getUserObject();
-            if (userObject instanceof SampleResult sampleResult) {
-                failure = !sampleResult.isSuccessful();
-            } else if (userObject instanceof AssertionResult assertion) {
-                failure = assertion.isError() || assertion.isFailure();
-            }
-
-            // Set the status for the node
-            if (failure) {
-                this.setForeground(UIManager.getColor(JMeterUIDefaults.LABEL_ERROR_FOREGROUND));
-                this.setIcon(imageFailure);
-            } else {
-                this.setIcon(imageSuccess);
-            }
-
-            // Handle search related rendering
-            SearchableTreeNode node = (SearchableTreeNode) value;
-            if(node.isNodeHasMatched()) {
-                setBorder(RED_BORDER);
-            } else if (node.isChildrenNodesHaveMatched()) {
-                setBorder(BLUE_BORDER);
-            } else {
-                setBorder(null);
-            }
-            return this;
-        }
-    }
 
     private static class StatusIconTableCellRenderer extends DefaultTableCellRenderer {
         private static final long serialVersionUID = -6384657543198064346L;

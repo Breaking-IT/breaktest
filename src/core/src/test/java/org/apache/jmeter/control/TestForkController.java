@@ -138,21 +138,20 @@ class TestForkController {
 
     @Test
     void forkExecutionControllerCompletesTransactionChild() {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
         ForkController controller = new ForkController();
         controller.setName("fork");
         TransactionController transactionController = new TransactionController();
         transactionController.setName("transaction");
-        transactionController.setGenerateParentSample(true);
         transactionController.addTestElement(new TestSampler("child"));
         controller.addTestElement(transactionController);
         controller.initialize();
 
         ForkControllerSampler forkSampler = assertInstanceOf(ForkControllerSampler.class, controller.next());
-        TransactionSampler first = assertInstanceOf(TransactionSampler.class, forkSampler.getController().next());
-        assertEquals("child", first.getSubSampler().getName());
-        TransactionSampler last = assertInstanceOf(TransactionSampler.class, forkSampler.getController().next());
-        assertNull(last.getSubSampler());
+        assertEquals("child", forkSampler.getController().next().getName());
         assertNull(forkSampler.getController().next());
+        assertNull(JMeterContextService.getContext().getCurrentTransaction(),
+                "The transaction must end with its last child");
     }
 
     @Test
