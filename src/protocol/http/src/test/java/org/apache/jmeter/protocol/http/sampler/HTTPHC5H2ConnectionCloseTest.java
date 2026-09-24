@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.security.KeyStore;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -160,6 +161,11 @@ class HTTPHC5H2ConnectionCloseTest {
             // Simulate the start of the next thread group iteration for a new visitor
             sampler.testIterationStart(null);
             assertClosedPromptly("the previous visitor's HTTP/2 connection must be closed on a new iteration");
+            proxy.acceptNextConnection();
+            // Keep the same sampler and route to exercise the existing client's pool after reset.
+            assertSuccessful(sampler.sample());
+            assertEquals(2, proxy.acceptedConnections.get(),
+                    "the next visitor must open a fresh TCP connection for its HTTPS request");
         } finally {
             sampler.threadFinished();
         }
@@ -216,6 +222,7 @@ class HTTPHC5H2ConnectionCloseTest {
         private final ServerSocket listener;
         private final int serverPort;
         private final CountDownLatch clientClosed = new CountDownLatch(1);
+        private final AtomicInteger acceptedConnections = new AtomicInteger();
         private volatile boolean frozen;
         private volatile long frozenAt;
         private volatile long clientClosedAt;
@@ -225,6 +232,10 @@ class HTTPHC5H2ConnectionCloseTest {
         FreezingProxy(int serverPort) throws IOException {
             this.serverPort = serverPort;
             this.listener = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
+            startAcceptor();
+        }
+
+        private void startAcceptor() {
             Thread acceptor = new Thread(this::accept, "freezing-proxy-accept");
             acceptor.setDaemon(true);
             acceptor.start();
@@ -232,6 +243,15 @@ class HTTPHC5H2ConnectionCloseTest {
 
         int getPort() {
             return listener.getLocalPort();
+        }
+
+        /** Allow another connection on the same port after the frozen client has closed. */
+        void acceptNextConnection() {
+            assertEquals(0, clientClosed.getCount(), "the previous client must have closed first");
+            JOrphanUtils.closeQuietly(client);
+            JOrphanUtils.closeQuietly(upstream);
+            frozen = false;
+            startAcceptor();
         }
 
         void freeze() {
@@ -251,6 +271,7 @@ class HTTPHC5H2ConnectionCloseTest {
         private void accept() {
             try {
                 client = listener.accept();
+                acceptedConnections.incrementAndGet();
                 upstream = new Socket(InetAddress.getLoopbackAddress(), serverPort);
                 pump(client, upstream, true);
                 pump(upstream, client, false);
