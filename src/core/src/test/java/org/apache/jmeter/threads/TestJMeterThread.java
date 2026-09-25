@@ -46,6 +46,8 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
+import org.apache.jmeter.assertions.Assertion;
+import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkController.ErrorAction;
@@ -61,11 +63,13 @@ import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
+import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.samplers.SampleIgnorePolicy;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
@@ -92,6 +96,91 @@ class TestJMeterThread {
         controller.setIterationEndAction(IterationEndAction.GRACEFUL);
         controller.setRunningAction(RunningAction.SKIP);
         return controller;
+    }
+
+    private static final class IgnoreTestPostProcessor extends AbstractTestElement implements PostProcessor {
+        private final AtomicInteger calls;
+        private final boolean ignore;
+
+        IgnoreTestPostProcessor(AtomicInteger calls, boolean ignore) {
+            this.calls = calls;
+            this.ignore = ignore;
+        }
+
+        @Override
+        public void process() {
+            calls.incrementAndGet();
+            if (ignore) {
+                JMeterContextService.getContext().getPreviousResult().setIgnore();
+            }
+        }
+    }
+
+    private static final class IgnoreTestAssertion extends AbstractTestElement implements Assertion {
+        private final boolean failure;
+
+        IgnoreTestAssertion(boolean failure) {
+            this.failure = failure;
+        }
+
+        @Override
+        public AssertionResult getResult(SampleResult response) {
+            AssertionResult result = new AssertionResult("test assertion");
+            result.setFailure(failure);
+            return result;
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "NEVER, true, false, false, 1",
+        "NEVER, false, false, false, 1",
+        "ON_SUCCESS, true, false, false, 0",
+        "ON_SUCCESS, false, false, false, 1",
+        "ON_SUCCESS, true, true, false, 1",
+        "ALWAYS, true, false, false, 0",
+        "ALWAYS, false, false, false, 0",
+        "ALWAYS, true, true, false, 0",
+        "NEVER, true, false, true, 0",
+        "ON_SUCCESS, false, false, true, 0"
+    })
+    void testSamplerIgnorePolicy(SampleIgnorePolicy policy, boolean success, boolean assertionFailure,
+            boolean scriptIgnore, int expectedSamples) {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger postProcessorCalls = new AtomicInteger();
+        ResultStatusSampler sampler = new ResultStatusSampler("request", success, calls);
+        policy.save(sampler);
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("transaction");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        HashTree samplerTree = loopTree.add(transaction).add(sampler);
+        samplerTree.add(new IgnoreTestPostProcessor(postProcessorCalls, scriptIgnore));
+        samplerTree.add(new IgnoreTestAssertion(assertionFailure));
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("group");
+        group.setNumThreads(1);
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier());
+        thread.setThreadGroup(group);
+        thread.setThreadName("ignore-policy-test");
+        thread.run();
+
+        assertEquals(1, calls.get());
+        assertEquals(1, postProcessorCalls.get(), "Ignoring must not skip extraction and other post-processing");
+        assertEquals(expectedSamples, listener.events().stream().filter(e -> !e.isTransactionSampleEvent()).count());
+        assertEquals(1, listener.transactionEvents().size());
+        int failures = expectedSamples > 0 && (!success || assertionFailure) ? 1 : 0;
+        assertEquals(failures == 0, listener.transactionEvents().get(0).getResult().isSuccessful(),
+                "Ignored failures must not change the transaction's success status");
+        assertEquals("Number of samples in transaction : " + expectedSamples + ", number of failing samples : " + failures,
+                listener.transactionEvents().get(0).getResult().getResponseMessage());
+        assertEquals(List.of("started:request", "stopped:request"), listener.startEvents().stream()
+                .filter(e -> !e.startsWith("occurred:")).toList(), "Live sample starts must still be cleaned up");
     }
 
     private static final class DummySampler extends AbstractSampler {

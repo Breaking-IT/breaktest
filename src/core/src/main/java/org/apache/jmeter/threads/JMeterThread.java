@@ -66,6 +66,7 @@ import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.samplers.SampleIgnorePolicy;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleMonitor;
 import org.apache.jmeter.samplers.SampleResult;
@@ -1391,7 +1392,8 @@ public class JMeterThread implements Runnable, Interruptible {
                         doneLocked(pack, recoverControllers);
                         return null;
                     }
-                    // PostProcessors can call setIgnore, so reevaluate here
+                    SampleIgnorePolicy.from(pack.getSampler()).apply(result);
+                    // PostProcessors and the sampler policy can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
                         List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);

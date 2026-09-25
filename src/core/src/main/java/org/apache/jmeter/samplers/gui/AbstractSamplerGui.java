@@ -32,6 +32,11 @@ import org.apache.jmeter.gui.util.MenuFactory;
 public abstract class AbstractSamplerGui extends AbstractJMeterGuiComponent {
     private static final long serialVersionUID = 240L;
 
+    @Override
+    protected boolean isSamplerGui() {
+        return true;
+    }
+
     /**
      * When a user right-clicks on the component in the test tree, or selects
      * the edit menu when the component is selected, the component will be asked
