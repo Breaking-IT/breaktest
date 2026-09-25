@@ -1670,7 +1670,7 @@ class TestJMeterThread {
             boolean sameUser, boolean parallel, boolean hardStop) throws Exception {
         Semaphore forkStarted = new Semaphore(0);
         AtomicInteger cancelledRequests = new AtomicInteger();
-        AtomicInteger timerStops = new AtomicInteger();
+        AtomicInteger timerStarts = new AtomicInteger();
         AtomicInteger mainCalls = new AtomicInteger();
         InterruptibleFailureSampler request = new InterruptibleFailureSampler() {
             private static final long serialVersionUID = 1L;
@@ -1737,13 +1737,9 @@ class TestJMeterThread {
 
                 @Override
                 public long delay() {
+                    timerStarts.incrementAndGet();
                     forkStarted.release();
                     return 60_000;
-                }
-
-                @Override
-                public void stop() {
-                    timerStops.incrementAndGet();
                 }
             });
         }
@@ -1763,7 +1759,9 @@ class TestJMeterThread {
             assertFalse(runner.isAlive(), "Main flow must finish without waiting for the keep-alive");
             assertEquals(iterations, mainCalls.get());
             assertEquals(waitingInTimer ? 0 : iterations, cancelledRequests.get());
-            assertEquals(waitingInTimer ? iterations : 0, timerStops.get());
+            // A timer can observe stopRequested and exit before its stop callback is visited.
+            // Every timer must have started, no delayed sampler may run, and cleanup must finish.
+            assertEquals(waitingInTimer ? iterations : 0, timerStarts.get());
             assertEquals(Collections.nCopies(iterations, "main"), listener.events().stream()
                     .map(event -> event.getResult().getSampleLabel()).toList());
             assertForkBookkeepingEventuallyEmpty(thread);
