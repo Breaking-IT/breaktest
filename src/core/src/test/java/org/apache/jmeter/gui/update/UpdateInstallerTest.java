@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -106,6 +107,20 @@ class UpdateInstallerTest {
                     failure.addSuppressed(cleanupFailure);
                 }
                 throw failure;
+            }
+        }
+        // On Windows the process can be reported as exited just before its mapped JAR
+        // is released. Confirm release ourselves instead of racing JUnit's temp cleanup.
+        long releaseDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            try {
+                Files.delete(helperJar);
+                break;
+            } catch (FileSystemException locked) {
+                if (System.nanoTime() >= releaseDeadline) {
+                    throw locked;
+                }
+                Thread.sleep(25);
             }
         }
     }
