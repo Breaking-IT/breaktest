@@ -27,16 +27,21 @@ import java.awt.Container;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.border.Border;
 
 import org.apache.jmeter.gui.util.VerticalPanel;
+import org.apache.jmeter.samplers.SampleIgnorePolicy;
+import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestElementSchema;
 import org.apache.jmeter.util.JMeterUtils;
@@ -86,6 +91,10 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
 
     private final JButton commentsButton = new JButton(JMeterUtils.getResString("comments_show")); // $NON-NLS-1$
 
+    private final JButton ignoreButton = new JButton();
+
+    private SampleIgnorePolicy ignorePolicy = SampleIgnorePolicy.NEVER;
+
     private JLabel commentLabel;
 
     private boolean commentsExpanded;
@@ -106,6 +115,9 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         namePanel = new NamePanel();
         commentsButton.setToolTipText(JMeterUtils.getResString("comments_show_tooltip")); // $NON-NLS-1$
         commentsButton.addActionListener(e -> expandComments());
+        ignoreButton.setVisible(false);
+        ignoreButton.setToolTipText(JMeterUtils.getResString("sampler_ignore_tooltip"));
+        ignoreButton.addActionListener(e -> showIgnoreMenu());
         init();
     }
 
@@ -223,6 +235,9 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         enabled = element.isEnabled();
         commentsExpanded = false;
         setComment(element.getComment());
+        ignoreButton.setVisible(element instanceof Sampler);
+        ignorePolicy = element instanceof Sampler sampler ? SampleIgnorePolicy.from(sampler) : SampleIgnorePolicy.NEVER;
+        updateIgnoreButton();
         bindingGroup.updateUi(element);
     }
 
@@ -242,6 +257,8 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         setName(getStaticLabel());
         commentsExpanded = false;
         setComment("");
+        ignorePolicy = SampleIgnorePolicy.NEVER;
+        updateIgnoreButton();
     }
 
     private void init() {
@@ -296,6 +313,9 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         // override it and provide a different implementation.
         String comment = getComment();
         mc.setComment(comment.isEmpty() ? null : comment);
+        if (mc instanceof Sampler sampler) {
+            ignorePolicy.save(sampler);
+        }
     }
 
     /**
@@ -308,20 +328,22 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
      */
     protected Container makeTitlePanel() {
         JPanel titlePanel = new JPanel(new MigLayout(
-                "fillx, wrap 3, insets 0, hidemode 3", // $NON-NLS-1$
-                "[][fill,grow][right]")); // $NON-NLS-1$
-        titlePanel.add(createTitleLabel(), "span 3");
+                "fillx, wrap 4, insets 0, hidemode 3", // $NON-NLS-1$
+                "[][fill,grow][right][right]")); // $NON-NLS-1$
+        titlePanel.add(createTitleLabel(), "span 4");
 
         JTextField nameField = namePanel.getNameField();
         titlePanel.add(labelFor(nameField, "name"));
         titlePanel.add(nameField);
         titlePanel.add(commentsButton, "gapleft 8"); // $NON-NLS-1$
+        ignoreButton.setVisible(isSamplerGui());
+        titlePanel.add(ignoreButton);
 
         commentLabel = labelFor(commentField, "testplan_comments");
         titlePanel.add(commentLabel, "newline"); // $NON-NLS-1$
         commentField.setWrapStyleWord(true);
         commentField.setLineWrap(true);
-        titlePanel.add(commentField, "span 2, growx"); // $NON-NLS-1$
+        titlePanel.add(commentField, "span 3, growx"); // $NON-NLS-1$
         updateCommentsVisibility();
 
         // Note: VerticalPanel has a workaround for Box layout which aligns elements, so we can't
@@ -330,6 +352,31 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         // For instance AbstractVisualizer adds "browse file" panel
         // If it calls just ..add(browseFilePanel), then it will go to
         return wrapTitlePanel(titlePanel);
+    }
+
+    /** Whether newly created elements in this editor are samplers. */
+    protected boolean isSamplerGui() {
+        return false;
+    }
+
+    private void updateIgnoreButton() {
+        ignoreButton.setText(JMeterUtils.getResString(ignorePolicy.getLabelResource()));
+    }
+
+    private void showIgnoreMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        ButtonGroup group = new ButtonGroup();
+        for (SampleIgnorePolicy policy : SampleIgnorePolicy.values()) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(
+                    JMeterUtils.getResString(policy.getLabelResource()), policy == ignorePolicy);
+            item.addActionListener(e -> {
+                ignorePolicy = policy;
+                updateIgnoreButton();
+            });
+            group.add(item);
+            menu.add(item);
+        }
+        menu.show(ignoreButton, 0, ignoreButton.getHeight());
     }
 
     private void expandComments() {

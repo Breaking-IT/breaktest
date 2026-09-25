@@ -277,7 +277,11 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 5));
             wrapper.setBorder(makeBorder());
-            wrapper.add(makeTitlePanel(), BorderLayout.NORTH);
+            JPanel header = new JPanel(new BorderLayout());
+            // Match the request area's right inset so header actions align with its fields.
+            header.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, urlConfigGui.getInsets().right));
+            header.add(makeTitlePanel(), BorderLayout.CENTER);
+            wrapper.add(header, BorderLayout.NORTH);
             wrapper.add(urlConfigGui, BorderLayout.CENTER);
             add(wrapper);
         } else {
