@@ -141,7 +141,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         setLayout(new BorderLayout());
         setBorder(makeBorder());
         add(makeTitlePanel(), BorderLayout.NORTH);
-        JPanel panel = new JPanel(new MigLayout("wrap 1, hidemode 3, insets 0, gapy 10", "[left]"));
+        JPanel panel = new JPanel(new MigLayout("wrap 1, hidemode 3, insets 16 0 0 0, gapy 10", "[left]"));
         whenRunning = new OptionGroup<>("fork_controller_when_running", RunningAction.values(), action -> switch (action) {
             case SKIP -> "fork_controller_running_skip";
             case RESTART -> "fork_controller_running_restart";
