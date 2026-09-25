@@ -15,7 +15,18 @@ specific language governing permissions and limitations under the License.
 
 # BreakTest 2026.09.25 — Fork Controls, Live Transactions, and Schedule Tables
 
-This release makes background forks configurable, streams transaction results as requests finish, and adds editable load-schedule tables with random arrivals. It also introduces sampler-result filtering and While Controller iteration limits, improves HTTP/2 cleanup, and adds autocomplete to search and replace.
+This release simplifies Transaction Controller by removing Generate parent sample and combining immediate metrics, low memory use, and live transaction progress in one reporting model. It also makes background forks configurable, adds schedule tables with random arrivals, and introduces script-free sampler-result filtering and While Controller iteration limits.
+
+## Simpler Transactions, Immediate Metrics, and Live Progress
+
+- **Generate parent sample is removed.** There is now one Transaction Controller reporting model, combining the benefits of both previous modes without having to choose between immediate results and a transaction hierarchy.
+- **Lower memory use:** parent mode used to retain all child sampler results and response data until the transaction completed, potentially keeping them until the following sampler ran. Transactions now retain only running totals and lightweight links, so they no longer hold every response body in memory for the duration of a long transaction.
+- **Immediate metrics:** each sampler result reaches listeners as soon as it completes, with a link to its transaction. Metrics and results no longer have to wait for all samplers in the transaction to finish.
+- **Live progress:** interested listeners receive transaction-start notifications and the completed transaction result, allowing them to visualize a transaction while it is still running. In GUI mode, View Results Tree now shows both running transactions and running samplers with elapsed timers, replacing them with their results as they finish.
+- Enable optional transaction and parent-transaction IDs in CSV/XML JTL output with `jmeter.save.saveservice.transaction_ids=true`. Start events are opt-in, avoiding live-display overhead for listeners that do not need them. Transaction starts are notified at the first sampler, or at completion for naturally empty transactions.
+- Transactions cut short when a fork error ends the iteration report failure, including nested and parallel-flow transactions. Cancellation during an initial delay produces no empty transaction summary or orphaned start event.
+
+Sources: [#175](https://github.com/Breaking-IT/breaktest/pull/175), [#179](https://github.com/Breaking-IT/breaktest/pull/179).
 
 ## Fork Lifecycle and Error Handling
 
@@ -26,14 +37,13 @@ This release makes background forks configurable, streams transaction results as
 
 Sources: [#177](https://github.com/Breaking-IT/breaktest/pull/177), [#179](https://github.com/Breaking-IT/breaktest/pull/179).
 
-## Live Transactions and Result Filtering
+## Ignore Sampler Results Without Scripting
 
-- Transaction Controller now uses one reporting model: each sampler result reaches listeners immediately with a link to its transaction. Transactions retain running totals rather than child samples and response bodies, reducing retained memory. View Results Tree shows running transactions and samplers with elapsed timers.
-- Enable optional transaction and parent-transaction IDs in CSV/XML JTL output with `jmeter.save.saveservice.transaction_ids=true`. Listener start events are opt-in; transaction starts are notified at the first sampler, or at completion for naturally empty transactions.
-- Transactions cut short when a fork error ends the iteration now report failure, including nested and parallel-flow transactions. Cancellation during an initial delay produces no empty transaction summary or orphaned start event.
-- Choose Included, Ignore on success, or Ignore always from the sampler header. Policies apply after post-processors and assertions, so Ignore on success retains request and assertion failures. Ignored results are excluded from listeners and transaction counts, bytes, latency, connect time, and failure status; post-processing and error actions still run.
+- Choose **Included**, **Ignore on success**, or **Ignore always** directly from the sampler header. This removes the need to add a post-processor just to call `prev.setIgnore()`: it is easier to configure and avoids running an extra script for each sample. Existing scripts using `prev.setIgnore()` remain supported.
+- **Ignore on success is especially useful for long polling:** successful polling responses can be left out of response-time metrics while connection errors, unsuccessful responses, and assertion failures remain visible and can still fail the transaction or trigger configured error actions. The policy runs after post-processors and assertions, so it can distinguish a successful wait from a real failure.
+- Ignored results are excluded from listeners and transaction counts, bytes, latency, connect time, and failure status; post-processing, assertions, and error actions still run. To also exclude long-poll waits from an enclosing transaction's duration, select **Sum child sampler times**; wall-clock timing modes still include the wait.
 
-Sources: [#175](https://github.com/Breaking-IT/breaktest/pull/175), [#178](https://github.com/Breaking-IT/breaktest/pull/178), [#179](https://github.com/Breaking-IT/breaktest/pull/179).
+Source: [#178](https://github.com/Breaking-IT/breaktest/pull/178).
 
 ## Scheduling and Test Plan Editing
 
