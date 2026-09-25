@@ -22,18 +22,30 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Class for testing the HTTPMirrorThread, which is handling the
@@ -48,6 +60,53 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
     private static final int HTTP_SERVER_PORT = 8181;
     @RegisterExtension
     private static final HttpMirrorServerExtension HTTP_MIRROR_SERVER = new HttpMirrorServerExtension(HTTP_SERVER_PORT);
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void responseWriteFailureOnlyLogsUnexpectedIoErrors(boolean disconnected) throws Exception {
+        AtomicInteger writes = new AtomicInteger();
+        AtomicInteger errors = new AtomicInteger();
+        Logger logger = (Logger) LogManager.getLogger(HttpMirrorThread.class);
+        AbstractAppender appender = new AbstractAppender("mirror-errors", null, null, false, null) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel().isMoreSpecificThan(Level.ERROR)) {
+                    errors.incrementAndGet();
+                }
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        try (Socket socket = new Socket() {
+            @Override
+            public InputStream getInputStream() {
+                return new ByteArrayInputStream("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                        .getBytes(StandardCharsets.ISO_8859_1));
+            }
+
+            @Override
+            public OutputStream getOutputStream() {
+                return new OutputStream() {
+                    @Override
+                    public void write(int value) throws IOException {
+                        writes.incrementAndGet();
+                        if (disconnected) {
+                            throw new SocketException("Connection reset by peer");
+                        }
+                        throw new IOException("Unexpected response write failure");
+                    }
+                };
+            }
+        }) {
+            new HttpMirrorThread(socket).run();
+            assertTrue(writes.get() > 0);
+            assertTrue(socket.isClosed(), "The mirror must release a failed client connection");
+            assertEquals(disconnected ? 0 : 1, errors.get());
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+    }
 
     @Test
     public void testGetRequest() throws Exception {

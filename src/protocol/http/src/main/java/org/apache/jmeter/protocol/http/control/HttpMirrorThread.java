@@ -22,6 +22,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
@@ -283,6 +284,9 @@ public class HttpMirrorThread implements Runnable {
             }
             log.debug("Flush");
             out.flush();
+        } catch (SocketException e) {
+            // Clients may time out or cancel while the mirror is still sending its response.
+            log.debug("HTTP mirror client disconnected", e);
         } catch (IOException | InterruptedException e) {
             log.error("", e);
         } finally {
