@@ -70,7 +70,7 @@ class TestForkController {
         ForkController controller = new ForkController();
         assertEquals(ForkController.RunningAction.WAIT, controller.getRunningAction());
         assertFalse(controller.hasLifecyclePolicy());
-        assertEquals(ForkController.IterationEndAction.KEEP_RUNNING, controller.getIterationEndAction());
+        assertEquals(ForkController.IterationEndAction.LEGACY, controller.getIterationEndAction());
         assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
         controller.setRunningAction(ForkController.RunningAction.RESTART);
         controller.setIterationEndAction(ForkController.IterationEndAction.KEEP_RUNNING);
@@ -79,6 +79,18 @@ class TestForkController {
         assertEquals(controller.getRunningAction(), clone.getRunningAction());
         assertEquals(controller.getIterationEndAction(), clone.getIterationEndAction());
         assertEquals(controller.getFinalStopAction(), clone.getFinalStopAction());
+    }
+
+    @Test
+    void unknownPolicyValuesFallBackWithoutBreakingSavedPlans() {
+        ForkController controller = new ForkController();
+        controller.setProperty("ForkController.iteration_end_action", "FUTURE_VALUE");
+        controller.setProperty("ForkController.running_action", "FUTURE_VALUE");
+        controller.setProperty("ForkController.final_stop_action", "FUTURE_VALUE");
+        assertEquals(ForkController.IterationEndAction.LEGACY, controller.getIterationEndAction());
+        assertFalse(controller.hasLifecyclePolicy());
+        assertEquals(ForkController.RunningAction.WAIT, controller.getRunningAction());
+        assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
     }
 
     @Test

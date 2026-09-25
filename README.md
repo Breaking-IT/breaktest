@@ -102,7 +102,7 @@ debugging, and migration work that has landed across the BreakTest PR series.
   on re-entry. Plans saved without lifecycle options retain their original behavior:
   forks carry across iterations, re-entry waits, and thread end waits for completion.
   Selecting a controller or editing only its re-entry option preserves its legacy
-  lifecycle. Legacy controllers display Keep running; editing an end-of-flow option
+  lifecycle. Legacy controllers display an explicit Legacy option; editing an end-of-flow option
   opts into the explicit lifecycle settings. Code-created controllers without lifecycle
   properties also retain legacy behavior; set the lifecycle options explicitly to opt in.
 - Standard Thread Group can switch between closed and open workload models.

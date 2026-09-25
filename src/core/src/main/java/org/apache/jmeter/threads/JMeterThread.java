@@ -29,6 +29,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
@@ -224,6 +225,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final Object forkLifecycleLock = new Object();
 
+    private final IdentityHashMap<ForkController, ReentrantLock> forkStartLocks = new IdentityHashMap<>();
+
     private final List<ForkExecution> forkExecutions = Collections.synchronizedList(new ArrayList<>());
 
     private record ForkExecution(Future<?> task, IterationEndAction iterationEnd, FinalStopAction finalStop,
@@ -237,6 +240,7 @@ public class JMeterThread implements Runnable, Interruptible {
         private final ExecutorService executor;
         private final ForkController controller;
         private boolean started;
+        private final CountDownLatch exited = new CountDownLatch(1);
         private volatile boolean stopRequested;
         private volatile boolean suppressResult;
 
@@ -255,6 +259,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 super.run();
             } finally {
                 cleanupFinishedFork(this, executor, controller);
+                exited.countDown();
             }
         }
 
@@ -263,6 +268,7 @@ public class JMeterThread implements Runnable, Interruptible {
             synchronized (this) {
                 if (!started) {
                     cleanupFinishedFork(this, executor, controller);
+                    exited.countDown();
                 }
             }
         }
@@ -679,6 +685,34 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void startForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext,
             Function<? super Sampler, ? extends Sampler> sourceSampler) {
+        ForkController source = forkSampler.getSourceController();
+        if (source == null) {
+            startForkSamplerLocked(forkSampler, parentContext, sourceSampler);
+            return;
+        }
+        // Blocking under a Java monitor pins virtual-thread carriers on JDK 21-23.
+        ReentrantLock startLock;
+        synchronized (forkStartLocks) {
+            startLock = forkStartLocks.computeIfAbsent(source, ignored -> new ReentrantLock());
+        }
+        try {
+            while (!startLock.tryLock(50, TimeUnit.MILLISECONDS)) {
+                if (!running || isCurrentForkStopRequested()) {
+                    return;
+                }
+            }
+            try {
+                startForkSamplerLocked(forkSampler, parentContext, sourceSampler);
+            } finally {
+                startLock.unlock();
+            }
+        } catch (InterruptedException e) {
+            handleForkWaitInterrupted();
+        }
+    }
+
+    private void startForkSamplerLocked(ForkControllerSampler forkSampler, JMeterContext parentContext,
+            Function<? super Sampler, ? extends Sampler> sourceSampler) {
         if (isCurrentForkStopRequested()
                 || forkSampler.getController().isDone()) {
             return;
@@ -761,7 +795,7 @@ public class JMeterThread implements Runnable, Interruptible {
         if (previousTask == null) {
             return true;
         }
-        if (previousTask.isDone()) {
+        if (isForkFinished(previousTask)) {
             activeForkTasksByController.remove(sourceController);
             return true;
         }
@@ -818,7 +852,7 @@ public class JMeterThread implements Runnable, Interruptible {
         while (true) {
             List<ForkExecution> executions;
             synchronized (forkExecutions) {
-                executions = forkExecutions.stream().filter(execution -> !execution.task().isDone()).toList();
+                executions = forkExecutions.stream().filter(execution -> !isForkFinished(execution.task())).toList();
             }
             List<Future<?>> stop = new ArrayList<>();
             List<Future<?>> hardStop = new ArrayList<>();
@@ -843,7 +877,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     case GRACEFUL -> stop.add(execution.task());
                     case WAIT -> wait.add(execution.task());
-                    case KEEP_RUNNING -> { /* Survives this iteration for the same user. */ }
+                    case KEEP_RUNNING, LEGACY -> { /* Survives this iteration. */ }
                 }
             }
             if (stop.isEmpty() && wait.isEmpty()) {
@@ -897,18 +931,6 @@ public class JMeterThread implements Runnable, Interruptible {
                 return false;
             }
         }
-        // Parallel branches inside a fork can outlive the parent task after an interrupt.
-        // Keep cancellation quiet until those workers have also released their state.
-        for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
-            if (containsIdentity(tasks, entry.getValue().task)) {
-                try {
-                    entry.getKey().join();
-                } catch (InterruptedException e) {
-                    handleForkWaitInterrupted();
-                    return false;
-                }
-            }
-        }
         return true;
     }
 
@@ -934,17 +956,30 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
+    private static boolean isForkFinished(Future<?> task) {
+        return task instanceof ForkTask fork ? fork.exited.getCount() == 0 : task.isDone();
+    }
+
     private boolean waitForForkTask(Future<?> task) {
         try {
-            if (scheduler && running && !mainFlowFinished) {
-                task.get(Math.max(1, endTime - System.currentTimeMillis()), TimeUnit.MILLISECONDS);
-            } else {
-                task.get();
+            while (true) {
+                if (isCurrentForkStopRequested()) {
+                    return false;
+                }
+                if (scheduler && running && !mainFlowFinished && System.currentTimeMillis() >= endTime) {
+                    stopSchedulerIfNeeded();
+                    return false;
+                }
+                try {
+                    if (task instanceof ForkTask fork && !fork.exited.await(50, TimeUnit.MILLISECONDS)) {
+                        continue;
+                    }
+                    task.get(50, TimeUnit.MILLISECONDS);
+                    return true;
+                } catch (TimeoutException e) {
+                    // Recheck the caller's stop request and scheduled deadline.
+                }
             }
-            return true;
-        } catch (TimeoutException e) {
-            stopSchedulerIfNeeded();
-            return false;
         } catch (InterruptedException e) {
             handleForkWaitInterrupted();
             return false;
@@ -1027,6 +1062,21 @@ public class JMeterThread implements Runnable, Interruptible {
             }
         } finally {
             executor.shutdownNow();
+            if (isForkWorkerThread()) {
+                // Account for submitted branches that have not registered in forkWorkers yet.
+                // The parent task must remain alive until every nested worker has exited.
+                boolean interrupted = Thread.interrupted();
+                while (!executor.isTerminated()) {
+                    try {
+                        executor.awaitTermination(1, TimeUnit.DAYS);
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
         if (anyResult) {
             // Workers keep LAST_SAMPLE_OK to themselves (see ParallelWorkerVariables), so the

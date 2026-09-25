@@ -46,10 +46,6 @@ public class ForkControllerGui extends AbstractControllerGui {
     private JComboBox<IterationEndAction> onMainFlowEnd;
     private JComboBox<FinalStopAction> finalStop;
     private JLabel finalStopLabel;
-    private boolean configuring;
-    private boolean legacyOptions;
-    private boolean endOptionsEdited;
-    private boolean runningEdited;
 
     public ForkControllerGui() {
         init();
@@ -66,48 +62,28 @@ public class ForkControllerGui extends AbstractControllerGui {
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
         ForkController controller = (ForkController) element;
-        if (!legacyOptions || endOptionsEdited) {
-            controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
-            controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
-            controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
-        } else if (runningEdited) {
-            controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
-        }
+        controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
+        controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
+        controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
     }
 
     @Override
     public void configure(TestElement element) {
         super.configure(element);
         ForkController controller = (ForkController) element;
-        configuring = true;
-        try {
-            legacyOptions = !controller.hasLifecyclePolicy();
-            endOptionsEdited = false;
-            runningEdited = false;
-            whenRunning.setSelectedItem(controller.getRunningAction());
-            onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
-            finalStop.setSelectedItem(controller.getFinalStopAction());
-            updateFinalStopVisibility();
-        } finally {
-            configuring = false;
-        }
+        whenRunning.setSelectedItem(controller.getRunningAction());
+        onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
+        finalStop.setSelectedItem(controller.getFinalStopAction());
+        updateFinalStopVisibility();
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
-        configuring = true;
-        try {
-            legacyOptions = false;
-            endOptionsEdited = false;
-            runningEdited = false;
-            whenRunning.setSelectedItem(RunningAction.SKIP);
-            onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-            finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
-            updateFinalStopVisibility();
-        } finally {
-            configuring = false;
-        }
+        whenRunning.setSelectedItem(RunningAction.SKIP);
+        onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
+        finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
+        updateFinalStopVisibility();
     }
 
     @Override
@@ -144,6 +120,7 @@ public class ForkControllerGui extends AbstractControllerGui {
             case WAIT -> "fork_controller_running_wait";
         });
         onMainFlowEnd = options(IterationEndAction.values(), action -> switch (action) {
+            case LEGACY -> "fork_controller_end_legacy";
             case IMMEDIATE -> "fork_controller_end_immediate";
             case GRACEFUL -> "fork_controller_end_graceful";
             case WAIT -> "fork_controller_end_wait";
@@ -155,12 +132,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         });
         finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-        onMainFlowEnd.addActionListener(event -> {
-            endOptionsEdited |= !configuring;
-            updateFinalStopVisibility();
-        });
-        whenRunning.addActionListener(event -> runningEdited |= !configuring);
-        finalStop.addActionListener(event -> endOptionsEdited |= !configuring);
+        onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
         panel.add(JMeterUtils.labelFor(onMainFlowEnd, "fork_controller_on_main_flow_end"));
         panel.add(onMainFlowEnd);
         panel.add(finalStopLabel);

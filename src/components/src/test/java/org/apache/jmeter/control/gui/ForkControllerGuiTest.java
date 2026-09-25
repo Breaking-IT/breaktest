@@ -82,7 +82,7 @@ class ForkControllerGuiTest {
             gui.configure(legacy);
             gui.modifyTestElement(legacy);
             assertFalse(legacy.hasLifecyclePolicy());
-            assertEquals(IterationEndAction.KEEP_RUNNING, legacy.getIterationEndAction());
+            assertEquals(IterationEndAction.LEGACY, legacy.getIterationEndAction());
             assertEquals(RunningAction.WAIT, legacy.getRunningAction());
         });
     }
@@ -96,11 +96,12 @@ class ForkControllerGuiTest {
             selectOption(gui, RunningAction.SKIP);
             gui.modifyTestElement(legacy);
             assertEquals(RunningAction.SKIP, legacy.getRunningAction());
-            assertEquals(IterationEndAction.KEEP_RUNNING, legacy.getIterationEndAction());
+            assertEquals(IterationEndAction.LEGACY, legacy.getIterationEndAction());
             assertFalse(legacy.hasLifecyclePolicy());
             gui.configure(legacy);
             gui.modifyTestElement(legacy);
             assertFalse(legacy.hasLifecyclePolicy());
+            selectOption(gui, IterationEndAction.KEEP_RUNNING);
             selectOption(gui, FinalStopAction.IMMEDIATE);
             gui.modifyTestElement(legacy);
             assertEquals("KEEP_RUNNING", legacy.getPropertyAsString("ForkController.iteration_end_action"));
