@@ -66,6 +66,21 @@ class TestForkController {
     }
 
     @Test
+    void lifecycleOptionsDefaultToSkipAndGracefulStopAndSurviveCloning() {
+        ForkController controller = new ForkController();
+        assertEquals(ForkController.RunningAction.SKIP, controller.getRunningAction());
+        assertEquals(ForkController.IterationEndAction.GRACEFUL, controller.getIterationEndAction());
+        assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
+        controller.setRunningAction(ForkController.RunningAction.RESTART);
+        controller.setIterationEndAction(ForkController.IterationEndAction.KEEP_RUNNING);
+        controller.setFinalStopAction(ForkController.FinalStopAction.IMMEDIATE);
+        ForkController clone = (ForkController) controller.clone();
+        assertEquals(controller.getRunningAction(), clone.getRunningAction());
+        assertEquals(controller.getIterationEndAction(), clone.getIterationEndAction());
+        assertEquals(controller.getFinalStopAction(), clone.getFinalStopAction());
+    }
+
+    @Test
     void nextReturnsOneForkSamplerForAllChildren() {
         ForkController controller = new ForkController();
         controller.setName("fork");

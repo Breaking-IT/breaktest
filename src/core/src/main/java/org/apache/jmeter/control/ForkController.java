@@ -30,7 +30,51 @@ import org.apache.jmeter.testelement.TestElement;
 public class ForkController extends GenericController implements Serializable {
     private static final long serialVersionUID = 240L;
 
+    public enum IterationEndAction {
+        IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
+    }
+
+    public enum RunningAction {
+        SKIP, RESTART, WAIT
+    }
+
+    public enum FinalStopAction {
+        GRACEFUL, IMMEDIATE
+    }
+
+    private static final String ITERATION_END_ACTION = "ForkController.iteration_end_action";
+    private static final String RUNNING_ACTION = "ForkController.running_action";
+    private static final String FINAL_STOP_ACTION = "ForkController.final_stop_action";
+
     private transient boolean samplerReturned;
+
+    public IterationEndAction getIterationEndAction() {
+        return IterationEndAction.valueOf(getPropertyAsString(ITERATION_END_ACTION,
+                getPropertyAsBoolean("ForkController.hard_stop_on_main_flow_end", false)
+                        ? IterationEndAction.IMMEDIATE.name() : IterationEndAction.GRACEFUL.name()));
+    }
+
+    public void setIterationEndAction(IterationEndAction action) {
+        setProperty(ITERATION_END_ACTION, action.name());
+    }
+
+    public RunningAction getRunningAction() {
+        String legacy = getPropertyAsString("ForkController.skip_if_running", "");
+        return RunningAction.valueOf(getPropertyAsString(RUNNING_ACTION,
+                "false".equals(legacy) ? RunningAction.WAIT.name() : RunningAction.SKIP.name()));
+    }
+
+    public void setRunningAction(RunningAction action) {
+        setProperty(RUNNING_ACTION, action.name());
+    }
+
+    public FinalStopAction getFinalStopAction() {
+        return FinalStopAction.valueOf(getPropertyAsString(FINAL_STOP_ACTION, FinalStopAction.GRACEFUL.name()));
+    }
+
+    public void setFinalStopAction(FinalStopAction action) {
+        setProperty(FINAL_STOP_ACTION, action.name());
+    }
 
     @Override
     public void initialize() {

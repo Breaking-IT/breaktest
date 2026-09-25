@@ -92,7 +92,13 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Parallel Controller models browser-like concurrent requests with bounded
   parallel sampler execution and HTTP state safeguards.
 - Fork Controller runs a child branch asynchronously while the main virtual-user
-  flow continues, sharing the same context and variables.
+  flow continues, sharing the same context and variables. At each main-flow
+  iteration end, choose immediate stop without cancellation errors, graceful stop
+  after current samplers, wait for the entire fork, or keep running into the next
+  iteration. Keep running requires "Same user on each iteration" and has a separate
+  graceful/immediate stop choice for the final iteration or duration limit. When
+  the same fork is reached while still active, choose skip, hard restart, or wait
+  then start again. Defaults are graceful stop at iteration end and skip on re-entry.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.
