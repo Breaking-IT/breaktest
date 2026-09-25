@@ -1669,7 +1669,7 @@ class TestJMeterThread {
     void abortForkRequestsWithoutReportingErrors(int iterations, boolean waitingInTimer,
             boolean sameUser, boolean parallel, boolean hardStop) throws Exception {
         Semaphore forkStarted = new Semaphore(0);
-        AtomicInteger interruptions = new AtomicInteger();
+        AtomicInteger cancelledRequests = new AtomicInteger();
         AtomicInteger timerStops = new AtomicInteger();
         AtomicInteger mainCalls = new AtomicInteger();
         InterruptibleFailureSampler request = new InterruptibleFailureSampler() {
@@ -1681,10 +1681,13 @@ class TestJMeterThread {
                 release = new CountDownLatch(1);
                 forkStarted.release();
                 try {
-                    release.await(5, TimeUnit.SECONDS);
+                    assertTrue(release.await(5, TimeUnit.SECONDS), "The active request must be cancelled");
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+                // A parallel executor can interrupt the worker before the sampler callback runs.
+                // Either signal cancels the request; callback counts depend on worker exit timing.
+                cancelledRequests.incrementAndGet();
                 SampleResult result = new SampleResult();
                 result.setSampleLabel("cancelled-fork-request");
                 result.setSuccessful(false);
@@ -1693,7 +1696,6 @@ class TestJMeterThread {
 
             @Override
             public boolean interrupt() {
-                interruptions.incrementAndGet();
                 release.countDown();
                 return true;
             }
@@ -1760,7 +1762,7 @@ class TestJMeterThread {
             runner.join(5000);
             assertFalse(runner.isAlive(), "Main flow must finish without waiting for the keep-alive");
             assertEquals(iterations, mainCalls.get());
-            assertEquals(waitingInTimer ? 0 : iterations, interruptions.get());
+            assertEquals(waitingInTimer ? 0 : iterations, cancelledRequests.get());
             assertEquals(waitingInTimer ? iterations : 0, timerStops.get());
             assertEquals(Collections.nCopies(iterations, "main"), listener.events().stream()
                     .map(event -> event.getResult().getSampleLabel()).toList());
