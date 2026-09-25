@@ -18,10 +18,14 @@
 package org.apache.jmeter.control;
 
 import java.io.Serializable;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Starts the child flow on a detached worker for the current virtual user and
@@ -30,7 +34,83 @@ import org.apache.jmeter.testelement.TestElement;
 public class ForkController extends GenericController implements Serializable {
     private static final long serialVersionUID = 240L;
 
+    private static final Logger log = LoggerFactory.getLogger(ForkController.class);
+
+    public enum IterationEndAction {
+        LEGACY, IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
+    }
+
+    public enum RunningAction {
+        SKIP, RESTART, WAIT
+    }
+
+    public enum FinalStopAction {
+        GRACEFUL, IMMEDIATE
+    }
+
+    private static final String ITERATION_END_ACTION = "ForkController.iteration_end_action";
+    private static final String RUNNING_ACTION = "ForkController.running_action";
+    private static final String FINAL_STOP_ACTION = "ForkController.final_stop_action";
+
     private transient boolean samplerReturned;
+    private transient ForkController sourceController;
+    private transient Set<String> warnedOptions;
+
+    void setSourceController(ForkController source) {
+        sourceController = source.sourceController == null ? source : source.sourceController;
+    }
+
+    /** Missing policy properties identify a plan saved before lifecycle options existed. */
+    public boolean hasLifecyclePolicy() {
+        return getIterationEndAction() != IterationEndAction.LEGACY;
+    }
+
+    public IterationEndAction getIterationEndAction() {
+        return option(ITERATION_END_ACTION, IterationEndAction.LEGACY);
+    }
+
+    public void setIterationEndAction(IterationEndAction action) {
+        if (action == IterationEndAction.LEGACY) {
+            removeProperty(ITERATION_END_ACTION);
+        } else {
+            setProperty(ITERATION_END_ACTION, action.name());
+        }
+    }
+
+    public RunningAction getRunningAction() {
+        return option(RUNNING_ACTION, RunningAction.WAIT);
+    }
+
+    public void setRunningAction(RunningAction action) {
+        setProperty(RUNNING_ACTION, action.name());
+    }
+
+    public FinalStopAction getFinalStopAction() {
+        return option(FINAL_STOP_ACTION, FinalStopAction.GRACEFUL);
+    }
+
+    public void setFinalStopAction(FinalStopAction action) {
+        setProperty(FINAL_STOP_ACTION, action.name());
+    }
+
+    private <T extends Enum<T>> T option(String property, T fallback) {
+        String value = getPropertyAsString(property, fallback.name());
+        try {
+            return Enum.valueOf(fallback.getDeclaringClass(), value);
+        } catch (IllegalArgumentException e) {
+            warnUnknownOption(property, value, fallback);
+            return fallback;
+        }
+    }
+
+    private synchronized void warnUnknownOption(String property, String value, Enum<?> fallback) {
+        if (warnedOptions == null) {
+            warnedOptions = ConcurrentHashMap.newKeySet();
+        }
+        if (warnedOptions.add(property)) {
+            log.warn("Unknown fork option {}={} on {}; using {}", property, value, getName(), fallback);
+        }
+    }
 
     @Override
     public void initialize() {
@@ -57,7 +137,7 @@ public class ForkController extends GenericController implements Serializable {
         }
 
         samplerReturned = true;
-        return new ForkControllerSampler(this, getName(), createForkExecutionController());
+        return new ForkControllerSampler(sourceController == null ? this : sourceController, getName(), createForkExecutionController());
     }
 
     private Controller createForkExecutionController() {
@@ -86,6 +166,9 @@ public class ForkController extends GenericController implements Serializable {
         if (clone instanceof TransactionController forkTransactionController
                 && controller instanceof TransactionController sourceTransactionController) {
             forkTransactionController.setSourceController(sourceTransactionController);
+        }
+        if (clone instanceof ForkController fork && controller instanceof ForkController source) {
+            fork.setSourceController(source);
         }
         for (TestElement nestedChild : controller.getSubControllers()) {
             addForkChild(clone, nestedChild);

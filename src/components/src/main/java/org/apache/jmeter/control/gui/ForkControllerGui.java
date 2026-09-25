@@ -18,17 +18,34 @@
 package org.apache.jmeter.control.gui;
 
 import java.awt.BorderLayout;
+import java.util.function.Function;
+
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
 
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.FinalStopAction;
+import org.apache.jmeter.control.ForkController.IterationEndAction;
+import org.apache.jmeter.control.ForkController.RunningAction;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.util.JMeterUtils;
+
+import net.miginfocom.swing.MigLayout;
 
 @GUIMenuSortOrder(MenuInfo.SORT_ORDER_DEFAULT + 2)
 @TestElementMetadata(labelResource = "fork_controller_title")
 public class ForkControllerGui extends AbstractControllerGui {
     private static final long serialVersionUID = 240L;
+
+    private JComboBox<RunningAction> whenRunning;
+    private JComboBox<IterationEndAction> onMainFlowEnd;
+    private JComboBox<FinalStopAction> finalStop;
+    private JLabel finalStopLabel;
 
     public ForkControllerGui() {
         init();
@@ -44,6 +61,29 @@ public class ForkControllerGui extends AbstractControllerGui {
     @Override
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
+        ForkController controller = (ForkController) element;
+        controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
+        controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
+        controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+    }
+
+    @Override
+    public void configure(TestElement element) {
+        super.configure(element);
+        ForkController controller = (ForkController) element;
+        whenRunning.setSelectedItem(controller.getRunningAction());
+        onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
+        finalStop.setSelectedItem(controller.getFinalStopAction());
+        updateFinalStopVisibility();
+    }
+
+    @Override
+    public void clearGui() {
+        super.clearGui();
+        whenRunning.setSelectedItem(RunningAction.SKIP);
+        onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
+        finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
+        updateFinalStopVisibility();
     }
 
     @Override
@@ -51,9 +91,56 @@ public class ForkControllerGui extends AbstractControllerGui {
         return "fork_controller_title"; // $NON-NLS-1$
     }
 
+    private void updateFinalStopVisibility() {
+        boolean keep = onMainFlowEnd.getSelectedItem() == IterationEndAction.KEEP_RUNNING;
+        finalStop.setVisible(keep);
+        finalStopLabel.setVisible(keep);
+        revalidate();
+    }
+
+    private static <T> JComboBox<T> options(T[] values, Function<T, String> resourceKey) {
+        JComboBox<T> combo = new JComboBox<>(values);
+        DefaultListCellRenderer renderer = new DefaultListCellRenderer();
+        combo.setRenderer((list, value, index, selected, focused) -> {
+            JLabel label = (JLabel) renderer.getListCellRendererComponent(list, value, index, selected, focused);
+            label.setText(value == null ? "" : JMeterUtils.getResString(resourceKey.apply(value)));
+            return label;
+        });
+        return combo;
+    }
+
     private void init() {
         setLayout(new BorderLayout());
         setBorder(makeBorder());
         add(makeTitlePanel(), BorderLayout.NORTH);
+        JPanel panel = new JPanel(new MigLayout("wrap 2, hidemode 3", "[][left]"));
+        whenRunning = options(RunningAction.values(), action -> switch (action) {
+            case SKIP -> "fork_controller_running_skip";
+            case RESTART -> "fork_controller_running_restart";
+            case WAIT -> "fork_controller_running_wait";
+        });
+        onMainFlowEnd = options(IterationEndAction.values(), action -> switch (action) {
+            case LEGACY -> "fork_controller_end_legacy";
+            case IMMEDIATE -> "fork_controller_end_immediate";
+            case GRACEFUL -> "fork_controller_end_graceful";
+            case WAIT -> "fork_controller_end_wait";
+            case KEEP_RUNNING -> "fork_controller_end_keep";
+        });
+        finalStop = options(FinalStopAction.values(), action -> switch (action) {
+            case GRACEFUL -> "fork_controller_end_graceful";
+            case IMMEDIATE -> "fork_controller_end_immediate";
+        });
+        finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
+        onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
+        onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
+        panel.add(JMeterUtils.labelFor(onMainFlowEnd, "fork_controller_on_main_flow_end"));
+        panel.add(onMainFlowEnd);
+        panel.add(finalStopLabel);
+        panel.add(finalStop);
+        panel.add(JMeterUtils.labelFor(whenRunning, "fork_controller_when_running"));
+        panel.add(whenRunning);
+        panel.add(new JLabel(JMeterUtils.getResString("fork_controller_different_users")), "span 2");
+        add(panel, BorderLayout.CENTER);
+        updateFinalStopVisibility();
     }
 }
