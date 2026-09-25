@@ -107,7 +107,13 @@ debugging, and migration work that has landed across the BreakTest PR series.
   is Continue on error, including plans without an explicit error policy. Graceful stop finishes
   active requests; immediate stop interrupts them. Both iteration-end choices end all forks belonging
   to that user, retain the original failed sample, and allow the next configured main iteration
-  to run. Cancelling before a transaction starts any sampler does not emit an empty summary.
+  to run. Transactions cut short by these fork errors are reported as failed; cancellation before
+  any sampler starts produces no empty summary. Transaction-start events reach listeners at the
+  first sampler for all transactions (naturally empty transactions report start at completion).
+  A keep-running fork that fails during pacing ends the iteration that is just starting.
+  During immediate iteration cancellation, results and control exceptions from cancelled samplers
+  are suppressed; this can also swallow a concurrent explicit stop-test request from those samplers.
+  External engine stop-test requests are unaffected.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.

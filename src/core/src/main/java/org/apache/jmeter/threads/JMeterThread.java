@@ -1582,9 +1582,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * Ends the transactions still running in the context, down to {@code boundary}, when the thread,
      * or a parallel or fork worker, finishes before reaching their end.
      */
-    private static void endRunningTransactions(JMeterContext context, RunningTransaction boundary) {
+    private void endRunningTransactions(JMeterContext context, RunningTransaction boundary) {
         try {
-            context.endTransactionsUntil(boundary);
+            context.endTransactionsUntil(boundary, forkIterationEndAction == null);
         } catch (RuntimeException e) {
             log.error("Error while reporting unfinished transactions", e);
         }

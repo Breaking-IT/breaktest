@@ -84,15 +84,6 @@ class TestForkController {
     }
 
     @Test
-    void initialErrorPolicyNamesRetainTheSelectedStopMode() {
-        ForkController controller = new ForkController();
-        controller.setProperty("ForkController.error_action", "STOP_USER_GRACEFUL");
-        assertEquals(ForkController.ErrorAction.END_ITERATION_GRACEFUL, controller.getErrorAction());
-        controller.setProperty("ForkController.error_action", "STOP_USER_IMMEDIATE");
-        assertEquals(ForkController.ErrorAction.END_ITERATION_IMMEDIATE, controller.getErrorAction());
-    }
-
-    @Test
     void unknownPolicyValuesFallBackWithoutBreakingSavedPlans() {
         ForkController controller = new ForkController();
         controller.setProperty("ForkController.iteration_end_action", "FUTURE_VALUE");

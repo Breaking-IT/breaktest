@@ -2653,12 +2653,17 @@ class TestJMeterThread {
                 return result;
             }
         };
+        TransactionController outer = new TransactionController();
+        outer.setName("outer-main");
+        TransactionController inner = new TransactionController();
+        inner.setName("inner-main");
+        HashTree flow = main.add(outer);
         if (parallelMain) {
-            main.add(new ParallelController()).add(activeMain);
-        } else {
-            main.add(activeMain);
+            flow = flow.add(new ParallelController());
         }
-        main.add(new ResultStatusSampler("main-after", true, mainAfter));
+        HashTree transaction = flow.add(inner);
+        transaction.add(activeMain);
+        transaction.add(new ResultStatusSampler("main-after", true, mainAfter));
         RecordingSampleListener listener = new RecordingSampleListener("results");
         main.add(listener);
         ThreadGroup group = new ThreadGroup();
@@ -2701,9 +2706,15 @@ class TestJMeterThread {
             assertFalse(runner.isAlive());
             assertEquals(0, mainAfter.get());
             assertEquals(0, forkAfter.get());
-            assertEquals(action == ErrorAction.END_ITERATION_GRACEFUL ? 2 : 1, listener.events().size());
+            List<SampleEvent> samples = listener.events().stream()
+                    .filter(event -> !event.isTransactionSampleEvent()).toList();
+            assertEquals(action == ErrorAction.END_ITERATION_GRACEFUL ? 2 : 1, samples.size());
+            assertEquals(2, listener.transactionEvents().size());
+            for (SampleEvent event : listener.transactionEvents()) {
+                assertFalse(event.getResult().isSuccessful(), "A transaction cut short by a fork error must fail");
+            }
             assertEquals(mainSuccessful || action == ErrorAction.END_ITERATION_IMMEDIATE
-                    ? List.of("original-fork-error") : List.of("original-fork-error", "active-main"), listener.events().stream()
+                    ? List.of("original-fork-error") : List.of("original-fork-error", "active-main"), samples.stream()
                     .filter(event -> !event.getResult().isSuccessful())
                     .map(event -> event.getResult().getSampleLabel()).toList());
             assertForkBookkeepingEventuallyEmpty(thread);

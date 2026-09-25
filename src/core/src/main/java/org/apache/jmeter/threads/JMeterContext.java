@@ -357,10 +357,20 @@ public class JMeterContext {
      * @param boundary the transaction to keep running, or {@code null} to end all of them
      */
     public void endTransactionsUntil(RunningTransaction boundary) {
+        endTransactionsUntil(boundary, true);
+    }
+
+    /**
+     * Ends open transactions, optionally marking partial transactions as failed.
+     *
+     * @param boundary the transaction to keep running, or {@code null} to end all of them
+     * @param successful {@code false} when the flow was cut short by a fork error
+     */
+    public void endTransactionsUntil(RunningTransaction boundary, boolean successful) {
         while (currentTransaction != null && currentTransaction != boundary) {
             RunningTransaction transaction = currentTransaction;
             currentTransaction = transaction.getEnclosing();
-            finish(transaction, true);
+            finish(transaction, successful);
         }
     }
 
