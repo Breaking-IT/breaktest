@@ -419,6 +419,11 @@ public class TestBeanGUI extends AbstractJMeterGuiComponent implements JMeterGUI
         return menuCategories;
     }
 
+    @Override
+    protected boolean isSamplerGui() {
+        return testBeanClass != null && Sampler.class.isAssignableFrom(testBeanClass);
+    }
+
     private void init() {
         setLayout(new BorderLayout(0, 5));
 

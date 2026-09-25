@@ -159,5 +159,19 @@ validate it, repair it, and show changes in the GUI.
 </ul>
 
 </section>
+<section name="Ignoring sampler results">
+<p>The <code>Ignore</code> button beside Comments in the shared sampler header offers three modes:</p>
+<ul>
+<li><code>Included</code> (default): report results normally.</li>
+<li><code>Ignore on success</code>: report only failed results, including assertion failures.</li>
+<li><code>Ignore always</code>: exclude all results from this sampler.</li>
+</ul>
+<p>The sampler still runs, along with its post-processors and assertions. Ignored results are excluded
+from listeners and transaction totals, using the same behavior as <code>prev.setIgnore()</code>.
+Failure handling still applies. Scripts that explicitly ignore a result continue to work in every mode.</p>
+<p>The selection is saved with the sampler in the test plan and also applies in command-line runs.
+The control is shared by standard sampler editors and TestBean sampler editors; plugins with fully
+custom headers may need to adopt the shared title panel to display it.</p>
+</section>
 </body>
 </document>
