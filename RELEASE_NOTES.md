@@ -13,6 +13,54 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.25 — Fork Controls, Live Transactions, and Schedule Tables
+
+This release makes background forks configurable, streams transaction results as requests finish, and adds editable load-schedule tables with random arrivals. It also introduces sampler-result filtering and While Controller iteration limits, improves HTTP/2 cleanup, and adds autocomplete to search and replace.
+
+## Fork Lifecycle and Error Handling
+
+- Choose what happens at each main-flow iteration end: stop immediately without cancellation errors, finish current samplers gracefully, wait for the entire fork, or keep it running with the same user. Reaching an already-running fork can skip it, restart it, or wait before starting again. This avoids keep-alive forks blocking later iterations or accumulating concurrent executions.
+- Configure fork errors independently of the thread group: continue, stop the fork and its descendants while the main flow continues, or end the current main iteration gracefully or immediately. Later configured iterations still run, and the original failed sample is retained.
+- Use compact, bordered radio groups. Keep running is hidden when the enclosing thread group disables Same user, but remains available in reusable fragments. Temporarily disabling Same user or opening the editor does not silently overwrite a saved Keep running choice. A separate final-stop policy applies before changing users and at the final iteration or duration limit.
+- Clean up cancelled workers before restarting forks or resetting user variables. Fix cancellation-before-start hangs, nested-worker cleanup, timer cancellation, and fork identity through runtime controller clones.
+
+Sources: [#177](https://github.com/Breaking-IT/breaktest/pull/177), [#179](https://github.com/Breaking-IT/breaktest/pull/179).
+
+## Live Transactions and Result Filtering
+
+- Transaction Controller now uses one reporting model: each sampler result reaches listeners immediately with a link to its transaction. Transactions retain running totals rather than child samples and response bodies, reducing retained memory. View Results Tree shows running transactions and samplers with elapsed timers.
+- Enable optional transaction and parent-transaction IDs in CSV/XML JTL output with `jmeter.save.saveservice.transaction_ids=true`. Listener start events are opt-in; transaction starts are notified at the first sampler, or at completion for naturally empty transactions.
+- Transactions cut short when a fork error ends the iteration now report failure, including nested and parallel-flow transactions. Cancellation during an initial delay produces no empty transaction summary or orphaned start event.
+- Choose Included, Ignore on success, or Ignore always from the sampler header. Policies apply after post-processors and assertions, so Ignore on success retains request and assertion failures. Ignored results are excluded from listeners and transaction counts, bytes, latency, connect time, and failure status; post-processing and error actions still run.
+
+Sources: [#175](https://github.com/Breaking-IT/breaktest/pull/175), [#178](https://github.com/Breaking-IT/breaktest/pull/178), [#179](https://github.com/Breaking-IT/breaktest/pull/179).
+
+## Scheduling and Test Plan Editing
+
+- Edit closed- and open-model load phases in compact tables, including adding, deleting, and reordering rows. Open-model phases support random arrivals; comments and advanced expressions remain available in text view. Merely viewing a schedule or leaving a cell unchanged preserves its original text.
+- Convert representable literal legacy rate/arrival/pause schedules on load while preserving timing, distribution, comments, and rate precision. Unresolved or non-equivalent expressions remain untouched, and source files change only when saved.
+- Set an optional Max iterations on While Controller. Blank preserves the existing behavior, zero skips the loop, and variables/functions can provide the limit. Conditions can still end a loop earlier; invalid or negative limits stop the loop and log an error.
+- Get variable and function autocomplete by typing `${` in the Search Tree dialog's Search and Replace by fields.
+
+Sources: [#176](https://github.com/Breaking-IT/breaktest/pull/176), [#180](https://github.com/Breaking-IT/breaktest/pull/180), [#174](https://github.com/Breaking-IT/breaktest/pull/174).
+
+## HTTP/2 Cleanup
+
+- Close HTTP/2 connections immediately when a virtual user ends or resets, avoiding CPU-intensive TLS-close waits and delays when a server does not respond. This also applies to HTTP/2 selected through automatic protocol negotiation. Explicit HTTP/1.1 and HTTP/3 are unchanged.
+
+Source: [#173](https://github.com/Breaking-IT/breaktest/pull/173).
+
+## Upgrade Notes and Known Limitations
+
+- **Fork defaults change for existing plans without lifecycle settings:** Graceful at iteration end and Skip on re-entry replace the old carry-over/wait behavior. Fork errors default to Continue independently of the thread group's error action. Review keep-alive and looping forks before running an older plan.
+- **Generate parent sample is removed.** Old plans still load, but `TransactionController.parent` is discarded. Transaction-level listeners now also receive child samples; assertions apply to samplers, not transaction summaries. Counts include actual nested samples, and a failed transaction reports its first failing sample's response code. Update custom listeners or result consumers that depend on the old parent-sample structure.
+- Ignored sampler durations remain part of wall-clock transaction timing. Select Sum child sampler times to exclude them; parallel sampler durations can sum to more than elapsed wall-clock time. Ignore always can hide a failed sampler from its transaction's failure status.
+- A keep-running fork that fails during pacing ends the iteration that is just starting. During immediate iteration cancellation, suppression of cancelled samplers' results and control exceptions can also suppress a concurrent explicit stop-test request from those samplers. External engine stop requests are unaffected.
+- Random-arrival phase flags require this release's updated schedule parser. HTTP/2 cleanup closes TCP connections without waiting for HTTP/2 GOAWAY or TLS close-notify, which some servers may log.
+- Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.
+
+[Full changelog since 2026.09.23](https://github.com/Breaking-IT/breaktest/compare/2026.09.23...2026.09.25)
+
 # BreakTest 2026.09.23 — Variable Autocomplete, Reliable Validation, and Replay Recovery
 
 This release adds scoped variable and function autocomplete, improves validation and transaction reporting, and lets new replay recordings be stored when older data is unavailable. AI script repair is now significantly faster and uses fewer tokens, with improved prompts, repair logic, controls, and reporting. CSV editing and correlation rule organization also improve.
