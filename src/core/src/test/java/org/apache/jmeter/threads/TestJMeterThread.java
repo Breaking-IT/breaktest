@@ -1591,7 +1591,7 @@ class TestJMeterThread {
 
     @ParameterizedTest
     @CsvSource({"true", "false"})
-    void legacyForkSurvivesIterationBoundaryAndWaitsForFullCompletion(boolean sameUser) throws Exception {
+    void forkWithoutSettingsStopsGracefullyAtIterationBoundary(boolean sameUser) throws Exception {
         LoopController loop = new LoopController();
         loop.setLoops(2);
         loop.setContinueForever(false);
@@ -1599,32 +1599,34 @@ class TestJMeterThread {
         HashTree loopTree = tree.add(loop);
         AtomicInteger iterations = new AtomicInteger();
         loopTree.add(new ResultStatusSampler("iteration-start", true, iterations));
-        ForkController legacy = new ForkController();
+        ForkController defaults = new ForkController();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch finished = new CountDownLatch(2);
-        HashTree forkTree = loopTree.add(legacy);
+        HashTree forkTree = loopTree.add(defaults);
         forkTree.add(new BlockingSampler("request", started, release, new AtomicReference<>()));
         forkTree.add(new CompletingSampler("rest-of-fork", finished));
+        loopTree.add(new AwaitingSampler(() -> started.getCount() == 0));
         ThreadGroup group = new ThreadGroup();
-        group.setName("legacy-fork");
+        group.setName("defaults-fork");
         JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
         thread.setThreadGroup(group);
-        thread.setThreadName("legacy-fork");
+        thread.setThreadName("defaults-fork");
         Thread runner = new Thread(thread);
         try {
             runner.start();
             assertTrue(started.await(5, TimeUnit.SECONDS));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            while (iterations.get() < 2 && System.nanoTime() < deadline) {
+            while (stoppedForkCount(thread) == 0 && System.nanoTime() < deadline) {
                 Thread.sleep(10);
             }
-            assertEquals(2, iterations.get(), "Old plans carry their fork across the iteration boundary");
-            assertEquals(0, stoppedForkCount(thread));
+            assertEquals(1, iterations.get(), "The next iteration waits for the active request to finish");
+            assertEquals(1, stoppedForkCount(thread));
             release.countDown();
             runner.join(5000);
             assertFalse(runner.isAlive());
-            assertEquals(0, finished.getCount(), "Legacy re-entry and thread end both wait for full completion");
+            assertEquals(2, iterations.get());
+            assertTrue(finished.getCount() >= 1, "Graceful stop skips the rest of the first fork");
             assertForkBookkeepingEventuallyEmpty(thread);
         } finally {
             release.countDown();

@@ -35,9 +35,12 @@ import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 
 import net.miginfocom.swing.MigLayout;
@@ -51,6 +54,8 @@ public class ForkControllerGui extends AbstractControllerGui {
     private OptionGroup<IterationEndAction> onMainFlowEnd;
     private OptionGroup<FinalStopAction> finalStop;
     private OptionGroup<ErrorAction> onError;
+    private JLabel differentUsersHint;
+    private boolean preserveKeepRunning;
 
     public ForkControllerGui() {
         init();
@@ -68,7 +73,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         configureTestElement(element);
         ForkController controller = (ForkController) element;
         controller.setRunningAction(whenRunning.getSelectedItem());
-        controller.setIterationEndAction(onMainFlowEnd.getSelectedItem());
+        controller.setIterationEndAction(preserveKeepRunning ? IterationEndAction.KEEP_RUNNING : onMainFlowEnd.getSelectedItem());
         controller.setFinalStopAction(finalStop.getSelectedItem());
         controller.setErrorAction(onError.getSelectedItem());
     }
@@ -78,8 +83,11 @@ public class ForkControllerGui extends AbstractControllerGui {
         super.configure(element);
         ForkController controller = (ForkController) element;
         whenRunning.setSelectedItem(controller.getRunningAction());
-        onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
         finalStop.setSelectedItem(controller.getFinalStopAction());
+        boolean keepAvailable = isKeepRunningAvailable();
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, keepAvailable);
+        preserveKeepRunning = !keepAvailable && controller.getIterationEndAction() == IterationEndAction.KEEP_RUNNING;
+        onMainFlowEnd.setSelectedItem(preserveKeepRunning ? effectiveFinalStop() : controller.getIterationEndAction());
         onError.setSelectedItem(controller.getErrorAction());
         updateFinalStopVisibility();
     }
@@ -87,6 +95,8 @@ public class ForkControllerGui extends AbstractControllerGui {
     @Override
     public void clearGui() {
         super.clearGui();
+        preserveKeepRunning = false;
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, isKeepRunningAvailable());
         whenRunning.setSelectedItem(RunningAction.SKIP);
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
         finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
@@ -100,9 +110,30 @@ public class ForkControllerGui extends AbstractControllerGui {
     }
 
     private void updateFinalStopVisibility() {
-        boolean keep = onMainFlowEnd.getSelectedItem() == IterationEndAction.KEEP_RUNNING;
+        boolean keep = preserveKeepRunning || onMainFlowEnd.getSelectedItem() == IterationEndAction.KEEP_RUNNING;
+        differentUsersHint.setText(JMeterUtils.getResString(preserveKeepRunning
+                ? "fork_controller_saved_keep_disabled" : "fork_controller_different_users"));
         finalStop.setVisible(keep);
         revalidate();
+    }
+
+    private IterationEndAction effectiveFinalStop() {
+        return finalStop.getSelectedItem() == FinalStopAction.IMMEDIATE
+                ? IterationEndAction.IMMEDIATE : IterationEndAction.GRACEFUL;
+    }
+
+    boolean isKeepRunningAvailable() {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui != null) {
+            for (JMeterTreeNode node = gui.getCurrentNode(); node != null;
+                    node = (JMeterTreeNode) node.getParent()) {
+                if (node.getTestElement() instanceof AbstractThreadGroup group) {
+                    return group.isSameUserOnNextIteration();
+                }
+            }
+        }
+        // Test fragments have no enclosing thread group until execution.
+        return true;
     }
 
     private static final class OptionGroup<T> extends JPanel {
@@ -110,7 +141,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         private final Map<T, JRadioButton> buttons = new LinkedHashMap<>();
 
         private OptionGroup(String titleKey, T[] values, Function<T, String> resourceKey) {
-            super(new MigLayout("wrap 1, insets 6 10 8 10, gapy 2", "[left]"));
+            super(new MigLayout("wrap 1, hidemode 3, insets 6 10 8 10, gapy 2", "[left]"));
             setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString(titleKey)));
             ButtonGroup group = new ButtonGroup();
             for (T value : values) {
@@ -132,6 +163,10 @@ public class ForkControllerGui extends AbstractControllerGui {
             buttons.get(value).setSelected(true);
         }
 
+        private void setOptionVisible(T value, boolean visible) {
+            buttons.get(value).setVisible(visible);
+        }
+
         private void addActionListener(ActionListener listener) {
             buttons.values().forEach(button -> button.addActionListener(listener));
         }
@@ -148,7 +183,6 @@ public class ForkControllerGui extends AbstractControllerGui {
             case WAIT -> "fork_controller_running_wait";
         });
         onMainFlowEnd = new OptionGroup<>("fork_controller_on_main_flow_end", IterationEndAction.values(), action -> switch (action) {
-            case LEGACY -> "fork_controller_end_legacy";
             case IMMEDIATE -> "fork_controller_end_immediate";
             case GRACEFUL -> "fork_controller_end_graceful";
             case WAIT -> "fork_controller_end_wait";
@@ -165,12 +199,22 @@ public class ForkControllerGui extends AbstractControllerGui {
             case END_ITERATION_IMMEDIATE -> "fork_controller_error_end_iteration_immediate";
         });
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-        onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
+        onMainFlowEnd.addActionListener(event -> {
+            preserveKeepRunning = false;
+            updateFinalStopVisibility();
+        });
+        finalStop.addActionListener(event -> {
+            if (preserveKeepRunning) {
+                onMainFlowEnd.setSelectedItem(effectiveFinalStop());
+            }
+        });
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, isKeepRunningAvailable());
         panel.add(onMainFlowEnd, "sgx fork-options");
         panel.add(finalStop, "sgx fork-options");
         panel.add(whenRunning, "sgx fork-options");
         panel.add(onError, "sgx fork-options");
-        panel.add(new JLabel(JMeterUtils.getResString("fork_controller_different_users")));
+        differentUsersHint = new JLabel();
+        panel.add(differentUsersHint);
         add(panel, BorderLayout.CENTER);
         updateFinalStopVisibility();
     }

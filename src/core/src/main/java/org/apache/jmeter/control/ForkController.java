@@ -37,7 +37,7 @@ public class ForkController extends GenericController implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(ForkController.class);
 
     public enum IterationEndAction {
-        LEGACY, IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
+        IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
     }
 
     public enum RunningAction {
@@ -65,25 +65,16 @@ public class ForkController extends GenericController implements Serializable {
         sourceController = source.sourceController == null ? source : source.sourceController;
     }
 
-    /** Missing policy properties identify a plan saved before lifecycle options existed. */
-    public boolean hasLifecyclePolicy() {
-        return getIterationEndAction() != IterationEndAction.LEGACY;
-    }
-
     public IterationEndAction getIterationEndAction() {
-        return option(ITERATION_END_ACTION, IterationEndAction.LEGACY);
+        return option(ITERATION_END_ACTION, IterationEndAction.GRACEFUL);
     }
 
     public void setIterationEndAction(IterationEndAction action) {
-        if (action == IterationEndAction.LEGACY) {
-            removeProperty(ITERATION_END_ACTION);
-        } else {
-            setProperty(ITERATION_END_ACTION, action.name());
-        }
+        setProperty(ITERATION_END_ACTION, action.name());
     }
 
     public RunningAction getRunningAction() {
-        return option(RUNNING_ACTION, RunningAction.WAIT);
+        return option(RUNNING_ACTION, RunningAction.SKIP);
     }
 
     public void setRunningAction(RunningAction action) {

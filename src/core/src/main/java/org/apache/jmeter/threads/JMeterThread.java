@@ -236,8 +236,7 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final List<ForkExecution> forkExecutions = Collections.synchronizedList(new ArrayList<>());
 
-    private record ForkExecution(Future<?> task, IterationEndAction iterationEnd, FinalStopAction finalStop,
-            boolean legacy) {
+    private record ForkExecution(Future<?> task, IterationEndAction iterationEnd, FinalStopAction finalStop) {
     }
 
     private final Map<Thread, ForkWorker> forkWorkers = new ConcurrentHashMap<>();
@@ -803,8 +802,7 @@ public class JMeterThread implements Runnable, Interruptible {
             forkExecutors.add(executor);
             forkExecutions.add(new ForkExecution(task,
                     sourceController == null ? IterationEndAction.GRACEFUL : sourceController.getIterationEndAction(),
-                    sourceController == null ? FinalStopAction.GRACEFUL : sourceController.getFinalStopAction(),
-                    sourceController != null && !sourceController.hasLifecyclePolicy()));
+                    sourceController == null ? FinalStopAction.GRACEFUL : sourceController.getFinalStopAction()));
             forkTasks.add(task);
             if (sourceController != null) {
                 activeForkTasksByController.put(sourceController, task);
@@ -915,10 +913,7 @@ public class JMeterThread implements Runnable, Interruptible {
             List<Future<?>> hardStop = new ArrayList<>();
             List<Future<?>> wait = new ArrayList<>();
             for (ForkExecution execution : executions) {
-                if (!finalBoundary && execution.legacy() && forkIterationEndAction == null) {
-                    continue;
-                }
-                IterationEndAction action = execution.legacy() ? IterationEndAction.WAIT : execution.iterationEnd();
+                IterationEndAction action = execution.iterationEnd();
                 if (!running && action == IterationEndAction.WAIT) {
                     // WAIT has no configurable final-stop mode. Ignore any old hidden choice.
                     action = IterationEndAction.GRACEFUL;
@@ -938,7 +933,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     case GRACEFUL -> stop.add(execution.task());
                     case WAIT -> wait.add(execution.task());
-                    case KEEP_RUNNING, LEGACY -> { /* Survives this iteration. */ }
+                    case KEEP_RUNNING -> { /* Survives this iteration. */ }
                 }
             }
             if (stop.isEmpty() && wait.isEmpty()) {
