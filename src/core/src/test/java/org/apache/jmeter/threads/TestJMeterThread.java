@@ -662,7 +662,7 @@ class TestJMeterThread {
         }
     }
 
-    private static final class RecordingSampleListener extends AbstractTestElement implements SampleListener {
+    private static class RecordingSampleListener extends AbstractTestElement implements SampleListener {
         private static final long serialVersionUID = 1L;
 
         private final List<SampleEvent> events = Collections.synchronizedList(new ArrayList<>());
@@ -2858,6 +2858,79 @@ class TestJMeterThread {
             assertEquals(0, mainCalls.get());
             assertForkBookkeepingEventuallyEmpty(thread);
         } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @Test
+    void forkTransactionStartIsDeliveredBeforeConcurrentFinish() throws Exception {
+        CountDownLatch startEntered = new CountDownLatch(1);
+        CountDownLatch releaseStart = new CountDownLatch(1);
+        CountDownLatch aboutToFinish = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("fork-parent");
+        HashTree transactionTree = main.add(transaction);
+        transactionTree.add(newConfiguredForkController())
+                .add(new ResultStatusSampler("fork-sample", true, new AtomicInteger()));
+        transactionTree.add(new GenericController() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Sampler next() {
+                try {
+                    assertTrue(startEntered.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                aboutToFinish.countDown();
+                return null;
+            }
+        });
+        RecordingSampleListener listener = new RecordingSampleListener("results") {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void transactionStarted(SampleEvent event) {
+                startEntered.countDown();
+                try {
+                    assertTrue(releaseStart.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                super.transactionStarted(event);
+            }
+
+            @Override
+            public void sampleOccurred(SampleEvent event) {
+                if (event.isTransactionSampleEvent()) {
+                    assertEquals(1, startedEvents().size(), "Transaction start must be delivered first");
+                    finished.countDown();
+                }
+                super.sampleOccurred(event);
+            }
+        };
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        Thread runner = Thread.ofVirtual().start(thread);
+        try {
+            assertTrue(aboutToFinish.await(5, TimeUnit.SECONDS));
+            assertFalse(finished.await(100, TimeUnit.MILLISECONDS));
+            releaseStart.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(1, listener.transactionEvents().size());
+            assertEquals(1, listener.startedEvents().size());
+        } finally {
+            releaseStart.countDown();
             thread.stop();
             runner.join(5000);
         }

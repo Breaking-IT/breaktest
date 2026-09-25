@@ -1567,8 +1567,12 @@ public class JMeterThread implements Runnable, Interruptible {
             return;
         }
         markTransactionStarted(transaction.getEnclosing());
-        if (transaction.samplerStarted()) {
-            notifyTransactionStarted(transaction);
+        synchronized (transaction) {
+            // finish() uses the same monitor: listeners must see start before completion,
+            // including when a fork samples while its enclosing main transaction ends.
+            if (transaction.samplerStarted()) {
+                notifyTransactionStarted(transaction);
+            }
         }
     }
 
@@ -1591,7 +1595,7 @@ public class JMeterThread implements Runnable, Interruptible {
 
     /**
      * Tells the listeners in scope of the transaction controller that a transaction has started.
-     * Called by {@link JMeterContext#startTransaction}.
+     * Called when the first sampler starts, or a naturally empty transaction finishes.
      */
     void notifyTransactionStarted(RunningTransaction transaction) {
         SamplePackage pack = compiler.getTransactionControllerPackage(transaction.getController());
