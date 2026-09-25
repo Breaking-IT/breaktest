@@ -105,6 +105,12 @@ debugging, and migration work that has landed across the BreakTest PR series.
   lifecycle. Legacy controllers display an explicit Legacy option; editing an end-of-flow option
   opts into the explicit lifecycle settings. Code-created controllers without lifecycle
   properties also retain legacy behavior; set the lifecycle options explicitly to opt in.
+  Fork errors have their own policy, independent of the thread group's sampler-error setting:
+  continue, stop this fork (including nested forks) and continue the main flow, stop this virtual
+  user gracefully, or stop this virtual user immediately without cancellation errors. The default
+  is Continue on error, including plans without an explicit error policy. Graceful stop finishes
+  active requests; immediate stop interrupts them. Both user-stop choices end all forks belonging
+  to that user, leave other users running, and retain the original failed sample.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.

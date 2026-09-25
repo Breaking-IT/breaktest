@@ -26,6 +26,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.ErrorAction;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
@@ -46,6 +47,7 @@ public class ForkControllerGui extends AbstractControllerGui {
     private JComboBox<IterationEndAction> onMainFlowEnd;
     private JComboBox<FinalStopAction> finalStop;
     private JLabel finalStopLabel;
+    private JComboBox<ErrorAction> onError;
 
     public ForkControllerGui() {
         init();
@@ -65,6 +67,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
         controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
         controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+        controller.setErrorAction((ErrorAction) onError.getSelectedItem());
     }
 
     @Override
@@ -74,6 +77,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         whenRunning.setSelectedItem(controller.getRunningAction());
         onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
         finalStop.setSelectedItem(controller.getFinalStopAction());
+        onError.setSelectedItem(controller.getErrorAction());
         updateFinalStopVisibility();
     }
 
@@ -83,6 +87,7 @@ public class ForkControllerGui extends AbstractControllerGui {
         whenRunning.setSelectedItem(RunningAction.SKIP);
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
         finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
+        onError.setSelectedItem(ErrorAction.CONTINUE);
         updateFinalStopVisibility();
     }
 
@@ -130,6 +135,12 @@ public class ForkControllerGui extends AbstractControllerGui {
             case GRACEFUL -> "fork_controller_end_graceful";
             case IMMEDIATE -> "fork_controller_end_immediate";
         });
+        onError = options(ErrorAction.values(), action -> switch (action) {
+            case CONTINUE -> "fork_controller_error_continue";
+            case STOP_FORK -> "fork_controller_error_stop_fork";
+            case STOP_USER_GRACEFUL -> "fork_controller_error_stop_user_graceful";
+            case STOP_USER_IMMEDIATE -> "fork_controller_error_stop_user_immediate";
+        });
         finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
         onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
@@ -139,6 +150,8 @@ public class ForkControllerGui extends AbstractControllerGui {
         panel.add(finalStop);
         panel.add(JMeterUtils.labelFor(whenRunning, "fork_controller_when_running"));
         panel.add(whenRunning);
+        panel.add(JMeterUtils.labelFor(onError, "fork_controller_on_error"));
+        panel.add(onError);
         panel.add(new JLabel(JMeterUtils.getResString("fork_controller_different_users")), "span 2");
         add(panel, BorderLayout.CENTER);
         updateFinalStopVisibility();

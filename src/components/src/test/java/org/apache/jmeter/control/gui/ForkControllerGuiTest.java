@@ -27,6 +27,7 @@ import javax.swing.JComboBox;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.ErrorAction;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
@@ -107,6 +108,23 @@ class ForkControllerGuiTest {
             assertEquals("KEEP_RUNNING", legacy.getPropertyAsString("ForkController.iteration_end_action"));
             assertEquals(FinalStopAction.IMMEDIATE, legacy.getFinalStopAction());
             assertEquals(RunningAction.SKIP, legacy.getRunningAction());
+        });
+    }
+
+    @Test
+    void errorPoliciesRoundTripAndDefaultToContinue() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ForkControllerGui gui = new ForkControllerGui();
+            for (ErrorAction action : ErrorAction.values()) {
+                ForkController source = new ForkController();
+                source.setErrorAction(action);
+                gui.configure(source);
+                assertEquals(action, ((ForkController) gui.createTestElement()).getErrorAction());
+            }
+            gui.clearGui();
+            assertEquals(ErrorAction.CONTINUE, ((ForkController) gui.createTestElement()).getErrorAction());
+            gui.configure(new ForkController());
+            assertEquals(ErrorAction.CONTINUE, ((ForkController) gui.createTestElement()).getErrorAction());
         });
     }
 

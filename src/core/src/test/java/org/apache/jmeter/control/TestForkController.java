@@ -72,10 +72,13 @@ class TestForkController {
         assertFalse(controller.hasLifecyclePolicy());
         assertEquals(ForkController.IterationEndAction.LEGACY, controller.getIterationEndAction());
         assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
+        assertEquals(ForkController.ErrorAction.CONTINUE, controller.getErrorAction());
+        controller.setErrorAction(ForkController.ErrorAction.STOP_USER_IMMEDIATE);
         controller.setRunningAction(ForkController.RunningAction.RESTART);
         controller.setIterationEndAction(ForkController.IterationEndAction.KEEP_RUNNING);
         controller.setFinalStopAction(ForkController.FinalStopAction.IMMEDIATE);
         ForkController clone = (ForkController) controller.clone();
+        assertEquals(controller.getErrorAction(), clone.getErrorAction());
         assertEquals(controller.getRunningAction(), clone.getRunningAction());
         assertEquals(controller.getIterationEndAction(), clone.getIterationEndAction());
         assertEquals(controller.getFinalStopAction(), clone.getFinalStopAction());

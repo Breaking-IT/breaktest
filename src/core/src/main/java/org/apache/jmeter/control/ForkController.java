@@ -44,12 +44,17 @@ public class ForkController extends GenericController implements Serializable {
         SKIP, RESTART, WAIT
     }
 
+    public enum ErrorAction {
+        CONTINUE, STOP_FORK, STOP_USER_GRACEFUL, STOP_USER_IMMEDIATE
+    }
+
     public enum FinalStopAction {
         GRACEFUL, IMMEDIATE
     }
 
     private static final String ITERATION_END_ACTION = "ForkController.iteration_end_action";
     private static final String RUNNING_ACTION = "ForkController.running_action";
+    private static final String ERROR_ACTION = "ForkController.error_action";
     private static final String FINAL_STOP_ACTION = "ForkController.final_stop_action";
 
     private transient boolean samplerReturned;
@@ -91,6 +96,14 @@ public class ForkController extends GenericController implements Serializable {
 
     public void setFinalStopAction(FinalStopAction action) {
         setProperty(FINAL_STOP_ACTION, action.name());
+    }
+
+    public ErrorAction getErrorAction() {
+        return option(ERROR_ACTION, ErrorAction.CONTINUE);
+    }
+
+    public void setErrorAction(ErrorAction action) {
+        setProperty(ERROR_ACTION, action.name());
     }
 
     private <T extends Enum<T>> T option(String property, T fallback) {
