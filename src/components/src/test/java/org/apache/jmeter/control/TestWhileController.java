@@ -33,6 +33,8 @@ import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class TestWhileController extends JMeterTestCase {
 
@@ -81,6 +83,105 @@ public class TestWhileController extends JMeterTestCase {
         assertEquals(Integer.valueOf(1), jmvars.getObject(GenericController.getIndexVariableName(name)));
         assertEquals("run", nextName(whileController));
         assertEquals(Integer.valueOf(2), jmvars.getObject(GenericController.getIndexVariableName(name)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 3})
+    public void testMaxIterationsAcrossConditionModesAndIndexBases(int limit) {
+        for (boolean oneBased : new boolean[] {false, true}) {
+            for (String mode : new String[] {"blank", "legacy", "all", "any"}) {
+                WhileController controller = new WhileController();
+                controller.setName("While Controller");
+                controller.setMaxIterations(Integer.toString(limit));
+                controller.setIndexStartsAtOne(oneBased);
+                if ("legacy".equals(mode)) {
+                    controller.setCondition("true");
+                } else if (!"blank".equals(mode)) {
+                    controller.setConditionMatch(mode);
+                    controller.addCondition(new WhileControllerCondition("yes", "equals", "yes"));
+                }
+                controller.addTestElement(new TestSampler("one"));
+                controller.addTestElement(new TestSampler("two"));
+                LoopController parent = new LoopController();
+                parent.setLoops(2);
+                parent.addTestElement(controller);
+                parent.addTestElement(new TestSampler("after"));
+                setLastSampleStatus(true);
+                controller.setRunningVersion(true);
+                parent.initialize();
+
+                for (int outer = 0; outer < 2; outer++) {
+                    for (int iteration = 0; iteration < limit; iteration++) {
+                        assertEquals("one", nextName(parent), mode);
+                        assertEquals(Integer.valueOf(iteration + (oneBased ? 1 : 0)),
+                                jmvars.getObject(GenericController.getIndexVariableName(controller.getName())));
+                        assertEquals("two", nextName(parent), mode);
+                    }
+                    assertEquals("after", nextName(parent), mode);
+                }
+                assertNull(nextName(parent), mode);
+            }
+        }
+    }
+
+    @Test
+    public void testMaxIterationsCountsLoopsSkippedByContinue() {
+        WhileController controller = new WhileController();
+        controller.setMaxIterations("2");
+        controller.setCondition("true");
+        controller.addTestElement(new TestSampler("one"));
+        controller.addTestElement(new TestSampler("two"));
+        controller.setRunningVersion(true);
+        controller.initialize();
+        assertEquals("one", nextName(controller));
+        controller.startNextLoop();
+        assertEquals("one", nextName(controller));
+        controller.startNextLoop();
+        assertNull(nextName(controller));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "invalid", "1.5", "${missing}", "2147483648"})
+    public void testInvalidMaxIterationsStopsLoop(String limit) {
+        WhileController controller = new WhileController();
+        controller.setMaxIterations(limit);
+        controller.setCondition("true");
+        controller.addTestElement(new TestSampler("one"));
+        controller.initialize();
+        assertNull(nextName(controller));
+    }
+
+    @Test
+    public void testMaxIterationsVariableIsReevaluated() throws Exception {
+        WhileController controller = new WhileController();
+        controller.setMaxIterations("${limit}");
+        controller.setCondition("true");
+        controller.addTestElement(new TestSampler("one"));
+        jmvars.put("limit", "3");
+        new ValueReplacer().replaceValues(controller);
+        controller.setRunningVersion(true);
+        controller.initialize();
+        assertEquals("one", nextName(controller));
+        jmvars.put("limit", "1");
+        assertNull(nextName(controller));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "LAST", "${keepGoing}"})
+    public void testConditionCanStopBeforeMaxIterations(String condition) throws Exception {
+        WhileController controller = new WhileController();
+        controller.setMaxIterations("5");
+        controller.setCondition(condition);
+        controller.addTestElement(new TestSampler("one"));
+        setLastSampleStatus(true);
+        jmvars.put("keepGoing", "true");
+        new ValueReplacer().replaceValues(controller);
+        controller.setRunningVersion(true);
+        controller.initialize();
+        assertEquals("one", nextName(controller));
+        setLastSampleStatus(false);
+        jmvars.put("keepGoing", "false");
+        assertNull(nextName(controller));
     }
 
     // While (blank), previous sample OK - should loop until false
@@ -386,6 +487,7 @@ public class TestWhileController extends JMeterTestCase {
     public void testStructuredConditionsMatchAll() throws Exception {
         GenericController controller = new GenericController();
         WhileController whileCont = new WhileController();
+        whileCont.setMaxIterations("5");
         whileCont.addCondition(new WhileControllerCondition("${keepGoing}", WhileController.Operator.EQUALS.getId(), "true"));
         whileCont.addCondition(new WhileControllerCondition("10", WhileController.Operator.GREATER_THAN.getId(), "2"));
         whileCont.addTestElement(new TestSampler("one"));
@@ -431,6 +533,7 @@ public class TestWhileController extends JMeterTestCase {
     public void testStructuredConditionsSkipWhenFalseOnEntry() throws Exception {
         GenericController controller = new GenericController();
         WhileController whileCont = new WhileController();
+        whileCont.setMaxIterations("5");
         whileCont.addCondition(new WhileControllerCondition("${keepGoing}", WhileController.Operator.EQUALS.getId(), "true"));
         whileCont.addTestElement(new TestSampler("one"));
         controller.addTestElement(whileCont);

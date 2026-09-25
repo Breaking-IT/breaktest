@@ -33,6 +33,9 @@ public abstract class WhileControllerSchema : GenericControllerSchema() {
     public val condition: StringPropertyDescriptor<WhileControllerSchema>
         by string("WhileController.condition")
 
+    public val maxIterations: StringPropertyDescriptor<WhileControllerSchema>
+        by string("WhileController.max_iterations")
+
     public val conditions: CollectionPropertyDescriptor<WhileControllerSchema>
         by collection("WhileController.conditions")
 

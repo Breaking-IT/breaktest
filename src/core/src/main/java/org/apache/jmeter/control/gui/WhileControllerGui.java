@@ -113,6 +113,8 @@ public class WhileControllerGui extends AbstractControllerGui
 
     private JTextField indexVariableName;
 
+    private JTextField maxIterations;
+
     /** The name of the condition field component. */
     private static final String CONDITION = "While_Condition"; // $NON-NLS-1$
 
@@ -137,6 +139,7 @@ public class WhileControllerGui extends AbstractControllerGui
         super.configure(element);
         if (element instanceof WhileController whileController) {
             theCondition.setText(whileController.getCondition());
+            maxIterations.setText(whileController.getMaxIterations());
             matchAny.setSelected(WhileController.MATCH_ANY.equals(whileController.getConditionMatch()));
             matchAll.setSelected(!matchAny.isSelected());
             indexStartsAtOne.setSelected(whileController.isIndexStartsAtOne());
@@ -185,6 +188,7 @@ public class WhileControllerGui extends AbstractControllerGui
             }
             whileController.setConditionMatch(matchAny.isSelected() ? WhileController.MATCH_ANY : WhileController.MATCH_ALL);
             whileController.setConditions(getConditionRows());
+            whileController.setMaxIterations(maxIterations.getText());
             whileController.setIndexStartsAtOne(indexStartsAtOne.isSelected());
         }
     }
@@ -196,6 +200,7 @@ public class WhileControllerGui extends AbstractControllerGui
     public void clearGui() {
         super.clearGui();
         theCondition.setText(""); // $NON-NLS-1$
+        maxIterations.setText(""); // $NON-NLS-1$
         conditionTableModel.clearData();
         matchAll.setSelected(true);
         indexStartsAtOne.setSelected(false);
@@ -227,6 +232,7 @@ public class WhileControllerGui extends AbstractControllerGui
     private JPanel createConditionPanel() {
         JPanel conditionPanel = new JPanel(new MigLayout("fill, wrap 1, insets 0", "[fill,grow]"));
 
+        conditionPanel.add(createMaxIterationsPanel(), "growx, wmin 0"); // $NON-NLS-1$
         conditionPanel.add(createIndexPanel(), "growx, wmin 0"); // $NON-NLS-1$
 
         structuredConditionLabel = new JLabel(JMeterUtils.getResString("while_controller_conditions")); // $NON-NLS-1$
@@ -244,6 +250,19 @@ public class WhileControllerGui extends AbstractControllerGui
         conditionPanel.add(theConditionJSP, "push, grow, wmin 0"); // $NON-NLS-1$
 
         return conditionPanel;
+    }
+
+    private JPanel createMaxIterationsPanel() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        maxIterations = new JTextField(12);
+        maxIterations.setName("maxIterations"); // $NON-NLS-1$
+        JLabel label = JMeterUtils.labelFor(maxIterations, "while_controller_max_iterations"); // $NON-NLS-1$
+        panel.add(label);
+        panel.add(javax.swing.Box.createHorizontalStrut(5));
+        panel.add(maxIterations);
+        panel.add(javax.swing.Box.createHorizontalStrut(5));
+        panel.add(new JLabel(JMeterUtils.getResString("while_controller_max_iterations_hint"))); // $NON-NLS-1$
+        return panel;
     }
 
     private JPanel createIndexPanel() {

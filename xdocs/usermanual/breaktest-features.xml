@@ -133,6 +133,11 @@ validate it, repair it, and show changes in the GUI.
 <h2>Scripting, Data, And Assertions</h2>
 <ul>
   <li>If and While Controllers support structured condition rows with all/any matching while preserving legacy expressions.</li>
+  <li>While Controllers have an optional <code>Max iterations</code> field. Leave it blank for no limit,
+  or enter a non-negative integer (including a variable or function resolving to one). Zero skips the loop.
+  The cap applies alongside either condition mode and counts complete iterations independently of the
+  displayed index starting at zero or one. The count resets each time the controller is entered from its parent.
+  Invalid or negative limits stop the loop and log an error.</li>
   <li>Loop and while index behavior options are visible and configurable.</li>
   <li>Transaction Controller includes measurement modes plus delay and pacing controls.</li>
   <li>Transaction Controller has no <b>Generate parent sample</b> option. Every sample is sent to listeners as soon as it completes and links to the transaction it ran in, and the transaction sample follows when the transaction ends. Transactions only keep running totals, never the samples themselves. Plans saved with the old option load unchanged, and the option is not saved again.</li>

@@ -112,7 +112,7 @@ public class WhileController extends GenericController implements Serializable, 
      * @return true means end of loop has been reached
      */
     private boolean endOfLoop(boolean loopEnd) {
-        if(breakLoop) {
+        if (breakLoop || reachedMaxIterations()) {
             return true;
         }
         String cnd = getCondition().trim();
@@ -126,6 +126,23 @@ public class WhileController extends GenericController implements Serializable, 
         }
         log.debug("Condition value: '{}'", res);
         return res;
+    }
+
+    private boolean reachedMaxIterations() {
+        String value = getMaxIterations().trim();
+        if (value.isEmpty()) {
+            return false;
+        }
+        try {
+            int limit = Integer.parseInt(value);
+            if (limit >= 0) {
+                return getIterCount() >= limit;
+            }
+        } catch (NumberFormatException ignored) {
+            // Invalid limits must not accidentally allow an unlimited loop.
+        }
+        log.error("{}: max iterations must be a non-negative integer or blank, got '{}'", getName(), value);
+        return true;
     }
 
     private static boolean evaluateBlankCondition(boolean loopEnd) {
@@ -272,6 +289,22 @@ public class WhileController extends GenericController implements Serializable, 
         JMeterProperty prop=getProperty(getSchema().getCondition().getName());
         prop.recoverRunningVersion(this);
         return prop.getStringValue();
+    }
+
+    /**
+     * @return the maximum iteration count, or blank for no limit
+     */
+    public String getMaxIterations() {
+        JMeterProperty property = getProperty(getSchema().getMaxIterations().getName());
+        property.recoverRunningVersion(this);
+        return property.getStringValue();
+    }
+
+    /**
+     * @param maxIterations a non-negative integer (possibly a variable or function), or blank for no limit
+     */
+    public void setMaxIterations(String maxIterations) {
+        set(getSchema().getMaxIterations(), maxIterations);
     }
 
     public String getConditionMatch() {
