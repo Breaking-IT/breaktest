@@ -43,10 +43,14 @@ public enum SampleIgnorePolicy {
 
     public static SampleIgnorePolicy from(Sampler sampler) {
         String value = sampler.getPropertyAsString(PROPERTY);
-        for (SampleIgnorePolicy policy : values()) {
-            if (policy.propertyValue.equals(value)) {
-                return policy;
-            }
+        if (value.isEmpty()) {
+            return NEVER;
+        }
+        if (ON_SUCCESS.propertyValue.equals(value)) {
+            return ON_SUCCESS;
+        }
+        if (ALWAYS.propertyValue.equals(value)) {
+            return ALWAYS;
         }
         return NEVER;
     }

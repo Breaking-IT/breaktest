@@ -170,6 +170,8 @@ class TestJMeterThread {
         assertEquals(expectedSamples, listener.events().stream().filter(e -> !e.isTransactionSampleEvent()).count());
         assertEquals(1, listener.transactionEvents().size());
         int failures = expectedSamples > 0 && (!success || assertionFailure) ? 1 : 0;
+        assertEquals(failures == 0, listener.transactionEvents().get(0).getResult().isSuccessful(),
+                "Ignored failures must not change the transaction's success status");
         assertEquals("Number of samples in transaction : " + expectedSamples + ", number of failing samples : " + failures,
                 listener.transactionEvents().get(0).getResult().getResponseMessage());
         assertEquals(List.of("started:request", "stopped:request"), listener.startEvents().stream()

@@ -160,18 +160,30 @@ validate it, repair it, and show changes in the GUI.
 
 </section>
 <section name="Ignoring sampler results">
-<p>The <code>Ignore</code> button beside Comments in the shared sampler header offers three modes:</p>
+<p>The result inclusion menu beside Comments in the shared sampler header offers three modes.
+Its button displays the selected mode:</p>
 <ul>
 <li><code>Included</code> (default): report results normally.</li>
 <li><code>Ignore on success</code>: report only failed results, including assertion failures.</li>
 <li><code>Ignore always</code>: exclude all results from this sampler.</li>
 </ul>
 <p>The sampler still runs, along with its post-processors and assertions. Ignored results are excluded
-from listeners and transaction totals, using the same behavior as <code>prev.setIgnore()</code>.
-Failure handling still applies. Scripts that explicitly ignore a result continue to work in every mode.</p>
+from listeners and the transaction's sample count, bytes, latency, connect time and failure status,
+using the same behavior as <code>prev.setIgnore()</code>.</p>
+<p>Transaction elapsed time still includes the ignored request's wait in both
+<code>Total run time including timers</code> (the default) and <code>Total run time excluding timers</code>.
+Use <code>Sum child sampler times</code> to leave ignored sampler durations out of the transaction time.
+This mode sums included child durations rather than measuring wall-clock time, so parallel requests
+can produce a sum longer than the transaction's actual duration.</p>
+<p>With <code>Ignore always</code>, a failed request does not mark its enclosing transaction as failed:
+the transaction can report success even though that request failed. The thread's last-sample status,
+on-error stop actions and logical actions still apply. Scripts that explicitly ignore a result
+continue to work in every mode.</p>
 <p>The selection is saved with the sampler in the test plan and also applies in command-line runs.
 The control is shared by standard sampler editors and TestBean sampler editors; plugins with fully
-custom headers may need to adopt the shared title panel to display it.</p>
+custom headers may need to adopt the shared title panel to display it. Plugin editors must call
+<code>super.configure(element)</code> when loading a sampler; otherwise, saving through
+<code>configureTestElement</code> can write an Ignore setting left over from another sampler.</p>
 </section>
 </body>
 </document>
