@@ -48,7 +48,8 @@ public class ForkControllerGui extends AbstractControllerGui {
     private JLabel finalStopLabel;
     private boolean configuring;
     private boolean legacyOptions;
-    private boolean optionsEdited;
+    private boolean endOptionsEdited;
+    private boolean runningEdited;
 
     public ForkControllerGui() {
         init();
@@ -65,10 +66,12 @@ public class ForkControllerGui extends AbstractControllerGui {
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
         ForkController controller = (ForkController) element;
-        if (!legacyOptions || optionsEdited) {
+        if (!legacyOptions || endOptionsEdited) {
             controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
             controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
             controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+        } else if (runningEdited) {
+            controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
         }
     }
 
@@ -79,7 +82,8 @@ public class ForkControllerGui extends AbstractControllerGui {
         configuring = true;
         try {
             legacyOptions = !controller.hasLifecyclePolicy();
-            optionsEdited = false;
+            endOptionsEdited = false;
+            runningEdited = false;
             whenRunning.setSelectedItem(controller.getRunningAction());
             onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
             finalStop.setSelectedItem(controller.getFinalStopAction());
@@ -95,7 +99,8 @@ public class ForkControllerGui extends AbstractControllerGui {
         configuring = true;
         try {
             legacyOptions = false;
-            optionsEdited = false;
+            endOptionsEdited = false;
+            runningEdited = false;
             whenRunning.setSelectedItem(RunningAction.SKIP);
             onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
             finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
@@ -151,11 +156,11 @@ public class ForkControllerGui extends AbstractControllerGui {
         finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
         onMainFlowEnd.addActionListener(event -> {
-            optionsEdited |= !configuring;
+            endOptionsEdited |= !configuring;
             updateFinalStopVisibility();
         });
-        whenRunning.addActionListener(event -> optionsEdited |= !configuring);
-        finalStop.addActionListener(event -> optionsEdited |= !configuring);
+        whenRunning.addActionListener(event -> runningEdited |= !configuring);
+        finalStop.addActionListener(event -> endOptionsEdited |= !configuring);
         panel.add(JMeterUtils.labelFor(onMainFlowEnd, "fork_controller_on_main_flow_end"));
         panel.add(onMainFlowEnd);
         panel.add(finalStopLabel);

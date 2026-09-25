@@ -25,7 +25,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
@@ -231,9 +230,6 @@ public class JMeterThread implements Runnable, Interruptible {
             boolean legacy) {
     }
 
-    private final Set<Future<?>> forksCancelledWithoutResult =
-            Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
-
     private final Map<Thread, ForkWorker> forkWorkers = new ConcurrentHashMap<>();
 
     /** Owns cleanup even when cancellation prevents the callable from ever starting. */
@@ -289,9 +285,6 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final Map<ForkController, Future<?>> activeForkTasksByController =
             Collections.synchronizedMap(new IdentityHashMap<>());
-
-    private final Set<Future<?>> forksRequestedToStop =
-            Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
 
     private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
 
@@ -747,8 +740,6 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private void cleanupFinishedFork(Future<?> task, ExecutorService executor, ForkController sourceController) {
         forkTasks.removeIf(candidate -> candidate == task);
-        forksRequestedToStop.removeIf(candidate -> candidate == task);
-        forksCancelledWithoutResult.removeIf(candidate -> candidate == task);
         forkExecutions.removeIf(execution -> execution.task() == task);
         forkExecutors.remove(executor);
         if (sourceController != null) {
@@ -827,7 +818,7 @@ public class JMeterThread implements Runnable, Interruptible {
         while (true) {
             List<ForkExecution> executions;
             synchronized (forkExecutions) {
-                executions = new ArrayList<>(forkExecutions);
+                executions = forkExecutions.stream().filter(execution -> !execution.task().isDone()).toList();
             }
             List<Future<?>> stop = new ArrayList<>();
             List<Future<?>> hardStop = new ArrayList<>();
@@ -836,7 +827,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 if (!finalBoundary && execution.legacy()) {
                     continue;
                 }
-                IterationEndAction action = execution.iterationEnd();
+                IterationEndAction action = execution.legacy() ? IterationEndAction.WAIT : execution.iterationEnd();
                 if (!running && action == IterationEndAction.WAIT) {
                     // WAIT has no configurable final-stop mode. Ignore any old hidden choice.
                     action = IterationEndAction.GRACEFUL;
@@ -870,75 +861,63 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private boolean stopForkTasks(List<Future<?>> tasks, List<Future<?>> hardStop) {
-        forksCancelledWithoutResult.addAll(hardStop);
         for (Future<?> task : tasks) {
             requestForkStop(task, containsIdentity(hardStop, task));
         }
-        try {
-            for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
-                ForkWorker worker = entry.getValue();
-                if (!containsIdentity(tasks, worker.task)) {
-                    continue;
-                }
-                stopTimers(worker.timers);
-                boolean immediate = containsIdentity(hardStop, worker.task);
-                if (!immediate) {
-                    if (worker.waitingInTimer) {
-                        entry.getKey().interrupt();
-                    }
-                    continue;
-                }
-                Sampler sampler = worker.sampler;
-                if (sampler instanceof StoppableSampler stoppableSampler) {
-                    stoppableSampler.stop();
-                }
-                if (sampler instanceof Interruptible interruptible) {
-                    try {
-                        interruptible.interrupt();
-                    } catch (Exception e) {
-                        log.debug("Could not interrupt fork sampler", e);
-                    }
-                }
-                entry.getKey().interrupt();
+        for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
+            ForkWorker worker = entry.getValue();
+            if (!containsIdentity(tasks, worker.task)) {
+                continue;
             }
-            // Cancellation completes a future before its worker has released the user's state.
-            // Request a stop and wait for actual completion instead.
-            for (Future<?> task : tasks) {
-                if (!waitForForkTask(task)) {
+            stopTimers(worker.timers);
+            boolean immediate = containsIdentity(hardStop, worker.task);
+            if (!immediate) {
+                if (worker.waitingInTimer) {
+                    entry.getKey().interrupt();
+                }
+                continue;
+            }
+            Sampler sampler = worker.sampler;
+            if (sampler instanceof StoppableSampler stoppableSampler) {
+                stoppableSampler.stop();
+            }
+            if (sampler instanceof Interruptible interruptible) {
+                try {
+                    interruptible.interrupt();
+                } catch (Exception e) {
+                    log.debug("Could not interrupt fork sampler", e);
+                }
+            }
+            entry.getKey().interrupt();
+        }
+        // Cancellation completes a future before its worker has released the user's state.
+        // Request a stop and wait for actual completion instead.
+        for (Future<?> task : tasks) {
+            if (!waitForForkTask(task)) {
+                return false;
+            }
+        }
+        // Parallel branches inside a fork can outlive the parent task after an interrupt.
+        // Keep cancellation quiet until those workers have also released their state.
+        for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
+            if (containsIdentity(tasks, entry.getValue().task)) {
+                try {
+                    entry.getKey().join();
+                } catch (InterruptedException e) {
+                    handleForkWaitInterrupted();
                     return false;
                 }
             }
-            // Parallel branches inside a fork can outlive the parent task after an interrupt.
-            // Keep cancellation quiet until those workers have also released their state.
-            for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
-                if (containsIdentity(tasks, entry.getValue().task)) {
-                    try {
-                        entry.getKey().join();
-                    } catch (InterruptedException e) {
-                        handleForkWaitInterrupted();
-                        return false;
-                    }
-                }
-            }
-            forksCancelledWithoutResult.removeIf(candidate -> containsIdentity(tasks, candidate));
-            forksRequestedToStop.removeIf(candidate -> containsIdentity(tasks, candidate));
-            return true;
-        } finally {
-            forksCancelledWithoutResult.removeIf(task -> containsIdentity(tasks, task) && task.isDone());
-            forksRequestedToStop.removeIf(task -> containsIdentity(tasks, task) && task.isDone());
         }
+        return true;
     }
 
-    private void requestForkStop(Future<?> task, boolean suppressResult) {
+    private static void requestForkStop(Future<?> task, boolean suppressResult) {
         if (task instanceof ForkTask forkTask) {
             if (suppressResult) {
                 forkTask.suppressResult = true;
             }
             forkTask.stopRequested = true;
-        }
-        forksRequestedToStop.add(task);
-        if (task.isDone()) {
-            forksRequestedToStop.removeIf(candidate -> candidate == task);
         }
     }
 
@@ -1642,7 +1621,6 @@ public class JMeterThread implements Runnable, Interruptible {
         for (ExecutorService executor : executors) {
             executor.shutdownNow();
         }
-        forksRequestedToStop.removeIf(task -> containsIdentity(tasks, task) && task.isDone());
     }
 
     private void stopTimers() {

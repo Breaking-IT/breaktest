@@ -54,7 +54,7 @@ public class ForkController extends GenericController implements Serializable {
     }
 
     public IterationEndAction getIterationEndAction() {
-        return IterationEndAction.valueOf(getPropertyAsString(ITERATION_END_ACTION, IterationEndAction.WAIT.name()));
+        return IterationEndAction.valueOf(getPropertyAsString(ITERATION_END_ACTION, IterationEndAction.KEEP_RUNNING.name()));
     }
 
     public void setIterationEndAction(IterationEndAction action) {

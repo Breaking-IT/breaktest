@@ -20,6 +20,10 @@ package org.apache.jmeter.control.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import java.awt.Component;
+import java.awt.Container;
+
+import javax.swing.JComboBox;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.ForkController;
@@ -78,9 +82,42 @@ class ForkControllerGuiTest {
             gui.configure(legacy);
             gui.modifyTestElement(legacy);
             assertFalse(legacy.hasLifecyclePolicy());
-            assertEquals(IterationEndAction.WAIT, legacy.getIterationEndAction());
+            assertEquals(IterationEndAction.KEEP_RUNNING, legacy.getIterationEndAction());
             assertEquals(RunningAction.WAIT, legacy.getRunningAction());
         });
+    }
+
+    @Test
+    void editingLegacyReentryPreservesCarryOverAndLegacyFinalWait() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ForkControllerGui gui = new ForkControllerGui();
+            ForkController legacy = new ForkController();
+            gui.configure(legacy);
+            selectOption(gui, RunningAction.SKIP);
+            gui.modifyTestElement(legacy);
+            assertEquals(RunningAction.SKIP, legacy.getRunningAction());
+            assertEquals(IterationEndAction.KEEP_RUNNING, legacy.getIterationEndAction());
+            assertFalse(legacy.hasLifecyclePolicy());
+            gui.configure(legacy);
+            gui.modifyTestElement(legacy);
+            assertFalse(legacy.hasLifecyclePolicy());
+            selectOption(gui, FinalStopAction.IMMEDIATE);
+            gui.modifyTestElement(legacy);
+            assertEquals("KEEP_RUNNING", legacy.getPropertyAsString("ForkController.iteration_end_action"));
+            assertEquals(FinalStopAction.IMMEDIATE, legacy.getFinalStopAction());
+            assertEquals(RunningAction.SKIP, legacy.getRunningAction());
+        });
+    }
+
+    private static void selectOption(Container parent, Enum<?> option) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JComboBox<?> combo
+                    && option.getDeclaringClass().isInstance(combo.getSelectedItem())) {
+                combo.setSelectedItem(option);
+            } else if (component instanceof Container container) {
+                selectOption(container, option);
+            }
+        }
     }
 
 }

@@ -1337,7 +1337,7 @@ class TestJMeterThread {
             assertFalse(runner.isAlive(), "A queued cancelled fork must not spin in final cleanup");
             assertEquals(0, forkCalls.get());
             assertForkBookkeepingEventuallyEmpty(thread);
-            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+            assertEquals(0, stoppedForkCount(thread));
         } finally {
             releaseMain.countDown();
             holdExecutor.countDown();
@@ -1378,7 +1378,7 @@ class TestJMeterThread {
                 Thread.sleep(10);
             }
             assertEquals(2, iterations.get(), "Old plans carry their fork across the iteration boundary");
-            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+            assertEquals(0, stoppedForkCount(thread));
             release.countDown();
             runner.join(5000);
             assertFalse(runner.isAlive());
@@ -1460,7 +1460,7 @@ class TestJMeterThread {
             assertFalse(runner.isAlive());
             assertEquals(action == IterationEndAction.IMMEDIATE ? 0 : 1, listener.events().size());
             assertForkBookkeepingEventuallyEmpty(thread);
-            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+            assertEquals(0, stoppedForkCount(thread));
         } finally {
             release.countDown();
             thread.stop();
@@ -1674,7 +1674,7 @@ class TestJMeterThread {
                 Thread.sleep(10);
             }
             assertEquals(1, mainCalls.get(), "Next iteration must wait for the entire fork");
-            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+            assertEquals(0, stoppedForkCount(thread));
             release.countDown();
             runner.join(5000);
             assertFalse(runner.isAlive());
@@ -1840,11 +1840,11 @@ class TestJMeterThread {
             for (int i = 0; i < iterations; i++) {
                 assertTrue(started[i].await(5, TimeUnit.SECONDS));
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-                while (privateCollectionSize(thread, "forksRequestedToStop") == 0
+                while (stoppedForkCount(thread) == 0
                         && System.nanoTime() < deadline) {
                     Thread.sleep(10);
                 }
-                assertEquals(1, privateCollectionSize(thread, "forksRequestedToStop"));
+                assertEquals(1, stoppedForkCount(thread));
                 assertEquals(i + 1, mainCalls.get(), "Next user must wait for graceful completion");
                 assertEquals(0, interrupts.get());
                 release[i].countDown();
@@ -1962,11 +1962,11 @@ class TestJMeterThread {
         assertTrue(runner.isAlive(), "Virtual user should wait for the active fork before finishing");
 
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (privateCollectionSize(jMeterThread, "forksRequestedToStop") == 0
+        while (stoppedForkCount(jMeterThread) == 0
                 && System.nanoTime() < deadline) {
             Thread.sleep(10);
         }
-        assertEquals(1, privateCollectionSize(jMeterThread, "forksRequestedToStop"),
+        assertEquals(1, stoppedForkCount(jMeterThread),
                 "Main flow must request graceful stop before the active request is released");
         releaseFork.countDown();
         runner.join(5000);
@@ -2858,8 +2858,7 @@ class TestJMeterThread {
                     && privateCollectionSize(jMeterThread, "forkExecutors") == 0
                     && privateMapSize(jMeterThread, "activeForkTasksByController") == 0
                     && privateMapSize(jMeterThread, "forkWorkers") == 0
-                    && privateCollectionSize(jMeterThread, "forkExecutions") == 0
-                    && privateCollectionSize(jMeterThread, "forksCancelledWithoutResult") == 0) {
+                    && privateCollectionSize(jMeterThread, "forkExecutions") == 0) {
                 return;
             }
             Thread.sleep(20);
@@ -2873,7 +2872,23 @@ class TestJMeterThread {
                 "Completed fork controller mappings should be removed while the thread is still running");
         assertEquals(0, privateMapSize(jMeterThread, "forkWorkers"));
         assertEquals(0, privateCollectionSize(jMeterThread, "forkExecutions"));
-        assertEquals(0, privateCollectionSize(jMeterThread, "forksCancelledWithoutResult"));
+    }
+
+    private static int stoppedForkCount(JMeterThread target) throws Exception {
+        Field tasksField = JMeterThread.class.getDeclaredField("forkTasks");
+        tasksField.setAccessible(true);
+        Collection<?> tasks = (Collection<?>) tasksField.get(target);
+        int count = 0;
+        synchronized (tasks) {
+            for (Object task : tasks) {
+                Field stopRequested = task.getClass().getDeclaredField("stopRequested");
+                stopRequested.setAccessible(true);
+                if (stopRequested.getBoolean(task)) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static int privateCollectionSize(JMeterThread target, String fieldName) throws Exception {

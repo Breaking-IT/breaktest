@@ -98,10 +98,13 @@ debugging, and migration work that has landed across the BreakTest PR series.
   iteration. Keep running requires "Same user on each iteration" at runtime and has a separate
   graceful/immediate stop choice for the final iteration or duration limit. When
   the same fork is reached while still active, choose skip, hard restart, or wait
-  then start again. New controllers default to graceful stop at iteration end and skip
+  then start again. Controllers created in the editor default to graceful stop at iteration end and skip
   on re-entry. Plans saved without lifecycle options retain their original behavior:
   forks carry across iterations, re-entry waits, and thread end waits for completion.
-  Selecting a controller in the editor does not change that legacy behavior.
+  Selecting a controller or editing only its re-entry option preserves its legacy
+  lifecycle. Legacy controllers display Keep running; editing an end-of-flow option
+  opts into the explicit lifecycle settings. Code-created controllers without lifecycle
+  properties also retain legacy behavior; set the lifecycle options explicitly to opt in.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.
