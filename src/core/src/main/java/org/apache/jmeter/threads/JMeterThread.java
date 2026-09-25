@@ -48,6 +48,7 @@ import java.util.function.Function;
 
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.ErrorAction;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
@@ -226,12 +227,16 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final Object forkLifecycleLock = new Object();
 
+    private volatile ErrorAction forkIterationEndAction;
+    private volatile boolean suppressEndedIterationResults;
+    private final Map<Thread, Sampler> activeSampleWorkers = new ConcurrentHashMap<>();
+    private final Map<Thread, List<? extends Timer>> activeTimerWorkers = new ConcurrentHashMap<>();
+
     private final IdentityHashMap<ForkController, ReentrantLock> forkStartLocks = new IdentityHashMap<>();
 
     private final List<ForkExecution> forkExecutions = Collections.synchronizedList(new ArrayList<>());
 
-    private record ForkExecution(Future<?> task, IterationEndAction iterationEnd, FinalStopAction finalStop,
-            boolean legacy) {
+    private record ForkExecution(Future<?> task, IterationEndAction iterationEnd, FinalStopAction finalStop) {
     }
 
     private final Map<Thread, ForkWorker> forkWorkers = new ConcurrentHashMap<>();
@@ -240,6 +245,8 @@ public class JMeterThread implements Runnable, Interruptible {
     private final class ForkTask extends FutureTask<Void> {
         private final ExecutorService executor;
         private final ForkController controller;
+        private final ErrorAction errorAction;
+        private final ForkTask parentTask;
         private boolean started;
         private final CountDownLatch exited = new CountDownLatch(1);
         private volatile boolean stopRequested;
@@ -249,6 +256,8 @@ public class JMeterThread implements Runnable, Interruptible {
             super(callable);
             this.executor = executor;
             this.controller = controller;
+            errorAction = controller == null ? ErrorAction.CONTINUE : controller.getErrorAction();
+            parentTask = CURRENT_FORK_TASK.get() instanceof ForkTask parent ? parent : null;
         }
 
         @Override
@@ -431,6 +440,24 @@ public class JMeterThread implements Runnable, Interruptible {
                         break;
                     }
 
+                    if (forkIterationEndAction != null) {
+                        completeFailedForkIteration(threadContext);
+                        triggerLoopLogicalActionOnParentControllers(sam, path -> {
+                            for (Controller controller : path.getControllersToRoot()) {
+                                if (controller instanceof AbstractThreadGroup group) {
+                                    group.startNextLoop();
+                                } else if (controller == threadGroupLoopController
+                                        && controller instanceof IteratingController loop) {
+                                    loop.startNextLoop();
+                                } else {
+                                    controller.triggerEndOfLoop();
+                                }
+                            }
+                        });
+                        sam = null;
+                        continue;
+                    }
+
                     boolean lastSampleOk = TRUE.equals(threadContext.getVariables().get(LAST_SAMPLE_OK));
                     // restart of the next loop
                     // - was requested through threadContext
@@ -492,6 +519,10 @@ public class JMeterThread implements Runnable, Interruptible {
         } catch (ThreadDeath e) {
             throw e; // Must not ignore this one
         } finally {
+            if (forkIterationEndAction != null) {
+                // Our own cancellation must not prevent waiting for workers before user cleanup.
+                Thread.interrupted();
+            }
             finishForks();
             endRunningTransactions(threadContext, null);
             running = false;
@@ -617,6 +648,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * @return tree node that should be used to find the sampler's parent controllers
      */
     private static Object findRealSampler(Sampler sampler) {
+        if (sampler instanceof ForkControllerSampler forkSampler && forkSampler.getSourceController() != null) {
+            return forkSampler.getSourceController();
+        }
         if (sampler instanceof ParallelControllerSampler parallelSampler && parallelSampler.getController() != null) {
             return parallelSampler.getController();
         }
@@ -654,22 +688,31 @@ public class JMeterThread implements Runnable, Interruptible {
             }
 
         } catch (JMeterStopTestException e) { // NOSONAR
+            if (isCurrentSampleCancelledWithoutResult()) {
+                return;
+            }
             if (log.isInfoEnabled()) {
                 log.info("Stopping Test: {}", e.toString());
             }
             shutdownTest();
         } catch (JMeterStopTestNowException e) { // NOSONAR
+            if (isCurrentSampleCancelledWithoutResult()) {
+                return;
+            }
             if (log.isInfoEnabled()) {
                 log.info("Stopping Test with interruption of current samplers: {}", e.toString());
             }
             stopTestNow();
         } catch (JMeterStopThreadException e) { // NOSONAR
+            if (isCurrentSampleCancelledWithoutResult()) {
+                return;
+            }
             if (log.isInfoEnabled()) {
                 log.info("Stopping Thread: {}", e.toString());
             }
             stopThread();
         } catch (Exception e) {
-            if (isCurrentForkCancelledWithoutResult()) {
+            if (isCurrentSampleCancelledWithoutResult()) {
                 return;
             }
             if (current != null) {
@@ -698,7 +741,7 @@ public class JMeterThread implements Runnable, Interruptible {
         }
         try {
             while (!startLock.tryLock(50, TimeUnit.MILLISECONDS)) {
-                if (!running || isCurrentForkStopRequested()) {
+                if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()) {
                     return;
                 }
             }
@@ -725,7 +768,7 @@ public class JMeterThread implements Runnable, Interruptible {
         if (!waitForPreviousForkFromSameController(forkSampler)) {
             return;
         }
-        if (!running || isCurrentForkStopRequested()) {
+        if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()) {
             return;
         }
 
@@ -751,7 +794,7 @@ public class JMeterThread implements Runnable, Interruptible {
         taskReference.set(task);
 
         synchronized (forkLifecycleLock) {
-            if (!running || isCurrentForkStopRequested()
+            if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()
                     || (mainFlowFinished && !isForkWorkerThread())) {
                 executor.shutdown();
                 return;
@@ -759,8 +802,7 @@ public class JMeterThread implements Runnable, Interruptible {
             forkExecutors.add(executor);
             forkExecutions.add(new ForkExecution(task,
                     sourceController == null ? IterationEndAction.GRACEFUL : sourceController.getIterationEndAction(),
-                    sourceController == null ? FinalStopAction.GRACEFUL : sourceController.getFinalStopAction(),
-                    sourceController != null && !sourceController.hasLifecyclePolicy()));
+                    sourceController == null ? FinalStopAction.GRACEFUL : sourceController.getFinalStopAction()));
             forkTasks.add(task);
             if (sourceController != null) {
                 activeForkTasksByController.put(sourceController, task);
@@ -814,7 +856,7 @@ public class JMeterThread implements Runnable, Interruptible {
         try {
             Controller controller = forkSampler.getController();
             Sampler sampler;
-            while (running && !isCurrentForkStopRequested() && (sampler = controller.next()) != null) {
+            while (running && forkIterationEndAction == null && !isCurrentForkStopRequested() && (sampler = controller.next()) != null) {
                 processSampler(sampler, workerContext, sourceSampler, false);
                 workerContext.cleanAfterSample();
                 if (isCurrentForkStopRequested()) {
@@ -831,15 +873,27 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private boolean shouldStopForkAfterSample(JMeterContext workerContext) {
-        boolean lastSampleOk = TRUE.equals(workerContext.getVariables().get(LAST_SAMPLE_OK));
-        if (workerContext.getTestLogicalAction() != TestLogicalAction.CONTINUE
-                || (onErrorStartNextLoop && !lastSampleOk)) {
+    private static boolean shouldStopForkAfterSample(JMeterContext workerContext) {
+        if (workerContext.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
             workerContext.setTestLogicalAction(TestLogicalAction.CONTINUE);
             setLastSampleOk(workerContext.getVariables(), true);
             return true;
         }
         return false;
+    }
+
+    private void completeFailedForkIteration(JMeterContext context) {
+        // All workers must leave the old iteration before its cancellation state is reset.
+        Thread.interrupted();
+        applyForkBoundary(false);
+        endRunningTransactions(context, null);
+        synchronized (forkLifecycleLock) {
+            forkIterationEndAction = null;
+            suppressEndedIterationResults = false;
+        }
+        Thread.interrupted();
+        context.setTestLogicalAction(TestLogicalAction.CONTINUE);
+        setLastSampleOk(context.getVariables(), true);
     }
 
     private void finishForks() {
@@ -859,16 +913,17 @@ public class JMeterThread implements Runnable, Interruptible {
             List<Future<?>> hardStop = new ArrayList<>();
             List<Future<?>> wait = new ArrayList<>();
             for (ForkExecution execution : executions) {
-                if (!finalBoundary && execution.legacy()) {
-                    continue;
-                }
-                IterationEndAction action = execution.legacy() ? IterationEndAction.WAIT : execution.iterationEnd();
+                IterationEndAction action = execution.iterationEnd();
                 if (!running && action == IterationEndAction.WAIT) {
                     // WAIT has no configurable final-stop mode. Ignore any old hidden choice.
                     action = IterationEndAction.GRACEFUL;
                 }
                 if (action == IterationEndAction.KEEP_RUNNING && (finalBoundary || !isSameUserOnNextIteration)) {
                     action = execution.finalStop() == FinalStopAction.IMMEDIATE
+                            ? IterationEndAction.IMMEDIATE : IterationEndAction.GRACEFUL;
+                }
+                if (forkIterationEndAction != null) {
+                    action = forkIterationEndAction == ErrorAction.END_ITERATION_IMMEDIATE
                             ? IterationEndAction.IMMEDIATE : IterationEndAction.GRACEFUL;
                 }
                 switch (action) {
@@ -878,7 +933,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     case GRACEFUL -> stop.add(execution.task());
                     case WAIT -> wait.add(execution.task());
-                    case KEEP_RUNNING, LEGACY -> { /* Survives this iteration. */ }
+                    case KEEP_RUNNING -> { /* Survives this iteration. */ }
                 }
             }
             if (stop.isEmpty() && wait.isEmpty()) {
@@ -896,8 +951,20 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private boolean stopForkTasks(List<Future<?>> tasks, List<Future<?>> hardStop) {
+        requestStopForkTasks(tasks, hardStop);
         for (Future<?> task : tasks) {
-            requestForkStop(task, containsIdentity(hardStop, task));
+            if (!waitForForkTask(task)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void requestStopForkTasks(List<Future<?>> tasks, List<Future<?>> hardStop) {
+        synchronized (forkLifecycleLock) {
+            for (Future<?> task : tasks) {
+                requestForkStop(task, containsIdentity(hardStop, task));
+            }
         }
         for (Map.Entry<Thread, ForkWorker> entry : forkWorkers.entrySet()) {
             ForkWorker worker = entry.getValue();
@@ -925,14 +992,68 @@ public class JMeterThread implements Runnable, Interruptible {
             }
             entry.getKey().interrupt();
         }
-        // Cancellation completes a future before its worker has released the user's state.
-        // Request a stop and wait for actual completion instead.
-        for (Future<?> task : tasks) {
-            if (!waitForForkTask(task)) {
-                return false;
+    }
+
+    private void handleForkError(ForkTask failedTask) {
+        if (failedTask.errorAction == ErrorAction.CONTINUE) {
+            return;
+        }
+        if (failedTask.errorAction == ErrorAction.STOP_FORK) {
+            List<Future<?>> descendants = new ArrayList<>();
+            synchronized (forkLifecycleLock) {
+                for (Future<?> candidate : runningForkTasks()) {
+                    if (candidate instanceof ForkTask child) {
+                        for (ForkTask ancestor = child; ancestor != null; ancestor = ancestor.parentTask) {
+                            if (ancestor == failedTask) {
+                                requestForkStop(child, false);
+                                descendants.add(child);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            requestStopForkTasks(descendants, List.of());
+            return;
+        }
+        synchronized (forkLifecycleLock) {
+            if (forkIterationEndAction == null || failedTask.errorAction == ErrorAction.END_ITERATION_IMMEDIATE) {
+                forkIterationEndAction = failedTask.errorAction;
+            }
+            suppressEndedIterationResults |= forkIterationEndAction == ErrorAction.END_ITERATION_IMMEDIATE;
+            for (Future<?> task : runningForkTasks()) {
+                requestForkStop(task, suppressEndedIterationResults);
             }
         }
-        return true;
+        for (Map.Entry<Thread, List<? extends Timer>> entry : activeTimerWorkers.entrySet()) {
+            stopTimers(entry.getValue());
+            interruptActiveWorker(activeTimerWorkers, entry);
+        }
+        if (suppressEndedIterationResults) {
+            for (Map.Entry<Thread, Sampler> entry : activeSampleWorkers.entrySet()) {
+                Sampler sampler = entry.getValue();
+                try {
+                    if (sampler instanceof StoppableSampler stoppable) {
+                        stoppable.stop();
+                    }
+                    if (sampler instanceof Interruptible interruptible) {
+                        interruptible.interrupt();
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not interrupt sampler after fork failure", e);
+                }
+                interruptActiveWorker(activeSampleWorkers, entry);
+            }
+        }
+    }
+
+    private static <T> void interruptActiveWorker(Map<Thread, T> workers, Map.Entry<Thread, T> entry) {
+        synchronized (workers) {
+            // Never deliver a late interrupt after the operation exits and user cleanup starts.
+            if (workers.get(entry.getKey()) == entry.getValue()) {
+                entry.getKey().interrupt();
+            }
+        }
     }
 
     private static void requestForkStop(Future<?> task, boolean suppressResult) {
@@ -944,8 +1065,9 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private static boolean isCurrentForkCancelledWithoutResult() {
-        return CURRENT_FORK_TASK.get() instanceof ForkTask task && task.suppressResult;
+    private boolean isCurrentSampleCancelledWithoutResult() {
+        return suppressEndedIterationResults
+                || CURRENT_FORK_TASK.get() instanceof ForkTask task && task.suppressResult;
     }
 
     private void handleForkWaitInterrupted() {
@@ -988,7 +1110,9 @@ public class JMeterThread implements Runnable, Interruptible {
             log.debug("Fork sampler task was cancelled during shutdown.");
             return true;
         } catch (ExecutionException e) {
-            log.error("Error while processing fork sampler.", e.getCause());
+            if (!suppressEndedIterationResults && !(task instanceof ForkTask fork && fork.suppressResult)) {
+                log.error("Error while processing fork sampler.", e.getCause());
+            }
             return true;
         }
     }
@@ -1034,7 +1158,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 try {
                     result = completionService.take().get();
                 } catch (ExecutionException e) {
-                    log.error("Error while processing parallel sampler: '{}'.", parallelSampler.getName(), e.getCause());
+                    if (!isCurrentSampleCancelledWithoutResult()) {
+                        log.error("Error while processing parallel sampler: '{}'.", parallelSampler.getName(), e.getCause());
+                    }
                 }
                 activeBranches--;
                 if (result != null) {
@@ -1045,12 +1171,12 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     if (!result.isSuccessful()) {
                         anyFailure = true;
-                        if (onErrorStartNextLoop) {
+                        if (onErrorStartNextLoop && !isForkWorkerThread()) {
                             startNextLoop = true;
                         }
                     }
                 }
-                if (running && !startNextLoop && nextBranch < branchCount) {
+                if (running && forkIterationEndAction == null && !isCurrentForkStopRequested() && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
                             parallelSampler.getParallelBranch(nextBranch++), parentContext, enclosingSourceSampler));
                     activeBranches++;
@@ -1063,7 +1189,7 @@ public class JMeterThread implements Runnable, Interruptible {
             }
         } finally {
             executor.shutdownNow();
-            if (isForkWorkerThread()) {
+            if (isForkWorkerThread() || forkIterationEndAction != null) {
                 // Account for submitted branches that have not registered in forkWorkers yet.
                 // The parent task must remain alive until every nested worker has exited.
                 boolean interrupted = Thread.interrupted();
@@ -1112,7 +1238,7 @@ public class JMeterThread implements Runnable, Interruptible {
             SampleResult branchResult = null;
             try {
                 Sampler sampler;
-                while (running && !isCurrentForkStopRequested() && (sampler = branch.next()) != null) {
+                while (running && forkIterationEndAction == null && !isCurrentForkStopRequested() && (sampler = branch.next()) != null) {
                     SampleResult result = executeParallelBranchSampler(sampler, workerContext, sourceSampler);
                     if (result != null) {
                         if (branchResult == null || branchResult.isSuccessful()) {
@@ -1121,7 +1247,7 @@ public class JMeterThread implements Runnable, Interruptible {
                         if (result.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
                             workerContext.setTestLogicalAction(result.getTestLogicalAction());
                         }
-                        if (!result.isSuccessful() && onErrorStartNextLoop) {
+                        if (!result.isSuccessful() && onErrorStartNextLoop && !isForkWorkerThread()) {
                             return result;
                         }
                     }
@@ -1224,15 +1350,16 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
             SampleResult result = null;
-            if (running && !isCurrentForkStopRequested()) {
+            if (running && forkIterationEndAction == null && !isCurrentForkStopRequested()) {
                 Sampler sampler = pack.getSampler();
+                markTransactionStarted(threadContext.getCurrentTransaction());
                 // Only live views ask for this, so it costs a field read otherwise
                 if (pack.needsStartEvents()) {
                     startedSample = notifySampleStarted(pack, sampler, threadContext);
                 }
                 result = doSampling(threadContext, sampler);
             }
-            if (isCurrentForkCancelledWithoutResult()) {
+            if (isCurrentSampleCancelledWithoutResult()) {
                 // An aborted request is neither a failed sample nor an on-error action.
                 result = null;
             }
@@ -1255,6 +1382,11 @@ public class JMeterThread implements Runnable, Interruptible {
                     threadContext.setPreviousResult(result);
                     runPostProcessors(pack.getPostProcessors());
                     JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
+                    if (isCurrentSampleCancelledWithoutResult()) {
+                        packageDone = true;
+                        doneLocked(pack, recoverControllers);
+                        return null;
+                    }
                     SampleIgnorePolicy.from(pack.getSampler()).apply(result);
                     // PostProcessors and the sampler policy can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
@@ -1280,14 +1412,18 @@ public class JMeterThread implements Runnable, Interruptible {
                     packageDone = true;
                     doneLocked(pack, recoverControllers);
                 }
-                // Check if thread or test should be stopped
-                if (result.isStopThread() || (!result.isSuccessful() && onErrorStopThread)) {
+                if (!result.isSuccessful() && CURRENT_FORK_TASK.get() instanceof ForkTask task) {
+                    handleForkError(task);
+                }
+                // Explicit sampler actions still apply; thread-group error policy is main-flow only.
+                boolean mainFlowError = !isForkWorkerThread() && !result.isSuccessful() && forkIterationEndAction == null;
+                if (result.isStopThread() || (mainFlowError && onErrorStopThread)) {
                     stopThread();
                 }
-                if (result.isStopTest() || (!result.isSuccessful() && onErrorStopTest)) {
+                if (result.isStopTest() || (mainFlowError && onErrorStopTest)) {
                     shutdownTest();
                 }
-                if (result.isStopTestNow() || (!result.isSuccessful() && onErrorStopTestNow)) {
+                if (result.isStopTestNow() || (mainFlowError && onErrorStopTestNow)) {
                     stopTestNow();
                 }
                 if (result.getTestLogicalAction() != TestLogicalAction.CONTINUE) {
@@ -1382,6 +1518,7 @@ public class JMeterThread implements Runnable, Interruptible {
         // Perform the actual sample
         currentSamplerForInterruption = sampler;
         currentSamplersForInterruption.add(sampler);
+        activeSampleWorkers.put(Thread.currentThread(), sampler);
         ForkWorker forkWorker = forkWorkers.get(Thread.currentThread());
         if (forkWorker != null) {
             forkWorker.sampler = sampler;
@@ -1398,7 +1535,10 @@ public class JMeterThread implements Runnable, Interruptible {
             }
         }
         try {
-            return isCurrentForkStopRequested() ? null : sampler.sample(null);
+            if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()) {
+                return null;
+            }
+            return sampler.sample(null);
         } finally {
             if (!sampleMonitors.isEmpty()) {
                 for (SampleMonitor sampleMonitor : sampleMonitors) {
@@ -1406,12 +1546,29 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
             currentSamplerForInterruption = null;
+            synchronized (activeSampleWorkers) {
+                activeSampleWorkers.remove(Thread.currentThread());
+            }
             // Remove by identity: TestElement.equals() compares configuration, so a sibling
             // sampler with identical settings must not be removed in place of this one.
             currentSamplersForInterruption.removeIf(candidate -> candidate == sampler);
             currentForkSamplersForInterruption.removeIf(candidate -> candidate == sampler);
             if (forkWorker != null) {
                 forkWorker.sampler = null;
+            }
+        }
+    }
+
+    private void markTransactionStarted(RunningTransaction transaction) {
+        if (transaction == null) {
+            return;
+        }
+        markTransactionStarted(transaction.getEnclosing());
+        synchronized (transaction) {
+            // finish() uses the same monitor: listeners must see start before completion,
+            // including when a fork samples while its enclosing main transaction ends.
+            if (transaction.samplerStarted()) {
+                notifyTransactionStarted(transaction);
             }
         }
     }
@@ -1425,9 +1582,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * Ends the transactions still running in the context, down to {@code boundary}, when the thread,
      * or a parallel or fork worker, finishes before reaching their end.
      */
-    private static void endRunningTransactions(JMeterContext context, RunningTransaction boundary) {
+    private void endRunningTransactions(JMeterContext context, RunningTransaction boundary) {
         try {
-            context.endTransactionsUntil(boundary);
+            context.endTransactionsUntil(boundary, forkIterationEndAction == null);
         } catch (RuntimeException e) {
             log.error("Error while reporting unfinished transactions", e);
         }
@@ -1435,7 +1592,7 @@ public class JMeterThread implements Runnable, Interruptible {
 
     /**
      * Tells the listeners in scope of the transaction controller that a transaction has started.
-     * Called by {@link JMeterContext#startTransaction}.
+     * Called when the first sampler starts, or a naturally empty transaction finishes.
      */
     void notifyTransactionStarted(RunningTransaction transaction) {
         SamplePackage pack = compiler.getTransactionControllerPackage(transaction.getController());
@@ -1459,6 +1616,13 @@ public class JMeterThread implements Runnable, Interruptible {
      * Called by {@link JMeterContext#endTransaction} and {@link JMeterContext#endTransactionsUntil}.
      */
     void notifyTransactionFinished(RunningTransaction transaction, SampleResult result) {
+        if (!transaction.hasStartedSampler()) {
+            if (!isIterationRunning()) {
+                return;
+            }
+            // Naturally empty transactions still report their normal completion.
+            notifyTransactionStarted(transaction);
+        }
         fillThreadInformation(result, threadGroup.getNumberOfThreads(), JMeterContextService.getNumberOfThreads());
         SamplePackage pack = compiler.getTransactionControllerPackage(transaction.getController());
         if (pack == null) {
@@ -1587,6 +1751,11 @@ public class JMeterThread implements Runnable, Interruptible {
 
     public String getThreadName() {
         return threadName;
+    }
+
+    /** @return whether the calling flow may start another sampler in this iteration */
+    public boolean isIterationRunning() {
+        return running && forkIterationEndAction == null && !isCurrentForkStopRequested();
     }
 
     public boolean isRunning() {
@@ -1875,6 +2044,7 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private TimerPause delay(List<? extends Timer> timers) {
         currentTimersForInterruption = timers;
+        activeTimerWorkers.put(Thread.currentThread(), timers);
         ForkWorker forkWorker = forkWorkers.get(Thread.currentThread());
         if (forkWorker != null) {
             forkWorker.timers = timers;
@@ -1884,7 +2054,7 @@ public class JMeterThread implements Runnable, Interruptible {
             currentForkTimersForInterruption.add(timers);
         }
         try {
-            if (isCurrentForkStopRequested()) {
+            if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()) {
                 return null;
             }
             // Timers such as the Synchronizing Timer block inside delay() and return 0, so the
@@ -1918,7 +2088,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 long end = System.currentTimeMillis() + totalDelay;
                 long now;
                 long pause = TIMER_GRANULARITY;
-                while (running && !isCurrentForkStopRequested() && (now = System.currentTimeMillis()) < end) {
+                while (running && forkIterationEndAction == null && !isCurrentForkStopRequested() && (now = System.currentTimeMillis()) < end) {
                     long togo = end - now;
                     if (togo < pause) {
                         pause = togo;
@@ -1926,7 +2096,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     try {
                         TimeUnit.MILLISECONDS.sleep(pause);
                     } catch (InterruptedException e) {
-                        if (log.isDebugEnabled() && running && !isCurrentForkStopRequested()) {
+                        if (log.isDebugEnabled() && running && forkIterationEndAction == null && !isCurrentForkStopRequested()) {
                             log.debug("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
                                     threadName, end - System.currentTimeMillis(), totalDelay);
                         }
@@ -1939,6 +2109,9 @@ public class JMeterThread implements Runnable, Interruptible {
             return pauseEnd > start ? new TimerPause(start, pauseEnd) : null;
         } finally {
             currentTimersForInterruption = null;
+            synchronized (activeTimerWorkers) {
+                activeTimerWorkers.remove(Thread.currentThread());
+            }
             // Remove by identity: List#remove uses equals(), and equally-configured timer lists
             // from sibling branches would otherwise remove the wrong entry.
             currentForkTimersForInterruption.removeIf(candidate -> candidate == timers);
@@ -2209,6 +2382,9 @@ public class JMeterThread implements Runnable, Interruptible {
         public void iterationStart(LoopIterationEvent iterEvent) {
             if (threadVars.getIteration() > 0) {
                 applyForkBoundary(false);
+                if (forkIterationEndAction != null) {
+                    completeFailedForkIteration(JMeterContextService.getContext());
+                }
             }
             applyThreadGroupPacing();
             if (running) {

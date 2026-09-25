@@ -44,11 +44,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.ErrorAction;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
@@ -58,6 +60,7 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.ParallelControllerSampler;
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.engine.util.ReplaceStringWithFunctions;
 import org.apache.jmeter.processor.PostProcessor;
@@ -82,7 +85,9 @@ import org.apache.jorphan.collections.HashTreeTraverser;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class TestJMeterThread {
 
@@ -324,6 +329,24 @@ class TestJMeterThread {
         @Override
         public SampleResult sample(Entry e) {
             throw new IllegalStateException("Expected test failure");
+        }
+    }
+
+    public static class DelaySignallingTransactionController extends TransactionController {
+        private static final long serialVersionUID = 1L;
+        private CountDownLatch enteringDelay;
+
+        @Override
+        public Sampler next() {
+            enteringDelay.countDown();
+            return super.next();
+        }
+
+        @Override
+        public Object clone() {
+            DelaySignallingTransactionController copy = (DelaySignallingTransactionController) super.clone();
+            copy.enteringDelay = enteringDelay;
+            return copy;
         }
     }
 
@@ -728,7 +751,7 @@ class TestJMeterThread {
         }
     }
 
-    private static final class RecordingSampleListener extends AbstractTestElement implements SampleListener {
+    private static class RecordingSampleListener extends AbstractTestElement implements SampleListener {
         private static final long serialVersionUID = 1L;
 
         private final List<SampleEvent> events = Collections.synchronizedList(new ArrayList<>());
@@ -1568,7 +1591,7 @@ class TestJMeterThread {
 
     @ParameterizedTest
     @CsvSource({"true", "false"})
-    void legacyForkSurvivesIterationBoundaryAndWaitsForFullCompletion(boolean sameUser) throws Exception {
+    void forkWithoutSettingsStopsGracefullyAtIterationBoundary(boolean sameUser) throws Exception {
         LoopController loop = new LoopController();
         loop.setLoops(2);
         loop.setContinueForever(false);
@@ -1576,32 +1599,34 @@ class TestJMeterThread {
         HashTree loopTree = tree.add(loop);
         AtomicInteger iterations = new AtomicInteger();
         loopTree.add(new ResultStatusSampler("iteration-start", true, iterations));
-        ForkController legacy = new ForkController();
+        ForkController defaults = new ForkController();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch finished = new CountDownLatch(2);
-        HashTree forkTree = loopTree.add(legacy);
+        HashTree forkTree = loopTree.add(defaults);
         forkTree.add(new BlockingSampler("request", started, release, new AtomicReference<>()));
         forkTree.add(new CompletingSampler("rest-of-fork", finished));
+        loopTree.add(new AwaitingSampler(() -> started.getCount() == 0));
         ThreadGroup group = new ThreadGroup();
-        group.setName("legacy-fork");
+        group.setName("defaults-fork");
         JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
         thread.setThreadGroup(group);
-        thread.setThreadName("legacy-fork");
+        thread.setThreadName("defaults-fork");
         Thread runner = new Thread(thread);
         try {
             runner.start();
             assertTrue(started.await(5, TimeUnit.SECONDS));
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            while (iterations.get() < 2 && System.nanoTime() < deadline) {
+            while (stoppedForkCount(thread) == 0 && System.nanoTime() < deadline) {
                 Thread.sleep(10);
             }
-            assertEquals(2, iterations.get(), "Old plans carry their fork across the iteration boundary");
-            assertEquals(0, stoppedForkCount(thread));
+            assertEquals(1, iterations.get(), "The next iteration waits for the active request to finish");
+            assertEquals(1, stoppedForkCount(thread));
             release.countDown();
             runner.join(5000);
             assertFalse(runner.isAlive());
-            assertEquals(0, finished.getCount(), "Legacy re-entry and thread end both wait for full completion");
+            assertEquals(2, iterations.get());
+            assertTrue(finished.getCount() >= 1, "Graceful stop skips the rest of the first fork");
             assertForkBookkeepingEventuallyEmpty(thread);
         } finally {
             release.countDown();
@@ -2532,8 +2557,568 @@ class TestJMeterThread {
         assertFalse(runner.isAlive(), "Virtual user should finish after the main sampler is released");
     }
 
+    static Stream<Arguments> forkErrorPolicies() {
+        return List.of(ErrorAction.CONTINUE, ErrorAction.STOP_FORK).stream().flatMap(action ->
+                List.of("continue", "next", "thread", "test", "now").stream().flatMap(groupAction ->
+                        List.of(false, true).stream().map(parallel -> Arguments.of(action, groupAction, parallel))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("forkErrorPolicies")
+    void forkErrorsAreIndependentOfThreadGroupPolicy(ErrorAction action, String groupAction, boolean parallel)
+            throws Exception {
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        fork.setErrorAction(action);
+        fork.setIterationEndAction(IterationEndAction.WAIT);
+        HashTree child = main.add(fork);
+        if (parallel) {
+            child = child.add(new ParallelController()).add(new GenericController());
+        }
+        AtomicInteger failures = new AtomicInteger();
+        AtomicInteger afterFailure = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        child.add(new ResultStatusSampler("fork-error", false, failures));
+        child.add(new ResultStatusSampler("after-error", true, afterFailure));
+        main.add(new ResultStatusSampler("main", true, mainCalls));
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("fork-error-policy");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("fork-error-policy");
+        thread.setOnErrorStartNextLoop(groupAction.equals("next"));
+        thread.setOnErrorStopThread(groupAction.equals("thread"));
+        thread.setOnErrorStopTest(groupAction.equals("test"));
+        thread.setOnErrorStopTestNow(groupAction.equals("now"));
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(2, mainCalls.get());
+            assertEquals(2, failures.get());
+            assertEquals(action == ErrorAction.CONTINUE ? 2 : 0, afterFailure.get());
+            assertEquals(2, listener.events().stream().filter(event -> !event.getResult().isSuccessful()).count());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"END_ITERATION_GRACEFUL, false, true", "END_ITERATION_IMMEDIATE, false, true",
+            "END_ITERATION_GRACEFUL, true, true", "END_ITERATION_IMMEDIATE, true, true",
+            "END_ITERATION_GRACEFUL, false, false", "END_ITERATION_GRACEFUL, true, false"})
+    void forkErrorEndsIterationAndKeepsOriginalFailure(ErrorAction action, boolean parallelMain, boolean mainSuccessful) throws Exception {
+        CountDownLatch mainStarted = new CountDownLatch(1);
+        CountDownLatch releaseMain = new CountDownLatch(1);
+        CountDownLatch mainInterrupted = new CountDownLatch(1);
+        AtomicInteger mainAfter = new AtomicInteger();
+        AtomicInteger forkAfter = new AtomicInteger();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        fork.setErrorAction(action);
+        fork.setIterationEndAction(IterationEndAction.IMMEDIATE);
+        HashTree child = main.add(fork);
+        child.add(new AwaitingSampler(() -> mainStarted.getCount() == 0));
+        child.add(new ResultStatusSampler("original-fork-error", false, new AtomicInteger()));
+        child.add(new ResultStatusSampler("fork-after", true, forkAfter));
+        AbstractSampler activeMain = new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                mainStarted.countDown();
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("active-main");
+                result.setSuccessful(mainSuccessful);
+                try {
+                    assertTrue(releaseMain.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    mainInterrupted.countDown();
+                    result.setSuccessful(false);
+                    Thread.currentThread().interrupt();
+                }
+                return result;
+            }
+        };
+        TransactionController outer = new TransactionController();
+        outer.setName("outer-main");
+        TransactionController inner = new TransactionController();
+        inner.setName("inner-main");
+        HashTree flow = main.add(outer);
+        if (parallelMain) {
+            flow = flow.add(new ParallelController());
+        }
+        HashTree transaction = flow.add(inner);
+        transaction.add(activeMain);
+        transaction.add(new ResultStatusSampler("main-after", true, mainAfter));
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("fork-stop-user");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        Field engineInstance = StandardJMeterEngine.class.getDeclaredField("engine");
+        engineInstance.setAccessible(true);
+        Object previousEngine = engineInstance.get(null);
+        AtomicInteger testStops = new AtomicInteger();
+        StandardJMeterEngine engine = new StandardJMeterEngine() {
+            @Override
+            public void stopTest(boolean now) {
+                testStops.incrementAndGet();
+            }
+        };
+        thread.setEngine(engine);
+        thread.setOnErrorStopTest(true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("fork-stop-user");
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            assertTrue(mainStarted.await(5, TimeUnit.SECONDS));
+            if (action == ErrorAction.END_ITERATION_GRACEFUL) {
+                Field stopAction = JMeterThread.class.getDeclaredField("forkIterationEndAction");
+                stopAction.setAccessible(true);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (stopAction.get(thread) == null && System.nanoTime() < deadline) {
+                    Thread.sleep(10);
+                }
+                assertEquals(action, stopAction.get(thread));
+                assertTrue(thread.isRunning());
+                assertTrue(runner.isAlive(), "Graceful stop must wait for the main request");
+                assertEquals(1, mainInterrupted.getCount());
+                releaseMain.countDown();
+            } else {
+                assertTrue(mainInterrupted.await(5, TimeUnit.SECONDS));
+            }
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(0, mainAfter.get());
+            assertEquals(0, forkAfter.get());
+            List<SampleEvent> samples = listener.events().stream()
+                    .filter(event -> !event.isTransactionSampleEvent()).toList();
+            assertEquals(action == ErrorAction.END_ITERATION_GRACEFUL ? 2 : 1, samples.size());
+            assertEquals(2, listener.transactionEvents().size());
+            for (SampleEvent event : listener.transactionEvents()) {
+                assertFalse(event.getResult().isSuccessful(), "A transaction cut short by a fork error must fail");
+            }
+            assertEquals(mainSuccessful || action == ErrorAction.END_ITERATION_IMMEDIATE
+                    ? List.of("original-fork-error") : List.of("original-fork-error", "active-main"), samples.stream()
+                    .filter(event -> !event.getResult().isSuccessful())
+                    .map(event -> event.getResult().getSampleLabel()).toList());
+            assertForkBookkeepingEventuallyEmpty(thread);
+            assertEquals(0, privateMapSize(thread, "activeSampleWorkers"));
+            assertEquals(0, privateMapSize(thread, "activeTimerWorkers"));
+            assertEquals(0, testStops.get(), "A fork error policy must not stop other virtual users");
+        } finally {
+            releaseMain.countDown();
+            thread.stop();
+            runner.join(5000);
+            engineInstance.set(null, previousEngine);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"END_ITERATION_GRACEFUL", "END_ITERATION_IMMEDIATE"})
+    void forkErrorWakesMainTimerWithoutStartingItsSampler(ErrorAction action) throws Exception {
+        CountDownLatch timerStarted = new CountDownLatch(1);
+        CountDownLatch releaseTimer = new CountDownLatch(1);
+        AtomicInteger mainCalls = new AtomicInteger();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        fork.setErrorAction(action);
+        HashTree child = main.add(fork);
+        child.add(new AwaitingSampler(() -> timerStarted.getCount() == 0));
+        child.add(new ResultStatusSampler("fork-error", false, new AtomicInteger()));
+        TransactionController transaction = new TransactionController();
+        transaction.setName("delayed-main");
+        main.add(transaction).add(new ResultStatusSampler("must-not-start", true, mainCalls)).add(new DummyTimer() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public long delay() {
+                timerStarted.countDown();
+                try {
+                    assertTrue(releaseTimer.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return 60_000;
+            }
+
+            @Override
+            public void stop() {
+                releaseTimer.countDown();
+            }
+        });
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("fork-error-timer");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("fork-error-timer");
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(0, mainCalls.get());
+            assertEquals(List.of("fork-error"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList());
+            assertTrue(listener.transactionEvents().isEmpty());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            releaseTimer.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"END_ITERATION_GRACEFUL, true", "END_ITERATION_IMMEDIATE, true",
+            "END_ITERATION_GRACEFUL, false", "END_ITERATION_IMMEDIATE, false"})
+    void forkFailureAllowsNextMainIteration(ErrorAction action, boolean sameUser) throws Exception {
+        AtomicInteger forkCalls = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        CountDownLatch timerStarted = new CountDownLatch(1);
+        CountDownLatch releaseTimer = new CountDownLatch(1);
+        LoopController loop = new LoopController();
+        loop.setLoops(3);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        fork.setErrorAction(action);
+        fork.setIterationEndAction(IterationEndAction.WAIT);
+        main.add(fork).add(new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                int call = forkCalls.incrementAndGet();
+                if (call == 1) {
+                    try {
+                        assertTrue(timerStarted.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        throw new AssertionError(e);
+                    }
+                }
+                SampleResult result = new SampleResult();
+                result.setSuccessful(call != 1);
+                return result;
+            }
+        });
+        main.add(new ResultStatusSampler("main", true, mainCalls)).add(new DummyTimer() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public long delay() {
+                if (timerStarted.getCount() != 0) {
+                    timerStarted.countDown();
+                    try {
+                        assertTrue(releaseTimer.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                return 0;
+            }
+
+            @Override
+            public void stop() {
+                releaseTimer.countDown();
+            }
+        });
+        ThreadGroup group = new ThreadGroup();
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
+        thread.setThreadGroup(group);
+        Thread runner = Thread.ofVirtual().start(thread);
+        try {
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(3, forkCalls.get());
+            assertEquals(2, mainCalls.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            releaseTimer.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, END_ITERATION_GRACEFUL", "true, END_ITERATION_IMMEDIATE",
+            "false, END_ITERATION_GRACEFUL", "false, END_ITERATION_IMMEDIATE"})
+    void cancelledTransactionDelayDoesNotReportEmptyTransaction(boolean delayedMain, ErrorAction action) throws Exception {
+        CountDownLatch enteringDelay = new CountDownLatch(1);
+        AtomicInteger delayedCalls = new AtomicInteger();
+        AtomicInteger failingCalls = new AtomicInteger();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        ThreadGroup group = new ThreadGroup();
+        group.setSamplerController(loop);
+        HashTree main = tree.add(group);
+        ForkController fork = newConfiguredForkController();
+        fork.setErrorAction(action);
+        fork.setIterationEndAction(IterationEndAction.GRACEFUL);
+        HashTree child = main.add(fork);
+        DelaySignallingTransactionController delayed = new DelaySignallingTransactionController();
+        delayed.enteringDelay = enteringDelay;
+        delayed.setName("delayed-transaction");
+        delayed.setDelayMode(TransactionController.DELAY_FIXED);
+        delayed.setFixedDelay("60000");
+        (delayedMain ? main : child).add(delayed)
+                .add(new ResultStatusSampler("must-not-start", true, delayedCalls));
+        HashTree failing = delayedMain ? child : main;
+        failing.add(new AwaitingSampler(() -> enteringDelay.getCount() == 0));
+        failing.add(new ResultStatusSampler("original-error", false, failingCalls));
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        main.add(listener);
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setOnErrorStartNextLoop(true);
+        JMeterVariables variables = new JMeterVariables();
+        variables.put(JMeterThread.LAST_SAMPLE_OK, "true");
+        thread.putVariables(variables);
+        Thread runner = Thread.ofVirtual().start(thread);
+        try {
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(0, enteringDelay.getCount(), "Delay entered");
+            assertEquals(1, failingCalls.get(), "Failure executed");
+            assertEquals(0, delayedCalls.get());
+            assertTrue(listener.transactionEvents().isEmpty());
+            assertTrue(listener.startedEvents().isEmpty());
+            assertEquals(List.of("original-error"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"END_ITERATION_GRACEFUL", "END_ITERATION_IMMEDIATE"})
+    void forkErrorEndsIterationWhileMainWaitsToStartSameFork(ErrorAction action) throws Exception {
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger failures = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        LoopController root = new LoopController();
+        root.setLoops(1);
+        root.setContinueForever(false);
+        LoopController repeat = new LoopController();
+        repeat.setLoops(2);
+        repeat.setContinueForever(false);
+        ForkController fork = new ForkController() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Sampler next() {
+                Sampler sampler = super.next();
+                if (sampler != null) {
+                    starts.incrementAndGet();
+                }
+                return sampler;
+            }
+        };
+        fork.setErrorAction(action);
+        fork.setRunningAction(RunningAction.WAIT);
+        fork.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(root);
+        HashTree child = main.add(repeat).add(fork);
+        child.add(new AwaitingSampler(() -> starts.get() >= 2));
+        child.add(new ResultStatusSampler("fork-error", false, failures));
+        main.add(new ResultStatusSampler("must-not-run", true, mainCalls));
+        ThreadGroup group = new ThreadGroup();
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        Thread runner = Thread.ofVirtual().start(thread);
+        try {
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(1, failures.get());
+            assertEquals(0, mainCalls.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
     @Test
-    void testForkControllerStopsBranchOnErrorStartNextLoop() throws InterruptedException {
+    void forkTransactionStartIsDeliveredBeforeConcurrentFinish() throws Exception {
+        CountDownLatch startEntered = new CountDownLatch(1);
+        CountDownLatch releaseStart = new CountDownLatch(1);
+        CountDownLatch aboutToFinish = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("fork-parent");
+        HashTree transactionTree = main.add(transaction);
+        transactionTree.add(newConfiguredForkController())
+                .add(new ResultStatusSampler("fork-sample", true, new AtomicInteger()));
+        transactionTree.add(new GenericController() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public Sampler next() {
+                try {
+                    assertTrue(startEntered.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                aboutToFinish.countDown();
+                return null;
+            }
+        });
+        RecordingSampleListener listener = new RecordingSampleListener("results") {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void transactionStarted(SampleEvent event) {
+                startEntered.countDown();
+                try {
+                    assertTrue(releaseStart.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                super.transactionStarted(event);
+            }
+
+            @Override
+            public void sampleOccurred(SampleEvent event) {
+                if (event.isTransactionSampleEvent()) {
+                    assertEquals(1, startedEvents().size(), "Transaction start must be delivered first");
+                    finished.countDown();
+                }
+                super.sampleOccurred(event);
+            }
+        };
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        Thread runner = Thread.ofVirtual().start(thread);
+        try {
+            assertTrue(aboutToFinish.await(5, TimeUnit.SECONDS));
+            assertFalse(finished.await(100, TimeUnit.MILLISECONDS));
+            releaseStart.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(1, listener.transactionEvents().size());
+            assertEquals(1, listener.startedEvents().size());
+        } finally {
+            releaseStart.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @Test
+    void naturallyEmptyTransactionStillReportsCompletion() {
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        TransactionController transaction = new TransactionController();
+        transaction.setName("empty");
+        main.add(transaction);
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        main.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.run();
+        assertEquals(1, listener.transactionEvents().size());
+        assertEquals(1, listener.startedEvents().size());
+    }
+
+    @Test
+    void stoppingFailedForkStopsDescendantsButNotUnrelatedForks() throws Exception {
+        CountDownLatch childStarted = new CountDownLatch(1);
+        CountDownLatch unrelatedStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger childAfter = new AtomicInteger();
+        AtomicInteger unrelatedAfter = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree main = tree.add(loop);
+        ForkController unrelated = newConfiguredForkController();
+        unrelated.setIterationEndAction(IterationEndAction.WAIT);
+        HashTree unrelatedTree = main.add(unrelated);
+        unrelatedTree.add(new BlockingSampler("unrelated", unrelatedStarted, release, new AtomicReference<>()));
+        unrelatedTree.add(new ResultStatusSampler("unrelated-after", true, unrelatedAfter));
+        ForkController parent = newConfiguredForkController();
+        parent.setIterationEndAction(IterationEndAction.WAIT);
+        parent.setErrorAction(ErrorAction.STOP_FORK);
+        HashTree parentTree = main.add(parent);
+        ForkController child = newConfiguredForkController();
+        child.setIterationEndAction(IterationEndAction.WAIT);
+        HashTree childTree = parentTree.add(child);
+        childTree.add(new BlockingSampler("nested", childStarted, release, new AtomicReference<>()));
+        childTree.add(new ResultStatusSampler("nested-after", true, childAfter));
+        parentTree.add(new AwaitingSampler(() -> childStarted.getCount() == 0 && unrelatedStarted.getCount() == 0));
+        parentTree.add(new ResultStatusSampler("parent-error", false, new AtomicInteger()));
+        main.add(new ResultStatusSampler("main", true, mainCalls));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("fork-error-descendants");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("fork-error-descendants");
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            assertTrue(childStarted.await(5, TimeUnit.SECONDS));
+            assertTrue(unrelatedStarted.await(5, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (stoppedForkCount(thread) == 0 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertTrue(stoppedForkCount(thread) > 0);
+            release.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(0, childAfter.get());
+            assertEquals(1, unrelatedAfter.get());
+            assertEquals(1, mainCalls.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            release.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @Test
+    void testForkControllerStopsBranchWithItsOwnErrorPolicy() throws InterruptedException {
         CountDownLatch skippedForkSampler = new CountDownLatch(1);
         CountDownLatch mainSampler = new CountDownLatch(1);
         AtomicInteger forkFailureCalls = new AtomicInteger();
@@ -2544,6 +3129,7 @@ class TestJMeterThread {
         loop.setContinueForever(false);
         loop.setEnabled(true);
         ForkController forkController = newConfiguredForkController();
+        forkController.setErrorAction(ErrorAction.STOP_FORK);
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -2569,7 +3155,7 @@ class TestJMeterThread {
         assertFalse(runner.isAlive(), "Virtual user should finish after the fork branch stops");
         assertEquals(1, forkFailureCalls.get(), "Fork failure sampler should run once");
         assertEquals(1, skippedForkSampler.getCount(),
-                "Fork branch should not continue after a failed sampler when Start Next Thread Loop is enabled");
+                "Fork branch should not continue after a failed sampler when Stop fork is selected");
         assertEquals(0, mainSampler.getCount(), "Main flow should still continue after starting the fork");
     }
 

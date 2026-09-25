@@ -243,6 +243,8 @@ class HTTPHC5H2ThreadLifecycleTest {
             int baseline = clientCache().size();
             LoopController loop = loopController(1);
             ForkController fork = new ForkController();
+            // This resource-cleanup test needs every fork request to complete before user teardown.
+            fork.setIterationEndAction(ForkController.IterationEndAction.WAIT);
             fork.setName("fork");
             fork.setEnabled(true);
             ForeachController foreach = parallelForEachController();

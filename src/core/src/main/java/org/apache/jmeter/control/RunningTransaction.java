@@ -57,6 +57,8 @@ public final class RunningTransaction {
 
     private boolean finished;
 
+    private boolean startedSampler;
+
     /**
      * Starts a transaction now.
      *
@@ -101,6 +103,19 @@ public final class RunningTransaction {
         return new SampleResult(result);
     }
 
+    /** @return true only for the first sampler to start in this transaction */
+    public synchronized boolean samplerStarted() {
+        if (startedSampler || finished) {
+            return false;
+        }
+        startedSampler = true;
+        return true;
+    }
+
+    public synchronized boolean hasStartedSampler() {
+        return startedSampler;
+    }
+
     public synchronized boolean isFinished() {
         return finished;
     }
@@ -115,6 +130,7 @@ public final class RunningTransaction {
         if (finished) {
             return;
         }
+        startedSampler = true;
         samples++;
         if (!sample.isSuccessful()) {
             if (failingSamples == 0) {

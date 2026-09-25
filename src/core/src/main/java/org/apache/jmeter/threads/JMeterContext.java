@@ -314,8 +314,8 @@ public class JMeterContext {
     }
 
     /**
-     * Starts a transaction nested in the current one and notifies the listeners in scope of the
-     * controller. Internally called by {@link TransactionController}, never call it directly.
+     * Creates a transaction nested in the current one. Listeners are notified when its first
+     * sampler starts. Internally called by {@link TransactionController}, never call it directly.
      *
      * @param controller the controller running the transaction
      * @param timingMode one of the {@code TransactionController.TIMING_MODE_*} values
@@ -325,9 +325,7 @@ public class JMeterContext {
         RunningTransaction transaction =
                 new RunningTransaction(controller, controller.getName(), timingMode, currentTransaction);
         currentTransaction = transaction;
-        if (thread != null) {
-            thread.notifyTransactionStarted(transaction);
-        }
+        // The engine notifies listeners when the first sampler actually starts.
         return transaction;
     }
 
@@ -359,10 +357,20 @@ public class JMeterContext {
      * @param boundary the transaction to keep running, or {@code null} to end all of them
      */
     public void endTransactionsUntil(RunningTransaction boundary) {
+        endTransactionsUntil(boundary, true);
+    }
+
+    /**
+     * Ends open transactions, optionally marking partial transactions as failed.
+     *
+     * @param boundary the transaction to keep running, or {@code null} to end all of them
+     * @param successful {@code false} when the flow was cut short by a fork error
+     */
+    public void endTransactionsUntil(RunningTransaction boundary, boolean successful) {
         while (currentTransaction != null && currentTransaction != boundary) {
             RunningTransaction transaction = currentTransaction;
             currentTransaction = transaction.getEnclosing();
-            finish(transaction, true);
+            finish(transaction, successful);
         }
     }
 

@@ -18,21 +18,29 @@
 package org.apache.jmeter.control.gui;
 
 import java.awt.BorderLayout;
+import java.awt.event.ActionListener;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.function.Function;
 
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.JComboBox;
+import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.ForkController.ErrorAction;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 
 import net.miginfocom.swing.MigLayout;
@@ -42,10 +50,12 @@ import net.miginfocom.swing.MigLayout;
 public class ForkControllerGui extends AbstractControllerGui {
     private static final long serialVersionUID = 240L;
 
-    private JComboBox<RunningAction> whenRunning;
-    private JComboBox<IterationEndAction> onMainFlowEnd;
-    private JComboBox<FinalStopAction> finalStop;
-    private JLabel finalStopLabel;
+    private OptionGroup<RunningAction> whenRunning;
+    private OptionGroup<IterationEndAction> onMainFlowEnd;
+    private OptionGroup<FinalStopAction> finalStop;
+    private OptionGroup<ErrorAction> onError;
+    private JLabel differentUsersHint;
+    private boolean preserveKeepRunning;
 
     public ForkControllerGui() {
         init();
@@ -62,9 +72,10 @@ public class ForkControllerGui extends AbstractControllerGui {
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
         ForkController controller = (ForkController) element;
-        controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
-        controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
-        controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+        controller.setRunningAction(whenRunning.getSelectedItem());
+        controller.setIterationEndAction(preserveKeepRunning ? IterationEndAction.KEEP_RUNNING : onMainFlowEnd.getSelectedItem());
+        controller.setFinalStopAction(finalStop.getSelectedItem());
+        controller.setErrorAction(onError.getSelectedItem());
     }
 
     @Override
@@ -72,17 +83,24 @@ public class ForkControllerGui extends AbstractControllerGui {
         super.configure(element);
         ForkController controller = (ForkController) element;
         whenRunning.setSelectedItem(controller.getRunningAction());
-        onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
         finalStop.setSelectedItem(controller.getFinalStopAction());
+        boolean keepAvailable = isKeepRunningAvailable();
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, keepAvailable);
+        preserveKeepRunning = !keepAvailable && controller.getIterationEndAction() == IterationEndAction.KEEP_RUNNING;
+        onMainFlowEnd.setSelectedItem(preserveKeepRunning ? effectiveFinalStop() : controller.getIterationEndAction());
+        onError.setSelectedItem(controller.getErrorAction());
         updateFinalStopVisibility();
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
+        preserveKeepRunning = false;
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, isKeepRunningAvailable());
         whenRunning.setSelectedItem(RunningAction.SKIP);
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
         finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
+        onError.setSelectedItem(ErrorAction.CONTINUE);
         updateFinalStopVisibility();
     }
 
@@ -92,54 +110,111 @@ public class ForkControllerGui extends AbstractControllerGui {
     }
 
     private void updateFinalStopVisibility() {
-        boolean keep = onMainFlowEnd.getSelectedItem() == IterationEndAction.KEEP_RUNNING;
+        boolean keep = preserveKeepRunning || onMainFlowEnd.getSelectedItem() == IterationEndAction.KEEP_RUNNING;
+        differentUsersHint.setText(JMeterUtils.getResString(preserveKeepRunning
+                ? "fork_controller_saved_keep_disabled" : "fork_controller_different_users"));
         finalStop.setVisible(keep);
-        finalStopLabel.setVisible(keep);
         revalidate();
     }
 
-    private static <T> JComboBox<T> options(T[] values, Function<T, String> resourceKey) {
-        JComboBox<T> combo = new JComboBox<>(values);
-        DefaultListCellRenderer renderer = new DefaultListCellRenderer();
-        combo.setRenderer((list, value, index, selected, focused) -> {
-            JLabel label = (JLabel) renderer.getListCellRendererComponent(list, value, index, selected, focused);
-            label.setText(value == null ? "" : JMeterUtils.getResString(resourceKey.apply(value)));
-            return label;
-        });
-        return combo;
+    private IterationEndAction effectiveFinalStop() {
+        return finalStop.getSelectedItem() == FinalStopAction.IMMEDIATE
+                ? IterationEndAction.IMMEDIATE : IterationEndAction.GRACEFUL;
+    }
+
+    boolean isKeepRunningAvailable() {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui != null) {
+            for (JMeterTreeNode node = gui.getCurrentNode(); node != null;
+                    node = (JMeterTreeNode) node.getParent()) {
+                if (node.getTestElement() instanceof AbstractThreadGroup group) {
+                    return group.isSameUserOnNextIteration();
+                }
+            }
+        }
+        // Test fragments have no enclosing thread group until execution.
+        return true;
+    }
+
+    private static final class OptionGroup<T> extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private final Map<T, JRadioButton> buttons = new LinkedHashMap<>();
+
+        private OptionGroup(String titleKey, T[] values, Function<T, String> resourceKey) {
+            super(new MigLayout("wrap 1, hidemode 3, insets 6 10 8 10, gapy 2", "[left]"));
+            setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString(titleKey)));
+            ButtonGroup group = new ButtonGroup();
+            for (T value : values) {
+                JRadioButton button = new JRadioButton(JMeterUtils.getResString(resourceKey.apply(value)));
+                button.putClientProperty("fork.option", value);
+                group.add(button);
+                buttons.put(value, button);
+                add(button);
+            }
+            setSelectedItem(values[0]);
+        }
+
+        private T getSelectedItem() {
+            return buttons.entrySet().stream().filter(entry -> entry.getValue().isSelected())
+                    .map(Map.Entry::getKey).findFirst().orElseThrow();
+        }
+
+        private void setSelectedItem(T value) {
+            buttons.get(value).setSelected(true);
+        }
+
+        private void setOptionVisible(T value, boolean visible) {
+            buttons.get(value).setVisible(visible);
+        }
+
+        private void addActionListener(ActionListener listener) {
+            buttons.values().forEach(button -> button.addActionListener(listener));
+        }
     }
 
     private void init() {
         setLayout(new BorderLayout());
         setBorder(makeBorder());
         add(makeTitlePanel(), BorderLayout.NORTH);
-        JPanel panel = new JPanel(new MigLayout("wrap 2, hidemode 3", "[][left]"));
-        whenRunning = options(RunningAction.values(), action -> switch (action) {
+        JPanel panel = new JPanel(new MigLayout("wrap 1, hidemode 3, insets 16 0 0 0, gapy 10", "[left]"));
+        whenRunning = new OptionGroup<>("fork_controller_when_running", RunningAction.values(), action -> switch (action) {
             case SKIP -> "fork_controller_running_skip";
             case RESTART -> "fork_controller_running_restart";
             case WAIT -> "fork_controller_running_wait";
         });
-        onMainFlowEnd = options(IterationEndAction.values(), action -> switch (action) {
-            case LEGACY -> "fork_controller_end_legacy";
+        onMainFlowEnd = new OptionGroup<>("fork_controller_on_main_flow_end", IterationEndAction.values(), action -> switch (action) {
             case IMMEDIATE -> "fork_controller_end_immediate";
             case GRACEFUL -> "fork_controller_end_graceful";
             case WAIT -> "fork_controller_end_wait";
             case KEEP_RUNNING -> "fork_controller_end_keep";
         });
-        finalStop = options(FinalStopAction.values(), action -> switch (action) {
+        finalStop = new OptionGroup<>("fork_controller_final_stop", FinalStopAction.values(), action -> switch (action) {
             case GRACEFUL -> "fork_controller_end_graceful";
             case IMMEDIATE -> "fork_controller_end_immediate";
         });
-        finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
+        onError = new OptionGroup<>("fork_controller_on_error", ErrorAction.values(), action -> switch (action) {
+            case CONTINUE -> "fork_controller_error_continue";
+            case STOP_FORK -> "fork_controller_error_stop_fork";
+            case END_ITERATION_GRACEFUL -> "fork_controller_error_end_iteration_graceful";
+            case END_ITERATION_IMMEDIATE -> "fork_controller_error_end_iteration_immediate";
+        });
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-        onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
-        panel.add(JMeterUtils.labelFor(onMainFlowEnd, "fork_controller_on_main_flow_end"));
-        panel.add(onMainFlowEnd);
-        panel.add(finalStopLabel);
-        panel.add(finalStop);
-        panel.add(JMeterUtils.labelFor(whenRunning, "fork_controller_when_running"));
-        panel.add(whenRunning);
-        panel.add(new JLabel(JMeterUtils.getResString("fork_controller_different_users")), "span 2");
+        onMainFlowEnd.addActionListener(event -> {
+            preserveKeepRunning = false;
+            updateFinalStopVisibility();
+        });
+        finalStop.addActionListener(event -> {
+            if (preserveKeepRunning) {
+                onMainFlowEnd.setSelectedItem(effectiveFinalStop());
+            }
+        });
+        onMainFlowEnd.setOptionVisible(IterationEndAction.KEEP_RUNNING, isKeepRunningAvailable());
+        panel.add(onMainFlowEnd, "sgx fork-options");
+        panel.add(finalStop, "sgx fork-options");
+        panel.add(whenRunning, "sgx fork-options");
+        panel.add(onError, "sgx fork-options");
+        differentUsersHint = new JLabel();
+        panel.add(differentUsersHint);
         add(panel, BorderLayout.CENTER);
         updateFinalStopVisibility();
     }

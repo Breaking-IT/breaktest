@@ -37,11 +37,15 @@ public class ForkController extends GenericController implements Serializable {
     private static final Logger log = LoggerFactory.getLogger(ForkController.class);
 
     public enum IterationEndAction {
-        LEGACY, IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
+        IMMEDIATE, GRACEFUL, WAIT, KEEP_RUNNING
     }
 
     public enum RunningAction {
         SKIP, RESTART, WAIT
+    }
+
+    public enum ErrorAction {
+        CONTINUE, STOP_FORK, END_ITERATION_GRACEFUL, END_ITERATION_IMMEDIATE
     }
 
     public enum FinalStopAction {
@@ -50,6 +54,7 @@ public class ForkController extends GenericController implements Serializable {
 
     private static final String ITERATION_END_ACTION = "ForkController.iteration_end_action";
     private static final String RUNNING_ACTION = "ForkController.running_action";
+    private static final String ERROR_ACTION = "ForkController.error_action";
     private static final String FINAL_STOP_ACTION = "ForkController.final_stop_action";
 
     private transient boolean samplerReturned;
@@ -60,25 +65,16 @@ public class ForkController extends GenericController implements Serializable {
         sourceController = source.sourceController == null ? source : source.sourceController;
     }
 
-    /** Missing policy properties identify a plan saved before lifecycle options existed. */
-    public boolean hasLifecyclePolicy() {
-        return getIterationEndAction() != IterationEndAction.LEGACY;
-    }
-
     public IterationEndAction getIterationEndAction() {
-        return option(ITERATION_END_ACTION, IterationEndAction.LEGACY);
+        return option(ITERATION_END_ACTION, IterationEndAction.GRACEFUL);
     }
 
     public void setIterationEndAction(IterationEndAction action) {
-        if (action == IterationEndAction.LEGACY) {
-            removeProperty(ITERATION_END_ACTION);
-        } else {
-            setProperty(ITERATION_END_ACTION, action.name());
-        }
+        setProperty(ITERATION_END_ACTION, action.name());
     }
 
     public RunningAction getRunningAction() {
-        return option(RUNNING_ACTION, RunningAction.WAIT);
+        return option(RUNNING_ACTION, RunningAction.SKIP);
     }
 
     public void setRunningAction(RunningAction action) {
@@ -91,6 +87,14 @@ public class ForkController extends GenericController implements Serializable {
 
     public void setFinalStopAction(FinalStopAction action) {
         setProperty(FINAL_STOP_ACTION, action.name());
+    }
+
+    public ErrorAction getErrorAction() {
+        return option(ERROR_ACTION, ErrorAction.CONTINUE);
+    }
+
+    public void setErrorAction(ErrorAction action) {
+        setProperty(ERROR_ACTION, action.name());
     }
 
     private <T extends Enum<T>> T option(String property, T fallback) {

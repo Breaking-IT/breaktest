@@ -95,16 +95,25 @@ debugging, and migration work that has landed across the BreakTest PR series.
   flow continues, sharing the same context and variables. At each main-flow
   iteration end, choose immediate stop without cancellation errors, graceful stop
   after current samplers, wait for the entire fork, or keep running into the next
-  iteration. Keep running requires "Same user on each iteration" at runtime and has a separate
+  iteration. Keep running is offered only when the enclosing thread group enables "Same user on each iteration"
+  (or when editing a reusable fragment without a thread group) and has a separate
   graceful/immediate stop choice for the final iteration or duration limit. When
   the same fork is reached while still active, choose skip, hard restart, or wait
-  then start again. Controllers created in the editor default to graceful stop at iteration end and skip
-  on re-entry. Plans saved without lifecycle options retain their original behavior:
-  forks carry across iterations, re-entry waits, and thread end waits for completion.
-  Selecting a controller or editing only its re-entry option preserves its legacy
-  lifecycle. Legacy controllers display an explicit Legacy option; editing an end-of-flow option
-  opts into the explicit lifecycle settings. Code-created controllers without lifecycle
-  properties also retain legacy behavior; set the lifecycle options explicitly to opt in.
+  then start again. Controllers default to graceful stop at iteration end and skip
+  on re-entry, including code-created controllers and plans without lifecycle settings.
+  Fork errors have their own policy, independent of the thread group's sampler-error setting:
+  continue, stop this fork (including nested forks) and continue the main flow, end the main
+  iteration gracefully, or end the main iteration immediately without cancellation errors. The default
+  is Continue on error, including plans without an explicit error policy. Graceful stop finishes
+  active requests; immediate stop interrupts them. Both iteration-end choices end all forks belonging
+  to that user, retain the original failed sample, and allow the next configured main iteration
+  to run. Transactions cut short by these fork errors are reported as failed; cancellation before
+  any sampler starts produces no empty summary. Transaction-start events reach listeners at the
+  first sampler for all transactions (naturally empty transactions report start at completion).
+  A keep-running fork that fails during pacing ends the iteration that is just starting.
+  During immediate iteration cancellation, results and control exceptions from cancelled samplers
+  are suppressed; this can also swallow a concurrent explicit stop-test request from those samplers.
+  External engine stop-test requests are unaffected.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.
