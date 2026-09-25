@@ -23,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import java.awt.Component;
 import java.awt.Container;
 
-import javax.swing.JComboBox;
+import javax.swing.JRadioButton;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.control.ForkController;
@@ -130,9 +130,9 @@ class ForkControllerGuiTest {
 
     private static void selectOption(Container parent, Enum<?> option) {
         for (Component component : parent.getComponents()) {
-            if (component instanceof JComboBox<?> combo
-                    && option.getDeclaringClass().isInstance(combo.getSelectedItem())) {
-                combo.setSelectedItem(option);
+            if (component instanceof JRadioButton button
+                    && button.getClientProperty("fork.option") == option) {
+                button.doClick();
             } else if (component instanceof Container container) {
                 selectOption(container, option);
             }
