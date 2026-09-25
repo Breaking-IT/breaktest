@@ -466,6 +466,8 @@ class UDPSamplerTest extends JMeterTestCase {
                     namedTextSamplerFor(server.port(), "validate", "conversation");
 
             ForkController fork = new ForkController();
+            // This resource-cleanup test needs every fork request to complete before user teardown.
+            fork.setIterationEndAction(ForkController.IterationEndAction.WAIT);
             fork.setName("UDP fork");
             fork.setEnabled(true);
             ResultRecordingListener listener = new ResultRecordingListener();
