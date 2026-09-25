@@ -314,8 +314,8 @@ public class JMeterContext {
     }
 
     /**
-     * Starts a transaction nested in the current one and notifies the listeners in scope of the
-     * controller. Internally called by {@link TransactionController}, never call it directly.
+     * Creates a transaction nested in the current one. Listeners are notified when its first
+     * sampler starts. Internally called by {@link TransactionController}, never call it directly.
      *
      * @param controller the controller running the transaction
      * @param timingMode one of the {@code TransactionController.TIMING_MODE_*} values
@@ -325,9 +325,7 @@ public class JMeterContext {
         RunningTransaction transaction =
                 new RunningTransaction(controller, controller.getName(), timingMode, currentTransaction);
         currentTransaction = transaction;
-        if (thread != null) {
-            thread.notifyTransactionStarted(transaction);
-        }
+        // The engine notifies listeners when the first sampler actually starts.
         return transaction;
     }
 

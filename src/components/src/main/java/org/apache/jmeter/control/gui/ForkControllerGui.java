@@ -138,8 +138,8 @@ public class ForkControllerGui extends AbstractControllerGui {
         onError = options(ErrorAction.values(), action -> switch (action) {
             case CONTINUE -> "fork_controller_error_continue";
             case STOP_FORK -> "fork_controller_error_stop_fork";
-            case STOP_USER_GRACEFUL -> "fork_controller_error_stop_user_graceful";
-            case STOP_USER_IMMEDIATE -> "fork_controller_error_stop_user_immediate";
+            case END_ITERATION_GRACEFUL -> "fork_controller_error_end_iteration_graceful";
+            case END_ITERATION_IMMEDIATE -> "fork_controller_error_end_iteration_immediate";
         });
         finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);

@@ -45,7 +45,7 @@ public class ForkController extends GenericController implements Serializable {
     }
 
     public enum ErrorAction {
-        CONTINUE, STOP_FORK, STOP_USER_GRACEFUL, STOP_USER_IMMEDIATE
+        CONTINUE, STOP_FORK, END_ITERATION_GRACEFUL, END_ITERATION_IMMEDIATE
     }
 
     public enum FinalStopAction {
@@ -99,7 +99,12 @@ public class ForkController extends GenericController implements Serializable {
     }
 
     public ErrorAction getErrorAction() {
-        return option(ERROR_ACTION, ErrorAction.CONTINUE);
+        // Preserve plans saved with the initial names of these options.
+        return switch (getPropertyAsString(ERROR_ACTION)) {
+            case "STOP_USER_GRACEFUL" -> ErrorAction.END_ITERATION_GRACEFUL;
+            case "STOP_USER_IMMEDIATE" -> ErrorAction.END_ITERATION_IMMEDIATE;
+            default -> option(ERROR_ACTION, ErrorAction.CONTINUE);
+        };
     }
 
     public void setErrorAction(ErrorAction action) {

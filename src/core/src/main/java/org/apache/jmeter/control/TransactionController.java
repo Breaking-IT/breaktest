@@ -165,8 +165,10 @@ public class TransactionController extends GenericController implements Controll
         if (isFirst()) { // must be the start of the subtree
             applyTransactionPacing();
             applyTransactionDelay();
-            recordTransactionStart(System.currentTimeMillis());
-            startTransaction();
+            if (isRunning(JMeterContextService.getContext().getThread())) {
+                recordTransactionStart(System.currentTimeMillis());
+                startTransaction();
+            }
         }
         boolean isLast = current == super.subControllersAndSamplers.size();
         Sampler returnValue = super.next();
@@ -373,7 +375,7 @@ public class TransactionController extends GenericController implements Controll
     }
 
     private static boolean isRunning(JMeterThread thread) {
-        return thread == null || thread.isRunning();
+        return thread == null || thread.isIterationRunning();
     }
 
     private long computeTransactionDelay() {

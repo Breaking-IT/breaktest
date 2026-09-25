@@ -73,7 +73,7 @@ class TestForkController {
         assertEquals(ForkController.IterationEndAction.LEGACY, controller.getIterationEndAction());
         assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
         assertEquals(ForkController.ErrorAction.CONTINUE, controller.getErrorAction());
-        controller.setErrorAction(ForkController.ErrorAction.STOP_USER_IMMEDIATE);
+        controller.setErrorAction(ForkController.ErrorAction.END_ITERATION_IMMEDIATE);
         controller.setRunningAction(ForkController.RunningAction.RESTART);
         controller.setIterationEndAction(ForkController.IterationEndAction.KEEP_RUNNING);
         controller.setFinalStopAction(ForkController.FinalStopAction.IMMEDIATE);
@@ -82,6 +82,15 @@ class TestForkController {
         assertEquals(controller.getRunningAction(), clone.getRunningAction());
         assertEquals(controller.getIterationEndAction(), clone.getIterationEndAction());
         assertEquals(controller.getFinalStopAction(), clone.getFinalStopAction());
+    }
+
+    @Test
+    void initialErrorPolicyNamesRetainTheSelectedStopMode() {
+        ForkController controller = new ForkController();
+        controller.setProperty("ForkController.error_action", "STOP_USER_GRACEFUL");
+        assertEquals(ForkController.ErrorAction.END_ITERATION_GRACEFUL, controller.getErrorAction());
+        controller.setProperty("ForkController.error_action", "STOP_USER_IMMEDIATE");
+        assertEquals(ForkController.ErrorAction.END_ITERATION_IMMEDIATE, controller.getErrorAction());
     }
 
     @Test
