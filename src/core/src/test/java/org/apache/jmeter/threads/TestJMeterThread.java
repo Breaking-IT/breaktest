@@ -33,6 +33,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,6 +50,7 @@ import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
+import org.apache.jmeter.control.ForkControllerSampler;
 import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ParallelController;
@@ -77,6 +81,13 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 class TestJMeterThread {
+
+    private static ForkController newConfiguredForkController() {
+        ForkController controller = new ForkController();
+        controller.setIterationEndAction(IterationEndAction.GRACEFUL);
+        controller.setRunningAction(RunningAction.SKIP);
+        return controller;
+    }
 
     private static final class DummySampler extends AbstractSampler {
         private static final long serialVersionUID = 1L;
@@ -1279,6 +1290,244 @@ class TestJMeterThread {
     }
 
     @ParameterizedTest
+    @CsvSource({"true", "false"})
+    void cancellationBeforeWorkerStartupCleansAllForkState(boolean stopThread) throws Exception {
+        CountDownLatch holdExecutor = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        executor.submit(() -> {
+            try {
+                holdExecutor.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        AtomicInteger forkCalls = new AtomicInteger();
+        loopTree.add(fork).add(new ResultStatusSampler("must-not-start", true, forkCalls));
+        CountDownLatch mainStarted = new CountDownLatch(1);
+        CountDownLatch releaseMain = new CountDownLatch(1);
+        loopTree.add(new StopReleasableSampler("main", mainStarted, releaseMain));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("cancel-before-start");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true) {
+            @Override
+            ExecutorService createForkExecutor(ForkControllerSampler sampler) {
+                return executor;
+            }
+        };
+        thread.setThreadGroup(group);
+        thread.setThreadName("cancel-before-start");
+        Thread runner = new Thread(thread);
+        runner.setDaemon(true);
+        try {
+            runner.start();
+            assertTrue(mainStarted.await(5, TimeUnit.SECONDS));
+            if (stopThread) {
+                thread.stop();
+            } else {
+                thread.stopForksNow();
+            }
+            releaseMain.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive(), "A queued cancelled fork must not spin in final cleanup");
+            assertEquals(0, forkCalls.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+        } finally {
+            releaseMain.countDown();
+            holdExecutor.countDown();
+            executor.shutdownNow();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    void legacyForkSurvivesIterationBoundaryAndWaitsForFullCompletion(boolean sameUser) throws Exception {
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        AtomicInteger iterations = new AtomicInteger();
+        loopTree.add(new ResultStatusSampler("iteration-start", true, iterations));
+        ForkController legacy = new ForkController();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(2);
+        HashTree forkTree = loopTree.add(legacy);
+        forkTree.add(new BlockingSampler("request", started, release, new AtomicReference<>()));
+        forkTree.add(new CompletingSampler("rest-of-fork", finished));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("legacy-fork");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
+        thread.setThreadGroup(group);
+        thread.setThreadName("legacy-fork");
+        Thread runner = new Thread(thread);
+        try {
+            runner.start();
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (iterations.get() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertEquals(2, iterations.get(), "Old plans carry their fork across the iteration boundary");
+            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+            release.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(0, finished.getCount(), "Legacy re-entry and thread end both wait for full completion");
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            release.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"WAIT", "IMMEDIATE"})
+    void timeoutCleansStopFlagsAndWaitIgnoresHiddenFinalStop(IterationEndAction action) throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        InterruptibleFailureSampler request = new InterruptibleFailureSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                started.countDown();
+                while (release.getCount() != 0) {
+                    try {
+                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        // Simulate a request that needs time to release its resources after abort.
+                    }
+                }
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("request");
+                result.setSuccessful(false);
+                return result;
+            }
+
+            @Override
+            public boolean interrupt() {
+                interrupted.countDown();
+                return true;
+            }
+        };
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        ForkController fork = newConfiguredForkController();
+        fork.setIterationEndAction(action);
+        fork.setFinalStopAction(FinalStopAction.IMMEDIATE);
+        loopTree.add(fork).add(request);
+        loopTree.add(new AwaitingSampler(() -> started.getCount() == 0));
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("timeout-cleanup");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("timeout-cleanup");
+        thread.setScheduled(true);
+        thread.setStartTime(System.currentTimeMillis());
+        thread.setEndTime(System.currentTimeMillis() + 300);
+        Thread runner = new Thread(thread);
+        try {
+            runner.start();
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            Field running = JMeterThread.class.getDeclaredField("running");
+            running.setAccessible(true);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (running.getBoolean(thread) && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertFalse(running.getBoolean(thread), "The scheduled deadline must end the main flow");
+            assertEquals(action == IterationEndAction.IMMEDIATE ? 0 : 1, interrupted.getCount(),
+                    "WAIT must not apply a hidden immediate-stop setting");
+            release.countDown();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertEquals(action == IterationEndAction.IMMEDIATE ? 0 : 1, listener.events().size());
+            assertForkBookkeepingEventuallyEmpty(thread);
+            assertEquals(0, privateCollectionSize(thread, "forksRequestedToStop"));
+        } finally {
+            release.countDown();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @Test
+    void interruptedForkWaitDoesNotCancelUnrelatedFork() throws Exception {
+        InterruptibleFailureSampler unrelated = new InterruptibleFailureSampler();
+        CountDownLatch actorFinished = new CountDownLatch(1);
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AbstractSampler actor = new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                try {
+                    assertTrue(unrelated.started.await(5, TimeUnit.SECONDS));
+                    Method waitMethod = JMeterThread.class.getDeclaredMethod("waitForForkTask", java.util.concurrent.Future.class);
+                    waitMethod.setAccessible(true);
+                    Thread.currentThread().interrupt();
+                    assertEquals(false, waitMethod.invoke(owner.get(), new FutureTask<Void>(() -> null)));
+                    actorFinished.countDown();
+                    return null;
+                } catch (ReflectiveOperationException | InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            }
+        };
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        ForkController background = newConfiguredForkController();
+        background.setName("background");
+        background.setIterationEndAction(IterationEndAction.WAIT);
+        loopTree.add(background).add(unrelated);
+        ForkController waiting = newConfiguredForkController();
+        waiting.setName("interrupted-wait");
+        loopTree.add(waiting).add(actor);
+        loopTree.add(new AwaitingSampler(() -> actorFinished.getCount() == 0));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("local-interruption");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        owner.set(thread);
+        thread.setThreadGroup(group);
+        thread.setThreadName("local-interruption");
+        Thread runner = new Thread(thread);
+        try {
+            runner.start();
+            assertTrue(actorFinished.await(5, TimeUnit.SECONDS));
+            assertEquals(1, unrelated.interrupted.getCount(), "Interrupting a fork wait must not stop other forks");
+            assertTrue(runner.isAlive());
+            unrelated.interrupt();
+            runner.join(5000);
+            assertFalse(runner.isAlive());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            unrelated.interrupt();
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @ParameterizedTest
     @CsvSource({"1, false, false, false, true", "3, false, false, false, true",
             "1, true, false, false, true", "3, true, false, false, true",
             "1, false, true, false, true", "1, true, true, false, true",
@@ -1340,7 +1589,7 @@ class TestJMeterThread {
         LoopController loop = new LoopController();
         loop.setLoops(iterations);
         loop.setContinueForever(false);
-        ForkController fork = new ForkController();
+        ForkController fork = newConfiguredForkController();
         fork.setName("keep-alive");
         fork.setIterationEndAction(hardStop ? IterationEndAction.IMMEDIATE : IterationEndAction.GRACEFUL);
         RecordingSampleListener listener = new RecordingSampleListener("results");
@@ -1404,7 +1653,7 @@ class TestJMeterThread {
         loop.setContinueForever(false);
         HashTree tree = new ListedHashTree();
         HashTree loopTree = tree.add(loop);
-        ForkController fork = new ForkController();
+        ForkController fork = newConfiguredForkController();
         fork.setIterationEndAction(IterationEndAction.WAIT);
         HashTree forkTree = loopTree.add(fork);
         forkTree.add(new BlockingSampler("active-request", started, release, new AtomicReference<>()));
@@ -1476,7 +1725,7 @@ class TestJMeterThread {
         loop.setContinueForever(false);
         HashTree tree = new ListedHashTree();
         HashTree loopTree = tree.add(loop);
-        ForkController fork = new ForkController();
+        ForkController fork = newConfiguredForkController();
         fork.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
         fork.setRunningAction(action);
         fork.setFinalStopAction(FinalStopAction.IMMEDIATE);
@@ -1571,7 +1820,7 @@ class TestJMeterThread {
         loop.setContinueForever(false);
         HashTree tree = new ListedHashTree();
         HashTree loopTree = tree.add(loop);
-        ForkController fork = new ForkController();
+        ForkController fork = newConfiguredForkController();
         fork.setRunningAction(RunningAction.SKIP);
         fork.setIterationEndAction(action);
         HashTree forkTree = loopTree.add(fork);
@@ -1627,10 +1876,10 @@ class TestJMeterThread {
         LoopController loop = new LoopController();
         loop.setLoops(1);
         loop.setContinueForever(false);
-        ForkController stopFork = new ForkController();
+        ForkController stopFork = newConfiguredForkController();
         stopFork.setName("stop-fork");
         stopFork.setIterationEndAction(IterationEndAction.IMMEDIATE);
-        ForkController waitFork = new ForkController();
+        ForkController waitFork = newConfiguredForkController();
         waitFork.setName("wait-fork");
         HashTree loopTree = tree.add(loop);
         loopTree.add(stopFork).add(cancelledRequest);
@@ -1686,7 +1935,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -1740,7 +1989,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
         TransactionController transactionController = new TransactionController();
@@ -1794,7 +2043,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
         TransactionController transactionController = new TransactionController();
@@ -1842,7 +2091,7 @@ class TestJMeterThread {
         loop.setLoops(3);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
         forkController.setRunningAction(skipIfRunning ? RunningAction.SKIP : RunningAction.WAIT);
@@ -1910,7 +2159,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -1958,7 +2207,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -2014,7 +2263,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -2064,7 +2313,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -2104,7 +2353,7 @@ class TestJMeterThread {
         loop.setLoops(1);
         loop.setContinueForever(false);
         loop.setEnabled(true);
-        ForkController forkController = new ForkController();
+        ForkController forkController = newConfiguredForkController();
         forkController.setName("fork");
         forkController.setEnabled(true);
 
@@ -2627,14 +2876,14 @@ class TestJMeterThread {
         assertEquals(0, privateCollectionSize(jMeterThread, "forksCancelledWithoutResult"));
     }
 
-    private static int privateCollectionSize(Object target, String fieldName) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
+    private static int privateCollectionSize(JMeterThread target, String fieldName) throws Exception {
+        Field field = JMeterThread.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         return ((Collection<?>) field.get(target)).size();
     }
 
-    private static int privateMapSize(Object target, String fieldName) throws Exception {
-        Field field = target.getClass().getDeclaredField(fieldName);
+    private static int privateMapSize(JMeterThread target, String fieldName) throws Exception {
+        Field field = JMeterThread.class.getDeclaredField(fieldName);
         field.setAccessible(true);
         return ((Map<?, ?>) field.get(target)).size();
     }

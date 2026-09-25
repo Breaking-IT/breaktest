@@ -18,6 +18,7 @@
 package org.apache.jmeter.control.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import javax.swing.SwingUtilities;
 
@@ -25,25 +26,13 @@ import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
-import org.apache.jmeter.testelement.TestElement;
 import org.junit.jupiter.api.Test;
 
 class ForkControllerGuiTest {
-    private static class TestGui extends ForkControllerGui {
-        private static final long serialVersionUID = 1L;
-        private boolean sameUser;
-
-        @Override
-        protected boolean isSameUserEnabled(TestElement element) {
-            return sameUser;
-        }
-    }
-
     @Test
     void lifecycleChoicesRoundTripAndClearToDefaults() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            TestGui gui = new TestGui();
-            gui.sameUser = true;
+            ForkControllerGui gui = new ForkControllerGui();
             for (IterationEndAction end : IterationEndAction.values()) {
                 for (RunningAction running : RunningAction.values()) {
                     for (FinalStopAction stop : FinalStopAction.values()) {
@@ -68,19 +57,30 @@ class ForkControllerGuiTest {
     }
 
     @Test
-    void keepRunningIsUnavailableWithoutSameUser() throws Exception {
+    void keepRunningRoundTripsWithoutThreadGroupContext() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            TestGui gui = new TestGui();
+            ForkControllerGui gui = new ForkControllerGui();
             ForkController source = new ForkController();
             source.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
-            gui.sameUser = true;
             gui.configure(source);
             assertEquals(IterationEndAction.KEEP_RUNNING,
                     ((ForkController) gui.createTestElement()).getIterationEndAction());
-            gui.sameUser = false;
             gui.configure(source);
-            assertEquals(IterationEndAction.GRACEFUL,
+            assertEquals(IterationEndAction.KEEP_RUNNING,
                     ((ForkController) gui.createTestElement()).getIterationEndAction());
         });
     }
+    @Test
+    void selectingLegacyControllerDoesNotOptIntoNewLifecycle() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ForkControllerGui gui = new ForkControllerGui();
+            ForkController legacy = new ForkController();
+            gui.configure(legacy);
+            gui.modifyTestElement(legacy);
+            assertFalse(legacy.hasLifecyclePolicy());
+            assertEquals(IterationEndAction.WAIT, legacy.getIterationEndAction());
+            assertEquals(RunningAction.WAIT, legacy.getRunningAction());
+        });
+    }
+
 }

@@ -30,12 +30,9 @@ import org.apache.jmeter.control.ForkController.FinalStopAction;
 import org.apache.jmeter.control.ForkController.IterationEndAction;
 import org.apache.jmeter.control.ForkController.RunningAction;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
-import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
-import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuInfo;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 
 import net.miginfocom.swing.MigLayout;
@@ -49,6 +46,9 @@ public class ForkControllerGui extends AbstractControllerGui {
     private JComboBox<IterationEndAction> onMainFlowEnd;
     private JComboBox<FinalStopAction> finalStop;
     private JLabel finalStopLabel;
+    private boolean configuring;
+    private boolean legacyOptions;
+    private boolean optionsEdited;
 
     public ForkControllerGui() {
         init();
@@ -65,63 +65,49 @@ public class ForkControllerGui extends AbstractControllerGui {
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
         ForkController controller = (ForkController) element;
-        controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
-        controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
-        controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+        if (!legacyOptions || optionsEdited) {
+            controller.setRunningAction((RunningAction) whenRunning.getSelectedItem());
+            controller.setIterationEndAction((IterationEndAction) onMainFlowEnd.getSelectedItem());
+            controller.setFinalStopAction((FinalStopAction) finalStop.getSelectedItem());
+        }
     }
 
     @Override
     public void configure(TestElement element) {
         super.configure(element);
         ForkController controller = (ForkController) element;
-        boolean sameUser = isSameUserEnabled(element);
-        updateIterationOptions(sameUser);
-        whenRunning.setSelectedItem(controller.getRunningAction());
-        IterationEndAction action = controller.getIterationEndAction();
-        onMainFlowEnd.setSelectedItem(action == IterationEndAction.KEEP_RUNNING && !sameUser
-                ? IterationEndAction.GRACEFUL : action);
-        finalStop.setSelectedItem(controller.getFinalStopAction());
-        updateFinalStopVisibility();
+        configuring = true;
+        try {
+            legacyOptions = !controller.hasLifecyclePolicy();
+            optionsEdited = false;
+            whenRunning.setSelectedItem(controller.getRunningAction());
+            onMainFlowEnd.setSelectedItem(controller.getIterationEndAction());
+            finalStop.setSelectedItem(controller.getFinalStopAction());
+            updateFinalStopVisibility();
+        } finally {
+            configuring = false;
+        }
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
-        updateIterationOptions(isSameUserEnabled(null));
-        whenRunning.setSelectedItem(RunningAction.SKIP);
-        onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-        finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
-        updateFinalStopVisibility();
+        configuring = true;
+        try {
+            legacyOptions = false;
+            optionsEdited = false;
+            whenRunning.setSelectedItem(RunningAction.SKIP);
+            onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
+            finalStop.setSelectedItem(FinalStopAction.GRACEFUL);
+            updateFinalStopVisibility();
+        } finally {
+            configuring = false;
+        }
     }
 
     @Override
     public String getLabelResource() {
         return "fork_controller_title"; // $NON-NLS-1$
-    }
-
-    protected boolean isSameUserEnabled(TestElement element) {
-        GuiPackage gui = GuiPackage.getInstance();
-        if (gui == null) {
-            return false;
-        }
-        JMeterTreeNode node = element == null ? gui.getCurrentNode() : gui.getNodeOf(element);
-        while (node != null) {
-            if (node.getTestElement() instanceof AbstractThreadGroup group) {
-                return group.isSameUserOnNextIteration();
-            }
-            node = (JMeterTreeNode) node.getParent();
-        }
-        return false;
-    }
-
-    private void updateIterationOptions(boolean sameUser) {
-        onMainFlowEnd.removeAllItems();
-        onMainFlowEnd.addItem(IterationEndAction.IMMEDIATE);
-        onMainFlowEnd.addItem(IterationEndAction.GRACEFUL);
-        onMainFlowEnd.addItem(IterationEndAction.WAIT);
-        if (sameUser) {
-            onMainFlowEnd.addItem(IterationEndAction.KEEP_RUNNING);
-        }
     }
 
     private void updateFinalStopVisibility() {
@@ -163,9 +149,13 @@ public class ForkControllerGui extends AbstractControllerGui {
             case IMMEDIATE -> "fork_controller_end_immediate";
         });
         finalStopLabel = JMeterUtils.labelFor(finalStop, "fork_controller_final_stop");
-        updateIterationOptions(false);
         onMainFlowEnd.setSelectedItem(IterationEndAction.GRACEFUL);
-        onMainFlowEnd.addActionListener(event -> updateFinalStopVisibility());
+        onMainFlowEnd.addActionListener(event -> {
+            optionsEdited |= !configuring;
+            updateFinalStopVisibility();
+        });
+        whenRunning.addActionListener(event -> optionsEdited |= !configuring);
+        finalStop.addActionListener(event -> optionsEdited |= !configuring);
         panel.add(JMeterUtils.labelFor(onMainFlowEnd, "fork_controller_on_main_flow_end"));
         panel.add(onMainFlowEnd);
         panel.add(finalStopLabel);

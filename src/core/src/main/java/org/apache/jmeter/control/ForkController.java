@@ -48,10 +48,13 @@ public class ForkController extends GenericController implements Serializable {
 
     private transient boolean samplerReturned;
 
+    /** Missing policy properties identify a plan saved before lifecycle options existed. */
+    public boolean hasLifecyclePolicy() {
+        return !getPropertyAsString(ITERATION_END_ACTION, "").isEmpty();
+    }
+
     public IterationEndAction getIterationEndAction() {
-        return IterationEndAction.valueOf(getPropertyAsString(ITERATION_END_ACTION,
-                getPropertyAsBoolean("ForkController.hard_stop_on_main_flow_end", false)
-                        ? IterationEndAction.IMMEDIATE.name() : IterationEndAction.GRACEFUL.name()));
+        return IterationEndAction.valueOf(getPropertyAsString(ITERATION_END_ACTION, IterationEndAction.WAIT.name()));
     }
 
     public void setIterationEndAction(IterationEndAction action) {
@@ -59,9 +62,7 @@ public class ForkController extends GenericController implements Serializable {
     }
 
     public RunningAction getRunningAction() {
-        String legacy = getPropertyAsString("ForkController.skip_if_running", "");
-        return RunningAction.valueOf(getPropertyAsString(RUNNING_ACTION,
-                "false".equals(legacy) ? RunningAction.WAIT.name() : RunningAction.SKIP.name()));
+        return RunningAction.valueOf(getPropertyAsString(RUNNING_ACTION, RunningAction.WAIT.name()));
     }
 
     public void setRunningAction(RunningAction action) {

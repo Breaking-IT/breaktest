@@ -95,10 +95,13 @@ debugging, and migration work that has landed across the BreakTest PR series.
   flow continues, sharing the same context and variables. At each main-flow
   iteration end, choose immediate stop without cancellation errors, graceful stop
   after current samplers, wait for the entire fork, or keep running into the next
-  iteration. Keep running requires "Same user on each iteration" and has a separate
+  iteration. Keep running requires "Same user on each iteration" at runtime and has a separate
   graceful/immediate stop choice for the final iteration or duration limit. When
   the same fork is reached while still active, choose skip, hard restart, or wait
-  then start again. Defaults are graceful stop at iteration end and skip on re-entry.
+  then start again. New controllers default to graceful stop at iteration end and skip
+  on re-entry. Plans saved without lifecycle options retain their original behavior:
+  forks carry across iterations, re-entry waits, and thread end waits for completion.
+  Selecting a controller in the editor does not change that legacy behavior.
 - Standard Thread Group can switch between closed and open workload models.
 - Open model scheduling offers constant and ramp phases with even or random
   arrivals, maximum active thread limits, and graph preview support.

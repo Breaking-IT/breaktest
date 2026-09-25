@@ -66,10 +66,11 @@ class TestForkController {
     }
 
     @Test
-    void lifecycleOptionsDefaultToSkipAndGracefulStopAndSurviveCloning() {
+    void legacyDefaultsWaitAndExplicitPoliciesSurviveCloning() {
         ForkController controller = new ForkController();
-        assertEquals(ForkController.RunningAction.SKIP, controller.getRunningAction());
-        assertEquals(ForkController.IterationEndAction.GRACEFUL, controller.getIterationEndAction());
+        assertEquals(ForkController.RunningAction.WAIT, controller.getRunningAction());
+        assertFalse(controller.hasLifecyclePolicy());
+        assertEquals(ForkController.IterationEndAction.WAIT, controller.getIterationEndAction());
         assertEquals(ForkController.FinalStopAction.GRACEFUL, controller.getFinalStopAction());
         controller.setRunningAction(ForkController.RunningAction.RESTART);
         controller.setIterationEndAction(ForkController.IterationEndAction.KEEP_RUNNING);
