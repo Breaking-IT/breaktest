@@ -57,6 +57,18 @@ import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.menu.StaticJMeterGUIComponent;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.samplers.Sampler;
+import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.NonTestElementsSection;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.ScenarioWorkload;
+import org.apache.jmeter.scenario.ScenariosSection;
+import org.apache.jmeter.scenario.SharedProfile;
+import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.TestPlanSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.TestBeanGUI;
 import org.apache.jmeter.testelement.ChildElementFilter;
@@ -654,8 +666,11 @@ public final class MenuFactory {
         }
 
         // Force TestFragment to only be pastable under a Test Plan
-        if (foundClass(nodes, new Class[]{TestFragmentController.class})) {
-            return parent instanceof TestPlan;
+        Boolean structureRule = foundClass(nodes, new Class[]{TestFragmentController.class})
+                ? Boolean.valueOf(parent instanceof TestFragmentsSection || parent instanceof TestPlan && !hasSections(parentNode))
+                : canAddToScenarioStructure(parentNode, nodes);
+        if (structureRule != null) {
+            return structureRule;
         }
 
         // Cannot move Non-Test Elements from root of Test Plan or Test Fragment
@@ -686,6 +701,90 @@ public final class MenuFactory {
 
         // All other
         return false;
+    }
+
+    /**
+     * Rules of the scenario structure: sections live directly under the test plan, and each section,
+     * scenario and workload only accepts its own kind of children.
+     *
+     * @return whether the nodes can be added, or {@code null} when these rules do not apply
+     */
+    private static Boolean canAddToScenarioStructure(JMeterTreeNode parentNode, JMeterTreeNode[] nodes) {
+        TestElement parent = parentNode.getTestElement();
+        if (foundClass(nodes, new Class[]{TestPlanSection.class})) {
+            return parent instanceof TestPlan;
+        }
+        if (parent instanceof TestPlan && hasSections(parentNode)) {
+            // Adding is redirected to the section (see JMeterTreeModel.sectionNodeFor); moving onto the root is not.
+            // The Non-Test Elements section is created by the first such element, so it may not exist yet.
+            return Arrays.stream(nodes)
+                    .map(node -> ScenarioPlanMigration.sectionFor(node.getUserObject()))
+                    .allMatch(section -> section == NonTestElementsSection.class
+                            && !hasChildOfClass(parentNode, NonTestElementsSection.class));
+        }
+        if (foundClass(nodes, new Class[]{Profile.class, SharedProfile.class})) {
+            // The shared profile is fixed; profiles only live in the Profiles section
+            return parent instanceof ProfilesSection && !foundClass(nodes, new Class[]{SharedProfile.class});
+        }
+        if (parent instanceof TestPlanSection section) {
+            return canAddToSection(section, nodes);
+        }
+        if (parent instanceof Profile || parent instanceof SharedProfile) {
+            return !foundClass(nodes, new Class[]{Sampler.class, Controller.class, Scenario.class, ScenarioWorkload.class})
+                    && !foundMenuCategories(nodes, NON_TEST_ELEMENTS);
+        }
+        // Scenarios hold their thread groups as settings, not as tree children
+        if (parent instanceof Scenario || parent instanceof ScenarioWorkload
+                || foundClass(nodes, new Class[]{Scenario.class, ScenarioWorkload.class})) {
+            return false;
+        }
+        return null;
+    }
+
+    /** Each section only accepts its own kind of elements. */
+    private static boolean canAddToSection(TestPlanSection section, JMeterTreeNode[] nodes) {
+        if (section instanceof ScenariosSection) {
+            return allOfClass(nodes, Scenario.class);
+        }
+        if (section instanceof ThreadGroupsSection) {
+            return allOfClass(nodes, AbstractThreadGroup.class);
+        }
+        if (section instanceof ListenersSection) {
+            return Arrays.stream(nodes).allMatch(node -> menuCategories(node).contains(LISTENERS));
+        }
+        if (section instanceof ProfilesSection) {
+            return allOfClass(nodes, Profile.class);
+        }
+        if (section instanceof TestFragmentsSection) {
+            // Reusable controllers go directly into the section; older Test Fragment elements are still accepted
+            return !foundClass(nodes, new Class[]{AbstractThreadGroup.class, Scenario.class, ScenarioWorkload.class,
+                    Profile.class, SharedProfile.class})
+                    && !foundMenuCategories(nodes, NON_TEST_ELEMENTS);
+        }
+        return allOfClass(nodes, NonTestElement.class);
+    }
+
+    /** Elements that are not in any menu, such as sections, scenarios and profiles, have no categories. */
+    private static Collection<String> menuCategories(JMeterTreeNode node) {
+        Collection<String> categories = node.getMenuCategories();
+        return categories == null ? List.of() : categories;
+    }
+
+    private static boolean hasSections(JMeterTreeNode node) {
+        return hasChildOfClass(node, TestPlanSection.class);
+    }
+
+    private static boolean hasChildOfClass(JMeterTreeNode node, Class<?> aClass) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (node.getChildAt(i) instanceof JMeterTreeNode child && aClass.isInstance(child.getUserObject())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean allOfClass(JMeterTreeNode[] nodes, Class<?> aClass) {
+        return Arrays.stream(nodes).allMatch(node -> aClass.isInstance(node.getUserObject()));
     }
 
     /**
@@ -1416,7 +1515,7 @@ public final class MenuFactory {
      */
     private static boolean foundMenuCategories(JMeterTreeNode[] nodes, String category) {
         return Arrays.stream(nodes)
-                .flatMap(node -> node.getMenuCategories().stream())
+                .flatMap(node -> menuCategories(node).stream())
                 .anyMatch(category::equals);
     }
 

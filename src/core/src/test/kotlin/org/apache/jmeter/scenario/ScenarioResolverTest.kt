@@ -1,0 +1,412 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.jmeter.scenario
+
+import org.apache.jmeter.JMeter
+import org.apache.jmeter.config.Arguments
+import org.apache.jmeter.config.ConfigTestElement
+import org.apache.jmeter.control.LoopController
+import org.apache.jmeter.engine.JMeterEngineException
+import org.apache.jmeter.engine.StandardJMeterEngine
+import org.apache.jmeter.junit.JMeterTestCase
+import org.apache.jmeter.test.samplers.CollectSamplesListener
+import org.apache.jmeter.test.samplers.ThreadSleep
+import org.apache.jmeter.testelement.TestElement
+import org.apache.jmeter.testelement.TestPlan
+import org.apache.jmeter.testelement.property.TestElementProperty
+import org.apache.jmeter.threads.AbstractThreadGroup
+import org.apache.jmeter.threads.SetupThreadGroup
+import org.apache.jmeter.threads.ThreadGroup
+import org.apache.jmeter.treebuilder.TreeBuilder
+import org.apache.jmeter.treebuilder.dsl.testTree
+import org.apache.jorphan.collections.HashTree
+import org.apache.jorphan.collections.ListedHashTree
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import java.time.Duration
+import kotlin.time.Duration.Companion.seconds
+
+class ScenarioResolverTest : JMeterTestCase() {
+    private val browse = ThreadGroup().apply {
+        name = "Browse"
+        setThreadGroupId("browse-id")
+    }
+
+    private val checkout = ThreadGroup().apply {
+        name = "Checkout"
+        setThreadGroupId("checkout-id")
+    }
+
+    private fun workload(name: String, threadGroup: AbstractThreadGroup, threads: Int, loops: Int = 1) =
+        ScenarioWorkload().apply {
+            this.name = name
+            setThreadGroupId(threadGroup.threadGroupId)
+            setProperty(AbstractThreadGroup.NUM_THREADS, threads)
+            setProperty(ThreadGroup.RAMP_TIME, 0)
+            val loopController = LoopController().apply { this.loops = loops }
+            setProperty(TestElementProperty(AbstractThreadGroup.MAIN_CONTROLLER, loopController))
+        }
+
+    private fun scenario(name: String, vararg workloads: ScenarioWorkload, enabled: Boolean = true) =
+        Scenario(name).apply {
+            isEnabled = enabled
+            setWorkloads(workloads.toList())
+        }
+
+    private fun plan(scenarios: TreeBuilder.() -> Unit, extra: TreeBuilder.() -> Unit = {}): ListedHashTree =
+        testTree {
+            TestPlan::class {
+                ScenariosSection::class {
+                    scenarios()
+                }
+                ThreadGroupsSection::class {
+                    browse {
+                        ThreadSleep::class { duration = 0.seconds }
+                    }
+                    checkout {
+                        ThreadSleep::class { duration = 0.seconds }
+                    }
+                }
+                extra()
+            }
+        }
+
+    private fun convertAndResolve(tree: HashTree): HashTree =
+        ScenarioResolver.resolve(JMeter.convertSubTree(tree, false))
+
+    private fun planChildren(tree: HashTree): List<Any> = tree.getTree(tree.array[0]).list().toList()
+
+    @Test
+    fun `plan without sections is returned unchanged`() {
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroup::class {}
+            }
+        }
+        assertSame(tree, ScenarioResolver.resolve(tree))
+    }
+
+    @Test
+    fun `enabled scenario becomes one thread group per workload with sections flattened`() {
+        val variables = Arguments().apply { name = "Variables" }
+        val listener = CollectSamplesListener()
+        val tree = plan(
+            scenarios = {
+                +scenario("Stress", workload("Stress browse", browse, 50), enabled = false)
+                +scenario(
+                    "Load",
+                    workload("", browse, 10).apply { setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTEST) },
+                    workload("", browse, 3),
+                    workload("Checkout load", checkout, 2).apply { setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTEST) },
+                )
+            },
+            extra = {
+                ProfilesSection::class {
+                    SharedProfile::class { +variables }
+                }
+                ListenersSection::class { +listener }
+            }
+        )
+
+        val resolved = convertAndResolve(tree)
+        val children = planChildren(resolved)
+        val threadGroups = children.filterIsInstance<AbstractThreadGroup>()
+
+        assertEquals(listOf("Browse", "Browse (2)", "Checkout load"), threadGroups.map { it.name })
+        assertEquals(listOf(10, 3, 2), threadGroups.map { it.numThreads })
+        assertEquals(listOf(true, false, true), threadGroups.map { it.onErrorStopTest }) {
+            "Error handling comes from each workload"
+        }
+        assertTrue(children.any { it === variables }) { "Configs should move to the test plan level: $children" }
+        assertTrue(children.any { it === listener }) { "Listeners should move to the test plan level: $children" }
+        assertTrue(children.none { it is TestPlanSection }) { "Sections should be removed: $children" }
+        assertEquals(0, browse.numThreads) { "Resolving must not modify the configured thread group" }
+        val browseInstances = threadGroups.take(2)
+        val sleeps = browseInstances.map { resolved.getTree(resolved.array[0]).getTree(it).list().single() }
+        assertTrue(sleeps[0] !== sleeps[1]) { "Each workload should get its own copy of the script" }
+    }
+
+    @Test
+    fun `test fragments never run by themselves`() {
+        val tree = plan(
+            scenarios = { +scenario("Scenario", workload("Browse", browse, 1)) },
+            extra = {
+                TestFragmentsSection::class {
+                    org.apache.jmeter.control.GenericController::class { name = "Reusable login" }
+                }
+            }
+        )
+        val children = planChildren(convertAndResolve(tree))
+        assertTrue(children.none { it is org.apache.jmeter.control.GenericController && it !is AbstractThreadGroup }) {
+            "Fragment controllers must not become test-level elements: $children"
+        }
+    }
+
+    @Test
+    fun `setUp thread group keeps its type`() {
+        val setup = SetupThreadGroup().apply {
+            name = "Login"
+            setThreadGroupId("setup-id")
+        }
+        val tree = testTree {
+            TestPlan::class {
+                ScenariosSection::class {
+                    +scenario("Scenario", workload("Login", setup, 1))
+                }
+                ThreadGroupsSection::class { +setup }
+            }
+        }
+        assertTrue(planChildren(convertAndResolve(tree)).single() is SetupThreadGroup)
+    }
+
+    @Test
+    fun `a chosen scenario runs even when it is not the active one`() {
+        val stress = scenario("Stress", workload("Stress browse", browse, 50), enabled = false)
+        val tree = plan(
+            scenarios = {
+                +scenario("Load", workload("Load browse", browse, 10))
+                +stress
+            }
+        )
+        val resolved = ScenarioResolver.resolve(JMeter.convertSubTree(tree, false), stress)
+        val threadGroup = planChildren(resolved).filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals("Stress browse", threadGroup.name)
+        assertEquals(50, threadGroup.numThreads)
+    }
+
+    @Test
+    fun `no enabled scenario is rejected`() {
+        val tree = plan(
+            scenarios = {
+                +scenario("Scenario", workload("Browse", browse, 1), enabled = false)
+            }
+        )
+        val e = assertThrows<ScenarioException> { convertAndResolve(tree) }
+        assertEquals("No scenario is enabled. Enable the scenario you want to run.", e.message)
+    }
+
+    @Test
+    fun `more than one enabled scenario is rejected`() {
+        val tree = plan(
+            scenarios = {
+                +scenario("Load", workload("Browse", browse, 1))
+                +scenario("Stress", workload("Browse", browse, 1))
+            }
+        )
+        val e = assertThrows<ScenarioException> { convertAndResolve(tree) }
+        assertEquals("Only one scenario can be enabled, but these are: 'Load', 'Stress'.", e.message)
+    }
+
+    @Test
+    fun `workload referencing a disabled thread group is rejected`() {
+        browse.isEnabled = false
+        val tree = plan(
+            scenarios = {
+                +scenario("Load", workload("Browse load", browse, 1))
+            }
+        )
+        val e = assertThrows<ScenarioException> { convertAndResolve(tree) }
+        assertEquals(
+            "'Browse load' in scenario 'Load' uses a thread group that does not exist or is disabled.",
+            e.message
+        )
+    }
+
+    @Test
+    fun `scenario without workloads is rejected`() {
+        val tree = plan(
+            scenarios = {
+                +scenario("Empty", workload("Browse", browse, 1).apply { isEnabled = false })
+            }
+        )
+        val e = assertThrows<ScenarioException> { convertAndResolve(tree) }
+        assertEquals("Scenario 'Empty' has no enabled thread groups.", e.message)
+    }
+
+    @Test
+    fun `validation flattening ignores scenarios`() {
+        val tree = plan(
+            scenarios = {
+                +scenario("Scenario", workload("Browse", browse, 5))
+            }
+        )
+        val flat = ScenarioResolver.flattenIgnoringScenarios(JMeter.convertSubTree(tree, false))
+        assertEquals(listOf(browse, checkout), planChildren(flat))
+    }
+
+    private fun variables(vararg pairs: Pair<String, String>) = Arguments().apply {
+        pairs.forEach { (name, value) -> addArgument(name, value) }
+    }
+
+    private fun profilesPlan(planVariables: Arguments = Arguments(), vararg workloads: ScenarioWorkload) =
+        testTree {
+            TestPlan::class {
+                setUserDefinedVariables(planVariables)
+                ScenariosSection::class {
+                    +scenario("Load", *workloads)
+                }
+                ThreadGroupsSection::class {
+                    browse {
+                        RecordVariable::class { variable = "host" }
+                    }
+                }
+                ProfilesSection::class {
+                    SharedProfile::class {
+                        +variables("port" to "8080")
+                    }
+                    Profile::class {
+                        name = "acceptance"
+                        isDefault = true
+                        +variables("host" to "acc.example.com", "url" to "https://\${host}:\${port}")
+                        ConfigTestElement::class { name = "Acceptance defaults" }
+                    }
+                    Profile::class {
+                        name = "production"
+                        +variables("host" to "www.example.com")
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun `each workload gets the configuration and variables of its profile`() {
+        val tree = profilesPlan(
+            Arguments(),
+            workload("Acceptance", browse, 1).apply { profile = "acceptance" },
+            workload("Production", browse, 1).apply { profile = "production" },
+            workload("No profile", browse, 1),
+        )
+        val resolved = convertAndResolve(tree)
+        val planTree = resolved.getTree(resolved.array[0])
+        val threadGroups = planTree.list().filterIsInstance<AbstractThreadGroup>()
+
+        assertEquals(
+            listOf(
+                mapOf("host" to "acc.example.com", "url" to "https://acc.example.com:8080"),
+                mapOf("host" to "www.example.com"),
+                mapOf()
+            ),
+            threadGroups.map { it.profileVariables }
+        )
+        assertEquals(
+            listOf("Acceptance defaults", "Record"),
+            planTree.getTree(threadGroups[0]).list().map { (it as TestElement).name }
+        ) { "Profile configuration comes first in the thread group and User Defined Variables are removed" }
+        assertTrue(planTree.list().filterIsInstance<Arguments>().any { it.argumentsAsMap == mapOf("port" to "8080") }) {
+            "Shared configuration applies to the whole test"
+        }
+    }
+
+    @Test
+    fun `profile name can come from a test plan variable`() {
+        val tree = profilesPlan(
+            variables("environment" to "production"),
+            workload("Browse", browse, 1).apply { profile = "\${environment}" },
+        )
+        val threadGroup = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals(mapOf("host" to "www.example.com"), threadGroup.profileVariables)
+    }
+
+    @Test
+    fun `unknown profile is rejected`() {
+        val tree = profilesPlan(Arguments(), workload("Browse", browse, 1).apply { profile = "staging" })
+        val e = assertThrows<ScenarioException> { convertAndResolve(tree) }
+        assertEquals(
+            "'Browse' in scenario 'Load' uses profile 'staging', which does not exist or is disabled. " +
+                "Profiles: 'acceptance', 'production'.",
+            e.message
+        )
+    }
+
+    @Test
+    fun `validation uses the default profile`() {
+        val tree = profilesPlan(Arguments(), workload("Browse", browse, 1))
+        val flat = ScenarioResolver.flattenIgnoringScenarios(JMeter.convertSubTree(tree, false))
+        val threadGroup = planChildren(flat).filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals("acc.example.com", threadGroup.profileVariables["host"])
+        assertEquals(0, browse.profileVariables.size) { "The edited thread group must not change" }
+    }
+
+    @Test
+    fun `threads see the variables of their own profile`() {
+        val listener = CollectSamplesListener()
+        val tree = profilesPlan(
+            Arguments(),
+            workload("Acceptance", browse, 1).apply { profile = "acceptance" },
+            workload("Production", browse, 1).apply { profile = "production" },
+        )
+        tree.getTree(tree.array[0]).add(listener)
+        val engine = StandardJMeterEngine()
+        try {
+            engine.configure(JMeter.convertSubTree(tree, false))
+            engine.runTest()
+            engine.awaitTermination(Duration.ofSeconds(10))
+            val deadline = System.currentTimeMillis() + 10_000
+            while (listener.events.size < 2 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50)
+            }
+        } finally {
+            engine.stopTest(true)
+        }
+        assertEquals(
+            mapOf("Acceptance" to "acc.example.com", "Production" to "www.example.com"),
+            listener.events.associate { it.threadGroup to it.result.responseDataAsString }
+        )
+    }
+
+    @Test
+    fun `engine runs the enabled scenario`() {
+        val listener = CollectSamplesListener()
+        val tree = plan(
+            scenarios = {
+                +scenario("Scenario", workload("Browse steady", browse, 2, loops = 2), workload("Browse spike", browse, 1))
+            },
+            extra = {
+                ListenersSection::class { +listener }
+            }
+        )
+        val engine = StandardJMeterEngine()
+        try {
+            engine.configure(JMeter.convertSubTree(tree, false))
+            engine.runTest()
+            engine.awaitTermination(Duration.ofSeconds(10))
+            // Wait for the started threads, not just the engine thread that starts them
+            val deadline = System.currentTimeMillis() + 10_000
+            while (listener.events.size < 5 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50)
+            }
+            Thread.sleep(200)
+        } finally {
+            engine.stopTest(true)
+        }
+        val samplesPerGroup = listener.events.groupingBy { it.threadGroup }.eachCount()
+        assertEquals(mapOf("Browse steady" to 4, "Browse spike" to 1), samplesPerGroup)
+    }
+
+    @Test
+    fun `engine reports scenario errors`() {
+        val tree = plan(scenarios = {})
+        val engine = StandardJMeterEngine()
+        engine.configure(JMeter.convertSubTree(tree, false))
+        val e = assertThrows<JMeterEngineException> { engine.runTest() }
+        assertEquals("No scenario is enabled. Enable the scenario you want to run.", e.message)
+    }
+}

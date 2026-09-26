@@ -91,6 +91,18 @@ class ThreadGroupGuiTest {
     }
 
     @Test
+    void modifyTestElementKeepsTheIdScenariosReferenceTheThreadGroupBy() {
+        ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+        String id = threadGroup.getOrCreateThreadGroupId();
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertEquals(id, threadGroup.getThreadGroupId());
+    }
+
+    @Test
     void modifyTestElementPreservesBreakTestHarMetadata() {
         ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
         threadGroup.setProperty("BreakTest.har.filename", "recording.har");

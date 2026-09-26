@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.action;
 
 import java.awt.event.ActionEvent;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -55,9 +56,19 @@ public class Duplicate extends AbstractAction {
         JMeterTreeModel treeModel = instance.getTreeModel();
         for (int nodeIndex = copiedNodes.length - 1; nodeIndex >= 0; nodeIndex--) {
             JMeterTreeNode copiedNode = copiedNodes[nodeIndex];
+            resolveCopyConflicts(treeModel, copiedNode);
             int index = parentNode.getIndex(currentNode) + 1;
             treeModel.insertNodeInto(copiedNode, parentNode, index);
         }
         instance.getMainFrame().repaint();
+    }
+
+    @SuppressWarnings("JdkObsolete")
+    private static void resolveCopyConflicts(JMeterTreeModel treeModel, JMeterTreeNode copiedNode) {
+        treeModel.resolveCopyConflicts(copiedNode.getTestElement());
+        Enumeration<?> children = copiedNode.children();
+        while (children.hasMoreElements()) {
+            resolveCopyConflicts(treeModel, (JMeterTreeNode) children.nextElement());
+        }
     }
 }

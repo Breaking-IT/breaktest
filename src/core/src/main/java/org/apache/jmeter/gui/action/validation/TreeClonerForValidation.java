@@ -93,6 +93,12 @@ public class TreeClonerForValidation extends TreeCloner {
                 tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
                 tg.setScheduler(false);
                 tg.setProperty(ThreadGroup.DELAY, 0);
+                if (!tg.getPropertyAsString(AbstractThreadGroup.VALIDATION_ON_ERROR).isEmpty()) {
+                    // Thread groups whose error handling is set per scenario only choose how validation reacts
+                    tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, tg.isValidationStopOnError()
+                            ? AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTEST
+                            : AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
+                }
                 if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
                     ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
                 }

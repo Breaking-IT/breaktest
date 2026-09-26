@@ -172,6 +172,7 @@ public class JMeterTreeTransferHandler extends TransferHandler {
         if(nodes == null || nodes.length == 0) {
             return false;
         }
+        target = JMeterTreeModel.sectionNodeFor(target, nodes[0].getTestElement());
 
         for (JMeterTreeNode node : nodes) {
             if(target == node) {
@@ -223,13 +224,15 @@ public class JMeterTreeTransferHandler extends TransferHandler {
         // Get drop location and mode
         JTree.DropLocation dl = (JTree.DropLocation) support.getDropLocation();
         TreePath dest = dl.getPath();
-        JMeterTreeNode target = (JMeterTreeNode) dest.getLastPathComponent();
+        JMeterTreeNode dropTarget = (JMeterTreeNode) dest.getLastPathComponent();
+        // Elements dropped on a test plan organised in sections go at the end of their section
+        JMeterTreeModel treeModel = guiInstance.getTreeModel();
+        JMeterTreeNode target = treeModel.addTargetFor(dropTarget, nodes[0].getTestElement());
 
         nodesForRemoval = new ArrayList<>();
-        int index = dl.getChildIndex();
+        int index = target == dropTarget ? dl.getChildIndex() : -1;
         TreePath[] pathsToSelect = new TreePath[nodes.length];
         int pathPosition = 0;
-        JMeterTreeModel treeModel = guiInstance.getTreeModel();
         for (JMeterTreeNode node : nodes) {
 
             if (index == -1) { // drop mode == DropMode.ON

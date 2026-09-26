@@ -54,6 +54,8 @@ import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.MenuInfo;
+import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -425,6 +427,12 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
             for (int i = 0; i < node.getChildCount(); i++) {
                 JMeterTreeNode cur = (JMeterTreeNode) node.getChildAt(i);
                 TestElement te = cur.getTestElement();
+                if (te instanceof TestPlanSection) {
+                    // Sections only group the test plan: show their thread groups and fragments at the top level.
+                    // Controllers directly in the Test Fragments section are reusable like fragment content.
+                    buildTreeNodeModel(cur, te instanceof TestFragmentsSection ? level + 1 : level, parent);
+                    continue;
+                }
                 if (te instanceof TestFragmentController
                         || te instanceof AbstractThreadGroup
                         || (te instanceof Controller

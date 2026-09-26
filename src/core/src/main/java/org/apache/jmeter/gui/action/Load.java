@@ -42,6 +42,7 @@ import org.apache.jmeter.gui.util.FocusRequester;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -218,8 +219,17 @@ public class Load extends AbstractActionWithNoRunningTest {
             final boolean merging,
             final boolean setDetails,
             final GuiPackage guiPackage,
-            final HashTree tree) throws Exception {
+            final HashTree loadedTree) throws Exception {
+        final boolean migrate = !merging && ScenarioPlanMigration.needsMigration(loadedTree);
+        final HashTree tree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
+        if (migrate) {
+            log.info("Organised {} in scenarios, thread groups, listeners and configs", f);
+            JOptionPane.showMessageDialog(guiPackage.getMainFrame(),
+                    JMeterUtils.getResString("scenario_migration_done"), // $NON-NLS-1$
+                    JMeterUtils.getResString("scenario_migration_title"), // $NON-NLS-1$
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
         reportMissingPluginElements(tree);
         var archiveWarnings = SaveService.archiveWarnings(tree);
         if (!archiveWarnings.isEmpty()) {

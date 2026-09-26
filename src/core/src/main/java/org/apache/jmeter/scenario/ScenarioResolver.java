@@ -1,0 +1,363 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+package org.apache.jmeter.scenario;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.engine.TreeCloner;
+import org.apache.jmeter.engine.util.CompoundVariable;
+import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.JMeterContext;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
+
+/**
+ * Turns a test plan organised in {@link TestPlanSection}s into the flat tree the engine runs:
+ * the test plan with the shared configuration, listeners and one thread group per workload of the enabled
+ * {@link Scenario} as direct children. Each thread group gets the {@link Profile} its workload names.
+ * <p>
+ * Test elements are scoped by their ancestors, so section contents must become children of the test plan
+ * for them to apply to every thread group. The input must already be converted with
+ * {@link org.apache.jmeter.JMeter#convertSubTree(HashTree, boolean)}: disabled elements removed and
+ * tree nodes replaced by test elements. Plans without sections are returned unchanged.
+ */
+public final class ScenarioResolver {
+
+    private ScenarioResolver() {
+    }
+
+    /**
+     * @param tree a converted test tree
+     * @return {@code true} when the test plan is organised in sections
+     */
+    public static boolean hasSections(HashTree tree) {
+        Object root = root(tree);
+        return root != null && tree.getTree(root).list().stream().anyMatch(TestPlanSection.class::isInstance);
+    }
+
+    /**
+     * Builds the tree to run for the enabled scenario.
+     * @param tree a converted test tree
+     * @return the flat tree to run, or {@code tree} itself when it has no sections
+     * @throws ScenarioException when no single scenario is enabled or a workload cannot be resolved
+     */
+    public static HashTree resolve(HashTree tree) {
+        return resolve(tree, null);
+    }
+
+    /**
+     * Builds the tree to run for the given scenario, whether it is enabled or not.
+     * @param tree a converted test tree
+     * @param scenario the scenario to run, or {@code null} for the enabled scenario
+     * @return the flat tree to run, or {@code tree} itself when it has no sections
+     * @throws ScenarioException when the scenario cannot be determined or a workload cannot be resolved
+     */
+    public static HashTree resolve(HashTree tree, Scenario scenario) {
+        if (!hasSections(tree)) {
+            return tree;
+        }
+        Flattener flattener = new Flattener(tree);
+        if (scenario == null) {
+            scenario = flattener.enabledScenario();
+        }
+        Map<String, ThreadGroupEntry> threadGroups = flattener.threadGroupsById();
+        Evaluator evaluator = flattener.evaluator();
+        Set<String> usedNames = new HashSet<>();
+        int workloads = 0;
+        for (ScenarioWorkload workload : scenario.getWorkloads()) {
+            if (!workload.isEnabled()) {
+                continue;
+            }
+            ThreadGroupEntry entry = threadGroups.get(workload.getThreadGroupId());
+            if (entry == null) {
+                throw new ScenarioException("'" + workload.getName() + "' in scenario '"
+                        + scenario.getName() + "' uses a thread group that does not exist or is disabled.");
+            }
+            AbstractThreadGroup instance = (AbstractThreadGroup) entry.threadGroup().clone();
+            workload.applyTo(instance);
+            String name = workload.getName().isBlank() ? entry.threadGroup().getName() : workload.getName();
+            instance.setName(uniqueName(name, usedNames));
+            ProfileEntry profile = flattener.profileNamed(evaluator.evaluate(workload.getProfile()).trim(),
+                    "'" + workload.getName() + "' in scenario '" + scenario.getName() + "'");
+            flattener.planTree.add(instance, withProfile(instance, profile, deepClone(entry.subTree()), evaluator));
+            workloads++;
+        }
+        if (workloads == 0) {
+            throw new ScenarioException("Scenario '" + scenario.getName() + "' has no enabled thread groups.");
+        }
+        return flattener.result;
+    }
+
+    /**
+     * Builds a tree that runs the thread groups directly, ignoring scenarios, with the default profile.
+     * Used to validate thread groups: the caller is expected to override the workload of each thread group.
+     * @param tree a converted test tree
+     * @return the flat tree, or {@code tree} itself when it has no sections
+     */
+    public static HashTree flattenIgnoringScenarios(HashTree tree) {
+        if (!hasSections(tree)) {
+            return tree;
+        }
+        Flattener flattener = new Flattener(tree);
+        ProfileEntry defaultProfile = flattener.profiles.stream()
+                .filter(profile -> profile.profile().isDefault())
+                .findFirst()
+                .orElse(null);
+        Evaluator evaluator = flattener.evaluator();
+        for (ThreadGroupEntry entry : flattener.threadGroups) {
+            AbstractThreadGroup threadGroup = entry.threadGroup();
+            ScenarioWorkload.ensureMainController(threadGroup);
+            if (defaultProfile == null) {
+                flattener.planTree.add(threadGroup, entry.subTree());
+            } else {
+                // A copy, so the profile variables do not end up in the edited test plan
+                AbstractThreadGroup copy = (AbstractThreadGroup) threadGroup.clone();
+                flattener.planTree.add(copy, withProfile(copy, defaultProfile, entry.subTree(), evaluator));
+            }
+        }
+        return flattener.result;
+    }
+
+    /**
+     * Puts the profile configuration at the top of the thread group, so it applies to that thread group only.
+     * User Defined Variables of the profile become variables of each thread of the thread group, as User Defined
+     * Variables elements would otherwise apply to the whole test.
+     */
+    private static HashTree withProfile(AbstractThreadGroup threadGroup, ProfileEntry profile, HashTree script,
+            Evaluator evaluator) {
+        if (profile == null) {
+            return script;
+        }
+        HashTree profileTree = deepClone(profile.subTree());
+        Evaluator profileEvaluator = evaluator.copy();
+        Map<String, String> variables = new LinkedHashMap<>();
+        HashTree result = new ListedHashTree();
+        for (Object element : profileTree.list()) {
+            if (element.getClass() == Arguments.class) {
+                ((Arguments) element).getArgumentsAsMap().forEach((name, value) -> {
+                    String evaluated = profileEvaluator.evaluate(value);
+                    profileEvaluator.put(name, evaluated);
+                    variables.put(name, evaluated);
+                });
+            } else {
+                result.add(element, profileTree.getTree(element));
+            }
+        }
+        result.add(script);
+        if (!variables.isEmpty()) {
+            threadGroup.setProfileVariables(variables);
+        }
+        return result;
+    }
+
+    private static Object root(HashTree tree) {
+        Object[] roots = tree.getArray();
+        return roots.length == 0 ? null : roots[0];
+    }
+
+    private static HashTree deepClone(HashTree subTree) {
+        TreeCloner cloner = new TreeCloner(false);
+        subTree.traverse(cloner);
+        return cloner.getClonedTree();
+    }
+
+    private static String uniqueName(String name, Set<String> usedNames) {
+        String candidate = name;
+        for (int i = 2; !usedNames.add(candidate); i++) {
+            candidate = name + " (" + i + ")";
+        }
+        return candidate;
+    }
+
+    private record ThreadGroupEntry(AbstractThreadGroup threadGroup, HashTree subTree) {
+    }
+
+    private record ProfileEntry(Profile profile, HashTree subTree) {
+    }
+
+    /**
+     * Evaluates profile names and profile variables at test start, with the functions (such as {@code __P})
+     * and the variables of the test plan and of the shared profile.
+     */
+    private static final class Evaluator {
+        private final JMeterVariables variables = new JMeterVariables();
+
+        String evaluate(String expression) {
+            if (!expression.contains("${")) { // $NON-NLS-1$
+                return expression;
+            }
+            JMeterContext context = JMeterContextService.getContext();
+            JMeterVariables previous = context.getVariables();
+            context.setVariables(variables);
+            try {
+                return new CompoundVariable(expression).execute();
+            } finally {
+                context.setVariables(previous);
+            }
+        }
+
+        void put(String name, String value) {
+            variables.put(name, value);
+        }
+
+        void putAll(Map<String, String> unevaluated) {
+            unevaluated.forEach((name, value) -> put(name, evaluate(value)));
+        }
+
+        Evaluator copy() {
+            Evaluator copy = new Evaluator();
+            copy.variables.putAll(variables);
+            return copy;
+        }
+    }
+
+    /** Copies everything except scenarios and thread groups to the test plan level of a new tree. */
+    private static final class Flattener {
+        private final HashTree result = new ListedHashTree();
+        private final HashTree planTree;
+        private final List<Scenario> scenarios = new ArrayList<>();
+        private final List<ThreadGroupEntry> threadGroups = new ArrayList<>();
+        private final List<ProfileEntry> profiles = new ArrayList<>();
+        private final List<Arguments> sharedVariables = new ArrayList<>();
+        private final Object plan;
+
+        Flattener(HashTree tree) {
+            Object root = root(tree);
+            plan = root;
+            result.add(root);
+            planTree = result.getTree(root);
+            HashTree sourcePlanTree = tree.getTree(root);
+            for (Object child : sourcePlanTree.list()) {
+                HashTree childTree = sourcePlanTree.getTree(child);
+                if (child instanceof ScenariosSection) {
+                    for (Object scenario : childTree.list()) {
+                        if (scenario instanceof Scenario s) {
+                            scenarios.add(s);
+                        }
+                    }
+                } else if (child instanceof ThreadGroupsSection) {
+                    for (Object element : childTree.list()) {
+                        if (element instanceof AbstractThreadGroup threadGroup) {
+                            threadGroups.add(new ThreadGroupEntry(threadGroup, childTree.getTree(threadGroup)));
+                        } else {
+                            planTree.add(element, childTree.getTree(element));
+                        }
+                    }
+                } else if (child instanceof ProfilesSection) {
+                    addProfiles(childTree);
+                } else if (child instanceof TestPlanSection) {
+                    // Fragments never run by themselves: Module Controllers copied what they use before this step
+                    if (!(child instanceof TestFragmentsSection)) {
+                        for (Object element : childTree.list()) {
+                            planTree.add(element, childTree.getTree(element));
+                        }
+                    }
+                } else {
+                    planTree.add(child, childTree);
+                }
+            }
+        }
+
+        private void addProfiles(HashTree profilesTree) {
+            for (Object element : profilesTree.list()) {
+                HashTree elementTree = profilesTree.getTree(element);
+                if (element instanceof SharedProfile) {
+                    // The shared configuration applies to every thread group
+                    for (Object shared : elementTree.list()) {
+                        planTree.add(shared, elementTree.getTree(shared));
+                        if (shared.getClass() == Arguments.class) {
+                            sharedVariables.add((Arguments) shared);
+                        }
+                    }
+                } else if (element instanceof Profile profile) {
+                    profiles.add(new ProfileEntry(profile, elementTree));
+                }
+            }
+        }
+
+        Evaluator evaluator() {
+            Evaluator evaluator = new Evaluator();
+            if (plan instanceof TestPlan testPlan) {
+                evaluator.putAll(testPlan.getUserDefinedVariables());
+            }
+            for (Arguments arguments : sharedVariables) {
+                evaluator.putAll(arguments.getArgumentsAsMap());
+            }
+            return evaluator;
+        }
+
+        /**
+         * @param name the evaluated profile name; empty for no profile
+         * @param usedBy what uses the profile, for error messages
+         */
+        ProfileEntry profileNamed(String name, String usedBy) {
+            if (name.isEmpty()) {
+                return null;
+            }
+            for (ProfileEntry profile : profiles) {
+                if (profile.profile().getName().equals(name)) {
+                    return profile;
+                }
+            }
+            throw new ScenarioException(usedBy + " uses profile '" + name + "', which does not exist or is disabled."
+                    + (profiles.isEmpty() ? "" : " Profiles: " + profiles.stream() // $NON-NLS-1$
+                            .map(profile -> "'" + profile.profile().getName() + "'")
+                            .collect(Collectors.joining(", ")) + '.'));
+        }
+
+        Scenario enabledScenario() {
+            if (scenarios.isEmpty()) {
+                throw new ScenarioException("No scenario is enabled. Enable the scenario you want to run.");
+            }
+            if (scenarios.size() > 1) {
+                throw new ScenarioException("Only one scenario can be enabled, but these are: "
+                        + scenarios.stream().map(s -> "'" + s.getName() + "'")
+                                .collect(Collectors.joining(", ")) + '.');
+            }
+            return scenarios.get(0);
+        }
+
+        Map<String, ThreadGroupEntry> threadGroupsById() {
+            Map<String, ThreadGroupEntry> byId = new HashMap<>();
+            for (ThreadGroupEntry entry : threadGroups) {
+                String id = entry.threadGroup().getThreadGroupId();
+                if (id.isEmpty()) {
+                    continue;
+                }
+                ThreadGroupEntry previous = byId.putIfAbsent(id, entry);
+                if (previous != null) {
+                    throw new ScenarioException("Thread groups '" + previous.threadGroup().getName() + "' and '"
+                            + entry.threadGroup().getName() + "' have the same id. Recreate one of them.");
+                }
+            }
+            return byId;
+        }
+    }
+}

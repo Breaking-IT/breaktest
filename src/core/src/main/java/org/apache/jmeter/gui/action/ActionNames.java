@@ -115,6 +115,7 @@ public final class ActionNames {
     public static final String COLLAPSE         = "collapse"; // $NON-NLS-1$
     public static final String EXPAND           = "expand"; // $NON-NLS-1$
     public static final String RUN_TG           = "run_tg"; // $NON-NLS-1$
+    public static final String RUN_SCENARIO     = "run_scenario"; // $NON-NLS-1$
     public static final String RUN_TG_NO_TIMERS = "run_tg_no_timers"; // $NON-NLS-1$
     public static final String SAVE_BEFORE_RUN  = "save_before_run"; //$NON-NLS-1$
     public static final String THREAD_DUMP      = "thread_dump"; // $NON-NLS-1$

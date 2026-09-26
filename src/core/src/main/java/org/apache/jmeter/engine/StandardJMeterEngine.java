@@ -32,6 +32,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.scenario.ScenarioException;
+import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.TestElement;
@@ -196,6 +198,11 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void runTest() throws JMeterEngineException {
+        try {
+            test = ScenarioResolver.resolve(test);
+        } catch (ScenarioException e) {
+            throw new JMeterEngineException(e.getMessage(), e);
+        }
         try {
             runningTest = EXECUTOR_SERVICE.submit(this);
         } catch (Exception err) {

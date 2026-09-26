@@ -40,6 +40,9 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioException;
+import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -95,6 +98,7 @@ public class Start extends AbstractAction {
         commands.add(ActionNames.RUN_TG);
         commands.add(ActionNames.RUN_TG_NO_TIMERS);
         commands.add(ActionNames.VALIDATE_TG);
+        commands.add(ActionNames.RUN_SCENARIO);
     }
 
     private StandardJMeterEngine engine;
@@ -153,6 +157,14 @@ public class Start extends AbstractAction {
         } else if (e.getActionCommand().equals(ActionNames.ACTION_START_NO_TIMERS)) {
             popupShouldSave(e);
             startEngine(null, RunMode.IGNORING_TIMERS);
+        } else if (e.getActionCommand().equals(ActionNames.RUN_SCENARIO)) {
+            GuiPackage guiPackage = GuiPackage.getInstance();
+            guiPackage.updateCurrentNode();
+            JMeterTreeNode node = guiPackage.getTreeListener().getCurrentNode();
+            if (node != null && node.getTestElement() instanceof Scenario scenario) {
+                popupShouldSave(e);
+                startEngine(null, RunMode.AS_IS, scenario);
+            }
         } else if (e.getActionCommand().equals(ActionNames.ACTION_PAUSE)) {
             if (engine != null) {
                 boolean paused = StandardJMeterEngine.togglePauseEngine();
@@ -278,6 +290,16 @@ public class Start extends AbstractAction {
      * @param runMode {@link RunMode} How to run engine
      */
     private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode) {
+        startEngine(threadGroupsToRun, runMode, null);
+    }
+
+    /**
+     * Start JMeter engine
+     * @param threadGroupsToRun Array of AbstractThreadGroup to run
+     * @param runMode {@link RunMode} How to run engine
+     * @param scenario scenario to run instead of the enabled one, or {@code null}
+     */
+    private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario) {
         // Let samplers know this is a validation run so they keep response bodies they would
         // otherwise discard (set for every run, so a later normal run resets it).
         JMeterContextService.setValidationRun(runMode == RunMode.VALIDATION);
@@ -291,7 +313,26 @@ public class Start extends AbstractAction {
         // reference another one (not running) using ModuleController
         // We don't clone as we'll be doing it later AND we cannot clone before we have removed the unselected ThreadGroups
         HashTree treeToUse = JMeter.convertSubTree(testTree, false);
+        if (scenario != null) {
+            try {
+                treeToUse = ScenarioResolver.resolve(treeToUse, scenario);
+            } catch (ScenarioException e) {
+                JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
+                        JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+                return;
+            }
+        }
         if(threadGroupsToRun != null && threadGroupsToRun.length>0) {
+            try {
+                // Validation replaces the workload anyway; other runs use the workloads of the enabled scenario
+                treeToUse = runMode == RunMode.VALIDATION
+                        ? ScenarioResolver.flattenIgnoringScenarios(treeToUse)
+                        : ScenarioResolver.resolve(treeToUse);
+            } catch (ScenarioException e) {
+                JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
+                        JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+                return;
+            }
             keepOnlySelectedThreadGroupsInHashTree(treeToUse, threadGroupsToRun);
         }
         treeToUse.add(treeToUse.getArray()[0], gui.getMainFrame());
@@ -374,8 +415,10 @@ public class Start extends AbstractAction {
      * @return true if item is in threadGroups array
      */
     private static boolean isInThreadGroups(TestElement item, AbstractThreadGroup[] threadGroups) {
+        String id = item instanceof AbstractThreadGroup threadGroup ? threadGroup.getThreadGroupId() : "";
         for (AbstractThreadGroup abstractThreadGroup : threadGroups) {
-            if(item == abstractThreadGroup) {
+            // Scenario workloads run clones of the thread group, so they are matched by id
+            if(item == abstractThreadGroup || (!id.isEmpty() && id.equals(abstractThreadGroup.getThreadGroupId()))) {
                 return true;
             }
         }
