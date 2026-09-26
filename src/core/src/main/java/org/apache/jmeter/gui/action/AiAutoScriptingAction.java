@@ -1100,11 +1100,25 @@ public class AiAutoScriptingAction extends AbstractAction {
         updateThinkingOptions.run();
     }
 
-    /** Command for a one-off prompt, as used by {@link AiEngineChooser.Engine}. */
+    /**
+     * Command for a one-off prompt, as used by {@link AiEngineChooser.Engine}. It keeps the agent
+     * away from MCP servers (such as the BreakTest one) where the CLI supports that; the caller
+     * enforces the runtime limit, so the request's run limits are placeholders.
+     */
     static List<String> oneShotCommand(AiTool tool, AiThinkingLevel thinkingLevel, String model, String prompt,
             File workingDirectory) {
         AiRunRequest request = new AiRunRequest(tool, null, null, null, false, 60, 0, "", "", "", thinkingLevel, model);
-        return aiCommand(request, workingDirectory, prompt);
+        List<String> command = aiCommand(request, workingDirectory, prompt);
+        switch (tool) {
+        case CLAUDE -> command.add(1, "--strict-mcp-config");
+        case GEMINI -> command.add(1, "--allowed-mcp-server-names=breaktest-ask-ai-none");
+        case PI -> command.addAll(1, List.of("--tools", "read,edit,write"));
+        default -> {
+            // Codex disables the BreakTest MCP server in every command; the other CLIs have no
+            // verified switch, so the prompt tells the agent to stay away from other tools.
+        }
+        }
+        return command;
     }
 
     static String launchFailureMessage(AiTool tool, List<String> command, Exception ex) {

@@ -25,9 +25,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -51,6 +53,7 @@ import javax.swing.text.DefaultEditorKit;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.AiEngineChooser;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
+import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,6 +66,7 @@ public final class Jsr223AiHelper {
     private static final String MENU_ITEM_MARKER = "breaktest.jsr223.aiHelperInstalled"; // $NON-NLS-1$
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static final String ASK_AI = "Ask AI"; // $NON-NLS-1$
+    private static final int DEFAULT_TIMEOUT_SECONDS = 600;
 
     private Jsr223AiHelper() {
     }
@@ -194,12 +198,14 @@ public final class Jsr223AiHelper {
         Path workingDirectory = null;
         try {
             // A private folder holding only the script works the same for every AI CLI: the agent
-            // edits a real file, and nothing in the user's project can be touched by accident.
+            // edits a real file instead of returning text. This is not a sandbox; the CLIs run with
+            // their usual permissions, so the prompt limits the agent to this one file.
             workingDirectory = Files.createTempDirectory("breaktest-jsr223-ai-");
             Path scriptFile = workingDirectory.resolve(scriptFileName(context.language()));
             Files.writeString(scriptFile, context.script(), StandardCharsets.UTF_8);
             int exitCode = engine.run(prompt(context, scriptFile.getFileName().toString()),
-                    workingDirectory.toFile());
+                    workingDirectory.toFile(), Duration.ofSeconds(JMeterUtils.getPropDefault(
+                            "breaktest.jsr223.ai.timeout_seconds", DEFAULT_TIMEOUT_SECONDS))); // $NON-NLS-1$
             if (exitCode != 0) {
                 AiAutoScriptingLogWindow.append(engine.displayName() + " exited with code " + exitCode + ".");
                 AiAutoScriptingLogWindow.finishRun("JSR223 helper failed");
@@ -219,6 +225,9 @@ public final class Jsr223AiHelper {
             applyScript(textArea, updatedScript, changedCallback);
             AiAutoScriptingLogWindow.append("JSR223 AI Helper applied the script update.");
             AiAutoScriptingLogWindow.finishRun("JSR223 helper finished");
+        } catch (CancellationException ex) {
+            AiAutoScriptingLogWindow.append("JSR223 AI Helper was stopped; no changes applied.");
+            AiAutoScriptingLogWindow.finishRun("Stopped");
         } catch (Exception ex) {
             log.warn("JSR223 AI Helper failed", ex);
             AiAutoScriptingLogWindow.append("JSR223 AI Helper failed: " + ex.getMessage());
@@ -266,7 +275,8 @@ public final class Jsr223AiHelper {
 
                 The current script is in the file %s in your working directory. Edit that file in place so it \
                 contains the complete updated script. Do not create, rename, or modify any other file, and do not \
-                add Markdown fences to the file.
+                add Markdown fences to the file. Do not use MCP servers, BreakTest tools, or other tools to change \
+                the BreakTest test plan; only edit this script file.
 
                 Rules:
                 - Preserve existing behavior unless the user request requires a change.

@@ -21,12 +21,17 @@ import java.awt.BorderLayout;
 import java.awt.GridLayout;
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 
+import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.ai.gui.AiCliProcess;
 import org.apache.jmeter.gui.action.AiAutoScriptingAction.AiThinkingLevel;
 import org.apache.jmeter.gui.action.AiAutoScriptingAction.AiTool;
@@ -96,11 +101,14 @@ public final class AiEngineChooser {
 
         /**
          * Runs the prompt non-interactively in {@code workingDirectory}, streaming the agent's
-         * output to the AI activity log.
+         * output to the AI activity log. The activity log's Stop button ends the run.
          *
          * @return the process exit code
+         * @throws CancellationException when the run was stopped from the activity log
+         * @throws IOException when the CLI cannot be started or exceeds {@code timeout}
          */
-        public int run(String prompt, File workingDirectory) throws IOException, InterruptedException {
+        public int run(String prompt, File workingDirectory, Duration timeout)
+                throws IOException, InterruptedException {
             List<String> command = AiAutoScriptingAction.oneShotCommand(
                     tool, thinkingLevel, model, prompt, workingDirectory);
             AiCliProcess processCommand = AiCliProcess.prepare(command, AiAutoScriptingAction.promptStyle(tool));
@@ -110,9 +118,44 @@ public final class AiEngineChooser {
             } catch (IOException ex) {
                 throw new IOException(AiAutoScriptingAction.launchFailureMessage(tool, command, ex), ex);
             }
-            processCommand.writePrompt(process);
-            AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
-            return process.waitFor();
+            AtomicBoolean stopped = new AtomicBoolean();
+            AtomicBoolean timedOut = new AtomicBoolean();
+            AiAutoScriptingLogWindow.setStopHandler(() -> {
+                stopped.set(true);
+                destroyTree(process);
+            });
+            Thread watchdog = Thread.ofPlatform().daemon().name("BreakTest AI run watchdog").start(() -> {
+                try {
+                    if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                        timedOut.set(true);
+                        destroyTree(process);
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            try {
+                processCommand.writePrompt(process);
+                AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
+                int exitCode = process.waitFor();
+                if (stopped.get()) {
+                    throw new CancellationException(tool.displayName() + " was stopped.");
+                }
+                if (timedOut.get()) {
+                    throw new IOException(tool.displayName() + " did not finish within "
+                            + timeout.toSeconds() + " seconds and was stopped.");
+                }
+                return exitCode;
+            } finally {
+                AiAutoScriptingLogWindow.setStopHandler(null);
+                watchdog.interrupt();
+                destroyTree(process);
+            }
+        }
+
+        private static void destroyTree(Process process) {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            process.destroyForcibly();
         }
     }
 }

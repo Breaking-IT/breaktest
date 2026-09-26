@@ -20,13 +20,16 @@ package org.apache.jmeter.gui.action;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
 
@@ -711,7 +714,7 @@ class AiAutoScriptingActionTest {
                     AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.HIGH, "test-model");
 
             String prompt = "Change the script\n".repeat(4096);
-            int exitCode = engine.run(prompt, scriptDir.toFile());
+            int exitCode = engine.run(prompt, scriptDir.toFile(), Duration.ofSeconds(30));
 
             assertEquals(0, exitCode);
             assertEquals("updated", Files.readString(scriptDir.resolve("script.groovy")));
@@ -724,6 +727,54 @@ class AiAutoScriptingActionTest {
                 properties.setProperty("breaktest.claude.command", previous);
             }
         }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void engineStopsACliThatExceedsTheTimeout(@TempDir Path workDir) throws Exception {
+        Path hangingClaude = workDir.resolve("hanging-claude.sh");
+        Files.writeString(hangingClaude, "#!/bin/sh\ncat > /dev/null\nsleep 30\n");
+        hangingClaude.toFile().setExecutable(true);
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.claude.command");
+        try {
+            JMeterUtils.setProperty("breaktest.claude.command", hangingClaude.toString());
+            AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
+                    AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "");
+
+            long started = System.nanoTime();
+            IOException timeout = assertThrows(IOException.class,
+                    () -> engine.run("Change the script", workDir.toFile(), Duration.ofMillis(500)));
+
+            assertTrue(timeout.getMessage().contains("did not finish within"));
+            assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() < 10,
+                    "The hanging CLI must be stopped, not awaited");
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.claude.command");
+            } else {
+                properties.setProperty("breaktest.claude.command", previous);
+            }
+        }
+    }
+
+    @Test
+    void oneShotCommandsKeepAgentsAwayFromMcpServers() {
+        File directory = new File(".");
+        List<String> claude = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.CLAUDE,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> gemini = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.GEMINI,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> pi = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.PI,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> codex = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.CODEX,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+
+        assertEquals("--strict-mcp-config", claude.get(1));
+        assertEquals("--allowed-mcp-server-names=breaktest-ask-ai-none", gemini.get(1));
+        assertEquals(List.of("--tools", "read,edit,write"), pi.subList(1, 3));
+        assertTrue(codex.contains("mcp_servers.breaktest.enabled=false"));
+        assertEquals("prompt", claude.get(claude.size() - 1), "The prompt must stay last for stdin delivery");
     }
 
     private static Properties jmeterProperties() throws Exception {
