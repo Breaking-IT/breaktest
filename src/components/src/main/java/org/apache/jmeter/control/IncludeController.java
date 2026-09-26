@@ -24,12 +24,14 @@ import java.util.ArrayList;
 
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -196,11 +198,39 @@ public class IncludeController extends GenericController implements ReplaceableC
             {
                 return tree.getTree(item);
             }
+
+            if (item instanceof TestFragmentsSection)
+            {
+                return getFragmentsSectionBranch(tree.getTree(item));
+            }
         }
         log.warn("No Test Fragment was found in included Test Plan, returning empty HashTree");
         return new HashTree();
     }
 
+
+    /**
+     * Test plans organised in sections keep reusable elements directly in the Test Fragments section.
+     * Test Fragments left in the section (when their content could not be moved out) are only used when the
+     * section holds nothing else, like a plan whose first element is a Test Fragment.
+     */
+    private static HashTree getFragmentsSectionBranch(HashTree sectionTree) {
+        HashTree branch = new ListedHashTree();
+        TestFragmentController firstFragment = null;
+        for (Object item : sectionTree.list()) {
+            if (item instanceof TestFragmentController fragment) {
+                if (firstFragment == null) {
+                    firstFragment = fragment;
+                }
+            } else {
+                branch.add(item, sectionTree.getTree(item));
+            }
+        }
+        if (branch.isEmpty() && firstFragment != null) {
+            return sectionTree.getTree(firstFragment);
+        }
+        return branch;
+    }
 
     private static void removeDisabledItems(HashTree tree) {
         for (Object o : new ArrayList<>(tree.list())) {

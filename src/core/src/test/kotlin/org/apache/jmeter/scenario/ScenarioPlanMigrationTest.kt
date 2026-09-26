@@ -125,6 +125,31 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
+    fun `fragment run as a whole by a Module Controller stays wrapped`() {
+        val fragment = TestFragmentController().apply { name = "Checkout" }
+        val module = GenericController().apply {
+            name = "Run checkout"
+            setProperty(CollectionProperty("ModuleController.node_path", listOf("Test Plan", "Test Plan", "Checkout")))
+        }
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroup::class { +module }
+                fragment { GenericController::class { name = "Pay" } }
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(tree)
+        val planTree = migrated.getTree(migrated.array[0])
+        val fragments = planTree.list().filterIsInstance<TestFragmentsSection>().single()
+        assertSame(fragment, planTree.getTree(fragments).list().single()) {
+            "The Module Controller needs the fragment itself, not its content"
+        }
+        assertEquals(
+            listOf("Test Plan", "Test Plan", fragments.name, "Checkout"),
+            (module.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
+        )
+    }
+
+    @Test
     fun `fragment whose content clashes with other fragments stays wrapped`() {
         val first = TestFragmentController().apply { name = "Fragment A" }
         val second = TestFragmentController().apply { name = "Fragment B" }

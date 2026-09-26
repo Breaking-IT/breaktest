@@ -439,13 +439,13 @@ public class JMeterTreeModel extends DefaultTreeModel {
     public void clearTestPlan() {
         TestElement tp = new TestPlanGui().createTestElement();
         clearTestPlan(tp);
-        addDefaultSections();
     }
 
     /**
      * Organises a new test plan in sections, with one scenario ready to receive workloads.
+     * Only for new test plans: a restored or loaded plan brings its own sections.
      */
-    private void addDefaultSections() {
+    public void addDefaultSections() {
         JMeterTreeNode planNode = (JMeterTreeNode) getChild(getRoot(), 0);
         JMeterTreeNode scenarios = addDefaultNode(ScenarioPlanMigration.newSection(ScenariosSection.class), planNode);
         addDefaultNode(new ScenarioGui().createTestElement(), scenarios);

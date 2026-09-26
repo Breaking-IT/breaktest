@@ -21,6 +21,7 @@ import org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge
 import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.config.ConfigTestElement
 import org.apache.jmeter.control.TestFragmentController
+import org.apache.jmeter.gui.action.UndoCommand
 import org.apache.jmeter.gui.tree.JMeterTreeModel
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.junit.JMeterTestCase
@@ -36,6 +37,7 @@ import org.apache.jmeter.scenario.TestFragmentsSection
 import org.apache.jmeter.scenario.ThreadGroupsSection
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.threads.ThreadGroup
+import org.apache.jorphan.collections.HashTree
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import kotlin.reflect.KClass
@@ -56,6 +58,18 @@ class SectionRoutingTest : JMeterTestCase() {
         assertEquals(ProfilesSection::class, parentAfterAdding(Profile("acceptance")))
         assertEquals(ScenariosSection::class, parentAfterAdding(Scenario()))
         assertEquals(TestFragmentsSection::class, parentAfterAdding(TestFragmentController()))
+    }
+
+    @Test
+    fun `restoring a saved tree does not add a second set of sections`() {
+        // Snapshot the way undo history does
+        val nodes = model.getCurrentSubTree(model.root as JMeterTreeNode)
+        val saved = UndoCommand.convertAndCloneSubTree(nodes.getTree(nodes.array[0]).clone() as HashTree)
+        model.clearTestPlan()
+        model.addSubTree(saved, model.root as JMeterTreeNode)
+        assertEquals(1, model.getNodesOfType(ScenariosSection::class.java).size) {
+            "Undo and redo restore the saved sections; only a new test plan gets default sections"
+        }
     }
 
     @Test

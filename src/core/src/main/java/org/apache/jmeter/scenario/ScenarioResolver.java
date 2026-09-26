@@ -30,7 +30,12 @@ import java.util.stream.Collectors;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.engine.util.CompoundVariable;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.PropertyIterator;
+import org.apache.jmeter.testelement.property.StringProperty;
+import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
@@ -173,8 +178,38 @@ public final class ScenarioResolver {
         result.add(script);
         if (!variables.isEmpty()) {
             threadGroup.setProfileVariables(variables);
+            evaluateWorkload(threadGroup, profileEvaluator);
         }
         return result;
+    }
+
+    /**
+     * Settings such as the number of threads are read before the threads get their profile variables, so
+     * expressions in the workload are evaluated here with the profile variables.
+     */
+    private static void evaluateWorkload(AbstractThreadGroup threadGroup, Evaluator evaluator) {
+        for (String name : ScenarioWorkload.WORKLOAD_PROPERTIES) {
+            JMeterProperty property = threadGroup.getProperty(name);
+            if (property instanceof TestElementProperty elementProperty) {
+                evaluateStrings(elementProperty.getElement(), evaluator);
+            } else if (property instanceof StringProperty && property.getStringValue().contains("${")) { // $NON-NLS-1$
+                threadGroup.setProperty(name, evaluator.evaluate(property.getStringValue()));
+            }
+        }
+    }
+
+    private static void evaluateStrings(TestElement element, Evaluator evaluator) {
+        List<JMeterProperty> expressions = new ArrayList<>();
+        PropertyIterator properties = element.propertyIterator();
+        while (properties.hasNext()) {
+            JMeterProperty property = properties.next();
+            if (property instanceof StringProperty && property.getStringValue().contains("${")) { // $NON-NLS-1$
+                expressions.add(property);
+            }
+        }
+        for (JMeterProperty property : expressions) {
+            element.setProperty(property.getName(), evaluator.evaluate(property.getStringValue()));
+        }
     }
 
     private static Object root(HashTree tree) {
@@ -227,10 +262,6 @@ public final class ScenarioResolver {
             variables.put(name, value);
         }
 
-        void putAll(Map<String, String> unevaluated) {
-            unevaluated.forEach((name, value) -> put(name, evaluate(value)));
-        }
-
         Evaluator copy() {
             Evaluator copy = new Evaluator();
             copy.variables.putAll(variables);
@@ -245,14 +276,13 @@ public final class ScenarioResolver {
         private final List<Scenario> scenarios = new ArrayList<>();
         private final List<ThreadGroupEntry> threadGroups = new ArrayList<>();
         private final List<ProfileEntry> profiles = new ArrayList<>();
-        private final List<Arguments> sharedVariables = new ArrayList<>();
-        private final Object plan;
+        private final Evaluator evaluator = new Evaluator();
 
         Flattener(HashTree tree) {
             Object root = root(tree);
-            plan = root;
-            result.add(root);
-            planTree = result.getTree(root);
+            Object plan = evaluateVariables(root);
+            result.add(plan);
+            planTree = result.getTree(plan);
             HashTree sourcePlanTree = tree.getTree(root);
             for (Object child : sourcePlanTree.list()) {
                 HashTree childTree = sourcePlanTree.getTree(child);
@@ -291,10 +321,7 @@ public final class ScenarioResolver {
                 if (element instanceof SharedProfile) {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
-                        planTree.add(shared, elementTree.getTree(shared));
-                        if (shared.getClass() == Arguments.class) {
-                            sharedVariables.add((Arguments) shared);
-                        }
+                        planTree.add(evaluateVariables(shared), elementTree.getTree(shared));
                     }
                 } else if (element instanceof Profile profile) {
                     profiles.add(new ProfileEntry(profile, elementTree));
@@ -302,14 +329,44 @@ public final class ScenarioResolver {
             }
         }
 
+        /**
+         * Evaluates the variables of the test plan and of shared User Defined Variables once, here, so profile
+         * names and profile variables can use them. The copy in the run tree holds the results, so functions such
+         * as {@code __UUID} are not evaluated again, with a different result, when the engine starts the test.
+         * @param element the test plan or a shared element
+         * @return the element to put in the run tree
+         */
+        private Object evaluateVariables(Object element) {
+            if (element instanceof TestPlan testPlan) {
+                Map<String, String> variables = testPlan.getUserDefinedVariables();
+                if (variables.isEmpty()) {
+                    return testPlan;
+                }
+                TestPlan copy = (TestPlan) testPlan.clone();
+                copy.setUserDefinedVariables(evaluated(variables));
+                return copy;
+            }
+            if (element != null && element.getClass() == Arguments.class) {
+                Arguments copy = (Arguments) ((Arguments) element).clone();
+                Arguments values = evaluated(copy.getArgumentsAsMap());
+                copy.removeAllArguments();
+                values.getArgumentsAsMap().forEach(copy::addArgument);
+                return copy;
+            }
+            return element;
+        }
+
+        private Arguments evaluated(Map<String, String> variables) {
+            Arguments arguments = new Arguments();
+            variables.forEach((name, value) -> {
+                String result = evaluator.evaluate(value);
+                evaluator.put(name, result);
+                arguments.addArgument(name, result);
+            });
+            return arguments;
+        }
+
         Evaluator evaluator() {
-            Evaluator evaluator = new Evaluator();
-            if (plan instanceof TestPlan testPlan) {
-                evaluator.putAll(testPlan.getUserDefinedVariables());
-            }
-            for (Arguments arguments : sharedVariables) {
-                evaluator.putAll(arguments.getArgumentsAsMap());
-            }
             return evaluator;
         }
 

@@ -959,6 +959,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
         Start.clearValidationThreadGroups();
         testPlanListeners.stream().forEach(TestPlanListener::beforeTestPlanCleared);
         getTreeModel().clearTestPlan();
+        getTreeModel().addDefaultSections();
         nodesToGui.clear();
         setTestPlanFile(null);
         testPlanListeners.stream().forEach(TestPlanListener::afterTestPlanCleared);

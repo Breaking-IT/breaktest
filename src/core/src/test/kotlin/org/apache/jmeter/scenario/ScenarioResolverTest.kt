@@ -135,7 +135,9 @@ class ScenarioResolverTest : JMeterTestCase() {
         assertEquals(listOf(true, false, true), threadGroups.map { it.onErrorStopTest }) {
             "Error handling comes from each workload"
         }
-        assertTrue(children.any { it === variables }) { "Configs should move to the test plan level: $children" }
+        assertTrue(children.any { it is Arguments && it.name == "Variables" }) {
+            "Shared configuration should move to the test plan level: $children"
+        }
         assertTrue(children.any { it === listener }) { "Listeners should move to the test plan level: $children" }
         assertTrue(children.none { it is TestPlanSection }) { "Sections should be removed: $children" }
         assertEquals(0, browse.numThreads) { "Resolving must not modify the configured thread group" }
@@ -323,6 +325,50 @@ class ScenarioResolverTest : JMeterTestCase() {
         )
         val threadGroup = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
         assertEquals(mapOf("host" to "www.example.com"), threadGroup.profileVariables)
+    }
+
+    @Test
+    fun `profile variables can set the workload`() {
+        val tree = profilesPlan(
+            Arguments(),
+            workload("Acceptance", browse, 1).apply {
+                profile = "acceptance"
+                setProperty(AbstractThreadGroup.NUM_THREADS, "\${users}")
+            },
+        )
+        tree.getTree(tree.array[0]).list().filterIsInstance<ProfilesSection>().forEach { section ->
+            tree.getTree(tree.array[0]).getTree(section).list().filterIsInstance<Profile>()
+                .first { it.name == "acceptance" }
+                .let { profile ->
+                    tree.getTree(tree.array[0]).getTree(section).getTree(profile).add(variables("users" to "2"))
+                }
+        }
+        val threadGroup = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals(2, threadGroup.numThreads) { "Thread count is read before threads get their variables" }
+    }
+
+    @Test
+    fun `shared variables are evaluated once for the whole run`() {
+        val tree = profilesPlan(
+            variables("environment" to "acc"),
+            workload("Acceptance", browse, 1).apply { profile = "acceptance" },
+        )
+        val sharedTree = tree.getTree(tree.array[0]).let { planTree ->
+            val section = planTree.list().filterIsInstance<ProfilesSection>().single()
+            planTree.getTree(section).let { it.getTree(it.list().filterIsInstance<SharedProfile>().single()) }
+        }
+        val original = variables("base" to "https://\${environment}.example.com")
+        sharedTree.add(original)
+
+        val resolved = convertAndResolve(tree)
+        val shared = planChildren(resolved).filterIsInstance<Arguments>()
+            .single { it.argumentsAsMap.containsKey("base") }
+        assertEquals("https://acc.example.com", shared.argumentsAsMap["base"]) {
+            "The engine gets the value computed for the profiles, so functions are not evaluated a second time"
+        }
+        assertEquals("https://\${environment}.example.com", original.argumentsAsMap["base"]) {
+            "The edited test plan keeps its expressions"
+        }
     }
 
     @Test

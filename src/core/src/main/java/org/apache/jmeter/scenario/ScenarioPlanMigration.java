@@ -128,6 +128,8 @@ public final class ScenarioPlanMigration {
         HashTree otherTree = new ListedHashTree();
         List<ScenarioWorkload> workloads = new ArrayList<>();
         Map<String, PathFix> movedTargets = new HashMap<>();
+        Set<String> wholeFragmentTargets = new HashSet<>();
+        collectWholeTargets(tree, wholeFragmentTargets);
 
         for (Object child : planTree.list()) {
             HashTree childTree = planTree.getTree(child);
@@ -144,6 +146,8 @@ public final class ScenarioPlanMigration {
             if (section == null) {
                 otherTree.add(element, childTree);
             } else if (element instanceof TestFragmentController fragment
+                    // A Module Controller that runs the whole fragment needs the fragment to stay a controller
+                    && !wholeFragmentTargets.contains(fragment.getName())
                     && unwrapFragment(childTree, sectionTrees.get(TestFragmentsSection.class))) {
                 // Its content now sits directly in the Test Fragments section
                 movedTargets.putIfAbsent(fragment.getName(), new PathFix(section, true));
@@ -277,6 +281,21 @@ public final class ScenarioPlanMigration {
             fragmentsSectionTree.add(child, fragmentTree.getTree(child));
         }
         return true;
+    }
+
+    /**
+     * Collects the names of test plan children that Module Controllers run as a whole: their target path is
+     * the tree root, the test plan and that child.
+     */
+    private static void collectWholeTargets(HashTree tree, Set<String> names) {
+        for (Object element : tree.list()) {
+            if (element instanceof TestElement testElement
+                    && testElement.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty path
+                    && path.size() == 3) {
+                names.add(path.get(2).getStringValue());
+            }
+            collectWholeTargets(tree.getTree(element), names);
+        }
     }
 
     /** How the path of a Module Controller target changes: its section is inserted, or replaces an unwrapped fragment */
