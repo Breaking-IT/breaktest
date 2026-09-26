@@ -31,6 +31,7 @@ import javax.swing.JOptionPane;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterTreeNodeTransferable;
 import org.apache.jmeter.util.JMeterUtils;
@@ -62,8 +63,19 @@ public class Copy extends AbstractAction {
         JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
         JMeterTreeNode[] nodes = treeListener.getSelectedNodes();
         nodes = keepOnlyAncestors(nodes);
-        nodes = cloneTreeNodes(nodes);
-        setCopiedNodes(nodes);
+        setCopiedNodes(cloneForTransfer(nodes));
+    }
+
+    /**
+     * Clones nodes for the clipboard, carrying the recording source they inherit so
+     * pasted samplers still resolve their recorded request/response.
+     */
+    static JMeterTreeNode[] cloneForTransfer(JMeterTreeNode[] nodes) {
+        JMeterTreeNode[] clones = cloneTreeNodes(nodes);
+        for (int i = 0; i < nodes.length; i++) {
+            RecordedHarExchangeResolver.carryInheritedRecordingSource(nodes[i], clones[i].getTestElement());
+        }
+        return clones;
     }
 
     public static JMeterTreeNode[] getCopiedNodes() {
