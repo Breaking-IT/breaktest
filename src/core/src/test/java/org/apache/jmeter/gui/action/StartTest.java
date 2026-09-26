@@ -19,6 +19,7 @@ package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.lang.reflect.Field;
 
@@ -37,6 +38,43 @@ class StartTest {
     private final JMeterTreeModel model = new JMeterTreeModel(new TestPlan());
     private final AbstractThreadGroup first = addThreadGroup();
     private final AbstractThreadGroup second = addThreadGroup();
+
+    @Test
+    void validationPrefersPlanResultsTreeOverGroupListener() {
+        addResultsTree(model.getNodeOf(first));
+        JMeterTreeNode planListener = addResultsTree((JMeterTreeNode) model.getNodeOf(first).getParent());
+        assertSame(planListener, Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first, second}));
+    }
+
+    @Test
+    void validationUsesListenerInSelectedGroupOnly() {
+        addResultsTree(model.getNodeOf(first));
+        JMeterTreeNode listener = addResultsTree(model.getNodeOf(second));
+        assertSame(listener, Start.findValidationResultsTree(model, new AbstractThreadGroup[] {second}));
+        model.removeNodeFromParent(listener);
+        assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {second}));
+    }
+
+    @Test
+    void validationSkipsDisabledListenersAndDisabledAncestors() {
+        JMeterTreeNode plan = (JMeterTreeNode) model.getNodeOf(first).getParent();
+        addResultsTree(plan).setEnabled(false);
+        JMeterTreeNode controller = addChild(new GenericController(), model.getNodeOf(first));
+        controller.setEnabled(false);
+        addResultsTree(controller);
+        assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+    }
+
+    @Test
+    void validationWithoutResultsTreeLeavesPlanUnchanged() {
+        assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+    }
+
+    private JMeterTreeNode addResultsTree(JMeterTreeNode parent) {
+        var listener = new org.apache.jmeter.reporters.ResultCollector();
+        listener.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.visualizers.ViewResultsFullVisualizer");
+        return addChild(listener, parent);
+    }
 
     @Test
     void selectedThreadGroupOverridesPreviousValidation() {
