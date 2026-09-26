@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -94,7 +95,8 @@ final class ReplayRecordingStore {
 
         Map<JMeterTreeNode, Map<JMeterTreeNode, SampleResult>> samplesByThreadGroup = new LinkedHashMap<>();
         for (Map.Entry<JMeterTreeNode, SampleResult> replayedSample : replayedSamples.entrySet()) {
-            JMeterTreeNode threadGroupNode = replayedSample.getKey().getPathToThreadGroup().stream()
+            List<JMeterTreeNode> path = replayedSample.getKey().getPathToThreadGroup();
+            JMeterTreeNode threadGroupNode = path.stream()
                     .filter(node -> node.getTestElement() instanceof AbstractThreadGroup
                             || node.getTestElement() instanceof TestFragmentController)
                     .findFirst()
@@ -104,7 +106,8 @@ final class ReplayRecordingStore {
                         JMeterUtils.getResString("view_results_store_replay_no_thread_group")); // $NON-NLS-1$
                 return;
             }
-            samplesByThreadGroup.computeIfAbsent(threadGroupNode, ignored -> new LinkedHashMap<>())
+            samplesByThreadGroup
+                    .computeIfAbsent(recordingOwner(path, threadGroupNode), ignored -> new LinkedHashMap<>())
                     .put(replayedSample.getKey(), replayedSample.getValue());
         }
 
@@ -210,6 +213,22 @@ final class ReplayRecordingStore {
                     JMeterUtils.getResString("view_results_store_replay_recording")); // $NON-NLS-1$
         }
         return storedCount;
+    }
+
+    /**
+     * The nearest element between the sampler and its Thread Group or Test Fragment that already
+     * carries a recording source, so the replay lands where the resolver reads it; a sampler copied
+     * out of its original Thread Group carries its own source.
+     */
+    private static JMeterTreeNode recordingOwner(List<JMeterTreeNode> path, JMeterTreeNode threadGroupNode) {
+        for (int i = path.size() - 1; i >= 0 && path.get(i) != threadGroupNode; i--) {
+            TestElement element = path.get(i).getTestElement();
+            if (!element.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty()
+                    || !element.getPropertyAsString(RecordedHarExchangeResolver.HAR_FILENAME).isEmpty()) {
+                return path.get(i);
+            }
+        }
+        return threadGroupNode;
     }
 
     private static boolean hasRecordingReferences(JMeterTreeNode node) {

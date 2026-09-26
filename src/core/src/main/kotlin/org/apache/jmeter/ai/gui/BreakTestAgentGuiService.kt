@@ -2758,6 +2758,7 @@ public object BreakTestAgentGuiService {
                     "Cannot move `${source.testElement.name}` under one of its descendants"
                 }
 
+                RecordedHarExchangeResolver.carryInheritedRecordingSource(source, source.testElement)
                 gui.treeModel.removeNodeFromParent(source)
                 val insertIndex = when (position) {
                     "before" -> newParent.getIndex(target).coerceAtLeast(0)
@@ -2767,6 +2768,7 @@ public object BreakTestAgentGuiService {
                     else -> error("Unsupported position $position")
                 }
                 gui.treeModel.insertNodeInto(source, newParent, insertIndex)
+                RecordedHarExchangeResolver.dropRedundantRecordingSource(source)
                 gui.treeModel.nodeStructureChanged(oldParent)
                 gui.treeModel.nodeStructureChanged(newParent)
                 markEdited(gui, newParent, source)
@@ -2828,6 +2830,7 @@ public object BreakTestAgentGuiService {
                 }
 
                 val cloned = Copy.cloneTreeNode(source)
+                RecordedHarExchangeResolver.carryInheritedRecordingSource(source, cloned.testElement)
                 val insertIndex = when (position) {
                     "before" -> newParent.getIndex(target).coerceAtLeast(0)
                     "after" -> (newParent.getIndex(target) + 1).coerceAtMost(newParent.childCount)
@@ -2836,6 +2839,7 @@ public object BreakTestAgentGuiService {
                     else -> error("Unsupported position $position")
                 }
                 gui.treeModel.insertNodeInto(cloned, newParent, insertIndex)
+                RecordedHarExchangeResolver.dropRedundantRecordingSource(cloned)
                 markEdited(gui, newParent, cloned)
                 recordChange(
                     "Cloned node",
