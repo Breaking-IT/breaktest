@@ -37,6 +37,7 @@ import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.InputMap;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -63,6 +64,7 @@ public final class Jsr223AiHelper {
     private static final Logger log = LoggerFactory.getLogger(Jsr223AiHelper.class);
     private static final String MENU_ITEM_MARKER = "breaktest.jsr223.aiHelperInstalled"; // $NON-NLS-1$
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    private static final String ASK_AI = "Ask AI"; // $NON-NLS-1$
 
     private Jsr223AiHelper() {
     }
@@ -81,10 +83,22 @@ public final class Jsr223AiHelper {
             textArea.setPopupMenu(popupMenu);
         }
         popupMenu.addSeparator();
-        JMenuItem aiHelper = new JMenuItem("AI Helper");
+        JMenuItem aiHelper = new JMenuItem(ASK_AI);
         aiHelper.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
         popupMenu.add(aiHelper);
         textArea.putClientProperty(MENU_ITEM_MARKER, true);
+    }
+
+    /** Creates a button that opens the same AI Helper dialog as the editor's context menu. */
+    public static JButton createAskAiButton(
+            JSyntaxTextArea textArea,
+            String elementType,
+            Supplier<String> languageSupplier,
+            Runnable changedCallback) {
+        JButton askAi = new JButton(ASK_AI);
+        askAi.setToolTipText("Ask AI to change this JSR223 script"); // $NON-NLS-1$
+        askAi.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
+        return askAi;
     }
 
     private static void openDialog(
