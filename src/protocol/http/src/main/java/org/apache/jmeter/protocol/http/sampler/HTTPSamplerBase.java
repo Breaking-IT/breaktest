@@ -958,6 +958,32 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         }
     }
 
+    @Override
+    protected void addProperty(JMeterProperty property, boolean clone) {
+        if (HEADERS.equals(property.getName()) && property instanceof CollectionProperty defaults
+                && getNativeHeaders() != null) {
+            // Configs merge from the innermost scope outwards. Preserve the request's
+            // headers (and nearer defaults) on case-insensitive name conflicts.
+            Set<String> existingNames = new HashSet<>();
+            for (Header header : getNativeHeaderList()) {
+                existingNames.add(header.getName().toLowerCase(Locale.ROOT));
+            }
+            CollectionProperty missing = new CollectionProperty();
+            missing.setName(HEADERS);
+            for (JMeterProperty item : defaults) {
+                if (item.getObjectValue() instanceof Header header
+                        && !existingNames.contains(header.getName().toLowerCase(Locale.ROOT))) {
+                    missing.addProperty(item);
+                }
+            }
+            // Use the regular merge so inherited headers are removed on running-version
+            // recovery, without modifying the defaults or losing request-owned headers.
+            super.addProperty(missing, clone);
+        } else {
+            super.addProperty(property, clone);
+        }
+    }
+
     /**
      * {@inheritDoc}
      * <p>

@@ -32,7 +32,9 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.save.SaveService;
@@ -52,6 +54,25 @@ public class NativeHeadersJmxRoundTripTest extends JMeterTestCase {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void requestDefaultsHeadersSurviveSaveAndReload() throws Exception {
+        ConfigTestElement defaults = new ConfigTestElement();
+        defaults.setProperty(TestElement.GUI_CLASS, HttpDefaultsGui.class.getName());
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getHeaders(),
+                List.of(new Header("X-Token", "${token}"), new Header("Accept", "application/json")));
+        HashTree tree = new ListedHashTree();
+        tree.add(defaults);
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        SaveService.saveTree(tree, output);
+        Path file = tempDir.resolve("defaults.jmx");
+        Files.write(file, output.toByteArray());
+        ConfigTestElement loaded = (ConfigTestElement) SaveService.loadTree(file.toFile()).getArray()[0];
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.addTestElement(loaded);
+        assertEquals(2, sampler.getEffectiveHeaderManager().size());
+        assertEquals("${token}", sampler.getEffectiveHeaderManager().getFirstHeaderNamed("X-Token").getValue());
+    }
 
     private static final String LEGACY_JMX = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             + "<jmeterTestPlan version=\"1.2\" properties=\"5.0\">\n"

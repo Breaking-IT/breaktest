@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import java.util.List;
 
+import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.extractor.gui.RegexExtractorGui;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
@@ -59,6 +60,47 @@ public class HTTPSamplerNativeHeadersTest {
     private static String valueOf(HeaderManager manager, String name) {
         Header header = manager.getFirstHeaderNamed(name);
         return header == null ? null : header.getValue();
+    }
+
+    @Test
+    public void requestHeadersOverrideDefaultsAndNearerDefaultsOverrideOuterDefaults() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.setNativeHeaders(List.of(new Header("Accept", "application/json")));
+        sampler.addTestElement(defaults(new Header("ACCEPT", "text/html"), new Header("X-Scope", "inner")));
+        sampler.addTestElement(defaults(new Header("x-scope", "outer"), new Header("X-Other", "inherited")));
+        HeaderManager effective = sampler.getEffectiveHeaderManager();
+        assertEquals(3, effective.size());
+        assertEquals("application/json", valueOf(effective, "Accept"));
+        assertEquals("inner", valueOf(effective, "X-Scope"));
+        assertEquals("inherited", valueOf(effective, "X-Other"));
+    }
+
+    @Test
+    public void inheritedHeadersRecoverBetweenSamplesWithoutMutatingDefaults() {
+        ConfigTestElement defaults = defaults(new Header("Cookie", "a=1"), new Header("Cookie", "b=2"));
+        for (boolean nativeHeaders : new boolean[] {false, true}) {
+            HTTPSamplerProxy original = newSampler();
+            if (nativeHeaders) {
+                original.setNativeHeaders(List.of(new Header("Accept", "application/json")));
+            }
+            HTTPSamplerProxy sampler = (HTTPSamplerProxy) original.lightweightClone();
+            sampler.setRunningVersion(true);
+            for (int i = 0; i < 3; i++) {
+                sampler.addTestElement(defaults);
+                sampler.addTestElement(defaults(new Header("X-Other", "outer")));
+                assertEquals(nativeHeaders ? 4 : 3, sampler.getEffectiveHeaderManager().size());
+                sampler.recoverRunningVersion();
+                assertEquals(nativeHeaders ? 1 : 0, sampler.getNativeHeaderList().size());
+                assertEquals(2, defaults.get(HTTPSamplerBaseSchema.INSTANCE.getHeaders()).size());
+                assertEquals(nativeHeaders ? 1 : 0, original.getNativeHeaderList().size());
+            }
+        }
+    }
+
+    private static ConfigTestElement defaults(Header... headers) {
+        ConfigTestElement defaults = new ConfigTestElement();
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getHeaders(), Arrays.asList(headers));
+        return defaults;
     }
 
     @Test

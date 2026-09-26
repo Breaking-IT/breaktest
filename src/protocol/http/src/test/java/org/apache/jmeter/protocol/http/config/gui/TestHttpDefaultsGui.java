@@ -18,11 +18,14 @@
 package org.apache.jmeter.protocol.http.config.gui;
 
 import java.lang.reflect.Field;
+import java.util.List;
 
 import javax.swing.JComboBox;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.JEnumPropertyEditor;
+import org.apache.jmeter.protocol.http.control.Header;
+import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
@@ -72,6 +75,36 @@ public class TestHttpDefaultsGui {
         gui.modifyTestElement(config);
 
         Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol().getName()));
+    }
+
+    @Test
+    public void headersCanBeLoadedEditedRemovedAndCleared() throws Exception {
+        ConfigTestElement config = (ConfigTestElement) gui.createTestElement();
+        config.set(HTTPSamplerBaseSchema.INSTANCE.getHeaders(), List.of(new Header("Accept", "application/json")));
+        gui.configure(config);
+        HeaderTablePanel headers = headersPanel();
+        Assertions.assertEquals("application/json", headers.getHeaders().get(0).getValue());
+        headers.setHeaders(List.of(new Header("Accept", "text/plain"), new Header("X-Token", "${token}")));
+        gui.modifyTestElement(config);
+        gui.clearGui();
+        Assertions.assertEquals(0, headers.getHeaderCount());
+        gui.configure(config);
+        Assertions.assertEquals(2, headers.getHeaderCount());
+        Assertions.assertEquals("text/plain", headers.getHeaders().get(0).getValue());
+        Assertions.assertEquals("${token}", headers.getHeaders().get(1).getValue());
+        headers.clear();
+        gui.modifyTestElement(config);
+        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBase.HEADERS));
+        gui.configure(new HttpDefaultsGui().createTestElement());
+        Assertions.assertEquals(0, headers.getHeaderCount());
+    }
+
+    private HeaderTablePanel headersPanel() throws Exception {
+        Field url = HttpDefaultsGui.class.getDeclaredField("urlConfigGui");
+        url.setAccessible(true);
+        Field headers = UrlConfigGui.class.getDeclaredField("headersPanel");
+        headers.setAccessible(true);
+        return (HeaderTablePanel) headers.get(url.get(gui));
     }
 
     @SuppressWarnings("unchecked")
