@@ -24,12 +24,24 @@
         </elementProp>
         <longProp name="ThreadGroup.end_time">1172922900000</longProp>
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
-        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
-        <stringProp name="TestPlan.comments">The ramp-up spreads thread starts; slow CI runners may still overlap them.
-Active thread counts are omitted from golden output because they depend on scheduling.
-Per-user/shared counters and sample results are still compared.</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">0</stringProp>
+        <stringProp name="TestPlan.comments">A latch serializes the two users, including both iterations of each user.
+This keeps per-user/shared counters deterministic even on slow CI runners.
+Coordination samples are ignored; the golden results remain unchanged.</stringProp>
       </ThreadGroup>
       <hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Wait for preceding user" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">def finished = props.computeIfAbsent('BatchTestLocal.firstUserDone') {
+    new java.util.concurrent.CountDownLatch(1)
+}
+if (ctx.getThreadNum() &gt; 0) {
+    assert finished.await(60, java.util.concurrent.TimeUnit.SECONDS)
+}
+SampleResult.setIgnore()</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
         <CriticalSectionController guiclass="CriticalSectionControllerGui" testclass="CriticalSectionController" testname="Critical Section Controller" enabled="true">
           <stringProp name="CriticalSectionController.lockName">global_lock</stringProp>
         </CriticalSectionController>
@@ -749,6 +761,15 @@ Per-user/shared counters and sample results are still compared.</stringProp>
             <hashTree/>
           </hashTree>
         </hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Release following user" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">if (ctx.getThreadNum() == 0 &amp;&amp; vars.getIteration() == 2) {
+    props.get('BatchTestLocal.firstUserDone').countDown()
+}
+SampleResult.setIgnore()</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
       </hashTree>
       <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Thread Group" enabled="true">
         <stringProp name="TestPlan.comments">Runs after first thread group.</stringProp>

@@ -22,6 +22,7 @@ import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -88,6 +89,8 @@ public class HttpMirrorServer extends Thread implements Stoppable, NonTestElemen
 
     private volatile boolean isRunning;
 
+    private final CountDownLatch startup = new CountDownLatch(1);
+
     // Saves the error if one occurs
     private volatile Exception except;
 
@@ -142,6 +145,7 @@ public class HttpMirrorServer extends Thread implements Stoppable, NonTestElemen
             getLogger().info("Creating HttpMirror ... on port {}", daemonPort);
             mainSocket = new ServerSocket(daemonPort);
             mainSocket.setSoTimeout(ACCEPT_TIMEOUT);
+            startup.countDown();
             getLogger().info("HttpMirror up and running!");
             while (isRunning) {
                 try {
@@ -175,6 +179,7 @@ public class HttpMirrorServer extends Thread implements Stoppable, NonTestElemen
             except = e;
             getLogger().warn("HttpMirror Server stopped", e);
         } finally {
+            startup.countDown();
             if (threadPoolExecutor != null) {
                 threadPoolExecutor.shutdownNow();
             }
@@ -185,6 +190,18 @@ public class HttpMirrorServer extends Thread implements Stoppable, NonTestElemen
     @Override
     public void stopServer() {
         isRunning = false;
+    }
+
+    /**
+     * Waits until the listening socket is bound or startup fails.
+     *
+     * @param timeout maximum wait
+     * @param unit timeout unit
+     * @return true if startup completed successfully
+     * @throws InterruptedException if interrupted while waiting
+     */
+    public boolean awaitStartup(long timeout, TimeUnit unit) throws InterruptedException {
+        return startup.await(timeout, unit) && except == null && isRunning;
     }
 
     public Exception getException() {

@@ -63,7 +63,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Checks GitHub releases and securely stages a BreakTest binary update. */
-public final class UpdateService {
+public final class UpdateService implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(UpdateService.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final URI DEFAULT_RELEASE_API =
@@ -132,6 +132,12 @@ public final class UpdateService {
             thread.setDaemon(true);
             return thread;
         });
+    }
+
+    /** Stops periodic checks and waits for any active check to finish. */
+    @Override
+    public void close() {
+        executor.close();
     }
 
     public static UpdateService getInstance() {

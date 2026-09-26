@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.control
 import org.junit.jupiter.api.extension.AfterAllCallback
 import org.junit.jupiter.api.extension.BeforeAllCallback
 import org.junit.jupiter.api.extension.ExtensionContext
+import java.util.concurrent.TimeUnit
 
 /**
  * JUnit 5 extension to start and stop [HttpMirrorServer] for testing.
@@ -51,18 +52,11 @@ public class HttpMirrorServerExtension(
     fun startHttpMirror(): HttpMirrorServer {
         val server = HttpMirrorServer(serverPort)
         server.start()
-        for (i in 0..9) { // Wait up to 1 second
-            Thread.sleep(100)
-            server.exception?.let { e ->
-                throw Exception("Could not start mirror server on port: $serverPort", e)
-            }
-            if (server.isAlive) {
-                break // succeeded
-            }
-        }
-
-        if (!server.isAlive) {
-            throw Exception("Could not start mirror server on port: $serverPort")
+        if (!server.awaitStartup(10, TimeUnit.SECONDS)) {
+            server.stopServer()
+            server.interrupt()
+            server.join(5000)
+            throw IllegalStateException("Could not start mirror server on port: $serverPort", server.exception)
         }
         return server
     }
@@ -84,6 +78,8 @@ public class HttpMirrorServerExtension(
         getServer(context)?.let {
             it.stopServer()
             it.interrupt()
+            it.join(5000)
+            check(!it.isAlive) { "Mirror server did not stop on port: $serverPort" }
         }
     }
 }
