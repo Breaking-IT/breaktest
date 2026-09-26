@@ -2017,6 +2017,216 @@ class TestJMeterThread {
         }
     }
 
+    @Test
+    void finalBoundaryDoesNotRestartKeepRunningForkFromLateOuterForkWorker() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger interruptions = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        AtomicInteger outerPasses = new AtomicInteger();
+        AtomicInteger lateInnerStarts = new AtomicInteger();
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        Sampler request = countingInterruptibleRequest(calls, interruptions);
+        // Holds back the outer fork worker of the last iteration until the final boundary has
+        // stopped the inner KEEP_RUNNING fork and that fork has exited, so the outer worker
+        // re-enters the inner fork only after the final boundary started.
+        AbstractSampler lateOuterWorker = new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                if (outerPasses.incrementAndGet() == 3) {
+                    awaitCondition(() -> interruptions.get() > 0 && activeForkCount(owner.get()) == 1);
+                }
+                return null;
+            }
+        };
+        Sampler lateStartProbe = lateForkStartProbe(() -> outerPasses.get() == 3, owner, lateInnerStarts,
+                () -> calls.get() > 1);
+        LoopController loop = new LoopController();
+        loop.setLoops(3);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        ForkController outer = newConfiguredForkController();
+        outer.setRunningAction(RunningAction.WAIT);
+        outer.setIterationEndAction(IterationEndAction.WAIT);
+        HashTree outerTree = loopTree.add(outer);
+        outerTree.add(lateOuterWorker);
+        ForkController inner = newConfiguredForkController();
+        inner.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
+        inner.setRunningAction(RunningAction.SKIP);
+        inner.setFinalStopAction(FinalStopAction.IMMEDIATE);
+        outerTree.add(inner).add(request);
+        outerTree.add(lateStartProbe);
+        loopTree.add(new AwaitingSampler(() -> calls.get() >= 1));
+        loopTree.add(new ResultStatusSampler("main", true, mainCalls));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("late-outer-fork");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), true);
+        thread.setThreadGroup(group);
+        thread.setThreadName("late-outer-fork");
+        owner.set(thread);
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            runner.join(10000);
+            assertFalse(runner.isAlive());
+            assertEquals(3, mainCalls.get());
+            assertEquals(3, outerPasses.get());
+            assertEquals(0, lateInnerStarts.get(), "The final boundary already ended the KEEP_RUNNING fork");
+            assertEquals(1, calls.get(), "SKIP must never start the KEEP_RUNNING fork a second time");
+            assertEquals(1, interruptions.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    @Test
+    void iterationBoundaryForNewUserDoesNotStartKeepRunningForkFromLateOuterForkWorker() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger interruptions = new AtomicInteger();
+        AtomicInteger boundaryCalls = new AtomicInteger();
+        AtomicInteger boundaryInterruptions = new AtomicInteger();
+        AtomicInteger mainCalls = new AtomicInteger();
+        AtomicInteger outerPasses = new AtomicInteger();
+        AtomicInteger lateInnerStarts = new AtomicInteger();
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        // Holds back the outer fork worker of the first iteration until the next-user boundary has
+        // stopped the sibling KEEP_RUNNING fork, so the boundary that ends KEEP_RUNNING forks is
+        // in progress when the outer worker reaches the inner fork.
+        AbstractSampler lateOuterWorker = new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                if (outerPasses.incrementAndGet() == 1) {
+                    awaitCondition(() -> boundaryInterruptions.get() > 0 && activeForkCount(owner.get()) == 1);
+                }
+                return null;
+            }
+        };
+        LoopController loop = new LoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        ForkController boundarySignal = newConfiguredForkController();
+        boundarySignal.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
+        boundarySignal.setFinalStopAction(FinalStopAction.IMMEDIATE);
+        loopTree.add(boundarySignal).add(countingInterruptibleRequest(boundaryCalls, boundaryInterruptions));
+        ForkController outer = newConfiguredForkController();
+        outer.setRunningAction(RunningAction.WAIT);
+        outer.setIterationEndAction(IterationEndAction.WAIT);
+        HashTree outerTree = loopTree.add(outer);
+        outerTree.add(lateOuterWorker);
+        ForkController inner = newConfiguredForkController();
+        inner.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
+        inner.setRunningAction(RunningAction.SKIP);
+        inner.setFinalStopAction(FinalStopAction.IMMEDIATE);
+        outerTree.add(inner).add(countingInterruptibleRequest(calls, interruptions));
+        outerTree.add(lateForkStartProbe(() -> outerPasses.get() == 1, owner, lateInnerStarts, () -> calls.get() > 0));
+        // The first pass deliberately reaches the new-user boundary before the inner fork.
+        // On the second pass, wait for that fork to start before entering the final boundary,
+        // which correctly refuses any new KEEP_RUNNING executions.
+        loopTree.add(new AwaitingSampler(() -> boundaryCalls.get() > mainCalls.get()
+                && (mainCalls.get() == 0 || calls.get() == 1)));
+        loopTree.add(new ResultStatusSampler("main", true, mainCalls));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("late-outer-fork-new-user");
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier(), false);
+        thread.setThreadGroup(group);
+        thread.setThreadName("late-outer-fork-new-user");
+        owner.set(thread);
+        Thread runner = Thread.ofVirtual().unstarted(thread);
+        try {
+            runner.start();
+            runner.join(10000);
+            assertFalse(runner.isAlive());
+            assertEquals(2, mainCalls.get());
+            assertEquals(2, outerPasses.get());
+            assertEquals(2, boundaryInterruptions.get());
+            assertEquals(0, lateInnerStarts.get(), "The next-user boundary already ends KEEP_RUNNING forks");
+            assertEquals(1, calls.get(), "Only the second iteration may start the inner fork");
+            assertEquals(1, interruptions.get());
+            assertForkBookkeepingEventuallyEmpty(thread);
+        } finally {
+            thread.stop();
+            runner.join(5000);
+        }
+    }
+
+    /** Blocks until interrupted and counts its starts and interruptions. */
+    private static Sampler countingInterruptibleRequest(AtomicInteger calls, AtomicInteger interruptions) {
+        return new InterruptibleFailureSampler() {
+            private static final long serialVersionUID = 1L;
+            private volatile CountDownLatch release;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                release = new CountDownLatch(1);
+                calls.incrementAndGet();
+                try {
+                    assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("cancelled-request");
+                result.setSuccessful(false);
+                return result;
+            }
+
+            @Override
+            public boolean interrupt() {
+                interruptions.incrementAndGet();
+                release.countDown();
+                return true;
+            }
+        };
+    }
+
+    /**
+     * Runs on an outer fork worker right after it passed an inner fork. The boundary cannot stop a
+     * newly started inner fork before this outer worker exits, so a late start stays observable here.
+     */
+    private static Sampler lateForkStartProbe(BooleanSupplier latePass, AtomicReference<JMeterThread> owner,
+            AtomicInteger lateStarts, BooleanSupplier lateForkSampling) {
+        return new AbstractSampler() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                if (latePass.getAsBoolean() && activeForkCount(owner.get()) > 1) {
+                    lateStarts.incrementAndGet();
+                    awaitCondition(lateForkSampling);
+                }
+                return null;
+            }
+        };
+    }
+
+    private static int activeForkCount(JMeterThread thread) {
+        try {
+            return privateMapSize(thread, "activeForkTasksByController");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void awaitCondition(BooleanSupplier condition) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(1);
+            } catch (InterruptedException e) {
+                throw new AssertionError(e);
+            }
+        }
+        assertTrue(condition.getAsBoolean(), "Fork lifecycle condition must be reached before timeout");
+    }
+
     @ParameterizedTest
     @CsvSource({"1, true, GRACEFUL", "1, false, GRACEFUL", "3, false, GRACEFUL",
             "1, true, KEEP_RUNNING", "3, false, KEEP_RUNNING"})
