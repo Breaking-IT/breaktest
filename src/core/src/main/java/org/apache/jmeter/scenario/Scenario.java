@@ -61,6 +61,11 @@ public class Scenario extends AbstractTestElement implements Serializable {
     }
 
     public void setWorkloads(List<ScenarioWorkload> workloads) {
-        setProperty(new CollectionProperty(WORKLOADS, workloads));
+        if (workloads.isEmpty()) {
+            // A new scenario has no workloads property; keep it that way so editing it changes nothing
+            removeProperty(WORKLOADS);
+        } else {
+            setProperty(new CollectionProperty(WORKLOADS, workloads));
+        }
     }
 }
