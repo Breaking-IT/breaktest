@@ -17,9 +17,7 @@
 
 package org.apache.jmeter.testbeans.gui;
 
-import java.awt.BorderLayout;
 import java.awt.Component;
-import java.awt.FlowLayout;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import java.beans.PropertyChangeEvent;
@@ -30,7 +28,6 @@ import java.util.Locale;
 import java.util.function.Supplier;
 
 import javax.swing.JComponent;
-import javax.swing.JPanel;
 
 import org.apache.jmeter.ai.gui.Jsr223AiHelper;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
@@ -42,7 +39,7 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
 
     private final JTextScrollPane scroller;
 
-    private JComponent customEditor;
+    private JComponent headerComponent;
 
     /** {@inheritDoc} */
     @Override
@@ -56,7 +53,6 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
     }
 
     private final void init() {// called from ctor, so must not be overridable
-        customEditor = scroller;
         textUI.discardAllEdits();
         textUI.addFocusListener(this);
     }
@@ -106,7 +102,7 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
     /** {@inheritDoc} */
     @Override
     public Component getCustomEditor() {
-        return customEditor;
+        return scroller;
     }
 
     /** {@inheritDoc} */
@@ -135,12 +131,17 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
 
     void installJsr223AiHelper(String elementType, Supplier<String> languageSupplier) {
         Jsr223AiHelper.install(textUI, elementType, languageSupplier, this::firePropertyChange);
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.TRAILING, 0, 2));
-        toolbar.add(Jsr223AiHelper.createAskAiButton(textUI, elementType, languageSupplier, this::firePropertyChange));
-        JPanel editorWithToolbar = new JPanel(new BorderLayout());
-        editorWithToolbar.add(toolbar, BorderLayout.NORTH);
-        editorWithToolbar.add(scroller, BorderLayout.CENTER);
-        customEditor = editorWithToolbar;
+        headerComponent = Jsr223AiHelper.createAskAiButton(
+                textUI, elementType, languageSupplier, this::firePropertyChange);
+    }
+
+    /**
+     * Actions for the editor's header row, such as the JSR223 Ask AI button.
+     *
+     * @return the header component, or {@code null} when the editor has none
+     */
+    JComponent getHeaderComponent() {
+        return headerComponent;
     }
 
     /** {@inheritDoc} */

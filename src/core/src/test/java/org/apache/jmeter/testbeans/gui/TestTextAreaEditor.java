@@ -19,12 +19,7 @@ package org.apache.jmeter.testbeans.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.awt.Component;
-import java.awt.Container;
-import java.util.ArrayList;
-import java.util.List;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import javax.swing.JButton;
 
@@ -35,36 +30,21 @@ import org.junit.jupiter.api.Test;
 public class TestTextAreaEditor extends JMeterTestCase {
 
     @Test
-    public void plainEditorIsJustTheScriptArea() {
+    public void plainEditorHasNoHeaderActions() {
         TextAreaEditor editor = new TextAreaEditor();
 
         assertInstanceOf(JTextScrollPane.class, editor.getCustomEditor());
+        assertNull(editor.getHeaderComponent());
     }
 
     @Test
-    public void jsr223EditorShowsAskAiButtonAboveTheScriptArea() {
+    public void jsr223EditorOffersAskAiInItsHeader() {
         TextAreaEditor editor = new TextAreaEditor();
-        Component scriptArea = editor.getCustomEditor();
 
         editor.installJsr223AiHelper("JSR223Sampler", () -> "groovy");
 
-        List<Component> components = descendants(editor.getCustomEditor());
-        assertTrue(components.contains(scriptArea), "The script area must stay in the editor");
-        List<String> buttons = components.stream()
-                .filter(JButton.class::isInstance)
-                .map(button -> ((JButton) button).getText())
-                .toList();
-        assertEquals(List.of("Ask AI"), buttons);
-    }
-
-    private static List<Component> descendants(Component root) {
-        List<Component> result = new ArrayList<>();
-        result.add(root);
-        if (root instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                result.addAll(descendants(child));
-            }
-        }
-        return result;
+        assertInstanceOf(JTextScrollPane.class, editor.getCustomEditor());
+        JButton askAi = assertInstanceOf(JButton.class, editor.getHeaderComponent());
+        assertEquals("Ask AI", askAi.getText());
     }
 }
