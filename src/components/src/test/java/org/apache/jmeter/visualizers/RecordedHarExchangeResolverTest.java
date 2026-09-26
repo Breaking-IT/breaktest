@@ -35,7 +35,9 @@ import java.util.Optional;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.action.Copy;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -327,6 +329,62 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
         assertTrue(resolution.requestText().contains("https://example.invalid/api/items"));
         assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
         assertEquals(RecordedHarExchangeResolver.Status.FOUND, check.status());
+    }
+
+    @Test
+    public void copiedSamplerStillResolvesItsRecordingInsideATestFragment() throws Exception {
+        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
+                harWithTwoEntries().getBytes(StandardCharsets.UTF_8), "recording.har");
+        JmxArchiveEntryStore.registerBundle(
+                archive.manifestEntryName(), archive.checksum(), archive.entries());
+        JMeterTreeNode samplerNode = nativeSamplerNode(archive, 1);
+
+        JMeterTreeNode copy = Copy.cloneTreeNode(samplerNode);
+        RecordedHarExchangeResolver.carryInheritedRecordingSource(samplerNode, copy.getTestElement());
+        JMeterTreeNode fragmentNode = new JMeterTreeNode(new TestFragmentController(), null);
+        fragmentNode.add(copy);
+        RecordedHarExchangeResolver.dropRedundantRecordingSource(copy);
+
+        RecordedHarExchangeResolver.Resolution resolution =
+                RecordedHarExchangeResolver.resolveFor(copy, null);
+
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+        assertTrue(resolution.responseText().contains("{\"source\":\"entry-index\"}"));
+        assertEquals(archive.manifestEntryName(),
+                copy.getTestElement().getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+    }
+
+    @Test
+    public void copiedSamplerDoesNotDuplicateTheRecordingSourceOfItsNewParent() throws Exception {
+        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
+                harWithTwoEntries().getBytes(StandardCharsets.UTF_8), "recording.har");
+        JMeterTreeNode samplerNode = nativeSamplerNode(archive, 1);
+        JMeterTreeNode threadGroupNode = (JMeterTreeNode) samplerNode.getParent();
+
+        JMeterTreeNode copy = Copy.cloneTreeNode(samplerNode);
+        RecordedHarExchangeResolver.carryInheritedRecordingSource(samplerNode, copy.getTestElement());
+        threadGroupNode.add(copy);
+        RecordedHarExchangeResolver.dropRedundantRecordingSource(copy);
+
+        assertEquals("",
+                copy.getTestElement().getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        assertEquals("",
+                copy.getTestElement().getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+    }
+
+    @Test
+    public void copyingAnUnrecordedSamplerDoesNotCarryTheRecordingSource() {
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recording/manifest.json");
+        JMeterTreeNode threadGroupNode = new JMeterTreeNode(threadGroup, null);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(new DebugSampler(), null);
+        threadGroupNode.add(samplerNode);
+
+        JMeterTreeNode copy = Copy.cloneTreeNode(samplerNode);
+        RecordedHarExchangeResolver.carryInheritedRecordingSource(samplerNode, copy.getTestElement());
+
+        assertEquals("",
+                copy.getTestElement().getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
     }
 
     private JMeterTreeNode samplerNode(String entryIndex, String method, String url, String startedDateTime,

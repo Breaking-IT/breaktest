@@ -29,6 +29,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuFactory;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,14 +73,15 @@ public class Paste extends AbstractAction {
         if (MenuFactory.canAddTo(currentNode, draggedNodes)) {
             Arrays.stream(draggedNodes)
                     .filter(Objects::nonNull)
-                    .forEach(draggedNode -> addNode(currentNode, draggedNode));
+                    .map(draggedNode -> addNode(currentNode, draggedNode))
+                    .forEach(RecordedHarExchangeResolver::dropRedundantRecordingSource);
         } else {
             Toolkit.getDefaultToolkit().beep();
         }
         GuiPackage.getInstance().getMainFrame().repaint();
     }
 
-    private static void addNode(JMeterTreeNode parent, JMeterTreeNode node) {
+    private static JMeterTreeNode addNode(JMeterTreeNode parent, JMeterTreeNode node) {
         try {
             // Add this node
             JMeterTreeNode newNode = GuiPackage.getInstance().getTreeModel().addComponent(node.getTestElement(), parent);
@@ -87,9 +89,11 @@ public class Paste extends AbstractAction {
             for (int i = 0; i < node.getChildCount(); i++) {
                 addNode(newNode, (JMeterTreeNode)node.getChildAt(i));
             }
+            return newNode;
         } catch (IllegalUserActionException iuae) {
             log.error("Illegal user action while adding a tree node.", iuae); // $NON-NLS-1$
             JMeterUtils.reportErrorToUser(iuae.getMessage());
+            return null;
         }
     }
 }
