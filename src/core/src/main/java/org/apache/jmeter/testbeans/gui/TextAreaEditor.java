@@ -27,6 +27,8 @@ import java.beans.PropertyEditorSupport;
 import java.util.Locale;
 import java.util.function.Supplier;
 
+import javax.swing.JComponent;
+
 import org.apache.jmeter.ai.gui.Jsr223AiHelper;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
@@ -36,6 +38,8 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
     private final JSyntaxTextArea textUI;
 
     private final JTextScrollPane scroller;
+
+    private JComponent headerComponent;
 
     /** {@inheritDoc} */
     @Override
@@ -127,6 +131,17 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
 
     void installJsr223AiHelper(String elementType, Supplier<String> languageSupplier) {
         Jsr223AiHelper.install(textUI, elementType, languageSupplier, this::firePropertyChange);
+        headerComponent = Jsr223AiHelper.createAskAiButton(
+                textUI, elementType, languageSupplier, this::firePropertyChange);
+    }
+
+    /**
+     * Actions for the editor's header row, such as the JSR223 Ask AI button.
+     *
+     * @return the header component, or {@code null} when the editor has none
+     */
+    JComponent getHeaderComponent() {
+        return headerComponent;
     }
 
     /** {@inheritDoc} */

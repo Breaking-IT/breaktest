@@ -21,22 +21,20 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import javax.swing.BorderFactory;
 import javax.swing.InputMap;
+import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -51,18 +49,20 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.DefaultEditorKit;
 
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.action.AiEngineChooser;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
-import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Adds a small Codex-assisted rewrite helper to JSR223 script editors.
+ * Adds an AI-assisted rewrite helper to JSR223 script editors, using the AI tool, thinking level
+ * and model chosen in its dialog.
  */
 public final class Jsr223AiHelper {
     private static final Logger log = LoggerFactory.getLogger(Jsr223AiHelper.class);
     private static final String MENU_ITEM_MARKER = "breaktest.jsr223.aiHelperInstalled"; // $NON-NLS-1$
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
+    private static final String ASK_AI = "Ask AI"; // $NON-NLS-1$
 
     private Jsr223AiHelper() {
     }
@@ -81,10 +81,22 @@ public final class Jsr223AiHelper {
             textArea.setPopupMenu(popupMenu);
         }
         popupMenu.addSeparator();
-        JMenuItem aiHelper = new JMenuItem("AI Helper");
+        JMenuItem aiHelper = new JMenuItem(ASK_AI);
         aiHelper.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
         popupMenu.add(aiHelper);
         textArea.putClientProperty(MENU_ITEM_MARKER, true);
+    }
+
+    /** Creates a button that opens the same AI Helper dialog as the editor's context menu. */
+    public static JButton createAskAiButton(
+            JSyntaxTextArea textArea,
+            String elementType,
+            Supplier<String> languageSupplier,
+            Runnable changedCallback) {
+        JButton askAi = new JButton(ASK_AI);
+        askAi.setToolTipText("Ask AI to change this JSR223 script"); // $NON-NLS-1$
+        askAi.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
+        return askAi;
     }
 
     private static void openDialog(
@@ -102,11 +114,10 @@ public final class Jsr223AiHelper {
         request.setWrapStyleWord(true);
         installShiftEnterNewLine(request);
 
-        JPanel panel = new JPanel(new BorderLayout(0, 8));
-        panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        panel.setPreferredSize(new Dimension(620, 240));
-        panel.add(new JLabel("What should AI change in this JSR223 script?"), BorderLayout.NORTH);
-        panel.add(
+        AiEngineChooser engineChooser = new AiEngineChooser();
+        JPanel requestPanel = new JPanel(new BorderLayout(0, 8));
+        requestPanel.add(new JLabel("What should AI change in this JSR223 script?"), BorderLayout.NORTH);
+        requestPanel.add(
                 new JScrollPane(
                         request,
                         ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
@@ -114,6 +125,11 @@ public final class Jsr223AiHelper {
                 ),
                 BorderLayout.CENTER
         );
+        JPanel panel = new JPanel(new BorderLayout(0, 12));
+        panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        panel.setPreferredSize(new Dimension(620, 340));
+        panel.add(engineChooser.component(), BorderLayout.NORTH);
+        panel.add(requestPanel, BorderLayout.CENTER);
 
         int choice = JOptionPane.showOptionDialog(
                 GuiPackage.getInstance() == null ? null : GuiPackage.getInstance().getMainFrame(),
@@ -126,8 +142,10 @@ public final class Jsr223AiHelper {
                 "Update Script"
         );
         if (choice != JOptionPane.OK_OPTION || request.getText().isBlank()) {
+            engineChooser.cancel();
             return;
         }
+        AiEngineChooser.Engine engine = engineChooser.confirm();
         ScriptContext context = captureContext(textArea, elementType, languageSupplier.get(), request.getText().trim());
         if (!RUNNING.compareAndSet(false, true)) {
             return;
@@ -135,8 +153,9 @@ public final class Jsr223AiHelper {
         AiAutoScriptingLogWindow.showLog();
         AiAutoScriptingLogWindow.startRun();
         AiAutoScriptingLogWindow.append("JSR223 AI Helper: generating script update.");
+        AiAutoScriptingLogWindow.append(engine.description());
         Thread worker = new Thread(
-                () -> runCodex(textArea, context, changedCallback),
+                () -> runAi(engine, textArea, context, changedCallback),
                 "BreakTest JSR223 AI Helper"
         );
         worker.setDaemon(true);
@@ -170,25 +189,31 @@ public final class Jsr223AiHelper {
         );
     }
 
-    private static void runCodex(JSyntaxTextArea textArea, ScriptContext context, Runnable changedCallback) {
-        Path outputFile = null;
+    private static void runAi(AiEngineChooser.Engine engine, JSyntaxTextArea textArea,
+            ScriptContext context, Runnable changedCallback) {
+        Path workingDirectory = null;
         try {
-            outputFile = Files.createTempFile("breaktest-jsr223-ai-", ".txt");
-            List<String> command = codexCommand(context, outputFile);
-            AiCliProcess processCommand = AiCliProcess.prepare(command, AiCliProcess.PromptStyle.CODEX);
-            Process process = processCommand.start(codexWorkingDirectory());
-            processCommand.writePrompt(process);
-            streamShortOutput(process);
-            int exitCode = process.waitFor();
+            // A private folder holding only the script works the same for every AI CLI: the agent
+            // edits a real file, and nothing in the user's project can be touched by accident.
+            workingDirectory = Files.createTempDirectory("breaktest-jsr223-ai-");
+            Path scriptFile = workingDirectory.resolve(scriptFileName(context.language()));
+            Files.writeString(scriptFile, context.script(), StandardCharsets.UTF_8);
+            int exitCode = engine.run(prompt(context, scriptFile.getFileName().toString()),
+                    workingDirectory.toFile());
             if (exitCode != 0) {
-                AiAutoScriptingLogWindow.append("JSR223 AI Helper exited with code " + exitCode + ".");
+                AiAutoScriptingLogWindow.append(engine.displayName() + " exited with code " + exitCode + ".");
                 AiAutoScriptingLogWindow.finishRun("JSR223 helper failed");
                 return;
             }
-            String updatedScript = stripCodeFence(Files.readString(outputFile, StandardCharsets.UTF_8));
+            String updatedScript = stripCodeFence(Files.readString(scriptFile, StandardCharsets.UTF_8));
             if (updatedScript.isBlank()) {
                 AiAutoScriptingLogWindow.append("JSR223 AI Helper returned an empty script; no changes applied.");
                 AiAutoScriptingLogWindow.finishRun("No script returned");
+                return;
+            }
+            if (updatedScript.equals(context.script())) {
+                AiAutoScriptingLogWindow.append("JSR223 AI Helper did not change the script.");
+                AiAutoScriptingLogWindow.finishRun("No changes");
                 return;
             }
             applyScript(textArea, updatedScript, changedCallback);
@@ -200,64 +225,55 @@ public final class Jsr223AiHelper {
             AiAutoScriptingLogWindow.finishRun("JSR223 helper failed");
         } finally {
             RUNNING.set(false);
-            if (outputFile != null) {
+            deleteRecursively(workingDirectory);
+        }
+    }
+
+    static String scriptFileName(String language) {
+        String lower = language.toLowerCase(Locale.ROOT);
+        if (lower.contains("groovy")) {
+            return "script.groovy"; // $NON-NLS-1$
+        }
+        if (lower.contains("javascript") || lower.equals("js") || lower.contains("nashorn") || lower.contains("graal")) {
+            return "script.js"; // $NON-NLS-1$
+        }
+        if (lower.contains("java") || lower.contains("beanshell") || lower.contains("bsh")) {
+            return "script.java"; // $NON-NLS-1$
+        }
+        return "script.txt"; // $NON-NLS-1$
+    }
+
+    private static void deleteRecursively(Path directory) {
+        if (directory == null) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(directory)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
                 try {
-                    Files.deleteIfExists(outputFile);
+                    Files.deleteIfExists(path);
                 } catch (IOException ex) {
-                    log.debug("Could not delete temporary Codex output file {}", outputFile, ex);
+                    log.debug("Could not delete temporary JSR223 AI file {}", path, ex);
                 }
-            }
+            });
+        } catch (IOException ex) {
+            log.debug("Could not clean up temporary JSR223 AI folder {}", directory, ex);
         }
     }
 
-    private static List<String> codexCommand(ScriptContext context, Path outputFile) {
-        List<String> command = new ArrayList<>();
-        command.add(JMeterUtils.getPropDefault("breaktest.codex.command", "codex"));
-        command.add("--ask-for-approval");
-        command.add(JMeterUtils.getPropDefault("breaktest.codex.approval", "never"));
-        command.add("exec");
-        command.add("--skip-git-repo-check");
-        command.add("--sandbox");
-        command.add(JMeterUtils.getPropDefault("breaktest.codex.sandbox", "danger-full-access"));
-        command.add("--cd");
-        command.add(codexWorkingDirectory().getPath());
-        command.add("-c");
-        command.add("mcp_servers.breaktest.enabled=false");
-        command.add("--output-last-message");
-        command.add(outputFile.toString());
-        String model = JMeterUtils.getProperty("breaktest.codex.model");
-        if (model != null && !model.isBlank()) {
-            command.add("--model");
-            command.add(model);
-        }
-        command.add(prompt(context));
-        return command;
-    }
-
-    private static File codexWorkingDirectory() {
-        String configured = JMeterUtils.getProperty("breaktest.codex.cwd");
-        if (configured != null && !configured.isBlank()) {
-            return new File(configured);
-        }
-        File jmeterHome = new File(JMeterUtils.getJMeterHome());
-        if (jmeterHome.isDirectory()) {
-            return jmeterHome;
-        }
-        return new File(".").getAbsoluteFile();
-    }
-
-    private static String prompt(ScriptContext context) {
+    static String prompt(ScriptContext context, String scriptFileName) {
         return """
                 You are editing a BreakTest/JMeter JSR223 script.
 
-                Return only the complete updated script. Do not include Markdown fences, explanations, comments about what changed, or surrounding text.
+                The current script is in the file %s in your working directory. Edit that file in place so it \
+                contains the complete updated script. Do not create, rename, or modify any other file, and do not \
+                add Markdown fences to the file.
 
                 Rules:
                 - Preserve existing behavior unless the user request requires a change.
                 - Prefer Groovy-compatible code when the language is groovy.
                 - JMeter variables are available as vars; use vars.get("name") and vars.put("name", value).
                 - JMeter runtime objects such as ctx, log, sampler, prev, props, and Parameters may be available.
-                - If the user selected text, treat it as the main edit target, but still return the full script.
+                - If the user selected text, treat it as the main edit target, but keep the rest of the script.
                 - Avoid hard-coded dynamic values when a runtime expression is appropriate.
 
                 Element type: %s
@@ -270,39 +286,15 @@ public final class Jsr223AiHelper {
                 - end: %d
                 - selected text:
                 %s
-
-                Current full script:
-                %s
                 """.formatted(
+                scriptFileName,
                 context.elementType(),
                 context.language().toLowerCase(Locale.ROOT),
                 context.request(),
                 context.selectionStart(),
                 context.selectionEnd(),
-                context.selectedText().isBlank() ? "(no selected text)" : context.selectedText(),
-                context.script()
+                context.selectedText().isBlank() ? "(no selected text)" : context.selectedText()
         );
-    }
-
-    private static void streamShortOutput(Process process) throws IOException {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (trimmed.isBlank()
-                        || trimmed.equals("codex")
-                        || trimmed.equals("tokens used")
-                        || trimmed.matches("[0-9]+(\\.[0-9]+)?")
-                        || trimmed.startsWith("exec")
-                        || trimmed.startsWith("succeeded in ")) {
-                    continue;
-                }
-                if (trimmed.startsWith("ERROR") || trimmed.startsWith("Error") || trimmed.contains("error:")) {
-                    AiAutoScriptingLogWindow.append("JSR223 AI Helper: " + trimmed);
-                }
-            }
-        }
     }
 
     private static String stripCodeFence(String text) {
@@ -338,7 +330,7 @@ public final class Jsr223AiHelper {
         });
     }
 
-    private record ScriptContext(
+    record ScriptContext(
             String script,
             int selectionStart,
             int selectionEnd,

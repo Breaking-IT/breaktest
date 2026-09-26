@@ -82,6 +82,10 @@ final class AiModelSelector extends JPanel {
         return DEFAULT.equals(text) ? "" : text;
     }
 
+    void setSelectedModel(String selected) {
+        model.setSelectedItem(selected == null || selected.isBlank() ? DEFAULT : selected);
+    }
+
     void selectTool(String selectedTool, File workingDirectory) {
         if (tool != null) {
             selections.put(tool, selectedModel());

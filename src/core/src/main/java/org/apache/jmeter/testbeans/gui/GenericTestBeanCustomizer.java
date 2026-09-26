@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.testbeans.gui;
 
+import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -38,6 +39,7 @@ import java.util.ResourceBundle;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -321,7 +323,11 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         propertyToolTipMessage = new MessageFormat(JMeterUtils.getResString("property_tool_tip")); //$NON-NLS-1$
 
         // Initialize the GUI:
-        init();
+        if (beanName.startsWith("JSR223")) { // $NON-NLS-1$
+            initCompactScripting();
+        } else {
+            init();
+        }
     }
 
     /**
@@ -730,15 +736,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
 
             Component customEditor = editors[i].getCustomEditor();
 
-            boolean multiLineEditor = false;
-            if (customEditor.getPreferredSize().height > 50 || customEditor instanceof JScrollPane
-                    || descriptors[i].getValue(MULTILINE) != null) {
-                // TODO: the above works in the current situation, but it's
-                // just a hack. How to get each editor to report whether it
-                // wants to grow bigger? Whether the property label should
-                // be at the left or at the top of the editor? ...?
-                multiLineEditor = true;
-            }
+            boolean multiLineEditor = isMultiLineEditor(i, customEditor);
 
             JLabel label = createLabel(descriptors[i]);
             label.setLabelFor(customEditor);
@@ -767,6 +765,89 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         // space that nobody wants:
         cp.weighty = 0.0001;
         add(Box.createHorizontalStrut(0), cp);
+    }
+
+    private boolean isMultiLineEditor(int index, Component customEditor) {
+        // TODO: the above works in the current situation, but it's
+        // just a hack. How to get each editor to report whether it
+        // wants to grow bigger? Whether the property label should
+        // be at the left or at the top of the editor? ...?
+        return customEditor.getPreferredSize().height > 50 || customEditor instanceof JScrollPane
+                || descriptors[index].getValue(MULTILINE) != null;
+    }
+
+    /**
+     * Lays out JSR223 elements without a titled box per setting, so the script editor gets the
+     * vertical space: the settings share one block (their group titles become label tooltips) and
+     * the script gets a single header row holding its group title and the editor's header actions.
+     */
+    private void initCompactScripting() {
+        setLayout(new GridBagLayout());
+
+        JPanel settings = new JPanel(new GridBagLayout());
+        GridBagConstraints label = new GridBagConstraints();
+        label.gridx = 0;
+        label.anchor = GridBagConstraints.EAST;
+        label.insets = new Insets(1, 1, 1, 4);
+        GridBagConstraints field = new GridBagConstraints();
+        field.gridx = 1;
+        field.fill = GridBagConstraints.HORIZONTAL;
+        field.weightx = 1.0;
+        field.insets = new Insets(1, 1, 1, 1);
+
+        GridBagConstraints row = new GridBagConstraints();
+        row.gridx = 0;
+        row.gridy = GridBagConstraints.RELATIVE;
+        row.fill = GridBagConstraints.HORIZONTAL;
+        row.weightx = 1.0;
+        row.insets = new Insets(0, 1, 2, 1);
+        add(settings, row);
+
+        int y = 0;
+        for (int i = 0; i < editors.length; i++) {
+            if (editors[i] == null) {
+                continue;
+            }
+            Component customEditor = editors[i].getCustomEditor();
+            String groupName = groupDisplayName(group(descriptors[i]));
+            if (isMultiLineEditor(i, customEditor)) {
+                JPanel header = new JPanel(new BorderLayout(8, 0));
+                JLabel title = new JLabel(groupName);
+                title.setLabelFor(customEditor);
+                title.setToolTipText(propertyToolTipMessage.format(
+                        new Object[] { descriptors[i].getShortDescription() }));
+                header.add(title, BorderLayout.WEST);
+                if (editors[i] instanceof TextAreaEditor textAreaEditor
+                        && textAreaEditor.getHeaderComponent() != null) {
+                    header.add(textAreaEditor.getHeaderComponent(), BorderLayout.EAST);
+                }
+                row.fill = GridBagConstraints.HORIZONTAL;
+                row.weighty = 0.0;
+                add(header, row);
+                row.fill = GridBagConstraints.BOTH;
+                row.weighty = 1.0;
+                add(customEditor, row);
+                continue;
+            }
+            label.gridy = y;
+            field.gridy = y++;
+            if (customEditor instanceof JCheckBox checkBox) {
+                // A trailing checkbox text keeps the label column as narrow as the text fields need.
+                checkBox.setText(descriptors[i].getDisplayName());
+                checkBox.setToolTipText(groupName);
+                field.fill = GridBagConstraints.NONE;
+                field.anchor = GridBagConstraints.WEST;
+                settings.add(checkBox, field);
+                field.fill = GridBagConstraints.HORIZONTAL;
+                field.anchor = GridBagConstraints.CENTER;
+                continue;
+            }
+            JLabel fieldLabel = createLabel(descriptors[i]);
+            fieldLabel.setLabelFor(customEditor);
+            fieldLabel.setToolTipText(groupName);
+            settings.add(fieldLabel, label);
+            settings.add(customEditor, field);
+        }
     }
 
     private JLabel createLabel(PropertyDescriptor desc) {
