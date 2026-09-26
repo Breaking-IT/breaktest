@@ -3510,6 +3510,7 @@ class TestJMeterThread {
         ResultCollector resultCollector = new ResultCollector();
         MetadataNeedingVisualizer visualizer = new MetadataNeedingVisualizer();
         resultCollector.setListener(visualizer);
+        resultCollector.setShowTransactionChildren(true);
 
         testTree.add(loop);
         testTree.add(loop, transactionController);
