@@ -121,6 +121,14 @@ public interface Visualizer extends SampleResultMetadataConsumer {
     }
 
     /**
+     * @return true when transaction children are grouped in an expandable hierarchy rather than
+     * counted as separate top-level results
+     */
+    default boolean displaysTransactionHierarchy() {
+        return false;
+    }
+
+    /**
      * This method is used to indicate a visualizer generates statistics.
      *
      * @return true if visualiser generates statistics

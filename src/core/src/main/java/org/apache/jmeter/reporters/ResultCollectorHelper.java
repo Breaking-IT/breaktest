@@ -27,17 +27,20 @@ import org.apache.jmeter.visualizers.Visualizer;
 public class ResultCollectorHelper {
 
     private final Visualizer visualizer;
+    private final ResultCollector resultCollector;
     private final boolean errorsOnly;
     private final boolean successOnly;
 
     public ResultCollectorHelper(ResultCollector resultCollector, Visualizer visualizer) {
         this.visualizer = visualizer;
+        this.resultCollector = resultCollector;
         this.errorsOnly = resultCollector.isErrorLogging();
         this.successOnly = resultCollector.isSuccessOnlyLogging();
     }
 
     public void add(SampleResult sample){
-        if (ResultCollector.isSampleWanted(sample.isSuccessful(), errorsOnly, successOnly)){
+        if (ResultCollector.isSampleWanted(sample.isSuccessful(), errorsOnly, successOnly)
+                && resultCollector.isSampleVisible(sample, visualizer)) {
             visualizer.add(sample);
         }
     }
