@@ -32,6 +32,9 @@ import java.util.Properties;
 
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -440,10 +443,10 @@ class AiAutoScriptingActionTest {
 
             Object request = newRunRequest("PI");
             Class<?> requestClass = request.getClass();
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("piCommand", requestClass);
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", requestClass, File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertEquals(List.of(
                     "pi-test",
@@ -491,10 +494,10 @@ class AiAutoScriptingActionTest {
 
             Object request = newRunRequest("GEMINI");
             Class<?> requestClass = request.getClass();
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", requestClass);
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", requestClass, File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertEquals(List.of(
                     "gemini-test",
@@ -528,10 +531,10 @@ class AiAutoScriptingActionTest {
             properties.remove("breaktest.gemini.model");
 
             Object request = newRunRequest("GEMINI");
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", request.getClass());
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", request.getClass(), File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertFalse(command.contains("--model"));
         } finally {
@@ -688,6 +691,35 @@ class AiAutoScriptingActionTest {
     @FunctionalInterface
     private interface ThrowingAction {
         void run() throws Exception;
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void engineRunsTheChosenCliInTheGivenFolder(@TempDir Path workDir) throws Exception {
+        Path fakeClaude = workDir.resolve("fake-claude.sh");
+        Files.writeString(fakeClaude, "#!/bin/sh\nprintf 'updated' > script.groovy\necho done\n");
+        fakeClaude.toFile().setExecutable(true);
+        Path scriptDir = Files.createDirectory(workDir.resolve("script"));
+        Files.writeString(scriptDir.resolve("script.groovy"), "original");
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.claude.command");
+        try {
+            JMeterUtils.setProperty("breaktest.claude.command", fakeClaude.toString());
+            AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
+                    AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.HIGH, "test-model");
+
+            int exitCode = engine.run("Change the script", scriptDir.toFile());
+
+            assertEquals(0, exitCode);
+            assertEquals("updated", Files.readString(scriptDir.resolve("script.groovy")));
+            assertEquals("Claude Code", engine.displayName());
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.claude.command");
+            } else {
+                properties.setProperty("breaktest.claude.command", previous);
+            }
+        }
     }
 
     private static Properties jmeterProperties() throws Exception {

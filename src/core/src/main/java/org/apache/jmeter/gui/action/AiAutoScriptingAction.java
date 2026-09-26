@@ -403,18 +403,22 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static List<String> aiCommand(AiRunRequest request, File workingDirectory) {
+        return aiCommand(request, workingDirectory, prompt(request));
+    }
+
+    private static List<String> aiCommand(AiRunRequest request, File workingDirectory, String prompt) {
         return switch (request.tool()) {
-            case CODEX -> codexCommand(request, workingDirectory);
-            case OPENCODE -> opencodeCommand(request, workingDirectory);
-            case CLAUDE -> claudeCommand(request);
-            case COPILOT -> copilotCommand(request, workingDirectory);
-            case PI -> piCommand(request);
-            case GEMINI -> geminiCommand(request);
-            case CURSOR -> CursorAgentCommand.build(prompt(request), workingDirectory, request.modelOverride);
+            case CODEX -> codexCommand(request, workingDirectory, prompt);
+            case OPENCODE -> opencodeCommand(request, workingDirectory, prompt);
+            case CLAUDE -> claudeCommand(request, prompt);
+            case COPILOT -> copilotCommand(request, workingDirectory, prompt);
+            case PI -> piCommand(request, prompt);
+            case GEMINI -> geminiCommand(request, prompt);
+            case CURSOR -> CursorAgentCommand.build(prompt, workingDirectory, request.modelOverride);
         };
     }
 
-    private static AiCliProcess.PromptStyle promptStyle(AiTool tool) {
+    static AiCliProcess.PromptStyle promptStyle(AiTool tool) {
         return switch (tool) {
             case CODEX -> AiCliProcess.PromptStyle.CODEX;
             case COPILOT -> AiCliProcess.PromptStyle.COPILOT;
@@ -423,7 +427,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         };
     }
 
-    private static List<String> codexCommand(AiRunRequest request, File workingDirectory) {
+    private static List<String> codexCommand(AiRunRequest request, File workingDirectory, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.codex.command", "codex"));
         command.add("--ask-for-approval");
@@ -447,11 +451,11 @@ public class AiAutoScriptingAction extends AbstractAction {
             command.add(model);
         }
 
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
-    private static List<String> opencodeCommand(AiRunRequest request, File workingDirectory) {
+    private static List<String> opencodeCommand(AiRunRequest request, File workingDirectory, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.opencode.command", "opencode"));
         command.add("run");
@@ -476,11 +480,11 @@ public class AiAutoScriptingAction extends AbstractAction {
             command.add(agent);
         }
 
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
-    private static List<String> claudeCommand(AiRunRequest request) {
+    private static List<String> claudeCommand(AiRunRequest request, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.claude.command", "claude"));
         command.add("--dangerously-skip-permissions");
@@ -509,11 +513,11 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
 
         command.add("-p");
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
-    private static List<String> copilotCommand(AiRunRequest request, File workingDirectory) {
+    private static List<String> copilotCommand(AiRunRequest request, File workingDirectory, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.copilot.command", "copilot"));
         // Copilot CLI has no --cd flag; it uses the process working directory,
@@ -542,11 +546,11 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
 
         command.add("-p");
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
-    private static List<String> piCommand(AiRunRequest request) {
+    private static List<String> piCommand(AiRunRequest request, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.pi.command", "pi"));
         command.add("--print");
@@ -576,11 +580,11 @@ public class AiAutoScriptingAction extends AbstractAction {
             command.add(thinking);
         }
 
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
-    private static List<String> geminiCommand(AiRunRequest request) {
+    private static List<String> geminiCommand(AiRunRequest request, String prompt) {
         List<String> command = new ArrayList<>();
         command.add(JMeterUtils.getPropDefault("breaktest.gemini.command", "gemini"));
         command.add("--skip-trust");
@@ -599,7 +603,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
 
         command.add("--prompt");
-        command.add(prompt(request));
+        command.add(prompt);
         return command;
     }
 
@@ -798,27 +802,8 @@ public class AiAutoScriptingAction extends AbstractAction {
         JComboBox<AiTool> aiTool = new JComboBox<>(aiToolChoices());
         aiTool.setSelectedItem(defaultAiTool());
         AiModelSelector modelSelector = new AiModelSelector();
-        Runnable updateModels = () -> {
-            AiTool selected = (AiTool) aiTool.getSelectedItem();
-            modelSelector.selectTool(selected.id(), aiWorkingDirectory(selected));
-        };
-        aiTool.addActionListener(event -> updateModels.run());
-        updateModels.run();
         JComboBox<AiThinkingLevel> thinkingLevel = new JComboBox<>();
-        Runnable updateThinkingOptions = () -> {
-            AiThinkingLevel selected = (AiThinkingLevel) thinkingLevel.getSelectedItem();
-            AiThinkingLevel[] levels = thinkingChoices((AiTool) aiTool.getSelectedItem());
-            thinkingLevel.setModel(new DefaultComboBoxModel<>(levels));
-            if (Arrays.asList(levels).contains(selected)) {
-                thinkingLevel.setSelectedItem(selected);
-            }
-            thinkingLevel.setEnabled(levels.length > 1);
-            thinkingLevel.setToolTipText(levels.length > 1
-                    ? "Applies to this run only. Agent default keeps existing settings; unsupported levels may be adjusted by the agent."
-                    : "Thinking override is not available for this AI tool.");
-        };
-        aiTool.addActionListener(event -> updateThinkingOptions.run());
-        updateThinkingOptions.run();
+        bindEngineFields(aiTool, thinkingLevel, modelSelector);
 
         JComboBox<ThreadGroupChoice> threadGroup = new JComboBox<>(
                 threadGroups.toArray(new ThreadGroupChoice[0])
@@ -1090,7 +1075,43 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
     }
 
-    private static <T> JPanel compactComboPanel(String label, JComboBox<T> comboBox) {
+    /** Keeps the thinking levels and model list in step with the selected AI tool. */
+    static void bindEngineFields(
+            JComboBox<AiTool> aiTool, JComboBox<AiThinkingLevel> thinkingLevel, AiModelSelector modelSelector) {
+        Runnable updateModels = () -> {
+            AiTool selected = (AiTool) aiTool.getSelectedItem();
+            modelSelector.selectTool(selected.id(), aiWorkingDirectory(selected));
+        };
+        aiTool.addActionListener(event -> updateModels.run());
+        updateModels.run();
+        Runnable updateThinkingOptions = () -> {
+            AiThinkingLevel selected = (AiThinkingLevel) thinkingLevel.getSelectedItem();
+            AiThinkingLevel[] levels = thinkingChoices((AiTool) aiTool.getSelectedItem());
+            thinkingLevel.setModel(new DefaultComboBoxModel<>(levels));
+            if (Arrays.asList(levels).contains(selected)) {
+                thinkingLevel.setSelectedItem(selected);
+            }
+            thinkingLevel.setEnabled(levels.length > 1);
+            thinkingLevel.setToolTipText(levels.length > 1
+                    ? "Applies to this run only. Agent default keeps existing settings; unsupported levels may be adjusted by the agent."
+                    : "Thinking override is not available for this AI tool.");
+        };
+        aiTool.addActionListener(event -> updateThinkingOptions.run());
+        updateThinkingOptions.run();
+    }
+
+    /** Command for a one-off prompt, as used by {@link AiEngineChooser.Engine}. */
+    static List<String> oneShotCommand(AiTool tool, AiThinkingLevel thinkingLevel, String model, String prompt,
+            File workingDirectory) {
+        AiRunRequest request = new AiRunRequest(tool, null, null, null, false, 60, 0, "", "", "", thinkingLevel, model);
+        return aiCommand(request, workingDirectory, prompt);
+    }
+
+    static String launchFailureMessage(AiTool tool, List<String> command, Exception ex) {
+        return launchFailureMessage(new AiRunRequest(tool, null, null, null, false, 60, 0, ""), command, ex);
+    }
+
+    static <T> JPanel compactComboPanel(String label, JComboBox<T> comboBox) {
         JPanel panel = new JPanel(new BorderLayout(0, 4));
         JLabel fieldLabel = new JLabel(label);
         fieldLabel.setLabelFor(comboBox);
@@ -1099,7 +1120,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return panel;
     }
 
-    private static AiTool defaultAiTool() {
+    static AiTool defaultAiTool() {
         String configured = JMeterUtils.getPropDefault("breaktest.ai.tool", "codex");
         for (AiTool tool : AiTool.values()) {
             if (tool.id().equalsIgnoreCase(configured) || tool.displayName().equalsIgnoreCase(configured)) {
@@ -1179,7 +1200,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         return "  " + text.replace("\r", "").replace("\n", "\n  ");
     }
 
-    private static AiRunOutput streamOutput(InputStream inputStream, AiTool tool) throws IOException {
+    static AiRunOutput streamOutput(InputStream inputStream, AiTool tool) throws IOException {
         AiOutputFilter filter = new AiOutputFilter(tool);
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
@@ -1389,7 +1410,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
     }
 
-    private enum AiTool {
+    enum AiTool {
         CODEX("codex", "Codex", "breaktest.codex.cwd"),
         CLAUDE("claude", "Claude Code", "breaktest.claude.cwd"),
         CURSOR("cursor", "Cursor Agent", "breaktest.cursor.cwd"),
@@ -1408,11 +1429,11 @@ public class AiAutoScriptingAction extends AbstractAction {
             this.cwdProperty = cwdProperty;
         }
 
-        private String id() {
+        String id() {
             return id;
         }
 
-        private String displayName() {
+        String displayName() {
             return displayName;
         }
 
@@ -1426,11 +1447,11 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
     }
 
-    private static AiTool[] aiToolChoices() {
+    static AiTool[] aiToolChoices() {
         return AiCliAvailability.sortAvailableFirst(AiTool.values(), AiTool::id, AiTool::displayName);
     }
 
-    private enum AiThinkingLevel {
+    enum AiThinkingLevel {
         DEFAULT("", "Agent default"),
         OFF("off", "Off"),
         MINIMAL("minimal", "Minimal"),
@@ -1440,7 +1461,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         XHIGH("xhigh", "Extra high"),
         MAX("max", "Maximum");
 
-        private final String value;
+        final String value;
         private final String label;
 
         AiThinkingLevel(String value, String label) {
