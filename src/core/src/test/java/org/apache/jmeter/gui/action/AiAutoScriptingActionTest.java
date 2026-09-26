@@ -697,7 +697,9 @@ class AiAutoScriptingActionTest {
     @DisabledOnOs(OS.WINDOWS)
     void engineRunsTheChosenCliInTheGivenFolder(@TempDir Path workDir) throws Exception {
         Path fakeClaude = workDir.resolve("fake-claude.sh");
-        Files.writeString(fakeClaude, "#!/bin/sh\nprintf 'updated' > script.groovy\necho done\n");
+        // Behave like a real CLI: consume stdin before writing the result and exiting.
+        // Otherwise a fast process can close the pipe before the parent writes its prompt.
+        Files.writeString(fakeClaude, "#!/bin/sh\ncat > prompt.txt\nprintf 'updated' > script.groovy\necho done\n");
         fakeClaude.toFile().setExecutable(true);
         Path scriptDir = Files.createDirectory(workDir.resolve("script"));
         Files.writeString(scriptDir.resolve("script.groovy"), "original");
@@ -708,10 +710,12 @@ class AiAutoScriptingActionTest {
             AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
                     AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.HIGH, "test-model");
 
-            int exitCode = engine.run("Change the script", scriptDir.toFile());
+            String prompt = "Change the script\n".repeat(4096);
+            int exitCode = engine.run(prompt, scriptDir.toFile());
 
             assertEquals(0, exitCode);
             assertEquals("updated", Files.readString(scriptDir.resolve("script.groovy")));
+            assertEquals(prompt, Files.readString(scriptDir.resolve("prompt.txt")));
             assertEquals("Claude Code", engine.displayName());
         } finally {
             if (previous == null) {
