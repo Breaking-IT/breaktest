@@ -372,6 +372,16 @@ class ScenarioResolverTest : JMeterTestCase() {
     }
 
     @Test
+    fun `agent validation runs each thread group once instead of the scenario load`() {
+        val tree = profilesPlan(
+            Arguments(),
+            workload("Stress", browse, 50, loops = 5).apply { profile = "production" },
+        )
+        val result = org.apache.jmeter.ai.AgentValidationRunner().run(tree)
+        assertEquals(1, result.samples.size) { "Validation must not start the load of the active scenario" }
+    }
+
+    @Test
     fun `unknown profile is rejected`() {
         val tree = profilesPlan(Arguments(), workload("Browse", browse, 1).apply { profile = "staging" })
         val e = assertThrows<ScenarioException> { convertAndResolve(tree) }

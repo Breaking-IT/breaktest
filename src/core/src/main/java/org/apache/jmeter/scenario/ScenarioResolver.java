@@ -40,6 +40,7 @@ import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 
@@ -148,6 +149,31 @@ public final class ScenarioResolver {
             }
         }
         return flattener.result;
+    }
+
+    /**
+     * Builds a tree that validates the thread groups of a sectioned plan: each runs once, with a single thread and
+     * the default profile, whatever the scenarios say. Used by callers that do not use the validation tree cloner.
+     * @param tree a converted test tree
+     * @return the flat validation tree, or {@code tree} itself when it has no sections
+     */
+    public static HashTree flattenForValidation(HashTree tree) {
+        if (!hasSections(tree)) {
+            return tree;
+        }
+        HashTree flat = flattenIgnoringScenarios(tree);
+        for (Object element : flat.getTree(root(flat)).list()) {
+            if (element instanceof AbstractThreadGroup threadGroup) {
+                runOnce(threadGroup);
+            }
+        }
+        return flat;
+    }
+
+    private static void runOnce(AbstractThreadGroup threadGroup) {
+        ScenarioWorkload.removeWorkload(threadGroup);
+        threadGroup.setProperty(AbstractThreadGroup.NUM_THREADS, 1);
+        threadGroup.setProperty(ThreadGroup.RAMP_TIME, 0);
     }
 
     /**
