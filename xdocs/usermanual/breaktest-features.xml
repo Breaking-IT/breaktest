@@ -141,6 +141,7 @@ validate it, repair it, and show changes in the GUI.
   <li>Loop and while index behavior options are visible and configurable.</li>
   <li>Transaction Controller includes measurement modes plus delay and pacing controls.</li>
   <li>Transaction Controller has no <b>Generate parent sample</b> option. Every sample is sent to listeners as soon as it completes and links to the transaction it ran in, and the transaction sample follows when the transaction ends. Transactions only keep running totals, never the samples themselves. Plans saved with the old option load unchanged, and the option is not saved again.</li>
+  <li>Flat result listeners show top-level transactions and samples outside transactions by default. Enable <b>Children</b> on a listener to include child samples and nested transactions in its display and statistics. This applies to live results and loaded result files with transaction IDs; saved result files still contain all samples allowed by the logging filters. Clear the display before a new run, or reload the file, after changing the option. View Results Tree always keeps children expandable under their transaction.</li>
   <li>Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors support fail-on-no-match behavior.</li>
   <li>CSV Data Set can read records in random order.</li>
   <li>CSV preview shows first sample variable assignments.</li>

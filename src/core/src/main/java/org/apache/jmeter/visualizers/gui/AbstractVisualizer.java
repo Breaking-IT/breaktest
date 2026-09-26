@@ -19,11 +19,10 @@ package org.apache.jmeter.visualizers.gui;
 
 import java.awt.Component;
 import java.awt.Container;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -110,11 +109,14 @@ public abstract class AbstractVisualizer
     /** A panel allowing results to be saved. */
     private final FilePanel filePanel;
 
-    /** A checkbox choosing whether or not only errors should be logged. */
-    private final JCheckBox errorLogging;
+    private static final int ALL_RESULTS = 0;
+    private static final int ERROR_RESULTS = 1;
+    private static final int SUCCESS_RESULTS = 2;
 
-    /* A checkbox choosing whether or not only successes should be logged. */
-    private final JCheckBox successOnlyLogging;
+    /** Selects all results, errors only, or successes only. */
+    private final JComboBox<String> resultFilter;
+
+    private final JCheckBox showTransactionChildren;
 
     protected ResultCollector collector = new ResultCollector();
 
@@ -123,22 +125,13 @@ public abstract class AbstractVisualizer
     protected AbstractVisualizer() {
         super();
 
-        // errorLogging and successOnlyLogging are mutually exclusive
-        errorLogging = new JCheckBox(JMeterUtils.getResString("log_errors_only")); // $NON-NLS-1$
-        errorLogging.addActionListener(new ActionListener(){
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (errorLogging.isSelected()) {
-                    successOnlyLogging.setSelected(false);
-                }
-            }
+        resultFilter = new JComboBox<>(new String[] {
+                JMeterUtils.getResString("log_all"),
+                JMeterUtils.getResString("log_errors_only"),
+                JMeterUtils.getResString("log_success_only")
         });
-        successOnlyLogging = new JCheckBox(JMeterUtils.getResString("log_success_only")); // $NON-NLS-1$
-        successOnlyLogging.addActionListener(e -> {
-            if (successOnlyLogging.isSelected()) {
-                errorLogging.setSelected(false);
-            }
-        });
+        showTransactionChildren = new JCheckBox(JMeterUtils.getResString("show_transaction_children"));
+        showTransactionChildren.setToolTipText(JMeterUtils.getResString("show_transaction_children_tooltip"));
         JButton saveConfigButton = new JButton(JMeterUtils.getResString("config_save_settings")); // $NON-NLS-1$
         saveConfigButton.addActionListener(e -> {
             SavePropertyDialog d = new SavePropertyDialog(
@@ -152,9 +145,13 @@ public abstract class AbstractVisualizer
 
         filePanel = new FilePanel(JMeterUtils.getResString("file_visualizer_output_file"), EXTS); // $NON-NLS-1$
         filePanel.addChangeListener(this);
-        filePanel.add(new JLabel(JMeterUtils.getResString("log_only"))); // $NON-NLS-1$
-        filePanel.add(errorLogging);
-        filePanel.add(successOnlyLogging);
+        JLabel filterLabel = new JLabel(JMeterUtils.getResString("log_only")); // $NON-NLS-1$
+        filterLabel.setLabelFor(resultFilter);
+        filePanel.add(filterLabel);
+        filePanel.add(resultFilter);
+        if (!displaysTransactionHierarchy()) {
+            filePanel.add(showTransactionChildren);
+        }
         filePanel.add(saveConfigButton);
     }
 
@@ -163,16 +160,14 @@ public abstract class AbstractVisualizer
         return isStats;
     }
 
-    /**
-     * Gets the checkbox which selects whether or not only errors should be
-     * logged. Subclasses don't normally need to worry about this checkbox,
-     * because it is automatically added to the GUI in {@link #makeTitlePanel()},
-     * and the behavior is handled in this base class.
-     *
-     * @return the error logging checkbox
-     */
-    protected JCheckBox getErrorLoggingCheckbox() {
-        return errorLogging;
+    /** @return the dropdown selecting which sample outcomes to log and display */
+    protected JComboBox<String> getResultFilter() {
+        return resultFilter;
+    }
+
+    /** @return the transaction children checkbox, which subclasses may place in their options bar */
+    protected JCheckBox getShowTransactionChildrenCheckbox() {
+        return showTransactionChildren;
     }
 
     /**
@@ -262,8 +257,9 @@ public abstract class AbstractVisualizer
     public void modifyTestElement(TestElement c) {
         configureTestElement((AbstractListenerElement) c);
         if (c instanceof ResultCollector rc) {
-            rc.setErrorLogging(errorLogging.isSelected());
-            rc.setSuccessOnlyLogging(successOnlyLogging.isSelected());
+            rc.setErrorLogging(resultFilter.getSelectedIndex() == ERROR_RESULTS);
+            rc.setSuccessOnlyLogging(resultFilter.getSelectedIndex() == SUCCESS_RESULTS);
+            rc.setShowTransactionChildren(showTransactionChildren.isSelected());
             rc.setFilename(getFile());
             collector = rc;
         }
@@ -275,8 +271,9 @@ public abstract class AbstractVisualizer
         super.configure(el);
         setFile(el.getPropertyAsString(ResultCollector.FILENAME));
         ResultCollector rc = (ResultCollector) el;
-        errorLogging.setSelected(rc.isErrorLogging());
-        successOnlyLogging.setSelected(rc.isSuccessOnlyLogging());
+        resultFilter.setSelectedIndex(rc.isErrorLogging() && !rc.isSuccessOnlyLogging() ? ERROR_RESULTS
+                : rc.isSuccessOnlyLogging() && !rc.isErrorLogging() ? SUCCESS_RESULTS : ALL_RESULTS);
+        showTransactionChildren.setSelected(rc.isShowTransactionChildren());
         if (collector == null) {
             collector = new ResultCollector();
         }
@@ -310,21 +307,18 @@ public abstract class AbstractVisualizer
      * Create a standard title section for JMeter components. This includes the
      * title for the component and the Name Panel allowing the user to change
      * the name for the component. The AbstractVisualizer also adds the
-     * FilePanel allowing the user to save the results, and the error logging
-     * checkbox, allowing the user to choose whether or not only errors should
-     * be logged.
+     * FilePanel allowing the user to save results and select which sample outcomes
+     * to log and display.
      * <p>
      * This method is typically added to the top of the component at the
      * beginning of the component's init method.
      *
      * @return a panel containing the component title, name panel, file panel,
-     *         and error logging checkbox
+     *         and result filters
      */
     @Override
     protected Container makeTitlePanel() {
         Container panel = super.makeTitlePanel();
-        // Note: the file panel already includes the error logging checkbox,
-        // so we don't have to add it explicitly.
         panel.add(getFilePanel());
         return panel;
     }
@@ -344,5 +338,7 @@ public abstract class AbstractVisualizer
     public void clearGui(){
         super.clearGui();
         filePanel.clearGui();
+        resultFilter.setSelectedIndex(ALL_RESULTS);
+        showTransactionChildren.setSelected(false);
     }
 }
