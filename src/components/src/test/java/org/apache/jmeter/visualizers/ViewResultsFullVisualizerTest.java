@@ -19,6 +19,7 @@ package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -373,6 +374,34 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
         assertTrue(RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().isPresent());
         assertTrue(RecordedHarExchangeResolver.resolveFor(replay).exchange().isPresent());
+    }
+
+    @Test
+    public void storesReplayInTheRecordingCarriedByACopiedSampler() throws Exception {
+        TestFragmentController fragment = new TestFragmentController();
+        fragment.setName("Fragment");
+        DebugSampler sampler = new DebugSampler();
+        sampler.setName("Copied request");
+        sampler.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recordings/manifests/original.json");
+        sampler.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "original-checksum");
+        sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "copied-exchange");
+
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode fragmentNode = new JMeterTreeNode(fragment, treeModel);
+        JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(fragmentNode);
+        fragmentNode.add(samplerNode);
+
+        ReplayRecordingStore.store(Map.of(samplerNode, replayResult("replayed-in-fragment")),
+                RecordingStorageMode.ALL);
+
+        assertTrue(fragment.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+        assertNotEquals("recordings/manifests/original.json",
+                sampler.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        assertTrue(RecordedHarExchangeResolver.resolveFor(samplerNode, null).responseText()
+                .contains("replayed-in-fragment"));
     }
 
     @Test
