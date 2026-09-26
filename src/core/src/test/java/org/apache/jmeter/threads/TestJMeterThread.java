@@ -2127,7 +2127,11 @@ class TestJMeterThread {
         inner.setFinalStopAction(FinalStopAction.IMMEDIATE);
         outerTree.add(inner).add(countingInterruptibleRequest(calls, interruptions));
         outerTree.add(lateForkStartProbe(() -> outerPasses.get() == 1, owner, lateInnerStarts, () -> calls.get() > 0));
-        loopTree.add(new AwaitingSampler(() -> boundaryCalls.get() > mainCalls.get()));
+        // The first pass deliberately reaches the new-user boundary before the inner fork.
+        // On the second pass, wait for that fork to start before entering the final boundary,
+        // which correctly refuses any new KEEP_RUNNING executions.
+        loopTree.add(new AwaitingSampler(() -> boundaryCalls.get() > mainCalls.get()
+                && (mainCalls.get() == 0 || calls.get() == 1)));
         loopTree.add(new ResultStatusSampler("main", true, mainCalls));
         ThreadGroup group = new ThreadGroup();
         group.setName("late-outer-fork-new-user");
@@ -2220,6 +2224,7 @@ class TestJMeterThread {
                 throw new AssertionError(e);
             }
         }
+        assertTrue(condition.getAsBoolean(), "Fork lifecycle condition must be reached before timeout");
     }
 
     @ParameterizedTest
