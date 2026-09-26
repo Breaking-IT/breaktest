@@ -228,6 +228,8 @@ public class JMeterThread implements Runnable, Interruptible {
     private final Object forkLifecycleLock = new Object();
 
     private volatile ErrorAction forkIterationEndAction;
+    // Set while an iteration boundary that ends KEEP_RUNNING forks is in progress.
+    private volatile boolean endingKeepRunningForks;
     private volatile boolean suppressEndedIterationResults;
     private final Map<Thread, Sampler> activeSampleWorkers = new ConcurrentHashMap<>();
     private final Map<Thread, List<? extends Timer>> activeTimerWorkers = new ConcurrentHashMap<>();
@@ -762,7 +764,7 @@ public class JMeterThread implements Runnable, Interruptible {
             return;
         }
         ForkController sourceController = forkSampler.getSourceController();
-        if (mainFlowFinished && !isForkWorkerThread()) {
+        if ((mainFlowFinished && !isForkWorkerThread()) || isEndedByCurrentBoundary(sourceController)) {
             return;
         }
         if (!waitForPreviousForkFromSameController(forkSampler)) {
@@ -795,7 +797,8 @@ public class JMeterThread implements Runnable, Interruptible {
 
         synchronized (forkLifecycleLock) {
             if (!running || forkIterationEndAction != null || isCurrentForkStopRequested()
-                    || (mainFlowFinished && !isForkWorkerThread())) {
+                    || (mainFlowFinished && !isForkWorkerThread())
+                    || isEndedByCurrentBoundary(sourceController)) {
                 executor.shutdown();
                 return;
             }
@@ -809,6 +812,19 @@ public class JMeterThread implements Runnable, Interruptible {
             }
             executor.execute(task);
         }
+    }
+
+    /**
+     * A fork worker that is still running when the boundary ending KEEP_RUNNING forks starts (for
+     * example an outer fork with iteration end WAIT) must not start such a fork again: the boundary
+     * may already have stopped the previous execution, so the running check would pass although the
+     * fork is being ended. Checked under {@link #forkLifecycleLock} together with registration, so a
+     * fork either registers before the boundary collects executions or is not started at all.
+     */
+    private boolean isEndedByCurrentBoundary(ForkController sourceController) {
+        return sourceController != null
+                && sourceController.getIterationEndAction() == IterationEndAction.KEEP_RUNNING
+                && (mainFlowFinished || endingKeepRunningForks);
     }
 
     ExecutorService createForkExecutor(ForkControllerSampler sampler) {
@@ -904,6 +920,24 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void applyForkBoundary(boolean finalBoundary) {
+        boolean endsKeepRunning = !finalBoundary && !isSameUserOnNextIteration;
+        if (endsKeepRunning) {
+            synchronized (forkLifecycleLock) {
+                endingKeepRunningForks = true;
+            }
+        }
+        try {
+            applyForkBoundaryActions(finalBoundary);
+        } finally {
+            if (endsKeepRunning) {
+                synchronized (forkLifecycleLock) {
+                    endingKeepRunningForks = false;
+                }
+            }
+        }
+    }
+
+    private void applyForkBoundaryActions(boolean finalBoundary) {
         while (true) {
             List<ForkExecution> executions;
             synchronized (forkExecutions) {
