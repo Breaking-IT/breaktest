@@ -20,7 +20,9 @@ package org.apache.jmeter.protocol.http.config.gui;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -38,6 +40,7 @@ import org.apache.jmeter.gui.JLabeledFieldBinding;
 import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.gui.HTTPArgumentsPanel;
 import org.apache.jmeter.protocol.http.gui.HTTPFileArgsPanel;
 import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
@@ -46,6 +49,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JFactory;
@@ -279,8 +283,13 @@ public class UrlConfigGui extends JPanel {
         if(showFileUploadPane) {
             filesPanel.modifyTestElement(element);
         }
-        if (headersPanel != null && element instanceof HTTPSamplerBase sampler) {
-            sampler.setNativeHeaders(headersPanel.getHeaders());
+        if (headersPanel != null) {
+            List<Header> headers = headersPanel.getHeaders();
+            if (headers.isEmpty()) {
+                element.removeProperty(HTTPSamplerBase.HEADERS);
+            } else {
+                element.set(HTTPSamplerBaseSchema.INSTANCE.getHeaders(), headers);
+            }
         }
         HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
         // Treat "unset" checkbox as "property removal" for HTTP Request Defaults component
@@ -362,11 +371,16 @@ public class UrlConfigGui extends JPanel {
         }
 
         if (headersPanel != null) {
-            if (el instanceof HTTPSamplerBase sampler) {
-                headersPanel.setHeaders(sampler.getNativeHeaderList());
-            } else {
-                headersPanel.clear();
+            List<Header> headers = new ArrayList<>();
+            CollectionProperty property = el.getOrNull(HTTPSamplerBaseSchema.INSTANCE.getHeaders());
+            if (property != null) {
+                for (JMeterProperty item : property) {
+                    if (item.getObjectValue() instanceof Header header) {
+                        headers.add(header);
+                    }
+                }
             }
+            headersPanel.setHeaders(headers);
         }
 
         if(showFileUploadPane) {
@@ -623,7 +637,7 @@ public class UrlConfigGui extends JPanel {
         postContentTabbedPane.add(paramsTabTitle, argsPanel);// $NON-NLS-1$
 
         int indx = TAB_PARAMETERS;
-        if (modernLayout) {
+        if (modernLayout || !notConfigOnly) {
             tabHeadersIndex = ++indx;
             headersPanel = new HeaderTablePanel(false);
             headersPanel.addTableModelListener(e -> updateContentTabTitles());

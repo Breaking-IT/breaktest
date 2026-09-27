@@ -19,14 +19,22 @@ package org.apache.jmeter.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ResourceBundle;
+import java.util.concurrent.Callable;
 
 import javax.swing.JButton;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.junit.JMeterTestCase;
@@ -35,8 +43,93 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTest {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void renamedCloneUsesNewArchiveFilename(boolean productionExists) throws Exception {
+        TestPlan plan = new TestPlan();
+        byte[] acceptance = "name\nacceptance\n".getBytes(StandardCharsets.UTF_8);
+        byte[] production = "name\nproduction\n".getBytes(StandardCharsets.UTF_8);
+        ArchiveFiles.put(plan, "acceptance.csv", acceptance, false);
+        if (productionExists) {
+            ArchiveFiles.put(plan, "production.csv", production, false);
+        }
+        ArchiveFiles.activate(plan);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                TestCustomizer customizer = new TestCustomizer();
+                CSVDataSet original = new CSVDataSet();
+                original.setFilename("acceptance.csv");
+                original.setProperty("filename", "acceptance.csv");
+                original.storeArchivedCsv(acceptance);
+                CSVDataSet clone = (CSVDataSet) original.clone();
+                Map<String, Object> properties = new HashMap<>();
+                customizer.setObject(properties);
+                properties.put("filename", clone.getPropertyAsString("filename"));
+                properties.put("useCsvFromArchive", clone.isUseCsvFromArchive());
+                properties.put("csvArchiveEntry", clone.getCsvArchiveEntry());
+                properties.put("csvArchiveChecksum", clone.getCsvArchiveChecksum());
+                customizer.setObject(properties);
+                customizer.saveGuiFields();
+                assertEquals(original.getCsvArchiveEntry(), properties.get("csvArchiveEntry"));
+                assertEquals(original.getCsvArchiveChecksum(), properties.get("csvArchiveChecksum"));
+
+                findTextField(customizer, "acceptance.csv").setText("production.csv");
+                customizer.saveGuiFields();
+                // Subsequent commits must not restore the hidden metadata either.
+                customizer.saveGuiFields();
+                assertEquals("production.csv", properties.get("filename"));
+                assertEquals("", properties.get("csvArchiveEntry"));
+                assertEquals("", properties.get("csvArchiveChecksum"));
+                clone.setFilename((String) properties.get("filename"));
+                clone.setCsvArchiveEntry((String) properties.get("csvArchiveEntry"));
+                clone.setCsvArchiveChecksum((String) properties.get("csvArchiveChecksum"));
+                clone.setFileEncoding("UTF-8");
+                customizer.create = true;
+                try {
+                    var loaded = customizer.loadEditor(clone,
+                            ResourceBundle.getBundle(CSVDataSet.class.getName() + "Resources"));
+                    assertEquals(Path.of("files/production.csv"), loaded.file().getPath());
+                    if (productionExists) {
+                        assertEquals("name\nproduction\n", loaded.text());
+                        assertEquals("name\nproduction\n", Files.readString(clone.resolveCsvFile()));
+                        assertTrue(clone.readFirstSample(1).contains("${name} = production"));
+                    } else {
+                        assertEquals("", loaded.text());
+                        assertTrue(customizer.creationMessage.contains("production.csv"));
+                        assertThrows(IOException.class, clone::readCsvContent);
+                        assertThrows(IOException.class, clone::resolveCsvFile);
+                    }
+                    clone.storeArchivedCsv(production);
+                    assertEquals("files/production.csv", clone.getCsvArchiveEntry());
+                    assertEquals("name\nacceptance\n", new String(original.readCsvContent(), StandardCharsets.UTF_8));
+                } catch (IOException e) {
+                    throw new AssertionError(e);
+                }
+            });
+        } finally {
+            ArchiveFiles.activate(null);
+        }
+    }
+
+    private static JTextField findTextField(Container container, String text) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTextField field && text.equals(field.getText())) {
+                return field;
+            }
+            if (component instanceof Container child) {
+                JTextField field = findTextField(child, text);
+                if (field != null) {
+                    return field;
+                }
+            }
+        }
+        return null;
+    }
+
     @Test
     void missingCsvOffersCreationAndCancellationLeavesFileMissing(@org.junit.jupiter.api.io.TempDir
             java.nio.file.Path directory) throws Exception {
@@ -201,6 +294,15 @@ class CSVDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTes
     private static class TestCustomizer extends CSVDataSetCustomizer {
         private boolean create;
         private String creationMessage;
+
+        @Override
+        <T> T loadInBackground(String title, Callable<T> operation) throws IOException {
+            try {
+                return operation.call();
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+        }
 
         @Override
         boolean confirmCreateCsv(String message, java.util.ResourceBundle bundle) {

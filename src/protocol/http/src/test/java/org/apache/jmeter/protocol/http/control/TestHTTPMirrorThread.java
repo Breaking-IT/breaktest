@@ -19,6 +19,8 @@ package org.apache.jmeter.protocol.http.control;
 
 import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -28,12 +30,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
+import java.net.BindException;
 import java.net.HttpURLConnection;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.junit.JMeterTestCase;
@@ -60,6 +65,22 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
     private static final int HTTP_SERVER_PORT = 8181;
     @RegisterExtension
     private static final HttpMirrorServerExtension HTTP_MIRROR_SERVER = new HttpMirrorServerExtension(HTTP_SERVER_PORT);
+
+    @Test
+    void startupReportsBindFailure() throws Exception {
+        try (ServerSocket occupiedPort = new ServerSocket(0)) {
+            HttpMirrorServer server = new HttpMirrorServer(occupiedPort.getLocalPort());
+            server.start();
+            try {
+                assertFalse(server.awaitStartup(10, TimeUnit.SECONDS));
+                assertInstanceOf(BindException.class, server.getException());
+            } finally {
+                server.stopServer();
+                server.join(5000);
+            }
+            assertFalse(server.isAlive());
+        }
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})

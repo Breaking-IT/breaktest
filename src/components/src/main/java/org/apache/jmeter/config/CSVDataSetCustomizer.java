@@ -75,6 +75,8 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
 
     private transient Map<String, Object> propertyMap;
 
+    private transient String configuredFilename;
+
     public CSVDataSetCustomizer() {
         super(beanInfo());
         JPanel propertyPanel = moveGeneratedPropertyPanel();
@@ -88,6 +90,20 @@ public class CSVDataSetCustomizer extends GenericTestBeanCustomizer {
     public void setObject(Object map) {
         super.setObject(map);
         propertyMap = (Map<String, Object>) map;
+        configuredFilename = getString("filename");
+    }
+
+    @Override
+    protected void saveGuiFields() {
+        super.saveGuiFields();
+        String filename = getString("filename");
+        if (!filename.equals(configuredFilename)) {
+            // Clones retain the source element's archive metadata. A filename edit selects
+            // another file, so neither its old entry nor its content version still applies.
+            propertyMap.put("csvArchiveEntry", "");
+            propertyMap.put("csvArchiveChecksum", "");
+            configuredFilename = filename;
+        }
     }
 
     private JPanel moveGeneratedPropertyPanel() {

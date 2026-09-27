@@ -247,6 +247,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         }
     }
 
+    @Override
+    public boolean displaysTransactionHierarchy() {
+        return true;
+    }
+
     /**
      * Shows a transaction as soon as it starts, so its samples appear below it as they complete.
      */

@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -85,19 +86,22 @@ class UpdateServiceTest {
         AtomicInteger requests = new AtomicInteger();
         CountDownLatch twoChecks = new CountDownLatch(2);
         HttpClient client = respondingClient(json, requests, twoChecks);
-        Preferences preferences = Preferences.userNodeForPackage(UpdateServiceTest.class).node("schedule-test");
-        preferences.clear();
+        Preferences preferences = Preferences.userNodeForPackage(UpdateServiceTest.class)
+                .node("schedule-test-" + UUID.randomUUID());
         // A recent successful check from a previous session must not delay the startup check.
         preferences.putLong("last_successful_update_check", System.currentTimeMillis());
 
-        UpdateService service = new UpdateService(client, URI.create("https://api.github.invalid/latest"),
-                "2026.07.10", preferences, Duration.ofSeconds(1), () -> true);
-        service.startAutomaticChecks();
+        try (UpdateService service = new UpdateService(client, URI.create("https://api.github.invalid/latest"),
+                "2026.07.10", preferences, Duration.ofSeconds(1), () -> true)) {
+            service.startAutomaticChecks();
 
-        assertTrue(twoChecks.await(10, TimeUnit.SECONDS),
-                "The service should check immediately at startup and again after the configured interval");
-        assertEquals("2026.07.12", service.getAvailableRelease().version(),
-                "The startup check should publish the available release");
+            assertTrue(twoChecks.await(10, TimeUnit.SECONDS),
+                    () -> "Expected startup and periodic checks, but received " + requests.get());
+            assertEquals("2026.07.12", service.getAvailableRelease().version(),
+                    "The startup check should publish the available release");
+        } finally {
+            preferences.removeNode();
+        }
     }
 
     private static String releaseJson(String version) {

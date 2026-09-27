@@ -114,6 +114,8 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
 
     private static final String SUCCESS_ONLY_LOGGING = "ResultCollector.success_only_logging"; // $NON-NLS-1$
 
+    private static final String SHOW_TRANSACTION_CHILDREN = "ResultCollector.show_transaction_children"; // $NON-NLS-1$
+
     /** AutoFlush on each line */
     private static final boolean SAVING_AUTOFLUSH = JMeterUtils.getPropDefault("jmeter.save.saveservice.autoflush", false); //$NON-NLS-1$
 
@@ -232,6 +234,29 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
      */
     public boolean isSuccessOnlyLogging() {
         return getPropertyAsBoolean(SUCCESS_ONLY_LOGGING,false);
+    }
+
+    /** @return whether transaction children should be displayed as separate results */
+    public boolean isShowTransactionChildren() {
+        return getPropertyAsBoolean(SHOW_TRANSACTION_CHILDREN, false);
+    }
+
+    /** @param show whether transaction children should be displayed as separate results */
+    public void setShowTransactionChildren(boolean show) {
+        setProperty(SHOW_TRANSACTION_CHILDREN, show, false);
+    }
+
+    /**
+     * Filters the display only. Saved results and the summariser still receive all samples.
+     * Hierarchical visualizers retain children so they can be expanded below their transaction.
+     *
+     * @param result the sample to display
+     * @param visualizer the destination visualizer
+     * @return whether the sample belongs in this display
+     */
+    public boolean isSampleVisible(SampleResult result, Visualizer visualizer) {
+        return result.getParentTransaction() == null || isShowTransactionChildren()
+                || visualizer.displaysTransactionHierarchy();
     }
 
     /**
@@ -524,14 +549,14 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
 
     @Override
     public void sampleStarted(SampleEvent e) {
-        if (needsStartEvents()) {
+        if (needsStartEvents() && isSampleVisible(e.getResult(), getVisualizer())) {
             getVisualizer().addStartedSample(e);
         }
     }
 
     @Override
     public void sampleStopped(SampleEvent e) {
-        if (needsStartEvents()) {
+        if (needsStartEvents() && isSampleVisible(e.getResult(), getVisualizer())) {
             getVisualizer().removeStartedSample(e);
         }
     }
@@ -574,7 +599,7 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
      */
     @Override
     public void transactionStarted(SampleEvent event) {
-        if (needsStartEvents()) {
+        if (needsStartEvents() && isSampleVisible(event.getResult(), getVisualizer())) {
             getVisualizer().addStartedTransaction(event);
         }
     }
@@ -591,7 +616,7 @@ public class ResultCollector extends AbstractListenerElement implements SampleLi
     }
 
     protected final void sendToVisualizer(SampleEvent event) {
-        if (getVisualizer() != null) {
+        if (getVisualizer() != null && isSampleVisible(event.getResult(), getVisualizer())) {
             getVisualizer().add(event);
         }
     }
