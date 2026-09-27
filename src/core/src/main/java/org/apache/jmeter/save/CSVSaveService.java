@@ -192,7 +192,7 @@ public final class CSVSaveService {
                 if (event != null) {
                     final SampleResult result = event.getResult();
                     if (ResultCollector.isSampleWanted(result.isSuccessful(),
-                            errorsOnly, successOnly)) {
+                            errorsOnly, successOnly) && resultCollector.isSampleVisible(result, visualizer)) {
                         visualizer.add(result);
                     }
                 }

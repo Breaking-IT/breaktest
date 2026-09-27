@@ -212,6 +212,8 @@ public class TestCSVSaveService extends JMeterTestCase {
                 CSVSaveService.resultToDelimitedString(new SampleEvent(innerTransaction, ""), ","),
                 CSVSaveService.resultToDelimitedString(new SampleEvent(outside, ""), ",")));
 
+        ResultCollector collector = new ResultCollector();
+        collector.setShowTransactionChildren(true);
         List<SampleResult> read = new ArrayList<>();
         CSVSaveService.processSamples(file.toString(), new Visualizer() {
             @Override
@@ -223,7 +225,7 @@ public class TestCSVSaveService extends JMeterTestCase {
             public boolean isStats() {
                 return false;
             }
-        }, new ResultCollector());
+        }, collector);
 
         assertEquals(3, read.size());
         assertEquals(inner.getId(), read.get(0).getParentTransaction().getId());

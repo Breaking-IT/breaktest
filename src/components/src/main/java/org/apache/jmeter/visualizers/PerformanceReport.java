@@ -350,9 +350,10 @@ public class PerformanceReport extends AbstractVisualizer implements Clearable, 
         ignoreErrorResponseTimes.addActionListener(this);
         JPanel opts = new JPanel(new MigLayout(
                 "fillx, insets 0, hidemode 3", //$NON-NLS-1$
-                "[][][][][][grow]")); //$NON-NLS-1$
+                "[][][][][][][grow]")); //$NON-NLS-1$
         opts.add(useGroupName);
         opts.add(ignoreErrorResponseTimes);
+        opts.add(getShowTransactionChildrenCheckbox());
         opts.add(configureColumns);
         opts.add(saveTable);
         opts.add(saveHeaders, "gapleft 8"); //$NON-NLS-1$
