@@ -24,13 +24,21 @@ import java.awt.Insets;
 import javax.swing.Box;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
 
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.layout.VerticalLayout;
 
@@ -327,5 +335,35 @@ public class TransactionControllerGui extends AbstractControllerGui {
         public String toString() {
             return label;
         }
+    }
+
+    /**
+     * Adds "Move to Test Fragments": the transaction becomes reusable and a Module Controller takes its place.
+     */
+    @Override
+    public JPopupMenu createPopupMenu() {
+        JPopupMenu pop = super.createPopupMenu();
+        JMenuItem move = new JMenuItem(JMeterUtils.getResString("move_to_test_fragments")); // $NON-NLS-1$
+        move.setName("moveToTestFragments"); // $NON-NLS-1$
+        move.setActionCommand(ActionNames.MOVE_TO_TEST_FRAGMENTS);
+        move.addActionListener(ActionRouter.getInstance());
+        move.setEnabled(canMoveToTestFragments(GuiPackage.getInstance()));
+        pop.insert(move, 0);
+        pop.insert(new JPopupMenu.Separator(), 1);
+        return pop;
+    }
+
+    /** Only transactions in a thread group of a plan with a Test Fragments section can move there. */
+    private static boolean canMoveToTestFragments(GuiPackage guiPackage) {
+        if (guiPackage == null || guiPackage.getCurrentNode() == null
+                || guiPackage.getTreeModel().getNodesOfType(TestFragmentsSection.class).isEmpty()) {
+            return false;
+        }
+        for (Object node : guiPackage.getCurrentNode().getPath()) {
+            if (node instanceof JMeterTreeNode treeNode && treeNode.getTestElement() instanceof AbstractThreadGroup) {
+                return true;
+            }
+        }
+        return false;
     }
 }
