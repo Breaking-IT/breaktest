@@ -958,6 +958,23 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         }
     }
 
+    @Override
+    protected void addProperty(JMeterProperty property, boolean clone) {
+        if (HEADERS.equals(property.getName()) && property instanceof CollectionProperty defaults) {
+            // Defaults and Header Managers arrive in scope order (nearest first). Keep
+            // both in the scoped manager; only request-owned headers have native priority.
+            if (defaults.size() > 0) {
+                HeaderManager manager = new HeaderManager();
+                for (JMeterProperty item : defaults) {
+                    manager.getHeaders().addProperty(clone ? item.clone() : item);
+                }
+                setHeaderManager(manager);
+            }
+        } else {
+            super.addProperty(property, clone);
+        }
+    }
+
     /**
      * {@inheritDoc}
      * <p>

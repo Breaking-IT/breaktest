@@ -307,8 +307,9 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
             Header otherHeader = other.get(i);
             boolean found = false;
             // find the same property in the local headers
-            for (int j = 0; j < merged.getHeaders().size(); j++) {
-                Header mergedHeader = merged.get(j);
+            // Compare with the original local names so repeated incoming headers survive.
+            for (int j = 0; j < getHeaders().size(); j++) {
+                Header mergedHeader = get(j);
                 if (mergedHeader.getName().equalsIgnoreCase(otherHeader.getName())) {
                     // we have a match
                     found = true;
