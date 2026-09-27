@@ -28,8 +28,10 @@ import java.util.Set;
 
 import javax.swing.JOptionPane;
 import javax.swing.JToolBar;
+import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.engine.JMeterEngineException;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
@@ -100,6 +102,8 @@ public class Start extends AbstractAction {
     private StandardJMeterEngine engine;
     private static AbstractThreadGroup[] lastValidationThreadGroups = new AbstractThreadGroup[0];
     private static volatile AbstractThreadGroup[] activeValidationThreadGroups;
+
+    private static final String RESULTS_TREE_GUI = "org.apache.jmeter.visualizers.ViewResultsFullVisualizer";
 
     /**
      * Constructor for the Start object.
@@ -285,6 +289,11 @@ public class Start extends AbstractAction {
                 ? threadGroupsToRun.clone()
                 : null;
         GuiPackage gui = GuiPackage.getInstance();
+        JMeterTreeNode resultsTree = null;
+        if (runMode == RunMode.VALIDATION
+                && JMeterUtils.getPropDefault("testplan_validation.jump_to_visual_tree", true)) {
+            resultsTree = findValidationResultsTree(gui.getTreeModel(), threadGroupsToRun);
+        }
         HashTree testTree = gui.getTreeModel().getTestPlan();
 
         // We need to make this conversion before removing any Thread Group as 1 thread Group running may
@@ -308,6 +317,12 @@ public class Start extends AbstractAction {
                 engine.runTest();
                 if (runMode == RunMode.VALIDATION) {
                     lastValidationThreadGroups = threadGroupsToRun.clone();
+                    if (resultsTree != null) {
+                        TreePath path = new TreePath(resultsTree.getPath());
+                        gui.getTreeListener().setSelectionPathWithoutEdit(path);
+                        gui.getMainFrame().getTree().scrollPathToVisible(path);
+                        ActionRouter.getInstance().doActionNow(new ActionEvent(this, 0, ActionNames.EDIT));
+                    }
                 }
             } catch (JMeterEngineException e) {
                 JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
@@ -318,6 +333,39 @@ public class Start extends AbstractAction {
                         ((TestPlan) treeToUse.getArray()[0]).isRunningVersion());
             }
         }
+    }
+
+    static JMeterTreeNode findValidationResultsTree(JMeterTreeModel model,
+            AbstractThreadGroup[] threadGroups) {
+        JMeterTreeNode groupListener = null;
+        for (JMeterTreeNode node : model.getNodesOfType(TestElement.class)) {
+            if (!RESULTS_TREE_GUI.equals(node.getTestElement().getPropertyAsString(TestElement.GUI_CLASS))) {
+                continue;
+            }
+            boolean enabled = true;
+            AbstractThreadGroup group = null;
+            for (JMeterTreeNode parent = node; parent != null; parent = (JMeterTreeNode) parent.getParent()) {
+                // Fragment listeners are not plan-wide listeners, even without a Thread Group ancestor.
+                if (!parent.isEnabled() || parent.getTestElement() instanceof TestFragmentController) {
+                    enabled = false;
+                    break;
+                }
+                if (parent.getTestElement() instanceof AbstractThreadGroup threadGroup) {
+                    group = threadGroup;
+                }
+            }
+            if (!enabled) {
+                continue;
+            }
+            // Prefer a plan-wide listener so validation of several groups is visible together.
+            if (group == null) {
+                return node;
+            }
+            if (groupListener == null && isInThreadGroups(group, threadGroups)) {
+                groupListener = node;
+            }
+        }
+        return groupListener;
     }
 
     /**

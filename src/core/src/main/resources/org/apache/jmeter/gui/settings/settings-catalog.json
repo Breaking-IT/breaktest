@@ -493,6 +493,7 @@
       "title": "Thread Group Validation",
       "description": "The Validate action that rapidly checks a Thread Group runs fine.",
       "settings": [
+        {"key": "testplan_validation.jump_to_visual_tree", "type": "boolean", "default": "true", "description": "Jump to an existing enabled View Results Tree immediately when validation starts. Keep the current selection if no results tree is available for the selected Thread Groups."},
         {"key": "testplan_validation.tree_cloner_class", "type": "text", "default": "org.apache.jmeter.validation.ComponentTreeClonerForValidation", "description": "Tree cloner implementation used to create the tree for validation runs. Must extend org.apache.jmeter.engine.TreeCloner."},
         {"key": "testplan_validation.nb_threads_per_thread_group", "type": "integer", "default": "1", "description": "Number of threads used when validating a Thread Group."},
         {"key": "testplan_validation.number_iterations", "type": "integer", "default": "1", "description": "Number of iterations used when validating a Thread Group."},
