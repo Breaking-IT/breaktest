@@ -27,10 +27,16 @@ import java.util.Arrays;
 import java.util.List;
 
 import org.apache.jmeter.config.ConfigTestElement;
+import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.extractor.gui.RegexExtractorGui;
+import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.TestCompiler;
+import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -51,6 +57,7 @@ public class HTTPSamplerNativeHeadersTest {
     private static HeaderManager manager(Header... headers) {
         HeaderManager manager = new HeaderManager();
         manager.setName("scoped");
+        manager.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.protocol.http.gui.HeaderPanel");
         for (Header header : headers) {
             manager.add(header);
         }
@@ -99,8 +106,45 @@ public class HTTPSamplerNativeHeadersTest {
 
     private static ConfigTestElement defaults(Header... headers) {
         ConfigTestElement defaults = new ConfigTestElement();
+        defaults.setProperty(TestElement.GUI_CLASS, HttpDefaultsGui.class.getName());
         defaults.set(HTTPSamplerBaseSchema.INSTANCE.getHeaders(), Arrays.asList(headers));
         return defaults;
+    }
+
+    @Test
+    public void mixedHeaderSourcesRespectCompiledScopeOrderAndRecoverBetweenSamples() {
+        for (boolean nearerDefaults : new boolean[] {false, true}) {
+            var tree = new ListedHashTree();
+            var planTree = tree.add(new TestPlan());
+            ConfigTestElement outer = nearerDefaults
+                    ? manager(new Header("ACCEPT", "*/*")) : defaults(new Header("ACCEPT", "*/*"));
+            ConfigTestElement inner = nearerDefaults
+                    ? defaults(new Header("Accept", "application/json")) : manager(new Header("Accept", "application/json"));
+            planTree.add(outer);
+            ThreadGroup group = new ThreadGroup();
+            group.setSamplerController(new LoopController());
+            var groupTree = planTree.add(group);
+            groupTree.add(inner);
+            HTTPSamplerProxy sampler = newSampler();
+            groupTree.add(sampler);
+            TestCompiler compiler = new TestCompiler(tree);
+            tree.traverse(compiler);
+            for (int i = 0; i < 3; i++) {
+                var pack = compiler.configureSampler(sampler);
+                assertEquals("application/json", valueOf(sampler.getEffectiveHeaderManager(), "Accept"));
+                assertEquals(1, sampler.getEffectiveHeaderManager().size());
+                assertTrue(sampler.getNativeHeaderList().isEmpty());
+                compiler.done(pack);
+                assertNull(sampler.getEffectiveHeaderManager());
+            }
+            sampler.setRunningVersion(false);
+            sampler.setNativeHeaders(List.of(new Header("accept", "text/plain")));
+            sampler.setRunningVersion(true);
+            var pack = compiler.configureSampler(sampler);
+            assertEquals("text/plain", valueOf(sampler.getEffectiveHeaderManager(), "accept"));
+            compiler.done(pack);
+            assertEquals("text/plain", sampler.getNativeHeaderList().get(0).getValue());
+        }
     }
 
     @Test

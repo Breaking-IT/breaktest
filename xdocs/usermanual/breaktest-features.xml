@@ -38,6 +38,20 @@ test-plan model, use the official Apache JMeter documentation.
 </ul>
 
 <h2>Modern HTTP And HTTP/2</h2>
+<p>
+HTTP Request Defaults includes a Headers tab with the same add, edit, and remove controls
+as HTTP Request. Use it for shared headers such as <code>Accept</code> or headers whose
+values use JMeter variables. Headers are saved with the Defaults element in the test plan.
+</p>
+<p>
+Request-specific headers take priority. For inherited headers, HTTP Request Defaults and
+HTTP Header Managers follow scope order: the configuration closest to the request wins,
+matching header names case-insensitively. At the same scope, the first configuration in
+tree order wins. For example, a plan-level Defaults value of <code>Accept: */*</code> is
+overridden by a Thread Group Header Manager with <code>Accept: application/json</code>.
+Headers with different names are combined; repeated headers within one configuration are
+preserved unless a closer configuration overrides that name.
+</p>
 <ul>
   <li>The built-in HTTP sampler path uses Apache HttpClient 5.</li>
   <li>HTTP/2 and HTTP/2-preferred protocol selection are available through the async HttpClient 5 path.</li>
