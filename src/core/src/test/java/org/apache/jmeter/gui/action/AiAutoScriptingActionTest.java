@@ -20,18 +20,24 @@ package org.apache.jmeter.gui.action;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
 
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
@@ -440,10 +446,10 @@ class AiAutoScriptingActionTest {
 
             Object request = newRunRequest("PI");
             Class<?> requestClass = request.getClass();
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("piCommand", requestClass);
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", requestClass, File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertEquals(List.of(
                     "pi-test",
@@ -491,10 +497,10 @@ class AiAutoScriptingActionTest {
 
             Object request = newRunRequest("GEMINI");
             Class<?> requestClass = request.getClass();
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", requestClass);
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", requestClass, File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertEquals(List.of(
                     "gemini-test",
@@ -528,10 +534,10 @@ class AiAutoScriptingActionTest {
             properties.remove("breaktest.gemini.model");
 
             Object request = newRunRequest("GEMINI");
-            Method method = AiAutoScriptingAction.class.getDeclaredMethod("geminiCommand", request.getClass());
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("aiCommand", request.getClass(), File.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
-            List<String> command = (List<String>) method.invoke(null, request);
+            List<String> command = (List<String>) method.invoke(null, request, new File("."));
 
             assertFalse(command.contains("--model"));
         } finally {
@@ -688,6 +694,87 @@ class AiAutoScriptingActionTest {
     @FunctionalInterface
     private interface ThrowingAction {
         void run() throws Exception;
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void engineRunsTheChosenCliInTheGivenFolder(@TempDir Path workDir) throws Exception {
+        Path fakeClaude = workDir.resolve("fake-claude.sh");
+        // Behave like a real CLI: consume stdin before writing the result and exiting.
+        // Otherwise a fast process can close the pipe before the parent writes its prompt.
+        Files.writeString(fakeClaude, "#!/bin/sh\ncat > prompt.txt\nprintf 'updated' > script.groovy\necho done\n");
+        fakeClaude.toFile().setExecutable(true);
+        Path scriptDir = Files.createDirectory(workDir.resolve("script"));
+        Files.writeString(scriptDir.resolve("script.groovy"), "original");
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.claude.command");
+        try {
+            JMeterUtils.setProperty("breaktest.claude.command", fakeClaude.toString());
+            AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
+                    AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.HIGH, "test-model");
+
+            String prompt = "Change the script\n".repeat(4096);
+            int exitCode = engine.run(prompt, scriptDir.toFile(), Duration.ofSeconds(30));
+
+            assertEquals(0, exitCode);
+            assertEquals("updated", Files.readString(scriptDir.resolve("script.groovy")));
+            assertEquals(prompt, Files.readString(scriptDir.resolve("prompt.txt")));
+            assertEquals("Claude Code", engine.displayName());
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.claude.command");
+            } else {
+                properties.setProperty("breaktest.claude.command", previous);
+            }
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void engineStopsACliThatExceedsTheTimeout(@TempDir Path workDir) throws Exception {
+        Path hangingClaude = workDir.resolve("hanging-claude.sh");
+        Files.writeString(hangingClaude, "#!/bin/sh\ncat > /dev/null\nsleep 30\n");
+        hangingClaude.toFile().setExecutable(true);
+        Properties properties = jmeterProperties();
+        String previous = properties.getProperty("breaktest.claude.command");
+        try {
+            JMeterUtils.setProperty("breaktest.claude.command", hangingClaude.toString());
+            AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
+                    AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "");
+
+            long started = System.nanoTime();
+            IOException timeout = assertThrows(IOException.class,
+                    () -> engine.run("Change the script", workDir.toFile(), Duration.ofMillis(500)));
+
+            assertTrue(timeout.getMessage().contains("did not finish within"));
+            assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() < 10,
+                    "The hanging CLI must be stopped, not awaited");
+        } finally {
+            if (previous == null) {
+                properties.remove("breaktest.claude.command");
+            } else {
+                properties.setProperty("breaktest.claude.command", previous);
+            }
+        }
+    }
+
+    @Test
+    void oneShotCommandsKeepAgentsAwayFromMcpServers() {
+        File directory = new File(".");
+        List<String> claude = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.CLAUDE,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> gemini = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.GEMINI,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> pi = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.PI,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+        List<String> codex = AiAutoScriptingAction.oneShotCommand(AiAutoScriptingAction.AiTool.CODEX,
+                AiAutoScriptingAction.AiThinkingLevel.DEFAULT, "", "prompt", directory);
+
+        assertEquals("--strict-mcp-config", claude.get(1));
+        assertEquals("--allowed-mcp-server-names=breaktest-ask-ai-none", gemini.get(1));
+        assertEquals(List.of("--tools", "read,edit,write"), pi.subList(1, 3));
+        assertTrue(codex.contains("mcp_servers.breaktest.enabled=false"));
+        assertEquals("prompt", claude.get(claude.size() - 1), "The prompt must stay last for stdin delivery");
     }
 
     private static Properties jmeterProperties() throws Exception {
