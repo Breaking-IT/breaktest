@@ -95,6 +95,19 @@ class BreakTestJmxUpgradeTest extends JMeterTestCase {
     }
 
     @Test
+    void backupBeforeSavingKeepsTheOriginalUntouched() throws Exception {
+        Path source = tempDir.resolve("plan.jmx");
+        byte[] original = legacyXml();
+        Files.write(source, original);
+
+        Path backup = BreakTestJmxUpgrade.backupOriginal(source);
+
+        assertEquals(tempDir.resolve("plan.jmeter-backup-001.jmx"), backup);
+        assertArrayEquals(original, Files.readAllBytes(backup));
+        assertArrayEquals(original, Files.readAllBytes(source), "Only an explicit save may change the file");
+    }
+
+    @Test
     void backupNamesAvoidExistingBackups() throws Exception {
         Path source = tempDir.resolve("plan.jmx");
         Files.write(source, legacyXml());

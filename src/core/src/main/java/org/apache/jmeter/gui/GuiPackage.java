@@ -121,6 +121,9 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      */
     private boolean dirty = false;
 
+    /** Whether the open plan was converted when it was opened and has not been saved since */
+    private boolean convertedPlanUnsaved;
+
     /**
      * Map from TestElement to JMeterGUIComponent, mapping the nodes in the tree
      * to their corresponding GUI components.
@@ -690,10 +693,21 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      *            the new value of the dirty flag
      */
     public void setDirty(boolean dirty) {
-        this.dirty = dirty;
+        // A plan converted when it was opened stays unsaved until it is saved, even without further edits
+        this.dirty = dirty || convertedPlanUnsaved;
         if (mainFrame != null) {
-            mainFrame.updateDirtyStatus(dirty);
+            mainFrame.updateDirtyStatus(this.dirty);
         }
+    }
+
+    /**
+     * Marks the open test plan as converted in memory (for instance organised in scenarios when it was opened),
+     * so it counts as unsaved until it is saved. Opening a plan never writes its file.
+     * @param converted whether the open plan differs from its file because it was converted
+     */
+    public void setConvertedPlanUnsaved(boolean converted) {
+        convertedPlanUnsaved = converted;
+        setDirty(dirty);
     }
 
     /**
@@ -956,6 +970,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * Clears the test plan file name.
      */
     public void clearTestPlan() {
+        convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         testPlanListeners.stream().forEach(TestPlanListener::beforeTestPlanCleared);
         getTreeModel().clearTestPlan();
@@ -973,6 +988,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * @param element to clear
      */
     public void clearTestPlan(TestElement element) {
+        convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         getTreeModel().clearTestPlan(element);
         removeNode(element);

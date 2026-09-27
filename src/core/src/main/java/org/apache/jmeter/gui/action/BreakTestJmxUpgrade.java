@@ -79,6 +79,15 @@ final class BreakTestJmxUpgrade {
         });
     }
 
+    /**
+     * Keeps a JMeter-compatible copy of a file before it is overwritten in BreakTest's format.
+     * @param source the JMeter-format file about to be overwritten
+     * @return the backup
+     */
+    static Path backupOriginal(Path source) throws IOException {
+        return createBackup(source);
+    }
+
     static Path upgradeIfConfirmed(int dialogChoice, Path source, HashTree tree) throws IOException {
         return isUpgradeConfirmed(dialogChoice) ? upgrade(source, tree) : null;
     }
