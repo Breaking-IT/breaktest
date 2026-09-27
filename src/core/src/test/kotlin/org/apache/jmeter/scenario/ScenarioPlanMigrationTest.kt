@@ -125,6 +125,36 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
+    fun `old plans keep thread group listeners, open model settings and consecutive runs`() {
+        val threadGroupListener = org.apache.jmeter.reporters.ResultCollector().apply { name = "Browse results" }
+        val tree = testTree {
+            TestPlan::class {
+                isSerialized = true
+                org.apache.jmeter.threads.openmodel.OpenModelThreadGroup::class {
+                    name = "Arrivals"
+                    scheduleString = "rate(2/sec) even_arrivals(1 min)"
+                    +threadGroupListener
+                }
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(tree)
+        val plan = migrated.array[0] as TestPlan
+        val planTree = migrated.getTree(plan)
+        val threadGroupsSection = planTree.list().filterIsInstance<ThreadGroupsSection>().single()
+        val threadGroup = planTree.getTree(threadGroupsSection).list().single() as ThreadGroup
+        assertSame(threadGroupListener, planTree.getTree(threadGroupsSection).getTree(threadGroup).list().single()) {
+            "A listener inside a thread group stays in that thread group"
+        }
+        val scenario = planTree.getTree(planTree.list().filterIsInstance<ScenariosSection>().single())
+            .list().single() as Scenario
+        val workload = scenario.workloads.single()
+        assertEquals(ThreadGroup.MODEL_OPEN, workload.getPropertyAsString(ThreadGroup.MODEL))
+        assertEquals("rate(2/sec) even_arrivals(1 min)", workload.getPropertyAsString(ThreadGroup.OPEN_MODEL_SCHEDULE))
+        assertTrue(scenario.isRunConsecutively) { "Running thread groups one after another is a scenario setting" }
+        assertFalse(plan.isSerialized)
+    }
+
+    @Test
     fun `fragment run as a whole by a Module Controller stays wrapped`() {
         val fragment = TestFragmentController().apply { name = "Checkout" }
         val module = GenericController().apply {

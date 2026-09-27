@@ -182,6 +182,12 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void configure(HashTree testTree) {
+        readPlanSettings(testTree);
+        active = true;
+        test = testTree;
+    }
+
+    private void readPlanSettings(HashTree testTree) {
         // Is testplan serialised?
         var testPlan = new SearchByClass<>(TestPlan.class);
         testTree.traverse(testPlan);
@@ -192,14 +198,14 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         var tp = (TestPlan) plan[0];
         serialized = tp.isSerialized();
         tearDownOnShutdown = tp.isTearDownOnShutdown();
-        active = true;
-        test = testTree;
     }
 
     @Override
     public void runTest() throws JMeterEngineException {
         try {
             test = ScenarioResolver.resolve(test);
+            // The scenario decides whether its thread groups run one after another
+            readPlanSettings(test);
         } catch (ScenarioException e) {
             throw new JMeterEngineException(e.getMessage(), e);
         }

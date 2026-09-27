@@ -60,6 +60,10 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
                     "functional_mode",
                     JMeterUtils::getResString);
 
+    /**
+     * Not shown: scenarios decide whether their thread groups run one after another. Kept bound so the setting of
+     * plans without scenarios, which the command line still runs as before, is preserved when they are edited.
+     */
     private final JBooleanPropertyEditor serializedMode =
             new JBooleanPropertyEditor(
                     TestPlanSchema.INSTANCE.getSerializeThreadgroups(),
@@ -208,7 +212,7 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
         add(argsPanel, BorderLayout.CENTER);
 
         VerticalPanel southPanel = new VerticalPanel();
-        southPanel.add(serializedMode);
+        // Whether thread groups run one after another is chosen per scenario
         southPanel.add(tearDownOnShutdown);
         southPanel.add(functionalMode);
         JComponent explain = new JLabel(JMeterUtils.getResString("functional_mode_explanation")); // $NON-NLS-1$

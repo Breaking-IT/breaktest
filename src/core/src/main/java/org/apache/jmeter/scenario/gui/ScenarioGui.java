@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
@@ -76,6 +77,9 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
     private final JLabel status = new JLabel();
 
     private final JButton activate = new JButton(JMeterUtils.getResString("scenario_make_active")); // $NON-NLS-1$
+
+    private final JCheckBox runConsecutively =
+            new JCheckBox(JMeterUtils.getResString("scenario_run_consecutively")); // $NON-NLS-1$
 
     private final List<ScenarioWorkload> workloads = new ArrayList<>();
 
@@ -121,6 +125,8 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
         activePanel.add(activate);
         activePanel.add(status);
         box.add(activePanel);
+        runConsecutively.setName("runConsecutively"); // $NON-NLS-1$
+        box.add(runConsecutively);
         box.add(createSummaryPanel());
         add(box, BorderLayout.NORTH);
 
@@ -204,6 +210,7 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
         boolean active = element.isEnabled();
         activate.setEnabled(!active);
         status.setText(JMeterUtils.getResString(active ? "scenario_is_active" : "scenario_is_inactive")); // $NON-NLS-1$
+        runConsecutively.setSelected(((Scenario) element).isRunConsecutively());
         workloads.clear();
         for (ScenarioWorkload workload : ((Scenario) element).getWorkloads()) {
             workloads.add((ScenarioWorkload) workload.clone());
@@ -221,11 +228,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
             copies.add((ScenarioWorkload) workload.clone());
         }
         ((Scenario) element).setWorkloads(copies);
+        ((Scenario) element).setRunConsecutively(runConsecutively.isSelected());
     }
 
     @Override
     public void clearGui() {
         super.clearGui();
+        runConsecutively.setSelected(false);
         workloads.clear();
         editedRow = -1;
         refreshTable(-1);
@@ -373,8 +382,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
         double rate = 0;
         int unlimitedThreads = 0;
         int unknownRate = 0;
+        int ownSettings = 0;
         for (ScenarioWorkload workload : workloads) {
             if (!workload.isEnabled()) {
+                continue;
+            }
+            if (usesOwnSettings(workload)) {
+                ownSettings++;
                 continue;
             }
             WorkloadSummary summary = WorkloadSummary.of(workload);
@@ -399,7 +413,17 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
             text.append(' ').append(MessageFormat.format(
                     JMeterUtils.getResString("scenario_totals_unknown_rate"), unknownRate)); // $NON-NLS-1$
         }
+        if (ownSettings > 0) {
+            text.append(' ').append(MessageFormat.format(
+                    JMeterUtils.getResString("scenario_totals_own_settings"), ownSettings)); // $NON-NLS-1$
+        }
         totals.setText(text.toString());
+    }
+
+    private static boolean usesOwnSettings(ScenarioWorkload workload) {
+        return ScenarioWorkloadGui.availableThreadGroups().stream()
+                .anyMatch(threadGroup -> threadGroup.getThreadGroupId().equals(workload.getThreadGroupId())
+                        && ScenarioWorkload.usesOwnSettings(threadGroup));
     }
 
     private static String formatRate(double perMinute) {
@@ -525,6 +549,9 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
             }
             if (column == 3) {
                 return workload.getProfile().isEmpty() ? "–" : workload.getProfile(); // $NON-NLS-1$
+            }
+            if (usesOwnSettings(workload)) {
+                return column == 4 ? JMeterUtils.getResString("scenario_own_settings") : "–"; // $NON-NLS-1$ $NON-NLS-2$
             }
             WorkloadSummary summary = WorkloadSummary.of(workload);
             return switch (column) {

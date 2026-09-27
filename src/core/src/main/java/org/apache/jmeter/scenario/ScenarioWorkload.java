@@ -132,10 +132,23 @@ public class ScenarioWorkload extends AbstractTestElement implements Serializabl
      * @param threadGroup the thread group to clean up
      */
     public static void removeWorkload(AbstractThreadGroup threadGroup) {
+        if (usesOwnSettings(threadGroup)) {
+            return;
+        }
         for (String name : WORKLOAD_PROPERTIES) {
             threadGroup.removeProperty(name);
         }
         ensureMainController(threadGroup);
+    }
+
+    /**
+     * Scenarios set the workload of BreakTest's own thread groups. Other thread groups, such as those of plugins,
+     * keep the settings they were configured with: a scenario only decides whether they run.
+     * @param threadGroup a thread group
+     * @return whether the thread group keeps its own settings
+     */
+    public static boolean usesOwnSettings(AbstractThreadGroup threadGroup) {
+        return !(threadGroup instanceof ThreadGroup);
     }
 
     private static void copyWorkloadProperties(AbstractTestElement source, AbstractTestElement target) {

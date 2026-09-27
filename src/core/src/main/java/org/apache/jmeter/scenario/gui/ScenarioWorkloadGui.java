@@ -54,6 +54,9 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
 
     private final JComboBox<String> profile = new JComboBox<>();
 
+    private final JLabel ownSettings =
+            new JLabel(JMeterUtils.getResString("scenario_workload_own_settings")); // $NON-NLS-1$
+
     private boolean updatingThreadGroups;
 
     private String selectedThreadGroupName = "";
@@ -76,7 +79,9 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
                 workloadChanged();
             }
         });
-        header.add(profile, "growx");
+        header.add(profile, "growx, wrap");
+        ownSettings.setVisible(false);
+        header.add(ownSettings, "span 2");
     }
 
     /**
@@ -157,6 +162,19 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         super.configure(carrier);
         loadThreadGroups(workload.getThreadGroupId());
         loadProfiles(workload.getProfile());
+        updateOwnSettings();
+    }
+
+    /** Thread groups that are not BreakTest's own keep their settings: there is nothing to set here. */
+    private void updateOwnSettings() {
+        boolean own = threadGroups.getSelectedItem() instanceof ThreadGroupChoice choice && choice.threadGroup() != null
+                && ScenarioWorkload.usesOwnSettings(choice.threadGroup());
+        ownSettings.setVisible(own);
+        if (own) {
+            setOwnSettingsMode(true);
+        } else {
+            setWorkloadSettingsVisible(true);
+        }
     }
 
     @Override
@@ -254,6 +272,7 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
             setName(choice.threadGroup().getName());
         }
         selectedThreadGroupName = choice.threadGroup().getName();
+        updateOwnSettings();
         workloadChanged();
     }
 

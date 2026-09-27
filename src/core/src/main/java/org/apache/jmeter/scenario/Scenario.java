@@ -37,6 +37,9 @@ public class Scenario extends AbstractTestElement implements Serializable {
     /** The workloads of this scenario, in run order */
     public static final String WORKLOADS = "Scenario.workloads"; // $NON-NLS-1$
 
+    /** Whether the thread groups of this scenario run one after another instead of together */
+    public static final String RUN_CONSECUTIVELY = "Scenario.run_consecutively"; // $NON-NLS-1$
+
     public Scenario() {
         super();
     }
@@ -58,6 +61,14 @@ public class Scenario extends AbstractTestElement implements Serializable {
             }
         }
         return workloads;
+    }
+
+    public boolean isRunConsecutively() {
+        return getPropertyAsBoolean(RUN_CONSECUTIVELY);
+    }
+
+    public void setRunConsecutively(boolean runConsecutively) {
+        setProperty(RUN_CONSECUTIVELY, runConsecutively, false);
     }
 
     public void setWorkloads(List<ScenarioWorkload> workloads) {

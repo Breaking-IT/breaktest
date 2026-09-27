@@ -37,6 +37,7 @@ import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jorphan.collections.HashTree
 import org.apache.jorphan.collections.ListedHashTree
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -379,6 +380,101 @@ class ScenarioResolverTest : JMeterTestCase() {
         )
         val result = org.apache.jmeter.ai.AgentValidationRunner().run(tree)
         assertEquals(1, result.samples.size) { "Validation must not start the load of the active scenario" }
+    }
+
+    @Test
+    fun `thread groups that are not BreakTest's own keep their settings`() {
+        val arrivals = org.apache.jmeter.threads.openmodel.OpenModelThreadGroup().apply {
+            name = "Plugin-like"
+            threadGroupId = "plugin-id"
+            scheduleString = "rate(1/sec) even_arrivals(1 min)"
+        }
+        val tree = testTree {
+            TestPlan::class {
+                ScenariosSection::class { +scenario("Load", workload("Plugin-like", arrivals, 50)) }
+                ThreadGroupsSection::class {
+                    arrivals { ThreadSleep::class { duration = 0.seconds } }
+                }
+            }
+        }
+        val instance = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
+        assertTrue(instance.getPropertyAsString(AbstractThreadGroup.NUM_THREADS).isEmpty()) {
+            "The scenario row must not override the settings of the thread group"
+        }
+        assertEquals("rate(1/sec) even_arrivals(1 min)", instance.getPropertyAsString(ThreadGroup.OPEN_MODEL_SCHEDULE))
+    }
+
+    @Test
+    fun `the scenario decides whether thread groups run one after another`() {
+        val tree = plan(
+            scenarios = {
+                +scenario("Load", workload("Browse", browse, 1)).apply { isRunConsecutively = true }
+            }
+        )
+        val original = tree.array[0] as TestPlan
+        val resolved = convertAndResolve(tree)
+        assertTrue((resolved.array[0] as TestPlan).isSerialized)
+        assertFalse(original.isSerialized) { "The edited test plan is not changed" }
+    }
+
+    @Test
+    fun `profile variables override test plan variables`() {
+        val listener = CollectSamplesListener()
+        val tree = profilesPlan(
+            variables("host" to "plan.example.com"),
+            workload("Acceptance", browse, 1).apply { profile = "acceptance" },
+            workload("No profile", browse, 1),
+        )
+        tree.getTree(tree.array[0]).add(listener)
+        runAndWait(tree, listener, 2)
+        assertEquals(
+            mapOf("Acceptance" to "acc.example.com", "No profile" to "plan.example.com"),
+            listener.events.associate { it.threadGroup to it.result.responseDataAsString }
+        )
+    }
+
+    @Test
+    fun `listeners inside a thread group receive its samples`(@org.junit.jupiter.api.io.TempDir dir: java.nio.file.Path) {
+        val results = dir.resolve("results.csv").toFile()
+        val threadGroupListener = org.apache.jmeter.reporters.ResultCollector().apply {
+            name = "Browse results"
+            filename = results.absolutePath
+        }
+        val tree = testTree {
+            TestPlan::class {
+                ScenariosSection::class { +scenario("Load", workload("Browse", browse, 2, loops = 2)) }
+                ThreadGroupsSection::class {
+                    browse {
+                        ThreadSleep::class { duration = 0.seconds }
+                        +threadGroupListener
+                    }
+                }
+            }
+        }
+        val engine = StandardJMeterEngine()
+        engine.configure(JMeter.convertSubTree(tree, false))
+        engine.runTest()
+        engine.awaitTermination(Duration.ofSeconds(10))
+        val deadline = System.currentTimeMillis() + 10_000
+        while ((!results.exists() || results.readLines().size < 5) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(50)
+        }
+        assertEquals(4, results.readLines().drop(1).size) { "2 threads x 2 loops, plus the header: ${results.readText()}" }
+    }
+
+    private fun runAndWait(tree: HashTree, listener: CollectSamplesListener, samples: Int) {
+        val engine = StandardJMeterEngine()
+        try {
+            engine.configure(JMeter.convertSubTree(tree, false))
+            engine.runTest()
+            engine.awaitTermination(Duration.ofSeconds(10))
+            val deadline = System.currentTimeMillis() + 10_000
+            while (listener.events.size < samples && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50)
+            }
+        } finally {
+            engine.stopTest(true)
+        }
     }
 
     @Test

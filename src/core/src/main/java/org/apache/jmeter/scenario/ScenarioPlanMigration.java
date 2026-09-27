@@ -159,6 +159,11 @@ public final class ScenarioPlanMigration {
             }
         }
         scenario.setWorkloads(workloads);
+        if (plan instanceof TestPlan testPlan) {
+            // Whether thread groups run one after another is now a setting of the scenario
+            scenario.setRunConsecutively(testPlan.isSerialized());
+            testPlan.setSerialized(false);
+        }
 
         HashTree result = new ListedHashTree();
         result.add(plan);
@@ -232,7 +237,9 @@ public final class ScenarioPlanMigration {
         ScenarioWorkload workload = new ScenarioWorkload();
         workload.setName(threadGroup.getName());
         workload.setThreadGroupId(threadGroup.getOrCreateThreadGroupId());
-        workload.copyWorkloadFrom(threadGroup);
+        if (!ScenarioWorkload.usesOwnSettings(threadGroup)) {
+            workload.copyWorkloadFrom(threadGroup);
+        }
         // A disabled thread group stays in the plan; its workload is disabled so the scenario can still run
         workload.setEnabled(threadGroup.isEnabled());
         setGuiClass(workload, "ScenarioWorkloadGui"); // $NON-NLS-1$
@@ -240,6 +247,9 @@ public final class ScenarioPlanMigration {
     }
 
     private static void keepOnlyScript(AbstractThreadGroup threadGroup) {
+        if (ScenarioWorkload.usesOwnSettings(threadGroup)) {
+            return;
+        }
         boolean stopOnError = threadGroup.getOnErrorStopTest() || threadGroup.getOnErrorStopTestNow()
                 || threadGroup.getOnErrorStopThread();
         ScenarioWorkload.removeWorkload(threadGroup);

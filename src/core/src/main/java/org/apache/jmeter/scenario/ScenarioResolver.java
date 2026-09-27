@@ -107,7 +107,9 @@ public final class ScenarioResolver {
                         + scenario.getName() + "' uses a thread group that does not exist or is disabled.");
             }
             AbstractThreadGroup instance = (AbstractThreadGroup) entry.threadGroup().clone();
-            workload.applyTo(instance);
+            if (!ScenarioWorkload.usesOwnSettings(instance)) {
+                workload.applyTo(instance);
+            }
             String name = workload.getName().isBlank() ? entry.threadGroup().getName() : workload.getName();
             instance.setName(uniqueName(name, usedNames));
             ProfileEntry profile = flattener.profileNamed(evaluator.evaluate(workload.getProfile()).trim(),
@@ -117,6 +119,9 @@ public final class ScenarioResolver {
         }
         if (workloads == 0) {
             throw new ScenarioException("Scenario '" + scenario.getName() + "' has no enabled thread groups.");
+        }
+        if (flattener.plan instanceof TestPlan testPlan) {
+            testPlan.setSerialized(scenario.isRunConsecutively());
         }
         return flattener.result;
     }
@@ -163,7 +168,7 @@ public final class ScenarioResolver {
         }
         HashTree flat = flattenIgnoringScenarios(tree);
         for (Object element : flat.getTree(root(flat)).list()) {
-            if (element instanceof AbstractThreadGroup threadGroup) {
+            if (element instanceof AbstractThreadGroup threadGroup && !ScenarioWorkload.usesOwnSettings(threadGroup)) {
                 runOnce(threadGroup);
             }
         }
@@ -303,10 +308,12 @@ public final class ScenarioResolver {
         private final List<ThreadGroupEntry> threadGroups = new ArrayList<>();
         private final List<ProfileEntry> profiles = new ArrayList<>();
         private final Evaluator evaluator = new Evaluator();
+        /** The test plan of the run tree: a copy, so run settings can be changed without touching the edited plan */
+        private final Object plan;
 
         Flattener(HashTree tree) {
             Object root = root(tree);
-            Object plan = evaluateVariables(root);
+            plan = evaluateVariables(root);
             result.add(plan);
             planTree = result.getTree(plan);
             HashTree sourcePlanTree = tree.getTree(root);
@@ -365,11 +372,10 @@ public final class ScenarioResolver {
         private Object evaluateVariables(Object element) {
             if (element instanceof TestPlan testPlan) {
                 Map<String, String> variables = testPlan.getUserDefinedVariables();
-                if (variables.isEmpty()) {
-                    return testPlan;
-                }
                 TestPlan copy = (TestPlan) testPlan.clone();
-                copy.setUserDefinedVariables(evaluated(variables));
+                if (!variables.isEmpty()) {
+                    copy.setUserDefinedVariables(evaluated(variables));
+                }
                 return copy;
             }
             if (element != null && element.getClass() == Arguments.class) {

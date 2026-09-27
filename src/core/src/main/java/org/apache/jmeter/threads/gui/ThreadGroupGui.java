@@ -667,6 +667,18 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     /**
+     * Hides all run settings, for thread groups that keep their own settings instead of taking them from scenarios.
+     * @param ownSettings whether the edited thread group keeps its own settings
+     */
+    protected void setOwnSettingsMode(boolean ownSettings) {
+        workloadPanel.setVisible(!ownSettings);
+        setOnErrorSettingsVisible(!ownSettings);
+        scriptSettingsPanel.setVisible(false);
+        revalidate();
+        repaint();
+    }
+
+    /**
      * Called when a setting that changes the expected load has been edited.
      */
     protected void workloadChanged() {
