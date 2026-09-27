@@ -65,6 +65,8 @@ public final class RecordedHarExchangeResolver {
     public static final String RECORDING_MANIFEST = RecordedExchangeStore.MANIFEST_PROPERTY;
     public static final String RECORDING_CHECKSUM = RecordedExchangeStore.CHECKSUM_PROPERTY;
     public static final String RECORDING_EXCHANGE_ID = RecordedExchangeStore.EXCHANGE_ID_PROPERTY;
+    private static final List<String> RECORDING_SOURCE_PROPERTIES =
+            List.of(RECORDING_MANIFEST, RECORDING_CHECKSUM, HAR_FILENAME, HAR_MD5);
 
     private static final Logger LOG = LoggerFactory.getLogger(RecordedHarExchangeResolver.class);
     private static final ObjectMapper JSON = JsonMapper.builder().build();
@@ -425,6 +427,72 @@ public final class RecordedHarExchangeResolver {
             node = current.getParent();
         }
         return null;
+    }
+
+    /**
+     * Copies the recording source that {@code original} inherits from an ancestor onto
+     * {@code copyRoot}, so recorded samplers keep their link after being copied or moved
+     * away from the Thread Group or Test Fragment that owns the recording.
+     */
+    public static void carryInheritedRecordingSource(JMeterTreeNode original, TestElement copyRoot) {
+        if (original == null || copyRoot == null || isRecordingSource(copyRoot)
+                || !hasRecordedDescendant(original)
+                || !(original.getParent() instanceof JMeterTreeNode parent)) {
+            return;
+        }
+        TestElement source = findRecordingSource(parent);
+        if (source == null) {
+            return;
+        }
+        for (String property : RECORDING_SOURCE_PROPERTIES) {
+            String value = source.getPropertyAsString(property);
+            if (StringUtilities.isNotEmpty(value)) {
+                copyRoot.setProperty(property, value);
+            }
+        }
+    }
+
+    /**
+     * Removes a recording source carried by {@link #carryInheritedRecordingSource} once the
+     * node sits under an ancestor that already provides the same recording.
+     */
+    public static void dropRedundantRecordingSource(JMeterTreeNode placed) {
+        if (placed == null || !(placed.getParent() instanceof JMeterTreeNode parent)) {
+            return;
+        }
+        TestElement element = placed.getTestElement();
+        if (!isRecordingSource(element)) {
+            return;
+        }
+        TestElement inherited = findRecordingSource(parent);
+        if (inherited == null) {
+            return;
+        }
+        for (String property : RECORDING_SOURCE_PROPERTIES) {
+            if (!element.getPropertyAsString(property).equals(inherited.getPropertyAsString(property))) {
+                return;
+            }
+        }
+        for (String property : RECORDING_SOURCE_PROPERTIES) {
+            element.removeProperty(property);
+        }
+    }
+
+    private static boolean isRecordingSource(TestElement element) {
+        return StringUtilities.isNotEmpty(element.getPropertyAsString(RECORDING_MANIFEST))
+                || StringUtilities.isNotEmpty(element.getPropertyAsString(HAR_FILENAME));
+    }
+
+    private static boolean hasRecordedDescendant(JMeterTreeNode node) {
+        if (hasRecordingMetadata(node.getTestElement())) {
+            return true;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (hasRecordedDescendant((JMeterTreeNode) node.getChildAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

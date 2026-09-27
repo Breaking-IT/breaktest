@@ -33,6 +33,7 @@ import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.util.MenuFactory;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -241,6 +242,7 @@ public class JMeterTreeTransferHandler extends TransferHandler {
             // working on the original node would be harder as
             //    you'll have to deal with the insertion index offset if you re-order a node inside a parent
             JMeterTreeNode copy = (JMeterTreeNode) node.clone();
+            RecordedHarExchangeResolver.carryInheritedRecordingSource(node, copy.getTestElement());
 
             // first copy the children as the call to copy.add will modify the collection we're iterating on
             Enumeration<?> enumFrom = node.children();
@@ -254,6 +256,7 @@ public class JMeterTreeTransferHandler extends TransferHandler {
                 copy.add(jMeterTreeNode);
             }
             treeModel.insertNodeInto(copy, target, index++);
+            RecordedHarExchangeResolver.dropRedundantRecordingSource(copy);
             nodesForRemoval.add(node);
             pathsToSelect[pathPosition++] = new TreePath(treeModel.getPathToRoot(copy));
         }
