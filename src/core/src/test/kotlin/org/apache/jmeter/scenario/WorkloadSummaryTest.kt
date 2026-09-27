@@ -52,6 +52,16 @@ class WorkloadSummaryTest : JMeterTestCase() {
     }
 
     @Test
+    fun `expressions are shown as written instead of as zero`() {
+        val summary = summaryOf {
+            setProperty(AbstractThreadGroup.NUM_THREADS, "\${__P(users,1)}")
+            setSamplerController(LoopController().apply { setProperty(LoopController.LOOPS, "\${__P(loops,5)}") })
+        }
+        assertEquals("\${__P(users,1)}", summary.threadsExpression)
+        assertEquals("\${__P(loops,5)}", summary.loopsExpression)
+    }
+
+    @Test
     fun `custom closed model uses its highest phase`() {
         val summary = summaryOf {
             setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_CUSTOM)

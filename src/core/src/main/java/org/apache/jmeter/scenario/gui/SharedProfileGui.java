@@ -24,6 +24,11 @@ import org.apache.jmeter.testelement.TestElement;
 public class SharedProfileGui extends AbstractProfileGui {
     private static final long serialVersionUID = 1L;
 
+    public SharedProfileGui() {
+        // The shared profile is a fixed part of the Profiles section
+        setNameEditable(false);
+    }
+
     @Override
     public String getLabelResource() {
         return "shared_profile"; // $NON-NLS-1$

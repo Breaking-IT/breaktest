@@ -32,6 +32,9 @@ import org.apache.jmeter.threads.openmodel.ThreadScheduleStep
  *   response times (closed model without pacing) or on values only known at run time
  * @property durationSeconds how long the workload runs, or `null` when it depends on a loop count or never ends
  * @property loops the number of iterations per thread when the duration is set by a loop count, `-1` for forever
+ * @property threadsExpression the number of threads as written, when it is an expression such as `${__P(users)}`
+ * @property durationExpression the duration as written, when it is an expression
+ * @property loopsExpression the loop count as written, when it is an expression
  */
 public data class WorkloadSummary(
     val open: Boolean,
@@ -39,6 +42,9 @@ public data class WorkloadSummary(
     val peakIterationsPerMinute: Double?,
     val durationSeconds: Long?,
     val loops: Int?,
+    val threadsExpression: String? = null,
+    val durationExpression: String? = null,
+    val loopsExpression: String? = null,
 ) {
     public companion object {
         @JvmStatic
@@ -85,14 +91,26 @@ public data class WorkloadSummary(
                 threadGroup.scheduler && threadGroup.duration > 0 -> threadGroup.duration
                 else -> null
             }
+            val durationExpression = expression(threadGroup, ThreadGroup.DURATION)
+                .takeIf { threadGroup.scheduler && !custom }
+            val loopsExpression = (threadGroup.samplerController as? LoopController)
+                ?.let { expression(it, LoopController.LOOPS) }
+                .takeIf { !custom && duration == null && durationExpression == null }
             return WorkloadSummary(
                 open = false,
                 peakThreads = threads,
                 peakIterationsPerMinute = pacingMillis(threadGroup)?.let { threads * 60_000.0 / it },
                 durationSeconds = duration,
-                loops = if (custom || duration != null) null else loops,
+                loops = if (custom || duration != null || durationExpression != null) null else loops,
+                threadsExpression = expression(threadGroup, AbstractThreadGroup.NUM_THREADS).takeIf { !custom },
+                durationExpression = durationExpression,
+                loopsExpression = loopsExpression,
             )
         }
+
+        /** The value as written when it is only known at run time, such as `${__P(users)}` */
+        private fun expression(element: org.apache.jmeter.testelement.TestElement, name: String): String? =
+            element.getPropertyAsString(name).takeIf { it.contains("\${") }
 
         /** Average time between iteration starts of one thread, when pacing sets it */
         private fun pacingMillis(threadGroup: AbstractThreadGroup): Double? {

@@ -18,6 +18,8 @@
 
 package org.apache.jmeter.scenario.gui;
 
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.util.Collection;
 import java.util.Collections;
@@ -27,6 +29,10 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JToggleButton;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -82,6 +88,38 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         header.add(profile, "growx, wrap");
         ownSettings.setVisible(false);
         header.add(ownSettings, "span 2");
+        reportEditsOf(this);
+    }
+
+    /** Every edit, not only those that change the load, is shown in the scenario table right away. */
+    private void reportEditsOf(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTextComponent text) {
+                text.getDocument().addDocumentListener(new DocumentListener() {
+                    @Override
+                    public void insertUpdate(DocumentEvent e) {
+                        workloadChanged();
+                    }
+
+                    @Override
+                    public void removeUpdate(DocumentEvent e) {
+                        workloadChanged();
+                    }
+
+                    @Override
+                    public void changedUpdate(DocumentEvent e) {
+                        workloadChanged();
+                    }
+                });
+            } else if (component instanceof JToggleButton toggle) {
+                toggle.addItemListener(e -> workloadChanged());
+            } else if (component instanceof JComboBox<?> comboBox) {
+                comboBox.addActionListener(e -> workloadChanged());
+            }
+            if (component instanceof Container child) {
+                reportEditsOf(child);
+            }
+        }
     }
 
     /**

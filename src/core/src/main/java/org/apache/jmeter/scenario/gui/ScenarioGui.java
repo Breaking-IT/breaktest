@@ -242,12 +242,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
 
     /** Stores the edits of the selected thread group and updates its summary. */
     private void commitEditor() {
-        if (editedRow < 0 || editedRow >= workloads.size()) {
+        if (editedRow < 0 || editedRow >= workloads.size() || updating) {
             return;
         }
-        editor.modifyTestElement(workloads.get(editedRow));
+        // Storing the editor can update its own fields, which report edits again
         updating = true;
         try {
+            editor.modifyTestElement(workloads.get(editedRow));
             tableModel.fireTableRowsUpdated(editedRow, editedRow);
         } finally {
             updating = false;
@@ -383,6 +384,7 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
         int unlimitedThreads = 0;
         int unknownRate = 0;
         int ownSettings = 0;
+        int runTimeThreads = 0;
         for (ScenarioWorkload workload : workloads) {
             if (!workload.isEnabled()) {
                 continue;
@@ -392,7 +394,9 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
                 continue;
             }
             WorkloadSummary summary = WorkloadSummary.of(workload);
-            if (summary.getPeakThreads() == null) {
+            if (summary.getThreadsExpression() != null) {
+                runTimeThreads++;
+            } else if (summary.getPeakThreads() == null) {
                 unlimitedThreads++;
             } else {
                 threads += summary.getPeakThreads();
@@ -413,6 +417,10 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
             text.append(' ').append(MessageFormat.format(
                     JMeterUtils.getResString("scenario_totals_unknown_rate"), unknownRate)); // $NON-NLS-1$
         }
+        if (runTimeThreads > 0) {
+            text.append(' ').append(MessageFormat.format(
+                    JMeterUtils.getResString("scenario_totals_run_time_threads"), runTimeThreads)); // $NON-NLS-1$
+        }
         if (ownSettings > 0) {
             text.append(' ').append(MessageFormat.format(
                     JMeterUtils.getResString("scenario_totals_own_settings"), ownSettings)); // $NON-NLS-1$
@@ -431,6 +439,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
     }
 
     private static String formatDuration(WorkloadSummary summary) {
+        if (summary.getDurationExpression() != null) {
+            return summary.getDurationExpression() + " s"; // $NON-NLS-1$
+        }
+        if (summary.getLoopsExpression() != null) {
+            return MessageFormat.format(JMeterUtils.getResString("scenario_loops"), // $NON-NLS-1$
+                    summary.getLoopsExpression());
+        }
         Long seconds = summary.getDurationSeconds();
         if (seconds != null) {
             long hours = seconds / 3600;
@@ -557,7 +572,9 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
             return switch (column) {
                 case 4 -> JMeterUtils.getResString(summary.getOpen()
                         ? "thread_group_model_open" : "thread_group_model_closed"); // $NON-NLS-1$ $NON-NLS-2$
-                case 5 -> summary.getPeakThreads() == null
+                case 5 -> summary.getThreadsExpression() != null
+                        ? summary.getThreadsExpression()
+                        : summary.getPeakThreads() == null
                         ? JMeterUtils.getResString("scenario_unlimited") // $NON-NLS-1$
                         : String.valueOf(summary.getPeakThreads());
                 case 6 -> summary.getPeakIterationsPerMinute() == null

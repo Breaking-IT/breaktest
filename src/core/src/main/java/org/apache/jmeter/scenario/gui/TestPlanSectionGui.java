@@ -41,6 +41,8 @@ public abstract class TestPlanSectionGui extends AbstractJMeterGuiComponent {
         setBorder(makeBorder());
         VerticalPanel box = new VerticalPanel();
         box.add(makeTitlePanel());
+        // Sections are a fixed part of every test plan, and Module Controller paths contain their names
+        setNameEditable(false);
         JTextArea info = new JTextArea(JMeterUtils.getResString(getLabelResource() + "_info")); // $NON-NLS-1$
         info.setEditable(false);
         info.setLineWrap(true);
