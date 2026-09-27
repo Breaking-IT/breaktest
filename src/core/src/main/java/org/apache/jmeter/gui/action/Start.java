@@ -31,6 +31,7 @@ import javax.swing.JToolBar;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.engine.JMeterEngineException;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
@@ -344,7 +345,11 @@ public class Start extends AbstractAction {
             boolean enabled = true;
             AbstractThreadGroup group = null;
             for (JMeterTreeNode parent = node; parent != null; parent = (JMeterTreeNode) parent.getParent()) {
-                enabled &= parent.isEnabled();
+                // Fragment listeners are not plan-wide listeners, even without a Thread Group ancestor.
+                if (!parent.isEnabled() || parent.getTestElement() instanceof TestFragmentController) {
+                    enabled = false;
+                    break;
+                }
                 if (parent.getTestElement() instanceof AbstractThreadGroup threadGroup) {
                     group = threadGroup;
                 }

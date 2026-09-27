@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import java.lang.reflect.Field;
 
 import org.apache.jmeter.control.GenericController;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -63,6 +64,21 @@ class StartTest {
         controller.setEnabled(false);
         addResultsTree(controller);
         assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+    }
+
+    @Test
+    void validationSkipsListenersInsideTestFragments() {
+        JMeterTreeNode plan = (JMeterTreeNode) model.getNodeOf(first).getParent();
+        JMeterTreeNode fragment = addChild(new TestFragmentController(), plan);
+        addResultsTree(fragment);
+        addResultsTree(addChild(new GenericController(), fragment));
+        assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+
+        JMeterTreeNode groupListener = addResultsTree(model.getNodeOf(first));
+        assertSame(groupListener, Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+
+        JMeterTreeNode planListener = addResultsTree(plan);
+        assertSame(planListener, Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
     }
 
     @Test
