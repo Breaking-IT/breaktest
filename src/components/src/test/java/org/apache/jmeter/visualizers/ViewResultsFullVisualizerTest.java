@@ -69,6 +69,7 @@ import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.AfterEach;
@@ -76,6 +77,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -966,6 +968,82 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
                 visualizer.add(new SampleResult());
                 refresh(visualizer);
                 assertSame(resource, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false,false", "false,false,true", "false,true,false", "false,true,true",
+            "true,false,false", "true,false,true", "true,true,false", "true,true,true"})
+    public void selectedPendingResultRefreshesDetailsOnCompletion(
+            boolean tableMode, boolean transaction, boolean sameObject) throws Exception {
+        JMeterContextService.setValidationRun(false);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                TransactionRef ref = TransactionRef.start("transaction", null);
+                SampleResult started = transaction ? transactionSample(ref) : childSample("request", null);
+                started.setDataType(SampleResult.TEXT);
+                SampleResult other = new SampleResult();
+                other.setResponseCode("100");
+                visualizer.add(other);
+                if (transaction) {
+                    visualizer.addStartedTransaction(new SampleEvent(started, "tg"));
+                } else {
+                    visualizer.addStartedSample(new SampleEvent(started, "tg"));
+                }
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                // Leave a different selection in the hidden tree when testing table mode.
+                tree.setSelectionPath(new TreePath(((DefaultMutableTreeNode) root.getChildAt(tableMode ? 0 : 1)).getPath()));
+                JTable table = (JTable) visualizerField(visualizer, "resultTable");
+                if (tableMode) {
+                    ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).setSelectedIndex(1);
+                    table.getRowSorter().toggleSortOrder(ResultTableModel.HTTP_CODE);
+                    int viewRow = table.convertRowIndexToView(1);
+                    table.setRowSelectionInterval(viewRow, viewRow);
+                }
+                JTabbedPane details = (JTabbedPane) visualizerField(visualizer, "rightSide");
+                String responseTab = JMeterUtils.getResString("view_results_tab_response");
+                details.setSelectedIndex(details.indexOfTab(responseTab));
+                SamplerResultTab renderer = (SamplerResultTab) visualizerField(visualizer, "resultsRender");
+                assertSame(started, visualizerField(visualizer, "resultsObject"));
+                assertFalse(renderer.responseDataText().contains("finished response"));
+
+                SampleResult finished = sameObject ? started
+                        : transaction ? transactionSample(ref) : childSample("request", null);
+                finished.setDataType(SampleResult.TEXT);
+                finished.setResponseCode("201");
+                finished.setResponseHeaders("HTTP/1.1 201 Created\nX-Completed: yes\n");
+                finished.setResponseData("finished response", StandardCharsets.UTF_8.name());
+                if (transaction) {
+                    visualizer.add(finished);
+                } else {
+                    SampleEvent event = new SampleEvent(finished, "tg");
+                    event.setStartedSample(started);
+                    visualizer.add(event);
+                }
+                refresh(visualizer);
+                assertSame(finished, visualizerField(visualizer, "resultsObject"));
+                assertTrue(renderer.responseDataText().contains("finished response"));
+                assertTrue(renderer.responseDataText().contains("X-Completed: yes"));
+                assertEquals(responseTab, details.getTitleAt(details.getSelectedIndex()));
+                if (tableMode) {
+                    ResultTableModel model = (ResultTableModel) table.getModel();
+                    assertSame(finished, model.sampleAt(table.convertRowIndexToModel(table.getSelectedRow())));
+                    assertEquals(1, table.getSelectedRow(), "Selection follows the result after its sort position changes");
+                } else {
+                    assertSame(finished, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                }
+                visualizer.add(new SampleResult());
+                refresh(visualizer);
+                assertSame(finished, visualizerField(visualizer, "resultsObject"));
+                assertTrue(renderer.responseDataText().contains("finished response"));
             } catch (ReflectiveOperationException ex) {
                 throw new AssertionError(ex);
             } finally {

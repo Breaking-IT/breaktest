@@ -224,6 +224,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private Set<SampleResult> runningResults = Set.of();
 
     private LiveResultTreeView liveTreeView;
+    private boolean updatingResults;
 
     public ViewResultsFullVisualizer() {
         super();
@@ -333,15 +334,18 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      */
     private void updateGui() {
         liveTreeView.setUpdating(true);
+        updatingResults = true;
         try {
             rebuildResultTree();
         } finally {
             liveTreeView.setUpdating(false);
+            updatingResults = false;
         }
     }
 
     private void rebuildResultTree() {
         boolean followLatest;
+        boolean selectedFinished;
         TreePath selectedPath = null;
         Object oldSelectedElement;
         Set<Object> oldExpandedElements;
@@ -357,7 +361,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                     && (liveResultsChanged || !runningResults.isEmpty() || !nextRunningResults.isEmpty());
             liveTreeView.prepareExpansion(oldExpandedElements, transactions,
                     validationResults && (liveResultsChanged || !nextRunningResults.isEmpty()));
-            oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, getSelectedObject());
+            Object selected = getSelectedObject();
+            oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, selected);
+            selectedFinished = selected != null && runningResults.contains(selected)
+                    && !nextRunningResults.contains(oldSelectedElement);
             runningResults = nextRunningResults;
             for (SampleResult pending : pendingNavigationTargets) {
                 SampleResultNodeResolver.rememberNavigationTargets(pending);
@@ -415,11 +422,25 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         if (followLatest) {
             selectedPath = liveTreeView.followLatest(runningResults, oldExpandedElements);
         }
-        if (selectedPath != null) {
+        if (isTableMode()) {
+            for (int row = 0; row < resultTableModel.getRowCount(); row++) {
+                if (resultTableModel.sampleAt(row) == oldSelectedElement) {
+                    int viewRow = resultTable.convertRowIndexToView(row);
+                    if (viewRow >= 0) {
+                        resultTable.setRowSelectionInterval(viewRow, viewRow);
+                    }
+                    break;
+                }
+            }
+        } else if (selectedPath != null) {
             jTree.setSelectionPath(selectedPath);
             if (followLatest) {
                 jTree.scrollPathToVisible(selectedPath);
             }
+        }
+        Object selected = getSelectedObject();
+        if (selected != null && (selected != resultsObject || selectedFinished)) {
+            showResult(selected);
         }
         if (autoScrollCB.isSelected() && isTableMode() && resultTable.getRowCount() > 0) {
             resultTable.scrollRectToVisible(resultTable.getCellRect(resultTable.getRowCount() - 1, 0, true));
@@ -430,10 +451,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     }
 
     private Object getSelectedObject() {
-        Object oldSelectedElement;
-        DefaultMutableTreeNode oldSelectedNode = (DefaultMutableTreeNode) jTree.getLastSelectedPathComponent();
-        oldSelectedElement = oldSelectedNode == null ? null : oldSelectedNode.getUserObject();
-        return oldSelectedElement;
+        if (isTableMode()) {
+            int row = resultTable.getSelectedRow();
+            return row < 0 ? null : resultTableModel.sampleAt(resultTable.convertRowIndexToModel(row));
+        }
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) jTree.getLastSelectedPathComponent();
+        return node == null ? null : node.getUserObject();
     }
 
     private static TreePath checkExpandedOrSelected(List<TreeNode> path,
@@ -971,13 +994,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      */
     private void valueChanged(TreeSelectionEvent e, boolean forceRendering) {
         lastSelectionEvent = e;
-        DefaultMutableTreeNode node;
-        synchronized (this) {
-            node = (DefaultMutableTreeNode) jTree.getLastSelectedPathComponent();
+        if (updatingResults) {
+            return;
         }
-
-        if (node != null && (forceRendering || node.getUserObject() != resultsObject)) {
-            showResult(node.getUserObject());
+        Object selected = getSelectedObject();
+        if (selected != null && (forceRendering || selected != resultsObject)) {
+            showResult(selected);
         }
     }
 
@@ -1322,6 +1344,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     }
 
     private void selectTableResult() {
+        if (updatingResults) {
+            return;
+        }
         int viewRow = resultTable.getSelectedRow();
         if (viewRow < 0) {
             return;
