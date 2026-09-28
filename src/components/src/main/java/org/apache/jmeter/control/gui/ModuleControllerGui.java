@@ -24,6 +24,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 
@@ -293,9 +294,23 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
     @Override
     public JPopupMenu createPopupMenu() {
         JPopupMenu menu = new JPopupMenu();
+        JMenuItem jumpTo = new JMenuItem(JMeterUtils.getResString("module_controller_jump_to")); // $NON-NLS-1$
+        JMeterTreeNode target = currentTarget();
+        jumpTo.setEnabled(target != null);
+        jumpTo.addActionListener(event -> jumpToTarget(target));
+        menu.add(jumpTo);
+        menu.addSeparator();
         MenuFactory.addEditMenu(menu, true);
         MenuFactory.addFileMenu(menu);
         return menu;
+    }
+
+    private static JMeterTreeNode currentTarget() {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        JMeterTreeNode current = guiPackage == null ? null : guiPackage.getCurrentNode();
+        return current != null && current.getUserObject() instanceof ModuleController controller
+                ? controller.getSelectedNode()
+                : null;
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -363,11 +378,11 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
      */
     private void focusSelectedOnTree(JMeterTreeNode selected)
     {
-        TreeNode[] path = selected.getPath();
-        TreeNode[] filteredPath = new TreeNode[path.length-1];
-
-        //ignore first element of path - WorkBench, (why WorkBench is appearing in the path ???)
-        System.arraycopy(path, 1, filteredPath, 0, path.length - 1);
+        // Ignore the tree root, and the sections that the module to run tree does not show
+        TreeNode[] filteredPath = Arrays.stream(selected.getPath())
+                .skip(1)
+                .filter(node -> !(((JMeterTreeNode) node).getUserObject() instanceof TestPlanSection))
+                .toArray(TreeNode[]::new);
 
         DefaultMutableTreeNode root = (DefaultMutableTreeNode) moduleToRunTreeNodes.getModel().getRoot();
         //treepath of test plan tree and module to run tree cannot be compared directly - moduleToRunTreeModel.getPathToRoot()
@@ -492,7 +507,7 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
             target = testPlanNode;
         }
         JMeterTreeNode navigationTarget = target;
-        JMenuItem jumpTo = new JMenuItem("Jump to"); // $NON-NLS-1$
+        JMenuItem jumpTo = new JMenuItem(JMeterUtils.getResString("module_controller_jump_to")); // $NON-NLS-1$
         jumpTo.setEnabled(target != null && isTestElementAllowed(target.getTestElement()));
         jumpTo.addActionListener(event -> jumpToTarget(navigationTarget));
         return jumpTo;
@@ -500,16 +515,9 @@ public class ModuleControllerGui extends AbstractControllerGui implements Action
 
     private static void jumpToTarget(JMeterTreeNode target) {
         GuiPackage guiPackage = GuiPackage.getInstance();
-        if (target == null || guiPackage == null || guiPackage.getTreeListener() == null) {
-            return;
+        if (guiPackage != null && guiPackage.getTreeListener() != null) {
+            guiPackage.getTreeListener().selectNode(target);
         }
-        JTree tree = guiPackage.getTreeListener().getJTree();
-        if (tree == null || target.getRoot() != tree.getModel().getRoot()) {
-            return;
-        }
-        TreePath path = new TreePath(target.getPath());
-        tree.setSelectionPath(path);
-        tree.scrollPathToVisible(path);
     }
 
     /**
