@@ -29,9 +29,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.apache.jmeter.JMeter;
-import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.TestBeanHelper;
@@ -70,7 +70,12 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
      * Only used by the function parser so far.
      * The list is merged with the testListeners and then cleared.
      */
-    private static final List<TestStateListener> testList = new ArrayList<>();
+    private static final ThreadLocal<List<TestStateListener>> testList = ThreadLocal.withInitial(ArrayList::new);
+
+    private final List<TestStateListener> submittedListeners = new ArrayList<>();
+    private final List<TestStateListener> alwaysEndListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<Boolean>> stoppingListeners = new CopyOnWriteArrayList<>();
+    private final AtomicInteger stoppingState = new AtomicInteger();
 
     /** Whether to call System.exit(1) if threads won't stop */
     private static final boolean SYSTEM_EXIT_ON_STOP_FAIL = JMeterUtils.getPropDefault("jmeterengine.stopfail.system.exit", true);
@@ -155,8 +160,45 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         return isPaused();
     }
 
-    public static synchronized void register(TestStateListener tl) {
-        testList.add(tl);
+    public static void register(TestStateListener tl) {
+        testList.get().add(tl);
+    }
+
+    /**
+     * Registers lifecycle cleanup that must run even if compilation fails before listener startup.
+     * A listener also present in the test tree receives only one end callback.
+     * @param listener cleanup listener owned by this engine
+     */
+    public void addAlwaysEndListener(TestStateListener listener) {
+        alwaysEndListeners.add(listener);
+    }
+
+    /**
+     * Registers an observer of graceful stop and subsequent immediate-stop escalation.
+     * Callbacks run on the notifying thread; UI observers must dispatch to their UI thread.
+     * @param listener receives true for immediate stop, false for graceful stop
+     */
+    public void addStoppingListener(Consumer<Boolean> listener) {
+        stoppingListeners.add(listener);
+    }
+
+    /**
+     * Reports a stop request or scheduled end without changing engine execution state.
+     * @param immediately whether active samplers are being interrupted
+     */
+    public synchronized void notifyTestStopping(boolean immediately) {
+        int next = immediately ? 2 : 1;
+        if (!active || stoppingState.get() >= next) {
+            return;
+        }
+        stoppingState.set(next);
+        for (Consumer<Boolean> listener : stoppingListeners) {
+            try {
+                listener.accept(immediately);
+            } catch (RuntimeException ex) {
+                log.warn("Error notifying test stopping observer", ex);
+            }
+        }
     }
 
     public static boolean stopThread(String threadName) {
@@ -197,6 +239,8 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void runTest() throws JMeterEngineException {
+        submittedListeners.addAll(testList.get());
+        testList.remove();
         try {
             runningTest = EXECUTOR_SERVICE.submit(this);
         } catch (Exception err) {
@@ -316,6 +360,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     @Override
     @SuppressWarnings("FutureReturnValueIgnored")
     public synchronized void stopTest(boolean now) {
+        notifyTestStopping(now);
         EXECUTOR_SERVICE.submit(new StopTest(now));
     }
 
@@ -415,6 +460,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     public void run() {
         var testListeners = new SearchByClass<TestStateListener>(TestStateListener.class);
         test.traverse(testListeners);
+        stoppingState.set(0);
         var startedListeners = new ArrayList<TestStateListener>();
         boolean completed = false;
         try {
@@ -431,15 +477,12 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
                 waitThreadsStopped();
             }
             groups.clear();
-            // MainFrame may show a running test before compilation/listener startup begins.
-            // Reset it even on early failure, without ending unrelated, unstarted listeners.
-            var resetCandidates = new ArrayList<TestStateListener>(testListeners.getSearchResults());
-            resetCandidates.addAll(testList);
-            resetCandidates.stream()
-                    .filter(listener -> listener instanceof MainFrame)
+            // Explicitly registered lifecycle owners need cleanup even before startup.
+            alwaysEndListeners.stream()
                     .filter(listener -> startedListeners.stream().noneMatch(started -> started == listener))
                     .forEach(startedListeners::add);
-            testList.clear(); // Discard registrations from a failed compilation as well.
+            submittedListeners.clear();
+            testList.remove(); // Registrations belong to this compilation thread, never another engine.
             notifyTestListenersOfEnd(startedListeners);
             JMeterContextService.endTest();
         }
@@ -470,8 +513,10 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         // replacement, but before setting RunningVersion to true.
         // Merge in any additional test listeners
         // currently only used by the function parser
-        testListeners.getSearchResults().addAll(testList);
-        testList.clear(); // no longer needed
+        testListeners.getSearchResults().addAll(submittedListeners);
+        submittedListeners.clear();
+        testListeners.getSearchResults().addAll(testList.get());
+        testList.remove(); // no longer needed
 
         test.traverse(new TurnElementsOn());
         notifyTestListenersOfStart(testListeners, startedListeners);

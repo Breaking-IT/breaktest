@@ -357,6 +357,7 @@ public class TransactionController extends GenericController implements Controll
             long pause = end - now;
             try {
                 if (thread == null) {
+                    // Standalone callers have no JMeter stop state; interruption cancels this sleep.
                     TimeUnit.MILLISECONDS.sleep(pause);
                 } else {
                     thread.awaitDelay(pause);

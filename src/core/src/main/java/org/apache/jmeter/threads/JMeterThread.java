@@ -401,6 +401,9 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopSchedulerIfNeeded() {
         long now = System.currentTimeMillis();
         if (now >= endTime) {
+            if (engine != null) {
+                engine.notifyTestStopping(false);
+            }
             running = false;
             wakeDelayWorkers();
             log.info("Stopping because end time detected by thread: {}", threadName);
@@ -2117,6 +2120,9 @@ public class JMeterThread implements Runnable, Interruptible {
                     // See Bug 60049
                     totalDelay = TIMER_SERVICE.adjustDelay(totalDelay, endTime, false);
                     if (totalDelay < 0) {
+                        if (engine != null) {
+                            engine.notifyTestStopping(false);
+                        }
                         log.debug("The delay would be longer than the scheduled period, so stop thread now.");
                         running = false;
                         wakeDelayWorkers();
@@ -2392,6 +2398,9 @@ public class JMeterThread implements Runnable, Interruptible {
         if (scheduler) {
             millis = TIMER_SERVICE.adjustDelay(millis, endTime);
             if (millis <= 0) {
+                if (engine != null) {
+                    engine.notifyTestStopping(false);
+                }
                 running = false;
                 wakeDelayWorkers();
                 return;

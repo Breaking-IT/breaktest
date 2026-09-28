@@ -23,10 +23,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -108,9 +112,90 @@ class StandardJMeterEngineTest extends JMeterTestCase {
     }
 
     @Test
+    void explicitlyRegisteredCleanupRunsEvenBeforeStartupAndIsNotDuplicated() {
+        StandardJMeterEngine engine = new StandardJMeterEngine();
+        FailingListener cleanup = new FailingListener();
+        cleanup.fail = false;
+        engine.addAlwaysEndListener(cleanup);
+        TestPlan broken = new TestPlan() {
+            @Override
+            public void prepareForPreCompile() {
+                throw new IllegalStateException("Compile failure");
+            }
+        };
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(broken).add(cleanup);
+        engine.configure(tree);
+        engine.run();
+        assertEquals(0, cleanup.started);
+        assertEquals(1, cleanup.ended);
+
+        ListedHashTree valid = new ListedHashTree();
+        valid.add(new TestPlan()).add(cleanup);
+        engine.configure(valid);
+        engine.run();
+        assertEquals(1, cleanup.started);
+        assertEquals(2, cleanup.ended);
+    }
+
+    @Test
+    void registrationOnAnotherThreadSurvivesFailedCompilation() throws Exception {
+        FailingListener registered = new FailingListener();
+        registered.fail = false;
+        StandardJMeterEngine.register(registered);
+        FutureTask<Void> compilation = new FutureTask<>(() -> {
+            compileFailureDoesNotEndUnstartedListenersOrLeakRegistrations();
+            return null;
+        });
+        new Thread(compilation).start();
+        compilation.get(5, TimeUnit.SECONDS);
+
+        StandardJMeterEngine engine = new StandardJMeterEngine();
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(new TestPlan());
+        engine.configure(tree);
+        engine.runTest();
+        engine.awaitTermination(Duration.ofSeconds(5));
+        assertEquals(1, registered.started);
+        assertEquals(1, registered.ended);
+    }
+
+    @Test
+    void scheduledEndNotifiesStoppingObservers() throws Exception {
+        StandardJMeterEngine engine = new StandardJMeterEngine();
+        List<Boolean> stopping = new CopyOnWriteArrayList<>();
+        engine.addStoppingListener(stopping::add);
+        ThreadGroup group = new ThreadGroup();
+        group.setNumThreads(1);
+        group.setScheduler(true);
+        group.setDuration(1);
+        LoopController loop = new LoopController();
+        loop.setLoops(-1);
+        group.setSamplerController(loop);
+        TransactionController transaction = new TransactionController();
+        transaction.setDelayMode(TransactionController.DELAY_FIXED);
+        transaction.setFixedDelay("60000");
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(new TestPlan()).add(group).add(transaction);
+        engine.configure(tree);
+        engine.runTest();
+        try {
+            engine.awaitTermination(Duration.ofSeconds(5));
+            assertEquals(List.of(false), stopping);
+        } finally {
+            if (engine.isActive()) {
+                engine.stopTest(true);
+                engine.awaitTermination(Duration.ofSeconds(5));
+            }
+        }
+    }
+
+    @Test
     void gracefulStopCanEscalateWhileRequestIsBlocked() throws Exception {
         StandardJMeterEngine engine = new StandardJMeterEngine();
         BlockingSampler sampler = new BlockingSampler();
+        List<Boolean> stopping = new CopyOnWriteArrayList<>();
+        engine.addStoppingListener(stopping::add);
         ThreadGroup group = new ThreadGroup();
         group.setNumThreads(1);
         LoopController loop = new LoopController();
@@ -123,10 +208,12 @@ class StandardJMeterEngineTest extends JMeterTestCase {
         try {
             assertTrue(sampler.started.await(10, TimeUnit.SECONDS));
             engine.stopTest(false);
+            assertEquals(List.of(false), stopping);
             assertFalse(sampler.released.await(200, TimeUnit.MILLISECONDS),
                     "Graceful stop must let the active sampler finish");
             assertTrue(engine.isActive(), "A blocked worker must still prevent a new run");
             engine.stopTest(true);
+            assertEquals(List.of(false, true), stopping);
             assertTrue(sampler.released.await(10, TimeUnit.SECONDS));
             engine.awaitTermination(Duration.ofSeconds(10));
             assertFalse(engine.isActive());

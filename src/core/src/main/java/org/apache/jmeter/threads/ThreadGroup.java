@@ -692,6 +692,7 @@ public class ThreadGroup extends AbstractThreadGroup {
         }
 
         private void finishClosedModelScheduling() {
+            engine.notifyTestStopping(false);
             running = false;
             stopActiveThreads(allThreads.size(), false);
         }
