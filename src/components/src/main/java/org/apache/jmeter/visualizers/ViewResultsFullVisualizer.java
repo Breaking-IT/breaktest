@@ -37,7 +37,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -62,7 +61,6 @@ import javax.swing.Icon;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
-import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
@@ -84,7 +82,6 @@ import javax.swing.WindowConstants;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -103,6 +100,7 @@ import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.SampleResultNodeResolver;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
@@ -175,8 +173,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     private JTable resultTable;
     private ResultTableModel resultTableModel;
     private TableRowSorter<ResultTableModel> resultTableSorter;
-    private TableColumn[] resultTableColumns;
-    private boolean[] selectedResultTableColumns;
+    private ResultTableColumnSettings resultTableColumnSettings;
     private JTabbedPane resultListTabs;
     private JComboBox<String> threadGroupFilter;
     private JComboBox<String> threadNameFilter;
@@ -217,12 +214,16 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             Collections.newSetFromMap(new IdentityHashMap<>());
     private final int maxResults;
     private boolean dataChanged;
+    private boolean liveResultsChanged;
+    private boolean validationResults;
     private String selectedThreadGroup;
     private String selectedThreadName;
     private String selectedLabel;
     private boolean updatingResultFilters;
     // Only used on the event dispatch thread, refreshed with the tree
     private Set<SampleResult> runningResults = Set.of();
+
+    private LiveResultTreeView liveTreeView;
 
     public ViewResultsFullVisualizer() {
         super();
@@ -268,6 +269,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         synchronized (buffer) {
             pendingNavigationTargets.add(event.getResult());
             transactions.addStartedSample(event.getResult()).forEach(pendingNavigationTargets::remove);
+            liveResultsChanged = true;
+            validationResults = JMeterContextService.isValidationRun();
             dataChanged = true;
         }
     }
@@ -292,6 +295,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         synchronized (buffer) {
             pendingNavigationTargets.add(started);
             transactions.addStarted(started).forEach(pendingNavigationTargets::remove);
+            liveResultsChanged = true;
+            validationResults = JMeterContextService.isValidationRun();
             dataChanged = true;
         }
     }
@@ -327,6 +332,16 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      * Update the visualizer with new data.
      */
     private void updateGui() {
+        liveTreeView.setUpdating(true);
+        try {
+            rebuildResultTree();
+        } finally {
+            liveTreeView.setUpdating(false);
+        }
+    }
+
+    private void rebuildResultTree() {
+        boolean followLatest;
         TreePath selectedPath = null;
         Object oldSelectedElement;
         Set<Object> oldExpandedElements;
@@ -336,10 +351,14 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                 return;
             }
 
-            final Enumeration<TreePath> expandedElements = jTree.getExpandedDescendants(new TreePath(root));
-            oldExpandedElements = new HashSet<>(extractExpandedObjects(expandedElements));
+            oldExpandedElements = liveTreeView.expandedObjects();
+            Set<SampleResult> nextRunningResults = transactions.runningResults();
+            followLatest = validationResults && !isTableMode()
+                    && (liveResultsChanged || !runningResults.isEmpty() || !nextRunningResults.isEmpty());
+            liveTreeView.prepareExpansion(oldExpandedElements, transactions,
+                    validationResults && (liveResultsChanged || !nextRunningResults.isEmpty()));
             oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, getSelectedObject());
-            runningResults = transactions.runningResults();
+            runningResults = nextRunningResults;
             for (SampleResult pending : pendingNavigationTargets) {
                 SampleResultNodeResolver.rememberNavigationTargets(pending);
             }
@@ -386,18 +405,25 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             resultTableModel.setUnmeasuredResults(transactions.unmeasuredResults());
             resultTableModel.setRows(tableRows);
             dataChanged = false;
+            liveResultsChanged = false;
         }
 
         if (root.getChildCount() == 1) {
             jTree.expandPath(new TreePath(root));
         }
         newExpandedPaths.stream().forEach(jTree::expandPath);
+        if (followLatest) {
+            selectedPath = liveTreeView.followLatest(runningResults, oldExpandedElements);
+        }
         if (selectedPath != null) {
             jTree.setSelectionPath(selectedPath);
+            if (followLatest) {
+                jTree.scrollPathToVisible(selectedPath);
+            }
         }
         if (autoScrollCB.isSelected() && isTableMode() && resultTable.getRowCount() > 0) {
             resultTable.scrollRectToVisible(resultTable.getCellRect(resultTable.getRowCount() - 1, 0, true));
-        } else if (autoScrollCB.isSelected() && root.getChildCount() > 1) {
+        } else if (!followLatest && autoScrollCB.isSelected() && root.getChildCount() > 1) {
             jTree.scrollPathToVisible(new TreePath(new Object[] { root,
                     treeModel.getChild(root, root.getChildCount() - 1) }));
         }
@@ -438,21 +464,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         return result;
     }
 
-    private static Set<Object> extractExpandedObjects(final Enumeration<TreePath> expandedElements) {
-        if (expandedElements != null) {
-            final List<TreePath> list = Collections.list(expandedElements);
-            log.debug("Expanded: {}", list);
-            Set<Object> result = list.stream()
-                    .map(TreePath::getLastPathComponent)
-                    .map(c -> (DefaultMutableTreeNode) c)
-                    .map(DefaultMutableTreeNode::getUserObject)
-                    .collect(Collectors.toSet());
-            log.debug("Elements: {}", result);
-            return result;
-        }
-        return Collections.emptySet();
-    }
-
     private TreePath addSubResults(DefaultMutableTreeNode currNode,
             SampleResult res, List<TreeNode> path, Object selectedObject,
             Set<Object> oldExpandedObjects, Set<? super TreePath> newExpandedPaths,
@@ -474,8 +485,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             List<TreeNode> newPath = new ArrayList<>(path);
             newPath.add(leafNode);
             result = checkExpandedOrSelected(newPath, child, selectedObject, oldExpandedObjects, newExpandedPaths, result);
-            addSubResults(leafNode, child, newPath, selectedObject, oldExpandedObjects, newExpandedPaths,
-                    tableRows, depth + 1);
+            TreePath nestedSelection = addSubResults(leafNode, child, newPath, selectedObject,
+                    oldExpandedObjects, newExpandedPaths, tableRows, depth + 1);
+            if (nestedSelection != null) {
+                result = nestedSelection;
+            }
             // Add any assertion that failed as children of the sample node
             AssertionResult[] assertionResults = child.getAssertionResults();
             int assertionIndex = leafNode.getChildCount();
@@ -508,7 +522,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         synchronized (buffer) {
             buffer.clear();
             transactions.clear();
+            validationResults = false;
+            liveResultsChanged = false;
             runningResults = Set.of();
+            liveTreeView.clear();
             pendingNavigationTargets.clear();
             dataChanged = true;
         }
@@ -549,12 +566,32 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         if (autoDetachOnValidationCB != null) {
             autoDetachOnValidationCB.setSelected(el.getPropertyAsBoolean(AUTO_DETACH_ON_VALIDATION, false));
         }
+        configureViewSettings(el);
         updateDetachedWindowTitle();
+    }
+
+    private void configureViewSettings(TestElement element) {
+        resultListTabs.setSelectedIndex(element.getPropertyAsBoolean("ViewResultsFullVisualizer.table_view", false) ? 1 : 0);
+        calculateResponseDiffCB.setSelected(element.getPropertyAsBoolean("ViewResultsFullVisualizer.response_diff", false));
+        resultTableModel.setResponseBodyDiffEnabled(calculateResponseDiffCB.isSelected());
+        autoScrollCB.setSelected(element.getPropertyAsBoolean("ViewResultsFullVisualizer.auto_scroll", false));
+        resultTableColumnSettings.configure(element);
+    }
+
+    @Override
+    public void clearGui() {
+        super.clearGui();
+        autoDetachOnValidationCB.setSelected(false);
+        configureViewSettings(new ResultCollector());
     }
 
     @Override
     public void modifyTestElement(TestElement c) {
         super.modifyTestElement(c);
+        c.setProperty("ViewResultsFullVisualizer.table_view", isTableMode(), false);
+        c.setProperty("ViewResultsFullVisualizer.response_diff", calculateResponseDiffCB.isSelected(), false);
+        c.setProperty("ViewResultsFullVisualizer.auto_scroll", autoScrollCB.isSelected(), false);
+        resultTableColumnSettings.save(c);
         c.setProperty(AUTO_DETACH_ON_VALIDATION,
                 autoDetachOnValidationCB != null && autoDetachOnValidationCB.isSelected(),
                 false);
@@ -1023,6 +1060,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jTree.setCellRenderer(new ResultsNodeRenderer(() -> runningResults));
         jTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         jTree.addTreeSelectionListener(this);
+        liveTreeView = new LiveResultTreeView(jTree);
         jTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -1086,9 +1124,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             }
         });
         configureResultTableColumns();
-        resultTableColumns = captureTableColumns(resultTable);
-        selectedResultTableColumns = ResultTableModel.defaultVisibleColumns();
-        applySelectedResultTableColumns();
+        resultTableColumnSettings = new ResultTableColumnSettings(resultTable);
         JMeterUtils.applyHiDPI(resultTable);
 
         resultListTabs = new JTabbedPane();
@@ -1114,7 +1150,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         resultFilterToggle = new JToggleButton(JMeterUtils.getResString("view_results_filter_panel_show")); // $NON-NLS-1$
         resultFilterToggle.addActionListener(event -> updateResultFilterPanelVisibility());
         resultColumnsButton = new JButton(JMeterUtils.getResString("view_results_columns")); // $NON-NLS-1$
-        resultColumnsButton.addActionListener(event -> showResultTableColumnsMenu(resultColumnsButton));
+        resultColumnsButton.addActionListener(event -> resultTableColumnSettings.showMenu(resultColumnsButton));
         calculateResponseDiffCB = new JCheckBox(JMeterUtils.getResString("view_results_diff_enable")); // $NON-NLS-1$
         calculateResponseDiffCB.setToolTipText(JMeterUtils.getResString("view_results_diff_tooltip")); // $NON-NLS-1$
         calculateResponseDiffCB.addActionListener(event ->
@@ -1154,6 +1190,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         columns.getColumn(ResultTableModel.CONNECT_TIME).setPreferredWidth(80);
         columns.getColumn(ResultTableModel.REQUEST_SIZE).setPreferredWidth(85);
         columns.getColumn(ResultTableModel.RECEIVED_BYTES).setPreferredWidth(90);
+        columns.getColumn(ResultTableModel.HTTP_CODE).setPreferredWidth(85);
         columns.getColumn(ResultTableModel.COMPRESSION).setMinWidth(58);
         columns.getColumn(ResultTableModel.COMPRESSION).setPreferredWidth(64);
         columns.getColumn(ResultTableModel.COMPRESSION).setMaxWidth(76);
@@ -1161,69 +1198,6 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         columns.getColumn(ResultTableModel.DIFF_PERCENT).setPreferredWidth(58);
         columns.getColumn(ResultTableModel.DIFF_PERCENT).setMaxWidth(72);
         columns.getColumn(ResultTableModel.URL).setPreferredWidth(240);
-    }
-
-    private void showResultTableColumnsMenu(Component invoker) {
-        JPopupMenu popup = new JPopupMenu();
-        for (int modelColumn = 0; modelColumn < resultTableColumns.length; modelColumn++) {
-            JCheckBoxMenuItem item = new JCheckBoxMenuItem(
-                    resultTableColumnConfigurationLabel(modelColumn), selectedResultTableColumns[modelColumn]);
-            final int column = modelColumn;
-            item.addActionListener(event -> {
-                selectedResultTableColumns[column] = item.isSelected();
-                applySelectedResultTableColumns();
-            });
-            popup.add(item);
-        }
-        popup.show(invoker, 0, invoker.getHeight());
-    }
-
-    private static String resultTableColumnConfigurationLabel(int modelColumn) {
-        return modelColumn == ResultTableModel.STATUS
-                ? JMeterUtils.getResString("table_visualizer_status") // $NON-NLS-1$
-                : JMeterUtils.getResString(ResultTableModel.COLUMNS[modelColumn]);
-    }
-
-    private void applySelectedResultTableColumns() {
-        TableColumnModel columnModel = resultTable.getColumnModel();
-        for (int modelColumn = 0; modelColumn < resultTableColumns.length; modelColumn++) {
-            boolean shouldShow = selectedResultTableColumns[modelColumn];
-            boolean isVisible = isColumnVisible(columnModel, resultTableColumns[modelColumn]);
-            if (shouldShow && !isVisible) {
-                columnModel.addColumn(resultTableColumns[modelColumn]);
-                columnModel.moveColumn(columnModel.getColumnCount() - 1, countVisibleResultTableColumnsBefore(modelColumn));
-            } else if (!shouldShow && isVisible) {
-                columnModel.removeColumn(resultTableColumns[modelColumn]);
-            }
-        }
-    }
-
-    private static TableColumn[] captureTableColumns(JTable table) {
-        TableColumnModel columnModel = table.getColumnModel();
-        TableColumn[] columns = new TableColumn[columnModel.getColumnCount()];
-        for (int i = 0; i < columns.length; i++) {
-            columns[i] = columnModel.getColumn(i);
-        }
-        return columns;
-    }
-
-    private static boolean isColumnVisible(TableColumnModel columnModel, TableColumn column) {
-        for (int i = 0; i < columnModel.getColumnCount(); i++) {
-            if (columnModel.getColumn(i) == column) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private int countVisibleResultTableColumnsBefore(int modelColumn) {
-        int count = 0;
-        for (int i = 0; i < modelColumn; i++) {
-            if (selectedResultTableColumns[i]) {
-                count++;
-            }
-        }
-        return count;
     }
 
     private void updateResultFilterPanelVisibility() {

@@ -242,6 +242,14 @@ final class TransactionResultTree {
         return running;
     }
 
+    void carryOverExpansion(Set<Object> expanded) {
+        for (Map.Entry<SampleResult, SampleResult> finished : replacements.entrySet()) {
+            if (expanded.remove(finished.getKey())) {
+                expanded.add(finished.getValue());
+            }
+        }
+    }
+
     /**
      * A finished transaction sample takes the place of the running one: moves the expansion and
      * selection of running samples replaced since the previous call to their finished sample.
@@ -251,11 +259,9 @@ final class TransactionResultTree {
      * @return the object to select
      */
     Object carryOverViewState(Set<Object> expanded, Object selected) {
+        carryOverExpansion(expanded);
         Object result = selected;
         for (Map.Entry<SampleResult, SampleResult> finished : replacements.entrySet()) {
-            if (expanded.remove(finished.getKey())) {
-                expanded.add(finished.getValue());
-            }
             if (result == finished.getKey()) {
                 result = finished.getValue();
             }

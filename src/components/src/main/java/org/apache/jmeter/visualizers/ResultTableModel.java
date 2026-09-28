@@ -49,9 +49,10 @@ class ResultTableModel extends AbstractTableModel {
     static final int CONNECT_TIME = 7;
     static final int REQUEST_SIZE = 8;
     static final int RECEIVED_BYTES = 9;
-    static final int COMPRESSION = 10;
-    static final int DIFF_PERCENT = 11;
-    static final int URL = 12;
+    static final int HTTP_CODE = 10;
+    static final int COMPRESSION = 11;
+    static final int DIFF_PERCENT = 12;
+    static final int URL = 13;
 
     static final String[] COLUMNS = {
             "", // $NON-NLS-1$
@@ -64,6 +65,7 @@ class ResultTableModel extends AbstractTableModel {
             "table_visualizer_connect", // $NON-NLS-1$
             "view_results_table_request_size", // $NON-NLS-1$
             "view_results_table_received_bytes", // $NON-NLS-1$
+            "http_response_code", // $NON-NLS-1$
             "view_results_table_compression", // $NON-NLS-1$
             "view_results_table_diff_percent", // $NON-NLS-1$
             "view_results_table_url" // $NON-NLS-1$
@@ -150,6 +152,7 @@ class ResultTableModel extends AbstractTableModel {
         case CONNECT_TIME -> unmeasured ? null : sample.getConnectTime();
         case REQUEST_SIZE -> unmeasured ? null : sample.getSentBytes();
         case RECEIVED_BYTES -> unmeasured ? null : sample.getBytesAsLong();
+        case HTTP_CODE -> unmeasured ? null : sample.getResponseCode();
         case COMPRESSION -> compressionType(sample);
         case DIFF_PERCENT -> responseBodyDiffEnabled
                 ? responseBodyDiffs.computeIfAbsent(sample, this::calculateResponseBodyDiff).orElse(null)
@@ -313,7 +316,7 @@ class ResultTableModel extends AbstractTableModel {
         columns[TIME] = true;
         columns[LATENCY] = true;
         columns[RECEIVED_BYTES] = true;
-        columns[COMPRESSION] = true;
+        columns[HTTP_CODE] = true;
         columns[DIFF_PERCENT] = true;
         columns[URL] = true;
         return columns;

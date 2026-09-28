@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,10 +39,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import javax.swing.JCheckBox;
 import javax.swing.JMenuItem;
+import javax.swing.JTabbedPane;
+import javax.swing.JTable;
 import javax.swing.JTree;
 import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
@@ -61,6 +67,7 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.TransactionRef;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.test.JMeterSerialTest;
@@ -70,14 +77,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMeterSerialTest {
 
     private GuiPackage previousGui;
+    private boolean previousValidation;
 
     @BeforeEach
     public void captureGuiSingleton() {
         previousGui = GuiPackage.getInstance();
+        previousValidation = JMeterContextService.isValidationRun();
     }
 
     @AfterEach
@@ -85,6 +95,7 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         var field = GuiPackage.class.getDeclaredField("guiPack");
         field.setAccessible(true);
         field.set(null, previousGui);
+        JMeterContextService.setValidationRun(previousValidation);
     }
 
     @Test
@@ -721,6 +732,181 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
                 visualizer.clearData();
             }
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void liveTreeFollowsSamplesAndPreservesOnlyManualExpansion(boolean manual) throws Exception {
+        JMeterContextService.setValidationRun(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                var treeField = ViewResultsFullVisualizer.class.getDeclaredField("jTree");
+                treeField.setAccessible(true);
+                JTree tree = (JTree) treeField.get(visualizer);
+                TransactionRef first = TransactionRef.start("first", null);
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(first), "tg"));
+                SampleResult started = childSample("request", first);
+                visualizer.addStartedSample(new SampleEvent(started, "tg"));
+                refresh(visualizer);
+                TreePath firstPath = new TreePath(((DefaultMutableTreeNode)
+                        ((DefaultMutableTreeNode) tree.getModel().getRoot()).getChildAt(0)).getPath());
+                assertTrue(tree.isExpanded(firstPath));
+                assertSame(started, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                if (manual) {
+                    tree.collapsePath(firstPath);
+                    tree.expandPath(firstPath);
+                }
+
+                SampleResult finished = childSample("request", first);
+                SampleEvent event = new SampleEvent(finished, "tg");
+                event.setStartedSample(started);
+                visualizer.add(event);
+                visualizer.add(transactionSample(first));
+                refresh(visualizer);
+                assertSame(finished, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+
+                TransactionRef next = TransactionRef.start("next", null);
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(next), "tg"));
+                SampleResult latest = childSample("latest", next);
+                visualizer.addStartedSample(new SampleEvent(latest, "tg"));
+                refresh(visualizer);
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                assertEquals(manual, tree.isExpanded(new TreePath(
+                        ((DefaultMutableTreeNode) root.getChildAt(0)).getPath())));
+                assertTrue(tree.isExpanded(new TreePath(
+                        ((DefaultMutableTreeNode) root.getChildAt(1)).getPath())));
+                assertSame(latest, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                var resultField = ViewResultsFullVisualizer.class.getDeclaredField("resultsObject");
+                resultField.setAccessible(true);
+                assertSame(latest, resultField.get(visualizer), "The details pane must follow the selection");
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void fastLiveSampleIsSelectedButImportedResultsDoNotMoveSelection() throws Exception {
+        JMeterContextService.setValidationRun(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                var treeField = ViewResultsFullVisualizer.class.getDeclaredField("jTree");
+                treeField.setAccessible(true);
+                JTree tree = (JTree) treeField.get(visualizer);
+                SampleResult started = new SampleResult();
+                SampleResult finished = new SampleResult();
+                visualizer.addStartedSample(new SampleEvent(started, "tg"));
+                SampleEvent event = new SampleEvent(finished, "tg");
+                event.setStartedSample(started);
+                visualizer.add(event);
+                JMeterContextService.setValidationRun(false);
+                refresh(visualizer);
+                assertSame(finished, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                visualizer.add(new SampleResult());
+                refresh(visualizer);
+                assertSame(finished, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                visualizer.clearData();
+                visualizer.add(new SampleResult());
+                refresh(visualizer);
+                assertNull(tree.getSelectionPath());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void normalTestRunDoesNotFollowOrExpandResults() throws Exception {
+        JMeterContextService.setValidationRun(false);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                TransactionRef transaction = TransactionRef.start("transaction", null);
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(transaction), "tg"));
+                visualizer.addStartedSample(new SampleEvent(childSample("request", transaction), "tg"));
+                refresh(visualizer);
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                TreePath path = new TreePath(((DefaultMutableTreeNode) root.getChildAt(0)).getPath());
+                assertFalse(tree.isExpanded(path));
+                assertNull(tree.getSelectionPath());
+                tree.expandPath(path);
+                tree.setSelectionPath(path);
+                visualizer.addStartedTransaction(new SampleEvent(
+                        transactionSample(TransactionRef.start("next", null)), "tg"));
+                refresh(visualizer);
+                path = new TreePath(((DefaultMutableTreeNode) root.getChildAt(0)).getPath());
+                assertTrue(tree.isExpanded(path));
+                assertEquals(path, tree.getSelectionPath());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void viewSettingsSurviveSavingAndLoadingAndResetForOldPlans() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            ViewResultsFullVisualizer restored = new ViewResultsFullVisualizer();
+            try {
+                ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).setSelectedIndex(1);
+                ((JCheckBox) visualizerField(visualizer, "calculateResponseDiffCB")).doClick();
+                ((JCheckBox) visualizerField(visualizer, "autoScrollCB")).setSelected(true);
+                ResultTableColumnSettings columns = (ResultTableColumnSettings)
+                        visualizerField(visualizer, "resultTableColumnSettings");
+                ResultCollector choices = new ResultCollector();
+                choices.setProperty("ViewResultsFullVisualizer.column.http_response_code", false);
+                choices.setProperty("ViewResultsFullVisualizer.column.view_results_table_compression", true);
+                columns.configure(choices);
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                SaveService.saveElement(visualizer.createTestElement(), output);
+                restored.configure((ResultCollector) SaveService.loadElement(new ByteArrayInputStream(output.toByteArray())));
+                assertEquals(1, ((JTabbedPane) visualizerField(restored, "resultListTabs")).getSelectedIndex());
+                assertTrue(((JCheckBox) visualizerField(restored, "calculateResponseDiffCB")).isSelected());
+                assertTrue(((ResultTableModel) visualizerField(restored, "resultTableModel")).isResponseBodyDiffEnabled());
+                assertTrue(((JCheckBox) visualizerField(restored, "autoScrollCB")).isSelected());
+                JTable table = (JTable) visualizerField(restored, "resultTable");
+                assertEquals(-1, table.convertColumnIndexToView(ResultTableModel.HTTP_CODE));
+                assertTrue(table.convertColumnIndexToView(ResultTableModel.COMPRESSION) >= 0);
+
+                restored.configure(new ResultCollector());
+                assertDefaultViewSettings(restored);
+                restored.configure((ResultCollector) SaveService.loadElement(new ByteArrayInputStream(output.toByteArray())));
+                restored.clearGui();
+                assertDefaultViewSettings(restored);
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+                restored.clearData();
+            }
+        });
+    }
+
+    private static void assertDefaultViewSettings(ViewResultsFullVisualizer visualizer) throws ReflectiveOperationException {
+        assertEquals(0, ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).getSelectedIndex());
+        assertFalse(((JCheckBox) visualizerField(visualizer, "calculateResponseDiffCB")).isSelected());
+        assertFalse(((ResultTableModel) visualizerField(visualizer, "resultTableModel")).isResponseBodyDiffEnabled());
+        assertFalse(((JCheckBox) visualizerField(visualizer, "autoScrollCB")).isSelected());
+        JTable table = (JTable) visualizerField(visualizer, "resultTable");
+        assertTrue(table.convertColumnIndexToView(ResultTableModel.HTTP_CODE) >= 0);
+        assertEquals(-1, table.convertColumnIndexToView(ResultTableModel.COMPRESSION));
+    }
+
+    private static Object visualizerField(ViewResultsFullVisualizer visualizer, String name)
+            throws ReflectiveOperationException {
+        var field = ViewResultsFullVisualizer.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(visualizer);
     }
 
     private static void refresh(ViewResultsFullVisualizer visualizer) throws ReflectiveOperationException {
