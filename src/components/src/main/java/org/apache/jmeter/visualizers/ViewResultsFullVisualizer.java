@@ -227,7 +227,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
     public ViewResultsFullVisualizer() {
         super();
-        this.maxResults = JMeterUtils.getPropDefault("view.results.tree.max_results", 500);
+        this.maxResults = JMeterUtils.getPropDefault("view.results.tree.max_results", 2500);
         this.transactions = new TransactionResultTree(buffer, maxResults);
         init();
         new Timer(REFRESH_PERIOD, e -> updateGui()).start();
