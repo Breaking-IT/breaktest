@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -39,9 +40,13 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
+import org.apache.jmeter.testelement.ThreadListener;
+import org.apache.jmeter.threads.SetupThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class StandardJMeterEngineTest extends JMeterTestCase {
     @Test
@@ -160,33 +165,56 @@ class StandardJMeterEngineTest extends JMeterTestCase {
         assertEquals(1, registered.ended);
     }
 
-    @Test
-    void scheduledEndNotifiesStoppingObservers() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"standard", "custom", "setup"})
+    void oneGroupEndingDoesNotMarkTheWholeTestAsStopping(String profile) throws Exception {
         StandardJMeterEngine engine = new StandardJMeterEngine();
         List<Boolean> stopping = new CopyOnWriteArrayList<>();
         engine.addStoppingListener(stopping::add);
-        ThreadGroup group = new ThreadGroup();
+        CountDownLatch firstEnded = new CountDownLatch(1);
+        ThreadGroup group = "setup".equals(profile) ? new SetupThreadGroup() : new ThreadGroup();
+        group.setName("Short group");
         group.setNumThreads(1);
         group.setScheduler(true);
         group.setDuration(1);
+        if ("custom".equals(profile)) {
+            group.setClosedModelSchedule("threadsPhase(1, 0) threadsPhase(1, 1)");
+        }
         LoopController loop = new LoopController();
         loop.setLoops(-1);
         group.setSamplerController(loop);
         TransactionController transaction = new TransactionController();
         transaction.setDelayMode(TransactionController.DELAY_FIXED);
         transaction.setFixedDelay("60000");
+        ThreadGroup longer = new ThreadGroup();
+        longer.setName("Long group");
+        longer.setNumThreads(1);
+        LoopController longerLoop = new LoopController();
+        longerLoop.setLoops(-1);
+        longer.setSamplerController(longerLoop);
+        BlockingSampler sampler = new BlockingSampler();
         ListedHashTree tree = new ListedHashTree();
-        tree.add(new TestPlan()).add(group).add(transaction);
+        var children = tree.add(new TestPlan());
+        children.add(group).add(transaction);
+        children.add(group).add(new CompletionListener(firstEnded));
+        children.add(longer).add(sampler);
         engine.configure(tree);
         engine.runTest();
         try {
-            engine.awaitTermination(Duration.ofSeconds(5));
-            assertEquals(List.of(false), stopping);
+            assertTrue(sampler.started.await(10, TimeUnit.SECONDS));
+            assertTrue(firstEnded.await(10, TimeUnit.SECONDS));
+            assertTrue(engine.isActive());
+            assertEquals(List.of(), stopping, "A group ending must not change the whole-test stop action");
+            engine.pauseTest();
+            assertTrue(engine.isPaused(), "The remaining test must still be pausable");
+            engine.resumeTest();
+            engine.stopTest(false);
+            assertEquals(List.of(false), stopping, "First explicit stop must remain graceful");
+            assertFalse(sampler.released.await(100, TimeUnit.MILLISECONDS));
         } finally {
-            if (engine.isActive()) {
-                engine.stopTest(true);
-                engine.awaitTermination(Duration.ofSeconds(5));
-            }
+            engine.stopTest(true);
+            sampler.released.countDown();
+            engine.awaitTermination(Duration.ofSeconds(10));
         }
     }
 
@@ -221,6 +249,23 @@ class StandardJMeterEngineTest extends JMeterTestCase {
             sampler.released.countDown();
             engine.stopTest(true);
             engine.awaitTermination(Duration.ofSeconds(10));
+        }
+    }
+
+    private static class CompletionListener extends AbstractTestElement implements ThreadListener, NoThreadClone {
+        private final CountDownLatch ended;
+
+        CompletionListener(CountDownLatch ended) {
+            this.ended = ended;
+        }
+
+        @Override
+        public void threadStarted() {
+        }
+
+        @Override
+        public void threadFinished() {
+            ended.countDown();
         }
     }
 

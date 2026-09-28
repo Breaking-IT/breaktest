@@ -26,6 +26,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.StandardJMeterEngine;
@@ -175,17 +176,26 @@ class ClosedModelThreadGroupScheduleTest {
     void startsAreDistributedAndCreationCostDoesNotShiftLaterPhases() throws Exception {
         List<Long> starts = new CopyOnWriteArrayList<>();
         CountDownLatch finished = new CountDownLatch(20);
+        AtomicLong clock = new AtomicLong();
         ThreadGroup group = new ThreadGroup() {
+            @Override
+            long monotonicMillis() {
+                return clock.get();
+            }
+
+            @Override
+            long sleepUntilMonotonic(long deadline, StandardJMeterEngine engine) {
+                // Deliberate late wake-ups must not shift subsequent deadlines.
+                clock.updateAndGet(now -> Math.max(now, deadline) + 20);
+                return 0;
+            }
+
             @Override
             protected JMeterThread makeThread(StandardJMeterEngine engine, JMeterThreadMonitor monitor,
                     ListenerNotifier notifier, int groupNumber, int threadNumber,
                     ListedHashTree tree, JMeterVariables variables) {
-                starts.add(System.nanoTime());
-                try {
-                    TimeUnit.MILLISECONDS.sleep(30);
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                }
+                starts.add(clock.get());
+                clock.addAndGet(30); // Simulate expensive user creation without wall-clock timing.
                 JMeterThread worker = new StoppableJMeterThread(this, new CountDownLatch(0), finished);
                 worker.setThreadName("distributed-" + threadNumber);
                 worker.setThreadGroup(this);
@@ -193,17 +203,12 @@ class ClosedModelThreadGroupScheduleTest {
             }
         };
         group.setClosedModelSchedule("threadsPhase(10, 0) threadsPhase(20, 2)");
-        long origin = System.nanoTime();
         try {
             group.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
             assertTrue(finished.await(5, TimeUnit.SECONDS));
             assertEquals(20, starts.size());
-            long lastMillis = TimeUnit.NANOSECONDS.toMillis(starts.get(19) - origin);
-            assertTrue(lastMillis >= 1800 && lastMillis < 2200,
-                    "Final start must follow the original timeline, including time spent in the first phase: "
-                            + lastMillis);
-            long spread = TimeUnit.NANOSECONDS.toMillis(starts.get(18) - starts.get(14));
-            assertTrue(spread >= 600, "Ramp starts must be spread out instead of batched: " + spread);
+            assertEquals(List.of(0L, 30L, 60L, 90L, 120L, 150L, 180L, 210L, 240L, 270L,
+                    300L, 330L, 520L, 720L, 920L, 1120L, 1320L, 1520L, 1720L, 1920L), starts);
         } finally {
             group.tellThreadsToStop();
         }

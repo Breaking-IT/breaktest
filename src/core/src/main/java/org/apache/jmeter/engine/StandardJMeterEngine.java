@@ -183,10 +183,10 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     }
 
     /**
-     * Reports a stop request or scheduled end without changing engine execution state.
+     * Reports an explicit whole-test stop request without changing engine execution state.
      * @param immediately whether active samplers are being interrupted
      */
-    public synchronized void notifyTestStopping(boolean immediately) {
+    private void notifyTestStopping(boolean immediately) {
         int next = immediately ? 2 : 1;
         if (!active || stoppingState.get() >= next) {
             return;

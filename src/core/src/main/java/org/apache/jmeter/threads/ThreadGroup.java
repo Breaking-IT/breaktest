@@ -692,7 +692,6 @@ public class ThreadGroup extends AbstractThreadGroup {
         }
 
         private void finishClosedModelScheduling() {
-            engine.notifyTestStopping(false);
             running = false;
             stopActiveThreads(allThreads.size(), false);
         }
@@ -807,11 +806,11 @@ public class ThreadGroup extends AbstractThreadGroup {
         return low;
     }
 
-    private static long monotonicMillis() {
+    long monotonicMillis() {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
     }
 
-    private static long sleepUntilMonotonic(long deadline, StandardJMeterEngine engine) {
+    long sleepUntilMonotonic(long deadline, StandardJMeterEngine engine) {
         long pauseTime = 0;
         while (true) {
             long paused = waitIfSchedulingPaused(engine);
