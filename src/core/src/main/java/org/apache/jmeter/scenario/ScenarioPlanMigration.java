@@ -210,6 +210,9 @@ public final class ScenarioPlanMigration {
         Object plan = tree.getArray()[0];
         HashTree planTree = tree.getTree(plan);
         boolean sharedOverrides = sharedVariablesMustOverride(planTree, changedVariables);
+        // Resolved before thread groups are renamed, while the saved paths still find their targets
+        Map<TestElement, Object> moduleTargets = new LinkedHashMap<>();
+        findModuleTargets(tree, planTree, moduleTargets);
 
         Scenario scenario = new Scenario(JMeterUtils.getResString("scenario_title")); // $NON-NLS-1$
         setGuiClass(scenario, "ScenarioGui"); // $NON-NLS-1$
@@ -221,7 +224,7 @@ public final class ScenarioPlanMigration {
         sectionTrees.get(ScenariosSection.class).add(scenario);
         HashTree otherTree = new ListedHashTree();
         List<ScenarioWorkload> workloads = new ArrayList<>();
-        Map<String, Class<? extends TestPlanSection>> movedTargets = new HashMap<>();
+        Map<Object, Object> replaced = new HashMap<>();
         Set<String> threadGroupNames = new HashSet<>();
         Set<String> threadGroupIds = new HashSet<>();
 
@@ -233,6 +236,7 @@ public final class ScenarioPlanMigration {
                         ? toThreadGroup(openModel)
                         : original;
                 // Scenario rows, other formats and the command line refer to thread groups by name and id
+                replaced.put(original, threadGroup);
                 threadGroup.setName(uniqueName(threadGroup.getName(), threadGroupNames));
                 threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), threadGroupIds));
                 threadGroupIds.add(threadGroup.getThreadGroupId());
@@ -247,9 +251,6 @@ public final class ScenarioPlanMigration {
                 // Test Fragments stay wrapped: Include Controllers use the first fragment of a file, and Module
                 // Controllers may run a fragment as a whole
                 sectionTrees.get(section).add(element, childTree);
-                if (element instanceof TestElement testElement) {
-                    movedTargets.putIfAbsent(testElement.getName(), section);
-                }
             }
         }
         scenario.setWorkloads(workloads);
@@ -279,7 +280,7 @@ public final class ScenarioPlanMigration {
             }
         }
         newPlanTree.add(otherTree);
-        fixModuleControllerPaths(result, movedTargets, sectionNames);
+        fixModuleControllerPaths(moduleTargets, replaced, sectionNames);
         keepOtherRoots(tree, result);
         return result;
     }
@@ -375,29 +376,35 @@ public final class ScenarioPlanMigration {
      * @return whether the shared variables must override the variables of thread groups
      */
     private static boolean sharedVariablesMustOverride(HashTree planTree, List<String> changedVariables) {
-        Set<String> sharedWins = new TreeSet<>();
-        Set<String> threadGroupWins = new TreeSet<>();
-        List<Set<String>> threadGroupVariablesSoFar = new ArrayList<>();
-        List<Set<String>> sharedVariablesSoFar = new ArrayList<>();
+        Set<String> definedShared = new HashSet<>();
+        Set<String> definedInThreadGroup = new HashSet<>();
+        // Whether the last definition of each variable is at the test plan level
+        Map<String, Boolean> lastDefinedShared = new HashMap<>();
         for (Object child : planTree.list()) {
             if (child instanceof TestElement element && !element.isEnabled()) {
                 continue;
             }
             if (child.getClass() == Arguments.class) {
-                Set<String> names = ((Arguments) child).getArgumentsAsMap().keySet();
-                // Defined after a thread group: the test plan level value won
-                threadGroupVariablesSoFar.forEach(earlier -> earlier.stream().filter(names::contains).forEach(sharedWins::add));
-                sharedVariablesSoFar.add(new HashSet<>(names));
+                for (String name : ((Arguments) child).getArgumentsAsMap().keySet()) {
+                    definedShared.add(name);
+                    lastDefinedShared.put(name, Boolean.TRUE);
+                }
             } else if (child instanceof AbstractThreadGroup) {
-                Set<String> names = ScenarioResolver.userDefinedVariableNames(planTree.getTree(child));
-                // Defined after the test plan level variables: the thread group value won
-                sharedVariablesSoFar.forEach(earlier -> earlier.stream().filter(names::contains).forEach(threadGroupWins::add));
-                threadGroupVariablesSoFar.add(names);
+                for (String name : ScenarioResolver.userDefinedVariableNames(planTree.getTree(child))) {
+                    definedInThreadGroup.add(name);
+                    lastDefinedShared.put(name, Boolean.FALSE);
+                }
+            }
+        }
+        Set<String> sharedWins = new TreeSet<>();
+        Set<String> threadGroupWins = new TreeSet<>();
+        for (String name : definedShared) {
+            if (definedInThreadGroup.contains(name)) {
+                (lastDefinedShared.get(name) ? sharedWins : threadGroupWins).add(name);
             }
         }
         boolean override = sharedWins.size() > threadGroupWins.size();
         changedVariables.addAll(override ? threadGroupWins : sharedWins);
-        changedVariables.removeAll(override ? sharedWins : threadGroupWins);
         return override;
     }
 
@@ -422,23 +429,78 @@ public final class ScenarioPlanMigration {
     }
 
     /**
-     * Module Controllers find their target by the names on its tree path. Thread groups and test fragments now sit
-     * one level deeper, in their section.
+     * Finds, for each Module Controller, the child of the test plan its saved path goes through, the way a Module
+     * Controller resolves it: when several elements have the same names, the last one that has the whole path wins.
      */
-    private static void fixModuleControllerPaths(HashTree tree, Map<String, Class<? extends TestPlanSection>> moved,
-            Map<Class<? extends TestPlanSection>, String> sectionNames) {
+    private static void findModuleTargets(HashTree tree, HashTree planTree, Map<TestElement, Object> targets) {
         for (Object element : tree.list()) {
             if (element instanceof TestElement testElement
                     && testElement.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty path
-                    && path.size() > 2 && moved.containsKey(path.get(2).getStringValue())) {
+                    && path.size() > 2) {
                 List<String> names = new ArrayList<>();
                 for (JMeterProperty name : path) {
                     names.add(name.getStringValue());
                 }
-                names.add(2, sectionNames.get(moved.get(names.get(2))));
-                testElement.setProperty(new CollectionProperty(MODULE_CONTROLLER_NODE_PATH, names));
+                Object target = null;
+                Object sameName = null;
+                for (Object child : planTree.list()) {
+                    if (hasPath(child, planTree.getTree(child), names, 2)) {
+                        target = child;
+                    }
+                    if (sameName == null && hasPath(child, planTree.getTree(child), names.subList(0, 3), 2)) {
+                        sameName = child;
+                    }
+                }
+                // A path that does not resolve still moves along with the element it names
+                target = target == null ? sameName : target;
+                if (target != null) {
+                    targets.put(testElement, target);
+                }
             }
-            fixModuleControllerPaths(tree.getTree(element), moved, sectionNames);
+            findModuleTargets(tree.getTree(element), planTree, targets);
         }
+    }
+
+    private static boolean hasPath(Object element, HashTree elementTree, List<String> names, int level) {
+        if (!(element instanceof TestElement testElement) || isModuleController(testElement)
+                || !testElement.getName().equals(names.get(level))) {
+            return false;
+        }
+        if (level == names.size() - 1) {
+            return true;
+        }
+        for (Object child : elementTree.list()) {
+            if (hasPath(child, elementTree.getTree(child), names, level + 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isModuleController(TestElement element) {
+        // A Module Controller never targets another one
+        return element.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty;
+    }
+
+    /**
+     * Module Controllers find their target by the names on its tree path. Thread groups and test fragments now sit
+     * one level deeper, in their section, and thread groups may have been renamed to make their names unique.
+     */
+    private static void fixModuleControllerPaths(Map<TestElement, Object> targets, Map<Object, Object> replaced,
+            Map<Class<? extends TestPlanSection>, String> sectionNames) {
+        targets.forEach((controller, target) -> {
+            Object moved = replaced.getOrDefault(target, target);
+            CollectionProperty path = (CollectionProperty) controller.getProperty(MODULE_CONTROLLER_NODE_PATH);
+            List<String> names = new ArrayList<>();
+            for (JMeterProperty name : path) {
+                names.add(name.getStringValue());
+            }
+            names.set(2, ((TestElement) moved).getName());
+            Class<? extends TestPlanSection> section = sectionFor(moved);
+            if (section != null) {
+                names.add(2, sectionNames.get(section));
+            }
+            controller.setProperty(new CollectionProperty(MODULE_CONTROLLER_NODE_PATH, names));
+        });
     }
 }

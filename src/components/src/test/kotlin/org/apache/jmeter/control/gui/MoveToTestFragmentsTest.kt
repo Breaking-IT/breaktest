@@ -18,6 +18,7 @@
 package org.apache.jmeter.control.gui
 
 import org.apache.jmeter.JMeter
+import org.apache.jmeter.control.GenericController
 import org.apache.jmeter.control.LoopController
 import org.apache.jmeter.control.ModuleController
 import org.apache.jmeter.control.TransactionController
@@ -35,6 +36,7 @@ import org.apache.jmeter.test.samplers.CollectSamplesListener
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -112,5 +114,37 @@ class MoveToTestFragmentsTest : JMeterTestCase() {
         assertEquals("Login (2)", transactionNode.name)
         assertEquals("Login", moduleNode.name)
         assertSame(transactionNode, (moduleNode.testElement as ModuleController).selectedNode)
+    }
+
+    @Test
+    fun `module controllers pointing into the moved transaction get its new path`() {
+        val fragments = node(TestFragmentsSection::class.java)
+        add(TransactionController().apply { name = "Login" }, fragments)
+        val threadGroupNode = add(ThreadGroup().apply { name = "Browse" }, node(ThreadGroupsSection::class.java))
+        val transactionNode = add(TransactionController().apply { name = "Login" }, threadGroupNode)
+        val stepNode = add(GenericController().apply { name = "Submit" }, transactionNode)
+        val toTransaction = ModuleController().apply { setSelectedNode(transactionNode) }
+        val toStep = ModuleController().apply { setSelectedNode(stepNode) }
+        add(toTransaction, threadGroupNode)
+        add(toStep, threadGroupNode)
+
+        MoveToTestFragments.moveToTestFragments(model, transactionNode, fragments)
+
+        fun path(node: JMeterTreeNode) = node.path.map { (it as JMeterTreeNode).name }
+        fun saved(module: ModuleController) = module.nodePath!!.map { it.toString() }
+        assertEquals(path(transactionNode), saved(toTransaction)) { "The saved path follows the moved transaction" }
+        assertEquals(path(stepNode), saved(toStep)) { "The saved path follows elements inside the transaction" }
+        assertEquals("Login (2)", saved(toStep)[3]) { "Including the new, unique name of the transaction" }
+    }
+
+    @Test
+    fun `a disabled transaction is replaced by a disabled module controller`() {
+        val threadGroupNode = add(ThreadGroup().apply { name = "Browse" }, node(ThreadGroupsSection::class.java))
+        val transactionNode = add(TransactionController().apply { name = "Login" }, threadGroupNode)
+        transactionNode.isEnabled = false
+
+        val moduleNode = MoveToTestFragments.moveToTestFragments(model, transactionNode, node(TestFragmentsSection::class.java))
+
+        assertFalse(moduleNode.isEnabled) { "A Module Controller would run its disabled target" }
     }
 }

@@ -285,6 +285,68 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
+    fun `the last definition of a variable decides, also when it is defined before and after a thread group`() {
+        fun udv(vararg pairs: Pair<String, String>) = Arguments().apply { pairs.forEach { (n, v) -> addArgument(n, v) } }
+        fun migrate(tree: HashTree): Pair<SharedProfile, List<String>> {
+            val changed = mutableListOf<String>()
+            val migrated = ScenarioPlanMigration.migrate(tree, changed)
+            val planTree = migrated.getTree(migrated.array[0])
+            val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+            return planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single() to changed
+        }
+        val (shared, changed) = migrate(
+            testTree {
+                TestPlan::class {
+                    +udv("host" to "before.example")
+                    ThreadGroup::class { +udv("host" to "group.example") }
+                    +udv("host" to "after.example")
+                }
+            }
+        )
+        assertTrue(shared.isOverridingThreadGroupVariables) { "The definition after the thread group won in the old plan" }
+        assertEquals(listOf<String>(), changed)
+
+        val (mixed, reported) = migrate(
+            testTree {
+                TestPlan::class {
+                    +udv("host" to "before.example")
+                    ThreadGroup::class { +udv("host" to "group.example", "port" to "8080") }
+                    +udv("port" to "443")
+                }
+            }
+        )
+        assertFalse(mixed.isOverridingThreadGroupVariables)
+        assertEquals(listOf("port"), reported) { "A value that one setting cannot keep is reported" }
+    }
+
+    @Test
+    fun `module controllers keep their target when thread groups with the same name are renamed`() {
+        val module = GenericController().apply {
+            name = "Run step"
+            setProperty(CollectionProperty("ModuleController.node_path", listOf("Test Plan", "Test Plan", "Browse", "Step")))
+        }
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroup::class {
+                    name = "Browse"
+                    +module
+                }
+                ThreadGroup::class {
+                    name = "Browse"
+                    GenericController::class { name = "Step" }
+                }
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(tree)
+        val planTree = migrated.getTree(migrated.array[0])
+        val threadGroups = planTree.list().filterIsInstance<ThreadGroupsSection>().single()
+        assertEquals(
+            listOf("Test Plan", "Test Plan", threadGroups.name, "Browse (2)", "Step"),
+            (module.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
+        ) { "The path points to the thread group that has the step, now named Browse (2)" }
+    }
+
+    @Test
     fun `migrated plan runs like the original`() {
         val migrated = ScenarioPlanMigration.migrate(legacyPlan())
         StandardJMeterEngine().apply {

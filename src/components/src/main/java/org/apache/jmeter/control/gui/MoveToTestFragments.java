@@ -20,6 +20,8 @@ package org.apache.jmeter.control.gui;
 
 import java.awt.event.ActionEvent;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 import javax.swing.tree.TreePath;
@@ -88,14 +90,28 @@ public class MoveToTestFragments extends AbstractAction {
         JMeterTreeNode parent = (JMeterTreeNode) transaction.getParent();
         int index = parent.getIndex(transaction);
         String name = transaction.getName();
+        // Module Controllers store their target as a path of names: find the ones pointing into the transaction
+        // before it moves, while their paths still resolve
+        Map<ModuleController, JMeterTreeNode> references = new LinkedHashMap<>();
+        for (JMeterTreeNode node : treeModel.getNodesOfType(ModuleController.class)) {
+            ModuleController controller = (ModuleController) node.getTestElement();
+            JMeterTreeNode target = controller.getSelectedNode();
+            if (target != null && transaction.isNodeDescendant(target)) {
+                references.put(controller, target);
+            }
+        }
         // Module Controllers find their target by name, so the moved transaction must be unique in the section
         transaction.getTestElement().setName(uniqueName(name, fragments));
 
         treeModel.removeNodeFromParent(transaction);
         treeModel.insertNodeInto(transaction, fragments, fragments.getChildCount());
+        references.forEach(ModuleController::setSelectedNode);
 
         ModuleController module = new ModuleController();
         module.setName(name);
+        // A Module Controller runs its target even when the target is disabled: a disabled transaction must stay
+        // switched off in the thread group
+        module.setEnabled(transaction.isEnabled());
         module.setProperty(TestElement.GUI_CLASS, ModuleControllerGui.class.getName());
         module.setProperty(TestElement.TEST_CLASS, ModuleController.class.getName());
         module.setSelectedNode(transaction);

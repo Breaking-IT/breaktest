@@ -593,6 +593,40 @@ class ScenarioResolverTest : JMeterTestCase() {
     }
 
     @Test
+    fun `workload settings use the thread group value when the profile does not override it`() {
+        fun threads(vararg profileVariables: Pair<String, String>): Int {
+            val tree = testTree {
+                TestPlan::class {
+                    ScenariosSection::class {
+                        +scenario(
+                            "Load",
+                            workload("Browse", browse, 1).apply { setProperty(AbstractThreadGroup.NUM_THREADS, "\${users}") }
+                        )
+                    }
+                    ThreadGroupsSection::class {
+                        browse {
+                            +variables("users" to "2")
+                        }
+                    }
+                    ProfilesSection::class {
+                        Profile::class {
+                            name = "acceptance"
+                            isDefault = true
+                            isOverridingThreadGroupVariables = false
+                            +variables(*profileVariables)
+                        }
+                    }
+                }
+            }
+            return planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single().numThreads
+        }
+        assertEquals(2, threads("users" to "50"))
+        assertEquals(2, threads("users" to "50", "host" to "acc.example")) {
+            "An unrelated profile variable must not make the profile value win"
+        }
+    }
+
+    @Test
     fun `unknown profile is rejected`() {
         val tree = profilesPlan(Arguments(), workload("Browse", browse, 1).apply { profile = "staging" })
         val e = assertThrows<ScenarioException> { convertAndResolve(tree) }

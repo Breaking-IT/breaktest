@@ -223,12 +223,20 @@ public final class ScenarioResolver {
             }
         }
         result.add(script);
+        boolean definesVariables = !variables.isEmpty();
         if (!profile.profile().isOverridingThreadGroupVariables()) {
-            // The thread group's own User Defined Variables win: threads start with their values
-            variables.keySet().removeAll(userDefinedVariableNames(script));
+            // The thread group's own User Defined Variables win: threads start with their values, and the workload
+            // settings evaluated below use them too
+            userDefinedVariables(script).forEach((name, value) -> {
+                if (variables.remove(name) != null) {
+                    profileEvaluator.put(name, profileEvaluator.evaluate(value));
+                }
+            });
         }
         if (!variables.isEmpty()) {
             threadGroup.setProfileVariables(variables);
+        }
+        if (definesVariables) {
             evaluateWorkload(threadGroup, profileEvaluator);
         }
         return result;
@@ -239,14 +247,22 @@ public final class ScenarioResolver {
      * @return the names of the variables its User Defined Variables elements define
      */
     static Set<String> userDefinedVariableNames(HashTree tree) {
-        Set<String> names = new HashSet<>();
+        return userDefinedVariables(tree).keySet();
+    }
+
+    /**
+     * @param tree a part of a test plan
+     * @return the variables its User Defined Variables elements define, in tree order, the last definition winning
+     */
+    private static Map<String, String> userDefinedVariables(HashTree tree) {
+        Map<String, String> variables = new LinkedHashMap<>();
         for (Object element : tree.list()) {
-            if (element.getClass() == Arguments.class) {
-                names.addAll(((Arguments) element).getArgumentsAsMap().keySet());
+            if (element.getClass() == Arguments.class && ((Arguments) element).isEnabled()) {
+                variables.putAll(((Arguments) element).getArgumentsAsMap());
             }
-            names.addAll(userDefinedVariableNames(tree.getTree(element)));
+            variables.putAll(userDefinedVariables(tree.getTree(element)));
         }
-        return names;
+        return variables;
     }
 
     /**
