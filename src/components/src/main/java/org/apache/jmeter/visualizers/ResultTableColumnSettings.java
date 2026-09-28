@@ -49,8 +49,9 @@ final class ResultTableColumnSettings {
     }
 
     void save(TestElement element) {
+        boolean[] defaults = ResultTableModel.defaultVisibleColumns();
         for (int i = 0; i < selectedResultTableColumns.length; i++) {
-            element.setProperty(propertyName(i), selectedResultTableColumns[i]);
+            element.setProperty(propertyName(i), selectedResultTableColumns[i], defaults[i]);
         }
     }
 
@@ -74,10 +75,10 @@ final class ResultTableColumnSettings {
         popup.show(invoker, 0, invoker.getHeight());
     }
 
-    private static String resultTableColumnConfigurationLabel(int modelColumn) {
+    private String resultTableColumnConfigurationLabel(int modelColumn) {
         return modelColumn == ResultTableModel.STATUS
                 ? JMeterUtils.getResString("table_visualizer_status") // $NON-NLS-1$
-                : JMeterUtils.getResString(ResultTableModel.COLUMNS[modelColumn]);
+                : resultTable.getModel().getColumnName(modelColumn);
     }
 
     private void applySelectedResultTableColumns() {

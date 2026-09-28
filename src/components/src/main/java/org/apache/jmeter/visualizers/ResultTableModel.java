@@ -120,7 +120,8 @@ class ResultTableModel extends AbstractTableModel {
 
     @Override
     public String getColumnName(int column) {
-        return column == STATUS ? "" : JMeterUtils.getResString(COLUMNS[column]); // $NON-NLS-1$
+        return column == STATUS ? "" : JMeterUtils.getResString( // $NON-NLS-1$
+                column == HTTP_CODE ? "view_results_table_code" : COLUMNS[column]); // $NON-NLS-1$
     }
 
     @Override

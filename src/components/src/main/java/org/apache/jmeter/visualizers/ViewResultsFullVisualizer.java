@@ -581,7 +581,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     @Override
     public void clearGui() {
         super.clearGui();
-        autoDetachOnValidationCB.setSelected(false);
+        if (autoDetachOnValidationCB != null) {
+            autoDetachOnValidationCB.setSelected(false);
+        }
         configureViewSettings(new ResultCollector());
     }
 

@@ -892,6 +892,88 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         });
     }
 
+    @Test
+    public void defaultColumnSettingsDoNotDirtyExistingPlans() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                ResultCollector oldPlan = (ResultCollector) visualizer.createTestElement();
+                for (String column : ResultTableModel.COLUMNS) {
+                    oldPlan.removeProperty("ViewResultsFullVisualizer.column." + (column.isEmpty() ? "status" : column));
+                }
+                ResultCollector unchanged = (ResultCollector) oldPlan.clone();
+                visualizer.configure(oldPlan);
+                visualizer.modifyTestElement(oldPlan);
+                assertEquals(unchanged, oldPlan, "Opening a listener must not mark an old plan dirty");
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                SaveService.saveElement(oldPlan, output);
+                assertFalse(output.toString(StandardCharsets.UTF_8).contains("ViewResultsFullVisualizer.column."));
+
+                ResultTableColumnSettings columns = (ResultTableColumnSettings)
+                        visualizerField(visualizer, "resultTableColumnSettings");
+                ResultCollector choices = new ResultCollector();
+                choices.setProperty("ViewResultsFullVisualizer.column.http_response_code", false);
+                choices.setProperty("ViewResultsFullVisualizer.column.view_results_table_compression", true);
+                columns.configure(choices);
+                visualizer.modifyTestElement(oldPlan);
+                assertFalse(oldPlan.getPropertyAsBoolean("ViewResultsFullVisualizer.column.http_response_code", true));
+                assertTrue(oldPlan.getPropertyAsBoolean("ViewResultsFullVisualizer.column.view_results_table_compression"));
+                columns.configure(new ResultCollector());
+                visualizer.modifyTestElement(oldPlan);
+                assertEquals(unchanged, oldPlan, "Restoring defaults must remove previously saved overrides");
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void validationFollowsOwningRequestAndPreservesNestedSelectionAfterwards(boolean inTransaction) throws Exception {
+        JMeterContextService.setValidationRun(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                TransactionRef transaction = inTransaction ? TransactionRef.start("transaction", null) : null;
+                if (transaction != null) {
+                    visualizer.addStartedTransaction(new SampleEvent(transactionSample(transaction), "tg"));
+                }
+                SampleResult started = childSample("request", transaction);
+                visualizer.addStartedSample(new SampleEvent(started, "tg"));
+                SampleResult finished = childSample("request", transaction);
+                SampleResult redirect = new SampleResult();
+                SampleResult resource = new SampleResult();
+                redirect.addSubResult(resource, false);
+                finished.addSubResult(redirect, false);
+                SampleEvent event = new SampleEvent(finished, "tg");
+                event.setStartedSample(started);
+                visualizer.add(event);
+                if (transaction != null) {
+                    visualizer.add(transactionSample(transaction));
+                }
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                TreePath requestPath = tree.getSelectionPath();
+                assertSame(finished, ((DefaultMutableTreeNode) requestPath.getLastPathComponent()).getUserObject());
+                assertSame(finished, visualizerField(visualizer, "resultsObject"));
+                assertFalse(tree.isExpanded(requestPath), "Automatic following must not expand protocol sub-results");
+
+                DefaultMutableTreeNode requestNode = (DefaultMutableTreeNode) requestPath.getLastPathComponent();
+                DefaultMutableTreeNode resourceNode = (DefaultMutableTreeNode) requestNode.getChildAt(0).getChildAt(0);
+                tree.setSelectionPath(new TreePath(resourceNode.getPath()));
+                visualizer.add(new SampleResult());
+                refresh(visualizer);
+                assertSame(resource, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
     private static void assertDefaultViewSettings(ViewResultsFullVisualizer visualizer) throws ReflectiveOperationException {
         assertEquals(0, ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).getSelectedIndex());
         assertFalse(((JCheckBox) visualizerField(visualizer, "calculateResponseDiffCB")).isSelected());

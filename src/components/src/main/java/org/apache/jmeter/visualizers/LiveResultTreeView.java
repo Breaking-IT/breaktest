@@ -70,20 +70,32 @@ final class LiveResultTreeView implements TreeExpansionListener {
 
     TreePath followLatest(Set<SampleResult> running, Set<Object> manuallyExpanded) {
         DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+        TreePath latest = latestSample(root, running, manuallyExpanded);
+        if (latest != null) {
+            expandAutomatically(latest.getParentPath(), manuallyExpanded);
+        }
+        return latest;
+    }
+
+    private TreePath latestSample(DefaultMutableTreeNode parent, Set<SampleResult> running,
+            Set<Object> manuallyExpanded) {
         TreePath latest = null;
-        Enumeration<?> nodes = root.preorderEnumeration();
-        while (nodes.hasMoreElements()) {
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) nodes.nextElement();
-            if (node == root || !(node.getUserObject() instanceof SampleResult)) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) parent.getChildAt(i);
+            if (!(node.getUserObject() instanceof SampleResult sample)) {
                 continue;
             }
             latest = new TreePath(node.getPath());
-            if (running.contains(node.getUserObject())) {
-                expandAutomatically(latest, manuallyExpanded);
+            // Follow transaction members, keeping redirects and embedded resources under their owning request.
+            if (sample.getTransaction() != null) {
+                if (running.contains(sample)) {
+                    expandAutomatically(latest, manuallyExpanded);
+                }
+                TreePath child = latestSample(node, running, manuallyExpanded);
+                if (child != null) {
+                    latest = child;
+                }
             }
-        }
-        if (latest != null) {
-            expandAutomatically(latest.getParentPath(), manuallyExpanded);
         }
         return latest;
     }
