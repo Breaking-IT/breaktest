@@ -25,6 +25,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.jmeter.config.Arguments;
@@ -55,6 +58,9 @@ import org.apache.jorphan.collections.ListedHashTree;
  * tree nodes replaced by test elements. Plans without sections are returned unchanged.
  */
 public final class ScenarioResolver {
+
+    /** A reference to a variable, such as {@code ${host}}, also inside a function call */
+    private static final Pattern VARIABLE_REFERENCE = Pattern.compile("\\$\\{([^${}()]+)\\}"); // $NON-NLS-1$
 
     private ScenarioResolver() {
     }
@@ -252,12 +258,16 @@ public final class ScenarioResolver {
 
     /**
      * @param tree a part of a test plan
-     * @return the variables its User Defined Variables elements define, in tree order, the last definition winning
+     * @return the variables its User Defined Variables elements define, in tree order, the last definition winning.
+     *     Disabled elements and everything below them are left out, as they are when the test runs.
      */
     private static Map<String, String> userDefinedVariables(HashTree tree) {
         Map<String, String> variables = new LinkedHashMap<>();
         for (Object element : tree.list()) {
-            if (element.getClass() == Arguments.class && ((Arguments) element).isEnabled()) {
+            if (element instanceof TestElement testElement && !testElement.isEnabled()) {
+                continue;
+            }
+            if (element.getClass() == Arguments.class) {
                 variables.putAll(((Arguments) element).getArgumentsAsMap());
             }
             variables.putAll(userDefinedVariables(tree.getTree(element)));
@@ -406,6 +416,11 @@ public final class ScenarioResolver {
             planTree = result.getTree(plan);
             HashTree sourcePlanTree = tree.getTree(root);
             for (Object child : sourcePlanTree.list()) {
+                if (child instanceof ThreadGroupsSection) {
+                    scriptVariableNames.addAll(userDefinedVariableNames(sourcePlanTree.getTree(child)));
+                }
+            }
+            for (Object child : sourcePlanTree.list()) {
                 HashTree childTree = sourcePlanTree.getTree(child);
                 if (child instanceof ScenariosSection) {
                     for (Object scenario : childTree.list()) {
@@ -436,13 +451,49 @@ public final class ScenarioResolver {
             }
         }
 
+        /** Names of the variables that User Defined Variables in thread groups define */
+        private final Set<String> scriptVariableNames = new HashSet<>();
+
+        private boolean usesScriptVariables(String value) {
+            Matcher references = VARIABLE_REFERENCE.matcher(value);
+            while (references.find()) {
+                if (scriptVariableNames.contains(references.group(1))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static Arguments subset(Arguments arguments, BiPredicate<String, String> keep) {
+            Arguments copy = (Arguments) arguments.clone();
+            copy.removeAllArguments();
+            arguments.getArgumentsAsMap().forEach((name, value) -> {
+                if (keep.test(name, value)) {
+                    copy.addArgument(name, value);
+                }
+            });
+            return copy;
+        }
+
         private void addProfiles(HashTree profilesTree) {
             for (Object element : profilesTree.list()) {
                 HashTree elementTree = profilesTree.getTree(element);
                 if (element instanceof SharedProfile sharedProfile) {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
-                        Object evaluated = evaluateVariables(shared);
+                        Object sharedElement = shared;
+                        if (shared.getClass() == Arguments.class) {
+                            Arguments arguments = (Arguments) shared;
+                            Arguments later = subset(arguments, (name, value) -> usesScriptVariables(value));
+                            if (!later.getArgumentsAsMap().isEmpty()) {
+                                // These use variables of the thread groups, as an old plan could by defining them
+                                // after a thread group: they are evaluated once, when the test starts, after the
+                                // thread groups, instead of here without those variables
+                                overridingSharedVariables.add(later);
+                                sharedElement = subset(arguments, (name, value) -> !usesScriptVariables(value));
+                            }
+                        }
+                        Object evaluated = evaluateVariables(sharedElement);
                         if (evaluated instanceof Arguments && sharedProfile.isOverridingThreadGroupVariables()) {
                             // User Defined Variables apply in tree order, the last one winning: these go after
                             // the thread groups so their values win

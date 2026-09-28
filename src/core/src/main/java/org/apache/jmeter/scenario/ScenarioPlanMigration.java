@@ -225,7 +225,8 @@ public final class ScenarioPlanMigration {
         HashTree otherTree = new ListedHashTree();
         List<ScenarioWorkload> workloads = new ArrayList<>();
         Map<Object, Object> replaced = new HashMap<>();
-        Set<String> threadGroupNames = new HashSet<>();
+        // Names are unique within a section: scenario rows, the command line and Module Controllers use them
+        Map<Class<? extends TestPlanSection>, Set<String>> usedNames = new HashMap<>();
         Set<String> threadGroupIds = new HashSet<>();
 
         for (Object child : planTree.list()) {
@@ -237,7 +238,8 @@ public final class ScenarioPlanMigration {
                         : original;
                 // Scenario rows, other formats and the command line refer to thread groups by name and id
                 replaced.put(original, threadGroup);
-                threadGroup.setName(uniqueName(threadGroup.getName(), threadGroupNames));
+                threadGroup.setName(uniqueName(threadGroup.getName(),
+                        usedNames.computeIfAbsent(ThreadGroupsSection.class, section -> new HashSet<>())));
                 threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), threadGroupIds));
                 threadGroupIds.add(threadGroup.getThreadGroupId());
                 workloads.add(workloadOf(threadGroup));
@@ -245,6 +247,11 @@ public final class ScenarioPlanMigration {
                 element = threadGroup;
             }
             Class<? extends TestPlanSection> section = sectionFor(element);
+            if (section == TestFragmentsSection.class && element instanceof TestElement fragment) {
+                // Renamed here rather than when the plan is loaded, so Module Controller paths follow the new name
+                fragment.setName(uniqueName(fragment.getName(),
+                        usedNames.computeIfAbsent(section, key -> new HashSet<>())));
+            }
             if (section == null) {
                 otherTree.add(element, childTree);
             } else {

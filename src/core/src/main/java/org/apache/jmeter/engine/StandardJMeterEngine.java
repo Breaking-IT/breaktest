@@ -245,20 +245,39 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void runTest() throws JMeterEngineException {
-        submittedListeners.addAll(testList.get());
-        testList.remove();
         try {
+            // Resolving evaluates functions, which may register listeners on this thread: resolve first, so the
+            // run below also ends them
             test = ScenarioResolver.resolve(test);
             // The scenario decides whether its thread groups run one after another
             readPlanSettings(test);
-        } catch (ScenarioException e) {
-            throw new JMeterEngineException(e.getMessage(), e);
+        } catch (RuntimeException e) {
+            // The test does not start: release what functions registered, such as open files
+            endRegisteredListeners();
+            if (e instanceof ScenarioException) {
+                throw new JMeterEngineException(e.getMessage(), e);
+            }
+            throw e;
         }
+        submittedListeners.addAll(testList.get());
+        testList.remove();
         try {
             runningTest = EXECUTOR_SERVICE.submit(this);
         } catch (Exception err) {
             stopTest();
             throw new JMeterEngineException(err);
+        }
+    }
+
+    private static void endRegisteredListeners() {
+        List<TestStateListener> registered = new ArrayList<>(testList.get());
+        testList.remove();
+        for (TestStateListener listener : registered) {
+            try {
+                listener.testEnded();
+            } catch (RuntimeException e) {
+                log.warn("Error ending test listener {} of a test that did not start", listener, e);
+            }
         }
     }
 

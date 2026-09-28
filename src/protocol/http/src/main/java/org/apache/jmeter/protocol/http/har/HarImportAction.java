@@ -55,6 +55,8 @@ import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
+import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
@@ -244,15 +246,27 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
      * Skip adding the View Results Tree, Cookie Manager, or HTTP Request Defaults
      * when the Test Plan already has one at its top level.
      */
-    private static void applyExistingTopLevelElements(GuiPackage guiPackage, HarImportOptions options) {
+    static void applyExistingTopLevelElements(GuiPackage guiPackage, HarImportOptions options) {
         JMeterTreeModel treeModel = guiPackage.getTreeModel();
         JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
         if (root.getChildCount() == 0) {
             return;
         }
         JMeterTreeNode testPlanNode = (JMeterTreeNode) root.getChildAt(0);
+        // Test plan level elements: directly in the test plan, or in the Shared Profile and the Listeners section
+        List<JMeterTreeNode> topLevel = new ArrayList<>();
         for (int i = 0; i < testPlanNode.getChildCount(); i++) {
-            TestElement el = ((JMeterTreeNode) testPlanNode.getChildAt(i)).getTestElement();
+            JMeterTreeNode child = (JMeterTreeNode) testPlanNode.getChildAt(i);
+            topLevel.add(child);
+            if (child.getUserObject() instanceof ListenersSection) {
+                child.children().asIterator().forEachRemaining(node -> topLevel.add((JMeterTreeNode) node));
+            }
+        }
+        for (JMeterTreeNode shared : treeModel.getNodesOfType(SharedProfile.class)) {
+            shared.children().asIterator().forEachRemaining(node -> topLevel.add((JMeterTreeNode) node));
+        }
+        for (JMeterTreeNode node : topLevel) {
+            TestElement el = node.getTestElement();
             String guiClass = el.getPropertyAsString(TestElement.GUI_CLASS);
             if (el instanceof CookieManager) {
                 options.setIncludeCookieManager(false);

@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,21 +34,30 @@ import java.util.Set;
 import java.util.zip.ZipInputStream;
 
 import javax.swing.JTree;
+import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
+import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.AbstractTestElement;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.visualizers.ViewResultsFullVisualizer;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -104,6 +114,43 @@ class HarImportActionTest extends JMeterTestCase {
                 && parent.getUserObject() instanceof ThreadGroupsSection, "routed into the Thread groups section");
         assertTrue(tree.isExpanded(listenersPath), "sections that were open stay open");
         assertTrue(tree.isExpanded(new TreePath(importedGroup.getPath())), "the imported thread group is shown");
+    }
+
+    @Test
+    void existingTestLevelConfigurationIsNotAddedAgain() throws Exception {
+        GuiPackage previous = GuiPackage.getInstance();
+        Field guiField = GuiPackage.class.getDeclaredField("guiPack");
+        guiField.setAccessible(true);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(List.of(false, false, false), includedElements(false), "a plan without sections");
+                assertEquals(List.of(false, false, false), includedElements(true),
+                        "the Shared Profile and the Listeners section hold the test level elements");
+            });
+        } finally {
+            guiField.set(null, previous);
+        }
+    }
+
+    /** Which of Cookie Manager, HTTP Request Defaults and View Results Tree an import would add. */
+    private static List<Boolean> includedElements(boolean sections) {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel model = sections ? new JMeterTreeModel() : new JMeterTreeModel(new TestPlan());
+        JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
+        JMeterTreeNode configs = sections ? model.getNodesOfType(SharedProfile.class).get(0) : plan;
+        JMeterTreeNode listeners = sections ? model.getNodesOfType(ListenersSection.class).get(0) : plan;
+        configs.add(new JMeterTreeNode(new CookieManager(), model));
+        ConfigTestElement defaults = new ConfigTestElement();
+        defaults.setProperty(TestElement.GUI_CLASS, HttpDefaultsGui.class.getName());
+        configs.add(new JMeterTreeNode(defaults, model));
+        ResultCollector results = new ResultCollector();
+        results.setProperty(TestElement.GUI_CLASS, ViewResultsFullVisualizer.class.getName());
+        listeners.add(new JMeterTreeNode(results, model));
+        GuiPackage.initInstance(new JMeterTreeListener(model), model);
+        HarImportOptions options = new HarImportOptions();
+        HarImportAction.applyExistingTopLevelElements(GuiPackage.getInstance(), options);
+        return List.of(options.isIncludeCookieManager(), options.isIncludeHttpDefaults(),
+                options.isIncludeViewResultsTree());
     }
 
     @Test

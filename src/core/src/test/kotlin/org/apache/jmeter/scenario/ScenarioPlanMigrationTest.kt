@@ -22,6 +22,7 @@ import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.control.GenericController
 import org.apache.jmeter.control.LoopController
 import org.apache.jmeter.control.TestFragmentController
+import org.apache.jmeter.engine.PreCompiler
 import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.test.samplers.CollectSamplesListener
@@ -29,6 +30,7 @@ import org.apache.jmeter.test.samplers.ThreadSleep
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.property.CollectionProperty
 import org.apache.jmeter.threads.AbstractThreadGroup
+import org.apache.jmeter.threads.JMeterContextService
 import org.apache.jmeter.threads.ThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jorphan.collections.HashTree
@@ -344,6 +346,36 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
             listOf("Test Plan", "Test Plan", threadGroups.name, "Browse (2)", "Step"),
             (module.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         ) { "The path points to the thread group that has the step, now named Browse (2)" }
+    }
+
+    @Test
+    fun `variables in disabled parts of an old plan do not decide which value wins`() {
+        fun plan() = testTree {
+            TestPlan::class {
+                +Arguments().apply { addArgument("host", "before.example") }
+                ThreadGroup::class {
+                    name = "First"
+                    +Arguments().apply { addArgument("host", "group.example") }
+                }
+                +Arguments().apply { addArgument("host", "after.example") }
+                ThreadGroup::class {
+                    name = "Second"
+                    GenericController::class {
+                        isEnabled = false
+                        +Arguments().apply { addArgument("host", "disabled.example") }
+                    }
+                }
+            }
+        }
+        fun host(tree: HashTree): String? {
+            ScenarioResolver.resolve(JMeter.convertSubTree(tree, false)).traverse(PreCompiler())
+            return JMeterContextService.getContext().variables.get("host")
+        }
+        assertEquals("after.example", host(plan())) { "The old plan" }
+        val changed = mutableListOf<String>()
+        val migrated = ScenarioPlanMigration.migrate(plan(), changed)
+        assertEquals(listOf<String>(), changed)
+        assertEquals("after.example", host(migrated))
     }
 
     @Test
