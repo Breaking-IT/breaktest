@@ -438,10 +438,10 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
 
         runStartNoTimers = makeMenuItemRes("start_no_timers", 'N', ActionNames.ACTION_START_NO_TIMERS, KeyStrokes.ACTION_START_NO_PAUSE); //$NON-NLS-1$
 
-        runStop = makeMenuItemRes("stop", 'T', ActionNames.ACTION_STOP, KeyStrokes.ACTION_STOP); //$NON-NLS-1$
+        runStop = makeMenuItemRes("stop_now", 'T', ActionNames.ACTION_STOP, KeyStrokes.ACTION_STOP); //$NON-NLS-1$
         runStop.setEnabled(false);
 
-        runShut = makeMenuItemRes("shutdown", 'Y', ActionNames.ACTION_SHUTDOWN, KeyStrokes.ACTION_SHUTDOWN); //$NON-NLS-1$
+        runShut = makeMenuItemRes("stop_gracefully", 'Y', ActionNames.ACTION_SHUTDOWN, KeyStrokes.ACTION_SHUTDOWN); //$NON-NLS-1$
         runShut.setEnabled(false);
 
         JMenuItem runClear = makeMenuItemRes("clear", 'C', ActionNames.CLEAR, KeyStrokes.CLEAR);

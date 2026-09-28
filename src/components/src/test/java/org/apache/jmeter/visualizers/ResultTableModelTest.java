@@ -38,6 +38,19 @@ import org.junit.jupiter.api.Test;
 class ResultTableModelTest {
 
     @Test
+    void showsHttpCodeByDefaultAndKeepsEncodingOptional() {
+        SampleResult sample = sampleWithTime(20);
+        sample.setResponseCode("404");
+        ResultTableModel model = new ResultTableModel(null, null, DateTimeFormatter.ISO_INSTANT);
+        model.setRows(List.of(new ResultTableModel.ResultTableRow(sample, 0)));
+        assertEquals("404", model.getValueAt(0, ResultTableModel.HTTP_CODE));
+        assertTrue(ResultTableModel.defaultVisibleColumns()[ResultTableModel.HTTP_CODE]);
+        assertFalse(ResultTableModel.defaultVisibleColumns()[ResultTableModel.COMPRESSION]);
+        model.setRunningResults(java.util.Set.of(sample), null);
+        assertNull(model.getValueAt(0, ResultTableModel.HTTP_CODE));
+    }
+
+    @Test
     void sortsTimeColumnsNumerically() {
         ResultTableModel model = new ResultTableModel(null, null, DateTimeFormatter.ISO_INSTANT);
         SampleResult slow = sampleWithTime(100);

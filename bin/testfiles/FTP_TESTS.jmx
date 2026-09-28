@@ -29,11 +29,6 @@
             <stringProp name="Argument.value">2222</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>
-          <elementProp name="passivePort" elementType="Argument">
-            <stringProp name="Argument.name">passivePort</stringProp>
-            <stringProp name="Argument.value">2223</stringProp>
-            <stringProp name="Argument.metadata">=</stringProp>
-          </elementProp>
         </collectionProp>
       </Arguments>
       <hashTree/>
@@ -90,7 +85,7 @@ Files.createDirectories(ftpTestPath);
 
 DataConnectionConfigurationFactory dataConnectionConfigurationFactory =
 	new DataConnectionConfigurationFactory();
-dataConnectionConfigurationFactory.setPassivePorts(vars.get(&quot;passivePort&quot;));
+// Use the default ephemeral passive ports. A single fixed port can remain busy after a transfer.
 DataConnectionConfiguration dataConnectionConfiguration = dataConnectionConfigurationFactory.createDataConnectionConfiguration();
 
 PropertiesUserManagerFactory userManagerFactory = new PropertiesUserManagerFactory();

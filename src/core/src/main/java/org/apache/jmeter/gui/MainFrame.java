@@ -465,6 +465,14 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         }
     }
 
+    public void showLocalTestStopping(boolean immediately) {
+        toolbar.setLocalTestStopping();
+        if (bottomRunState != null) {
+            bottomRunState.setText(JMeterUtils.getResString(
+                    immediately ? "stopping_now" : "stopping_gracefully"));
+        }
+    }
+
     /**
      * Show a dialog indicating that JMeter threads are stopping on a particular
      * host.

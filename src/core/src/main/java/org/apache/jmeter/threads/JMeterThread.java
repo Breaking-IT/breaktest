@@ -113,14 +113,6 @@ public class JMeterThread implements Runnable, Interruptible {
     private static final int ALL_SAMPLE_RESULT_METADATA =
             JMETER_VARIABLES_METADATA | SOURCE_TEST_ELEMENT_PATH_METADATA;
 
-    /** How often to check for shutdown during ramp-up, default 1000ms */
-    private static final int RAMPUP_GRANULARITY =
-            JMeterUtils.getPropDefault("jmeterthread.rampup.granularity", 1000); // $NON-NLS-1$
-
-    /** How often to check for shutdown during timer delay, default 1000ms */
-    private static final int TIMER_GRANULARITY =
-            JMeterUtils.getPropDefault("jmeterthread.timer.granularity", 1000); // $NON-NLS-1$
-
     private static final float TIMER_FACTOR = JMeterUtils.getPropDefault("timer.factor", 1.0f);
 
     private static final TimerService TIMER_SERVICE = TimerService.getInstance();
@@ -232,6 +224,10 @@ public class JMeterThread implements Runnable, Interruptible {
     private volatile boolean endingKeepRunningForks;
     private volatile boolean suppressEndedIterationResults;
     private final Map<Thread, Sampler> activeSampleWorkers = new ConcurrentHashMap<>();
+    // A worker remains registered until any stop interrupt has been consumed. The monitor is
+    // never held while sleeping, so virtual workers do not block their carrier in Object.wait.
+    private final IdentityHashMap<Thread, Boolean> activeDelayWorkers = new IdentityHashMap<>();
+
     private final Map<Thread, List<? extends Timer>> activeTimerWorkers = new ConcurrentHashMap<>();
 
     private final IdentityHashMap<ForkController, ReentrantLock> forkStartLocks = new IdentityHashMap<>();
@@ -406,6 +402,7 @@ public class JMeterThread implements Runnable, Interruptible {
         long now = System.currentTimeMillis();
         if (now >= endTime) {
             running = false;
+            wakeDelayWorkers();
             log.info("Stopping because end time detected by thread: {}", threadName);
         }
     }
@@ -495,7 +492,7 @@ public class JMeterThread implements Runnable, Interruptible {
 
                 // It would be possible to add finally for Thread Loop here
                 if (threadGroupLoopController.isDone()) {
-                    log.info("Thread is done: {}", threadName);
+                    log.debug("Thread is done: {}", threadName);
                     break;
                 }
             }
@@ -528,12 +525,12 @@ public class JMeterThread implements Runnable, Interruptible {
             finishForks();
             endRunningTransactions(threadContext, null);
             running = false;
+            wakeDelayWorkers();
             currentSamplerForInterruption = null; // prevent any further interrupts
             currentSamplersForInterruption.clear();
             interruptLock.lock();  // make sure current interrupt is finished, prevent another starting yet
             try {
                 threadContext.clear();
-                log.info("Thread finished: {}", threadName);
                 try {
                     threadFinished(iterationListener);
                 } finally {
@@ -544,6 +541,7 @@ public class JMeterThread implements Runnable, Interruptible {
             } finally {
                 interruptLock.unlock(); // Allow any pending interrupt to complete (OK because currentSampler == null)
             }
+            log.info("Thread finished: {}", threadName);
         }
     }
 
@@ -1005,6 +1003,7 @@ public class JMeterThread implements Runnable, Interruptible {
             if (!containsIdentity(tasks, worker.task)) {
                 continue;
             }
+            wakeDelayWorker(entry.getKey());
             stopTimers(worker.timers);
             boolean immediate = containsIdentity(hardStop, worker.task);
             if (!immediate) {
@@ -1059,6 +1058,7 @@ public class JMeterThread implements Runnable, Interruptible {
                 requestForkStop(task, suppressEndedIterationResults);
             }
         }
+        wakeDelayWorkers();
         for (Map.Entry<Thread, List<? extends Timer>> entry : activeTimerWorkers.entrySet()) {
             stopTimers(entry.getValue());
             interruptActiveWorker(activeTimerWorkers, entry);
@@ -1828,6 +1828,7 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     public void stop() { // Called by StandardJMeterEngine, TestAction and AccessLogSampler
         running = false;
+        wakeDelayWorkers();
         stopTimers();
         stopSampler();
         stopForksNow();
@@ -2024,6 +2025,7 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void shutdownTest() {
         running = false;
+        wakeDelayWorkers();
         log.info("Shutdown Test detected by thread: {}", threadName);
         if (engine != null) {
             engine.askThreadsToStop();
@@ -2035,6 +2037,7 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void stopTestNow() {
         running = false;
+        wakeDelayWorkers();
         log.info("Stop Test Now detected by thread: {}", threadName);
         stopForksNow();
         if (engine != null) {
@@ -2047,6 +2050,7 @@ public class JMeterThread implements Runnable, Interruptible {
      */
     private void stopThread() {
         running = false;
+        wakeDelayWorkers();
         log.info("Stop Thread detected by thread: {}", threadName);
     }
 
@@ -2115,20 +2119,16 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (totalDelay < 0) {
                         log.debug("The delay would be longer than the scheduled period, so stop thread now.");
                         running = false;
+                        wakeDelayWorkers();
                         return null;
                     }
                 }
-                // Use granular sleeps to allow quick response to shutdown
+                // Stop and cancellation wake registered sleepers; no periodic polling is needed.
                 long end = System.currentTimeMillis() + totalDelay;
                 long now;
-                long pause = TIMER_GRANULARITY;
                 while (running && forkIterationEndAction == null && !isCurrentForkStopRequested() && (now = System.currentTimeMillis()) < end) {
-                    long togo = end - now;
-                    if (togo < pause) {
-                        pause = togo;
-                    }
                     try {
-                        TimeUnit.MILLISECONDS.sleep(pause);
+                        awaitDelay(end - now);
                     } catch (InterruptedException e) {
                         if (log.isDebugEnabled() && running && forkIterationEndAction == null && !isCurrentForkStopRequested()) {
                             log.debug("The delay timer was interrupted - Loss of delay for {} was {}ms out of {}ms",
@@ -2359,8 +2359,73 @@ public class JMeterThread implements Runnable, Interruptible {
         delayBy(initialDelay, "RampUp");
     }
 
+    private void wakeDelayWorkers() {
+        synchronized (activeDelayWorkers) {
+            for (Map.Entry<Thread, Boolean> entry : activeDelayWorkers.entrySet()) {
+                entry.setValue(true);
+                entry.getKey().interrupt();
+            }
+        }
+    }
+
+    private void wakeDelayWorker(Thread worker) {
+        synchronized (activeDelayWorkers) {
+            if (activeDelayWorkers.containsKey(worker)) {
+                activeDelayWorkers.put(worker, true);
+                worker.interrupt();
+            }
+        }
+    }
+
     /**
-     * Wait for delay with RAMPUP_GRANULARITY
+     * Sleeps for one delay interval. Stop and cancellation interrupt only registered delay workers,
+     * and that interrupt is consumed before a worker can leave the delay and start a sampler.
+     * The registry lock is never held during sleep.
+     *
+     * @param millis positive maximum wait time in milliseconds
+     * @throws InterruptedException if interrupted for a reason other than graceful stop
+     */
+    public void awaitDelay(long millis) throws InterruptedException {
+        if (millis <= 0) {
+            return;
+        }
+        if (scheduler) {
+            millis = TIMER_SERVICE.adjustDelay(millis, endTime);
+            if (millis <= 0) {
+                running = false;
+                wakeDelayWorkers();
+                return;
+            }
+        }
+        Thread worker = Thread.currentThread();
+        synchronized (activeDelayWorkers) {
+            if (!isIterationRunning()) {
+                return;
+            }
+            activeDelayWorkers.put(worker, false);
+        }
+        InterruptedException interruption = null;
+        try {
+            TimeUnit.MILLISECONDS.sleep(millis);
+        } catch (InterruptedException ex) {
+            interruption = ex;
+        } finally {
+            synchronized (activeDelayWorkers) {
+                if (Boolean.TRUE.equals(activeDelayWorkers.remove(worker))) {
+                    // Stop may have arrived after sleep returned but before deregistration.
+                    // Do not leak that interrupt into cleanup or any later work on this worker.
+                    Thread.interrupted();
+                    interruption = null;
+                }
+            }
+        }
+        if (interruption != null) {
+            throw interruption;
+        }
+    }
+
+    /**
+     * Wait for the delay or a stop/cancellation signal.
      *
      * @param delay delay in ms
      * @param type  Delay type
@@ -2370,14 +2435,9 @@ public class JMeterThread implements Runnable, Interruptible {
             long start = System.currentTimeMillis();
             long end = start + delay;
             long now;
-            long pause = RAMPUP_GRANULARITY;
-            while (running && (now = System.currentTimeMillis()) < end) {
-                long togo = end - now;
-                if (togo < pause) {
-                    pause = togo;
-                }
+            while (isIterationRunning() && (now = System.currentTimeMillis()) < end) {
                 try {
-                    TimeUnit.MILLISECONDS.sleep(pause); // delay between checks
+                    awaitDelay(end - now);
                 } catch (InterruptedException e) {
                     if (running) { // NOSONAR running may have been changed from another thread
                         log.warn("{} delay for {} was interrupted. Waited {} milli-seconds out of {}", type, threadName,
