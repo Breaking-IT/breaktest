@@ -35,6 +35,38 @@ import org.junit.jupiter.api.Test;
 
 class JMeterToolBarTest extends JMeterTestCase {
     @Test
+    void runButtonFollowsLifecycleAndSurvivesLocaleChanges() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+            JButton run = button(toolbar, ActionNames.ACTION_START);
+            assertEquals("Run", run.getText());
+            assertTrue(run.isEnabled());
+            int componentCount = toolbar.getComponentCount();
+            toolbar.setLocalTestStarted(true);
+            assertEquals(ActionNames.ACTION_PAUSE, run.getActionCommand());
+            assertEquals("Pause", run.getText());
+            assertTrue(run.isEnabled());
+            toolbar.setLocalTestPaused(true);
+            assertEquals("Resume", run.getText());
+            assertEquals("Resume", run.getAccessibleContext().getAccessibleName());
+            assertEquals(JMeterUtils.getResString("resume"), run.getToolTipText());
+            toolbar.localeChanged(new LocaleChangeEvent(toolbar));
+            run = button(toolbar, ActionNames.ACTION_PAUSE);
+            assertEquals("Resume", run.getText());
+            assertTrue(run.isEnabled());
+            toolbar.setLocalTestPaused(false);
+            assertEquals("Pause", run.getText());
+            toolbar.setLocalTestStopping();
+            assertFalse(run.isEnabled());
+            toolbar.setLocalTestStarted(false);
+            assertEquals(ActionNames.ACTION_START, run.getActionCommand());
+            assertEquals("Run", run.getText());
+            assertTrue(run.isEnabled());
+            assertEquals(componentCount, toolbar.getComponentCount());
+        });
+    }
+
+    @Test
     void stopEscalatesAndResetsForNextRun() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
@@ -51,7 +83,7 @@ class JMeterToolBarTest extends JMeterTestCase {
             assertEquals(ActionNames.ACTION_STOP, stop.getActionCommand());
             assertEquals(JMeterUtils.getResString("stop_now_tooltip"), stop.getToolTipText());
             assertNotSame(gracefulIcon, stop.getIcon());
-            assertFalse(button(toolbar, ActionNames.ACTION_START).isEnabled());
+            assertFalse(button(toolbar, ActionNames.ACTION_START_NO_TIMERS).isEnabled());
             assertFalse(button(toolbar, ActionNames.ACTION_PAUSE).isEnabled());
 
             toolbar.localeChanged(new LocaleChangeEvent(toolbar));
@@ -69,13 +101,16 @@ class JMeterToolBarTest extends JMeterTestCase {
     }
 
     @Test
-    void legacyCustomToolbarUsesOneEscalatingStopButton() throws Exception {
+    void legacyCustomToolbarCombinesRunPauseAndStopButtons() throws Exception {
         String previous = JMeterUtils.getProperty("jmeter.toolbar");
         try {
-            JMeterUtils.setProperty("jmeter.toolbar", "test_shutdown,test_stop");
+            JMeterUtils.setProperty("jmeter.toolbar", "test_start,test_pause,test_shutdown,test_stop");
             SwingUtilities.invokeAndWait(() -> {
                 JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+                assertEquals(2, toolbar.getComponentCount());
+                JButton run = button(toolbar, ActionNames.ACTION_START);
                 toolbar.setLocalTestStarted(true);
+                assertEquals(ActionNames.ACTION_PAUSE, run.getActionCommand());
                 assertEquals(ActionNames.ACTION_SHUTDOWN, stopButton(toolbar).getActionCommand());
                 toolbar.setLocalTestStopping();
                 assertEquals(ActionNames.ACTION_STOP, stopButton(toolbar).getActionCommand());

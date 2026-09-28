@@ -79,6 +79,10 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     private boolean localTestStopping;
 
+    private boolean localTestPaused;
+
+    private static final String RUN_BUTTON = "breaktest.runButton";
+
     private long stopNowAvailableAt;
 
     private static final String STOP_BUTTON = "breaktest.stopButton";
@@ -167,6 +171,9 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         button.setToolTipText(JMeterUtils.getResString(iconBean.getI18nKey()));
         if (!iconBean.getIconPathPressed().equals(iconBean.getIconPath())) {
             button.setPressedIcon(loadIcon(iconBean, iconBean.getIconPathPressed()));
+        }
+        if ("ACTION_START".equals(iconBean.getActionName())) {
+            button.putClientProperty(RUN_BUTTON, true);
         }
         if ("ACTION_STOP".equals(iconBean.getActionName())) {
             button.putClientProperty(STOP_BUTTON, true);
@@ -277,9 +284,17 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
         List<IconToolbarBean> listIcons = new ArrayList<>();
         boolean stopAdded = false;
+        boolean runAdded = false;
         for (String key : oList) {
             log.debug("Toolbar icon key: {}", key); //$NON-NLS-1$
             String trimmed = key.trim();
+            if ("test_start".equals(trimmed) || "test_pause".equals(trimmed)) {
+                if (runAdded) {
+                    continue;
+                }
+                runAdded = true;
+                trimmed = "test_start";
+            }
             // Legacy custom toolbars may still list both stop and shutdown.
             if ("test_stop".equals(trimmed) || "test_shutdown".equals(trimmed)) {
                 if (stopAdded) {
@@ -317,6 +332,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         setupToolbarContent(this);
         updateButtons(currentButtonStates);
         updateStopButton();
+        updateRunButton();
     }
 
     /**
@@ -349,6 +365,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.REDO, false);
         updateButtons(buttonStates);
         updateStopButton();
+        updateRunButton();
     }
 
     /**
@@ -360,6 +377,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
     public void setLocalTestStarted(boolean started) {
         localTestStarted = started;
         localTestStopping = false;
+        localTestPaused = false;
         Map<String, Boolean> buttonStates = new HashMap<>(6);
         buttonStates.put(ActionNames.VALIDATE_TG, !started);
         buttonStates.put(ActionNames.ACTION_START, !started);
@@ -369,9 +387,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, started);
         updateButtons(buttonStates);
         updateStopButton();
-        if (!started) {
-            setLocalTestPaused(false);
-        }
+        updateRunButton();
     }
 
     /**
@@ -384,6 +400,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         }
         localTestStopping = true;
         updateStopButton();
+        updateRunButton();
         updateButtons(Map.of(ActionNames.ACTION_PAUSE, false));
     }
 
@@ -416,17 +433,27 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      * @param paused true when scheduling is paused and the next action is resume
      */
     public void setLocalTestPaused(boolean paused) {
-        boolean synchronous = false;
-        JMeterUtils.runSafe(synchronous, () -> {
-            Icon icon = loadIcon(paused ? "resume" : "pause", "ACTION_PAUSE", //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-                    paused ? RESUME_ICON_PATH : PAUSE_ICON_PATH);
+        localTestPaused = paused;
+        updateRunButton();
+    }
+
+    private void updateRunButton() {
+        JMeterUtils.runSafe(false, () -> {
+            String label = localTestStarted ? (localTestPaused ? "Resume" : "Pause") : "Run";
+            String tooltip = localTestStarted ? (localTestPaused ? "resume" : "pause") : "start";
+            String command = localTestStarted ? ActionNames.ACTION_PAUSE : ActionNames.ACTION_START;
+            String path = localTestStarted && !localTestPaused ? PAUSE_ICON_PATH : RESUME_ICON_PATH;
             for (Component component : getComponents()) {
                 if (component instanceof JButton button
-                        && ActionNames.ACTION_PAUSE.equals(button.getActionCommand())) {
-                    button.setToolTipText(JMeterUtils.getResString(paused ? "resume" : "pause")); //$NON-NLS-1$ //$NON-NLS-2$
-                    if (icon != null) {
-                        button.setIcon(icon);
-                    }
+                        && Boolean.TRUE.equals(button.getClientProperty(RUN_BUTTON))) {
+                    button.setActionCommand(command);
+                    button.setText(label);
+                    button.setToolTipText(JMeterUtils.getResString(tooltip));
+                    button.getAccessibleContext().setAccessibleName(label);
+                    button.setIcon(loadIcon(tooltip, "ACTION_START", path));
+                    button.setDisabledIcon(null);
+                    button.setPressedIcon(null);
+                    button.setEnabled(!localTestStopping);
                 }
             }
         });
