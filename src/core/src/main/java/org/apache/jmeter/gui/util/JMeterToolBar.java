@@ -89,9 +89,9 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     private static final String STOP_BUTTON = "breaktest.stopButton";
 
-    private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/pause.svg";
+    private static final String RUN_ICON_MAPPING = "breaktest.runIconMapping";
 
-    private static final String RESUME_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/play.svg";
+    private IconToolbarBean pauseIconMapping;
 
     /**
      * Create the default JMeter toolbar
@@ -136,7 +136,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      * @param toolBar {@link JMeterToolBar}
      */
     private static void setupToolbarContent(JMeterToolBar toolBar) {
-        List<IconToolbarBean> icons = getIconMappings();
+        List<IconToolbarBean> icons = toolBar.getIconMappings();
         if (icons != null) {
             for (IconToolbarBean iconToolbarBean : icons) {
                 if (iconToolbarBean == null) {
@@ -176,6 +176,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         }
         if ("ACTION_START".equals(iconBean.getActionName())) {
             button.putClientProperty(RUN_BUTTON, true);
+            button.putClientProperty(RUN_ICON_MAPPING, iconBean);
         }
         if ("ACTION_STOP".equals(iconBean.getActionName())) {
             button.putClientProperty(STOP_BUTTON, true);
@@ -212,9 +213,9 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             case "COLLAPSE_ALL" -> "Collapse"; // $NON-NLS-1$ $NON-NLS-2$
             case "TOGGLE" -> "Toggle"; // $NON-NLS-1$ $NON-NLS-2$
             case "VALIDATE_TG" -> "Check"; // $NON-NLS-1$ $NON-NLS-2$
-            case "ACTION_START" -> "Run"; // $NON-NLS-1$ $NON-NLS-2$
-            case "ACTION_START_NO_TIMERS" -> "Run"; // $NON-NLS-1$ $NON-NLS-2$
-            case "ACTION_PAUSE" -> "Pause"; // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_START" -> JMeterUtils.getResString("run"); // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_START_NO_TIMERS" -> JMeterUtils.getResString("run"); // $NON-NLS-1$ $NON-NLS-2$
+            case "ACTION_PAUSE" -> JMeterUtils.getResString("toolbar_pause"); // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_STOP" -> "Stop"; // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_SHUTDOWN" -> "Shutdown"; // $NON-NLS-1$ $NON-NLS-2$
             case "AI_AUTO_SCRIPTING" -> "AI"; // $NON-NLS-1$ $NON-NLS-2$
@@ -256,7 +257,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      * Parse icon set file.
      * @return List of icons/action definition
      */
-    private static List<IconToolbarBean> getIconMappings() {
+    private List<IconToolbarBean> getIconMappings() {
         // Get the standard toolbar properties
         Properties defaultProps = JMeterUtils.loadProperties(DEFAULT_TOOLBAR_PROPERTY_FILE);
         if (defaultProps == null) {
@@ -288,6 +289,13 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         String[] oList = order.split(TOOLBAR_ENTRY_SEP);
 
         String iconSize = JMeterUtils.getPropDefault(TOOLBAR_ICON_SIZE, DEFAULT_TOOLBAR_ICON_SIZE);
+
+        try {
+            pauseIconMapping = new IconToolbarBean(p.getProperty("test_pause"), iconSize);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid pause icon definition; using the default", e);
+            pauseIconMapping = new IconToolbarBean(defaultProps.getProperty("test_pause"), iconSize);
+        }
 
         List<IconToolbarBean> listIcons = new ArrayList<>();
         boolean stopAdded = false;
@@ -455,10 +463,10 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     private void updateRunButton() {
         JMeterUtils.runSafe(false, () -> {
-            String label = localTestStarted ? (localTestPaused ? "Resume" : "Pause") : "Run";
+            String label = JMeterUtils.getResString(
+                    localTestStarted ? (localTestPaused ? "toolbar_resume" : "toolbar_pause") : "run");
             String tooltip = localTestStarted ? (localTestPaused ? "resume" : "pause") : "start";
             String command = localTestStarted ? ActionNames.ACTION_PAUSE : ActionNames.ACTION_START;
-            String path = localTestStarted && !localTestPaused ? PAUSE_ICON_PATH : RESUME_ICON_PATH;
             for (Component component : getComponents()) {
                 if (component instanceof JButton button
                         && Boolean.TRUE.equals(button.getClientProperty(RUN_BUTTON))) {
@@ -466,9 +474,12 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
                     button.setText(label);
                     button.setToolTipText(JMeterUtils.getResString(tooltip));
                     button.getAccessibleContext().setAccessibleName(label);
-                    button.setIcon(loadIcon(tooltip, "ACTION_START", path));
+                    IconToolbarBean mapping = localTestStarted && !localTestPaused
+                            ? pauseIconMapping : (IconToolbarBean) button.getClientProperty(RUN_ICON_MAPPING);
+                    button.setIcon(loadIcon(mapping, mapping.getIconPath()));
                     button.setDisabledIcon(null);
-                    button.setPressedIcon(null);
+                    button.setPressedIcon(mapping.getIconPathPressed().equals(mapping.getIconPath())
+                            ? null : loadIcon(mapping, mapping.getIconPathPressed()));
                     button.setEnabled(!localTestStopping);
                 }
             }

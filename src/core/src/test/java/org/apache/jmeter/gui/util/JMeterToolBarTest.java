@@ -22,8 +22,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Locale;
+import java.util.Properties;
 
+import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.SwingUtilities;
 
@@ -32,8 +37,84 @@ import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.LocaleChangeEvent;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class JMeterToolBarTest extends JMeterTestCase {
+    @Test
+    void runLabelsFollowLocaleWhilePaused() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Locale previous = JMeterUtils.getLocale();
+            JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+            try {
+                JMeterUtils.setLocale(Locale.FRENCH);
+                assertEquals("Lancer", button(toolbar, ActionNames.ACTION_START).getText());
+                toolbar.setLocalTestStarted(true);
+                assertEquals("Pause", button(toolbar, ActionNames.ACTION_PAUSE).getText());
+                toolbar.setLocalTestPaused(true);
+                assertEquals("Reprendre", button(toolbar, ActionNames.ACTION_PAUSE).getText());
+                JMeterUtils.setLocale(Locale.GERMAN);
+                JButton resume = button(toolbar, ActionNames.ACTION_PAUSE);
+                assertEquals("Fortsetzen", resume.getText());
+                assertEquals("Fortsetzen", resume.getAccessibleContext().getAccessibleName());
+                toolbar.setLocalTestStarted(false);
+                assertEquals("Start", button(toolbar, ActionNames.ACTION_START).getText());
+            } finally {
+                JMeterUtils.setLocale(previous);
+                JMeterUtils.removeLocaleChangeListener(toolbar);
+            }
+        });
+    }
+
+    @Test
+    void customRunAndPauseIconsSurviveStateChanges(@TempDir Path directory) throws Exception {
+        String prefix = "org/apache/jmeter/images/vrt/";
+        String run = prefix + "32x32/security-low-2.png";
+        String runPressed = prefix + "32x32/security-high-2.png";
+        String pause = prefix + "24x24/security-low-2.png";
+        String pausePressed = prefix + "24x24/security-high-2.png";
+        Properties icons = new Properties();
+        icons.setProperty("test_start", "start,ACTION_START," + run + "," + runPressed);
+        icons.setProperty("test_pause", "pause,ACTION_PAUSE," + pause + "," + pausePressed);
+        Path iconFile = directory.resolve("icons.properties");
+        try (var writer = Files.newBufferedWriter(iconFile)) {
+            icons.store(writer, "Custom toolbar icons");
+        }
+        String previous = JMeterUtils.getProperty(JMeterToolBar.USER_DEFINED_TOOLBAR_PROPERTY_FILE);
+        try {
+            JMeterUtils.setProperty(JMeterToolBar.USER_DEFINED_TOOLBAR_PROPERTY_FILE, iconFile.toString());
+            SwingUtilities.invokeAndWait(() -> {
+                JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+                try {
+                    assertIcons(button(toolbar, ActionNames.ACTION_START), run, runPressed);
+                    toolbar.setLocalTestStarted(true);
+                    assertIcons(button(toolbar, ActionNames.ACTION_PAUSE), pause, pausePressed);
+                    toolbar.setLocalTestPaused(true);
+                    assertIcons(button(toolbar, ActionNames.ACTION_PAUSE), run, runPressed);
+                    toolbar.localeChanged(new LocaleChangeEvent(toolbar));
+                    assertIcons(button(toolbar, ActionNames.ACTION_PAUSE), run, runPressed);
+                    toolbar.setLocalTestPaused(false);
+                    assertIcons(button(toolbar, ActionNames.ACTION_PAUSE), pause, pausePressed);
+                    toolbar.setLocalTestStarted(false);
+                    assertIcons(button(toolbar, ActionNames.ACTION_START), run, runPressed);
+                } finally {
+                    JMeterUtils.removeLocaleChangeListener(toolbar);
+                }
+            });
+        } finally {
+            if (previous == null) {
+                JMeterUtils.getJMeterProperties().remove(JMeterToolBar.USER_DEFINED_TOOLBAR_PROPERTY_FILE);
+            } else {
+                JMeterUtils.setProperty(JMeterToolBar.USER_DEFINED_TOOLBAR_PROPERTY_FILE, previous);
+            }
+        }
+    }
+
+    private static void assertIcons(JButton button, String normal, String pressed) {
+        ClassLoader loader = JMeterUtils.class.getClassLoader();
+        assertEquals(loader.getResource(normal).toString(), ((ImageIcon) button.getIcon()).getDescription());
+        assertEquals(loader.getResource(pressed).toString(), ((ImageIcon) button.getPressedIcon()).getDescription());
+    }
+
     @Test
     void runDoubleClickCannotPauseNewTest() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
