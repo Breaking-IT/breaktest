@@ -36,7 +36,6 @@ import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.engine.JMeterEngineException;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
-import org.apache.jmeter.engine.TreeClonerNoTimer;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.validation.TreeClonerForValidation;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
@@ -63,12 +62,9 @@ import com.google.auto.service.AutoService;
 /**
  * Set of Actions to:
  * <ul>
- *      <li>Start a Test Plan</li>
- *      <li>Start a Test Plan without sleeping on the timers</li>
+ *      <li>Start a Test Plan, or one of its scenarios</li>
  *      <li>Stop a Test Plan</li>
  *      <li>Shutdown a Test plan</li>
- *      <li>Run a set of Thread Groups</li>
- *      <li>Run a set of Thread Groups without sleeping on the timers</li>
  *      <li>Validate a set of Thread Groups with/without sleeping on the timers depending on jmeter properties</li>
  * </ul>
  */
@@ -79,7 +75,6 @@ public class Start extends AbstractAction {
 
     private enum RunMode {
         AS_IS,
-        IGNORING_TIMERS,
         VALIDATION
     }
     private static final Set<String> commands = new HashSet<>();
@@ -95,7 +90,6 @@ public class Start extends AbstractAction {
 
     static {
         commands.add(ActionNames.ACTION_START);
-        commands.add(ActionNames.ACTION_START_NO_TIMERS);
         commands.add(ActionNames.ACTION_PAUSE);
         commands.add(ActionNames.ACTION_STOP);
         commands.add(ActionNames.ACTION_SHUTDOWN);
@@ -158,9 +152,6 @@ public class Start extends AbstractAction {
         if (e.getActionCommand().equals(ActionNames.ACTION_START)) {
             popupShouldSave(e);
             startEngine(null, RunMode.AS_IS);
-        } else if (e.getActionCommand().equals(ActionNames.ACTION_START_NO_TIMERS)) {
-            popupShouldSave(e);
-            startEngine(null, RunMode.IGNORING_TIMERS);
         } else if (e.getActionCommand().equals(ActionNames.RUN_SCENARIO)) {
             GuiPackage guiPackage = GuiPackage.getInstance();
             guiPackage.updateCurrentNode();
@@ -438,7 +429,7 @@ public class Start extends AbstractAction {
 
 
     /**
-     * Create a Cloner that ignores {@link Timer} if removeTimers is true
+     * Clone the test tree, ignoring {@link Timer}s when validating if the jmeter properties say so
      * @param testTree {@link HashTree}
      * @param runMode {@link RunMode} how plan will be run
      * @return {@link TreeCloner}
@@ -446,7 +437,6 @@ public class Start extends AbstractAction {
     private static ListedHashTree cloneTree(HashTree testTree, RunMode runMode) {
         TreeCloner cloner = switch (runMode) {
             case VALIDATION -> createTreeClonerForValidation(false);
-            case IGNORING_TIMERS -> new TreeClonerNoTimer(false);
             case AS_IS -> new TreeCloner(false);
         };
         testTree.traverse(cloner);
