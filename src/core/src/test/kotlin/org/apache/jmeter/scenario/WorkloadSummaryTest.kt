@@ -62,6 +62,36 @@ class WorkloadSummaryTest : JMeterTestCase() {
     }
 
     @Test
+    fun `typed settings configure the thread group that runs`() {
+        val workload = ScenarioWorkload().apply {
+            threads = "25"
+            rampUp = "30"
+            duration = "600"
+            loops = "-1"
+            setFixedPacing("12000")
+            onSampleError = AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD
+            isSameUserOnEachIteration = false
+        }
+        assertEquals(listOf("25", "30", "600", "-1"), listOf(workload.threads, workload.rampUp, workload.duration, workload.loops))
+        assertEquals(AbstractThreadGroup.PACING_FIXED, workload.pacingMode)
+
+        val threadGroup = ThreadGroup()
+        workload.applyTo(threadGroup)
+        assertEquals(25, threadGroup.numThreads)
+        assertEquals(30, threadGroup.rampUp)
+        assertEquals(true, threadGroup.scheduler)
+        assertEquals(600L, threadGroup.duration)
+        assertEquals(-1, (threadGroup.samplerController as LoopController).loops)
+        assertEquals("12000", threadGroup.fixedPacing)
+        assertEquals(true, threadGroup.onErrorStopThread)
+        assertEquals(false, threadGroup.isSameUserOnNextIteration)
+
+        workload.duration = ""
+        assertEquals("", workload.duration)
+        assertEquals(false, ThreadGroup().also { workload.applyTo(it) }.scheduler) { "No duration: runs until its loops end" }
+    }
+
+    @Test
     fun `custom closed model uses its highest phase`() {
         val summary = summaryOf {
             setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_CUSTOM)

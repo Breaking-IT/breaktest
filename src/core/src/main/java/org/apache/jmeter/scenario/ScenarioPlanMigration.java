@@ -209,6 +209,8 @@ public final class ScenarioPlanMigration {
         List<ScenarioWorkload> workloads = new ArrayList<>();
         Map<String, PathFix> movedTargets = new HashMap<>();
         Set<String> wholeFragmentTargets = new HashSet<>();
+        Set<String> threadGroupNames = new HashSet<>();
+        Set<String> threadGroupIds = new HashSet<>();
         collectWholeTargets(tree, wholeFragmentTargets);
 
         for (Object child : planTree.list()) {
@@ -218,6 +220,10 @@ public final class ScenarioPlanMigration {
                 AbstractThreadGroup threadGroup = original instanceof OpenModelThreadGroup openModel
                         ? toThreadGroup(openModel)
                         : original;
+                // Scenario rows, other formats and the command line refer to thread groups by name and id
+                threadGroup.setName(uniqueName(threadGroup.getName(), threadGroupNames));
+                threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), threadGroupIds));
+                threadGroupIds.add(threadGroup.getThreadGroupId());
                 workloads.add(workloadOf(threadGroup));
                 keepOnlyScript(threadGroup);
                 element = threadGroup;
@@ -355,6 +361,15 @@ public final class ScenarioPlanMigration {
      * keeps finding its own target.
      * @return whether the fragment was unwrapped
      */
+    private static String uniqueName(String name, Set<String> used) {
+        String base = name == null ? "" : name;
+        String candidate = base;
+        for (int i = 2; !used.add(candidate); i++) {
+            candidate = base + " (" + i + ")";
+        }
+        return candidate;
+    }
+
     private static boolean unwrapFragment(HashTree fragmentTree, HashTree fragmentsSectionTree) {
         Set<String> names = new HashSet<>();
         for (Object existing : fragmentsSectionTree.list()) {

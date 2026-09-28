@@ -20,8 +20,9 @@ package org.apache.jmeter.threads;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.IdentityHashMap;
+import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.config.Arguments;
@@ -174,8 +175,35 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
     public String getOrCreateThreadGroupId() {
         String id = getThreadGroupId();
         if (id.isEmpty()) {
-            id = UUID.randomUUID().toString();
+            id = readableId(getName());
             setThreadGroupId(id);
+        }
+        return id;
+    }
+
+    /**
+     * Readable identifiers, such as {@code checkout-flow} for "Checkout flow", can serve as keys in other formats
+     * and keep saved plans readable. The identifier is kept when the thread group is renamed.
+     * @param name a thread group name
+     * @return the identifier derived from the name, not necessarily unique in its test plan
+     */
+    public static String readableId(String name) {
+        String id = name == null ? "" : name.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-") // $NON-NLS-1$ $NON-NLS-2$
+                .replaceAll("(^-+)|(-+$)", ""); // $NON-NLS-1$ $NON-NLS-2$
+        return id.isEmpty() ? "thread-group" : id; // $NON-NLS-1$
+    }
+
+    /**
+     * @param name a thread group name
+     * @param usedIds the identifiers of the other thread groups of the test plan
+     * @return a readable identifier that is not in {@code usedIds}
+     */
+    public static String uniqueReadableId(String name, Set<String> usedIds) {
+        String base = readableId(name);
+        String id = base;
+        for (int i = 2; usedIds.contains(id); i++) {
+            id = base + "-" + i; // $NON-NLS-1$
         }
         return id;
     }

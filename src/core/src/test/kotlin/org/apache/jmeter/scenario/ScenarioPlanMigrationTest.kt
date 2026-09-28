@@ -177,6 +177,26 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
+    fun `thread groups with the same name get unique names and ids`() {
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroup::class { name = "Browse" }
+                ThreadGroup::class { name = "Browse" }
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(tree)
+        val planTree = migrated.getTree(migrated.array[0])
+        val threadGroups = planTree.getTree(planTree.list().filterIsInstance<ThreadGroupsSection>().single())
+            .list().map { it as ThreadGroup }
+        assertEquals(listOf("Browse", "Browse (2)"), threadGroups.map { it.name })
+        assertEquals(listOf("browse", "browse-2"), threadGroups.map { it.threadGroupId })
+        val scenario = planTree.getTree(planTree.list().filterIsInstance<ScenariosSection>().single()).list().single() as Scenario
+        assertEquals(listOf("browse", "browse-2"), scenario.workloads.map { it.threadGroupId }) {
+            "Each row runs its own thread group"
+        }
+    }
+
+    @Test
     fun `fragment run as a whole by a Module Controller stays wrapped`() {
         val fragment = TestFragmentController().apply { name = "Checkout" }
         val module = GenericController().apply {

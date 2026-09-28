@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.UUID;
 import java.util.function.Predicate;
 
 import javax.swing.tree.DefaultTreeModel;
@@ -48,6 +47,7 @@ import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.scenario.gui.ScenarioGui;
+import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -275,9 +275,9 @@ public class JMeterTreeModel extends DefaultTreeModel {
     }
 
     /**
-     * A copied element must not take over the role of its original: a copied active scenario becomes inactive,
-     * a copied default profile is no longer the default, and a copied thread group gets its own id so scenarios
-     * keep referencing the original. Elements that were cut and pasted have no original left and keep all of it.
+     * A copied element must not take over the role of its original: a copied active scenario becomes inactive and
+     * a copied default profile is no longer the default. Elements that were cut and pasted have no original left
+     * and keep their role. Copied thread groups get their own id when they are inserted, see {@link UniqueNames}.
      * @param element an element about to be added to this tree
      */
     public void resolveCopyConflicts(TestElement element) {
@@ -287,11 +287,8 @@ public class JMeterTreeModel extends DefaultTreeModel {
         } else if (element instanceof Profile profile && profile.isDefault()
                 && anyOther(Profile.class, element, other -> ((Profile) other).isDefault())) {
             profile.setDefault(false);
-        } else if (element instanceof AbstractThreadGroup threadGroup && !threadGroup.getThreadGroupId().isEmpty()
-                && anyOther(AbstractThreadGroup.class, element,
-                        other -> threadGroup.getThreadGroupId().equals(((AbstractThreadGroup) other).getThreadGroupId()))) {
-            threadGroup.setThreadGroupId(UUID.randomUUID().toString());
         }
+        // A copied thread group gets its own id when it is inserted, see UniqueNames
     }
 
     private boolean anyOther(Class<?> type, TestElement element, Predicate<TestElement> condition) {
@@ -356,6 +353,10 @@ public class JMeterTreeModel extends DefaultTreeModel {
     @Override
     public void insertNodeInto(MutableTreeNode newChild, MutableTreeNode parent, int index) {
         parent.insert(newChild, index);
+        if (newChild instanceof JMeterTreeNode node && node.getUserObject() instanceof TestElement) {
+            // Every way of adding an element ends here: add, paste, duplicate, drag and drop, loading, the AI agent
+            UniqueNames.apply(this, node);
+        }
         if (bulkUpdateDepth == 0) {
             nodesWereInserted(parent, new int[] { index });
         }
