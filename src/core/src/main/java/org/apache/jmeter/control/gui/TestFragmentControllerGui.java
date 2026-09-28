@@ -25,9 +25,13 @@ import javax.swing.JMenu;
 import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.control.TestFragmentController;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.MenuFactory;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -51,9 +55,19 @@ public class TestFragmentControllerGui extends AbstractControllerGui {
     @Override
     public TestElement createTestElement() {
         TestFragmentController controller = new TestFragmentController();
-        setEnabled(false);
+        // Disabled so it never runs on its own from the test plan root. In the Test Fragments section it groups
+        // reusable controllers, and nothing there runs on its own anyway.
+        setEnabled(isAddedToTestFragmentsSection(controller));
         modifyTestElement(controller);
         return controller;
+    }
+
+    private static boolean isAddedToTestFragmentsSection(TestElement element) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        JMeterTreeNode target = guiPackage == null
+                ? null
+                : JMeterTreeModel.sectionNodeFor(guiPackage.getCurrentNode(), element);
+        return target != null && target.getUserObject() instanceof TestFragmentsSection;
     }
 
     /**

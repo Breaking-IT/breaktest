@@ -40,6 +40,9 @@ public class TestFragmentsSectionGui extends TestPlanSectionGui {
 
     @Override
     protected void addToAddMenu(JMenu addMenu) {
+        // Test Fragments group reusable controllers; controllers can also be added directly
+        addMenu.add(MenuFactory.makeMenu(MenuFactory.FRAGMENTS, ActionNames.ADD));
+        addMenu.addSeparator();
         addMenu.add(MenuFactory.makeMenu(MenuFactory.CONTROLLERS, ActionNames.ADD));
         addMenu.add(MenuFactory.makeMenu(MenuFactory.SAMPLERS, ActionNames.ADD));
         addMenu.addSeparator();
