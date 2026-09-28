@@ -257,68 +257,85 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         }
     }
 
-    @Test
-    fun `migration keeps which value variables start with`() {
-        fun udv(value: String) = org.apache.jmeter.config.Arguments().apply { addArgument("host", value) }
-        fun migrate(sharedLast: Boolean): Pair<SharedProfile, List<String>> {
-            val tree = testTree {
-                TestPlan::class {
-                    if (!sharedLast) {
-                        +udv("shared.example")
-                    }
-                    ThreadGroup::class { +udv("group.example") }
-                    if (sharedLast) {
-                        +udv("shared.example")
-                    }
-                }
-            }
-            val changed = mutableListOf<String>()
-            val migrated = ScenarioPlanMigration.migrate(tree, changed)
-            val planTree = migrated.getTree(migrated.array[0])
-            val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
-            return planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single() to changed
-        }
-        val (sharedFirst, noChange) = migrate(sharedLast = false)
-        assertFalse(sharedFirst.isOverridingThreadGroupVariables) { "The thread group value won in the old plan" }
-        assertEquals(listOf<String>(), noChange)
-        val (sharedAfter, stillNoChange) = migrate(sharedLast = true)
-        assertTrue(sharedAfter.isOverridingThreadGroupVariables) { "The later test plan value won in the old plan" }
-        assertEquals(listOf<String>(), stillNoChange)
+    private fun udv(vararg pairs: Pair<String, String>) = Arguments().apply { pairs.forEach { (n, v) -> addArgument(n, v) } }
+
+    /** The variables a test starts with, as the engine compiles them */
+    private fun compiledVariables(tree: HashTree, vararg names: String): Map<String, String?> {
+        JMeterContextService.getContext().variables = org.apache.jmeter.threads.JMeterVariables()
+        ScenarioResolver.resolve(JMeter.convertSubTree(tree, false)).traverse(PreCompiler())
+        val variables = JMeterContextService.getContext().variables
+        return names.associateWith { variables.get(it) }
     }
 
     @Test
-    fun `the last definition of a variable decides, also when it is defined before and after a thread group`() {
-        fun udv(vararg pairs: Pair<String, String>) = Arguments().apply { pairs.forEach { (n, v) -> addArgument(n, v) } }
-        fun migrate(tree: HashTree): Pair<SharedProfile, List<String>> {
-            val changed = mutableListOf<String>()
-            val migrated = ScenarioPlanMigration.migrate(tree, changed)
-            val planTree = migrated.getTree(migrated.array[0])
-            val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
-            return planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single() to changed
+    fun `migrated plans start with the same variable values as the old plan`() {
+        val layouts = listOf<() -> HashTree>(
+            {
+                testTree {
+                    TestPlan::class {
+                        +udv("host" to "shared.example")
+                        ThreadGroup::class { +udv("host" to "group.example") }
+                    }
+                }
+            },
+            {
+                testTree {
+                    TestPlan::class {
+                        ThreadGroup::class { +udv("host" to "group.example") }
+                        +udv("host" to "shared.example")
+                    }
+                }
+            },
+            {
+                testTree {
+                    TestPlan::class {
+                        +udv("host" to "before.example")
+                        ThreadGroup::class { +udv("host" to "group.example", "port" to "8080") }
+                        +udv("port" to "443", "url" to "\${host}:\${port}")
+                    }
+                }
+            },
+            {
+                testTree {
+                    TestPlan::class {
+                        setUserDefinedVariables(udv("seed" to "1"))
+                        +udv("result" to "\${seed}-before")
+                        ThreadGroup::class { +udv("seed" to "2") }
+                        +udv("later" to "\${seed}-after")
+                        +udv("chained" to "\${later}-chained")
+                    }
+                }
+            },
+        )
+        for (layout in layouts) {
+            val names = arrayOf("host", "port", "url", "result", "later", "chained")
+            assertEquals(compiledVariables(layout(), *names), compiledVariables(ScenarioPlanMigration.migrate(layout()), *names))
         }
-        val (shared, changed) = migrate(
-            testTree {
-                TestPlan::class {
-                    +udv("host" to "before.example")
-                    ThreadGroup::class { +udv("host" to "group.example") }
-                    +udv("host" to "after.example")
-                }
-            }
-        )
-        assertTrue(shared.isOverridingThreadGroupVariables) { "The definition after the thread group won in the old plan" }
-        assertEquals(listOf<String>(), changed)
+    }
 
-        val (mixed, reported) = migrate(
-            testTree {
-                TestPlan::class {
-                    +udv("host" to "before.example")
-                    ThreadGroup::class { +udv("host" to "group.example", "port" to "8080") }
-                    +udv("port" to "443")
+    @Test
+    fun `test plan variables after a thread group go at the end of that thread group`() {
+        val after = udv("host" to "after.example")
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroup::class {
+                    name = "Browse"
+                    ThreadSleep::class { duration = 0.seconds }
                 }
+                ThreadGroup::class {
+                    name = "Disabled"
+                    isEnabled = false
+                }
+                +after
             }
-        )
-        assertFalse(mixed.isOverridingThreadGroupVariables)
-        assertEquals(listOf("port"), reported) { "A value that one setting cannot keep is reported" }
+        }
+        val migrated = ScenarioPlanMigration.migrate(tree)
+        val planTree = migrated.getTree(migrated.array[0])
+        val section = planTree.list().filterIsInstance<ThreadGroupsSection>().single()
+        val browse = planTree.getTree(section).list().first { (it as ThreadGroup).name == "Browse" }
+        assertSame(after, planTree.getTree(section).getTree(browse).list().last()) {
+            "Evaluated after the thread group's own variables, like in the old plan, and not in a disabled thread group"
+        }
     }
 
     @Test
@@ -372,10 +389,7 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
             return JMeterContextService.getContext().variables.get("host")
         }
         assertEquals("after.example", host(plan())) { "The old plan" }
-        val changed = mutableListOf<String>()
-        val migrated = ScenarioPlanMigration.migrate(plan(), changed)
-        assertEquals(listOf<String>(), changed)
-        assertEquals("after.example", host(migrated))
+        assertEquals("after.example", host(ScenarioPlanMigration.migrate(plan())))
     }
 
     @Test

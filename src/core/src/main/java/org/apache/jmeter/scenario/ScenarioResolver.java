@@ -25,12 +25,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiPredicate;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.testelement.TestElement;
@@ -58,9 +57,6 @@ import org.apache.jorphan.collections.ListedHashTree;
  * tree nodes replaced by test elements. Plans without sections are returned unchanged.
  */
 public final class ScenarioResolver {
-
-    /** A reference to a variable, such as {@code ${host}}, also inside a function call */
-    private static final Pattern VARIABLE_REFERENCE = Pattern.compile("\\$\\{([^${}()]+)\\}"); // $NON-NLS-1$
 
     private ScenarioResolver() {
     }
@@ -105,6 +101,24 @@ public final class ScenarioResolver {
      * @throws ScenarioException when the scenario or a profile cannot be determined, or a workload cannot be resolved
      */
     public static HashTree resolve(HashTree tree, Scenario scenario, String defaultProfileName) {
+        return endingFunctionsOnFailure(() -> resolveSections(tree, scenario, defaultProfileName));
+    }
+
+    /**
+     * Resolving evaluates functions, which may open files and register to be ended with the test. When resolving
+     * fails no test starts, so they are ended here, whoever asked for the resolution.
+     */
+    private static HashTree endingFunctionsOnFailure(Supplier<HashTree> resolution) {
+        int registered = StandardJMeterEngine.registeredListenerCount();
+        try {
+            return resolution.get();
+        } catch (RuntimeException e) {
+            StandardJMeterEngine.endListenersRegisteredSince(registered);
+            throw e;
+        }
+    }
+
+    private static HashTree resolveSections(HashTree tree, Scenario scenario, String defaultProfileName) {
         if (!hasSections(tree)) {
             return tree;
         }
@@ -157,6 +171,10 @@ public final class ScenarioResolver {
      * @return the flat tree, or {@code tree} itself when it has no sections
      */
     public static HashTree flattenIgnoringScenarios(HashTree tree) {
+        return endingFunctionsOnFailure(() -> flattenSectionsIgnoringScenarios(tree));
+    }
+
+    private static HashTree flattenSectionsIgnoringScenarios(HashTree tree) {
         if (!hasSections(tree)) {
             return tree;
         }
@@ -416,11 +434,6 @@ public final class ScenarioResolver {
             planTree = result.getTree(plan);
             HashTree sourcePlanTree = tree.getTree(root);
             for (Object child : sourcePlanTree.list()) {
-                if (child instanceof ThreadGroupsSection) {
-                    scriptVariableNames.addAll(userDefinedVariableNames(sourcePlanTree.getTree(child)));
-                }
-            }
-            for (Object child : sourcePlanTree.list()) {
                 HashTree childTree = sourcePlanTree.getTree(child);
                 if (child instanceof ScenariosSection) {
                     for (Object scenario : childTree.list()) {
@@ -451,49 +464,13 @@ public final class ScenarioResolver {
             }
         }
 
-        /** Names of the variables that User Defined Variables in thread groups define */
-        private final Set<String> scriptVariableNames = new HashSet<>();
-
-        private boolean usesScriptVariables(String value) {
-            Matcher references = VARIABLE_REFERENCE.matcher(value);
-            while (references.find()) {
-                if (scriptVariableNames.contains(references.group(1))) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private static Arguments subset(Arguments arguments, BiPredicate<String, String> keep) {
-            Arguments copy = (Arguments) arguments.clone();
-            copy.removeAllArguments();
-            arguments.getArgumentsAsMap().forEach((name, value) -> {
-                if (keep.test(name, value)) {
-                    copy.addArgument(name, value);
-                }
-            });
-            return copy;
-        }
-
         private void addProfiles(HashTree profilesTree) {
             for (Object element : profilesTree.list()) {
                 HashTree elementTree = profilesTree.getTree(element);
                 if (element instanceof SharedProfile sharedProfile) {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
-                        Object sharedElement = shared;
-                        if (shared.getClass() == Arguments.class) {
-                            Arguments arguments = (Arguments) shared;
-                            Arguments later = subset(arguments, (name, value) -> usesScriptVariables(value));
-                            if (!later.getArgumentsAsMap().isEmpty()) {
-                                // These use variables of the thread groups, as an old plan could by defining them
-                                // after a thread group: they are evaluated once, when the test starts, after the
-                                // thread groups, instead of here without those variables
-                                overridingSharedVariables.add(later);
-                                sharedElement = subset(arguments, (name, value) -> !usesScriptVariables(value));
-                            }
-                        }
-                        Object evaluated = evaluateVariables(sharedElement);
+                        Object evaluated = evaluateVariables(shared);
                         if (evaluated instanceof Arguments && sharedProfile.isOverridingThreadGroupVariables()) {
                             // User Defined Variables apply in tree order, the last one winning: these go after
                             // the thread groups so their values win

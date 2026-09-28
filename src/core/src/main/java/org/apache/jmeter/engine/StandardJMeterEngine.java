@@ -270,8 +270,28 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     }
 
     private static void endRegisteredListeners() {
-        List<TestStateListener> registered = new ArrayList<>(testList.get());
+        endListenersRegisteredSince(0);
         testList.remove();
+    }
+
+    /**
+     * @return how many listeners are registered on this thread for the next test, to pass to
+     *     {@link #endListenersRegisteredSince(int)}
+     */
+    public static int registeredListenerCount() {
+        return testList.get().size();
+    }
+
+    /**
+     * Ends and forgets the listeners registered on this thread after {@link #registeredListenerCount()} returned
+     * {@code count}, for work that registered them but will not start a test, such as a failed scenario resolution.
+     * @param count the earlier number of registered listeners
+     */
+    public static void endListenersRegisteredSince(int count) {
+        List<TestStateListener> all = testList.get();
+        List<TestStateListener> added = all.subList(Math.min(count, all.size()), all.size());
+        List<TestStateListener> registered = new ArrayList<>(added);
+        added.clear();
         for (TestStateListener listener : registered) {
             try {
                 listener.testEnded();

@@ -33,8 +33,15 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.PreCompiler;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioException;
 import org.apache.jmeter.scenario.ScenarioPlanMigration;
 import org.apache.jmeter.scenario.ScenarioResolver;
+import org.apache.jmeter.scenario.ScenarioWorkload;
+import org.apache.jmeter.scenario.ScenariosSection;
+import org.apache.jmeter.scenario.SharedProfile;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.JMeterContextService;
@@ -78,6 +85,82 @@ class ScenarioFunctionsTest extends JMeterTestCase {
         String result = "${__intSum(${seed},1)}";
         assertEquals("3", compiledResult(legacyPlan(result)), "The old plan");
         assertEquals("3", compiledResult(ScenarioPlanMigration.migrate(legacyPlan(result))));
+    }
+
+    /**
+     * An old plan with {@code seed=1} in the test plan and {@code seed=2} in a thread group, and {@code result} using
+     * {@code seed} before or after that thread group, optionally with {@code next} using {@code result}.
+     */
+    private static HashTree legacyPlan(boolean resultBeforeThreadGroup, boolean chained) {
+        HashTree tree = new ListedHashTree();
+        TestPlan testPlan = new TestPlan();
+        Arguments planVariables = new Arguments();
+        planVariables.addArgument("seed", "1");
+        testPlan.setUserDefinedVariables(planVariables);
+        HashTree plan = tree.add(testPlan);
+        Arguments result = new Arguments();
+        result.addArgument("result", "${__intSum(${seed},1)}");
+        if (resultBeforeThreadGroup) {
+            plan.add(result);
+        }
+        ThreadGroup group = new ThreadGroup();
+        group.setName("Workers");
+        Arguments local = new Arguments();
+        local.addArgument("seed", "2");
+        plan.add(group).add(local);
+        if (!resultBeforeThreadGroup) {
+            plan.add(result);
+        }
+        if (chained) {
+            Arguments next = new Arguments();
+            next.addArgument("next", "${__intSum(${result},1)}");
+            plan.add(next);
+        }
+        return tree;
+    }
+
+    private static String compiled(HashTree tree, String name) {
+        ScenarioResolver.resolve(JMeter.convertSubTree(tree, false)).traverse(new PreCompiler());
+        return JMeterContextService.getContext().getVariables().get(name);
+    }
+
+    @Test
+    void variablesBeforeAThreadGroupKeepUsingTheValuesBeforeIt() {
+        assertEquals("2", compiled(legacyPlan(true, false), "result"), "The old plan");
+        assertEquals("2", compiled(ScenarioPlanMigration.migrate(legacyPlan(true, false)), "result"));
+    }
+
+    @Test
+    void variablesAfterAThreadGroupCanDependOnEachOther() {
+        assertEquals("4", compiled(legacyPlan(false, true), "next"), "The old plan");
+        assertEquals("4", compiled(ScenarioPlanMigration.migrate(legacyPlan(false, true)), "next"));
+    }
+
+    @Test
+    void failedResolutionOfAChosenScenarioEndsTheFunctionsItStarted() throws Exception {
+        Path file = dir.resolve("values.txt");
+        Files.writeString(file, "first\nsecond\n");
+        HashTree tree = new ListedHashTree();
+        HashTree plan = tree.add(new TestPlan());
+        ThreadGroup group = new ThreadGroup();
+        group.setThreadGroupId("workers");
+        plan.add(new ThreadGroupsSection()).add(group);
+        ScenarioWorkload workload = new ScenarioWorkload();
+        workload.setThreadGroupId("workers");
+        workload.setProfile("Missing environment");
+        Scenario scenario = new Scenario("Explicit run");
+        scenario.setWorkloads(List.of(workload));
+        plan.add(new ScenariosSection()).add(scenario);
+        Arguments shared = new Arguments();
+        shared.addArgument("value", "${__StringFromFile(" + file + ")}");
+        plan.add(new ProfilesSection()).add(new SharedProfile()).add(shared);
+        HashTree converted = JMeter.convertSubTree(tree, false);
+        int registered = StandardJMeterEngine.registeredListenerCount();
+
+        assertThrows(ScenarioException.class, () -> ScenarioResolver.resolve(converted, scenario));
+
+        assertEquals(registered, StandardJMeterEngine.registeredListenerCount(),
+                "The functions of a rejected scenario are ended rather than left for a later run");
     }
 
     @Test

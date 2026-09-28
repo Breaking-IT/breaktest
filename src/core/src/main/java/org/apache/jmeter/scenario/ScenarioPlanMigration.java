@@ -194,22 +194,11 @@ public final class ScenarioPlanMigration {
      * @return the plan organised in sections, or {@code tree} itself when it does not need a migration
      */
     public static HashTree migrate(HashTree tree) {
-        return migrate(tree, new ArrayList<>());
-    }
-
-    /**
-     * @param tree a loaded test plan
-     * @param changedVariables receives the names of variables whose value at the start of a thread may differ from
-     *     the old plan, because the plan relied on both orders of User Defined Variables
-     * @return the plan organised in sections, or {@code tree} itself when it does not need a migration
-     */
-    public static HashTree migrate(HashTree tree, List<String> changedVariables) {
         if (!needsMigration(tree)) {
             return tree;
         }
         Object plan = tree.getArray()[0];
         HashTree planTree = tree.getTree(plan);
-        boolean sharedOverrides = sharedVariablesMustOverride(planTree, changedVariables);
         // Resolved before thread groups are renamed, while the saved paths still find their targets
         Map<TestElement, Object> moduleTargets = new LinkedHashMap<>();
         findModuleTargets(tree, planTree, moduleTargets);
@@ -228,10 +217,19 @@ public final class ScenarioPlanMigration {
         // Names are unique within a section: scenario rows, the command line and Module Controllers use them
         Map<Class<? extends TestPlanSection>, Set<String>> usedNames = new HashMap<>();
         Set<String> threadGroupIds = new HashSet<>();
+        // User Defined Variables apply to the whole test in tree order, wherever they are. Test plan level ones
+        // after a thread group go at the end of the last enabled thread group before them, so they are still
+        // evaluated at the same moment, after the variables they may use and before those that may use them.
+        AbstractThreadGroup lastEnabledThreadGroup = null;
 
         for (Object child : planTree.list()) {
             HashTree childTree = planTree.getTree(child);
             Object element = child;
+            if (lastEnabledThreadGroup != null && child.getClass() == Arguments.class
+                    && ((Arguments) child).isEnabled()) {
+                sectionTrees.get(ThreadGroupsSection.class).getTree(lastEnabledThreadGroup).add(child, childTree);
+                continue;
+            }
             if (child instanceof AbstractThreadGroup original) {
                 AbstractThreadGroup threadGroup = original instanceof OpenModelThreadGroup openModel
                         ? toThreadGroup(openModel)
@@ -245,6 +243,9 @@ public final class ScenarioPlanMigration {
                 workloads.add(workloadOf(threadGroup));
                 keepOnlyScript(threadGroup);
                 element = threadGroup;
+                if (threadGroup.isEnabled()) {
+                    lastEnabledThreadGroup = threadGroup;
+                }
             }
             Class<? extends TestPlanSection> section = sectionFor(element);
             if (section == TestFragmentsSection.class && element instanceof TestElement fragment) {
@@ -279,9 +280,7 @@ public final class ScenarioPlanMigration {
             sectionNames.put(entry.getKey(), section.getName());
             if (section instanceof ProfilesSection) {
                 // The test-level configuration applies to every thread group: it becomes the shared profile
-                SharedProfile shared = newSharedProfile();
-                shared.setOverridingThreadGroupVariables(sharedOverrides);
-                newPlanTree.add(section).add(shared, entry.getValue());
+                newPlanTree.add(section).add(newSharedProfile(), entry.getValue());
             } else {
                 newPlanTree.add(section, entry.getValue());
             }
@@ -372,47 +371,6 @@ public final class ScenarioPlanMigration {
         target.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.threads.gui.ThreadGroupGui"); // $NON-NLS-1$
         target.setProperty(TestElement.TEST_CLASS, ThreadGroup.class.getName());
         return target;
-    }
-
-    /**
-     * User Defined Variables apply in tree order, the last one winning. In an old plan, test plan level variables
-     * that come after a thread group defining the same variable win over it; those before it lose. In sections, the
-     * Shared Profile setting decides for all of them at once.
-     * @param planTree the children of the old test plan
-     * @param changedVariables receives the variables whose starting value cannot be kept
-     * @return whether the shared variables must override the variables of thread groups
-     */
-    private static boolean sharedVariablesMustOverride(HashTree planTree, List<String> changedVariables) {
-        Set<String> definedShared = new HashSet<>();
-        Set<String> definedInThreadGroup = new HashSet<>();
-        // Whether the last definition of each variable is at the test plan level
-        Map<String, Boolean> lastDefinedShared = new HashMap<>();
-        for (Object child : planTree.list()) {
-            if (child instanceof TestElement element && !element.isEnabled()) {
-                continue;
-            }
-            if (child.getClass() == Arguments.class) {
-                for (String name : ((Arguments) child).getArgumentsAsMap().keySet()) {
-                    definedShared.add(name);
-                    lastDefinedShared.put(name, Boolean.TRUE);
-                }
-            } else if (child instanceof AbstractThreadGroup) {
-                for (String name : ScenarioResolver.userDefinedVariableNames(planTree.getTree(child))) {
-                    definedInThreadGroup.add(name);
-                    lastDefinedShared.put(name, Boolean.FALSE);
-                }
-            }
-        }
-        Set<String> sharedWins = new TreeSet<>();
-        Set<String> threadGroupWins = new TreeSet<>();
-        for (String name : definedShared) {
-            if (definedInThreadGroup.contains(name)) {
-                (lastDefinedShared.get(name) ? sharedWins : threadGroupWins).add(name);
-            }
-        }
-        boolean override = sharedWins.size() > threadGroupWins.size();
-        changedVariables.addAll(override ? threadGroupWins : sharedWins);
-        return override;
     }
 
     /**
