@@ -221,8 +221,14 @@ public class Load extends AbstractActionWithNoRunningTest {
             final GuiPackage guiPackage,
             final HashTree loadedTree) throws Exception {
         final boolean migrate = !merging && ScenarioPlanMigration.needsMigration(loadedTree);
-        final HashTree tree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
+        final HashTree migratedTree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
+        // Plans saved with sections in an earlier order or with outdated fixed names are shown as they are now
+        final boolean normalize = !merging && ScenarioPlanMigration.needsNormalizing(migratedTree);
+        final HashTree tree = normalize ? ScenarioPlanMigration.normalize(migratedTree) : migratedTree;
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
+        if (normalize && !migrate) {
+            guiPackage.setConvertedPlanUnsaved(true);
+        }
         if (migrate) {
             // Only the open plan is converted: the file changes when the user saves it
             guiPackage.setConvertedPlanUnsaved(true);

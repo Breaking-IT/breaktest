@@ -60,6 +60,18 @@ public final class ScenarioPlanMigration {
 
     private static final String MODULE_CONTROLLER_NODE_PATH = "ModuleController.node_path"; // $NON-NLS-1$
 
+    /**
+     * The order of the sections under the test plan: listeners are always at hand at the top, and the thread groups,
+     * which grow the largest, come last.
+     */
+    public static final List<Class<? extends TestPlanSection>> SECTION_ORDER = List.of(
+            ListenersSection.class,
+            ScenariosSection.class,
+            ProfilesSection.class,
+            TestFragmentsSection.class,
+            ThreadGroupsSection.class,
+            NonTestElementsSection.class);
+
     private ScenarioPlanMigration() {
     }
 
@@ -95,6 +107,76 @@ public final class ScenarioPlanMigration {
     }
 
     /**
+     * @param tree a loaded test plan organised in sections
+     * @return whether its sections are out of {@link #SECTION_ORDER} or its fixed nodes have outdated names
+     */
+    public static boolean needsNormalizing(HashTree tree) {
+        Object[] roots = tree.getArray();
+        if (roots.length == 0 || !(roots[0] instanceof TestPlan)) {
+            return false;
+        }
+        HashTree planTree = tree.getTree(roots[0]);
+        return !orderedSections(planTree).equals(new ArrayList<>(planTree.list()))
+                || sharedProfiles(planTree).stream().anyMatch(shared -> !shared.getName().equals(sharedProfileName()));
+    }
+
+    /**
+     * Puts the sections of a test plan in {@link #SECTION_ORDER}, other elements under the test plan keeping their
+     * order after them, and gives the fixed Shared Profile its current name. Their names cannot be edited.
+     * @param tree a loaded test plan organised in sections
+     * @return the normalized plan
+     */
+    public static HashTree normalize(HashTree tree) {
+        Object[] roots = tree.getArray();
+        if (roots.length == 0 || !(roots[0] instanceof TestPlan)) {
+            return tree;
+        }
+        HashTree planTree = tree.getTree(roots[0]);
+        sharedProfiles(planTree).forEach(shared -> shared.setName(sharedProfileName()));
+        HashTree result = new ListedHashTree();
+        HashTree newPlanTree = result.add(roots[0]);
+        for (Object child : orderedSections(planTree)) {
+            newPlanTree.add(child, planTree.getTree(child));
+        }
+        return result;
+    }
+
+    private static List<SharedProfile> sharedProfiles(HashTree planTree) {
+        List<SharedProfile> shared = new ArrayList<>();
+        for (Object child : planTree.list()) {
+            if (child instanceof ProfilesSection) {
+                for (Object profile : planTree.getTree(child).list()) {
+                    if (profile instanceof SharedProfile sharedProfile) {
+                        shared.add(sharedProfile);
+                    }
+                }
+            }
+        }
+        return shared;
+    }
+
+    private static String sharedProfileName() {
+        return JMeterUtils.getResString("shared_profile"); // $NON-NLS-1$
+    }
+
+    private static List<Object> orderedSections(HashTree planTree) {
+        List<Object> ordered = new ArrayList<>();
+        for (Class<? extends TestPlanSection> sectionClass : SECTION_ORDER) {
+            for (Object child : planTree.list()) {
+                if (child.getClass() == sectionClass) {
+                    ordered.add(child);
+                }
+            }
+        }
+        for (Object child : planTree.list()) {
+            if (!ordered.contains(child)) {
+                ordered.add(child);
+            }
+        }
+        return ordered;
+    }
+
+    /**
      * @param tree a loaded test plan
      * @return whether the plan has no sections yet and should be migrated
      */
@@ -119,9 +201,7 @@ public final class ScenarioPlanMigration {
         setGuiClass(scenario, "ScenarioGui"); // $NON-NLS-1$
 
         Map<Class<? extends TestPlanSection>, HashTree> sectionTrees = new LinkedHashMap<>();
-        for (Class<? extends TestPlanSection> sectionClass : List.of(ScenariosSection.class,
-                ThreadGroupsSection.class, ListenersSection.class, ProfilesSection.class, TestFragmentsSection.class,
-                NonTestElementsSection.class)) {
+        for (Class<? extends TestPlanSection> sectionClass : SECTION_ORDER) {
             sectionTrees.put(sectionClass, new ListedHashTree());
         }
         sectionTrees.get(ScenariosSection.class).add(scenario);

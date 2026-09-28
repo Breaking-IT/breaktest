@@ -89,23 +89,23 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         val planTree = migrated.getTree(migrated.array[0])
 
         assertEquals(
-            listOf(ScenariosSection::class, ThreadGroupsSection::class, ListenersSection::class, ProfilesSection::class, TestFragmentsSection::class),
+            listOf(ListenersSection::class, ScenariosSection::class, ProfilesSection::class, TestFragmentsSection::class, ThreadGroupsSection::class),
             plan.map { it::class }
         ) { "No Non-Test Elements section without such elements" }
-        assertEquals(listOf(moduleController, fragmentModule), children(planTree, plan[4]).map { it as Any }) {
+        assertEquals(listOf(moduleController, fragmentModule), children(planTree, plan[3]).map { it as Any }) {
             "Fragment content moves directly into the Test Fragments section"
         }
-        assertSame(listener, children(planTree, plan[2]).single())
-        val shared = children(planTree, plan[3]).single() as SharedProfile
-        assertSame(variables, children(planTree.getTree(plan[3]), shared).single()) { "Test-level configuration is shared" }
+        assertSame(listener, children(planTree, plan[0]).single())
+        val shared = children(planTree, plan[2]).single() as SharedProfile
+        assertSame(variables, children(planTree.getTree(plan[2]), shared).single()) { "Test-level configuration is shared" }
 
-        val threadGroups = children(planTree, plan[1]).map { it as ThreadGroup }
+        val threadGroups = children(planTree, plan[4]).map { it as ThreadGroup }
         assertEquals(listOf("Browse", "Old"), threadGroups.map { it.name })
         val browse = threadGroups[0]
         assertTrue(browse.getPropertyAsString(AbstractThreadGroup.NUM_THREADS).isEmpty()) { "Workload moves to the scenario" }
         assertFalse(browse.isValidationStopOnError) { "Start next loop is not a stop" }
 
-        val scenario = children(planTree, plan[0]).single() as Scenario
+        val scenario = children(planTree, plan[1]).single() as Scenario
         assertTrue(scenario.isEnabled)
         val workloads = scenario.workloads
         assertEquals(listOf("Browse", "Old"), workloads.map { it.name })
@@ -114,11 +114,11 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         assertEquals(AbstractThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP, workloads[0].getPropertyAsString(AbstractThreadGroup.ON_SAMPLE_ERROR))
 
         assertEquals(
-            listOf("Test Plan", "Test Plan", (plan[1] as ThreadGroupsSection).name, "Browse", "Step"),
+            listOf("Test Plan", "Test Plan", (plan[4] as ThreadGroupsSection).name, "Browse", "Step"),
             (moduleController.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         )
         assertEquals(
-            listOf("Test Plan", "Test Plan", (plan[4] as TestFragmentsSection).name, "Step"),
+            listOf("Test Plan", "Test Plan", (plan[3] as TestFragmentsSection).name, "Step"),
             (fragmentModule.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         )
         assertFalse(ScenarioPlanMigration.needsMigration(migrated))
@@ -152,6 +152,28 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         assertEquals("rate(2/sec) even_arrivals(1 min)", workload.getPropertyAsString(ThreadGroup.OPEN_MODEL_SCHEDULE))
         assertTrue(scenario.isRunConsecutively) { "Running thread groups one after another is a scenario setting" }
         assertFalse(plan.isSerialized)
+    }
+
+    @Test
+    fun `plans with sections in an earlier order or outdated fixed names are normalized`() {
+        val shared = SharedProfile().apply { name = "Shared" }
+        val tree = testTree {
+            TestPlan::class {
+                ThreadGroupsSection::class {}
+                ScenariosSection::class {}
+                ProfilesSection::class { +shared }
+                ListenersSection::class {}
+                TestFragmentsSection::class {}
+            }
+        }
+        assertTrue(ScenarioPlanMigration.needsNormalizing(tree))
+        val normalized = ScenarioPlanMigration.normalize(tree)
+        assertEquals(
+            listOf(ListenersSection::class, ScenariosSection::class, ProfilesSection::class, TestFragmentsSection::class, ThreadGroupsSection::class),
+            children(normalized).map { it::class }
+        )
+        assertFalse(shared.name == "Shared") { "The fixed Shared Profile gets its current name" }
+        assertFalse(ScenarioPlanMigration.needsNormalizing(normalized))
     }
 
     @Test

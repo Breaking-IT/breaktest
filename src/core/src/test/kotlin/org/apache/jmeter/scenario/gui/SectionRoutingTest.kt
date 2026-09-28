@@ -76,7 +76,7 @@ class SectionRoutingTest : JMeterTestCase() {
     fun `non-test elements section is created by the first non-test element`() {
         fun sections() = (0 until plan.childCount).map { (plan.getChildAt(it) as JMeterTreeNode).userObject::class }
         assertEquals(
-            listOf(ScenariosSection::class, ThreadGroupsSection::class, ListenersSection::class, ProfilesSection::class, TestFragmentsSection::class),
+            listOf(ListenersSection::class, ScenariosSection::class, ProfilesSection::class, TestFragmentsSection::class, ThreadGroupsSection::class),
             sections()
         )
         assertEquals(NonTestElementsSection::class, parentAfterAdding(BreakTestAiKnowledge()))

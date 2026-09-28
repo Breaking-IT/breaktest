@@ -447,13 +447,14 @@ public class JMeterTreeModel extends DefaultTreeModel {
      */
     public void addDefaultSections() {
         JMeterTreeNode planNode = (JMeterTreeNode) getChild(getRoot(), 0);
+        // In ScenarioPlanMigration.SECTION_ORDER; Non-Test Elements is only added when needed
+        addDefaultNode(ScenarioPlanMigration.newSection(ListenersSection.class), planNode);
         JMeterTreeNode scenarios = addDefaultNode(ScenarioPlanMigration.newSection(ScenariosSection.class), planNode);
         addDefaultNode(new ScenarioGui().createTestElement(), scenarios);
-        addDefaultNode(ScenarioPlanMigration.newSection(ThreadGroupsSection.class), planNode);
-        addDefaultNode(ScenarioPlanMigration.newSection(ListenersSection.class), planNode);
         JMeterTreeNode profiles = addDefaultNode(ScenarioPlanMigration.newSection(ProfilesSection.class), planNode);
         addDefaultNode(ScenarioPlanMigration.newSharedProfile(), profiles);
         addDefaultNode(ScenarioPlanMigration.newSection(TestFragmentsSection.class), planNode);
+        addDefaultNode(ScenarioPlanMigration.newSection(ThreadGroupsSection.class), planNode);
     }
 
     private JMeterTreeNode addDefaultNode(TestElement element, JMeterTreeNode parent) {
