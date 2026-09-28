@@ -132,7 +132,7 @@ class ClosedModelThreadGroupScheduleTest {
         threadGroup.setName("failing closed model");
         threadGroup.setClosedModelSchedule("threadsPhase(2, 0)");
 
-        threadGroup.start(1, new ListenerNotifier(), new ListedHashTree(), new StandardJMeterEngine());
+        threadGroup.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
 
         assertTrue(threadGroup.threadStarted.await(2, TimeUnit.SECONDS));
         assertTrue(threadGroup.threadStopped.await(2, TimeUnit.SECONDS));
@@ -148,7 +148,7 @@ class ClosedModelThreadGroupScheduleTest {
         threadGroup.setClosedModelSchedule("threadsPhase(1, 0)");
 
         try {
-            threadGroup.start(1, new ListenerNotifier(), new ListedHashTree(), new StandardJMeterEngine());
+            threadGroup.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
 
             assertTrue(threadGroup.threadStarted.await(1, TimeUnit.SECONDS));
         } finally {
@@ -205,6 +205,12 @@ class ClosedModelThreadGroupScheduleTest {
                 threadStopped.countDown();
             }
         }
+    }
+
+    private static ListedHashTree singleThreadGroupTree() {
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(new ThreadGroup());
+        return tree;
     }
 
     private static ListedHashTree singleLoopControllerTree() {

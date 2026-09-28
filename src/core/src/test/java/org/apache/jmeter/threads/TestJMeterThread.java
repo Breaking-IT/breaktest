@@ -40,6 +40,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -3790,6 +3791,203 @@ class TestJMeterThread {
 
         assertEquals(1, cleanupCalls.get());
         assertTrue(cleanupRanAfterListener.get());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"transaction,0", "timer,0", "pacing,1"})
+    void gracefulStopWakesIdleDelayWithoutStartingAnotherRequest(String kind, int expectedCalls) throws Exception {
+        LoopController loop = createLoopController();
+        HashTree tree = new ListedHashTree();
+        HashTree children = tree.add(loop);
+        AtomicInteger calls = new AtomicInteger();
+        ResultStatusSampler sampler = new ResultStatusSampler("request", true, calls);
+        if ("transaction".equals(kind)) {
+            TransactionController transaction = new TransactionController();
+            transaction.setName("think time");
+            transaction.setDelayMode(TransactionController.DELAY_FIXED);
+            transaction.setFixedDelay("60000");
+            children.add(transaction).add(sampler);
+        } else {
+            children.add(sampler);
+            if ("timer".equals(kind)) {
+                children.add(createConstantTimer(60000));
+            }
+        }
+        ThreadGroup group = new ThreadGroup();
+        if ("pacing".equals(kind)) {
+            group.setPacingMode(AbstractThreadGroup.PACING_FIXED);
+            group.setFixedPacing("60000");
+        }
+        AtomicLong requestedDelay = new AtomicLong();
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier()) {
+            @Override
+            public void awaitDelay(long millis) throws InterruptedException {
+                requestedDelay.set(millis);
+                super.awaitDelay(millis);
+            }
+        };
+        user.setThreadGroup(group);
+        user.setThreadName("graceful-delay-" + kind);
+        Thread worker = new Thread(user, "graceful-delay-" + kind);
+        worker.start();
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            boolean waiting = false;
+            while (System.nanoTime() < deadline && worker.isAlive()) {
+                if (worker.getState() == Thread.State.TIMED_WAITING
+                        && java.util.Arrays.stream(worker.getStackTrace())
+                                .anyMatch(frame -> frame.getMethodName().equals("awaitDelay"))) {
+                    waiting = true;
+                    break;
+                }
+                Thread.sleep(1);
+            }
+            assertTrue(waiting, "Worker should be in the configured delay");
+            assertTrue(requestedDelay.get() > 50000,
+                    "A long delay must sleep until its deadline, not poll once per second");
+            user.stop();
+            worker.join(500);
+            assertFalse(worker.isAlive(), "Graceful stop should wake the delay immediately");
+            assertEquals(expectedCalls, calls.get(), "No new request may start after stop");
+            assertFalse(worker.isInterrupted(), "Graceful stop must not interrupt the worker");
+        } finally {
+            user.stop();
+            worker.interrupt();
+            worker.join(5000);
+        }
+    }
+
+    @Test
+    void gracefulStopWakesEveryParallelDelayWithoutLeakingInterrupts() throws Exception {
+        JMeterThread user = createThreadGroupPacingFixture().jMeterThread();
+        AtomicInteger interrupted = new AtomicInteger();
+        List<Thread> workers = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            Thread worker = new Thread(() -> {
+                try {
+                    user.awaitDelay(60000);
+                    if (Thread.currentThread().isInterrupted()) {
+                        interrupted.incrementAndGet();
+                    }
+                } catch (InterruptedException ex) {
+                    interrupted.incrementAndGet();
+                }
+            });
+            workers.add(worker);
+            worker.start();
+        }
+        try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (workers.stream().anyMatch(worker -> worker.getState() != Thread.State.TIMED_WAITING)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertTrue(workers.stream().allMatch(worker -> worker.getState() == Thread.State.TIMED_WAITING));
+            user.stop();
+            for (Thread worker : workers) {
+                worker.join(500);
+                assertFalse(worker.isAlive(), "All parallel delay workers must wake on graceful stop");
+            }
+            assertEquals(0, interrupted.get(), "Stop interrupts must not leak out of the delay");
+        } finally {
+            user.stop();
+            for (Thread worker : workers) {
+                worker.interrupt();
+                worker.join(5000);
+            }
+        }
+    }
+
+    @Test
+    void gracefulStopDoesNotInterruptWorkAfterADelayHasFinished() throws Exception {
+        JMeterThread user = createThreadGroupPacingFixture().jMeterThread();
+        CountDownLatch delayFinished = new CountDownLatch(1);
+        CountDownLatch releaseWork = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread worker = new Thread(() -> {
+            try {
+                user.awaitDelay(1);
+                delayFinished.countDown();
+                releaseWork.await();
+            } catch (InterruptedException ex) {
+                interrupted.set(true);
+            }
+        });
+        worker.start();
+        try {
+            assertTrue(delayFinished.await(5, TimeUnit.SECONDS));
+            user.stop();
+            releaseWork.countDown();
+            worker.join(500);
+            assertFalse(worker.isAlive());
+            assertFalse(interrupted.get(), "An expired delay registration must not interrupt later work");
+        } finally {
+            releaseWork.countDown();
+            worker.interrupt();
+            worker.join(5000);
+        }
+    }
+
+    @Test
+    void delayPreservesExternalInterruption() throws Exception {
+        JMeterThread user = createThreadGroupPacingFixture().jMeterThread();
+        AtomicBoolean interrupted = new AtomicBoolean();
+        Thread worker = new Thread(() -> {
+            try {
+                Thread.currentThread().interrupt();
+                user.awaitDelay(60000);
+            } catch (InterruptedException ex) {
+                interrupted.set(true);
+            }
+        });
+        worker.start();
+        try {
+            worker.join(500);
+            assertFalse(worker.isAlive());
+            assertTrue(interrupted.get(), "Interrupts not issued by graceful stop must reach the caller");
+        } finally {
+            worker.interrupt();
+            worker.join(5000);
+        }
+    }
+
+    @Test
+    void longDelayHonorsScheduledEndWithoutPolling() throws Exception {
+        JMeterThread user = createThreadGroupPacingFixture().jMeterThread();
+        user.setScheduled(true);
+        user.setEndTime(System.currentTimeMillis() + 100);
+        Thread worker = new Thread(() -> user.delayBy(60000, "scheduled pacing"));
+        worker.start();
+        try {
+            worker.join(1000);
+            assertFalse(worker.isAlive(), "A scheduled end must shorten a long wait");
+            assertFalse(user.isRunning());
+        } finally {
+            user.stop();
+            worker.interrupt();
+            worker.join(5000);
+        }
+    }
+
+    @Test
+    void delayDoesNotMissStopRequestedBeforeWait() throws Exception {
+        JMeterThread user = createThreadGroupPacingFixture().jMeterThread();
+        user.stop();
+        Thread worker = new Thread(() -> {
+            try {
+                user.awaitDelay(60000);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        worker.start();
+        try {
+            worker.join(500);
+            assertFalse(worker.isAlive(), "A stop issued before entering wait must not be lost");
+        } finally {
+            worker.interrupt();
+            worker.join(5000);
+        }
     }
 
     private static LoopController createLoopController() {

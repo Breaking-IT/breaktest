@@ -56,9 +56,6 @@ public class TransactionController extends GenericController implements Controll
      */
     private static final String GENERATE_PARENT_SAMPLE = "TransactionController.parent"; // $NON-NLS-1$
 
-    private static final int TIMER_GRANULARITY =
-            JMeterUtils.getPropDefault("jmeterthread.timer.granularity", 1000); // $NON-NLS-1$
-
     public static final String DELAY_DISABLED = "Disabled"; // $NON-NLS-1$
 
     public static final String DELAY_FIXED = "Fixed"; // $NON-NLS-1$
@@ -356,14 +353,14 @@ public class TransactionController extends GenericController implements Controll
         long start = System.currentTimeMillis();
         long end = start + delay;
         long now;
-        long pause = TIMER_GRANULARITY;
         while (isRunning(thread) && (now = System.currentTimeMillis()) < end) {
-            long togo = end - now;
-            if (togo < pause) {
-                pause = togo;
-            }
+            long pause = end - now;
             try {
-                TimeUnit.MILLISECONDS.sleep(pause);
+                if (thread == null) {
+                    TimeUnit.MILLISECONDS.sleep(pause);
+                } else {
+                    thread.awaitDelay(pause);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 if (isRunning(thread)) {

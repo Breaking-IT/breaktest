@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.testelement.property.BooleanProperty;
@@ -749,8 +750,15 @@ public class ThreadGroup extends AbstractThreadGroup {
 
         private void startThreads(long threadsToStart) {
             for (long i = 0; running && i < threadsToStart; i++) {
+                ListedHashTree userTree = cloneTree(threadGroupTree);
+                // The profile owns the user's lifetime. A finite loop count from the hidden
+                // standard settings must not end the user and cause periodic replacements.
+                AbstractThreadGroup userGroup = (AbstractThreadGroup) userTree.getArray()[0];
+                LoopController loop = new LoopController();
+                loop.setLoops(LoopController.INFINITE_LOOP_COUNT);
+                userGroup.setSamplerController(loop);
                 JMeterThread jmThread = makeThread(
-                        engine, ThreadGroup.this, notifier, groupNumber, threadNumber++, cloneTree(threadGroupTree), variables);
+                        engine, ThreadGroup.this, notifier, groupNumber, threadNumber++, userTree, variables);
                 jmThread.setInitialDelay(0);
                 Thread newThread = createThread(jmThread, jmThread.getThreadName());
                 if (!VIRTUAL_THREADS_ENABLED) {

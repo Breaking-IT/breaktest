@@ -75,6 +75,14 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     protected static final String TOOLBAR_LIST = "jmeter.toolbar";
 
+    private boolean localTestStarted;
+
+    private boolean localTestStopping;
+
+    private long stopNowAvailableAt;
+
+    private static final String STOP_BUTTON = "breaktest.stopButton";
+
     private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/pause.svg";
 
     private static final String RESUME_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/play.svg";
@@ -160,7 +168,17 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         if (!iconBean.getIconPathPressed().equals(iconBean.getIconPath())) {
             button.setPressedIcon(loadIcon(iconBean, iconBean.getIconPathPressed()));
         }
-        button.addActionListener(ActionRouter.getInstance());
+        if ("ACTION_STOP".equals(iconBean.getActionName())) {
+            button.putClientProperty(STOP_BUTTON, true);
+        }
+        button.addActionListener(event -> {
+            if (Boolean.TRUE.equals(button.getClientProperty(STOP_BUTTON))
+                    && ActionNames.ACTION_STOP.equals(event.getActionCommand())
+                    && System.nanoTime() < ((JMeterToolBar) button.getParent()).stopNowAvailableAt) {
+                return;
+            }
+            ActionRouter.getInstance().actionPerformed(event);
+        });
         button.setActionCommand(iconBean.getActionNameResolve());
         return button;
     }
@@ -289,6 +307,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         this.removeAll();
         setupToolbarContent(this);
         updateButtons(currentButtonStates);
+        updateStopButton();
     }
 
     /**
@@ -320,6 +339,7 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.UNDO, false);
         buttonStates.put(ActionNames.REDO, false);
         updateButtons(buttonStates);
+        updateStopButton();
     }
 
     /**
@@ -329,6 +349,8 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      *            Flag whether local test is started
      */
     public void setLocalTestStarted(boolean started) {
+        localTestStarted = started;
+        localTestStopping = false;
         Map<String, Boolean> buttonStates = new HashMap<>(6);
         buttonStates.put(ActionNames.VALIDATE_TG, !started);
         buttonStates.put(ActionNames.ACTION_START, !started);
@@ -337,9 +359,46 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         buttonStates.put(ActionNames.ACTION_STOP, started);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, started);
         updateButtons(buttonStates);
+        updateStopButton();
         if (!started) {
             setLocalTestPaused(false);
         }
+    }
+
+    /**
+     * Keep immediate stop available while workers finish a graceful stop.
+     */
+    public void setLocalTestStopping() {
+        if (!localTestStopping) {
+            // Ignore a double-click carried over from the initial graceful stop.
+            stopNowAvailableAt = System.nanoTime() + 600_000_000L;
+        }
+        localTestStopping = true;
+        updateStopButton();
+        updateButtons(Map.of(ActionNames.ACTION_PAUSE, false));
+    }
+
+    private void updateStopButton() {
+        JMeterUtils.runSafe(false, () -> {
+            String command = localTestStopping ? ActionNames.ACTION_STOP : ActionNames.ACTION_SHUTDOWN;
+            String label = localTestStopping ? "stop_now" : "stop";
+            String tooltip = localTestStopping ? "stop_now_tooltip" : "stop_gracefully_tooltip";
+            String path = "org/apache/jmeter/images/toolbar/icons-modern/"
+                    + (localTestStopping ? "stop-now.svg" : "stop.svg");
+            for (Component component : getComponents()) {
+                if (component instanceof JButton button
+                        && Boolean.TRUE.equals(button.getClientProperty(STOP_BUTTON))) {
+                    button.setActionCommand(command);
+                    button.setText(JMeterUtils.getResString(label));
+                    button.setToolTipText(JMeterUtils.getResString(tooltip));
+                    button.getAccessibleContext().setAccessibleName(JMeterUtils.getResString(label));
+                    button.setIcon(loadIcon(label, "ACTION_STOP", path));
+                    button.setDisabledIcon(null);
+                    button.setPressedIcon(null);
+                    button.setEnabled(localTestStarted);
+                }
+            }
+        });
     }
 
     /**

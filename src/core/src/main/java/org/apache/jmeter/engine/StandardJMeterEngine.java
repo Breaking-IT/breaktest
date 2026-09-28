@@ -409,6 +409,33 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void run() {
+        var testListeners = new SearchByClass<TestStateListener>(TestStateListener.class);
+        test.traverse(testListeners);
+        boolean completed = false;
+        try {
+            runTestPlan(testListeners);
+            completed = true;
+        } finally {
+            running = false;
+            resumeTest();
+            if (!completed) {
+                log.error("Test execution failed; stopping remaining workers");
+                for (AbstractThreadGroup group : groups) {
+                    group.tellThreadsToStop();
+                }
+                waitThreadsStopped();
+            }
+            groups.clear();
+            notifyTestListenersOfEnd(testListeners);
+            JMeterContextService.endTest();
+        }
+        if (JMeter.isNonGUI() && SYSTEM_EXIT_FORCED) {
+            log.info("Forced JVM shutdown requested at end of test");
+            System.exit(0); // NOSONAR Intentional
+        }
+    }
+
+    private void runTestPlan(SearchByClass<TestStateListener> testListeners) {
         log.info("Running the test!");
         running = true;
 
@@ -426,9 +453,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
         // Notification of test listeners needs to happen after function
         // replacement, but before setting RunningVersion to true.
-        var testListeners = new SearchByClass<>(TestStateListener.class); // TL - S&E
-        test.traverse(testListeners);
-
         // Merge in any additional test listeners
         // currently only used by the function parser
         testListeners.getSearchResults().addAll(testList);
@@ -542,13 +566,6 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
                 }
             }
             waitThreadsStopped(); // wait for Post threads to stop
-        }
-
-        notifyTestListenersOfEnd(testListeners);
-        JMeterContextService.endTest();
-        if (JMeter.isNonGUI() && SYSTEM_EXIT_FORCED) {
-            log.info("Forced JVM shutdown requested at end of test");
-            System.exit(0); // NOSONAR Intentional
         }
     }
 
