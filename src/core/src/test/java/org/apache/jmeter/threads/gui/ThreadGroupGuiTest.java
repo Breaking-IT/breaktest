@@ -90,6 +90,23 @@ class ThreadGroupGuiTest {
     }
 
     @Test
+    void clearingGuiRestoresNextLoopDefaultButExistingContinueIsPreserved() {
+        ThreadGroupGui gui = new ThreadGroupGui();
+        ThreadGroup existing = threadGroupWithLoops(1);
+        existing.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
+        gui.configure(existing);
+        gui.modifyTestElement(existing);
+        assertFalse(existing.getOnErrorStopTest());
+        assertEquals(AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE,
+                existing.getPropertyAsString(AbstractThreadGroup.ON_SAMPLE_ERROR));
+
+        gui.clearGui();
+        ThreadGroup created = (ThreadGroup) gui.createTestElement();
+        gui.modifyTestElement(created);
+        assertTrue(created.getOnErrorStartNextLoop());
+    }
+
+    @Test
     void fixedPacingShowsIterationsPerMinute() {
         assertEquals(
                 "60 iterations/min",

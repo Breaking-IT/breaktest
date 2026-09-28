@@ -692,7 +692,7 @@ public class ThreadGroup extends AbstractThreadGroup {
         }
 
         private void finishClosedModelScheduling() {
-            running = false;
+            stopThreadAdmission();
             stopActiveThreads(allThreads.size(), false);
         }
 
@@ -771,8 +771,7 @@ public class ThreadGroup extends AbstractThreadGroup {
                 if (!VIRTUAL_THREADS_ENABLED) {
                     newThread.setDaemon(false);
                 }
-                registerStartedThread(jmThread, newThread);
-                newThread.start();
+                registerAndStartThread(jmThread, newThread);
             }
         }
     }
@@ -1036,8 +1035,7 @@ public class ThreadGroup extends AbstractThreadGroup {
         scheduleThread(jmThread, now); // set start and end time
         jmThread.setInitialDelay(delay);
         Thread newThread = createThread(jmThread, jmThread.getThreadName());
-        registerStartedThread(jmThread, newThread);
-        newThread.start();
+        registerAndStartThread(jmThread, newThread);
         return jmThread;
     }
 
@@ -1055,8 +1053,23 @@ public class ThreadGroup extends AbstractThreadGroup {
      * @param jMeterThread {@link JMeterThread}
      * @param newThread Thread
      */
-    private void registerStartedThread(JMeterThread jMeterThread, Thread newThread) {
-        allThreads.put(jMeterThread, newThread);
+    private void registerAndStartThread(JMeterThread jMeterThread, Thread newThread) {
+        synchronized (allThreads) {
+            // Construction may have overlapped shutdown. Registration and startup must
+            // either precede the stop sweep or be rejected after it closes admission.
+            if (!running) {
+                jMeterThread.stop();
+                return;
+            }
+            allThreads.put(jMeterThread, newThread);
+            newThread.start();
+        }
+    }
+
+    private void stopThreadAdmission() {
+        synchronized (allThreads) {
+            running = false;
+        }
     }
 
     @Override
@@ -1190,7 +1203,7 @@ public class ThreadGroup extends AbstractThreadGroup {
     }
 
     public void tellThreadsToStop(boolean now) {
-        running = false;
+        stopThreadAdmission();
         if (delayedStartup) {
             try {
                 threadStarter.interrupt();
@@ -1259,7 +1272,7 @@ public class ThreadGroup extends AbstractThreadGroup {
             }
             return;
         }
-        running = false;
+        stopThreadAdmission();
         if (delayedStartup) {
             try {
                 threadStarter.interrupt();
@@ -1460,8 +1473,7 @@ public class ThreadGroup extends AbstractThreadGroup {
                     if (!VIRTUAL_THREADS_ENABLED) {
                         newThread.setDaemon(false); // ThreadStarter is daemon, but we don't want sampler threads to be so too
                     }
-                    registerStartedThread(jmThread, newThread);
-                    newThread.start();
+                    registerAndStartThread(jmThread, newThread);
                 }
             } catch (Exception ex) {
                 log.error("An error occurred scheduling delay start of threads for Thread Group: {}", getName(), ex);
