@@ -83,6 +83,7 @@ import org.apache.jmeter.protocol.http.config.gui.RedirectHandlingSelector;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.proxy.Proxy;
 import org.apache.jmeter.protocol.http.proxy.ProxyControl;
+import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.PropertyIterator;
@@ -1231,6 +1232,9 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
                     name.append(cur.getName());
                     name.append(separator);
                     buildNodesModel(cur, name.toString(), 0);
+                } else if (te instanceof TestPlanSection) {
+                    // Sections only group the test plan: list their thread groups and fragments under the plan
+                    buildNodesModel(cur, parentName, level);
                 }
                 // Ignore everything else
             }
