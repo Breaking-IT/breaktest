@@ -22,9 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.StandardJMeterEngine;
@@ -132,7 +134,7 @@ class ClosedModelThreadGroupScheduleTest {
         threadGroup.setName("failing closed model");
         threadGroup.setClosedModelSchedule("threadsPhase(2, 0)");
 
-        threadGroup.start(1, new ListenerNotifier(), new ListedHashTree(), new StandardJMeterEngine());
+        threadGroup.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
 
         assertTrue(threadGroup.threadStarted.await(2, TimeUnit.SECONDS));
         assertTrue(threadGroup.threadStopped.await(2, TimeUnit.SECONDS));
@@ -148,11 +150,67 @@ class ClosedModelThreadGroupScheduleTest {
         threadGroup.setClosedModelSchedule("threadsPhase(1, 0)");
 
         try {
-            threadGroup.start(1, new ListenerNotifier(), new ListedHashTree(), new StandardJMeterEngine());
+            threadGroup.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
 
             assertTrue(threadGroup.threadStarted.await(1, TimeUnit.SECONDS));
         } finally {
             threadGroup.tellThreadsToStop();
+        }
+    }
+
+    @Test
+    void nextChangeUsesAbsoluteRoundedProfileDeadlines() {
+        assertEquals(50, ThreadGroup.nextClosedModelChange(0, 100, 10000, 0));
+        assertEquals(150, ThreadGroup.nextClosedModelChange(0, 100, 10000, 80));
+        assertEquals(350, ThreadGroup.nextClosedModelChange(0, 100, 10000, 320));
+        assertEquals(5, ThreadGroup.nextClosedModelChange(0, 1000, 10000, 0));
+        assertEquals(51, ThreadGroup.nextClosedModelChange(100, 0, 10000, 0));
+        assertEquals(151, ThreadGroup.nextClosedModelChange(100, 0, 10000, 80));
+        assertEquals(10000, ThreadGroup.nextClosedModelChange(100, 100, 10000, 100));
+        assertEquals(0, ThreadGroup.nextClosedModelChange(0, 100, 0, 0));
+        assertEquals(10000, ThreadGroup.nextClosedModelChange(0, 100, 10000, 11000));
+    }
+
+    @Test
+    @Timeout(10)
+    void startsAreDistributedAndCreationCostDoesNotShiftLaterPhases() throws Exception {
+        List<Long> starts = new CopyOnWriteArrayList<>();
+        CountDownLatch finished = new CountDownLatch(20);
+        AtomicLong clock = new AtomicLong();
+        ThreadGroup group = new ThreadGroup() {
+            @Override
+            long monotonicMillis() {
+                return clock.get();
+            }
+
+            @Override
+            long sleepUntilMonotonic(long deadline, StandardJMeterEngine engine) {
+                // Deliberate late wake-ups must not shift subsequent deadlines.
+                clock.updateAndGet(now -> Math.max(now, deadline) + 20);
+                return 0;
+            }
+
+            @Override
+            protected JMeterThread makeThread(StandardJMeterEngine engine, JMeterThreadMonitor monitor,
+                    ListenerNotifier notifier, int groupNumber, int threadNumber,
+                    ListedHashTree tree, JMeterVariables variables) {
+                starts.add(clock.get());
+                clock.addAndGet(30); // Simulate expensive user creation without wall-clock timing.
+                JMeterThread worker = new StoppableJMeterThread(this, new CountDownLatch(0), finished);
+                worker.setThreadName("distributed-" + threadNumber);
+                worker.setThreadGroup(this);
+                return worker;
+            }
+        };
+        group.setClosedModelSchedule("threadsPhase(10, 0) threadsPhase(20, 2)");
+        try {
+            group.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
+            assertTrue(finished.await(5, TimeUnit.SECONDS));
+            assertEquals(20, starts.size());
+            assertEquals(List.of(0L, 30L, 60L, 90L, 120L, 150L, 180L, 210L, 240L, 270L,
+                    300L, 330L, 520L, 720L, 920L, 1120L, 1320L, 1520L, 1720L, 1920L), starts);
+        } finally {
+            group.tellThreadsToStop();
         }
     }
 
@@ -205,6 +263,12 @@ class ClosedModelThreadGroupScheduleTest {
                 threadStopped.countDown();
             }
         }
+    }
+
+    private static ListedHashTree singleThreadGroupTree() {
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(new ThreadGroup());
+        return tree;
     }
 
     private static ListedHashTree singleLoopControllerTree() {

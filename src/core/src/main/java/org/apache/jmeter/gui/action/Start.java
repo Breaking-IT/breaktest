@@ -28,6 +28,7 @@ import java.util.Set;
 
 import javax.swing.JOptionPane;
 import javax.swing.JToolBar;
+import javax.swing.SwingUtilities;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.JMeter;
@@ -168,13 +169,13 @@ public class Start extends AbstractAction {
         } else if (e.getActionCommand().equals(ActionNames.ACTION_STOP)) {
             if (engine != null) {
                 log.info("Stopping test");
-                GuiPackage.getInstance().getMainFrame().showStoppingMessage("");
+                GuiPackage.getInstance().getMainFrame().showLocalTestStopping(true);
                 engine.stopTest();
             }
         } else if (e.getActionCommand().equals(ActionNames.ACTION_SHUTDOWN)) {
             if (engine != null) {
                 log.info("Shutting test down");
-                GuiPackage.getInstance().getMainFrame().showStoppingMessage("");
+                GuiPackage.getInstance().getMainFrame().showLocalTestStopping(false);
                 engine.askThreadsToStop();
             }
         } else if (e.getActionCommand().equals(ActionNames.RUN_TG)
@@ -313,6 +314,13 @@ public class Start extends AbstractAction {
         if ( popupCheckExistingFileListener(clonedTree) ) {
             engine = new StandardJMeterEngine();
             engine.configure(clonedTree);
+            StandardJMeterEngine startedEngine = engine;
+            startedEngine.addAlwaysEndListener(gui.getMainFrame());
+            startedEngine.addStoppingListener(immediately -> SwingUtilities.invokeLater(() -> {
+                if (startedEngine.isActive()) {
+                    gui.getMainFrame().showLocalTestStopping(immediately);
+                }
+            }));
             try {
                 engine.runTest();
                 if (runMode == RunMode.VALIDATION) {
