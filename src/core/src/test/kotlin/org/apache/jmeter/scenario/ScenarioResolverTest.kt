@@ -543,6 +543,55 @@ class ScenarioResolverTest : JMeterTestCase() {
         assertEquals("There is no scenario 'Soak'. Scenarios: 'Load', 'Stress'.", e.message)
     }
 
+    private fun startingHost(shared: SharedProfile, profile: Profile?): String {
+        val listener = CollectSamplesListener()
+        val tree = testTree {
+            TestPlan::class {
+                +listener
+                ScenariosSection::class { +scenario("Load", workload("Browse", browse, 1)) }
+                ThreadGroupsSection::class {
+                    browse {
+                        +variables("host" to "group.example")
+                        RecordVariable::class { variable = "host" }
+                    }
+                }
+                ProfilesSection::class {
+                    shared { +variables("host" to "shared.example") }
+                    profile?.invoke { +variables("host" to "profile.example") }
+                }
+            }
+        }
+        runAndWait(tree, listener, 1)
+        return listener.events.single().result.responseDataAsString
+    }
+
+    @Test
+    fun `the shared profile decides whether its variables override those of thread groups`() {
+        assertEquals("group.example", startingHost(SharedProfile(), null)) { "By default the thread group wins" }
+        assertEquals(
+            "shared.example",
+            startingHost(SharedProfile().apply { isOverridingThreadGroupVariables = true }, null)
+        )
+    }
+
+    @Test
+    fun `a profile decides whether its variables override those of thread groups`() {
+        assertEquals(
+            "profile.example",
+            startingHost(SharedProfile(), Profile("acceptance").apply { isDefault = true })
+        ) { "By default an environment profile wins" }
+        assertEquals(
+            "group.example",
+            startingHost(
+                SharedProfile(),
+                Profile("acceptance").apply {
+                    isDefault = true
+                    isOverridingThreadGroupVariables = false
+                }
+            )
+        )
+    }
+
     @Test
     fun `unknown profile is rejected`() {
         val tree = profilesPlan(Arguments(), workload("Browse", browse, 1).apply { profile = "staging" })

@@ -21,6 +21,7 @@ import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -221,7 +222,8 @@ public class Load extends AbstractActionWithNoRunningTest {
             final GuiPackage guiPackage,
             final HashTree loadedTree) throws Exception {
         final boolean migrate = !merging && ScenarioPlanMigration.needsMigration(loadedTree);
-        final HashTree migratedTree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
+        final List<String> changedVariables = new ArrayList<>();
+        final HashTree migratedTree = migrate ? ScenarioPlanMigration.migrate(loadedTree, changedVariables) : loadedTree;
         // Plans saved with sections in an earlier order or with outdated fixed names are shown as they are now
         final boolean normalize = !merging && ScenarioPlanMigration.needsNormalizing(migratedTree);
         final HashTree tree = normalize ? ScenarioPlanMigration.normalize(migratedTree) : migratedTree;
@@ -233,8 +235,14 @@ public class Load extends AbstractActionWithNoRunningTest {
             // Only the open plan is converted: the file changes when the user saves it
             guiPackage.setConvertedPlanUnsaved(true);
             log.info("Organised {} in scenarios, thread groups, listeners and configs", f);
+            String message = JMeterUtils.getResString("scenario_migration_done"); // $NON-NLS-1$
+            if (!changedVariables.isEmpty()) {
+                message += "\n\n" + MessageFormat.format( // $NON-NLS-1$
+                        JMeterUtils.getResString("scenario_migration_changed_variables"), // $NON-NLS-1$
+                        String.join(", ", changedVariables)); // $NON-NLS-1$
+            }
             JOptionPane.showMessageDialog(guiPackage.getMainFrame(),
-                    JMeterUtils.getResString("scenario_migration_done"), // $NON-NLS-1$
+                    message,
                     JMeterUtils.getResString("scenario_migration_title"), // $NON-NLS-1$
                     JOptionPane.INFORMATION_MESSAGE);
         }

@@ -80,6 +80,21 @@ class IncludeControllerTest : JMeterTestCase() {
     }
 
     @Test
+    fun `a migrated library of fragments still includes only its first fragment`() {
+        val names = includedElementNames(
+            testTree {
+                TestPlan::class {
+                    org.apache.jmeter.scenario.TestFragmentsSection::class {
+                        TestFragmentController::class { GenericController::class { name = "Login" } }
+                        TestFragmentController::class { GenericController::class { name = "Logout" } }
+                    }
+                }
+            }
+        )
+        assertEquals(listOf("Login"), names)
+    }
+
+    @Test
     fun `includes a Test Fragment kept in the Test Fragments section`() {
         val names = includedElementNames(
             testTree {

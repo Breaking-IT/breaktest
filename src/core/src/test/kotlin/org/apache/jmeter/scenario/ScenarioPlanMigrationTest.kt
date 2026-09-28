@@ -92,8 +92,8 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
             listOf(ListenersSection::class, ScenariosSection::class, ProfilesSection::class, TestFragmentsSection::class, ThreadGroupsSection::class),
             plan.map { it::class }
         ) { "No Non-Test Elements section without such elements" }
-        assertEquals(listOf(moduleController, fragmentModule), children(planTree, plan[3]).map { it as Any }) {
-            "Fragment content moves directly into the Test Fragments section"
+        assertSame(fragment, children(planTree, plan[3]).single()) {
+            "Test Fragments stay wrapped: Include Controllers use the first fragment of a file"
         }
         assertSame(listener, children(planTree, plan[0]).single())
         val shared = children(planTree, plan[2]).single() as SharedProfile
@@ -118,7 +118,7 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
             (moduleController.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         )
         assertEquals(
-            listOf("Test Plan", "Test Plan", (plan[3] as TestFragmentsSection).name, "Step"),
+            listOf("Test Plan", "Test Plan", (plan[3] as TestFragmentsSection).name, "Fragment", "Step"),
             (fragmentModule.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         )
         assertFalse(ScenarioPlanMigration.needsMigration(migrated))
@@ -222,22 +222,66 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
-    fun `fragment whose content clashes with other fragments stays wrapped`() {
-        val first = TestFragmentController().apply { name = "Fragment A" }
-        val second = TestFragmentController().apply { name = "Fragment B" }
-        val tree = testTree {
-            TestPlan::class {
-                first { GenericController::class { name = "Login" } }
-                second { GenericController::class { name = "Login" } }
-            }
+    fun `workbench content of very old plans is kept`() {
+        val knowledge = org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge().apply { name = "Notes" }
+        val saved = org.apache.jmeter.config.ConfigTestElement().apply { name = "Saved defaults" }
+        val tree = org.apache.jorphan.collections.ListedHashTree()
+        tree.add(TestPlan("Test Plan"))
+        tree.add(org.apache.jmeter.testelement.WorkBench().apply { name = "WorkBench" }).apply {
+            add(knowledge)
+            add(saved)
         }
+
         val migrated = ScenarioPlanMigration.migrate(tree)
-        val planTree = migrated.getTree(migrated.array[0])
-        val fragments = planTree.list().filterIsInstance<TestFragmentsSection>().single()
-        assertEquals(
-            listOf("Login", "Fragment B"),
-            planTree.getTree(fragments).list().map { (it as org.apache.jmeter.testelement.TestElement).name }
-        )
+        assertEquals(2, migrated.array.size) { "The WorkBench next to the test plan must survive migration" }
+
+        val model = org.apache.jmeter.gui.tree.JMeterTreeModel(TestPlan("Root"))
+        org.apache.jmeter.gui.GuiPackage.initInstance(org.apache.jmeter.gui.tree.JMeterTreeListener(model), model)
+        try {
+            model.addSubTree(migrated, model.root as org.apache.jmeter.gui.tree.JMeterTreeNode, false)
+            for (element in listOf(knowledge, saved)) {
+                assertTrue(model.getNodeOf(element) != null) { "${element.name} from the WorkBench must not be lost" }
+            }
+            // Loading moves WorkBench content that is not a non-test element into a disabled fragment
+            val fragments = model.getNodesOfType(TestFragmentsSection::class.java).single()
+            assertEquals(
+                listOf("WorkBench Test Fragment"),
+                (0 until fragments.childCount).map { (fragments.getChildAt(it) as org.apache.jmeter.gui.tree.JMeterTreeNode).name }
+            )
+        } finally {
+            val field = org.apache.jmeter.gui.GuiPackage::class.java.getDeclaredField("guiPack")
+            field.isAccessible = true
+            field.set(null, null)
+        }
+    }
+
+    @Test
+    fun `migration keeps which value variables start with`() {
+        fun udv(value: String) = org.apache.jmeter.config.Arguments().apply { addArgument("host", value) }
+        fun migrate(sharedLast: Boolean): Pair<SharedProfile, List<String>> {
+            val tree = testTree {
+                TestPlan::class {
+                    if (!sharedLast) {
+                        +udv("shared.example")
+                    }
+                    ThreadGroup::class { +udv("group.example") }
+                    if (sharedLast) {
+                        +udv("shared.example")
+                    }
+                }
+            }
+            val changed = mutableListOf<String>()
+            val migrated = ScenarioPlanMigration.migrate(tree, changed)
+            val planTree = migrated.getTree(migrated.array[0])
+            val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+            return planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single() to changed
+        }
+        val (sharedFirst, noChange) = migrate(sharedLast = false)
+        assertFalse(sharedFirst.isOverridingThreadGroupVariables) { "The thread group value won in the old plan" }
+        assertEquals(listOf<String>(), noChange)
+        val (sharedAfter, stillNoChange) = migrate(sharedLast = true)
+        assertTrue(sharedAfter.isOverridingThreadGroupVariables) { "The later test plan value won in the old plan" }
+        assertEquals(listOf<String>(), stillNoChange)
     }
 
     @Test

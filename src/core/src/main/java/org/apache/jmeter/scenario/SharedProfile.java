@@ -28,4 +28,16 @@ import org.apache.jmeter.testelement.AbstractTestElement;
  */
 public class SharedProfile extends AbstractTestElement implements Serializable {
     private static final long serialVersionUID = 1L;
+
+    /**
+     * @return whether threads start with the values of the shared variables rather than those of User Defined
+     *     Variables in their thread group; by default the thread group, being more specific, wins
+     */
+    public boolean isOverridingThreadGroupVariables() {
+        return getPropertyAsBoolean(Profile.OVERRIDES_THREAD_GROUP_VARIABLES, false);
+    }
+
+    public void setOverridingThreadGroupVariables(boolean overriding) {
+        setProperty(Profile.OVERRIDES_THREAD_GROUP_VARIABLES, overriding, false);
+    }
 }

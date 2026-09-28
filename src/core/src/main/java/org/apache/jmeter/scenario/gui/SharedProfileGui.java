@@ -40,6 +40,16 @@ public class SharedProfileGui extends AbstractProfileGui {
     }
 
     @Override
+    protected boolean isOverriding(TestElement element) {
+        return ((SharedProfile) element).isOverridingThreadGroupVariables();
+    }
+
+    @Override
+    protected void setOverriding(TestElement element, boolean overriding) {
+        ((SharedProfile) element).setOverridingThreadGroupVariables(overriding);
+    }
+
+    @Override
     protected boolean isRemovable() {
         return false;
     }

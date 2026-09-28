@@ -25,7 +25,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.samplers.SampleListener;
@@ -50,7 +52,7 @@ import org.apache.jorphan.collections.ListedHashTree;
  *     <li>the thread groups, keeping only their script,</li>
  *     <li>the test-level listeners,</li>
  *     <li>the other test-level elements (configuration, timers, processors, assertions) in the shared profile,</li>
- *     <li>the content of the test fragments, which the Test Fragments section holds directly,</li>
+ *     <li>the test fragments, unchanged,</li>
  *     <li>the non-test elements such as the recorder, only when there are any.</li>
  * </ul>
  */
@@ -138,6 +140,7 @@ public final class ScenarioPlanMigration {
         for (Object child : orderedSections(planTree)) {
             newPlanTree.add(child, planTree.getTree(child));
         }
+        keepOtherRoots(tree, result);
         return result;
     }
 
@@ -191,11 +194,22 @@ public final class ScenarioPlanMigration {
      * @return the plan organised in sections, or {@code tree} itself when it does not need a migration
      */
     public static HashTree migrate(HashTree tree) {
+        return migrate(tree, new ArrayList<>());
+    }
+
+    /**
+     * @param tree a loaded test plan
+     * @param changedVariables receives the names of variables whose value at the start of a thread may differ from
+     *     the old plan, because the plan relied on both orders of User Defined Variables
+     * @return the plan organised in sections, or {@code tree} itself when it does not need a migration
+     */
+    public static HashTree migrate(HashTree tree, List<String> changedVariables) {
         if (!needsMigration(tree)) {
             return tree;
         }
         Object plan = tree.getArray()[0];
         HashTree planTree = tree.getTree(plan);
+        boolean sharedOverrides = sharedVariablesMustOverride(planTree, changedVariables);
 
         Scenario scenario = new Scenario(JMeterUtils.getResString("scenario_title")); // $NON-NLS-1$
         setGuiClass(scenario, "ScenarioGui"); // $NON-NLS-1$
@@ -207,11 +221,9 @@ public final class ScenarioPlanMigration {
         sectionTrees.get(ScenariosSection.class).add(scenario);
         HashTree otherTree = new ListedHashTree();
         List<ScenarioWorkload> workloads = new ArrayList<>();
-        Map<String, PathFix> movedTargets = new HashMap<>();
-        Set<String> wholeFragmentTargets = new HashSet<>();
+        Map<String, Class<? extends TestPlanSection>> movedTargets = new HashMap<>();
         Set<String> threadGroupNames = new HashSet<>();
         Set<String> threadGroupIds = new HashSet<>();
-        collectWholeTargets(tree, wholeFragmentTargets);
 
         for (Object child : planTree.list()) {
             HashTree childTree = planTree.getTree(child);
@@ -231,16 +243,12 @@ public final class ScenarioPlanMigration {
             Class<? extends TestPlanSection> section = sectionFor(element);
             if (section == null) {
                 otherTree.add(element, childTree);
-            } else if (element instanceof TestFragmentController fragment
-                    // A Module Controller that runs the whole fragment needs the fragment to stay a controller
-                    && !wholeFragmentTargets.contains(fragment.getName())
-                    && unwrapFragment(childTree, sectionTrees.get(TestFragmentsSection.class))) {
-                // Its content now sits directly in the Test Fragments section
-                movedTargets.putIfAbsent(fragment.getName(), new PathFix(section, true));
             } else {
+                // Test Fragments stay wrapped: Include Controllers use the first fragment of a file, and Module
+                // Controllers may run a fragment as a whole
                 sectionTrees.get(section).add(element, childTree);
                 if (element instanceof TestElement testElement) {
-                    movedTargets.putIfAbsent(testElement.getName(), new PathFix(section, false));
+                    movedTargets.putIfAbsent(testElement.getName(), section);
                 }
             }
         }
@@ -263,13 +271,16 @@ public final class ScenarioPlanMigration {
             sectionNames.put(entry.getKey(), section.getName());
             if (section instanceof ProfilesSection) {
                 // The test-level configuration applies to every thread group: it becomes the shared profile
-                newPlanTree.add(section).add(newSharedProfile(), entry.getValue());
+                SharedProfile shared = newSharedProfile();
+                shared.setOverridingThreadGroupVariables(sharedOverrides);
+                newPlanTree.add(section).add(shared, entry.getValue());
             } else {
                 newPlanTree.add(section, entry.getValue());
             }
         }
         newPlanTree.add(otherTree);
         fixModuleControllerPaths(result, movedTargets, sectionNames);
+        keepOtherRoots(tree, result);
         return result;
     }
 
@@ -356,11 +367,51 @@ public final class ScenarioPlanMigration {
     }
 
     /**
-     * The Test Fragments section holds reusable controllers directly, so a Test Fragment's content moves into it.
-     * A fragment whose content has names already used in the section stays as it is, so every Module Controller
-     * keeps finding its own target.
-     * @return whether the fragment was unwrapped
+     * User Defined Variables apply in tree order, the last one winning. In an old plan, test plan level variables
+     * that come after a thread group defining the same variable win over it; those before it lose. In sections, the
+     * Shared Profile setting decides for all of them at once.
+     * @param planTree the children of the old test plan
+     * @param changedVariables receives the variables whose starting value cannot be kept
+     * @return whether the shared variables must override the variables of thread groups
      */
+    private static boolean sharedVariablesMustOverride(HashTree planTree, List<String> changedVariables) {
+        Set<String> sharedWins = new TreeSet<>();
+        Set<String> threadGroupWins = new TreeSet<>();
+        List<Set<String>> threadGroupVariablesSoFar = new ArrayList<>();
+        List<Set<String>> sharedVariablesSoFar = new ArrayList<>();
+        for (Object child : planTree.list()) {
+            if (child instanceof TestElement element && !element.isEnabled()) {
+                continue;
+            }
+            if (child.getClass() == Arguments.class) {
+                Set<String> names = ((Arguments) child).getArgumentsAsMap().keySet();
+                // Defined after a thread group: the test plan level value won
+                threadGroupVariablesSoFar.forEach(earlier -> earlier.stream().filter(names::contains).forEach(sharedWins::add));
+                sharedVariablesSoFar.add(new HashSet<>(names));
+            } else if (child instanceof AbstractThreadGroup) {
+                Set<String> names = ScenarioResolver.userDefinedVariableNames(planTree.getTree(child));
+                // Defined after the test plan level variables: the thread group value won
+                sharedVariablesSoFar.forEach(earlier -> earlier.stream().filter(names::contains).forEach(threadGroupWins::add));
+                threadGroupVariablesSoFar.add(names);
+            }
+        }
+        boolean override = sharedWins.size() > threadGroupWins.size();
+        changedVariables.addAll(override ? threadGroupWins : sharedWins);
+        changedVariables.removeAll(override ? sharedWins : threadGroupWins);
+        return override;
+    }
+
+    /**
+     * Plans saved by old versions can have a WorkBench next to the test plan. Loading moves its content into the
+     * test plan, so it must be kept.
+     */
+    private static void keepOtherRoots(HashTree tree, HashTree result) {
+        Object[] roots = tree.getArray();
+        for (int i = 1; i < roots.length; i++) {
+            result.add(roots[i], tree.getTree(roots[i]));
+        }
+    }
+
     private static String uniqueName(String name, Set<String> used) {
         String base = name == null ? "" : name;
         String candidate = base;
@@ -370,48 +421,11 @@ public final class ScenarioPlanMigration {
         return candidate;
     }
 
-    private static boolean unwrapFragment(HashTree fragmentTree, HashTree fragmentsSectionTree) {
-        Set<String> names = new HashSet<>();
-        for (Object existing : fragmentsSectionTree.list()) {
-            if (existing instanceof TestElement element) {
-                names.add(element.getName());
-            }
-        }
-        for (Object child : fragmentTree.list()) {
-            if (!(child instanceof TestElement element) || !names.add(element.getName())) {
-                return false;
-            }
-        }
-        for (Object child : fragmentTree.list()) {
-            fragmentsSectionTree.add(child, fragmentTree.getTree(child));
-        }
-        return true;
-    }
-
-    /**
-     * Collects the names of test plan children that Module Controllers run as a whole: their target path is
-     * the tree root, the test plan and that child.
-     */
-    private static void collectWholeTargets(HashTree tree, Set<String> names) {
-        for (Object element : tree.list()) {
-            if (element instanceof TestElement testElement
-                    && testElement.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty path
-                    && path.size() == 3) {
-                names.add(path.get(2).getStringValue());
-            }
-            collectWholeTargets(tree.getTree(element), names);
-        }
-    }
-
-    /** How the path of a Module Controller target changes: its section is inserted, or replaces an unwrapped fragment */
-    private record PathFix(Class<? extends TestPlanSection> section, boolean replacesFragment) {
-    }
-
     /**
      * Module Controllers find their target by the names on its tree path. Thread groups and test fragments now sit
-     * one level deeper, in their section; the content of unwrapped fragments sits in the section itself.
+     * one level deeper, in their section.
      */
-    private static void fixModuleControllerPaths(HashTree tree, Map<String, PathFix> moved,
+    private static void fixModuleControllerPaths(HashTree tree, Map<String, Class<? extends TestPlanSection>> moved,
             Map<Class<? extends TestPlanSection>, String> sectionNames) {
         for (Object element : tree.list()) {
             if (element instanceof TestElement testElement
@@ -421,13 +435,7 @@ public final class ScenarioPlanMigration {
                 for (JMeterProperty name : path) {
                     names.add(name.getStringValue());
                 }
-                PathFix fix = moved.get(names.get(2));
-                String sectionName = sectionNames.get(fix.section());
-                if (fix.replacesFragment()) {
-                    names.set(2, sectionName);
-                } else {
-                    names.add(2, sectionName);
-                }
+                names.add(2, sectionNames.get(moved.get(names.get(2))));
                 testElement.setProperty(new CollectionProperty(MODULE_CONTROLLER_NODE_PATH, names));
             }
             fixModuleControllerPaths(tree.getTree(element), moved, sectionNames);

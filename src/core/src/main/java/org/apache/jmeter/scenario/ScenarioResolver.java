@@ -140,6 +140,7 @@ public final class ScenarioResolver {
         if (flattener.plan instanceof TestPlan testPlan) {
             testPlan.setSerialized(scenario.isRunConsecutively());
         }
+        flattener.addOverridingSharedVariables();
         return flattener.result;
     }
 
@@ -167,6 +168,7 @@ public final class ScenarioResolver {
                 flattener.planTree.add(copy, withProfile(copy, defaultProfile, entry.subTree(), evaluator));
             }
         }
+        flattener.addOverridingSharedVariables();
         return flattener.result;
     }
 
@@ -221,11 +223,30 @@ public final class ScenarioResolver {
             }
         }
         result.add(script);
+        if (!profile.profile().isOverridingThreadGroupVariables()) {
+            // The thread group's own User Defined Variables win: threads start with their values
+            variables.keySet().removeAll(userDefinedVariableNames(script));
+        }
         if (!variables.isEmpty()) {
             threadGroup.setProfileVariables(variables);
             evaluateWorkload(threadGroup, profileEvaluator);
         }
         return result;
+    }
+
+    /**
+     * @param tree a part of a test plan
+     * @return the names of the variables its User Defined Variables elements define
+     */
+    static Set<String> userDefinedVariableNames(HashTree tree) {
+        Set<String> names = new HashSet<>();
+        for (Object element : tree.list()) {
+            if (element.getClass() == Arguments.class) {
+                names.addAll(((Arguments) element).getArgumentsAsMap().keySet());
+            }
+            names.addAll(userDefinedVariableNames(tree.getTree(element)));
+        }
+        return names;
     }
 
     /**
@@ -353,6 +374,12 @@ public final class ScenarioResolver {
         private final List<ThreadGroupEntry> threadGroups = new ArrayList<>();
         private final List<ProfileEntry> profiles = new ArrayList<>();
         private final Evaluator evaluator = new Evaluator();
+        private final List<Object> overridingSharedVariables = new ArrayList<>();
+
+        /** Adds the shared variables that override thread group variables, after the thread groups. */
+        void addOverridingSharedVariables() {
+            overridingSharedVariables.forEach(planTree::add);
+        }
         /** The test plan of the run tree: a copy, so run settings can be changed without touching the edited plan */
         private final Object plan;
 
@@ -396,10 +423,17 @@ public final class ScenarioResolver {
         private void addProfiles(HashTree profilesTree) {
             for (Object element : profilesTree.list()) {
                 HashTree elementTree = profilesTree.getTree(element);
-                if (element instanceof SharedProfile) {
+                if (element instanceof SharedProfile sharedProfile) {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
-                        planTree.add(evaluateVariables(shared), elementTree.getTree(shared));
+                        Object evaluated = evaluateVariables(shared);
+                        if (evaluated instanceof Arguments && sharedProfile.isOverridingThreadGroupVariables()) {
+                            // User Defined Variables apply in tree order, the last one winning: these go after
+                            // the thread groups so their values win
+                            overridingSharedVariables.add(evaluated);
+                        } else {
+                            planTree.add(evaluated, elementTree.getTree(shared));
+                        }
                     }
                 } else if (element instanceof Profile profile) {
                     profiles.add(new ProfileEntry(profile, elementTree));

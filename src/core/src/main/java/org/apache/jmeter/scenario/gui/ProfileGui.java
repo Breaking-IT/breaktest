@@ -65,6 +65,16 @@ public class ProfileGui extends AbstractProfileGui {
     }
 
     @Override
+    protected boolean isOverriding(TestElement element) {
+        return ((Profile) element).isOverridingThreadGroupVariables();
+    }
+
+    @Override
+    protected void setOverriding(TestElement element, boolean overriding) {
+        ((Profile) element).setOverridingThreadGroupVariables(overriding);
+    }
+
+    @Override
     protected boolean isRemovable() {
         return true;
     }

@@ -21,6 +21,7 @@ package org.apache.jmeter.scenario.gui;
 import java.awt.BorderLayout;
 import java.util.Collection;
 
+import javax.swing.JCheckBox;
 import javax.swing.JMenu;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextArea;
@@ -29,6 +30,7 @@ import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.VerticalPanel;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
@@ -38,6 +40,9 @@ public abstract class AbstractProfileGui extends AbstractJMeterGuiComponent {
     private static final long serialVersionUID = 1L;
 
     protected final VerticalPanel box = new VerticalPanel();
+
+    private final JCheckBox overridesThreadGroupVariables =
+            new JCheckBox(JMeterUtils.getResString("profile_overrides_thread_group_variables")); // $NON-NLS-1$
 
     protected AbstractProfileGui() {
         setLayout(new BorderLayout(0, 5));
@@ -49,8 +54,42 @@ public abstract class AbstractProfileGui extends AbstractJMeterGuiComponent {
         info.setWrapStyleWord(true);
         info.setOpaque(false);
         box.add(info);
+        overridesThreadGroupVariables.setName("overridesThreadGroupVariables"); // $NON-NLS-1$
+        overridesThreadGroupVariables.setToolTipText(
+                JMeterUtils.getResString("profile_overrides_thread_group_variables_tooltip")); // $NON-NLS-1$
+        box.add(overridesThreadGroupVariables);
         add(box, BorderLayout.NORTH);
     }
+
+    @Override
+    public void configure(TestElement element) {
+        super.configure(element);
+        overridesThreadGroupVariables.setSelected(isOverriding(element));
+    }
+
+    @Override
+    public void modifyTestElement(TestElement element) {
+        super.modifyTestElement(element);
+        setOverriding(element, overridesThreadGroupVariables.isSelected());
+    }
+
+    @Override
+    public void clearGui() {
+        super.clearGui();
+        overridesThreadGroupVariables.setSelected(isOverriding(makeTestElement()));
+    }
+
+    /**
+     * @param element the profile or shared profile being edited
+     * @return whether its variables override User Defined Variables inside thread groups
+     */
+    protected abstract boolean isOverriding(TestElement element);
+
+    /**
+     * @param element the profile or shared profile being edited
+     * @param overriding whether its variables override User Defined Variables inside thread groups
+     */
+    protected abstract void setOverriding(TestElement element, boolean overriding);
 
     /** Profiles are only added from the Profiles section. */
     @Override

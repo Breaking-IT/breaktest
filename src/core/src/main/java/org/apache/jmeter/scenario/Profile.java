@@ -40,6 +40,21 @@ public class Profile extends AbstractTestElement implements Serializable {
         setName(name);
     }
 
+    /** Whether the variables of this profile override User Defined Variables inside thread groups */
+    public static final String OVERRIDES_THREAD_GROUP_VARIABLES = "Profile.overrides_thread_group_variables"; // $NON-NLS-1$
+
+    /**
+     * @return whether threads start with the values of this profile rather than those of User Defined Variables in
+     *     their thread group; an environment profile overrides the defaults of a script unless set otherwise
+     */
+    public boolean isOverridingThreadGroupVariables() {
+        return getPropertyAsBoolean(OVERRIDES_THREAD_GROUP_VARIABLES, true);
+    }
+
+    public void setOverridingThreadGroupVariables(boolean overriding) {
+        setProperty(OVERRIDES_THREAD_GROUP_VARIABLES, overriding, true);
+    }
+
     public boolean isDefault() {
         return getPropertyAsBoolean(DEFAULT);
     }
