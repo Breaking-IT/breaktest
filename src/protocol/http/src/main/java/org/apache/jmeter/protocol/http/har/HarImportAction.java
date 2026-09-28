@@ -23,7 +23,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -120,9 +122,13 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                                 ArchiveFiles.currentPlan(), result.getUploads().resources());
                     }
                     applyDelayVariables(guiPackage, options);
-                    JMeterTreeNode importedThreadGroup = insertUnderTestPlan(guiPackage, convertedTree);
+                    JTree tree = guiPackage.getMainFrame().getTree();
+                    // Inserting announces a new tree structure, which collapses every node: keep what was open
+                    List<TreePath> expanded = expandedPaths(tree);
+                    JMeterTreeNode importedThreadGroup = insertUnderTestPlan(guiPackage.getTreeModel(), convertedTree);
                     guiPackage.refreshCurrentGui();
-                    expandImportedThreadGroup(guiPackage.getMainFrame().getTree(), importedThreadGroup);
+                    expanded.forEach(tree::expandPath);
+                    expandImportedThreadGroup(tree, importedThreadGroup);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     LOG.error("HAR import interrupted", ex);
@@ -260,8 +266,7 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         }
     }
 
-    private static JMeterTreeNode insertUnderTestPlan(GuiPackage guiPackage, HashTree subTree) {
-        JMeterTreeModel treeModel = guiPackage.getTreeModel();
+    static JMeterTreeNode insertUnderTestPlan(JMeterTreeModel treeModel, HashTree subTree) {
         JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
         JMeterTreeNode testPlanNode = (JMeterTreeNode) root.getChildAt(0);
         AtomicReference<JMeterTreeNode> importedThreadGroup = new AtomicReference<>();
@@ -269,14 +274,11 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             try {
                 // configureGui=false preserves the exact properties we set (BreakTest
                 // HAR metadata, TransactionController delay/pacing) as if loading a .jmx.
-                int firstInsertedIndex = testPlanNode.getChildCount();
                 treeModel.addSubTree(subTree, testPlanNode, false);
-                for (int i = firstInsertedIndex; i < testPlanNode.getChildCount(); i++) {
-                    JMeterTreeNode node = (JMeterTreeNode) testPlanNode.getChildAt(i);
-                    if (node.getTestElement() instanceof ThreadGroup) {
-                        importedThreadGroup.set(node);
-                        break;
-                    }
+                // Elements added to the test plan are moved into their section, so look the thread group up
+                ThreadGroup threadGroup = findThreadGroup(subTree);
+                if (threadGroup != null) {
+                    importedThreadGroup.set(treeModel.getNodeOf(threadGroup));
                 }
             } catch (IllegalUserActionException ex) {
                 LOG.error("Failed to insert HAR test plan", ex);
@@ -284,6 +286,30 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
             }
         });
         return importedThreadGroup.get();
+    }
+
+    private static ThreadGroup findThreadGroup(HashTree tree) {
+        for (Object element : tree.list()) {
+            ThreadGroup found = element instanceof ThreadGroup threadGroup
+                    ? threadGroup
+                    : findThreadGroup(tree.getTree(element));
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    static List<TreePath> expandedPaths(JTree tree) {
+        List<TreePath> paths = new ArrayList<>();
+        Object root = tree.getModel().getRoot();
+        if (root != null) {
+            Enumeration<TreePath> expanded = tree.getExpandedDescendants(new TreePath(root));
+            while (expanded != null && expanded.hasMoreElements()) {
+                paths.add(expanded.nextElement());
+            }
+        }
+        return paths;
     }
 
     static void expandImportedThreadGroup(JTree tree, JMeterTreeNode threadGroup) {

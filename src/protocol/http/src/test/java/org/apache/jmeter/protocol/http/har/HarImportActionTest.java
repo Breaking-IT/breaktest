@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -36,10 +37,14 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
@@ -74,6 +79,31 @@ class HarImportActionTest extends JMeterTestCase {
         assertTrue(tree.isExpanded(importedGroupPath));
         assertFalse(tree.isExpanded(importedTransactionPath));
         assertTrue(tree.isExpanded(existingTransactionPath), "existing tree expansion is unchanged");
+    }
+
+    @Test
+    void importKeepsTheTreeExpandedAndFindsTheThreadGroupInItsSection() {
+        JMeterTreeModel model = new JMeterTreeModel();
+        JTree tree = new JTree(model);
+        JMeterTreeNode listeners = model.getNodesOfType(ListenersSection.class).get(0);
+        model.insertNodeInto(new JMeterTreeNode(new ResultCollector(), model), listeners, 0);
+        TreePath listenersPath = new TreePath(listeners.getPath());
+        tree.expandPath(listenersPath);
+        List<TreePath> expanded = HarImportAction.expandedPaths(tree);
+
+        ListedHashTree imported = new ListedHashTree();
+        ThreadGroup threadGroup = new ThreadGroup();
+        threadGroup.setName("Imported");
+        imported.add(new TestPlan("Test Plan")).add(threadGroup).add(new TransactionController());
+        JMeterTreeNode importedGroup = HarImportAction.insertUnderTestPlan(model, imported);
+        expanded.forEach(tree::expandPath);
+        HarImportAction.expandImportedThreadGroup(tree, importedGroup);
+
+        assertSame(threadGroup, importedGroup.getUserObject());
+        assertTrue(importedGroup.getParent() instanceof JMeterTreeNode parent
+                && parent.getUserObject() instanceof ThreadGroupsSection, "routed into the Thread groups section");
+        assertTrue(tree.isExpanded(listenersPath), "sections that were open stay open");
+        assertTrue(tree.isExpanded(new TreePath(importedGroup.getPath())), "the imported thread group is shown");
     }
 
     @Test
