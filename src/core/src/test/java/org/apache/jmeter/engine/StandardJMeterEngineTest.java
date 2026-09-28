@@ -41,22 +41,70 @@ import org.junit.jupiter.api.Test;
 
 class StandardJMeterEngineTest extends JMeterTestCase {
     @Test
-    void failedStartupNotifiesEndAndAllowsAnotherRun() {
+    void failedStartupEndsOnlyListenersWhoseStartWasInvokedAndAllowsAnotherRun() {
         StandardJMeterEngine engine = new StandardJMeterEngine();
         FailingListener listener = new FailingListener();
         ListedHashTree tree = new ListedHashTree();
-        tree.add(new TestPlan()).add(listener);
+        FailingListener before = new FailingListener();
+        before.fail = false;
+        FailingListener after = new FailingListener();
+        after.fail = false;
+        var children = tree.add(new TestPlan());
+        children.add(before);
+        children.add(listener);
+        children.add(after);
         engine.configure(tree);
 
         assertThrows(IllegalStateException.class, engine::run);
         assertFalse(engine.isActive());
+        assertEquals(1, before.started);
+        assertEquals(1, before.ended);
+        assertEquals(1, listener.started);
         assertEquals(1, listener.ended);
+        assertEquals(0, after.started);
+        assertEquals(0, after.ended);
 
         listener.fail = false;
         engine.configure(tree);
         engine.run();
         assertFalse(engine.isActive());
         assertEquals(2, listener.ended);
+        assertEquals(2, before.ended);
+        assertEquals(1, after.started);
+        assertEquals(1, after.ended);
+    }
+
+    @Test
+    void compileFailureDoesNotEndUnstartedListenersOrLeakRegistrations() {
+        StandardJMeterEngine engine = new StandardJMeterEngine();
+        FailingListener listener = new FailingListener();
+        listener.fail = false;
+        FailingListener registered = new FailingListener();
+        registered.fail = false;
+        TestPlan broken = new TestPlan() {
+            @Override
+            public void prepareForPreCompile() {
+                StandardJMeterEngine.register(registered);
+                throw new IllegalStateException("Simulated compile failure");
+            }
+        };
+        ListedHashTree tree = new ListedHashTree();
+        tree.add(broken).add(listener);
+        engine.configure(tree);
+        engine.run();
+        assertFalse(engine.isActive());
+        assertEquals(0, listener.started);
+        assertEquals(0, listener.ended);
+        assertEquals(0, registered.ended);
+
+        ListedHashTree valid = new ListedHashTree();
+        valid.add(new TestPlan()).add(listener);
+        engine.configure(valid);
+        engine.run();
+        assertEquals(1, listener.started);
+        assertEquals(1, listener.ended);
+        assertEquals(0, registered.started);
+        assertEquals(0, registered.ended);
     }
 
     @Test
@@ -124,10 +172,12 @@ class StandardJMeterEngineTest extends JMeterTestCase {
 
     private static class FailingListener extends AbstractTestElement implements TestStateListener {
         private boolean fail = true;
+        private int started;
         private int ended;
 
         @Override
         public void testStarted() {
+            started++;
             if (fail) {
                 throw new IllegalStateException("Simulated startup failure");
             }

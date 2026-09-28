@@ -31,6 +31,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.TestBeanHelper;
@@ -219,12 +220,15 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
-    private static void notifyTestListenersOfStart(SearchByClass<? extends TestStateListener> testListeners) {
+    private static void notifyTestListenersOfStart(SearchByClass<? extends TestStateListener> testListeners,
+            List<TestStateListener> startedListeners) {
         for (TestStateListener tl : testListeners.getSearchResults()) {
             try {
                 if (tl instanceof TestBean) {
                     TestBeanHelper.prepare((TestElement) tl);
                 }
+                // Pair cleanup with delivery of the callback, including partial initialization.
+                startedListeners.add(tl);
                 tl.testStarted();
             } catch (Throwable e) {
                 // TODO: we should not be logging the exceptions multiple times, however, currently GUI does not
@@ -236,9 +240,9 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
-    private void notifyTestListenersOfEnd(SearchByClass<? extends TestStateListener> testListeners) {
+    private void notifyTestListenersOfEnd(List<TestStateListener> testListeners) {
         log.info("Notifying test listeners of end of test");
-        for (TestStateListener tl : testListeners.getSearchResults()) {
+        for (TestStateListener tl : testListeners) {
             try {
                 tl.testEnded();
             } catch (Exception e) {
@@ -411,9 +415,10 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
     public void run() {
         var testListeners = new SearchByClass<TestStateListener>(TestStateListener.class);
         test.traverse(testListeners);
+        var startedListeners = new ArrayList<TestStateListener>();
         boolean completed = false;
         try {
-            runTestPlan(testListeners);
+            runTestPlan(testListeners, startedListeners);
             completed = true;
         } finally {
             running = false;
@@ -426,7 +431,16 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
                 waitThreadsStopped();
             }
             groups.clear();
-            notifyTestListenersOfEnd(testListeners);
+            // MainFrame may show a running test before compilation/listener startup begins.
+            // Reset it even on early failure, without ending unrelated, unstarted listeners.
+            var resetCandidates = new ArrayList<TestStateListener>(testListeners.getSearchResults());
+            resetCandidates.addAll(testList);
+            resetCandidates.stream()
+                    .filter(listener -> listener instanceof MainFrame)
+                    .filter(listener -> startedListeners.stream().noneMatch(started -> started == listener))
+                    .forEach(startedListeners::add);
+            testList.clear(); // Discard registrations from a failed compilation as well.
+            notifyTestListenersOfEnd(startedListeners);
             JMeterContextService.endTest();
         }
         if (JMeter.isNonGUI() && SYSTEM_EXIT_FORCED) {
@@ -435,7 +449,8 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         }
     }
 
-    private void runTestPlan(SearchByClass<TestStateListener> testListeners) {
+    private void runTestPlan(SearchByClass<TestStateListener> testListeners,
+            List<TestStateListener> startedListeners) {
         log.info("Running the test!");
         running = true;
 
@@ -459,7 +474,7 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         testList.clear(); // no longer needed
 
         test.traverse(new TurnElementsOn());
-        notifyTestListenersOfStart(testListeners);
+        notifyTestListenersOfStart(testListeners, startedListeners);
 
         var testLevelElements = new ArrayList<>(test.list(test.getArray()[0]));
         removeThreadGroups(testLevelElements);

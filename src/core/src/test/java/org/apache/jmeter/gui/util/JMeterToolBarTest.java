@@ -68,6 +68,27 @@ class JMeterToolBarTest extends JMeterTestCase {
         });
     }
 
+    @Test
+    void legacyCustomToolbarUsesOneEscalatingStopButton() throws Exception {
+        String previous = JMeterUtils.getProperty("jmeter.toolbar");
+        try {
+            JMeterUtils.setProperty("jmeter.toolbar", "test_shutdown,test_stop");
+            SwingUtilities.invokeAndWait(() -> {
+                JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+                toolbar.setLocalTestStarted(true);
+                assertEquals(ActionNames.ACTION_SHUTDOWN, stopButton(toolbar).getActionCommand());
+                toolbar.setLocalTestStopping();
+                assertEquals(ActionNames.ACTION_STOP, stopButton(toolbar).getActionCommand());
+            });
+        } finally {
+            if (previous == null) {
+                JMeterUtils.getJMeterProperties().remove("jmeter.toolbar");
+            } else {
+                JMeterUtils.setProperty("jmeter.toolbar", previous);
+            }
+        }
+    }
+
     private static JButton stopButton(JMeterToolBar toolbar) {
         var buttons = Arrays.stream(toolbar.getComponents())
                 .filter(JButton.class::isInstance).map(JButton.class::cast)

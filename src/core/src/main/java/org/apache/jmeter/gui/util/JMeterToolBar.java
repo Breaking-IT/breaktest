@@ -276,9 +276,18 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         String iconSize = JMeterUtils.getPropDefault(TOOLBAR_ICON_SIZE, DEFAULT_TOOLBAR_ICON_SIZE);
 
         List<IconToolbarBean> listIcons = new ArrayList<>();
+        boolean stopAdded = false;
         for (String key : oList) {
             log.debug("Toolbar icon key: {}", key); //$NON-NLS-1$
             String trimmed = key.trim();
+            // Legacy custom toolbars may still list both stop and shutdown.
+            if ("test_stop".equals(trimmed) || "test_shutdown".equals(trimmed)) {
+                if (stopAdded) {
+                    continue;
+                }
+                stopAdded = true;
+                trimmed = "test_stop";
+            }
             if (trimmed.equals("|")) { //$NON-NLS-1$
                 listIcons.add(null);
             } else {

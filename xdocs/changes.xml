@@ -24,6 +24,15 @@
 <body>
 <section name="Release Notes">
 
+<h1>Unreleased</h1>
+<ch_section>Stopping and Closed-Model Scheduling</ch_section>
+<ul>
+<li>The local Stop button requests graceful shutdown, then changes to Stop now for escalation. Legacy custom toolbar lists containing both Stop and Shutdown produce one stop button.</li>
+<li>Timer, transaction think-time and pacing delays wake on cancellation without periodic per-user polling. Scheduled test end times also bound ramp-up and Transaction Controller delays; active samplers still finish normally during graceful shutdown.</li>
+<li>Custom closed-model profiles retain users between iterations and distribute concurrency changes along an absolute monotonic timeline, avoiding accumulated scheduling drift.</li>
+<li>Failed startup only ends listeners whose start callback was invoked, while still resetting the GUI. Unstarted listeners no longer receive unmatched end notifications.</li>
+</ul>
+
 <h1>BreakTest 2026.09.25 — Fork Controls, Live Transactions, and Schedule Tables</h1>
 <p>This release simplifies Transaction Controller by removing Generate parent sample and combining immediate metrics, low memory use, and live transaction progress in one reporting model. It also makes background forks configurable, adds schedule tables with random arrivals, and introduces script-free sampler-result filtering and While Controller iteration limits.</p>
 <ch_section>Simpler Transactions, Immediate Metrics, and Live Progress</ch_section>
