@@ -276,13 +276,26 @@ public final class MenuFactory {
     }
 
     public static void addEditMenu(JPopupMenu menu, boolean removable) {
+        addEditMenu(menu, removable, true);
+    }
+
+    /**
+     * @param menu the popup menu to add the edit items to
+     * @param removable whether the element can be cut and removed
+     * @param copyable whether the element can be copied and duplicated
+     */
+    public static void addEditMenu(JPopupMenu menu, boolean removable, boolean copyable) {
         addSeparator(menu);
-        if (removable) {
+        if (removable && copyable) {
             menu.add(makeMenuItemRes("cut", ActionNames.CUT, KeyStrokes.CUT)); //$NON-NLS-1$
         }
-        menu.add(makeMenuItemRes("copy", ActionNames.COPY, KeyStrokes.COPY));  //$NON-NLS-1$
+        if (copyable) {
+            menu.add(makeMenuItemRes("copy", ActionNames.COPY, KeyStrokes.COPY));  //$NON-NLS-1$
+        }
         menu.add(makeMenuItemRes("paste", ActionNames.PASTE, KeyStrokes.PASTE)); //$NON-NLS-1$
-        menu.add(makeMenuItemRes("duplicate", ActionNames.DUPLICATE, KeyStrokes.DUPLICATE));  //$NON-NLS-1$
+        if (copyable) {
+            menu.add(makeMenuItemRes("duplicate", ActionNames.DUPLICATE, KeyStrokes.DUPLICATE));  //$NON-NLS-1$
+        }
         if (removable) {
             menu.add(makeMenuItemRes("remove", ActionNames.REMOVE, KeyStrokes.REMOVE)); //$NON-NLS-1$
         }

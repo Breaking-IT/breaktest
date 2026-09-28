@@ -34,6 +34,11 @@ public class NonTestElementsSectionGui extends TestPlanSectionGui {
     }
 
     @Override
+    protected boolean isRemovableSection() {
+        return true;
+    }
+
+    @Override
     public TestElement makeTestElement() {
         return new NonTestElementsSection();
     }

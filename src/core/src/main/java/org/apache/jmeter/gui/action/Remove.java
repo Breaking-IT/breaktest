@@ -26,10 +26,8 @@ import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
-import org.apache.jmeter.scenario.NonTestElementsSection;
 import org.apache.jmeter.scenario.Profile;
-import org.apache.jmeter.scenario.SharedProfile;
-import org.apache.jmeter.scenario.TestPlanSection;
+import org.apache.jmeter.scenario.gui.FixedNodes;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -108,8 +106,7 @@ public class Remove extends AbstractAction {
 
     private static void removeNode(JMeterTreeNode node) {
         TestElement testElement = node.getTestElement();
-        if (testElement instanceof TestPlanSection && !(testElement instanceof NonTestElementsSection)
-                || testElement instanceof SharedProfile) {
+        if (!FixedNodes.isRemovable(node)) {
             return; // Sections and the shared profile are a fixed part of the test plan
         }
         if (testElement.canRemove()) {

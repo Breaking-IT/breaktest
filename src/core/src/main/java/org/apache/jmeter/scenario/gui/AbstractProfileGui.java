@@ -64,7 +64,8 @@ public abstract class AbstractProfileGui extends AbstractJMeterGuiComponent {
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
         addConfigurationMenus(addMenu);
         pop.add(addMenu);
-        MenuFactory.addEditMenu(pop, isRemovable());
+        // The Shared profile is fixed: it can neither be removed nor copied
+        MenuFactory.addEditMenu(pop, isRemovable(), isRemovable());
         MenuFactory.addFileMenu(pop, false);
         return pop;
     }

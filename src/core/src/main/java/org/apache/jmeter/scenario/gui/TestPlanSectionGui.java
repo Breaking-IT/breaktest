@@ -64,9 +64,16 @@ public abstract class TestPlanSectionGui extends AbstractJMeterGuiComponent {
         JMenu addMenu = new JMenu(JMeterUtils.getResString("add")); // $NON-NLS-1$
         addToAddMenu(addMenu);
         pop.add(addMenu);
-        MenuFactory.addEditMenu(pop, false);
+        MenuFactory.addEditMenu(pop, isRemovableSection(), false);
         MenuFactory.addFileMenu(pop, false);
         return pop;
+    }
+
+    /**
+     * @return whether the section can be removed; only sections created on demand can
+     */
+    protected boolean isRemovableSection() {
+        return false;
     }
 
     /**

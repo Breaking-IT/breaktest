@@ -44,6 +44,7 @@ import org.apache.jmeter.gui.util.RecordedHarExchangeResolver
 import org.apache.jmeter.samplers.Sampler
 import org.apache.jmeter.save.SaveService
 import org.apache.jmeter.scenario.ThreadGroupsSection
+import org.apache.jmeter.scenario.gui.FixedNodes
 import org.apache.jmeter.testbeans.gui.TestBeanGUI
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.TestPlan
@@ -2830,6 +2831,9 @@ public object BreakTestAgentGuiService {
                     "Cannot clone `${source.testElement.name}` under one of its descendants"
                 }
 
+                require(FixedNodes.isCopyable(source)) {
+                    "Cannot clone `${source.testElement.name}`: sections and the Shared profile are a fixed part of the test plan"
+                }
                 val cloned = Copy.cloneTreeNode(source)
                 RecordedHarExchangeResolver.carryInheritedRecordingSource(source, cloned.testElement)
                 resolveCopyConflicts(gui, cloned)
@@ -2912,6 +2916,9 @@ public object BreakTestAgentGuiService {
                             "Refusing to delete a Test Plan or Thread Group through AI repair. " +
                                 "Pass allowStructuralContainerDelete=true only for an explicit user-requested structural deletion."
                         }
+                    }
+                    require(nodes.all { FixedNodes.isRemovable(it) }) {
+                        "Refusing to delete a section or the Shared profile: they are a fixed part of the test plan"
                     }
                     nodes.forEach { node ->
                         require(isNodeInOpenPlan(gui, node)) {
