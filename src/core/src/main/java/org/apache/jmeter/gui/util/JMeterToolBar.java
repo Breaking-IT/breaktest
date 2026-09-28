@@ -85,6 +85,8 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
 
     private long stopNowAvailableAt;
 
+    private long pauseAvailableAt;
+
     private static final String STOP_BUTTON = "breaktest.stopButton";
 
     private static final String PAUSE_ICON_PATH = "org/apache/jmeter/images/toolbar/icons-modern/pause.svg";
@@ -182,6 +184,11 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             if (Boolean.TRUE.equals(button.getClientProperty(STOP_BUTTON))
                     && ActionNames.ACTION_STOP.equals(event.getActionCommand())
                     && System.nanoTime() < ((JMeterToolBar) button.getParent()).stopNowAvailableAt) {
+                return;
+            }
+            if (Boolean.TRUE.equals(button.getClientProperty(RUN_BUTTON))
+                    && ((JMeterToolBar) button.getParent()).isRunActionGuarded(
+                            event.getActionCommand(), System.nanoTime())) {
                 return;
             }
             ActionRouter.getInstance().actionPerformed(event);
@@ -375,6 +382,10 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
      *            Flag whether local test is started
      */
     public void setLocalTestStarted(boolean started) {
+        if (started && !localTestStarted) {
+            // Ignore a double-click carried over from Run when the button becomes Pause.
+            pauseAvailableAt = System.nanoTime() + 600_000_000L;
+        }
         localTestStarted = started;
         localTestStopping = false;
         localTestPaused = false;
@@ -435,6 +446,11 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
     public void setLocalTestPaused(boolean paused) {
         localTestPaused = paused;
         updateRunButton();
+    }
+
+    boolean isRunActionGuarded(String command, long now) {
+        return localTestStarted && !localTestPaused
+                && ActionNames.ACTION_PAUSE.equals(command) && now < pauseAvailableAt;
     }
 
     private void updateRunButton() {

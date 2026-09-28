@@ -35,6 +35,27 @@ import org.junit.jupiter.api.Test;
 
 class JMeterToolBarTest extends JMeterTestCase {
     @Test
+    void runDoubleClickCannotPauseNewTest() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
+            assertFalse(toolbar.isRunActionGuarded(ActionNames.ACTION_START, System.nanoTime()));
+            toolbar.setLocalTestStarted(true);
+            long startedAt = System.nanoTime();
+            assertTrue(toolbar.isRunActionGuarded(ActionNames.ACTION_PAUSE, startedAt));
+            assertFalse(toolbar.isRunActionGuarded(ActionNames.ACTION_PAUSE, startedAt + 600_000_000L));
+
+            toolbar.localeChanged(new LocaleChangeEvent(toolbar));
+            assertTrue(toolbar.isRunActionGuarded(ActionNames.ACTION_PAUSE, startedAt));
+            toolbar.setLocalTestPaused(true);
+            assertFalse(toolbar.isRunActionGuarded(ActionNames.ACTION_PAUSE, startedAt));
+            toolbar.setLocalTestStarted(false);
+            assertFalse(toolbar.isRunActionGuarded(ActionNames.ACTION_START, startedAt));
+            toolbar.setLocalTestStarted(true);
+            assertTrue(toolbar.isRunActionGuarded(ActionNames.ACTION_PAUSE, System.nanoTime()));
+        });
+    }
+
+    @Test
     void runButtonFollowsLifecycleAndSurvivesLocaleChanges() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
