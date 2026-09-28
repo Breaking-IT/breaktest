@@ -54,14 +54,14 @@ class ThreadGroupGuiTest {
     }
 
     @Test
-    void newThreadGroupStopsTestAfterSamplerErrorByDefault() {
+    void newThreadGroupStartsNextThreadLoopAfterSamplerErrorByDefault() {
         ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
 
-        assertTrue(threadGroup.getOnErrorStopTest());
+        assertTrue(threadGroup.getOnErrorStartNextLoop());
     }
 
     @Test
-    void clearingGuiRestoresStopDefaultButExistingContinueIsPreserved() {
+    void clearingGuiRestoresNextLoopDefaultButExistingContinueIsPreserved() {
         ThreadGroupGui gui = new ThreadGroupGui();
         ThreadGroup existing = threadGroupWithLoops(1);
         existing.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
@@ -74,7 +74,7 @@ class ThreadGroupGuiTest {
         gui.clearGui();
         ThreadGroup created = (ThreadGroup) gui.createTestElement();
         gui.modifyTestElement(created);
-        assertTrue(created.getOnErrorStopTest());
+        assertTrue(created.getOnErrorStartNextLoop());
     }
 
     @Test
