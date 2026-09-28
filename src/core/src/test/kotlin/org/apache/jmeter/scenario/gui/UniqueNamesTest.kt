@@ -51,6 +51,35 @@ class UniqueNamesTest : JMeterTestCase() {
     }
 
     @Test
+    fun `renaming a clashing insert does not send change events for a row the tree does not know yet`() {
+        added(ThreadGroup().apply { name = "Browse" })
+        val events = mutableListOf<String>()
+        model.addTreeModelListener(object : javax.swing.event.TreeModelListener {
+            override fun treeNodesChanged(e: javax.swing.event.TreeModelEvent) {
+                events += "changed"
+            }
+
+            override fun treeNodesInserted(e: javax.swing.event.TreeModelEvent) {
+                events += "inserted " + (e.children.single() as JMeterTreeNode).name
+            }
+
+            override fun treeNodesRemoved(e: javax.swing.event.TreeModelEvent) {
+                events += "removed"
+            }
+
+            override fun treeStructureChanged(e: javax.swing.event.TreeModelEvent) {
+                events += "structure"
+            }
+        })
+
+        added(ThreadGroup().apply { name = "Browse" })
+
+        assertEquals(listOf("inserted Browse (2)"), events) {
+            "A change event before the insertion is announced corrupts the tree: rows go blank and selection stalls"
+        }
+    }
+
+    @Test
     fun `a copied thread group gets its own id and a moved one keeps it`() {
         val original = ThreadGroup().apply { name = "Browse" }
         val node = added(original)

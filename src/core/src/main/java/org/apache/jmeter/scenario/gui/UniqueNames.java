@@ -40,12 +40,25 @@ public final class UniqueNames {
     }
 
     /**
+     * Makes the name of a renamed node unique among the other elements of its section, see
+     * {@link #apply(JMeterTreeModel, JMeterTreeNode, boolean)}.
+     * @param model the tree the node belongs to
+     * @param node a node that may have been renamed
+     */
+    public static void apply(JMeterTreeModel model, JMeterTreeNode node) {
+        apply(model, node, true);
+    }
+
+    /**
      * Makes the name of a node unique among the other elements of its section, adding " (2)", " (3)", ... when
      * needed, and gives a thread group a unique id when it has none or shares one with another thread group.
      * @param model the tree the node belongs to
      * @param node a node just added to the tree or renamed
+     * @param notify whether to tell the tree the node changed. Must be {@code false} while the node is being inserted:
+     *     the tree does not know the node until the insertion is announced, and a change event for an unknown row
+     *     corrupts its layout
      */
-    public static void apply(JMeterTreeModel model, JMeterTreeNode node) {
+    public static void apply(JMeterTreeModel model, JMeterTreeNode node, boolean notify) {
         if (!(node.getParent() instanceof JMeterTreeNode parent) || !isNamedSection(parent.getUserObject())) {
             return;
         }
@@ -63,7 +76,9 @@ public final class UniqueNames {
                 candidate = name + " (" + i + ")";
             }
             element.setName(candidate);
-            model.nodeChanged(node);
+            if (notify) {
+                model.nodeChanged(node);
+            }
         }
         if (element instanceof AbstractThreadGroup threadGroup) {
             makeIdUnique(model, node, threadGroup);

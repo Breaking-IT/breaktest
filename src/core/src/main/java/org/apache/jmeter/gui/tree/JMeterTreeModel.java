@@ -354,8 +354,9 @@ public class JMeterTreeModel extends DefaultTreeModel {
     public void insertNodeInto(MutableTreeNode newChild, MutableTreeNode parent, int index) {
         parent.insert(newChild, index);
         if (newChild instanceof JMeterTreeNode node && node.getUserObject() instanceof TestElement) {
-            // Every way of adding an element ends here: add, paste, duplicate, drag and drop, loading, the AI agent
-            UniqueNames.apply(this, node);
+            // Every way of adding an element ends here: add, paste, duplicate, drag and drop, loading, the AI agent.
+            // The name is fixed before the insertion is announced, so the tree shows the final name right away.
+            UniqueNames.apply(this, node, false);
         }
         if (bulkUpdateDepth == 0) {
             nodesWereInserted(parent, new int[] { index });
