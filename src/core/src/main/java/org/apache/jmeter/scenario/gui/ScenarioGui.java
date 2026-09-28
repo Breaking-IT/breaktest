@@ -563,7 +563,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
                         JMeterUtils.getResString("scenario_workload_missing_thread_group")); // $NON-NLS-1$
             }
             if (column == 3) {
-                return workload.getProfile().isEmpty() ? "–" : workload.getProfile(); // $NON-NLS-1$
+                if (!workload.getProfile().isEmpty()) {
+                    return workload.getProfile();
+                }
+                String defaultProfile = ScenarioWorkloadGui.defaultProfileName();
+                return defaultProfile.isEmpty()
+                        ? ScenarioWorkloadGui.useDefaultLabel()
+                        : ScenarioWorkloadGui.useDefaultLabel() + " (" + defaultProfile + ")";
             }
             if (usesOwnSettings(workload)) {
                 return column == 4 ? JMeterUtils.getResString("scenario_own_settings") : "–"; // $NON-NLS-1$ $NON-NLS-2$

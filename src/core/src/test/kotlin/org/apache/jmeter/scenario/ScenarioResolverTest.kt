@@ -295,7 +295,7 @@ class ScenarioResolverTest : JMeterTestCase() {
             Arguments(),
             workload("Acceptance", browse, 1).apply { profile = "acceptance" },
             workload("Production", browse, 1).apply { profile = "production" },
-            workload("No profile", browse, 1),
+            workload("Use default", browse, 1),
         )
         val resolved = convertAndResolve(tree)
         val planTree = resolved.getTree(resolved.array[0])
@@ -305,9 +305,13 @@ class ScenarioResolverTest : JMeterTestCase() {
             listOf(
                 mapOf("host" to "acc.example.com", "url" to "https://acc.example.com:8080"),
                 mapOf("host" to "www.example.com"),
-                mapOf()
+                mapOf("host" to "acc.example.com", "url" to "https://acc.example.com:8080"),
             ),
             threadGroups.map { it.profileVariables }
+        ) { "A thread group set to 'Use default' runs with the default profile, acceptance" }
+        assertEquals(
+            listOf("host" to "acc.example.com"),
+            listOf("host" to threadGroups[2].profileVariables["host"])
         )
         assertEquals(
             listOf("Acceptance defaults", "Record"),
@@ -423,12 +427,11 @@ class ScenarioResolverTest : JMeterTestCase() {
         val tree = profilesPlan(
             variables("host" to "plan.example.com"),
             workload("Acceptance", browse, 1).apply { profile = "acceptance" },
-            workload("No profile", browse, 1),
         )
         tree.getTree(tree.array[0]).add(listener)
-        runAndWait(tree, listener, 2)
+        runAndWait(tree, listener, 1)
         assertEquals(
-            mapOf("Acceptance" to "acc.example.com", "No profile" to "plan.example.com"),
+            mapOf("Acceptance" to "acc.example.com"),
             listener.events.associate { it.threadGroup to it.result.responseDataAsString }
         )
     }
@@ -475,6 +478,69 @@ class ScenarioResolverTest : JMeterTestCase() {
         } finally {
             engine.stopTest(true)
         }
+    }
+
+    @Test
+    fun `the default profile of a run can be chosen, as with --profile`() {
+        val tree = profilesPlan(
+            Arguments(),
+            workload("Use default", browse, 1),
+            workload("Always acceptance", browse, 1).apply { profile = "acceptance" },
+        )
+        val resolved = ScenarioResolver.resolve(JMeter.convertSubTree(tree, false), null, "production")
+        val threadGroups = planChildren(resolved).filterIsInstance<AbstractThreadGroup>()
+        assertEquals(
+            listOf("www.example.com", "acc.example.com"),
+            threadGroups.map { it.profileVariables["host"] }
+        ) { "Only thread groups set to 'Use default' follow the default profile of the run" }
+    }
+
+    @Test
+    fun `an unknown default profile for the run is rejected`() {
+        val tree = profilesPlan(Arguments(), workload("Use default", browse, 1))
+        val e = assertThrows<ScenarioException> {
+            ScenarioResolver.resolve(JMeter.convertSubTree(tree, false), null, "staging")
+        }
+        assertEquals(
+            "The run uses profile 'staging', which does not exist or is disabled. Profiles: 'acceptance', 'production'.",
+            e.message
+        )
+    }
+
+    @Test
+    fun `without a profile marked default the first profile is the default`() {
+        val tree = testTree {
+            TestPlan::class {
+                ScenariosSection::class { +scenario("Load", workload("Use default", browse, 1)) }
+                ThreadGroupsSection::class { browse { RecordVariable::class { variable = "host" } } }
+                ProfilesSection::class {
+                    Profile::class {
+                        name = "first"
+                        +variables("host" to "first.example.com")
+                    }
+                    Profile::class {
+                        name = "second"
+                        +variables("host" to "second.example.com")
+                    }
+                }
+            }
+        }
+        val threadGroup = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals("first.example.com", threadGroup.profileVariables["host"])
+    }
+
+    @Test
+    fun `a scenario is found by name, also when it is not the enabled one`() {
+        val stress = scenario("Stress", workload("Stress browse", browse, 50), enabled = false)
+        val tree = plan(
+            scenarios = {
+                +scenario("Load", workload("Load browse", browse, 10))
+                +stress
+            }
+        )
+        assertSame(stress, ScenarioResolver.findScenario(tree, "Stress"))
+        val e = assertThrows<ScenarioException> { ScenarioResolver.findScenario(tree, "Soak") }
+        assertEquals("There is no scenario 'Soak'. Scenarios: 'Load', 'Stress'.", e.message)
     }
 
     @Test

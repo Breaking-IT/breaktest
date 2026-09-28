@@ -86,6 +86,19 @@ public final class ScenarioResolver {
      * @throws ScenarioException when the scenario cannot be determined or a workload cannot be resolved
      */
     public static HashTree resolve(HashTree tree, Scenario scenario) {
+        return resolve(tree, scenario, null);
+    }
+
+    /**
+     * Builds the tree to run for the given scenario and default profile, as chosen on the command line.
+     * @param tree a converted test tree
+     * @param scenario the scenario to run, or {@code null} for the enabled scenario
+     * @param defaultProfileName the profile that thread groups set to "Use default" run with, or {@code null} for
+     *     the profile marked as default
+     * @return the flat tree to run, or {@code tree} itself when it has no sections
+     * @throws ScenarioException when the scenario or a profile cannot be determined, or a workload cannot be resolved
+     */
+    public static HashTree resolve(HashTree tree, Scenario scenario, String defaultProfileName) {
         if (!hasSections(tree)) {
             return tree;
         }
@@ -93,6 +106,7 @@ public final class ScenarioResolver {
         if (scenario == null) {
             scenario = flattener.enabledScenario();
         }
+        ProfileEntry defaultProfile = flattener.defaultProfile(defaultProfileName);
         Map<String, ThreadGroupEntry> threadGroups = flattener.threadGroupsById();
         Evaluator evaluator = flattener.evaluator();
         Set<String> usedNames = new HashSet<>();
@@ -112,8 +126,11 @@ public final class ScenarioResolver {
             }
             String name = workload.getName().isBlank() ? entry.threadGroup().getName() : workload.getName();
             instance.setName(uniqueName(name, usedNames));
-            ProfileEntry profile = flattener.profileNamed(evaluator.evaluate(workload.getProfile()).trim(),
-                    "'" + workload.getName() + "' in scenario '" + scenario.getName() + "'");
+            // An empty profile means "Use default": the default profile of this run
+            ProfileEntry profile = workload.getProfile().isBlank()
+                    ? defaultProfile
+                    : flattener.profileNamed(evaluator.evaluate(workload.getProfile()).trim(),
+                            "'" + workload.getName() + "' in scenario '" + scenario.getName() + "'");
             flattener.planTree.add(instance, withProfile(instance, profile, deepClone(entry.subTree()), evaluator));
             workloads++;
         }
@@ -137,10 +154,7 @@ public final class ScenarioResolver {
             return tree;
         }
         Flattener flattener = new Flattener(tree);
-        ProfileEntry defaultProfile = flattener.profiles.stream()
-                .filter(profile -> profile.profile().isDefault())
-                .findFirst()
-                .orElse(null);
+        ProfileEntry defaultProfile = flattener.defaultProfile(null);
         Evaluator evaluator = flattener.evaluator();
         for (ThreadGroupEntry entry : flattener.threadGroups) {
             AbstractThreadGroup threadGroup = entry.threadGroup();
@@ -241,6 +255,37 @@ public final class ScenarioResolver {
         for (JMeterProperty property : expressions) {
             element.setProperty(property.getName(), evaluator.evaluate(property.getStringValue()));
         }
+    }
+
+    /**
+     * Finds a scenario by name, whether it is enabled or not, in a test plan as it was loaded.
+     * @param tree a loaded test tree, before disabled elements are removed
+     * @param name the scenario name
+     * @return the scenario
+     * @throws ScenarioException when the plan has no scenario with that name
+     */
+    public static Scenario findScenario(HashTree tree, String name) {
+        Object root = root(tree);
+        List<Scenario> scenarios = new ArrayList<>();
+        if (root != null) {
+            HashTree planTree = tree.getTree(root);
+            for (Object section : planTree.list()) {
+                if (section instanceof ScenariosSection) {
+                    for (Object scenario : planTree.getTree(section).list()) {
+                        if (scenario instanceof Scenario s) {
+                            scenarios.add(s);
+                        }
+                    }
+                }
+            }
+        }
+        return scenarios.stream()
+                .filter(scenario -> scenario.getName().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new ScenarioException("There is no scenario '" + name + "'."
+                        + (scenarios.isEmpty() ? "" : " Scenarios: " + scenarios.stream() // $NON-NLS-1$
+                                .map(scenario -> "'" + scenario.getName() + "'")
+                                .collect(Collectors.joining(", ")) + '.')));
     }
 
     private static Object root(HashTree tree) {
@@ -400,6 +445,21 @@ public final class ScenarioResolver {
 
         Evaluator evaluator() {
             return evaluator;
+        }
+
+        /**
+         * There is always one default profile: the one marked as default, else the first one.
+         * @param overrideName the default profile chosen for this run, or {@code null}
+         * @return the default profile, or {@code null} when the plan has no profiles
+         */
+        ProfileEntry defaultProfile(String overrideName) {
+            if (overrideName != null && !overrideName.isBlank()) {
+                return profileNamed(overrideName.trim(), "The run");
+            }
+            return profiles.stream()
+                    .filter(profile -> profile.profile().isDefault())
+                    .findFirst()
+                    .orElse(profiles.isEmpty() ? null : profiles.get(0));
         }
 
         /**

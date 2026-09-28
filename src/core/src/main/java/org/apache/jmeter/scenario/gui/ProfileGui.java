@@ -72,12 +72,23 @@ public class ProfileGui extends AbstractProfileGui {
     @Override
     public JPopupMenu createPopupMenu() {
         JPopupMenu pop = super.createPopupMenu();
-        JMenuItem toggleDefault = new JMenuItem(JMeterUtils.getResString(
-                isDefault ? "profile_clear_default" : "profile_make_default")); // $NON-NLS-1$ $NON-NLS-2$
-        toggleDefault.addActionListener(e -> setCurrentProfileDefault(!isDefault));
-        pop.insert(toggleDefault, 0);
+        // There is always one default profile: another profile takes the role by becoming the default
+        JMenuItem makeDefaultItem = new JMenuItem(JMeterUtils.getResString("profile_make_default")); // $NON-NLS-1$
+        makeDefaultItem.setEnabled(!isDefault);
+        makeDefaultItem.addActionListener(e -> setCurrentProfileDefault(true));
+        pop.insert(makeDefaultItem, 0);
         pop.insert(new JPopupMenu.Separator(), 1);
         return pop;
+    }
+
+    /** The first profile of a test plan becomes its default profile. */
+    @Override
+    public void assignDefaultValues(TestElement element) {
+        super.assignDefaultValues(element);
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        boolean hasDefault = guiPackage != null && guiPackage.getTreeModel().getNodesOfType(Profile.class).stream()
+                .anyMatch(node -> ((Profile) node.getTestElement()).isDefault());
+        ((Profile) element).setDefault(!hasDefault);
     }
 
     @Override

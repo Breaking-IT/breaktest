@@ -235,7 +235,9 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
             workload.setThreadGroupId(choice.threadGroup().getOrCreateThreadGroupId());
         }
         Object selectedProfile = profile.isEditable() ? profile.getEditor().getItem() : profile.getSelectedItem();
-        workload.setProfile(selectedProfile == null ? "" : selectedProfile.toString().trim());
+        String profileName = selectedProfile == null ? "" : selectedProfile.toString().trim();
+        // "Use default" is stored as no profile: the default profile of the run
+        workload.setProfile(profileName.equals(useDefaultLabel()) ? "" : profileName);
     }
 
     @Override
@@ -250,15 +252,37 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         updatingThreadGroups = true;
         try {
             profile.removeAllItems();
-            profile.addItem("");
+            profile.addItem(useDefaultLabel());
             for (String name : availableProfiles()) {
                 profile.addItem(name);
             }
-            profile.setSelectedItem(selected);
-            profile.getEditor().setItem(selected);
+            String shown = selected.isEmpty() ? useDefaultLabel() : selected;
+            profile.setSelectedItem(shown);
+            profile.getEditor().setItem(shown);
         } finally {
             updatingThreadGroups = false;
         }
+    }
+
+    static String useDefaultLabel() {
+        return JMeterUtils.getResString("scenario_workload_use_default_profile"); // $NON-NLS-1$
+    }
+
+    /**
+     * @return the name of the profile that thread groups set to "Use default" run with, or an empty string
+     */
+    static String defaultProfileName() {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return ""; // $NON-NLS-1$
+        }
+        List<Profile> profiles = guiPackage.getTreeModel().getNodesOfType(Profile.class).stream()
+                .map(node -> (Profile) node.getTestElement())
+                .toList();
+        return profiles.stream().filter(Profile::isDefault).findFirst()
+                .or(() -> profiles.stream().findFirst())
+                .map(Profile::getName)
+                .orElse(""); // $NON-NLS-1$
     }
 
     private static List<String> availableProfiles() {

@@ -27,6 +27,7 @@ import javax.swing.tree.TreePath;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.scenario.NonTestElementsSection;
+import org.apache.jmeter.scenario.Profile;
 import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.testelement.TestElement;
@@ -94,6 +95,17 @@ public class Remove extends AbstractAction {
         }
     }
 
+    /** There is always one default profile: when it is removed, the first remaining profile takes its place. */
+    private static void keepOneDefaultProfile(JMeterTreeNode profiles) {
+        for (int i = 0; i < profiles.getChildCount(); i++) {
+            if (profiles.getChildAt(i) instanceof JMeterTreeNode child && child.getTestElement() instanceof Profile profile) {
+                profile.setDefault(true);
+                GuiPackage.getInstance().getTreeModel().nodeChanged(child);
+                return;
+            }
+        }
+    }
+
     private static void removeNode(JMeterTreeNode node) {
         TestElement testElement = node.getTestElement();
         if (testElement instanceof TestPlanSection && !(testElement instanceof NonTestElementsSection)
@@ -101,7 +113,13 @@ public class Remove extends AbstractAction {
             return; // Sections and the shared profile are a fixed part of the test plan
         }
         if (testElement.canRemove()) {
+            JMeterTreeNode profiles = testElement instanceof Profile profile && profile.isDefault()
+                    ? (JMeterTreeNode) node.getParent()
+                    : null;
             GuiPackage.getInstance().getTreeModel().removeNodeFromParent(node);
+            if (profiles != null) {
+                keepOneDefaultProfile(profiles);
+            }
             GuiPackage.getInstance().removeNode(testElement);
             testElement.removed();
         } else {
