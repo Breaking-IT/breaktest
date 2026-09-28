@@ -272,7 +272,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         if (element instanceof AbstractThreadGroup threadGroup && isInThreadGroupsSection(element)) {
             ScenarioWorkload.removeWorkload(threadGroup);
             threadGroup.getOrCreateThreadGroupId();
-            threadGroup.setValidationStopOnError(false);
+            threadGroup.setValidationStopOnError(true);
         }
     }
 
@@ -582,6 +582,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     // Initialise the gui field values
     private void initGui(){
         loopPanel.clearGui();
+        validationStop.setSelected(true);
         setSelectedThreadGroupModel(ThreadGroup.MODEL_CLOSED);
         setSelectedClosedModelThreadMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
         closedModelSchedule.setText(""); // $NON-NLS-1$
@@ -630,7 +631,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         ButtonGroup validationOnError = new ButtonGroup();
         validationOnError.add(validationContinue);
         validationOnError.add(validationStop);
-        validationContinue.setSelected(true);
+        validationStop.setSelected(true);
         scriptSettingsPanel.add(validationContinue);
         scriptSettingsPanel.add(validationStop);
         scriptSettingsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_validation_on_error_info")), // $NON-NLS-1$
