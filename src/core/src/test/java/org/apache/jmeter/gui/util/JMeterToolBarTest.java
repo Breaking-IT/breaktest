@@ -36,14 +36,34 @@ import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.LocaleChangeEvent;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class JMeterToolBarTest extends JMeterTestCase {
+    private Locale previousLocale;
+
+    @BeforeEach
+    void initializeLocale() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            previousLocale = JMeterUtils.getLocale();
+            // The test JVM may not have initialized application resources, and the
+            // lifecycle assertions intentionally check the English button labels.
+            JMeterUtils.setLocale(Locale.ENGLISH);
+        });
+    }
+
+    @AfterEach
+    void restoreLocale() throws Exception {
+        if (previousLocale != null) {
+            SwingUtilities.invokeAndWait(() -> JMeterUtils.setLocale(previousLocale));
+        }
+    }
+
     @Test
     void runLabelsFollowLocaleWhilePaused() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
-            Locale previous = JMeterUtils.getLocale();
             JMeterToolBar toolbar = JMeterToolBar.createToolbar(false);
             try {
                 JMeterUtils.setLocale(Locale.FRENCH);
@@ -59,7 +79,6 @@ class JMeterToolBarTest extends JMeterTestCase {
                 toolbar.setLocalTestStarted(false);
                 assertEquals("Start", button(toolbar, ActionNames.ACTION_START).getText());
             } finally {
-                JMeterUtils.setLocale(previous);
                 JMeterUtils.removeLocaleChangeListener(toolbar);
             }
         });
