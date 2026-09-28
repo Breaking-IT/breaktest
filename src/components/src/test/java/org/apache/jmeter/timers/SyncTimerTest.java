@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.timers;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,52 +27,55 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 public class SyncTimerTest {
 
+    @AfterEach
+    void clearContext() {
+        JMeterContextService.getContext().clear();
+    }
+
     @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SAME_THREAD)
     public void testTimerWithScheduledEndpoint() {
         long schedulerDuration = 200L;
         setupScheduledThread(schedulerDuration);
         SyncTimer timer = new SyncTimer();
         timer.setGroupSize(2);
         timer.testStarted();
-        long duration = timeDelay(timer);
-        assertTrue(duration < schedulerDuration * 2,
-            "Calculating delay takes less then " + schedulerDuration * 2
-                + " ms (took: " + duration + " ms)");
+        // There is no second arrival: only the scheduler deadline can release this barrier.
+        assertEquals(0, timer.delay());
     }
 
     @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SAME_THREAD)
     public void testTimerWithLongerScheduledEndpointThanTimeoutForTimer() {
-        long schedulerDuration = 2000L;
+        long schedulerDuration = 30000L;
         long timerTimeout = 200L;
         setupScheduledThread(schedulerDuration);
         SyncTimer timer = new SyncTimer();
         timer.setGroupSize(2);
         timer.testStarted();
         timer.setTimeoutInMs(timerTimeout);
-        long duration = timeDelay(timer);
-        assertTrue(duration < timerTimeout * 2,
-            "Calculating delay takes less then " + timerTimeout * 2
-                + " ms (took: " + duration + " ms)");
+        // A wrong choice of the 30s scheduler deadline must exceed the 5s test timeout.
+        assertEquals(0, timer.delay());
     }
 
     @Test
+    @Timeout(value = 5, threadMode = Timeout.ThreadMode.SAME_THREAD)
     public void testTimerWithShorterScheduledEndpointThanTimeoutForTimer() {
         long schedulerDuration = 200L;
-        long timerTimeout = 2000L;
+        long timerTimeout = 30000L;
         setupScheduledThread(schedulerDuration);
         SyncTimer timer = new SyncTimer();
         timer.setGroupSize(2);
         timer.testStarted();
         timer.setTimeoutInMs(timerTimeout);
-        long duration = timeDelay(timer);
-        assertTrue(
-            duration < schedulerDuration * 2,
-            "Calculating delay takes less then " + schedulerDuration * 2
-                + " ms (took: " + duration + " ms)");
+        // A wrong choice of the 30s timer timeout must exceed the 5s test timeout.
+        assertEquals(0, timer.delay());
     }
 
     @Test
@@ -112,13 +116,6 @@ public class SyncTimerTest {
         }
         assertTrue(releasedByStop, "Stop should release a thread waiting in the SyncTimer barrier");
         assertTrue(delayCompleted.get(), "Stop should release a thread waiting in the SyncTimer barrier");
-    }
-
-    private static long timeDelay(SyncTimer timer) {
-        long start = System.currentTimeMillis();
-        timer.delay();
-        long duration = System.currentTimeMillis() - start;
-        return duration;
     }
 
     private static void setupScheduledThread(long schedulerDuration) {

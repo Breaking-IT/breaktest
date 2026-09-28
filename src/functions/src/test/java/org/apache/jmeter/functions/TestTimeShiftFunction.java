@@ -19,6 +19,7 @@ package org.apache.jmeter.functions;
 
 import static org.apache.jmeter.functions.FunctionTestHelper.makeParams;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.time.Duration;
@@ -28,6 +29,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.time.zone.ZoneRules;
 import java.util.Collection;
 import java.util.Random;
@@ -122,11 +124,17 @@ class TestTimeShiftFunction extends JMeterTestCase {
 
         Collection<CompoundVariable> params = makeParams("yyyy-MM-dd'T'HH:mm:ss", "", "P10DT-1H-5M5S", "");
         function.setParameters(params);
+        LocalDateTime before = LocalDateTime.now(ZoneId.systemDefault());
         value = function.execute(result, null);
-        LocalDateTime futureDate = LocalDateTime.now(ZoneId.systemDefault())
-                .plusDays(10).plusHours(-1).plusMinutes(-5).plusSeconds(5);
-        LocalDateTime futureDateFromFunction = LocalDateTime.parse(value);
-        assertDateEquals(futureDate, futureDateFromFunction, Duration.ofSeconds(1));
+        LocalDateTime after = LocalDateTime.now(ZoneId.systemDefault());
+        Duration shift = Duration.parse("P10DT-1H-5M5S");
+        LocalDateTime earliest = before.plus(shift).truncatedTo(ChronoUnit.SECONDS);
+        LocalDateTime latest = after.plus(shift).truncatedTo(ChronoUnit.SECONDS);
+        LocalDateTime actual = LocalDateTime.parse(value);
+        // The formatter drops fractional seconds. Bound the time read by execute(), rather than
+        // comparing its truncated output to a later clock read with an arbitrary one-second tolerance.
+        assertFalse(actual.isBefore(earliest), () -> actual + " precedes " + earliest);
+        assertFalse(actual.isAfter(latest), () -> actual + " exceeds " + latest);
     }
 
     private static BooleanSupplier dstChangeAhead(String duration) {
