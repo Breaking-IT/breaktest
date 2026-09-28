@@ -99,8 +99,6 @@ public class Start extends AbstractAction {
         commands.add(ActionNames.ACTION_PAUSE);
         commands.add(ActionNames.ACTION_STOP);
         commands.add(ActionNames.ACTION_SHUTDOWN);
-        commands.add(ActionNames.RUN_TG);
-        commands.add(ActionNames.RUN_TG_NO_TIMERS);
         commands.add(ActionNames.VALIDATE_TG);
         commands.add(ActionNames.RUN_SCENARIO);
     }
@@ -191,57 +189,27 @@ public class Start extends AbstractAction {
                 GuiPackage.getInstance().getMainFrame().showLocalTestStopping(false);
                 engine.askThreadsToStop();
             }
-        } else if (e.getActionCommand().equals(ActionNames.RUN_TG)
-                || e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS)
-                || e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
-            boolean noTimers = e.getActionCommand().equals(ActionNames.RUN_TG_NO_TIMERS);
-            boolean isValidation = e.getActionCommand().equals(ActionNames.VALIDATE_TG);
-            if (!isValidation) {
-                popupShouldSave(e);
-            }
-            RunMode runMode = null;
-            if(isValidation) {
-                runMode = RunMode.VALIDATION;
-            } else if (noTimers) {
-                runMode = RunMode.IGNORING_TIMERS;
-            } else {
-                runMode = RunMode.AS_IS;
-            }
+        } else if (e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
             AbstractThreadGroup[] tg;
             boolean hasExplicitThreadGroups = e instanceof ThreadGroupsActionEvent;
-            JMeterTreeNode[] nodes = new JMeterTreeNode[0];
             if (hasExplicitThreadGroups) {
                 tg = ((ThreadGroupsActionEvent) e).getThreadGroupsToRun();
             } else {
-                JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
-                nodes = treeListener.getSelectedNodes();
-                if (isValidation) {
-                    tg = findValidationThreadGroups(nodes);
-                } else {
-                    nodes = Copy.keepOnlyAncestors(nodes);
-                    tg = keepOnlyThreadGroups(nodes);
-                }
+                tg = findValidationThreadGroups(GuiPackage.getInstance().getTreeListener().getSelectedNodes());
             }
-            if (isValidation) {
-                tg = resolveValidationThreadGroups(tg,
-                        hasExplicitThreadGroups ? new AbstractThreadGroup[0] : lastValidationThreadGroups,
-                        GuiPackage.getInstance().getTreeModel());
-                if (tg.length == 0) {
-                    JMeterUtils.reportErrorToUser("Select a thread group to validate first.");
-                    return;
-                }
-                // Resolve the target before prompting to save a new plan for relative paths.
-                // Existing plans can be validated directly from the in-memory tree.
-                if (GuiPackage.getInstance().getTestPlanFile() == null) {
-                    popupShouldSave(e);
-                }
-                startEngine(tg, runMode);
-            } else if((hasExplicitThreadGroups && tg != null && tg.length > 0) || (!hasExplicitThreadGroups && nodes.length > 0)) {
-                startEngine(tg, runMode);
+            tg = resolveValidationThreadGroups(tg,
+                    hasExplicitThreadGroups ? new AbstractThreadGroup[0] : lastValidationThreadGroups,
+                    GuiPackage.getInstance().getTreeModel());
+            if (tg.length == 0) {
+                JMeterUtils.reportErrorToUser("Select a thread group to validate first.");
+                return;
             }
-            else {
-                log.warn("No thread group selected the test will not be started");
+            // Resolve the target before prompting to save a new plan for relative paths.
+            // Existing plans can be validated directly from the in-memory tree.
+            if (GuiPackage.getInstance().getTestPlanFile() == null) {
+                popupShouldSave(e);
             }
+            startEngine(tg, RunMode.VALIDATION);
         }
     }
 
@@ -273,21 +241,6 @@ public class Start extends AbstractAction {
             }
         }
         return available.toArray(new AbstractThreadGroup[0]);
-    }
-
-    /**
-     * filter the nodes to keep only the thread group
-     * @param currentNodes jmeter tree nodes
-     * @return the thread groups
-     */
-    private static AbstractThreadGroup[] keepOnlyThreadGroups(JMeterTreeNode[] currentNodes) {
-        List<AbstractThreadGroup> nodes = new ArrayList<>();
-        for (JMeterTreeNode jMeterTreeNode : currentNodes) {
-            if(jMeterTreeNode.getTestElement() instanceof AbstractThreadGroup) {
-                nodes.add((AbstractThreadGroup) jMeterTreeNode.getTestElement());
-            }
-        }
-        return nodes.toArray(new AbstractThreadGroup[nodes.size()]);
     }
 
     /**

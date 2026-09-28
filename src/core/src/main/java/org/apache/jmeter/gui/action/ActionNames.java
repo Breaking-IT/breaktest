@@ -114,10 +114,8 @@ public final class ActionNames {
     public static final String QUICK_COMPONENT  = "quick_component"; // $NON-NLS-1$
     public static final String COLLAPSE         = "collapse"; // $NON-NLS-1$
     public static final String EXPAND           = "expand"; // $NON-NLS-1$
-    public static final String RUN_TG           = "run_tg"; // $NON-NLS-1$
     public static final String RUN_SCENARIO     = "run_scenario"; // $NON-NLS-1$
     public static final String MOVE_TO_TEST_FRAGMENTS = "move_to_test_fragments"; // $NON-NLS-1$
-    public static final String RUN_TG_NO_TIMERS = "run_tg_no_timers"; // $NON-NLS-1$
     public static final String SAVE_BEFORE_RUN  = "save_before_run"; //$NON-NLS-1$
     public static final String THREAD_DUMP      = "thread_dump"; // $NON-NLS-1$
     public static final String VALIDATE_TG      = "validate_tg"; //$NON-NLS-1$

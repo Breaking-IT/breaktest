@@ -76,8 +76,6 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             pop.addSeparator();
 
             pop.add(createMenuItem("add_think_times", ActionNames.ADD_THINK_TIME_BETWEEN_EACH_STEP));
-            pop.add(createMenuItem("run_threadgroup", ActionNames.RUN_TG));
-            pop.add(createMenuItem("run_threadgroup_no_timers", ActionNames.RUN_TG_NO_TIMERS));
             JMenuItem validate = createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG);
             validate.setAccelerator(KeyStrokes.VALIDATE);
             pop.add(validate);
