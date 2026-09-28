@@ -676,11 +676,12 @@ public class ThreadGroup extends AbstractThreadGroup {
             try {
                 JMeterContextService.getContext().setVariables(variables);
                 long previousTargetThreads = 0;
+                long phaseStart = monotonicMillis();
                 for (ClosedModelPhase phase : phases) {
                     if (!running || Thread.currentThread().isInterrupted()) {
                         return;
                     }
-                    runPhase(previousTargetThreads, phase);
+                    phaseStart = runPhase(previousTargetThreads, phase, phaseStart);
                     previousTargetThreads = phase.targetThreads();
                 }
                 finishClosedModelScheduling();
@@ -695,26 +696,31 @@ public class ThreadGroup extends AbstractThreadGroup {
             stopActiveThreads(allThreads.size(), false);
         }
 
-        private void runPhase(long previousTargetThreads, ClosedModelPhase phase) {
+        private long runPhase(long previousTargetThreads, ClosedModelPhase phase, long phaseStart) {
             long targetThreads = phase.targetThreads();
             long phaseMillis = secondsToMillis(phase.durationSeconds());
-            long phaseStart = System.currentTimeMillis();
             long phaseEnd = phaseStart + phaseMillis;
 
-            while (running && !Thread.currentThread().isInterrupted() && System.currentTimeMillis() < phaseEnd) {
+            while (running && !Thread.currentThread().isInterrupted() && monotonicMillis() < phaseEnd) {
                 long pauseTime = waitIfSchedulingPaused(engine);
                 if (pauseTime < 0) {
-                    return;
+                    return phaseEnd;
                 }
                 phaseStart += pauseTime;
                 phaseEnd += pauseTime;
-                long elapsed = System.currentTimeMillis() - phaseStart;
+                long elapsed = monotonicMillis() - phaseStart;
                 long currentTargetThreads = currentClosedModelTarget(
                         previousTargetThreads, targetThreads, phaseMillis, elapsed);
                 adjustActiveThreads(currentTargetThreads);
-                pauseTime = sleepUntil(Math.min(phaseEnd, System.currentTimeMillis() + RAMPUP_GRANULARITY), engine);
+                // Anchor every transition to the phase origin, never to completion of thread creation.
+                long nextChange = nextClosedModelChange(
+                        previousTargetThreads, targetThreads, phaseMillis, elapsed);
+                long deadline = phaseStart + nextChange;
+                // A flat phase still checks for users that ended independently.
+                deadline = Math.min(deadline, monotonicMillis() + RAMPUP_GRANULARITY);
+                pauseTime = sleepUntilMonotonic(deadline, engine);
                 if (pauseTime < 0) {
-                    return;
+                    return phaseEnd;
                 }
                 phaseStart += pauseTime;
                 phaseEnd += pauseTime;
@@ -722,6 +728,7 @@ public class ThreadGroup extends AbstractThreadGroup {
             if (running && !Thread.currentThread().isInterrupted()) {
                 adjustActiveThreads(targetThreads);
             }
+            return phaseEnd;
         }
 
         private void adjustActiveThreads(long targetThreads) {
@@ -777,6 +784,52 @@ public class ThreadGroup extends AbstractThreadGroup {
         }
         double progress = elapsedMillis / (double) rampMillis;
         return Math.round(previousTargetThreads + (targetThreads - previousTargetThreads) * progress);
+    }
+
+    // Find the first millisecond at which the rounded target changes. Binary search keeps
+    // ramp-up and ramp-down rounding identical to currentClosedModelTarget, including ties.
+    static long nextClosedModelChange(long previous, long target, long duration, long elapsed) {
+        long current = currentClosedModelTarget(previous, target, duration, elapsed);
+        if (current == target || elapsed >= duration) {
+            return duration;
+        }
+        long low = elapsed + 1;
+        long high = duration;
+        while (low < high) {
+            long middle = low + (high - low) / 2;
+            if (currentClosedModelTarget(previous, target, duration, middle) == current) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return low;
+    }
+
+    private static long monotonicMillis() {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
+    }
+
+    private static long sleepUntilMonotonic(long deadline, StandardJMeterEngine engine) {
+        long pauseTime = 0;
+        while (true) {
+            long paused = waitIfSchedulingPaused(engine);
+            if (paused < 0) {
+                return -1;
+            }
+            pauseTime += paused;
+            deadline += paused;
+            long remaining = deadline - monotonicMillis();
+            if (remaining <= 0) {
+                return pauseTime;
+            }
+            try {
+                TimeUnit.MILLISECONDS.sleep(Math.min(remaining, RAMPUP_GRANULARITY));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return -1;
+            }
+        }
     }
 
     private static long secondsToMillis(long seconds) {

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -153,6 +154,58 @@ class ClosedModelThreadGroupScheduleTest {
             assertTrue(threadGroup.threadStarted.await(1, TimeUnit.SECONDS));
         } finally {
             threadGroup.tellThreadsToStop();
+        }
+    }
+
+    @Test
+    void nextChangeUsesAbsoluteRoundedProfileDeadlines() {
+        assertEquals(50, ThreadGroup.nextClosedModelChange(0, 100, 10000, 0));
+        assertEquals(150, ThreadGroup.nextClosedModelChange(0, 100, 10000, 80));
+        assertEquals(350, ThreadGroup.nextClosedModelChange(0, 100, 10000, 320));
+        assertEquals(5, ThreadGroup.nextClosedModelChange(0, 1000, 10000, 0));
+        assertEquals(51, ThreadGroup.nextClosedModelChange(100, 0, 10000, 0));
+        assertEquals(151, ThreadGroup.nextClosedModelChange(100, 0, 10000, 80));
+        assertEquals(10000, ThreadGroup.nextClosedModelChange(100, 100, 10000, 100));
+        assertEquals(0, ThreadGroup.nextClosedModelChange(0, 100, 0, 0));
+        assertEquals(10000, ThreadGroup.nextClosedModelChange(0, 100, 10000, 11000));
+    }
+
+    @Test
+    @Timeout(10)
+    void startsAreDistributedAndCreationCostDoesNotShiftLaterPhases() throws Exception {
+        List<Long> starts = new CopyOnWriteArrayList<>();
+        CountDownLatch finished = new CountDownLatch(20);
+        ThreadGroup group = new ThreadGroup() {
+            @Override
+            protected JMeterThread makeThread(StandardJMeterEngine engine, JMeterThreadMonitor monitor,
+                    ListenerNotifier notifier, int groupNumber, int threadNumber,
+                    ListedHashTree tree, JMeterVariables variables) {
+                starts.add(System.nanoTime());
+                try {
+                    TimeUnit.MILLISECONDS.sleep(30);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                JMeterThread worker = new StoppableJMeterThread(this, new CountDownLatch(0), finished);
+                worker.setThreadName("distributed-" + threadNumber);
+                worker.setThreadGroup(this);
+                return worker;
+            }
+        };
+        group.setClosedModelSchedule("threadsPhase(10, 0) threadsPhase(20, 2)");
+        long origin = System.nanoTime();
+        try {
+            group.start(1, new ListenerNotifier(), singleThreadGroupTree(), new StandardJMeterEngine());
+            assertTrue(finished.await(5, TimeUnit.SECONDS));
+            assertEquals(20, starts.size());
+            long lastMillis = TimeUnit.NANOSECONDS.toMillis(starts.get(19) - origin);
+            assertTrue(lastMillis >= 1800 && lastMillis < 2200,
+                    "Final start must follow the original timeline, including time spent in the first phase: "
+                            + lastMillis);
+            long spread = TimeUnit.NANOSECONDS.toMillis(starts.get(18) - starts.get(14));
+            assertTrue(spread >= 600, "Ramp starts must be spread out instead of batched: " + spread);
+        } finally {
+            group.tellThreadsToStop();
         }
     }
 
