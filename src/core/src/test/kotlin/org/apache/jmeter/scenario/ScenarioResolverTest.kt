@@ -618,7 +618,11 @@ class ScenarioResolverTest : JMeterTestCase() {
                     }
                 }
             }
-            return planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single().numThreads
+            // As the engine does before it starts the thread groups
+            val run = convertAndResolve(tree).also { it.traverse(org.apache.jmeter.engine.PreCompiler()) }
+            val threadGroup = planChildren(run).filterIsInstance<AbstractThreadGroup>().single()
+            threadGroup.isRunningVersion = true
+            return threadGroup.numThreads
         }
         assertEquals(2, threads("users" to "50"))
         assertEquals(2, threads("users" to "50", "host" to "acc.example")) {

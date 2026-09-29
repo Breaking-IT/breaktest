@@ -33,6 +33,7 @@ import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.PreCompiler;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.scenario.Profile;
 import org.apache.jmeter.scenario.ProfilesSection;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioException;
@@ -46,6 +47,7 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
@@ -161,6 +163,79 @@ class ScenarioFunctionsTest extends JMeterTestCase {
 
         assertEquals(registered, StandardJMeterEngine.registeredListenerCount(),
                 "The functions of a rejected scenario are ended rather than left for a later run");
+    }
+
+    /**
+     * A thread group defines {@code seed=3}, then {@code users} from an expression; the test plan defines
+     * {@code seed=2}. The workload uses {@code ${users}} for the number of threads. A default profile, optionally
+     * present, defines {@code users=50} but lets the thread group's own variables win.
+     */
+    private static HashTree planWithUsersFromTheScript(boolean profile, String users) {
+        HashTree tree = new ListedHashTree();
+        TestPlan testPlan = new TestPlan();
+        Arguments planVariables = new Arguments();
+        planVariables.addArgument("seed", "2");
+        testPlan.setUserDefinedVariables(planVariables);
+        HashTree plan = tree.add(testPlan);
+        ThreadGroup group = new ThreadGroup();
+        group.setThreadGroupId("workers");
+        HashTree script = plan.add(new ThreadGroupsSection()).add(group);
+        Arguments seed = new Arguments();
+        seed.addArgument("seed", "3");
+        script.add(seed);
+        Arguments userCount = new Arguments();
+        userCount.addArgument("users", users);
+        script.add(userCount);
+        ScenarioWorkload workload = new ScenarioWorkload();
+        workload.setThreadGroupId("workers");
+        workload.setThreads("${users}");
+        workload.setLoops("1");
+        Scenario scenario = new Scenario("Load");
+        scenario.setWorkloads(List.of(workload));
+        plan.add(new ScenariosSection()).add(scenario);
+        if (profile) {
+            Profile acceptance = new Profile("Acceptance");
+            acceptance.setDefault(true);
+            acceptance.setOverridingThreadGroupVariables(false);
+            Arguments defaults = new Arguments();
+            defaults.addArgument("users", "50");
+            plan.add(new ProfilesSection()).add(acceptance).add(defaults);
+        }
+        return tree;
+    }
+
+    /** Resolves and compiles the plan as the engine does, and returns the number of threads of its thread group */
+    private static int threadsWhenStarted(boolean profile, String users) {
+        HashTree run = ScenarioResolver.resolve(JMeter.convertSubTree(planWithUsersFromTheScript(profile, users), false));
+        run.traverse(new PreCompiler());
+        ThreadGroup group = (ThreadGroup) run.getTree(run.getArray()[0]).list().stream()
+                .filter(ThreadGroup.class::isInstance).findFirst().orElseThrow();
+        group.setRunningVersion(true);
+        return group.getNumThreads();
+    }
+
+    @Test
+    void aProfileThatDoesNotOverrideLeavesWorkloadsToTheThreadGroupsVariables() {
+        String users = "${__intSum(${seed},1)}";
+        assertEquals(4, threadsWhenStarted(false, users), "Without a profile");
+        assertEquals(4, threadsWhenStarted(true, users), "The thread group's users, from its own seed");
+    }
+
+    @Test
+    void aProfileThatDoesNotOverrideDoesNotEvaluateThreadGroupFunctionsAgain() {
+        String key = "scenario.functions.test.calls";
+        String users = "${__groovy(props.setProperty('" + key + "'\\,(Integer.parseInt(props.getProperty('" + key
+                + "'))+1).toString()); 4)}";
+        try {
+            JMeterUtils.setProperty(key, "0");
+            threadsWhenStarted(false, users);
+            assertEquals("1", JMeterUtils.getProperty(key), "Without a profile");
+            JMeterUtils.setProperty(key, "0");
+            threadsWhenStarted(true, users);
+            assertEquals("1", JMeterUtils.getProperty(key), "The profile adds no evaluation");
+        } finally {
+            JMeterUtils.getJMeterProperties().remove(key);
+        }
     }
 
     @Test
