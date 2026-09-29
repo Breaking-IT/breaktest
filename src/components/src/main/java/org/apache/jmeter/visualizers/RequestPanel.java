@@ -19,17 +19,25 @@ package org.apache.jmeter.visualizers;
 
 import java.awt.BorderLayout;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
+import java.util.List;
+import java.util.ServiceLoader;
 import java.util.function.Supplier;
 
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
+import org.slf4j.LoggerFactory;
 
 /**
  * Manipulate all classes which implements request view panel interface
- * and return a super panel with a bottom tab list of this classes
+ * and return a super panel with a top tab list of this classes
  *
  */
 public class RequestPanel {
@@ -53,7 +61,26 @@ public class RequestPanel {
         listRequestView.add(requestView);
 
         panel = new JPanel(new BorderLayout());
-        panel.add(requestView.getPanel());
+        JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
+        tabs.addTab(requestView.getLabel(), requestView.getPanel());
+        List<RequestView> views = new ArrayList<>();
+        for (RequestView view : JMeterUtils.loadServicesAndScanJars(
+                RequestView.class, ServiceLoader.load(RequestView.class),
+                Thread.currentThread().getContextClassLoader(),
+                new LogAndIgnoreServiceLoadExceptionHandler(LoggerFactory.getLogger(RequestPanel.class)))) {
+            if (view instanceof RequestViewRaw) {
+                continue;
+            }
+            views.add(view);
+        }
+        views.sort(Comparator.comparing(view -> view.getClass().getName()));
+        for (RequestView view : views) {
+            view.setDiffContentSupplier(diffContentSupplier);
+            view.init();
+            listRequestView.add(view);
+            tabs.addTab(view.getLabel(), view.getPanel());
+        }
+        panel.add(tabs);
     }
 
     /**

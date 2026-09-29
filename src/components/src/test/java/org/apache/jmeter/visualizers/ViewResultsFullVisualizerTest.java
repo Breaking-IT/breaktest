@@ -48,9 +48,11 @@ import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -67,7 +69,10 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.TransactionRef;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.TestCompiler;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -291,6 +296,108 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         } else {
             assertEquals(mode == RecordingStorageMode.ALL ? "new-response" : "",
                     replayExchange.orElseThrow().path("response").path("content").path("text").asText());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void dynamicNodeNamesKeepNavigationAndReplayTargets(boolean throughModule) throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode root = (JMeterTreeNode) treeModel.getRoot();
+        ThreadGroup group = new ThreadGroup();
+        group.setName("${ACR} Debug");
+        group.setSamplerController(new LoopController());
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+        root.add(groupNode);
+        var sourcePath = new ArrayList<TestElement>();
+        sourcePath.add(group);
+        JMeterTreeNode parent = groupNode;
+        if (throughModule) {
+            ModuleController module = new ModuleController();
+            module.setName("${ACR} module");
+            groupNode.add(new JMeterTreeNode(module, treeModel));
+            TestFragmentController fragment = new TestFragmentController();
+            fragment.setName("${ACR} fragment");
+            fragment.setEnabled(false);
+            parent = new JMeterTreeNode(fragment, treeModel);
+            root.add(parent);
+            module.setSelectedNode(parent);
+            sourcePath.add(module);
+            sourcePath.add(fragment);
+        }
+        TransactionController transaction = new TransactionController();
+        transaction.setName("${ACR}_01_Starten");
+        JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, treeModel);
+        parent.add(transactionNode);
+        sourcePath.add(transaction);
+
+        var context = JMeterContextService.getContext();
+        JMeterVariables previousVariables = context.getVariables();
+        JMeterVariables variables = new JMeterVariables();
+        variables.put("ACR", "BemVac");
+        variables.put("OTHER", "BemVac");
+        context.setVariables(variables);
+        try {
+            var execution = new ListedHashTree();
+            var subtree = execution;
+            ValueReplacer replacer = new ValueReplacer();
+            TransactionController runtimeTransaction = null;
+            for (var original : sourcePath) {
+                var runtime = (TestElement) original.clone();
+                replacer.replaceValues(runtime);
+                runtime.setRunningVersion(true);
+                subtree = (ListedHashTree) subtree.add(runtime);
+                if (runtime instanceof TransactionController controller) {
+                    runtimeTransaction = controller;
+                }
+            }
+            var runtimeSamplers = new ArrayList<DebugSampler>();
+            var samplerNodes = new ArrayList<JMeterTreeNode>();
+            // Equal runtime labels must not alter occurrences of the original expressions.
+            for (String name : List.of("${OTHER}_01_Starten", "${ACR}_01_Starten", "${ACR}_01_Starten")) {
+                DebugSampler sampler = new DebugSampler();
+                sampler.setName(name);
+                JMeterTreeNode samplerNode = new JMeterTreeNode(sampler, treeModel);
+                transactionNode.add(samplerNode);
+                samplerNodes.add(samplerNode);
+                DebugSampler runtime = (DebugSampler) sampler.clone();
+                replacer.replaceValues(runtime);
+                runtime.setRunningVersion(true);
+                subtree.add(runtime);
+                runtimeSamplers.add(runtime);
+            }
+            TestCompiler.initialize();
+            TestCompiler compiler = new TestCompiler(execution);
+            execution.traverse(compiler);
+            Map<JMeterTreeNode, SampleResult> replays = new LinkedHashMap<>();
+            for (int i = 0; i < runtimeSamplers.size(); i++) {
+                DebugSampler runtime = runtimeSamplers.get(i);
+                assertEquals("BemVac_01_Starten", runtime.getName());
+                SampleResult result = replayResult("response-" + i);
+                result.setSampleLabel(runtime.getName());
+                var path = compiler.configureSampler(runtime).getSourceTestElementPath();
+                result.setSourceTestElementPath(path);
+                assertEquals(samplerNodes.get(i).getName(), path.get(path.size() - 1).name());
+                assertEquals(i == 2 ? 1 : 0, path.get(path.size() - 1).occurrence());
+                assertSame(samplerNodes.get(i), SampleResultNodeResolver.findForNavigation(result));
+                assertTrue(ViewResultsFullVisualizer.createJumpToMenuItem(result).isEnabled());
+                ViewResultsFullVisualizer.collectReplayableSamples(result, replays);
+            }
+            assertEquals(Set.copyOf(samplerNodes), replays.keySet());
+            ReplayRecordingStore.store(replays, RecordingStorageMode.ALL);
+            for (int i = 0; i < samplerNodes.size(); i++) {
+                var exchange = RecordedHarExchangeResolver.resolveFor(samplerNodes.get(i), null).exchange().orElseThrow();
+                assertEquals("response-" + i, exchange.responseBody());
+            }
+            SampleResult transactionResult = new SampleResult();
+            transactionResult.setSampleLabel(runtimeTransaction.getName());
+            transactionResult.setSourceTestElementPath(
+                    compiler.getTransactionControllerPackage(runtimeTransaction).getSourceTestElementPath());
+            assertSame(transactionNode, SampleResultNodeResolver.findForNavigation(transactionResult));
+        } finally {
+            context.setVariables(previousVariables);
         }
     }
 

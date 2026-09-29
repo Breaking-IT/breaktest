@@ -22,6 +22,7 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -521,7 +522,7 @@ public final class HarConverter {
     // ---------------------------------------------------------------------
 
     private void addSampler(HashTree parent, HarEntry entry, Set<String> commonHeadersLower) {
-        String method = entry.getMethod();
+        String method = entry.getMethod().toUpperCase(Locale.ROOT);
         ParsedUrl url = parseUrl(entry.getUrl());
         String path = url.path;
         String fullPath = path;
@@ -566,6 +567,7 @@ public final class HarConverter {
         Arguments arguments = new Arguments();
         sampler.setArguments(arguments);
         boolean generatedMultipart = false;
+        boolean keptUploadBody = false;
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
@@ -578,9 +580,19 @@ public final class HarConverter {
             }
         } else if (entry.getPostData() != null) {
             PostData postData = entry.getPostData();
-            generatedMultipart = HarParser.isMultipart(postData.getMimeType())
-                    && postData.getParams().stream().anyMatch(NameValue::isFileUpload);
-            if (generatedMultipart) {
+            boolean hasUploads = postData.getParams().stream().anyMatch(NameValue::isFileUpload);
+            generatedMultipart = HarParser.isMultipart(postData.getMimeType()) && hasUploads;
+            if (hasUploads && options.getFileUploadMode() == HarImportOptions.FileUploadMode.RECORDED_BODY) {
+                if (!hasRecordedUploadBody(entry)) {
+                    throw new IllegalArgumentException(
+                            "Recorded request body is unavailable or encoded for " + entry.getUrl());
+                }
+                generatedMultipart = false;
+                keptUploadBody = true;
+                sampler.setPostBodyRaw(true);
+                sampler.setContentEncoding(StandardCharsets.UTF_8.name());
+                addHttpArgument(arguments, "", postData.getText(), false, false);
+            } else if (hasUploads) {
                 List<HTTPFileArg> files = new ArrayList<>();
                 for (NameValue param : postData.getParams()) {
                     if (param.isFileUpload()) {
@@ -602,8 +614,8 @@ public final class HarConverter {
                     addHttpArgument(arguments, param.getName(), value, false, true);
                 }
                 sampler.setHTTPFiles(files.toArray(HTTPFileArg[]::new));
-                sampler.setDoMultipart(true);
-                sampler.setDoBrowserCompatibleMultipart(true);
+                sampler.setDoMultipart(generatedMultipart);
+                sampler.setDoBrowserCompatibleMultipart(generatedMultipart);
             } else if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
                     String decodedValue = percentDecode(param.getValue());
@@ -638,6 +650,11 @@ public final class HarConverter {
                 uniqueHeaders.add(new Header(header.getName(), value));
             }
         }
+        if (keptUploadBody && !entry.getPostData().getMimeType().isBlank()
+                && entry.getRequestHeaders().stream()
+                        .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName()))) {
+            uniqueHeaders.add(new Header("Content-Type", entry.getPostData().getMimeType()));
+        }
         if (!uniqueHeaders.isEmpty()) {
             sampler.setNativeHeaders(uniqueHeaders);
         }
@@ -649,6 +666,33 @@ public final class HarConverter {
         if (options.isIgnoreErrors() && status >= 400 && status <= 599) {
             samplerHt.add(buildIgnoreErrorAssertion(status));
         }
+    }
+
+    /**
+     * Whether the recorded request text is the exact body that was sent, so it can be kept in Body Data.
+     * A raw upload matched through base64 content has only an encoded copy of the file in the HAR, and
+     * Body Data cannot hold characters that XML serialization would drop.
+     */
+    static boolean hasRecordedUploadBody(HarEntry entry) {
+        PostData postData = entry.getPostData();
+        if (postData == null || !postData.isComplete() || postData.getText() == null || postData.getText().isEmpty()
+                || postData.getText().contains("${")
+                || "base64".equalsIgnoreCase(postData.getEncoding())
+                || !removeInvalidXmlChars(postData.getText()).equals(postData.getText())) {
+            return false;
+        }
+        byte[] body = postData.getText().getBytes(StandardCharsets.UTF_8);
+        if (postData.getBodySize() >= 0 ? body.length != postData.getBodySize()
+                : !postData.hasCapturedUploadContent()) {
+            return false;
+        }
+        boolean multipart = HarParser.isMultipart(postData.getMimeType());
+        return postData.getParams().stream()
+                .filter(NameValue::isFileUpload)
+                .allMatch(param -> param.hasFileContent()
+                        // Multipart params carry the recorded part payload as their value.
+                        && Arrays.equals(multipart ? param.getValue().getBytes(StandardCharsets.UTF_8) : body,
+                                param.getFileContent()));
     }
 
     private String replaceCorrelations(HarEntry entry, String text,
@@ -862,8 +906,9 @@ public final class HarConverter {
     // Small string / URL helpers ported from har2jmx.py
     // ---------------------------------------------------------------------
 
-    private static boolean isBodyMethod(String method) {
-        return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
+    static boolean isBodyMethod(String method) {
+        return "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)
+                || "PATCH".equalsIgnoreCase(method);
     }
 
     private static boolean needsUrlEncoding(String value) {
