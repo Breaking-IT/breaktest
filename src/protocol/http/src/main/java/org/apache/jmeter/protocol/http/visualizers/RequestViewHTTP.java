@@ -267,7 +267,8 @@ public class RequestViewHTTP implements RequestView {
 
     ParsedRequest snapshot() {
         return new ParsedRequest(fields(requestModel), queryFields, fields(headersModel),
-                formFields == null ? fields(bodyModel) : formFields, originalBody, bodyContentType, formBody, fileParts);
+                formFields == null ? fields(bodyModel) : formFields,
+                originalBody, bodyContentType, formBody, fileParts);
     }
 
     private static List<Field> fields(ObjectTableModel model) {

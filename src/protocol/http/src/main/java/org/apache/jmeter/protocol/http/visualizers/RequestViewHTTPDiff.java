@@ -184,7 +184,8 @@ public class RequestViewHTTPDiff implements RequestView {
             RequestViewHTTP.Field old = entry.getValue();
             RequestViewHTTP.Field value = current.remove(entry.getKey());
             String status = value == null ? (metadata ? "not_available" : "removed")
-                    : old.valueDecoded() == value.valueDecoded() && old.value().equals(value.value()) ? "same" : "changed";
+                    : old.valueDecoded() == value.valueDecoded() && old.value().equals(value.value())
+                            ? "same" : "changed";
             rows.add(new DiffRow(old.name(), old.value(), value == null ? null : value.value(), status));
         }
         current.values().forEach(field -> rows.add(new DiffRow(field.name(), null, field.value(),
