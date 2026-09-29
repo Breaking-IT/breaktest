@@ -37,6 +37,15 @@ class IncludeControllerTest : JMeterTestCase() {
     @TempDir
     lateinit var tmpDir: Path
 
+    @Test
+    fun `cloning preserves an explicitly empty legacy include path for dirty checks`() {
+        val controller = IncludeController().apply {
+            setProperty("IncludeController.includepath", "")
+        }
+
+        assertEquals(controller, controller.clone(), "Saving must not leave an unchanged legacy plan dirty")
+    }
+
     /** Saved test plans need the GUI class of every element */
     private fun withGuiClasses(tree: org.apache.jorphan.collections.HashTree) {
         for (element in tree.list()) {

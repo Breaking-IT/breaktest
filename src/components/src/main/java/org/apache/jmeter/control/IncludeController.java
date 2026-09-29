@@ -74,7 +74,6 @@ public class IncludeController extends GenericController implements ReplaceableC
         // Perhaps save previous filename, and only load if it has changed?
         this.resolveReplacementSubTree(null);
         IncludeController clone = (IncludeController) super.clone();
-        clone.setIncludePath(this.getIncludePath());
         if (this.subtree != null) {
             if (this.subtree.size() == 1) {
                 for (Object o : this.subtree.keySet()) {
