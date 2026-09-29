@@ -20,8 +20,10 @@ package org.apache.jmeter.gui.util
 import org.apache.jmeter.control.GenericController
 import org.apache.jmeter.control.TestFragmentController
 import org.apache.jmeter.gui.tree.JMeterTreeModel
+import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.scenario.TestFragmentsSection
+import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -56,5 +58,14 @@ class MenuFactoryTest : JMeterTestCase() {
         assertFalse(MenuFactory.canAddTo(group, TestFragmentController())) {
             "Test Fragment groups are one level deep"
         }
+    }
+
+    @Test
+    fun `a thread group copied together with a test fragment cannot go into test fragments`() {
+        val model = JMeterTreeModel()
+        val fragments = model.getNodesOfType(TestFragmentsSection::class.java).single()
+        val nodes = arrayOf(JMeterTreeNode(TestFragmentController(), null), JMeterTreeNode(ThreadGroup(), null))
+        assertFalse(MenuFactory.canAddTo(fragments, nodes))
+        assertTrue(MenuFactory.canAddTo(fragments, arrayOf(nodes[0], JMeterTreeNode(GenericController(), null))))
     }
 }

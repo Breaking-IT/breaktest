@@ -105,7 +105,7 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         assertEquals(listOf("Browse", "Old"), threadGroups.map { it.name })
         val browse = threadGroups[0]
         assertTrue(browse.getPropertyAsString(AbstractThreadGroup.NUM_THREADS).isEmpty()) { "Workload moves to the scenario" }
-        assertFalse(browse.isValidationStopOnError) { "Start next loop is not a stop" }
+        assertTrue(browse.isValidationStopOnError) { "Anything but continuing after an error stops a validation" }
 
         val scenario = children(planTree, plan[1]).single() as Scenario
         assertTrue(scenario.isEnabled)

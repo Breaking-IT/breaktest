@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -44,6 +45,8 @@ import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.TestPlanSection;
+import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -221,16 +224,27 @@ public class Load extends AbstractActionWithNoRunningTest {
             final boolean setDetails,
             final GuiPackage guiPackage,
             final HashTree loadedTree) throws Exception {
-        final boolean migrate = !merging && ScenarioPlanMigration.needsMigration(loadedTree);
+        // A plan merged into a plan organised in sections is organised the same way, so it merges into its sections
+        final boolean mergingIntoSections = merging
+                && !guiPackage.getTreeModel().getNodesOfType(TestPlanSection.class).isEmpty();
+        final boolean migrate = (!merging || mergingIntoSections) && ScenarioPlanMigration.needsMigration(loadedTree);
         final HashTree migratedTree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
         // Plans saved with sections in an earlier order or with outdated fixed names are shown as they are now
         final boolean normalize = !merging && ScenarioPlanMigration.needsNormalizing(migratedTree);
         final HashTree tree = normalize ? ScenarioPlanMigration.normalize(migratedTree) : migratedTree;
+        // Names and ids that clash, within the plan or with the open plan it is merged into, are made unique here,
+        // so the references to them inside the plan follow
+        if (mergingIntoSections) {
+            ScenarioPlanMigration.makeNamesUnique(tree, UniqueNames.usedNames(guiPackage.getTreeModel()),
+                    UniqueNames.usedThreadGroupIds(guiPackage.getTreeModel()));
+        } else if (!merging) {
+            ScenarioPlanMigration.makeNamesUnique(tree, new HashMap<>(), new HashSet<>());
+        }
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
         if (normalize && !migrate) {
             guiPackage.setConvertedPlanUnsaved(true);
         }
-        if (migrate) {
+        if (migrate && !merging) {
             // Only the open plan is converted: the file changes when the user saves it
             guiPackage.setConvertedPlanUnsaved(true);
             log.info("Organised {} in scenarios, thread groups, listeners and configs", f);

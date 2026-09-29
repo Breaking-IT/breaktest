@@ -678,10 +678,16 @@ public final class MenuFactory {
             }
         }
 
-        // Force TestFragment to only be pastable under a Test Plan
-        Boolean structureRule = foundClass(nodes, new Class[]{TestFragmentController.class})
-                ? Boolean.valueOf(parent instanceof TestFragmentsSection || parent instanceof TestPlan && !hasSections(parentNode))
-                : canAddToScenarioStructure(parentNode, nodes);
+        // Force TestFragment to only be pastable under a Test Plan, or in the Test Fragments section together with
+        // what else that section accepts
+        Boolean structureRule;
+        if (!foundClass(nodes, new Class[]{TestFragmentController.class})) {
+            structureRule = canAddToScenarioStructure(parentNode, nodes);
+        } else if (parent instanceof TestFragmentsSection section) {
+            structureRule = canAddToSection(section, nodes);
+        } else {
+            structureRule = parent instanceof TestPlan && !hasSections(parentNode);
+        }
         if (structureRule != null) {
             return structureRule;
         }

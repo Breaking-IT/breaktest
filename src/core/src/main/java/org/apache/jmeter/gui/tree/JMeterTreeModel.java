@@ -180,6 +180,9 @@ public class JMeterTreeModel extends DefaultTreeModel {
                 userObject.setFunctionalMode(tp.isFunctionalMode());
                 userObject.setSerialized(tp.isSerialized());
                 addSubTreeNodes(subTree.getTree(item), current, configureGui);
+            } else if (existingFixedNode(current, item) != null) {
+                // A merged plan's sections and Shared Profile add their content to the ones of the open plan
+                addSubTreeNodes(subTree.getTree(item), existingFixedNode(current, item), configureGui);
             } else if (isWorkbench(item)) {
                 //Move item from WorkBench to TestPlan
                 HashTree workbenchTree = subTree.getTree(item);
@@ -191,6 +194,22 @@ public class JMeterTreeModel extends DefaultTreeModel {
             }
         }
         return current;
+    }
+
+    /**
+     * @return the section or Shared Profile of the same kind as {@code item} directly under {@code parent}, or
+     *     {@code null} when {@code item} is neither or {@code parent} has none
+     */
+    private static JMeterTreeNode existingFixedNode(JMeterTreeNode parent, TestElement item) {
+        if (!(item instanceof TestPlanSection || item instanceof SharedProfile) || parent == null) {
+            return null;
+        }
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            if (parent.getChildAt(i) instanceof JMeterTreeNode child && child.getUserObject().getClass() == item.getClass()) {
+                return child;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("deprecation")

@@ -18,14 +18,21 @@
 
 package org.apache.jmeter.scenario.gui;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.ScenarioWorkload;
 import org.apache.jmeter.scenario.ScenariosSection;
 import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -95,6 +102,81 @@ public final class UniqueNames {
         String id = threadGroup.getThreadGroupId();
         if (id.isEmpty() || usedIds.contains(id)) {
             threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), usedIds));
+        }
+    }
+
+    /**
+     * @param model a test plan tree
+     * @return the names used in each named section of the plan, as {@link ScenarioPlanMigration#makeNamesUnique}
+     *     takes them
+     */
+    public static Map<Class<? extends TestPlanSection>, Set<String>> usedNames(JMeterTreeModel model) {
+        Map<Class<? extends TestPlanSection>, Set<String>> names = new HashMap<>();
+        for (JMeterTreeNode section : model.getNodesOfType(TestPlanSection.class)) {
+            @SuppressWarnings("unchecked")
+            Class<? extends TestPlanSection> sectionClass =
+                    (Class<? extends TestPlanSection>) section.getUserObject().getClass();
+            Set<String> used = names.computeIfAbsent(sectionClass, key -> new HashSet<>());
+            for (int i = 0; i < section.getChildCount(); i++) {
+                used.add(((JMeterTreeNode) section.getChildAt(i)).getName());
+            }
+        }
+        return names;
+    }
+
+    /**
+     * @param model a test plan tree
+     * @return the ids of its thread groups
+     */
+    public static Set<String> usedThreadGroupIds(JMeterTreeModel model) {
+        Set<String> ids = new HashSet<>();
+        for (JMeterTreeNode node : model.getNodesOfType(AbstractThreadGroup.class)) {
+            ids.add(((AbstractThreadGroup) node.getTestElement()).getThreadGroupId());
+        }
+        return ids;
+    }
+
+    /**
+     * @param model the test plan tree the thread group is in
+     * @param threadGroup a thread group
+     * @return its id, after giving it one that no other thread group has when it had none
+     */
+    public static String threadGroupId(JMeterTreeModel model, AbstractThreadGroup threadGroup) {
+        if (threadGroup.getThreadGroupId().isEmpty()) {
+            Set<String> used = new HashSet<>();
+            for (JMeterTreeNode node : model.getNodesOfType(AbstractThreadGroup.class)) {
+                if (node.getTestElement() != threadGroup) {
+                    used.add(((AbstractThreadGroup) node.getTestElement()).getThreadGroupId());
+                }
+            }
+            threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), used));
+        }
+        return threadGroup.getThreadGroupId();
+    }
+
+    /**
+     * Scenario rows name their profile: when a profile is renamed, the rows that name it follow.
+     * @param model the test plan tree
+     * @param oldName the previous name of the profile
+     * @param newName its new name
+     */
+    public static void profileRenamed(JMeterTreeModel model, String oldName, String newName) {
+        if (oldName == null || oldName.isEmpty() || oldName.equals(newName)) {
+            return;
+        }
+        for (JMeterTreeNode node : model.getNodesOfType(Scenario.class)) {
+            Scenario scenario = (Scenario) node.getTestElement();
+            List<ScenarioWorkload> workloads = scenario.getWorkloads();
+            boolean changed = false;
+            for (ScenarioWorkload workload : workloads) {
+                if (workload.getProfile().equals(oldName)) {
+                    workload.setProfile(newName);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                scenario.setWorkloads(workloads);
+            }
         }
     }
 

@@ -285,6 +285,7 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
     private void refreshTable(int selectRow) {
         updating = true;
         try {
+            tableModel.reloadPlanNames();
             tableModel.fireTableDataChanged();
             if (selectRow >= 0) {
                 table.setRowSelectionInterval(selectRow, selectRow);
@@ -325,7 +326,7 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
         } finally {
             updating = false;
         }
-        workload.setThreadGroupId(threadGroup.getOrCreateThreadGroupId());
+        workload.setThreadGroupId(ScenarioWorkloadGui.threadGroupId(threadGroup));
         workload.setName(uniqueName(threadGroup.getName()));
         workloads.add(workload);
         refreshTable(workloads.size() - 1);
@@ -510,6 +511,18 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
                 JMeterUtils.getResString("scenario_column_duration"), // $NON-NLS-1$
         };
 
+        /** Names from the test plan, read when the table is refreshed rather than for every cell it paints */
+        private Map<String, String> threadGroupNames = Map.of();
+        private String defaultProfile = ""; // $NON-NLS-1$
+
+        void reloadPlanNames() {
+            threadGroupNames = ScenarioWorkloadGui.availableThreadGroups().stream()
+                    .filter(tg -> !tg.getThreadGroupId().isEmpty())
+                    .collect(Collectors.toMap(AbstractThreadGroup::getThreadGroupId, AbstractThreadGroup::getName,
+                            (a, b) -> a));
+            defaultProfile = ScenarioWorkloadGui.defaultProfileName();
+        }
+
         @Override
         public int getRowCount() {
             return workloads.size();
@@ -559,14 +572,13 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
                 return workload.getName();
             }
             if (column == 2) {
-                return threadGroupNames().getOrDefault(workload.getThreadGroupId(),
+                return threadGroupNames.getOrDefault(workload.getThreadGroupId(),
                         JMeterUtils.getResString("scenario_workload_missing_thread_group")); // $NON-NLS-1$
             }
             if (column == 3) {
                 if (!workload.getProfile().isEmpty()) {
                     return workload.getProfile();
                 }
-                String defaultProfile = ScenarioWorkloadGui.defaultProfileName();
                 return defaultProfile.isEmpty()
                         ? ScenarioWorkloadGui.useDefaultLabel()
                         : ScenarioWorkloadGui.useDefaultLabel() + " (" + defaultProfile + ")";
@@ -588,13 +600,6 @@ public class ScenarioGui extends AbstractJMeterGuiComponent {
                         : formatRate(summary.getPeakIterationsPerMinute());
                 default -> formatDuration(summary);
             };
-        }
-
-        private static Map<String, String> threadGroupNames() {
-            return ScenarioWorkloadGui.availableThreadGroups().stream()
-                    .filter(tg -> !tg.getThreadGroupId().isEmpty())
-                    .collect(Collectors.toMap(AbstractThreadGroup::getThreadGroupId, AbstractThreadGroup::getName,
-                            (a, b) -> a));
         }
     }
 }

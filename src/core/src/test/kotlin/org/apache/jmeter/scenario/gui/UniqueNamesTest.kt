@@ -17,14 +17,18 @@
 
 package org.apache.jmeter.scenario.gui
 
+import org.apache.jmeter.gui.GuiPackage
+import org.apache.jmeter.gui.tree.JMeterTreeListener
 import org.apache.jmeter.gui.tree.JMeterTreeModel
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.scenario.Profile
 import org.apache.jmeter.scenario.Scenario
+import org.apache.jmeter.scenario.ScenarioWorkload
 import org.apache.jmeter.threads.AbstractThreadGroup
 import org.apache.jmeter.threads.ThreadGroup
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 
 class UniqueNamesTest : JMeterTestCase() {
@@ -105,5 +109,43 @@ class UniqueNamesTest : JMeterTestCase() {
         other.name = "acceptance"
         UniqueNames.apply(model, otherNode)
         assertEquals("acceptance (3)", other.name) { "Renaming to a used name keeps names unique" }
+    }
+
+    @Test
+    fun `scenario rows follow a renamed profile`() {
+        val scenario = model.getNodesOfType(Scenario::class.java).single().testElement as Scenario
+        scenario.setWorkloads(
+            listOf(
+                ScenarioWorkload().apply { profile = "acceptance" },
+                ScenarioWorkload().apply { profile = "\${__P(profile,acceptance)}" },
+            )
+        )
+        UniqueNames.profileRenamed(model, "acceptance", "acc")
+        assertEquals(listOf("acc", "\${__P(profile,acceptance)}"), scenario.workloads.map { it.profile }) {
+            "Rows naming the profile follow; expressions are left as written"
+        }
+    }
+
+    @Test
+    fun `a thread group without id gets one no other thread group has`() {
+        added(ThreadGroup().apply { name = "Browse" })
+        val withoutId = ThreadGroup().apply { name = "Browse" }
+        assertNotEquals("browse", UniqueNames.threadGroupId(model, withoutId))
+    }
+
+    @Test
+    fun `a disabled profile is not the default of a run`() {
+        added(Profile("acceptance").apply { isDefault = true })
+        added(Profile("production"))
+        val previous = GuiPackage.getInstance()
+        try {
+            GuiPackage.initInstance(JMeterTreeListener(model), model)
+            model.getNodesOfType(Profile::class.java).first { it.name == "acceptance" }.isEnabled = false
+            assertEquals("production", ScenarioWorkloadGui.defaultProfileName())
+        } finally {
+            val field = GuiPackage::class.java.getDeclaredField("guiPack")
+            field.isAccessible = true
+            field.set(null, previous)
+        }
     }
 }

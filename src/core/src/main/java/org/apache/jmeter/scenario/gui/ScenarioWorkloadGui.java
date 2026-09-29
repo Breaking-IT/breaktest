@@ -232,7 +232,7 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         workload.setProperty(TestElement.GUI_CLASS, getClass().getName());
         workload.setProperty(TestElement.TEST_CLASS, ScenarioWorkload.class.getName());
         if (threadGroups.getSelectedItem() instanceof ThreadGroupChoice choice && choice.threadGroup() != null) {
-            workload.setThreadGroupId(choice.threadGroup().getOrCreateThreadGroupId());
+            workload.setThreadGroupId(threadGroupId(choice.threadGroup()));
         }
         Object selectedProfile = profile.isEditable() ? profile.getEditor().getItem() : profile.getSelectedItem();
         String profileName = selectedProfile == null ? "" : selectedProfile.toString().trim();
@@ -264,6 +264,14 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         }
     }
 
+    /** @return the id of the thread group, after giving it one that no other thread group has when it had none */
+    static String threadGroupId(AbstractThreadGroup threadGroup) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        return guiPackage == null
+                ? threadGroup.getOrCreateThreadGroupId()
+                : UniqueNames.threadGroupId(guiPackage.getTreeModel(), threadGroup);
+    }
+
     static String useDefaultLabel() {
         return JMeterUtils.getResString("scenario_workload_use_default_profile"); // $NON-NLS-1$
     }
@@ -276,7 +284,9 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
         if (guiPackage == null) {
             return ""; // $NON-NLS-1$
         }
+        // Disabled profiles do not take part in a run, so they cannot be its default
         List<Profile> profiles = guiPackage.getTreeModel().getNodesOfType(Profile.class).stream()
+                .filter(JMeterTreeNode::isEnabled)
                 .map(node -> (Profile) node.getTestElement())
                 .toList();
         return profiles.stream().filter(Profile::isDefault).findFirst()
@@ -291,6 +301,7 @@ public class ScenarioWorkloadGui extends ThreadGroupGui {
             return List.of();
         }
         return guiPackage.getTreeModel().getNodesOfType(Profile.class).stream()
+                .filter(JMeterTreeNode::isEnabled)
                 .map(node -> node.getTestElement().getName())
                 .toList();
     }

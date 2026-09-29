@@ -66,6 +66,7 @@ import org.apache.jmeter.gui.logging.GuiLogEventBus;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.Profile;
 import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testbeans.TestBean;
@@ -647,6 +648,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 TestElement el = currentNode.getTestElement();
                 int before = 0;
                 int after = 0;
+                String nameBefore = el.getName();
                 final boolean historyEnabled = UndoHistory.isEnabled();
                 if (historyEnabled) {
                     before = getTestElementCheckSum(el);
@@ -660,6 +662,9 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 }
                 // Thread groups, profiles, scenarios and fragments keep unique names when renamed
                 UniqueNames.apply(treeModel, currentNode);
+                if (el instanceof Profile) {
+                    UniqueNames.profileRenamed(treeModel, nameBefore, el.getName());
+                }
                 if (currentNodeEdited && (!historyEnabled || before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
                     if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments)) {
