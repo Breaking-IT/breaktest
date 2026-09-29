@@ -151,7 +151,8 @@ public final class ScenarioResolver {
                     ? defaultProfile
                     : flattener.profileNamed(evaluator.evaluate(workload.getProfile()).trim(),
                             "'" + workload.getName() + "' in scenario '" + scenario.getName() + "'");
-            flattener.planTree.add(instance, withProfile(instance, profile, deepClone(entry.subTree()), evaluator));
+            flattener.addThreadGroup(entry.threadGroup().getThreadGroupId(), instance,
+                    withProfile(instance, profile, deepClone(entry.subTree()), evaluator));
             workloads++;
         }
         if (workloads == 0) {
@@ -160,7 +161,7 @@ public final class ScenarioResolver {
         if (flattener.plan instanceof TestPlan testPlan) {
             testPlan.setSerialized(scenario.isRunConsecutively());
         }
-        flattener.addOverridingSharedVariables();
+        flattener.addThreadGroupsAndLaterSharedVariables();
         return flattener.result;
     }
 
@@ -185,14 +186,15 @@ public final class ScenarioResolver {
             AbstractThreadGroup threadGroup = entry.threadGroup();
             ScenarioWorkload.ensureMainController(threadGroup);
             if (defaultProfile == null) {
-                flattener.planTree.add(threadGroup, entry.subTree());
+                flattener.addThreadGroup(threadGroup.getThreadGroupId(), threadGroup, entry.subTree());
             } else {
                 // A copy, so the profile variables do not end up in the edited test plan
                 AbstractThreadGroup copy = (AbstractThreadGroup) threadGroup.clone();
-                flattener.planTree.add(copy, withProfile(copy, defaultProfile, entry.subTree(), evaluator));
+                flattener.addThreadGroup(threadGroup.getThreadGroupId(), copy,
+                        withProfile(copy, defaultProfile, entry.subTree(), evaluator));
             }
         }
-        flattener.addOverridingSharedVariables();
+        flattener.addThreadGroupsAndLaterSharedVariables();
         return flattener.result;
     }
 
@@ -375,6 +377,9 @@ public final class ScenarioResolver {
     private record ThreadGroupEntry(AbstractThreadGroup threadGroup, HashTree subTree) {
     }
 
+    private record ThreadGroupRun(String threadGroupId, AbstractThreadGroup threadGroup, HashTree script) {
+    }
+
     private record ProfileEntry(Profile profile, HashTree subTree) {
     }
 
@@ -420,9 +425,53 @@ public final class ScenarioResolver {
         private final Evaluator evaluator = new Evaluator();
         private final List<Object> overridingSharedVariables = new ArrayList<>();
 
-        /** Adds the shared variables that override thread group variables, after the thread groups. */
-        void addOverridingSharedVariables() {
+        /** Shared variables of an old plan that came after a thread group, by the id of that thread group */
+        private final List<Arguments> anchoredSharedVariables = new ArrayList<>();
+        /** The thread groups of this run, in run order */
+        private final List<ThreadGroupRun> runs = new ArrayList<>();
+
+        void addThreadGroup(String threadGroupId, AbstractThreadGroup threadGroup, HashTree script) {
+            runs.add(new ThreadGroupRun(threadGroupId, threadGroup, script));
+        }
+
+        /**
+         * Adds the thread groups of the run. Shared variables that came after a thread group in an old plan go
+         * after the last run of that thread group; when it does not run, after the nearest thread group before it
+         * that does, else before all thread groups. The engine evaluates them there, in the same order as the old
+         * plan. The shared variables that override thread group variables go last.
+         */
+        void addThreadGroupsAndLaterSharedVariables() {
+            Map<Integer, List<Arguments>> afterRun = new HashMap<>();
+            for (Arguments variables : anchoredSharedVariables) {
+                int run = lastRunAtOrBefore(variables.getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP));
+                afterRun.computeIfAbsent(run, key -> new ArrayList<>()).add(variables);
+            }
+            afterRun.getOrDefault(-1, List.of()).forEach(planTree::add);
+            for (int i = 0; i < runs.size(); i++) {
+                ThreadGroupRun run = runs.get(i);
+                planTree.add(run.threadGroup(), run.script());
+                afterRun.getOrDefault(i, List.of()).forEach(planTree::add);
+            }
             overridingSharedVariables.forEach(planTree::add);
+        }
+
+        /**
+         * @param threadGroupId a thread group of the Thread groups section
+         * @return the index of the last run of that thread group, or of the nearest one before it in the section
+         *     that runs, or -1
+         */
+        private int lastRunAtOrBefore(String threadGroupId) {
+            List<String> sectionOrder = new ArrayList<>();
+            threadGroups.forEach(entry -> sectionOrder.add(entry.threadGroup().getThreadGroupId()));
+            for (int position = sectionOrder.indexOf(threadGroupId); position >= 0; position--) {
+                String candidate = sectionOrder.get(position);
+                for (int run = runs.size() - 1; run >= 0; run--) {
+                    if (runs.get(run).threadGroupId().equals(candidate)) {
+                        return run;
+                    }
+                }
+            }
+            return -1;
         }
         /** The test plan of the run tree: a copy, so run settings can be changed without touching the edited plan */
         private final Object plan;
@@ -470,6 +519,12 @@ public final class ScenarioResolver {
                 if (element instanceof SharedProfile sharedProfile) {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
+                        if (shared.getClass() == Arguments.class
+                                && !((Arguments) shared).getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP).isEmpty()) {
+                            // Evaluated by the engine where they are placed, as they may use thread group variables
+                            anchoredSharedVariables.add((Arguments) shared);
+                            continue;
+                        }
                         Object evaluated = evaluateVariables(shared);
                         if (evaluated instanceof Arguments && sharedProfile.isOverridingThreadGroupVariables()) {
                             // User Defined Variables apply in tree order, the last one winning: these go after

@@ -386,7 +386,7 @@ public class Start extends AbstractAction {
      * @param testTree {@link HashTree}
      * @param threadGroupsToKeep Array of {@link AbstractThreadGroup} to keep
      */
-    private static void keepOnlySelectedThreadGroupsInHashTree(HashTree testTree, AbstractThreadGroup[] threadGroupsToKeep) {
+    static void keepOnlySelectedThreadGroupsInHashTree(HashTree testTree, AbstractThreadGroup[] threadGroupsToKeep) {
         for (Object o : new ArrayList<>(testTree.list())) {
             TestElement item = (TestElement) o;
             if (o instanceof AbstractThreadGroup) {

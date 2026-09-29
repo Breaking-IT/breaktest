@@ -314,7 +314,7 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     @Test
-    fun `test plan variables after a thread group go at the end of that thread group`() {
+    fun `test plan variables after a thread group stay in the shared profile and remember that thread group`() {
         val after = udv("host" to "after.example")
         val tree = testTree {
             TestPlan::class {
@@ -331,10 +331,35 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         }
         val migrated = ScenarioPlanMigration.migrate(tree)
         val planTree = migrated.getTree(migrated.array[0])
-        val section = planTree.list().filterIsInstance<ThreadGroupsSection>().single()
-        val browse = planTree.getTree(section).list().first { (it as ThreadGroup).name == "Browse" }
-        assertSame(after, planTree.getTree(section).getTree(browse).list().last()) {
-            "Evaluated after the thread group's own variables, like in the old plan, and not in a disabled thread group"
+        val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+        val shared = planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single()
+        assertTrue(planTree.getTree(profiles).getTree(shared).list().contains(after)) {
+            "Test level variables stay test level, so they apply whichever thread groups run"
+        }
+        assertEquals("browse", after.getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP)) {
+            "Evaluated after the last enabled thread group before them, like in the old plan"
+        }
+    }
+
+    @Test
+    fun `test level variables of an old plan apply when the thread group before them does not run`() {
+        fun oldPlan() = testTree {
+            TestPlan::class {
+                ThreadGroup::class { name = "First" }
+                +udv("host" to "api.example.test")
+                ThreadGroup::class { name = "Second" }
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(oldPlan())
+        val planTree = migrated.getTree(migrated.array[0])
+        val scenarios = planTree.list().filterIsInstance<ScenariosSection>().single()
+        val scenario = planTree.getTree(scenarios).list().single() as Scenario
+        scenario.setWorkloads(listOf(scenario.workloads[1]))
+
+        JMeterContextService.getContext().variables = org.apache.jmeter.threads.JMeterVariables()
+        ScenarioResolver.resolve(JMeter.convertSubTree(migrated, false)).traverse(PreCompiler())
+        assertEquals("api.example.test", JMeterContextService.getContext().variables.get("host")) {
+            "A scenario without First still gets the test level variables"
         }
     }
 

@@ -30,6 +30,13 @@ public class SharedProfile extends AbstractTestElement implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
+     * On User Defined Variables of the shared profile: the id of the thread group they came after in a plan made
+     * before scenarios existed. Variables apply in tree order, so they are evaluated after that thread group's own
+     * variables when it runs, and in the same place relative to the other thread groups when it does not.
+     */
+    public static final String AFTER_THREAD_GROUP = "BreakTest.sharedVariables.afterThreadGroup"; // $NON-NLS-1$
+
+    /**
      * @return whether threads start with the values of the shared variables rather than those of User Defined
      *     Variables in their thread group; by default the thread group, being more specific, wins
      */

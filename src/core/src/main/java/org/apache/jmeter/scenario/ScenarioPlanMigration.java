@@ -217,9 +217,9 @@ public final class ScenarioPlanMigration {
         // Names are unique within a section: scenario rows, the command line and Module Controllers use them
         Map<Class<? extends TestPlanSection>, Set<String>> usedNames = new HashMap<>();
         Set<String> threadGroupIds = new HashSet<>();
-        // User Defined Variables apply to the whole test in tree order, wherever they are. Test plan level ones
-        // after a thread group go at the end of the last enabled thread group before them, so they are still
-        // evaluated at the same moment, after the variables they may use and before those that may use them.
+        // User Defined Variables apply to the whole test in tree order. Test plan level ones after a thread group
+        // stay test level, in the Shared Profile, and remember the last enabled thread group before them, so a run
+        // still evaluates them after the variables they may use and before those that may use them.
         AbstractThreadGroup lastEnabledThreadGroup = null;
 
         for (Object child : planTree.list()) {
@@ -227,8 +227,8 @@ public final class ScenarioPlanMigration {
             Object element = child;
             if (lastEnabledThreadGroup != null && child.getClass() == Arguments.class
                     && ((Arguments) child).isEnabled()) {
-                sectionTrees.get(ThreadGroupsSection.class).getTree(lastEnabledThreadGroup).add(child, childTree);
-                continue;
+                ((Arguments) child).setProperty(SharedProfile.AFTER_THREAD_GROUP,
+                        lastEnabledThreadGroup.getThreadGroupId());
             }
             if (child instanceof AbstractThreadGroup original) {
                 AbstractThreadGroup threadGroup = original instanceof OpenModelThreadGroup openModel
