@@ -41,6 +41,8 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.FunctionProperty;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.HashTreeTraverser;
@@ -319,7 +321,7 @@ public class TestCompiler implements HashTreeTraverser {
             TestElement element = path.get(i);
             result.add(new SampleResult.TestElementPathEntry(
                     element.getClass().getName(),
-                    element.getName(),
+                    sourceName(element),
                     findSiblingOccurrence(path, i)));
         }
         return result;
@@ -337,11 +339,24 @@ public class TestCompiler implements HashTreeTraverser {
             }
             if (sibling instanceof TestElement siblingElement
                     && siblingElement.getClass().getName().equals(element.getClass().getName())
-                    && Objects.equals(siblingElement.getName(), element.getName())) {
+                    && Objects.equals(sourceName(siblingElement), sourceName(element))) {
                 occurrence++;
             }
         }
         return occurrence;
+    }
+
+    private static String sourceName(TestElement element) {
+        JMeterProperty name = element.getProperty(TestElement.NAME);
+        // Runtime names can contain evaluated variables/functions. Source paths must match the
+        // original GUI names, including when counting otherwise identical sibling elements.
+        if (name instanceof FunctionProperty functionProperty) {
+            String rawValue = functionProperty.getRawValue();
+            if (rawValue != null) {
+                return rawValue;
+            }
+        }
+        return name.getStringValue();
     }
 
     /**
