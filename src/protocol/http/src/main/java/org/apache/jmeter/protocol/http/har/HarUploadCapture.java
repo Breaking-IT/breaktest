@@ -16,6 +16,7 @@
  */
 package org.apache.jmeter.protocol.http.har;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -119,10 +121,15 @@ public final class HarUploadCapture {
         }
         Set<String> assigned = new LinkedHashSet<>();
         for (HarEntry entry : entries) {
-            if (entry.getPostData() == null || !HarParser.isMultipart(entry.getPostData().getMimeType())) {
+            if (entry.getPostData() == null) {
+                continue;
+            }
+            if (!HarParser.isMultipart(entry.getPostData().getMimeType())) {
+                associateRawBody(entry, captures, assigned, warnings);
                 continue;
             }
             List<NameValue> params = entry.getPostData().getParams();
+            boolean allUploadsCaptured = true;
             for (int i = 0; i < params.size(); i++) {
                 NameValue param = params.get(i);
                 if (!param.isFileUpload()) {
@@ -142,19 +149,21 @@ public final class HarUploadCapture {
                 }
                 if (!unavailable && choices.size() == 1) {
                     NameValue chosen = choices.values().iterator().next();
-                    params.set(i, new NameValue(param.getName(), "", param.getFileName(),
+                    params.set(i, new NameValue(param.getName(), param.getValue(), param.getFileName(),
                             param.getContentType().isBlank() ? chosen.getContentType() : param.getContentType(),
                             chosen.getFileContent(), chosen.getResourceName()));
                     assigned.add(chosen.getResourceName());
                 } else {
                     // CDP commonly records empty multipart parts even for nonempty files.
                     // Never turn that omission into a bogus empty upload when inventory matching fails.
+                    allUploadsCaptured = false;
                     params.set(i, unresolved(param));
                     warnings.add("Request " + (entry.getOriginalIndex() + 1) + ", field " + param.getName() + ", file "
                             + param.getFileName() + ": " + (choices.size() > 1 || unavailable ? "ambiguous/unavailable" : "no confirmed")
                             + " capture association. Choose the file manually in the request's Files tab.");
                 }
             }
+            entry.getPostData().setCapturedUploadContent(allUploadsCaptured);
         }
         for (NameValue resource : resources.values()) {
             if (!assigned.contains(resource.getResourceName())) {
@@ -164,6 +173,65 @@ public final class HarUploadCapture {
             }
         }
         return new Result(true, List.copyOf(resources.values()), List.copyOf(warnings));
+    }
+
+    private static void associateRawBody(HarEntry entry, List<Capture> captures,
+            Set<String> assigned, List<String> warnings) {
+        HarEntry.PostData postData = entry.getPostData();
+        String text = postData.getText();
+        if (text == null || text.isEmpty() || !postData.getParams().isEmpty()
+                || !HarConverter.isBodyMethod(entry.getMethod())) {
+            return;
+        }
+        byte[] literal = text.getBytes(StandardCharsets.UTF_8);
+        byte[] decoded = null;
+        boolean encoded = "base64".equalsIgnoreCase(postData.getEncoding());
+        String mimeType = postData.getMimeType();
+        if (mimeType.isBlank()) {
+            mimeType = entry.getRequestHeaders().stream()
+                    .filter(header -> "content-type".equalsIgnoreCase(header.getName()))
+                    .map(NameValue::getValue).findFirst().orElse("");
+        }
+        // Some recorders store binary request bodies as base64 without an encoding marker.
+        // Require a binary media type and wire-size evidence for an unmarked encoded body.
+        String mediaType = mimeType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        boolean binary = mediaType.equals("application/octet-stream") || mediaType.equals("application/pdf")
+                || mediaType.equals("application/zip") || mediaType.startsWith("application/vnd.")
+                || mediaType.startsWith("image/") || mediaType.startsWith("audio/") || mediaType.startsWith("video/");
+        if (encoded || (binary && postData.getBodySize() >= 0 && postData.getBodySize() != literal.length)) {
+            try {
+                decoded = Base64.getDecoder().decode(text);
+                if (!encoded && decoded.length != postData.getBodySize()) {
+                    decoded = null;
+                }
+            } catch (IllegalArgumentException ex) {
+                if (encoded) {
+                    return;
+                }
+            }
+        }
+        Map<String, NameValue> choices = new LinkedHashMap<>();
+        for (Capture capture : captures) {
+            NameValue resource = capture.resource();
+            if (resource == null || !matchesContext(capture.metadata(), entry)) {
+                continue;
+            }
+            byte[] content = resource.getFileContent();
+            if ((!encoded && Arrays.equals(literal, content)) || Arrays.equals(decoded, content)) {
+                choices.put(resource.getResourceName(), resource);
+            }
+        }
+        if (choices.size() == 1) {
+            NameValue resource = choices.values().iterator().next();
+            postData.getParams().add(new NameValue("", "", resource.getFileName(),
+                    mimeType.isBlank() ? resource.getContentType() : mimeType,
+                    resource.getFileContent(), resource.getResourceName()));
+            postData.setCapturedUploadContent(true);
+            assigned.add(resource.getResourceName());
+        } else if (choices.size() > 1) {
+            warnings.add("Request " + (entry.getOriginalIndex() + 1)
+                    + ": multiple captured filenames match the request body. Choose the file manually in the request's Files tab.");
+        }
     }
 
     private static String resourceName(String name, byte[] bytes, Map<String, NameValue> resources) {
@@ -213,6 +281,10 @@ public final class HarUploadCapture {
                 || !file.path("fieldName").asText("").equals(param.getName())) {
             return false;
         }
+        return matchesContext(file, entry);
+    }
+
+    private static boolean matchesContext(JsonNode file, HarEntry entry) {
         // Time/page evidence can exclude candidates, but never select the nearest event:
         // earlier files can be reused, including across transaction boundaries.
         try {
