@@ -139,6 +139,70 @@ class RequestViewHTTPDiffTest {
         });
     }
 
+    @Test
+    void distinguishesInvalidEncodingFromDecodedValuesInQueriesAndForms() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (String[] values : List.of(
+                    new String[] {"%E9", "%C3%A9"},
+                    new String[] {"%E9", "%25E9"},
+                    new String[] {"%ZZ", "%25ZZ"},
+                    new String[] {"ok+%E9", "ok%2B%25E9"},
+                    new String[] {"%C3%A9%E9", "%25C3%25A9%25E9"})) {
+                var before = parsedParameters("q=" + values[0]);
+                var after = parsedParameters("q=" + values[1]);
+                assertEquals("changed", RequestViewHTTPDiff.compare(
+                        before.query(), after.query(), false, false).get(0).status());
+                assertEquals("changed", RequestViewHTTPDiff.compare(
+                        before.form(), after.form(), false, false).get(0).status());
+                assertEquals(values[0], before.query().get(0).value());
+            }
+            var before = parsedParameters("%E9=value");
+            var after = parsedParameters("%25E9=value");
+            assertEquals(List.of("removed", "added"), RequestViewHTTPDiff.compare(
+                    before.query(), after.query(), false, false).stream()
+                    .map(RequestViewHTTPDiff.DiffRow::status).toList());
+            assertEquals(List.of("removed", "added"), RequestViewHTTPDiff.compare(
+                    before.form(), after.form(), false, false).stream()
+                    .map(RequestViewHTTPDiff.DiffRow::status).toList());
+        });
+    }
+
+    @Test
+    void stillMatchesValidEquivalentEncodingsAndIdenticalInvalidValues() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (String[] values : List.of(
+                    new String[] {"%C3%A9", "%c3%a9"},
+                    new String[] {"hello+world", "hello%20world"},
+                    new String[] {"%E9", "%E9"},
+                    new String[] {"%ZZ", "%ZZ"})) {
+                var before = parsedParameters("q=" + values[0]);
+                var after = parsedParameters("q=" + values[1]);
+                assertEquals("same", RequestViewHTTPDiff.compare(
+                        before.query(), after.query(), false, false).get(0).status());
+                assertEquals("same", RequestViewHTTPDiff.compare(
+                        before.form(), after.form(), false, false).get(0).status());
+            }
+        });
+    }
+
+    @SuppressWarnings("deprecation") // URI rejects the malformed escapes this regression test needs.
+    private static RequestViewHTTP.ParsedRequest parsedParameters(String parameters) {
+        HTTPSampleResult result = new HTTPSampleResult();
+        try {
+            // URL accepts malformed escapes, as captured requests can contain them.
+            result.setURL(new java.net.URL("https://example.invalid/?" + parameters));
+        } catch (java.net.MalformedURLException e) {
+            throw new AssertionError(e);
+        }
+        result.setHTTPMethod("POST");
+        result.setRequestHeaders("Content-Type: application/x-www-form-urlencoded; charset=UTF-8");
+        result.setQueryString(parameters);
+        RequestViewHTTP view = new RequestViewHTTP();
+        view.init();
+        view.setSamplerResult(result);
+        return view.snapshot();
+    }
+
     private static RequestViewHTTP.Field field(String name, String value) {
         return new RequestViewHTTP.Field(name, value);
     }

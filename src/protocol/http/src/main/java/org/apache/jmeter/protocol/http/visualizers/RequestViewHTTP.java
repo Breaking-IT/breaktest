@@ -92,6 +92,8 @@ public class RequestViewHTTP implements RequestView {
     private JPanel bodyPane;
     private JPanel bodyCards;
     private JSyntaxTextArea rawBody;
+    private List<Field> queryFields = List.of();
+    private List<Field> formFields;
     private boolean formBody;
     private boolean fileParts;
     private String originalBody = "";
@@ -187,6 +189,8 @@ public class RequestViewHTTP implements RequestView {
         paramsModel.clearData();
         headersModel.clearData();
         bodyModel.clearData();
+        queryFields = List.of();
+        formFields = null;
         formBody = false;
         fileParts = false;
         originalBody = "";
@@ -212,7 +216,7 @@ public class RequestViewHTTP implements RequestView {
             addDetail("view_results_table_request_http_port",
                     Integer.toString(url.getPort() < 0 ? url.getDefaultPort() : url.getPort()));
             addDetail("view_results_table_request_http_path", url.getPath().isEmpty() ? "/" : url.getPath());
-            addParameters(paramsModel, url.getQuery(), StandardCharsets.UTF_8);
+            queryFields = addParameters(paramsModel, url.getQuery(), StandardCharsets.UTF_8);
         }
         addDetail("view_results_protocol_version", sampleResult.getProtocolVersion());
         String tls = sampleResult.getTlsVersion();
@@ -250,14 +254,20 @@ public class RequestViewHTTP implements RequestView {
         paneParsed.repaint();
     }
 
-    record Field(String name, String value) { }
+    record Field(String name, String value, boolean nameDecoded, boolean valueDecoded) {
+        Field(String name, String value) {
+            this(name, value, true, true);
+        }
+    }
+
+    private record Parameter(String text, boolean decoded) { }
 
     record ParsedRequest(List<Field> details, List<Field> query, List<Field> headers,
             List<Field> form, String body, String contentType, boolean formBody, boolean fileParts) { }
 
     ParsedRequest snapshot() {
-        return new ParsedRequest(fields(requestModel), fields(paramsModel), fields(headersModel),
-                fields(bodyModel), originalBody, bodyContentType, formBody, fileParts);
+        return new ParsedRequest(fields(requestModel), queryFields, fields(headersModel),
+                formFields == null ? fields(bodyModel) : formFields, originalBody, bodyContentType, formBody, fileParts);
     }
 
     private static List<Field> fields(ObjectTableModel model) {
@@ -282,7 +292,7 @@ public class RequestViewHTTP implements RequestView {
             }
             if ("application/x-www-form-urlencoded".equalsIgnoreCase(type.getMimeType())) {
                 Charset charset = type.getCharset() == null ? StandardCharsets.UTF_8 : type.getCharset();
-                addParameters(bodyModel, originalBody, charset);
+                formFields = addParameters(bodyModel, originalBody, charset);
                 return true;
             }
             if ("multipart/form-data".equalsIgnoreCase(type.getMimeType())) {
@@ -312,9 +322,10 @@ public class RequestViewHTTP implements RequestView {
         return false;
     }
 
-    static void addParameters(ObjectTableModel model, String query, Charset charset) {
+    static List<Field> addParameters(ObjectTableModel model, String query, Charset charset) {
+        List<Field> fields = new ArrayList<>();
         if (query == null || query.isEmpty()) {
-            return;
+            return fields;
         }
         for (String part : query.split("&")) {
             if (part.isEmpty()) {
@@ -323,46 +334,54 @@ public class RequestViewHTTP implements RequestView {
             int equals = part.indexOf('=');
             String name = equals < 0 ? part : part.substring(0, equals);
             String value = equals < 0 ? "" : part.substring(equals + 1);
-            model.addRow(new RowResult(decodeParameter(name, charset), decodeParameter(value, charset)));
+            Parameter decodedName = decodeParameter(name, charset);
+            Parameter decodedValue = decodeParameter(value, charset);
+            model.addRow(new RowResult(decodedName.text(), decodedValue.text()));
+            fields.add(new Field(decodedName.text(), decodedValue.text(),
+                    decodedName.decoded(), decodedValue.decoded()));
         }
+        return fields;
     }
 
-    private static String decodeParameter(String value, Charset charset) {
+    private static Parameter decodeParameter(String value, Charset charset) {
         StringBuilder result = new StringBuilder(value.length());
         ByteArrayOutputStream run = new ByteArrayOutputStream();
         int i = 0;
-        while (i < value.length()) {
-            char c = value.charAt(i);
-            if (c == '%') {
-                if (i + 2 >= value.length()
-                        || Character.digit(value.charAt(i + 1), 16) < 0
-                        || Character.digit(value.charAt(i + 2), 16) < 0) {
-                    return value;
+        try {
+            while (i < value.length()) {
+                char c = value.charAt(i);
+                if (c == '%') {
+                    if (i + 2 >= value.length()
+                            || Character.digit(value.charAt(i + 1), 16) < 0
+                            || Character.digit(value.charAt(i + 2), 16) < 0) {
+                        return new Parameter(value, false);
+                    }
+                    run.write(Character.digit(value.charAt(i + 1), 16) * 16
+                            + Character.digit(value.charAt(i + 2), 16));
+                    i += 3;
+                } else {
+                    flush(run, charset, result);
+                    result.append(c == '+' ? ' ' : c);
+                    i++;
                 }
-                run.write(Character.digit(value.charAt(i + 1), 16) * 16 + Character.digit(value.charAt(i + 2), 16));
-                i += 3;
-            } else {
-                flush(run, charset, result);
-                result.append(c == '+' ? ' ' : c);
-                i++;
             }
+            flush(run, charset, result);
+            return new Parameter(result.toString(), true);
+        } catch (CharacterCodingException e) {
+            // Retain both the original escapes and decoding validity. An invalid
+            // %E9 must differ from valid UTF-8 %C3%A9 and literal text %25E9.
+            return new Parameter(value, false);
         }
-        flush(run, charset, result);
-        return result.toString();
     }
 
-    /** Decodes a run of percent-encoded bytes strictly; undecodable bytes keep distinct Latin-1 characters. */
-    private static void flush(ByteArrayOutputStream run, Charset charset, StringBuilder out) {
+    private static void flush(ByteArrayOutputStream run, Charset charset, StringBuilder out)
+            throws CharacterCodingException {
         if (run.size() == 0) {
             return;
         }
         byte[] bytes = run.toByteArray();
         run.reset();
-        try {
-            out.append(charset.newDecoder().decode(ByteBuffer.wrap(bytes)));
-        } catch (CharacterCodingException e) {
-            out.append(new String(bytes, StandardCharsets.ISO_8859_1));
-        }
+        out.append(charset.newDecoder().decode(ByteBuffer.wrap(bytes)));
     }
 
     static String prettyPrintBody(String body, String contentType) {

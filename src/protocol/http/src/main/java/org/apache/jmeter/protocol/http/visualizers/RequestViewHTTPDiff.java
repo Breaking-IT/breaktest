@@ -174,7 +174,7 @@ public class RequestViewHTTPDiff implements RequestView {
 
     record DiffRow(String name, String recorded, String current, String status) { }
 
-    private record FieldKey(String name, int occurrence) { }
+    private record FieldKey(String name, boolean decoded, int occurrence) { }
 
     static List<DiffRow> compare(List<RequestViewHTTP.Field> before, List<RequestViewHTTP.Field> after,
             boolean ignoreNameCase, boolean metadata) {
@@ -184,7 +184,7 @@ public class RequestViewHTTPDiff implements RequestView {
             RequestViewHTTP.Field old = entry.getValue();
             RequestViewHTTP.Field value = current.remove(entry.getKey());
             String status = value == null ? (metadata ? "not_available" : "removed")
-                    : old.value().equals(value.value()) ? "same" : "changed";
+                    : old.valueDecoded() == value.valueDecoded() && old.value().equals(value.value()) ? "same" : "changed";
             rows.add(new DiffRow(old.name(), old.value(), value == null ? null : value.value(), status));
         }
         current.values().forEach(field -> rows.add(new DiffRow(field.name(), null, field.value(),
@@ -193,12 +193,12 @@ public class RequestViewHTTPDiff implements RequestView {
     }
 
     private static Map<FieldKey, RequestViewHTTP.Field> index(List<RequestViewHTTP.Field> fields, boolean ignoreCase) {
-        Map<String, Integer> occurrences = new LinkedHashMap<>();
+        Map<FieldKey, Integer> occurrences = new LinkedHashMap<>();
         Map<FieldKey, RequestViewHTTP.Field> result = new LinkedHashMap<>();
         for (RequestViewHTTP.Field field : fields) {
             String name = ignoreCase ? field.name().toLowerCase(Locale.ROOT) : field.name();
-            int occurrence = occurrences.merge(name, 1, Integer::sum);
-            result.put(new FieldKey(name, occurrence), field);
+            int occurrence = occurrences.merge(new FieldKey(name, field.nameDecoded(), 0), 1, Integer::sum);
+            result.put(new FieldKey(name, field.nameDecoded(), occurrence), field);
         }
         return result;
     }
