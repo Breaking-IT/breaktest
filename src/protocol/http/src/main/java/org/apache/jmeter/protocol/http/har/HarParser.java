@@ -259,6 +259,16 @@ public final class HarParser {
             return null;
         }
         String mimeType = postDataNode.path("mimeType").asText("");
+        if (!MULTIPART_BOUNDARY.matcher(mimeType).find()) {
+            for (JsonNode header : requestNode.path("headers")) {
+                String value = header.path("value").asText("");
+                if ("content-type".equalsIgnoreCase(header.path("name").asText(""))
+                        && isMultipart(value) && MULTIPART_BOUNDARY.matcher(value).find()) {
+                    mimeType = value;
+                    break;
+                }
+            }
+        }
         String text = postDataNode.has("text") ? postDataNode.get("text").asText("") : null;
         List<NameValue> params = new ArrayList<>();
         JsonNode paramsNode = postDataNode.path("params");
@@ -286,7 +296,8 @@ public final class HarParser {
                 params = mergeRecordedFileContent(multipartParams, params);
             }
         }
-        return new PostData(mimeType, text, params);
+        return new PostData(mimeType, text, params,
+                postDataNode.path("encoding").asText(postDataNode.path("_encoding").asText("")));
     }
 
     static boolean isMultipart(String mimeType) {

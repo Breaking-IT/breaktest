@@ -578,9 +578,18 @@ public final class HarConverter {
             }
         } else if (entry.getPostData() != null) {
             PostData postData = entry.getPostData();
-            generatedMultipart = HarParser.isMultipart(postData.getMimeType())
-                    && postData.getParams().stream().anyMatch(NameValue::isFileUpload);
-            if (generatedMultipart) {
+            boolean hasUploads = postData.getParams().stream().anyMatch(NameValue::isFileUpload);
+            generatedMultipart = HarParser.isMultipart(postData.getMimeType()) && hasUploads;
+            if (hasUploads && options.getFileUploadMode() == HarImportOptions.FileUploadMode.RECORDED_BODY) {
+                if (postData.getText() == null) {
+                    throw new IllegalArgumentException("Recorded request body is unavailable for " + entry.getUrl());
+                }
+                generatedMultipart = false;
+                sampler.setPostBodyRaw(true);
+                String body = replaceCorrelations(entry, removeInvalidXmlChars(postData.getText()),
+                        HarPredefinedCorrelation.RequestLocation.REQUEST_BODY);
+                addHttpArgument(arguments, "", body, false, false);
+            } else if (hasUploads) {
                 List<HTTPFileArg> files = new ArrayList<>();
                 for (NameValue param : postData.getParams()) {
                     if (param.isFileUpload()) {
@@ -602,8 +611,8 @@ public final class HarConverter {
                     addHttpArgument(arguments, param.getName(), value, false, true);
                 }
                 sampler.setHTTPFiles(files.toArray(HTTPFileArg[]::new));
-                sampler.setDoMultipart(true);
-                sampler.setDoBrowserCompatibleMultipart(true);
+                sampler.setDoMultipart(generatedMultipart);
+                sampler.setDoBrowserCompatibleMultipart(generatedMultipart);
             } else if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
                     String decodedValue = percentDecode(param.getValue());

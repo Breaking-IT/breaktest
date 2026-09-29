@@ -614,6 +614,47 @@ public class HarConverterTest {
     }
 
     @Test
+    void referencesUploadWhenBoundaryIsOnlyInRequestHeader() throws Exception {
+        String har = uploadHar().replace(
+                "\"mimeType\":\"multipart/form-data; boundary=boundary\"",
+                "\"mimeType\":\"multipart/form-data\"");
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.REFERENCE_ONLY);
+        HashTree converted = new HarConverter(
+                HarParser.parse(har.getBytes(StandardCharsets.UTF_8)), options, "upload.har", "md5")
+                .convert(Set.of("api.example.com"));
+
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals("invoice.pdf", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("file", sampler.getHTTPFiles()[0].getParamName());
+        assertEquals("application/pdf", sampler.getHTTPFiles()[0].getMimeType());
+        assertFalse(sampler.getPostBodyRaw());
+        assertTrue(sampler.getDoMultipart());
+        assertEquals(0, sampler.getArguments().getArgumentCount());
+        assertTrue(sampler.getNativeHeaderList().stream()
+                .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName())));
+    }
+
+    @Test
+    void explicitlyKeepsRecordedUploadBody() throws Exception {
+        List<HarEntry> entries = HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8));
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        HashTree converted = new HarConverter(entries, options, "upload.har", "md5")
+                .convert(Set.of("api.example.com"));
+
+        HTTPSamplerProxy sampler = (HTTPSamplerProxy) findByType(converted, HTTPSamplerProxy.class);
+        assertEquals(0, sampler.getHTTPFiles().length);
+        assertTrue(sampler.getPostBodyRaw());
+        assertFalse(sampler.getDoMultipart());
+        assertEquals(entries.get(0).getPostData().getText(), sampler.getArguments().getArgument(0).getValue());
+        assertTrue(sampler.getNativeHeaderList().stream()
+                .anyMatch(header -> "content-type".equalsIgnoreCase(header.getName())
+                        && header.getValue().contains("boundary=boundary")));
+    }
+
+    @Test
     void usesArchiveFunctionForAvailableUploadsByDefault() throws Exception {
         HashTree converted = new HarConverter(
                 HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8)),

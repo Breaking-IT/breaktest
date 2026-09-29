@@ -102,8 +102,14 @@ public class HarEntry {
         private final String mimeType;
         private final String text;
         private final List<NameValue> params;
+        private final String encoding;
 
         public PostData(String mimeType, String text, List<NameValue> params) {
+            this(mimeType, text, params, "");
+        }
+
+        public PostData(String mimeType, String text, List<NameValue> params, String encoding) {
+            this.encoding = encoding;
             this.mimeType = mimeType;
             this.text = text;
             this.params = params == null ? new ArrayList<>() : params;
@@ -115,6 +121,10 @@ public class HarEntry {
 
         public String getText() {
             return text;
+        }
+
+        public String getEncoding() {
+            return encoding;
         }
 
         public List<NameValue> getParams() {

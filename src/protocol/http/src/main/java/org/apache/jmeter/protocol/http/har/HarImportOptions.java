@@ -55,7 +55,8 @@ public class HarImportOptions {
     public enum FileUploadMode {
         ARCHIVE,
         LOCAL_FILE,
-        REFERENCE_ONLY
+        REFERENCE_ONLY,
+        RECORDED_BODY
     }
 
     private boolean ignoreErrors = true;

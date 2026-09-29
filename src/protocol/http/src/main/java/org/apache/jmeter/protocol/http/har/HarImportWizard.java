@@ -188,6 +188,9 @@ public class HarImportWizard extends JDialog {
     private final JRadioButton referenceUploadFiles = new JRadioButton(
             JMeterUtils.getResString("har_import_upload_reference_only"));
 
+    private final JRadioButton recordedUploadBody = new JRadioButton(
+            JMeterUtils.getResString("har_import_upload_recorded_body"));
+
     // Step 3 controls
     private final JCheckBox ignoreErrors = new JCheckBox(JMeterUtils.getResString("har_import_ignore_errors"), true);
     private final JCheckBox addIndex = new JCheckBox(JMeterUtils.getResString("har_import_add_index"));
@@ -524,11 +527,13 @@ public class HarImportWizard extends JDialog {
         useLocalUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
         useArchiveUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
         referenceUploadFiles.setAlignmentX(Component.LEFT_ALIGNMENT);
+        recordedUploadBody.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         ButtonGroup choices = new ButtonGroup();
         choices.add(useArchiveUploadFiles);
         choices.add(useLocalUploadFiles);
         choices.add(referenceUploadFiles);
+        choices.add(recordedUploadBody);
 
         panel.add(detected);
         panel.add(Box.createVerticalStrut(10));
@@ -545,6 +550,7 @@ public class HarImportWizard extends JDialog {
         panel.add(useArchiveUploadFiles);
         panel.add(useLocalUploadFiles);
         panel.add(referenceUploadFiles);
+        panel.add(recordedUploadBody);
         panel.add(Box.createVerticalGlue());
         return panel;
     }
@@ -585,6 +591,16 @@ public class HarImportWizard extends JDialog {
         useLocalUploadFiles.setText(MessageFormat.format(
                 JMeterUtils.getResString("har_import_upload_local_file"), HarImportAction.uploadWorkingDirectory()));
         useArchiveUploadFiles.setEnabled(canArchive);
+        Set<String> selectedHosts = selectedHostnames();
+        boolean canKeepBody = !uploads.isEmpty() && entries != null && entries.stream()
+                .filter(entry -> selectedHosts.contains(HarConverter.hostnameOf(entry.getUrl())))
+                .filter(entry -> entry.getPostData() != null)
+                .filter(entry -> entry.getPostData().getParams().stream().anyMatch(HarEntry.NameValue::isFileUpload))
+                .allMatch(entry -> entry.getPostData().getText() != null);
+        recordedUploadBody.setEnabled(canKeepBody);
+        if (!canKeepBody && recordedUploadBody.isSelected()) {
+            referenceUploadFiles.setSelected(true);
+        }
         if (!canArchive && useArchiveUploadFiles.isSelected()) {
             referenceUploadFiles.setSelected(true);
         }
@@ -954,6 +970,8 @@ public class HarImportWizard extends JDialog {
                 ? HarImportOptions.FileUploadMode.ARCHIVE
                 : useLocalUploadFiles.isSelected()
                 ? HarImportOptions.FileUploadMode.LOCAL_FILE
+                : recordedUploadBody.isSelected()
+                ? HarImportOptions.FileUploadMode.RECORDED_BODY
                 : HarImportOptions.FileUploadMode.REFERENCE_ONLY);
         options.setIdleTimeSeconds((Integer) idleTime.getValue());
         options.setDelayMode(selectedDelayMode);
