@@ -355,13 +355,28 @@ class HarUploadCaptureTest extends JMeterTestCase {
     }
 
     @Test
-    void recordedBodyIsRejectedForMultipartWithoutRecordedFileContent() throws Exception {
-        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", "--b--",
-                new ArrayList<>(List.of(new HarEntry.NameValue("file", "", "a.bin", "application/octet-stream",
-                        new byte[]{1, 2, 3}, "a.bin"))));
+    void recordedBodyIsRejectedWhenRecordedFilePartDiffersFromCapturedFile() throws Exception {
+        String body = "--b\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhello\r\n"
+                + "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain\r\n\r\n\r\n--b--\r\n";
+        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", body,
+                new ArrayList<>(List.of(new HarEntry.NameValue("file", "", "a.txt", "text/plain",
+                        "hello".getBytes(StandardCharsets.UTF_8), "a.txt"))));
         HarEntry entry = new HarEntry();
         entry.setPostData(postData);
         assertFalse(HarConverter.hasRecordedUploadBody(entry));
+    }
+
+    @Test
+    void recordedBodyIsAcceptedWhenMultipartFilePartMatches() throws Exception {
+        String body = "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain\r\n\r\nhello\r\n--b--\r\n";
+        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", body,
+                new ArrayList<>(List.of(new HarEntry.NameValue("file", "hello", "a.txt", "text/plain",
+                        "hello".getBytes(StandardCharsets.UTF_8), "a.txt"))));
+        HarEntry entry = new HarEntry();
+        entry.setPostData(postData);
+        assertTrue(HarConverter.hasRecordedUploadBody(entry));
     }
 
     @Test

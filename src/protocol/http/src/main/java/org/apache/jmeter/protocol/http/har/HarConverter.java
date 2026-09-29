@@ -679,21 +679,9 @@ public final class HarConverter {
         return postData.getParams().stream()
                 .filter(NameValue::isFileUpload)
                 .allMatch(param -> param.hasFileContent()
-                        && (multipart ? contains(body, param.getFileContent())
-                                : Arrays.equals(body, param.getFileContent())));
-    }
-
-    private static boolean contains(byte[] haystack, byte[] needle) {
-        outer:
-        for (int i = 0; i <= haystack.length - needle.length; i++) {
-            for (int j = 0; j < needle.length; j++) {
-                if (haystack[i + j] != needle[j]) {
-                    continue outer;
-                }
-            }
-            return true;
-        }
-        return false;
+                        // Multipart params carry the recorded part payload as their value.
+                        && Arrays.equals(multipart ? param.getValue().getBytes(StandardCharsets.UTF_8) : body,
+                                param.getFileContent()));
     }
 
     private String replaceCorrelations(HarEntry entry, String text,
