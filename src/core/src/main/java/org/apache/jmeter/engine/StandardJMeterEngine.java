@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -41,7 +42,9 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.PostThreadGroup;
 import org.apache.jmeter.threads.SetupThreadGroup;
@@ -683,6 +686,19 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     private void startThreadGroup(AbstractThreadGroup group, int groupCount, SearchByClass<?> searcher, List<?> testLevelElements, ListenerNotifier notifier)
     {
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables testVariables = context.getVariables();
+        Map<String, String> profileVariables = group.getProfileVariables();
+        if (!profileVariables.isEmpty()) {
+            // Settings such as the number of threads may use the variables of the thread group's profile. The
+            // thread group reads them now and in its starter threads, which keep the variables they are given.
+            JMeterVariables groupVariables = new JMeterVariables();
+            if (testVariables != null) {
+                groupVariables.putAll(testVariables);
+            }
+            groupVariables.putAll(profileVariables);
+            context.setVariables(groupVariables);
+        }
         try {
             int numThreads = group.getNumThreads();
             JMeterContextService.addTotalThreads(numThreads);
@@ -712,6 +728,8 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         } catch (JMeterStopTestException ex) { // NOSONAR Reported by log
             JMeterUtils.reportErrorToUser("Error occurred starting thread group :" + group.getName()+ ", error message:"+ex.getMessage()
                 +", \r\nsee log file for more details", ex);
+        } finally {
+            context.setVariables(testVariables);
         }
     }
 

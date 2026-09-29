@@ -348,8 +348,12 @@ class ScenarioResolverTest : JMeterTestCase() {
                     tree.getTree(tree.array[0]).getTree(section).getTree(profile).add(variables("users" to "2"))
                 }
         }
-        val threadGroup = planChildren(convertAndResolve(tree)).filterIsInstance<AbstractThreadGroup>().single()
-        assertEquals(2, threadGroup.numThreads) { "Thread count is read before threads get their variables" }
+        val listener = CollectSamplesListener()
+        tree.getTree(tree.array[0]).add(listener)
+        runAndWait(tree, listener, 2)
+        assertEquals(2, listener.events.map { it.result.threadName }.distinct().size) {
+            "The engine reads the thread count with the variables of the thread group's profile"
+        }
     }
 
     @Test

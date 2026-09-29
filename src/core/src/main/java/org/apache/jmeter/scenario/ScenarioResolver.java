@@ -26,8 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.jmeter.config.Arguments;
@@ -59,9 +57,6 @@ import org.apache.jorphan.collections.ListedHashTree;
  * tree nodes replaced by test elements. Plans without sections are returned unchanged.
  */
 public final class ScenarioResolver {
-
-    /** A reference to a variable, such as {@code ${host}}, also inside a function call */
-    private static final Pattern VARIABLE_REFERENCE = Pattern.compile("\\$\\{([^${}()]+)\\}"); // $NON-NLS-1$
 
     private ScenarioResolver() {
     }
@@ -260,14 +255,9 @@ public final class ScenarioResolver {
             variables.keySet().removeAll(scriptVariables);
         }
         if (!variables.isEmpty()) {
+            // Threads start with these; the engine also uses them when it reads the workload settings, so settings
+            // are evaluated once, with the thread group's own variables and these
             threadGroup.setProfileVariables(variables);
-            // The engine evaluates the thread group's own variables once, in order: settings that use them are
-            // left to it, as they are without a profile
-            Evaluator workloadEvaluator = evaluator.copy();
-            variables.forEach(workloadEvaluator::put);
-            Set<String> leftToEngine = new HashSet<>(scriptVariables);
-            leftToEngine.removeAll(variables.keySet());
-            evaluateWorkload(threadGroup, workloadEvaluator, leftToEngine);
         }
         return result;
     }
@@ -297,52 +287,6 @@ public final class ScenarioResolver {
             variables.putAll(userDefinedVariables(tree.getTree(element)));
         }
         return variables;
-    }
-
-    /**
-     * Settings such as the number of threads are read before the threads get their profile variables, so
-     * expressions in the workload are evaluated here with the profile variables.
-     */
-    private static void evaluateWorkload(AbstractThreadGroup threadGroup, Evaluator evaluator, Set<String> leftToEngine) {
-        for (String name : ScenarioWorkload.WORKLOAD_PROPERTIES) {
-            JMeterProperty property = threadGroup.getProperty(name);
-            if (property instanceof TestElementProperty elementProperty) {
-                evaluateStrings(elementProperty.getElement(), evaluator, leftToEngine);
-            } else if (isExpressionFor(property, leftToEngine)) {
-                threadGroup.setProperty(name, evaluator.evaluate(property.getStringValue()));
-            }
-        }
-    }
-
-    private static void evaluateStrings(TestElement element, Evaluator evaluator, Set<String> leftToEngine) {
-        List<JMeterProperty> expressions = new ArrayList<>();
-        PropertyIterator properties = element.propertyIterator();
-        while (properties.hasNext()) {
-            JMeterProperty property = properties.next();
-            if (isExpressionFor(property, leftToEngine)) {
-                expressions.add(property);
-            }
-        }
-        for (JMeterProperty property : expressions) {
-            element.setProperty(property.getName(), evaluator.evaluate(property.getStringValue()));
-        }
-    }
-
-    /**
-     * @return whether the property is an expression to evaluate here: one that uses none of the variables left to
-     *     the engine
-     */
-    private static boolean isExpressionFor(JMeterProperty property, Set<String> leftToEngine) {
-        if (!(property instanceof StringProperty) || !property.getStringValue().contains("${")) { // $NON-NLS-1$
-            return false;
-        }
-        Matcher references = VARIABLE_REFERENCE.matcher(property.getStringValue());
-        while (references.find()) {
-            if (leftToEngine.contains(references.group(1))) {
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
