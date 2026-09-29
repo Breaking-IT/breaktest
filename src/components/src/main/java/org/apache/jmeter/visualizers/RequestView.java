@@ -17,18 +17,25 @@
 
 package org.apache.jmeter.visualizers;
 
+import java.util.function.Supplier;
+
 import javax.swing.JPanel;
 
+import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jorphan.reflect.JMeterService;
 
 /**
  * Interface for request panel in View Results Tree
  * All classes which implements this interface is display
- * on bottom tab in request panel
+ * on top tab in request panel
  *
  */
 @JMeterService
 public interface RequestView {
+
+    default void setDiffContentSupplier(Supplier<JSyntaxSearchToolBar.DiffContent> supplier) {
+        // Most request views do not compare recordings.
+    }
 
     /**
      * Init the panel
@@ -53,7 +60,7 @@ public interface RequestView {
     JPanel getPanel();
 
     /**
-     * Get the label. Use as name for bottom tab
+     * Get the label. Use as name for top tab
      * @return the label's panel
      */
     String getLabel(); // return label
