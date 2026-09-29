@@ -343,6 +343,28 @@ class HarUploadCaptureTest extends JMeterTestCase {
     }
 
     @Test
+    void recordedBodyIsRejectedWhenBodyCannotBeKeptUnchanged() throws Exception {
+        for (String body : List.of("hi \uD83D\uDE00", "hi \u0001")) {
+            ObjectNode root = recording();
+            capture(root, "notes.txt", body.getBytes(StandardCharsets.UTF_8));
+            rawRequest(root, body, "text/plain");
+            HarParser.Recording parsed = parse(root);
+            assertFalse(parsed.entries().get(0).getPostData().getParams().isEmpty());
+            assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+        }
+    }
+
+    @Test
+    void recordedBodyIsRejectedForMultipartWithoutRecordedFileContent() throws Exception {
+        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", "--b--",
+                new ArrayList<>(List.of(new HarEntry.NameValue("file", "", "a.bin", "application/octet-stream",
+                        new byte[]{1, 2, 3}, "a.bin"))));
+        HarEntry entry = new HarEntry();
+        entry.setPostData(postData);
+        assertFalse(HarConverter.hasRecordedUploadBody(entry));
+    }
+
+    @Test
     void matchesLiteralRawFileContent() throws Exception {
         ObjectNode root = recording();
         capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));

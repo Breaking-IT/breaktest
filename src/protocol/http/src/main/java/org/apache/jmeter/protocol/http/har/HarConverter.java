@@ -664,20 +664,36 @@ public final class HarConverter {
 
     /**
      * Whether the recorded request text is the exact body that was sent, so it can be kept in Body Data.
-     * A raw upload matched through base64 content has only an encoded copy of the file in the HAR.
+     * A raw upload matched through base64 content has only an encoded copy of the file in the HAR, and
+     * Body Data cannot hold characters that XML serialization would drop.
      */
     static boolean hasRecordedUploadBody(HarEntry entry) {
         PostData postData = entry.getPostData();
-        if (postData == null || postData.getText() == null) {
+        if (postData == null || postData.getText() == null || postData.getText().isEmpty()
+                || "base64".equalsIgnoreCase(postData.getEncoding())
+                || !removeInvalidXmlChars(postData.getText()).equals(postData.getText())) {
             return false;
         }
-        if (HarParser.isMultipart(postData.getMimeType())) {
-            return true;
-        }
-        byte[] literal = postData.getText().getBytes(StandardCharsets.UTF_8);
+        byte[] body = postData.getText().getBytes(StandardCharsets.UTF_8);
+        boolean multipart = HarParser.isMultipart(postData.getMimeType());
         return postData.getParams().stream()
                 .filter(NameValue::isFileUpload)
-                .allMatch(param -> Arrays.equals(literal, param.getFileContent()));
+                .allMatch(param -> param.hasFileContent()
+                        && (multipart ? contains(body, param.getFileContent())
+                                : Arrays.equals(body, param.getFileContent())));
+    }
+
+    private static boolean contains(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     private String replaceCorrelations(HarEntry entry, String text,
