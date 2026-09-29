@@ -115,11 +115,14 @@ class RequestViewParsedTest {
                 new Functor[] {new Functor("getKey"),
                     new Functor("getValue")},
                 new Functor[] {null, null}, new Class[] {String.class, String.class}, false);
-        RequestViewHTTP.addParameters(model, "a=caf%E9&b=caf%E8&c=caf%C3%A9",
+        RequestViewHTTP.addParameters(model, "a=caf%E9&b=caf%E8&c=caf%C3%A9&d=東京&e=é%C3%A9&f=x+y",
                 StandardCharsets.UTF_8);
         assertEquals("caf\u00e9", model.getValueAt(0, 1));
         assertEquals("caf\u00e8", model.getValueAt(1, 1));
         assertEquals("caf\u00e9", model.getValueAt(2, 1));
+        assertEquals("\u6771\u4eac", model.getValueAt(3, 1));
+        assertEquals("\u00e9\u00e9", model.getValueAt(4, 1));
+        assertEquals("x y", model.getValueAt(5, 1));
     }
 
     @Test

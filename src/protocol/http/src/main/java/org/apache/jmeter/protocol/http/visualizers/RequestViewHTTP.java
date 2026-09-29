@@ -24,6 +24,7 @@ import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Rectangle;
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -327,18 +328,38 @@ public class RequestViewHTTP implements RequestView {
     }
 
     private static String decodeParameter(String value, Charset charset) {
-        try {
-            // Decode bytes strictly so undecodable input keeps its distinct bytes
-            // instead of collapsing into U+FFFD replacement characters.
-            byte[] bytes = URLDecoder.decode(value, StandardCharsets.ISO_8859_1)
-                    .getBytes(StandardCharsets.ISO_8859_1);
-            try {
-                return charset.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
-            } catch (CharacterCodingException e) {
-                return new String(bytes, StandardCharsets.ISO_8859_1);
+        StringBuilder result = new StringBuilder(value.length());
+        ByteArrayOutputStream run = new ByteArrayOutputStream();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '%') {
+                if (i + 2 >= value.length()
+                        || Character.digit(value.charAt(i + 1), 16) < 0
+                        || Character.digit(value.charAt(i + 2), 16) < 0) {
+                    return value;
+                }
+                run.write(Character.digit(value.charAt(i + 1), 16) * 16 + Character.digit(value.charAt(i + 2), 16));
+                i += 2;
+                continue;
             }
-        } catch (IllegalArgumentException e) {
-            return value;
+            flush(run, charset, result);
+            result.append(c == '+' ? ' ' : c);
+        }
+        flush(run, charset, result);
+        return result.toString();
+    }
+
+    /** Decodes a run of percent-encoded bytes strictly; undecodable bytes keep distinct Latin-1 characters. */
+    private static void flush(ByteArrayOutputStream run, Charset charset, StringBuilder out) {
+        if (run.size() == 0) {
+            return;
+        }
+        byte[] bytes = run.toByteArray();
+        run.reset();
+        try {
+            out.append(charset.newDecoder().decode(ByteBuffer.wrap(bytes)));
+        } catch (CharacterCodingException e) {
+            out.append(new String(bytes, StandardCharsets.ISO_8859_1));
         }
     }
 
