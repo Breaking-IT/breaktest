@@ -531,12 +531,29 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
             int groupNumber, int threadNumber,
             ListedHashTree threadGroupTree,
             JMeterVariables variables) {
-        boolean onErrorStopTest = getOnErrorStopTest();
-        boolean onErrorStopTestNow = getOnErrorStopTestNow();
-        boolean onErrorStopThread = getOnErrorStopThread();
-        boolean onErrorStartNextLoop = getOnErrorStartNextLoop();
+        // Open model threads are made later, on another thread: read the settings with the variables the thread group
+        // started with, which may include those of its profile
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables previousVariables = context.getVariables();
+        boolean onErrorStopTest;
+        boolean onErrorStopTestNow;
+        boolean onErrorStopThread;
+        boolean onErrorStartNextLoop;
+        boolean sameUserOnNextIteration;
+        if (variables != null) {
+            context.setVariables(variables);
+        }
+        try {
+            onErrorStopTest = getOnErrorStopTest();
+            onErrorStopTestNow = getOnErrorStopTestNow();
+            onErrorStopThread = getOnErrorStopThread();
+            onErrorStartNextLoop = getOnErrorStartNextLoop();
+            sameUserOnNextIteration = isSameUserOnNextIteration();
+        } finally {
+            context.setVariables(previousVariables);
+        }
         String groupName = getName();
-        final JMeterThread jmeterThread = new JMeterThread(threadGroupTree, monitor, notifier, isSameUserOnNextIteration());
+        final JMeterThread jmeterThread = new JMeterThread(threadGroupTree, monitor, notifier, sameUserOnNextIteration);
         jmeterThread.setThreadNum(threadNumber);
         jmeterThread.setThreadGroup(this);
         Map<String, String> profileVariables = getProfileVariables();
