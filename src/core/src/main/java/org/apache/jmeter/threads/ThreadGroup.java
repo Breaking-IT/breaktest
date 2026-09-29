@@ -155,6 +155,13 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     private transient Thread threadStarter;
 
+    /**
+     * The open model limit, read when the thread group starts: arrivals are admitted on another thread, which does
+     * not have the variables the limit may use, such as those of the thread group's profile
+     */
+    private transient long openModelMaxThreadsAtStart;
+    private transient String openModelMaxThreadsScopeAtStart = OPEN_MODEL_MAX_THREADS_SCOPE_THREAD_GROUP;
+
     // List of active threads
     private final ConcurrentHashMap<JMeterThread, Thread> allThreads = new ConcurrentHashMap<>();
 
@@ -564,6 +571,8 @@ public class ThreadGroup extends AbstractThreadGroup {
             this.notifier = notifier;
             this.threadGroupTree = threadGroupTree;
             setOpenModelController();
+            openModelMaxThreadsAtStart = getOpenModelMaxThreads();
+            openModelMaxThreadsScopeAtStart = getOpenModelMaxThreadsScope();
             JMeterVariables variables = JMeterContextService.getContext().getVariables();
             String schedule = getOpenModelSchedule();
             log.info("Starting Open Model ThreadGroup#{} with schedule {}", threadGroupIndex, schedule);
@@ -1160,8 +1169,8 @@ public class ThreadGroup extends AbstractThreadGroup {
 
     private boolean reserveOpenModelThreadSlot() {
         return reserveOpenModelThreadSlot(
-                getOpenModelMaxThreadsScope(),
-                getOpenModelMaxThreads(),
+                openModelMaxThreadsScopeAtStart,
+                openModelMaxThreadsAtStart,
                 openModelActiveThreads.size());
     }
 
