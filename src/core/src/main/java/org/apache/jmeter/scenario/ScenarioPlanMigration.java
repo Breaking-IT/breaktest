@@ -449,14 +449,16 @@ public final class ScenarioPlanMigration {
             chain.add(element);
             return chain;
         }
+        List<Object> match = null;
         for (Object child : elementTree.list()) {
             List<Object> chain = pathFrom(child, elementTree.getTree(child), names, level + 1);
             if (chain != null) {
                 chain.add(0, element);
-                return chain;
+                // ModuleController visits every matching child and keeps the last complete path.
+                match = chain;
             }
         }
-        return null;
+        return match;
     }
 
     private static boolean isModuleController(TestElement element) {
@@ -508,9 +510,30 @@ public final class ScenarioPlanMigration {
         HashTree planTree = tree.getTree(roots[0]);
         Map<TestElement, ModuleTarget> moduleTargets = new LinkedHashMap<>();
         findModuleTargets(tree, planTree, moduleTargets);
-        Set<String> takenBefore = new HashSet<>(usedIds);
+        // Replacement ids must not take the original id of a group we have not visited yet.
+        Set<String> reservedIds = new HashSet<>(usedIds);
+        Map<String, Profile> profileTargets = new HashMap<>();
+        for (Object section : planTree.list()) {
+            if (section instanceof ThreadGroupsSection) {
+                for (Object element : planTree.getTree(section).list()) {
+                    if (element instanceof AbstractThreadGroup threadGroup) {
+                        reservedIds.add(threadGroup.getThreadGroupId());
+                    }
+                }
+            } else if (section instanceof ProfilesSection) {
+                for (Object element : planTree.getTree(section).list()) {
+                    if (element instanceof Profile profile) {
+                        // Resolve literal row references before names change, as the resolver does: the first
+                        // enabled profile wins. Keep the first disabled one only when none is enabled.
+                        Profile previous = profileTargets.get(profile.getName());
+                        if (previous == null || !previous.isEnabled() && profile.isEnabled()) {
+                            profileTargets.put(profile.getName(), profile);
+                        }
+                    }
+                }
+            }
+        }
         Map<String, String> movedIds = new HashMap<>();
-        Map<String, String> renamedProfiles = new HashMap<>();
         List<Scenario> scenarios = new ArrayList<>();
         List<Arguments> markedVariables = new ArrayList<>();
         for (Object section : planTree.list()) {
@@ -535,22 +558,19 @@ public final class ScenarioPlanMigration {
                 }
                 String name = named.getName();
                 named.setName(uniqueName(name, names));
-                if (element instanceof Profile && !named.getName().equals(name)) {
-                    renamedProfiles.putIfAbsent(name, named.getName());
-                } else if (element instanceof Scenario scenario) {
+                if (element instanceof Scenario scenario) {
                     scenarios.add(scenario);
                 } else if (element instanceof AbstractThreadGroup threadGroup) {
                     String id = threadGroup.getThreadGroupId();
                     if (id.isEmpty() || usedIds.contains(id)) {
-                        String unique = AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), usedIds);
-                        // Rows of this plan meant this thread group when its id was taken by the open plan; a
-                        // duplicate within the plan is ambiguous and keeps pointing to the first one
-                        if (takenBefore.contains(id)) {
-                            movedIds.putIfAbsent(id, unique);
-                        }
-                        threadGroup.setThreadGroupId(unique);
+                        threadGroup.setThreadGroupId(AbstractThreadGroup.uniqueReadableId(threadGroup.getName(), reservedIds));
+                    }
+                    if (!id.isEmpty()) {
+                        // Duplicate original ids keep pointing to the first group, including when it was not renamed.
+                        movedIds.putIfAbsent(id, threadGroup.getThreadGroupId());
                     }
                     usedIds.add(threadGroup.getThreadGroupId());
+                    reservedIds.add(threadGroup.getThreadGroupId());
                 }
             }
         }
@@ -558,7 +578,11 @@ public final class ScenarioPlanMigration {
             List<ScenarioWorkload> workloads = scenario.getWorkloads();
             for (ScenarioWorkload workload : workloads) {
                 workload.setThreadGroupId(movedIds.getOrDefault(workload.getThreadGroupId(), workload.getThreadGroupId()));
-                workload.setProfile(renamedProfiles.getOrDefault(workload.getProfile(), workload.getProfile()));
+                // Blank means "Use default", not a reference to a profile whose name happens to be blank.
+                Profile profile = workload.getProfile().isBlank() ? null : profileTargets.get(workload.getProfile());
+                if (profile != null) {
+                    workload.setProfile(profile.getName());
+                }
             }
             scenario.setWorkloads(workloads);
         }
