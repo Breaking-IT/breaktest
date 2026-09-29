@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
@@ -281,7 +282,8 @@ class HarUploadCaptureTest extends JMeterTestCase {
     }
 
     @ParameterizedTest
-    @EnumSource(HarImportOptions.FileUploadMode.class)
+    @EnumSource(value = HarImportOptions.FileUploadMode.class, mode = EnumSource.Mode.EXCLUDE,
+            names = "RECORDED_BODY")
     void rawBinaryUploadHonorsEveryStorageChoice(HarImportOptions.FileUploadMode mode) throws Exception {
         ObjectNode root = recording();
         byte[] bytes = {0x50, 0x4b, 3, 4, 0, (byte) 0xff};
@@ -299,20 +301,45 @@ class HarUploadCaptureTest extends JMeterTestCase {
         HTTPSamplerProxy sampler = samplers.get(0);
         assertFalse(sampler.getDoMultipart());
         assertFalse(sampler.getUseMultipart());
-        if (mode == HarImportOptions.FileUploadMode.RECORDED_BODY) {
-            assertEquals(0, sampler.getHTTPFiles().length);
-            assertTrue(sampler.getPostBodyRaw());
-            assertEquals(body, sampler.getArguments().getArgument(0).getValue());
-        } else {
-            assertEquals(1, sampler.getHTTPFiles().length);
-            assertEquals(mode == HarImportOptions.FileUploadMode.ARCHIVE
-                    ? "${__archiveFile(10KB.docx)}" : "10KB.docx", sampler.getHTTPFiles()[0].getPath());
-            assertEquals("", sampler.getHTTPFiles()[0].getParamName());
-            assertEquals("application/octet-stream", sampler.getHTTPFiles()[0].getMimeType());
-            assertTrue(sampler.getSendFileAsPostBody());
-            assertFalse(sampler.getPostBodyRaw());
-            assertEquals(0, sampler.getArguments().getArgumentCount());
-        }
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals(mode == HarImportOptions.FileUploadMode.ARCHIVE
+                ? "${__archiveFile(10KB.docx)}" : "10KB.docx", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("", sampler.getHTTPFiles()[0].getParamName());
+        assertEquals("application/octet-stream", sampler.getHTTPFiles()[0].getMimeType());
+        assertTrue(sampler.getSendFileAsPostBody());
+        assertFalse(sampler.getPostBodyRaw());
+        assertEquals(0, sampler.getArguments().getArgumentCount());
+    }
+
+    @Test
+    void recordedBodyKeepsLiteralRawUploadContent() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        HarParser.Recording parsed = parse(root);
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(new HarConverter(parsed.entries(), options, "recording.har", "digest")
+                .convert(Set.of("example.com")), samplers);
+        HTTPSamplerProxy sampler = samplers.get(0);
+        assertEquals(0, sampler.getHTTPFiles().length);
+        assertTrue(sampler.getPostBodyRaw());
+        assertEquals("hello", sampler.getArguments().getArgument(0).getValue());
+    }
+
+    @Test
+    void recordedBodyIsRejectedWhenRawUploadIsOnlyRecordedAsBase64() throws Exception {
+        ObjectNode root = recording();
+        byte[] bytes = {0x50, 0x4b, 3, 4, 0, (byte) 0xff};
+        capture(root, "10KB.docx", bytes);
+        rawRequest(root, Base64.getEncoder().encodeToString(bytes), "application/octet-stream");
+        HarParser.Recording parsed = parse(root);
+        assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        HarConverter converter = new HarConverter(parsed.entries(), options, "recording.har", "digest");
+        assertThrows(IllegalArgumentException.class, () -> converter.convert(Set.of("example.com")));
     }
 
     @Test

@@ -596,7 +596,7 @@ public class HarImportWizard extends JDialog {
                 .filter(entry -> selectedHosts.contains(HarConverter.hostnameOf(entry.getUrl())))
                 .filter(entry -> entry.getPostData() != null)
                 .filter(entry -> entry.getPostData().getParams().stream().anyMatch(HarEntry.NameValue::isFileUpload))
-                .allMatch(entry -> entry.getPostData().getText() != null);
+                .allMatch(HarConverter::hasRecordedUploadBody);
         recordedUploadBody.setEnabled(canKeepBody);
         if (!canKeepBody && recordedUploadBody.isSelected()) {
             referenceUploadFiles.setSelected(true);

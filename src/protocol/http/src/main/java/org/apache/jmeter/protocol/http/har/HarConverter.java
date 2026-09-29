@@ -22,6 +22,7 @@ import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -581,8 +582,9 @@ public final class HarConverter {
             boolean hasUploads = postData.getParams().stream().anyMatch(NameValue::isFileUpload);
             generatedMultipart = HarParser.isMultipart(postData.getMimeType()) && hasUploads;
             if (hasUploads && options.getFileUploadMode() == HarImportOptions.FileUploadMode.RECORDED_BODY) {
-                if (postData.getText() == null) {
-                    throw new IllegalArgumentException("Recorded request body is unavailable for " + entry.getUrl());
+                if (!hasRecordedUploadBody(entry)) {
+                    throw new IllegalArgumentException(
+                            "Recorded request body is unavailable or encoded for " + entry.getUrl());
                 }
                 generatedMultipart = false;
                 sampler.setPostBodyRaw(true);
@@ -658,6 +660,24 @@ public final class HarConverter {
         if (options.isIgnoreErrors() && status >= 400 && status <= 599) {
             samplerHt.add(buildIgnoreErrorAssertion(status));
         }
+    }
+
+    /**
+     * Whether the recorded request text is the exact body that was sent, so it can be kept in Body Data.
+     * A raw upload matched through base64 content has only an encoded copy of the file in the HAR.
+     */
+    static boolean hasRecordedUploadBody(HarEntry entry) {
+        PostData postData = entry.getPostData();
+        if (postData == null || postData.getText() == null) {
+            return false;
+        }
+        if (HarParser.isMultipart(postData.getMimeType())) {
+            return true;
+        }
+        byte[] literal = postData.getText().getBytes(StandardCharsets.UTF_8);
+        return postData.getParams().stream()
+                .filter(NameValue::isFileUpload)
+                .allMatch(param -> Arrays.equals(literal, param.getFileContent()));
     }
 
     private String replaceCorrelations(HarEntry entry, String text,
