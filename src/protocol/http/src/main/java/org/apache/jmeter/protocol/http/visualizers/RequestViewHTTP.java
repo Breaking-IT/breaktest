@@ -330,7 +330,8 @@ public class RequestViewHTTP implements RequestView {
     private static String decodeParameter(String value, Charset charset) {
         StringBuilder result = new StringBuilder(value.length());
         ByteArrayOutputStream run = new ByteArrayOutputStream();
-        for (int i = 0; i < value.length(); i++) {
+        int i = 0;
+        while (i < value.length()) {
             char c = value.charAt(i);
             if (c == '%') {
                 if (i + 2 >= value.length()
@@ -339,11 +340,12 @@ public class RequestViewHTTP implements RequestView {
                     return value;
                 }
                 run.write(Character.digit(value.charAt(i + 1), 16) * 16 + Character.digit(value.charAt(i + 2), 16));
-                i += 2;
-                continue;
+                i += 3;
+            } else {
+                flush(run, charset, result);
+                result.append(c == '+' ? ' ' : c);
+                i++;
             }
-            flush(run, charset, result);
-            result.append(c == '+' ? ' ' : c);
         }
         flush(run, charset, result);
         return result.toString();
