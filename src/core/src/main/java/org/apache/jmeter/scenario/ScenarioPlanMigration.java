@@ -225,8 +225,8 @@ public final class ScenarioPlanMigration {
         for (Object child : planTree.list()) {
             HashTree childTree = planTree.getTree(child);
             Object element = child;
-            if (!threadGroupsSoFar.isEmpty() && child.getClass() == Arguments.class
-                    && ((Arguments) child).isEnabled()) {
+            // Disabled ones too: they keep their place when they are enabled later
+            if (!threadGroupsSoFar.isEmpty() && child.getClass() == Arguments.class) {
                 ((Arguments) child).setProperty(
                         new CollectionProperty(SharedProfile.AFTER_THREAD_GROUPS, new ArrayList<>(threadGroupsSoFar)));
             }

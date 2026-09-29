@@ -531,8 +531,14 @@ public final class ScenarioResolver {
                     for (Object shared : elementTree.list()) {
                         if (shared.getClass() == Arguments.class
                                 && !SharedProfile.threadGroupsBefore((Arguments) shared).isEmpty()) {
-                            // Evaluated by the engine where they are placed, as they may use thread group variables
-                            anchoredSharedVariables.add((Arguments) shared);
+                            // Evaluated by the engine where they are placed, as they may use thread group variables:
+                            // between the thread groups as in the old plan, or after all of them when the shared
+                            // variables override those of thread groups
+                            if (sharedProfile.isOverridingThreadGroupVariables()) {
+                                overridingSharedVariables.add(shared);
+                            } else {
+                                anchoredSharedVariables.add((Arguments) shared);
+                            }
                             learnValuesWithoutFunctions((Arguments) shared);
                             continue;
                         }

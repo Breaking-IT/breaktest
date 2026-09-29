@@ -438,6 +438,60 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         assertEquals("acc.example", threadGroup.profileVariables["host"])
     }
 
+    /** First defines host, then test level host, then Last, which may define host too */
+    private fun firstGlobalLast(globalEnabled: Boolean, lastDefinesHost: Boolean): HashTree = testTree {
+        TestPlan::class {
+            ThreadGroup::class {
+                name = "First"
+                +udv("host" to "first.example")
+            }
+            +udv("host" to "global.example").apply {
+                name = "Global host"
+                isEnabled = globalEnabled
+            }
+            ThreadGroup::class {
+                name = "Last"
+                if (lastDefinesHost) {
+                    +udv("host" to "last.example")
+                }
+            }
+        }
+    }
+
+    private fun sharedVariables(tree: HashTree): List<Arguments> {
+        val planTree = tree.getTree(tree.array[0])
+        val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+        val shared = planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single()
+        return planTree.getTree(profiles).getTree(shared).list().filterIsInstance<Arguments>()
+    }
+
+    private fun validationHost(tree: HashTree): String? {
+        JMeterContextService.getContext().variables = org.apache.jmeter.threads.JMeterVariables()
+        ScenarioResolver.flattenIgnoringScenarios(JMeter.convertSubTree(tree, false)).traverse(PreCompiler())
+        return JMeterContextService.getContext().variables.get("host")
+    }
+
+    @Test
+    fun `disabled test level variables keep their place when enabled after migration`() {
+        assertEquals(mapOf("host" to "global.example"), compiledVariables(firstGlobalLast(true, false), "host")) {
+            "The old plan with the variables enabled"
+        }
+        val migrated = ScenarioPlanMigration.migrate(firstGlobalLast(false, false))
+        sharedVariables(migrated).single().isEnabled = true
+        assertEquals(mapOf("host" to "global.example"), compiledVariables(migrated, "host"))
+    }
+
+    @Test
+    fun `migrated test level variables follow the shared profile override setting`() {
+        val migrated = ScenarioPlanMigration.migrate(firstGlobalLast(true, true))
+        val planTree = migrated.getTree(migrated.array[0])
+        val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+        planTree.getTree(profiles).list().filterIsInstance<SharedProfile>().single().isOverridingThreadGroupVariables = true
+
+        assertEquals(mapOf("host" to "global.example"), compiledVariables(migrated, "host")) { "A scenario run" }
+        assertEquals("global.example", validationHost(migrated)) { "A validation run" }
+    }
+
     @Test
     fun `variables in disabled parts of an old plan do not decide which value wins`() {
         fun plan() = testTree {
