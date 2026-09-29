@@ -177,7 +177,7 @@ public final class HarUploadCapture {
         HarEntry.PostData postData = entry.getPostData();
         String text = postData.getText();
         if (text == null || text.isEmpty() || !postData.getParams().isEmpty()
-                || !Set.of("POST", "PUT", "PATCH", "DELETE").contains(entry.getMethod())) {
+                || !Set.of("POST", "PUT", "PATCH", "DELETE").contains(entry.getMethod().toUpperCase(Locale.ROOT))) {
             return;
         }
         byte[] literal = text.getBytes(StandardCharsets.UTF_8);

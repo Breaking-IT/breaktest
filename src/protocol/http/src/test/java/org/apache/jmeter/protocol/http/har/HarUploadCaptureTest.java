@@ -380,6 +380,15 @@ class HarUploadCaptureTest extends JMeterTestCase {
     }
 
     @Test
+    void matchesRawUploadWhenMethodIsLowerCase() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("method", "post");
+        assertEquals("notes.txt", parse(root).entries().get(0).getPostData().getParams().get(0).getFileName());
+    }
+
+    @Test
     void matchesLiteralRawFileContent() throws Exception {
         ObjectNode root = recording();
         capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
