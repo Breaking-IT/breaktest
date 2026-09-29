@@ -103,12 +103,22 @@ public class HarEntry {
         private final String text;
         private final List<NameValue> params;
         private final String encoding;
+        private final long bodySize;
+        private final boolean complete;
+        private boolean capturedUploadContent;
 
         public PostData(String mimeType, String text, List<NameValue> params) {
             this(mimeType, text, params, "");
         }
 
         public PostData(String mimeType, String text, List<NameValue> params, String encoding) {
+            this(mimeType, text, params, encoding, -1, true);
+        }
+
+        public PostData(String mimeType, String text, List<NameValue> params, String encoding,
+                long bodySize, boolean complete) {
+            this.bodySize = bodySize;
+            this.complete = complete;
             this.encoding = encoding;
             this.mimeType = mimeType;
             this.text = text;
@@ -121,6 +131,22 @@ public class HarEntry {
 
         public String getText() {
             return text;
+        }
+
+        public boolean hasCapturedUploadContent() {
+            return capturedUploadContent;
+        }
+
+        public void setCapturedUploadContent(boolean capturedUploadContent) {
+            this.capturedUploadContent = capturedUploadContent;
+        }
+
+        public long getBodySize() {
+            return bodySize;
+        }
+
+        public boolean isComplete() {
+            return complete;
         }
 
         public String getEncoding() {

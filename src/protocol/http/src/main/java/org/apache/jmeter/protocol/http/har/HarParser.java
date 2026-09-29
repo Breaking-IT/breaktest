@@ -289,15 +289,20 @@ public final class HarParser {
                         fileContent));
             }
         }
+        boolean complete = text != null && hasCompletePostData(requestNode, text);
         if (text != null && isMultipart(mimeType)) {
+            Matcher boundary = MULTIPART_BOUNDARY.matcher(mimeType);
+            complete = complete && boundary.find()
+                    && text.contains("--" + (boundary.group(1) == null ? boundary.group(2) : boundary.group(1)) + "--");
             List<NameValue> multipartParams = parseMultipart(
-                    mimeType, text, hasCompletePostData(requestNode, text));
+                    mimeType, text, complete);
             if (multipartParams.stream().anyMatch(NameValue::isFileUpload)) {
                 params = mergeRecordedFileContent(multipartParams, params);
             }
         }
         return new PostData(mimeType, text, params,
-                postDataNode.path("encoding").asText(postDataNode.path("_encoding").asText("")));
+                postDataNode.path("encoding").asText(postDataNode.path("_encoding").asText("")),
+                recordedBodySize(requestNode), complete);
     }
 
     static boolean isMultipart(String mimeType) {
@@ -380,6 +385,11 @@ public final class HarParser {
     }
 
     private static boolean hasCompletePostData(JsonNode requestNode, String text) {
+        long expectedSize = recordedBodySize(requestNode);
+        return expectedSize < 0 || text.getBytes(StandardCharsets.UTF_8).length == expectedSize;
+    }
+
+    private static long recordedBodySize(JsonNode requestNode) {
         long expectedSize = requestNode.path("bodySize").asLong(-1);
         for (JsonNode header : requestNode.path("headers")) {
             if ("content-length".equalsIgnoreCase(header.path("name").asText(""))) {
@@ -391,8 +401,7 @@ public final class HarParser {
                 break;
             }
         }
-        return expectedSize < 0
-                || text.getBytes(StandardCharsets.UTF_8).length >= expectedSize;
+        return expectedSize;
     }
 
     private static String headerValue(String headers, String requestedName) {

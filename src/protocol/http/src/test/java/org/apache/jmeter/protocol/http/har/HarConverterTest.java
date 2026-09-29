@@ -638,7 +638,11 @@ public class HarConverterTest {
 
     @Test
     void explicitlyKeepsRecordedUploadBody() throws Exception {
-        List<HarEntry> entries = HarParser.parse(uploadHar().getBytes(StandardCharsets.UTF_8));
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var har = json.readTree(uploadHar());
+        var request = (com.fasterxml.jackson.databind.node.ObjectNode) har.path("log").path("entries").get(0).path("request");
+        request.put("bodySize", request.path("postData").path("text").asText().getBytes(StandardCharsets.UTF_8).length);
+        List<HarEntry> entries = HarParser.parse(json.writeValueAsBytes(har));
         HarImportOptions options = new HarImportOptions();
         options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
         HashTree converted = new HarConverter(entries, options, "upload.har", "md5")

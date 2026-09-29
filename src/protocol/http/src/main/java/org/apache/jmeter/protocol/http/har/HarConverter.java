@@ -522,7 +522,7 @@ public final class HarConverter {
     // ---------------------------------------------------------------------
 
     private void addSampler(HashTree parent, HarEntry entry, Set<String> commonHeadersLower) {
-        String method = entry.getMethod();
+        String method = entry.getMethod().toUpperCase(Locale.ROOT);
         ParsedUrl url = parseUrl(entry.getUrl());
         String path = url.path;
         String fullPath = path;
@@ -567,6 +567,7 @@ public final class HarConverter {
         Arguments arguments = new Arguments();
         sampler.setArguments(arguments);
         boolean generatedMultipart = false;
+        boolean keptUploadBody = false;
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
@@ -587,10 +588,10 @@ public final class HarConverter {
                             "Recorded request body is unavailable or encoded for " + entry.getUrl());
                 }
                 generatedMultipart = false;
+                keptUploadBody = true;
                 sampler.setPostBodyRaw(true);
-                String body = replaceCorrelations(entry, removeInvalidXmlChars(postData.getText()),
-                        HarPredefinedCorrelation.RequestLocation.REQUEST_BODY);
-                addHttpArgument(arguments, "", body, false, false);
+                sampler.setContentEncoding(StandardCharsets.UTF_8.name());
+                addHttpArgument(arguments, "", postData.getText(), false, false);
             } else if (hasUploads) {
                 List<HTTPFileArg> files = new ArrayList<>();
                 for (NameValue param : postData.getParams()) {
@@ -649,6 +650,11 @@ public final class HarConverter {
                 uniqueHeaders.add(new Header(header.getName(), value));
             }
         }
+        if (keptUploadBody && !entry.getPostData().getMimeType().isBlank()
+                && entry.getRequestHeaders().stream()
+                        .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName()))) {
+            uniqueHeaders.add(new Header("Content-Type", entry.getPostData().getMimeType()));
+        }
         if (!uniqueHeaders.isEmpty()) {
             sampler.setNativeHeaders(uniqueHeaders);
         }
@@ -669,12 +675,17 @@ public final class HarConverter {
      */
     static boolean hasRecordedUploadBody(HarEntry entry) {
         PostData postData = entry.getPostData();
-        if (postData == null || postData.getText() == null || postData.getText().isEmpty()
+        if (postData == null || !postData.isComplete() || postData.getText() == null || postData.getText().isEmpty()
+                || postData.getText().contains("${")
                 || "base64".equalsIgnoreCase(postData.getEncoding())
                 || !removeInvalidXmlChars(postData.getText()).equals(postData.getText())) {
             return false;
         }
         byte[] body = postData.getText().getBytes(StandardCharsets.UTF_8);
+        if (postData.getBodySize() >= 0 ? body.length != postData.getBodySize()
+                : !postData.hasCapturedUploadContent()) {
+            return false;
+        }
         boolean multipart = HarParser.isMultipart(postData.getMimeType());
         return postData.getParams().stream()
                 .filter(NameValue::isFileUpload)
@@ -895,8 +906,9 @@ public final class HarConverter {
     // Small string / URL helpers ported from har2jmx.py
     // ---------------------------------------------------------------------
 
-    private static boolean isBodyMethod(String method) {
-        return "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
+    static boolean isBodyMethod(String method) {
+        return "POST".equalsIgnoreCase(method) || "PUT".equalsIgnoreCase(method)
+                || "PATCH".equalsIgnoreCase(method);
     }
 
     private static boolean needsUrlEncoding(String value) {
