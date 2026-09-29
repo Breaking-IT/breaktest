@@ -117,14 +117,15 @@ public class RequestViewHTTPDiff implements RequestView {
         }
         content.add(section("view_results_request_headers",
                 table(compare(before.headers(), after.headers(), true, false))));
-        if (before.formBody() && after.formBody()) {
+        boolean hasBody = !before.body().isEmpty() || !after.body().isEmpty();
+        if (hasBody && before.formBody() && after.formBody()) {
             JPanel fields = new JPanel(new BorderLayout());
             fields.add(table(compare(before.form(), after.form(), false, false)));
             if (before.fileParts() || after.fileParts()) {
                 fields.add(new JLabel(label("files_not_compared")), BorderLayout.SOUTH);
             }
             content.add(section("view_results_request_body", fields));
-        } else {
+        } else if (hasBody) {
             JPanel body = new JPanel(new BorderLayout());
             boolean same = before.body().equals(after.body());
             body.add(new JLabel(label(same ? "body_same" : "body_changed")), BorderLayout.NORTH);

@@ -19,10 +19,12 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -42,6 +44,8 @@ import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -275,6 +279,347 @@ class HarUploadCaptureTest extends JMeterTestCase {
         assertEquals("invoice.pdf", samplers.get(0).getHTTPFiles()[0].getPath());
         assertTrue(samplers.get(0).getDoMultipart());
         assertFalse(samplers.get(0).getPostBodyRaw());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HarImportOptions.FileUploadMode.class, mode = EnumSource.Mode.EXCLUDE,
+            names = "RECORDED_BODY")
+    void rawBinaryUploadHonorsEveryStorageChoice(HarImportOptions.FileUploadMode mode) throws Exception {
+        ObjectNode root = recording();
+        byte[] bytes = {0x50, 0x4b, 3, 4, 0, (byte) 0xff};
+        capture(root, "10KB.docx", bytes);
+        String body = Base64.getEncoder().encodeToString(bytes);
+        rawRequest(root, body, "application/octet-stream");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.uploads().warnings().isEmpty(), parsed.uploads().warnings().toString());
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(mode);
+        HashTree tree = new HarConverter(parsed.entries(), options, "recording.har", "digest")
+                .convert(Set.of("example.com"));
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(tree, samplers);
+        HTTPSamplerProxy sampler = samplers.get(0);
+        assertFalse(sampler.getDoMultipart());
+        assertFalse(sampler.getUseMultipart());
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals(mode == HarImportOptions.FileUploadMode.ARCHIVE
+                ? "${__archiveFile(10KB.docx)}" : "10KB.docx", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("", sampler.getHTTPFiles()[0].getParamName());
+        assertEquals("application/octet-stream", sampler.getHTTPFiles()[0].getMimeType());
+        assertTrue(sampler.getSendFileAsPostBody());
+        assertFalse(sampler.getPostBodyRaw());
+        assertEquals(0, sampler.getArguments().getArgumentCount());
+    }
+
+    @Test
+    void recordedBodyKeepsLiteralRawUploadContent() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        HarParser.Recording parsed = parse(root);
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(new HarConverter(parsed.entries(), options, "recording.har", "digest")
+                .convert(Set.of("example.com")), samplers);
+        HTTPSamplerProxy sampler = samplers.get(0);
+        assertEquals(0, sampler.getHTTPFiles().length);
+        assertTrue(sampler.getPostBodyRaw());
+        assertEquals("hello", sampler.getArguments().getArgument(0).getValue());
+    }
+
+    @Test
+    void recordedBodyIsRejectedWhenRawUploadIsOnlyRecordedAsBase64() throws Exception {
+        ObjectNode root = recording();
+        byte[] bytes = {0x50, 0x4b, 3, 4, 0, (byte) 0xff};
+        capture(root, "10KB.docx", bytes);
+        rawRequest(root, Base64.getEncoder().encodeToString(bytes), "application/octet-stream");
+        HarParser.Recording parsed = parse(root);
+        assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        HarConverter converter = new HarConverter(parsed.entries(), options, "recording.har", "digest");
+        assertThrows(IllegalArgumentException.class, () -> converter.convert(Set.of("example.com")));
+    }
+
+    @Test
+    void recordedBodyIsRejectedWhenBodyCannotBeKeptUnchanged() throws Exception {
+        for (String body : List.of("hi \uD83D\uDE00", "hi \u0001")) {
+            ObjectNode root = recording();
+            capture(root, "notes.txt", body.getBytes(StandardCharsets.UTF_8));
+            rawRequest(root, body, "text/plain");
+            HarParser.Recording parsed = parse(root);
+            assertFalse(parsed.entries().get(0).getPostData().getParams().isEmpty());
+            assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+        }
+    }
+
+    @Test
+    void recordedBodyIsRejectedWhenRecordedFilePartDiffersFromCapturedFile() throws Exception {
+        String body = "--b\r\nContent-Disposition: form-data; name=\"note\"\r\n\r\nhello\r\n"
+                + "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain\r\n\r\n\r\n--b--\r\n";
+        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", body,
+                new ArrayList<>(List.of(new HarEntry.NameValue("file", "", "a.txt", "text/plain",
+                        "hello".getBytes(StandardCharsets.UTF_8), "a.txt"))));
+        HarEntry entry = new HarEntry();
+        entry.setPostData(postData);
+        assertFalse(HarConverter.hasRecordedUploadBody(entry));
+    }
+
+    @Test
+    void recordedBodyIsAcceptedWhenMultipartFilePartMatches() throws Exception {
+        String body = "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain\r\n\r\nhello\r\n--b--\r\n";
+        HarEntry.PostData postData = new HarEntry.PostData("multipart/form-data; boundary=b", body,
+                new ArrayList<>(List.of(new HarEntry.NameValue("file", "hello", "a.txt", "text/plain",
+                        "hello".getBytes(StandardCharsets.UTF_8), "a.txt"))));
+        HarEntry entry = new HarEntry();
+        entry.setPostData(postData);
+        postData.setCapturedUploadContent(true);
+        assertTrue(HarConverter.hasRecordedUploadBody(entry));
+    }
+
+    @Test
+    void matchesRawUploadWhenMethodIsLowerCase() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("method", "post");
+        assertEquals("notes.txt", parse(root).entries().get(0).getPostData().getParams().get(0).getFileName());
+    }
+
+    @Test
+    void matchesLiteralRawFileContent() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.uploads().warnings().isEmpty());
+        assertEquals("notes.txt", parsed.entries().get(0).getPostData().getParams().get(0).getFileName());
+    }
+
+    @Test
+    void supportsExplicitBase64EncodingForTextFiles() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "aGVsbG8=", "text/plain").put("encoding", "base64");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.uploads().warnings().isEmpty());
+        assertEquals("notes.txt", parsed.entries().get(0).getPostData().getParams().get(0).getFileName());
+    }
+
+    @Test
+    void doesNotDecodeLiteralTextOrJsonBodiesAsFileContent() throws Exception {
+        for (String mimeType : List.of("text/plain", "application/json")) {
+            ObjectNode root = recording();
+            capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+            rawRequest(root, "aGVsbG8=", mimeType);
+            assertTrue(parse(root).entries().get(0).getPostData().getParams().isEmpty());
+        }
+    }
+
+    @Test
+    void doesNotGuessRawUploadsFromPartialOrUnrelatedContent() throws Exception {
+        for (String body : List.of("", "AQ==", "AwQ=")) {
+            ObjectNode root = recording();
+            capture(root, "10KB.docx", new byte[]{1, 2});
+            rawRequest(root, body, "application/octet-stream");
+            HarParser.Recording parsed = parse(root);
+            assertTrue(parsed.entries().get(0).getPostData().getParams().isEmpty());
+            assertTrue(parsed.uploads().warnings().stream().anyMatch(w -> w.startsWith("Unassigned capture:")));
+        }
+    }
+
+    @Test
+    void doesNotChooseBetweenDifferentFilenamesWithIdenticalBytes() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "first.docx", new byte[]{1, 2});
+        capture(root, "second.docx", new byte[]{1, 2});
+        rawRequest(root, "AQI=", "application/octet-stream");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.entries().get(0).getPostData().getParams().isEmpty());
+        assertTrue(parsed.uploads().warnings().stream()
+                .anyMatch(w -> w.contains("multiple captured filenames match")));
+    }
+
+    @Test
+    void excludesRawUploadCapturesMadeAfterRequest() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "10KB.docx", new byte[]{1, 2}).put("capturedDateTime", "2026-09-11T12:01:00Z");
+        rawRequest(root, "AQI=", "application/octet-stream");
+        assertTrue(parse(root).entries().get(0).getPostData().getParams().isEmpty());
+    }
+
+    @Test
+    void storesRawUploadBytesWithoutBase64Wrapping() throws Exception {
+        ObjectNode root = recording();
+        byte[] bytes = {1, 2, (byte) 0xff};
+        capture(root, "10KB.docx", bytes);
+        rawRequest(root, Base64.getEncoder().encodeToString(bytes), "application/octet-stream");
+        HarParser.Recording parsed = parse(root);
+        HarImportAction.storeUploadFiles(parsed.entries(), Set.of("example.com"), directory, List.of());
+        assertArrayEquals(bytes, Files.readAllBytes(directory.resolve("10KB.docx")));
+        TestPlan plan = new TestPlan();
+        HarImportAction.storeArchiveUploads(parsed.entries(), Set.of("example.com"), plan);
+        assertArrayEquals(bytes, Files.readAllBytes(ArchiveFiles.materialize(
+                "files/10KB.docx", ArchiveFiles.references(plan).get("files/10KB.docx"))));
+    }
+
+    @Test
+    void completeCapturedMultipartBodyRemainsSelectable() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "a.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root,
+                "--b\r\nContent-Disposition: form-data; name=\"userfiles[]\"; filename=\"a.txt\"\r\n"
+                        + "Content-Type: text/plain\r\n\r\nhello\r\n--b--\r\n",
+                "multipart/form-data; boundary=b");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.uploads().warnings().isEmpty());
+        assertTrue(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(HarImportOptions.FileUploadMode.RECORDED_BODY);
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(new HarConverter(parsed.entries(), options, "recording.har", "digest")
+                .convert(Set.of("example.com")), samplers);
+        assertTrue(samplers.get(0).getNativeHeaderList().stream()
+                .anyMatch(header -> "Content-Type".equalsIgnoreCase(header.getName())
+                        && "multipart/form-data; boundary=b".equals(header.getValue())));
+    }
+
+    @Test
+    void knownTruncatedMultipartBodyIsNotSelectable() throws Exception {
+        ObjectNode root = recording();
+        ObjectNode postData = rawRequest(root,
+                "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                        + "Content-Type: text/plain\r\n\r\nhello\r\n--b\r\n"
+                        + "Content-Disposition: form-data; name=\"note\"\r\n\r\npartial",
+                "multipart/form-data; boundary=b");
+        postData.putArray("params").addObject().put("name", "file")
+                .put("fileName", "a.txt").put("value", "hello").put("contentType", "text/plain");
+        ((ObjectNode) root.path("log")).remove("_breaktest");
+        ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("bodySize", 1000);
+        HarParser.Recording parsed = parse(root);
+        assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+    }
+
+    @Test
+    void doesNotDecodeBase64ThatWasActuallySentOnWire() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "a.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "aGVsbG8=", "application/octet-stream");
+        ObjectNode request = (ObjectNode) root.path("log").path("entries").get(0).path("request");
+        request.put("bodySize", 8);
+        request.putArray("headers").addObject().put("name", "Content-Length").put("value", "8");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.entries().get(0).getPostData().getParams().isEmpty());
+    }
+
+    @Test
+    void doesNotInferBase64WithoutWireSizeEvidence() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "a.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "aGVsbG8=", "application/octet-stream");
+        ObjectNode request = (ObjectNode) root.path("log").path("entries").get(0).path("request");
+        request.remove("bodySize");
+        assertTrue(parse(root).entries().get(0).getPostData().getParams().isEmpty());
+    }
+
+    @Test
+    void multipartWithoutClosingBoundaryIsNotSelectable() throws Exception {
+        ObjectNode root = recording();
+        ObjectNode postData = rawRequest(root,
+                "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                        + "Content-Type: text/plain\r\n\r\nhello\r\n",
+                "multipart/form-data; boundary=b");
+        postData.putArray("params").addObject().put("name", "file")
+                .put("fileName", "a.txt").put("value", "hello").put("contentType", "text/plain");
+        ((ObjectNode) root.path("log")).remove("_breaktest");
+        assertFalse(HarConverter.hasRecordedUploadBody(parse(root).entries().get(0)));
+    }
+
+    @ParameterizedTest
+    @EnumSource(HarImportOptions.FileUploadMode.class)
+    void rawUploadConversionSupportsLowerCaseMethods(HarImportOptions.FileUploadMode mode) throws Exception {
+        for (String method : List.of("post", "put", "patch")) {
+            ObjectNode root = recording();
+            capture(root, "notes.txt", "héllo".getBytes(StandardCharsets.UTF_8));
+            rawRequest(root, "héllo", "text/plain");
+            ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("method", method);
+            HarImportOptions options = new HarImportOptions();
+            options.setFileUploadMode(mode);
+            List<HTTPSamplerProxy> samplers = new ArrayList<>();
+            collect(new HarConverter(parse(root).entries(), options, "recording.har", "digest")
+                    .convert(Set.of("example.com")), samplers);
+            HTTPSamplerProxy sampler = samplers.get(0);
+            assertEquals(method.toUpperCase(java.util.Locale.ROOT), sampler.getMethod());
+            if (mode == HarImportOptions.FileUploadMode.RECORDED_BODY) {
+                assertEquals("UTF-8", sampler.getContentEncoding());
+                assertEquals("héllo", sampler.getArguments().getArgument(0).getValue());
+            } else {
+                assertTrue(sampler.getSendFileAsPostBody());
+                assertEquals(0, sampler.getArguments().getArgumentCount());
+            }
+        }
+    }
+
+    @Test
+    void recordedBodyRejectsFunctionExpressionsInFileContent() throws Exception {
+        ObjectNode root = recording();
+        String body = "literal ${__time()}";
+        capture(root, "template.txt", body.getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, body, "text/plain");
+        assertFalse(HarConverter.hasRecordedUploadBody(parse(root).entries().get(0)));
+    }
+
+    @Test
+    void uncapturedMultipartBodyRequiresExactWireSize() throws Exception {
+        String body = "--b\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n"
+                + "Content-Type: text/plain\r\n\r\nhéllo\r\n--b--\r\n";
+        for (long size : new long[]{-1, body.getBytes(StandardCharsets.UTF_8).length - 1,
+                body.getBytes(StandardCharsets.UTF_8).length}) {
+            ObjectNode root = recording();
+            ((ObjectNode) root.path("log")).remove("_breaktest");
+            rawRequest(root, body, "multipart/form-data; boundary=b");
+            ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("bodySize", size);
+            assertEquals(size == body.getBytes(StandardCharsets.UTF_8).length,
+                    HarConverter.hasRecordedUploadBody(parse(root).entries().get(0)));
+        }
+    }
+
+    @Test
+    void deleteQueryIsPreservedWithoutClaimingUnsupportedUploadMapping() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "hello", "text/plain");
+        ObjectNode request = (ObjectNode) root.path("log").path("entries").get(0).path("request");
+        request.put("method", "DELETE").put("url", "https://example.com/items?id=5");
+        request.putArray("queryString").addObject().put("name", "id").put("value", "5");
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.entries().get(0).getPostData().getParams().isEmpty());
+        assertTrue(parsed.uploads().warnings().stream().anyMatch(w -> w.startsWith("Unassigned capture:")));
+        for (boolean withBody : List.of(true, false)) {
+            if (!withBody) {
+                request.remove("postData");
+            }
+            List<HTTPSamplerProxy> samplers = new ArrayList<>();
+            collect(new HarConverter(parse(root).entries(), new HarImportOptions(), "recording.har", "digest")
+                    .convert(Set.of("example.com")), samplers);
+            assertEquals("https://example.com/items?id=5", samplers.get(0).getUrl().toString());
+            assertEquals(0, samplers.get(0).getHTTPFiles().length);
+        }
+    }
+
+    private static ObjectNode rawRequest(ObjectNode root, String body, String mimeType) {
+        ObjectNode entry = ((ArrayNode) root.path("log").path("entries")).addObject();
+        entry.put("startedDateTime", "2026-09-11T12:00:00Z").put("time", 10);
+        entry.putObject("response").put("status", 200);
+        ObjectNode request = entry.putObject("request").put("method", "POST")
+                .put("url", "https://example.com/_api/web/GetFileByServerRelativePath/FinishUpload");
+        if ("application/octet-stream".equals(mimeType)) {
+            request.put("bodySize", Base64.getDecoder().decode(body).length);
+        }
+        return request.putObject("postData").put("mimeType", mimeType).put("text", body);
     }
 
     @Test
