@@ -19,8 +19,12 @@
 package org.apache.jmeter.scenario;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.jmeter.testelement.AbstractTestElement;
+import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.CollectionProperty;
 
 /**
  * The configuration every thread group uses, whichever profile it runs with, such as the Cookie Manager.
@@ -30,11 +34,23 @@ public class SharedProfile extends AbstractTestElement implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * On User Defined Variables of the shared profile: the id of the thread group they came after in a plan made
-     * before scenarios existed. Variables apply in tree order, so they are evaluated after that thread group's own
-     * variables when it runs, and in the same place relative to the other thread groups when it does not.
+     * On User Defined Variables of the shared profile: the ids of the thread groups they came after in a plan made
+     * before scenarios existed, in the order of that plan. Variables apply in tree order, so they are evaluated
+     * after the variables of the last of those thread groups that runs, or before all thread groups when none does.
      */
-    public static final String AFTER_THREAD_GROUP = "BreakTest.sharedVariables.afterThreadGroup"; // $NON-NLS-1$
+    public static final String AFTER_THREAD_GROUPS = "BreakTest.sharedVariables.afterThreadGroups"; // $NON-NLS-1$
+
+    /**
+     * @param variables User Defined Variables of the shared profile
+     * @return the ids of the thread groups they came after in an old plan, see {@link #AFTER_THREAD_GROUPS}
+     */
+    public static List<String> threadGroupsBefore(TestElement variables) {
+        List<String> ids = new ArrayList<>();
+        if (variables.getProperty(AFTER_THREAD_GROUPS) instanceof CollectionProperty threadGroups) {
+            threadGroups.iterator().forEachRemaining(id -> ids.add(id.getStringValue()));
+        }
+        return ids;
+    }
 
     /**
      * @return whether threads start with the values of the shared variables rather than those of User Defined

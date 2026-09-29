@@ -336,8 +336,8 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
         assertTrue(planTree.getTree(profiles).getTree(shared).list().contains(after)) {
             "Test level variables stay test level, so they apply whichever thread groups run"
         }
-        assertEquals("browse", after.getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP)) {
-            "Evaluated after the last enabled thread group before them, like in the old plan"
+        assertEquals(listOf("browse", "disabled"), SharedProfile.threadGroupsBefore(after)) {
+            "Evaluated after the last of these that runs, like in the old plan"
         }
     }
 
@@ -388,6 +388,54 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
             listOf("Test Plan", "Test Plan", threadGroups.name, "Browse (2)", "Step"),
             (module.getProperty("ModuleController.node_path") as CollectionProperty).map { it.stringValue }
         ) { "The path points to the thread group that has the step, now named Browse (2)" }
+    }
+
+    @Test
+    fun `disabling the thread group before test level variables keeps their precedence`() {
+        val migrated = ScenarioPlanMigration.migrate(
+            testTree {
+                TestPlan::class {
+                    ThreadGroup::class {
+                        name = "First"
+                        +udv("host" to "first.example")
+                    }
+                    ThreadGroup::class { name = "Second" }
+                    +udv("host" to "global.example")
+                }
+            }
+        )
+        val planTree = migrated.getTree(migrated.array[0])
+        val section = planTree.list().filterIsInstance<ThreadGroupsSection>().single()
+        (planTree.getTree(section).list().first { (it as ThreadGroup).name == "Second" } as ThreadGroup).isEnabled = false
+        val scenarios = planTree.list().filterIsInstance<ScenariosSection>().single()
+        val scenario = planTree.getTree(scenarios).list().single() as Scenario
+        scenario.setWorkloads(listOf(scenario.workloads[0]))
+
+        assertEquals(mapOf("host" to "global.example"), compiledVariables(migrated, "host")) {
+            "The variables still come after First, as they did in the old plan"
+        }
+    }
+
+    @Test
+    fun `test level variables after a thread group can choose the profile`() {
+        val migrated = ScenarioPlanMigration.migrate(
+            testTree {
+                TestPlan::class {
+                    ThreadGroup::class { name = "Browse" }
+                    +udv("environment" to "acceptance")
+                }
+            }
+        )
+        val planTree = migrated.getTree(migrated.array[0])
+        val profiles = planTree.list().filterIsInstance<ProfilesSection>().single()
+        planTree.getTree(profiles).add(Profile("acceptance")).add(udv("host" to "acc.example"))
+        val scenarios = planTree.list().filterIsInstance<ScenariosSection>().single()
+        val scenario = planTree.getTree(scenarios).list().single() as Scenario
+        scenario.workloads.single().profile = "\${environment}"
+
+        val run = ScenarioResolver.resolve(JMeter.convertSubTree(migrated, false))
+        val threadGroup = run.getTree(run.array[0]).list().filterIsInstance<AbstractThreadGroup>().single()
+        assertEquals("acc.example", threadGroup.profileVariables["host"])
     }
 
     @Test

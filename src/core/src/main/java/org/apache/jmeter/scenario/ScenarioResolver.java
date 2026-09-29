@@ -435,15 +435,15 @@ public final class ScenarioResolver {
         }
 
         /**
-         * Adds the thread groups of the run. Shared variables that came after a thread group in an old plan go
-         * after the last run of that thread group; when it does not run, after the nearest thread group before it
-         * that does, else before all thread groups. The engine evaluates them there, in the same order as the old
-         * plan. The shared variables that override thread group variables go last.
+         * Adds the thread groups of the run. Shared variables that came after thread groups in an old plan go after
+         * the last run of the nearest of those thread groups that runs, else before all thread groups. The engine
+         * evaluates them there, in the same order as the old plan. The shared variables that override thread group
+         * variables go last.
          */
         void addThreadGroupsAndLaterSharedVariables() {
             Map<Integer, List<Arguments>> afterRun = new HashMap<>();
             for (Arguments variables : anchoredSharedVariables) {
-                int run = lastRunAtOrBefore(variables.getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP));
+                int run = lastRunOf(SharedProfile.threadGroupsBefore(variables));
                 afterRun.computeIfAbsent(run, key -> new ArrayList<>()).add(variables);
             }
             afterRun.getOrDefault(-1, List.of()).forEach(planTree::add);
@@ -456,15 +456,12 @@ public final class ScenarioResolver {
         }
 
         /**
-         * @param threadGroupId a thread group of the Thread groups section
-         * @return the index of the last run of that thread group, or of the nearest one before it in the section
-         *     that runs, or -1
+         * @param threadGroupIds thread groups, in the order of an old plan; disabled ones are not part of the run
+         * @return the index of the last run of the last of those thread groups that runs, or -1
          */
-        private int lastRunAtOrBefore(String threadGroupId) {
-            List<String> sectionOrder = new ArrayList<>();
-            threadGroups.forEach(entry -> sectionOrder.add(entry.threadGroup().getThreadGroupId()));
-            for (int position = sectionOrder.indexOf(threadGroupId); position >= 0; position--) {
-                String candidate = sectionOrder.get(position);
+        private int lastRunOf(List<String> threadGroupIds) {
+            for (int position = threadGroupIds.size() - 1; position >= 0; position--) {
+                String candidate = threadGroupIds.get(position);
                 for (int run = runs.size() - 1; run >= 0; run--) {
                     if (runs.get(run).threadGroupId().equals(candidate)) {
                         return run;
@@ -513,6 +510,19 @@ public final class ScenarioResolver {
             }
         }
 
+        /**
+         * Profile names may use shared variables that the engine evaluates later. Values without function calls can
+         * safely be evaluated here too; functions could have side effects, such as reading the next line of a file,
+         * so those are only evaluated once, by the engine.
+         */
+        private void learnValuesWithoutFunctions(Arguments variables) {
+            variables.getArgumentsAsMap().forEach((name, value) -> {
+                if (!value.contains("${__")) { // $NON-NLS-1$
+                    evaluator.put(name, evaluator.evaluate(value));
+                }
+            });
+        }
+
         private void addProfiles(HashTree profilesTree) {
             for (Object element : profilesTree.list()) {
                 HashTree elementTree = profilesTree.getTree(element);
@@ -520,9 +530,10 @@ public final class ScenarioResolver {
                     // The shared configuration applies to every thread group
                     for (Object shared : elementTree.list()) {
                         if (shared.getClass() == Arguments.class
-                                && !((Arguments) shared).getPropertyAsString(SharedProfile.AFTER_THREAD_GROUP).isEmpty()) {
+                                && !SharedProfile.threadGroupsBefore((Arguments) shared).isEmpty()) {
                             // Evaluated by the engine where they are placed, as they may use thread group variables
                             anchoredSharedVariables.add((Arguments) shared);
+                            learnValuesWithoutFunctions((Arguments) shared);
                             continue;
                         }
                         Object evaluated = evaluateVariables(shared);

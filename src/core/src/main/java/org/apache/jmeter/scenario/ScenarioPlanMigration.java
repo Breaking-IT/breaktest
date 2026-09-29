@@ -218,17 +218,17 @@ public final class ScenarioPlanMigration {
         Map<Class<? extends TestPlanSection>, Set<String>> usedNames = new HashMap<>();
         Set<String> threadGroupIds = new HashSet<>();
         // User Defined Variables apply to the whole test in tree order. Test plan level ones after a thread group
-        // stay test level, in the Shared Profile, and remember the last enabled thread group before them, so a run
-        // still evaluates them after the variables they may use and before those that may use them.
-        AbstractThreadGroup lastEnabledThreadGroup = null;
+        // stay test level, in the Shared Profile, and remember the thread groups before them, so a run still
+        // evaluates them after the variables they may use and before those that may use them, whichever run.
+        List<String> threadGroupsSoFar = new ArrayList<>();
 
         for (Object child : planTree.list()) {
             HashTree childTree = planTree.getTree(child);
             Object element = child;
-            if (lastEnabledThreadGroup != null && child.getClass() == Arguments.class
+            if (!threadGroupsSoFar.isEmpty() && child.getClass() == Arguments.class
                     && ((Arguments) child).isEnabled()) {
-                ((Arguments) child).setProperty(SharedProfile.AFTER_THREAD_GROUP,
-                        lastEnabledThreadGroup.getThreadGroupId());
+                ((Arguments) child).setProperty(
+                        new CollectionProperty(SharedProfile.AFTER_THREAD_GROUPS, new ArrayList<>(threadGroupsSoFar)));
             }
             if (child instanceof AbstractThreadGroup original) {
                 AbstractThreadGroup threadGroup = original instanceof OpenModelThreadGroup openModel
@@ -243,9 +243,7 @@ public final class ScenarioPlanMigration {
                 workloads.add(workloadOf(threadGroup));
                 keepOnlyScript(threadGroup);
                 element = threadGroup;
-                if (threadGroup.isEnabled()) {
-                    lastEnabledThreadGroup = threadGroup;
-                }
+                threadGroupsSoFar.add(threadGroup.getThreadGroupId());
             }
             Class<? extends TestPlanSection> section = sectionFor(element);
             if (section == TestFragmentsSection.class && element instanceof TestElement fragment) {
