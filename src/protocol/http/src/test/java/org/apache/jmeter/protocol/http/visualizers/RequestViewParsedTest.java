@@ -25,6 +25,7 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Rectangle;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -39,6 +40,9 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.RequestPanel;
+import org.apache.jmeter.visualizers.SamplerResultTab.RowResult;
+import org.apache.jorphan.gui.ObjectTableModel;
+import org.apache.jorphan.reflect.Functor;
 import org.junit.jupiter.api.Test;
 
 class RequestViewParsedTest {
@@ -100,8 +104,22 @@ class RequestViewParsedTest {
             JTable body = descendants(view(result).getPanel(), JTable.class).get(3);
             assertEquals(2, body.getRowCount());
             assertEquals("value", body.getValueAt(0, 1));
-            assertEquals("test.txt", body.getValueAt(1, 1));
+            assertEquals("test.txt (text/plain)", body.getValueAt(1, 1));
         });
+    }
+
+    @Test
+    void keepsDistinctBytesOfNonUtf8Parameters() {
+        var model = new ObjectTableModel(new String[] {"k", "v"},
+                RowResult.class,
+                new Functor[] {new Functor("getKey"),
+                    new Functor("getValue")},
+                new Functor[] {null, null}, new Class[] {String.class, String.class}, false);
+        RequestViewHTTP.addParameters(model, "a=caf%E9&b=caf%E8&c=caf%C3%A9",
+                StandardCharsets.UTF_8);
+        assertEquals("caf\u00e9", model.getValueAt(0, 1));
+        assertEquals("caf\u00e8", model.getValueAt(1, 1));
+        assertEquals("caf\u00e9", model.getValueAt(2, 1));
     }
 
     @Test

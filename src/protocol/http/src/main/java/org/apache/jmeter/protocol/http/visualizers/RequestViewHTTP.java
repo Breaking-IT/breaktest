@@ -27,6 +27,8 @@ import java.awt.Rectangle;
 import java.io.UnsupportedEncodingException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -90,6 +92,7 @@ public class RequestViewHTTP implements RequestView {
     private JPanel bodyCards;
     private JSyntaxTextArea rawBody;
     private boolean formBody;
+    private boolean fileParts;
     private String originalBody = "";
     private String bodyContentType = "";
 
@@ -184,6 +187,7 @@ public class RequestViewHTTP implements RequestView {
         headersModel.clearData();
         bodyModel.clearData();
         formBody = false;
+        fileParts = false;
         originalBody = "";
         bodyContentType = "";
         rawBody.setText("");
@@ -248,11 +252,11 @@ public class RequestViewHTTP implements RequestView {
     record Field(String name, String value) { }
 
     record ParsedRequest(List<Field> details, List<Field> query, List<Field> headers,
-            List<Field> form, String body, String contentType, boolean formBody) { }
+            List<Field> form, String body, String contentType, boolean formBody, boolean fileParts) { }
 
     ParsedRequest snapshot() {
         return new ParsedRequest(fields(requestModel), fields(paramsModel), fields(headersModel),
-                fields(bodyModel), originalBody, bodyContentType, formBody);
+                fields(bodyModel), originalBody, bodyContentType, formBody, fileParts);
     }
 
     private static List<Field> fields(ObjectTableModel model) {
@@ -293,7 +297,10 @@ public class RequestViewHTTP implements RequestView {
                 }
                 for (int i = 0; i < config.getHTTPFileArgs().getHTTPFileArgCount(); i++) {
                     HTTPFileArg file = config.getHTTPFileArgs().getHTTPFileArg(i);
-                    bodyModel.addRow(new RowResult(file.getParamName(), file.getPath()));
+                    bodyModel.addRow(new RowResult(file.getParamName(), file.getMimeType() == null
+                            || file.getMimeType().isEmpty() ? file.getPath()
+                            : file.getPath() + " (" + file.getMimeType() + ")"));
+                    fileParts = true;
                 }
                 return bodyModel.getRowCount() > 0;
             }
@@ -321,7 +328,15 @@ public class RequestViewHTTP implements RequestView {
 
     private static String decodeParameter(String value, Charset charset) {
         try {
-            return URLDecoder.decode(value, charset);
+            // Decode bytes strictly so undecodable input keeps its distinct bytes
+            // instead of collapsing into U+FFFD replacement characters.
+            byte[] bytes = URLDecoder.decode(value, StandardCharsets.ISO_8859_1)
+                    .getBytes(StandardCharsets.ISO_8859_1);
+            try {
+                return charset.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+            } catch (CharacterCodingException e) {
+                return new String(bytes, StandardCharsets.ISO_8859_1);
+            }
         } catch (IllegalArgumentException e) {
             return value;
         }

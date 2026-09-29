@@ -19,7 +19,10 @@ package org.apache.jmeter.visualizers;
 
 import java.awt.BorderLayout;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
+import java.util.List;
 import java.util.ServiceLoader;
 import java.util.function.Supplier;
 
@@ -60,7 +63,7 @@ public class RequestPanel {
         panel = new JPanel(new BorderLayout());
         JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP);
         tabs.addTab(requestView.getLabel(), requestView.getPanel());
-        java.util.List<RequestView> views = new java.util.ArrayList<>();
+        List<RequestView> views = new ArrayList<>();
         for (RequestView view : JMeterUtils.loadServicesAndScanJars(
                 RequestView.class, ServiceLoader.load(RequestView.class),
                 Thread.currentThread().getContextClassLoader(),
@@ -70,7 +73,7 @@ public class RequestPanel {
             }
             views.add(view);
         }
-        views.sort(java.util.Comparator.comparing(view -> view.getClass().getName()));
+        views.sort(Comparator.comparing(view -> view.getClass().getName()));
         for (RequestView view : views) {
             view.setDiffContentSupplier(diffContentSupplier);
             view.init();
