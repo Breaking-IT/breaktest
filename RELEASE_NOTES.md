@@ -13,6 +13,72 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.30 — Fixed Plan Layout, Scenarios, and Ask AI
+
+This release gives test plans a consistent home for every element. The new fixed node layout separates reusable thread-group scripts from scenarios and environment profiles, making larger plans easier to navigate and reuse. A visible **Ask AI** button brings CLI, provider/model, and reasoning choices into the script editor, alongside many improvements to validation, request inspection, run controls, and everyday editing.
+
+## A Fixed Layout for Every Test Plan
+
+- **Find things in predictable places:** Scenarios, Thread groups, Listeners, Profiles, and Test Fragments are fixed top-level sections. Shared Profile is fixed too; new elements are routed into the appropriate section. Non-Test Elements appears when needed for recorders and other supporting tools.
+- **Reuse scripts across workloads:** define load, stress, or other scenarios without duplicating thread-group scripts. Each scenario row chooses its thread group, workload model, threads, schedule, duration, loops, pacing, error handling, and profile. Run groups concurrently or consecutively, and reuse one script in multiple rows.
+- **Keep environment settings together:** Shared Profile supplies common configuration, while named profiles hold environment-specific configuration and variables isolated to each workload instance. Choose a default profile or override it per row, including with expressions.
+- **See what will run:** the scenario editor summarizes workload peaks and duration and flags values that cannot be resolved before execution. Run the active scenario or use **Run this scenario** on another one. Non-GUI runs support `--scenario` and `--profile`.
+- **Move around and merge with less friction:** Module Controller offers **Jump to**, and double-clicking it selects its target. Merging plans reuses the existing sections, retains the open plan's name, and repairs colliding names and identities while preserving scenario, profile, and module references.
+
+Source: [#189](https://github.com/Breaking-IT/breaktest/pull/189).
+
+## Ask AI, Right in the Script Editor
+
+- **Ask AI is now a visible button** in JSR223 editors, also available from the context menu. Start from an empty script or ask for changes to an existing one.
+- **Choose your AI CLI, provider/model, and reasoning level:** Ask AI shares the AI tool, model, and Thinking level controls used by AI Auto Scripting. Select a provider-qualified model where supported by the chosen CLI, or enter a custom model ID. Choices are remembered for the session.
+- **Find models faster:** search matches anywhere in a model ID, ignoring case, so `goog` can find `openrouter/google/gemini-3.8-flash`. Keyboard selection and per-tool model choices are preserved.
+- **More room for code:** compact language, parameters, file, and cache controls leave more space for the script, with Ask AI aligned beside the settings.
+- **Keep working while AI runs:** generated code returns to the element that initiated the request, even if you select another script. Other scripts and their unsaved edits are preserved; deleting the original element prevents the result from being applied elsewhere.
+- Follow streamed output in the AI activity log, stop a request from the log, and see elapsed time and available token counts when it finishes. A configurable timeout prevents a hung CLI from blocking subsequent requests.
+
+Sources: [#183](https://github.com/Breaking-IT/breaktest/pull/183), [#197](https://github.com/Breaking-IT/breaktest/pull/197).
+
+## Clearer Validation and Results
+
+- Validation opens an existing enabled **View Results Tree** for the selected workload when available. It follows the latest owning request, expands running transactions, refreshes details when requests finish, and collapses previous automatic expansions while respecting manually expanded branches. Automatic opening can be disabled in validation settings.
+- Each listener remembers tree/table mode, response diff, autoscroll, and visible columns in the test plan. The table shows response **Code** by default, and the default retained-result limit rises from 500 to **2,500**.
+- Flat listeners again show transaction-level results by default. Enable **Children** to include child samples and nested transactions; samples outside transactions remain visible. A compact **Filter: All / Errors / Successes** selector replaces the separate outcome checkboxes. View Results Tree retains its expandable hierarchy.
+- **Jump to** and **Store replay** now work for nodes with variables in their names, including dynamic ancestor names and duplicate runtime labels.
+
+Sources: [#185](https://github.com/Breaking-IT/breaktest/pull/185), [#187](https://github.com/Breaking-IT/breaktest/pull/187), [#190](https://github.com/Breaking-IT/breaktest/pull/190), [#194](https://github.com/Breaking-IT/breaktest/pull/194).
+
+## Easier Request Inspection, Replay, and Editing
+
+- **Raw, Parsed, and Parsed Diff** request tabs make HTTP requests easier to inspect. Parsed shows query parameters, headers, and form fields in aligned tables; Parsed Diff compares recorded and current values side by side, highlighting changes and distinguishing added, removed, unchanged, and unavailable fields.
+- Repeated parameters remain separate, malformed encodings remain distinguishable, and raw bodies offer pretty printing, a larger modeless viewer, and text comparison.
+- **HTTP Request Defaults now has a Headers tab.** Define shared headers directly in Defaults; request-specific headers take priority, with scoped Defaults and Header Managers supplying inherited values.
+- Copied and moved samplers retain their recorded request/response links across copy/paste, drag-and-drop, and agent move/clone operations. Store Replay updates the appropriate recording source.
+- HAR imports correctly use filename references for raw uploads when captured-file evidence identifies a unique match. A new option keeps the recorded body when it is complete and can be replayed unchanged; incomplete or ambiguous content is not silently treated as a complete upload.
+- Renaming a cloned CSV Data Set Config clears its old archive reference, so Edit, preview, and execution use the newly selected file.
+
+Sources: [#182](https://github.com/Breaking-IT/breaktest/pull/182), [#186](https://github.com/Breaking-IT/breaktest/pull/186), [#188](https://github.com/Breaking-IT/breaktest/pull/188), [#195](https://github.com/Breaking-IT/breaktest/pull/195), [#196](https://github.com/Breaking-IT/breaktest/pull/196).
+
+## Simpler Run Controls and More Reliable Execution
+
+- One toolbar button switches between **Run, Pause, and Resume**. A short guard prevents double-clicking Run from immediately pausing the test.
+- **Stop** first requests graceful shutdown, then becomes **Stop now** to interrupt remaining work. State stays consistent across toolbar rebuilds and externally requested test stops.
+- Timer, think-time, and pacing waits wake on cancellation without periodic per-user polling. Scheduled end times also bound ramp-up and transaction delays, while active samplers can finish during graceful shutdown.
+- Custom closed-model workloads retain users across iterations and spread concurrency changes along a shared timeline, reducing bursty starts and accumulated schedule drift.
+- Fix late-starting workers escaping shutdown, nested keep-running forks restarting after their final boundary, and incomplete cleanup after startup failures. Regression fixtures also reduce timing and passive-port failures in CI.
+
+Sources: [#184](https://github.com/Breaking-IT/breaktest/pull/184), [#191](https://github.com/Breaking-IT/breaktest/pull/191), [#192](https://github.com/Breaking-IT/breaktest/pull/192), [#193](https://github.com/Breaking-IT/breaktest/pull/193).
+
+## Upgrade Notes
+
+- **Existing JMeter plans migrate in memory when opened in the GUI.** Workload settings become scenario rows, test-level configuration moves into Shared Profile, and listeners move into their section. Opening does not overwrite the source. Saving writes BreakTest's native structure and offers a JMeter-compatible backup before replacing an existing plain JMX. Keep that backup if the plan must also run in JMeter or older BreakTest versions.
+- Unsectioned plans retain their legacy non-GUI execution path when no scenario/profile override is requested. `--scenario` and `--profile` require a sectioned plan; `--profile` changes rows using **Use default**, while explicit row selections remain in effect.
+- **Start no pauses** and the thread-group context-menu Start actions are removed. Use scenarios for execution and **Validate** for a one-pass thread-group run without timers. New thread groups stop validation at the first sampler error; migrated groups use Stop unless their previous error setting was Continue.
+- After changing a listener's **Children** setting, clear and rerun or reload the results file. Saved sample data is unchanged. Listener plugins using `getErrorLoggingCheckbox()` must migrate to `getResultFilter()`.
+- The larger result-retention default can retain more response data in memory; adjust it for large responses. Exporting a selection with **Save as Test Fragment** does not yet carry inherited recording links.
+- Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; automatic HTTP/3 discovery remains opt-in.
+
+[Full changelog since 2026.09.25](https://github.com/Breaking-IT/breaktest/compare/2026.09.25...2026.09.30)
+
 # BreakTest 2026.09.25 — Fork Controls, Live Transactions, and Schedule Tables
 
 This release simplifies Transaction Controller by removing Generate parent sample and combining immediate metrics, low memory use, and live transaction progress in one reporting model. It also makes background forks configurable, adds schedule tables with random arrivals, and introduces script-free sampler-result filtering and While Controller iteration limits.
