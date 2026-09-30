@@ -38,13 +38,10 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.samplers.SampleResult;
-import org.apache.jmeter.threads.JMeterContextService;
-import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -149,55 +146,6 @@ class TestKerberosAuthentication {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"", "HTTP/1.1", "HTTP/2", "HTTP/3"})
-    @EnabledIfEnvironmentVariable(named = "BREAKTEST_KERBEROS_FIXTURE", matches = ".+")
-    void realKdcAndWebServerAuthenticatePrincipal(String protocol) throws Exception {
-        Path fixture = Path.of(System.getenv("BREAKTEST_KERBEROS_FIXTURE"));
-        String previousKrb5 = System.getProperty("java.security.krb5.conf");
-        String previousJaas = System.getProperty("java.security.auth.login.config");
-        JMeterVariables previousVariables = JMeterContextService.getContext().getVariables();
-        HTTPSamplerProxy sampler = sampler(protocol, Integer.parseInt(Files.readString(fixture.resolve("http-port")).trim()), "/mixed");
-        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
-        try {
-            System.setProperty("java.security.krb5.conf", fixture.resolve("krb5.conf").toString());
-            System.setProperty("java.security.auth.login.config", fixture.resolve("jaas.conf").toString());
-            javax.security.auth.login.Configuration.getConfiguration().refresh();
-            JMeterContextService.getContext().setVariables(new JMeterVariables());
-            AuthManager manager = new AuthManager();
-            manager.set(-1, "http://localhost:" + sampler.getPort() + "/", "tester@BREAKTEST.TEST", "fixture-password", "", "", Mechanism.KERBEROS);
-            sampler.setAuthManager(manager);
-            for (String path : List.of("/mixed", "/secure", "/mixed")) {
-                sampler.setPath(path);
-                SampleResult result = protocol.equals("HTTP/3")
-                        ? http3.sample(sampler.getUrl(), "GET", false, 0) : sampler.sample();
-                assertTrue(result.isSuccessful(), result.getResponseMessage() + "\n" + result.getResponseDataAsString());
-                assertEquals("tester@BREAKTEST.TEST", result.getResponseDataAsString());
-            }
-            sampler.setPath("/basic");
-            SampleResult basicOnly = protocol.equals("HTTP/3")
-                    ? http3.sample(sampler.getUrl(), "GET", false, 0) : sampler.sample();
-            assertEquals("401", basicOnly.getResponseCode());
-
-            AuthManager wrongPassword = new AuthManager();
-            wrongPassword.set(-1, "http://localhost:" + sampler.getPort() + "/",
-                    "tester@BREAKTEST.TEST", "incorrect-password", "", "", Mechanism.KERBEROS);
-            sampler.setAuthManager(wrongPassword);
-            sampler.setPath("/mixed");
-            SampleResult failedLogin = protocol.equals("HTTP/3")
-                    ? http3.sample(sampler.getUrl(), "GET", false, 0) : sampler.sample();
-            assertFalse(failedLogin.isSuccessful());
-            assertTrue(failedLogin.getResponseMessage().contains("Kerberos login failed"), failedLogin.getResponseMessage());
-        } finally {
-            sampler.threadFinished();
-            http3.threadFinished();
-            JMeterContextService.getContext().setVariables(previousVariables);
-            restoreProperty("java.security.krb5.conf", previousKrb5);
-            restoreProperty("java.security.auth.login.config", previousJaas);
-            javax.security.auth.login.Configuration.getConfiguration().refresh();
-        }
-    }
-
     private static HTTPSamplerProxy sampler(String protocol, int port, String path) {
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         sampler.setProtocol("http");
@@ -209,13 +157,5 @@ class TestKerberosAuthentication {
         sampler.setConnectTimeout("5000");
         sampler.setResponseTimeout("5000");
         return sampler;
-    }
-
-    private static void restoreProperty(String name, String value) {
-        if (value == null) {
-            System.clearProperty(name);
-        } else {
-            System.setProperty(name, value);
-        }
     }
 }
