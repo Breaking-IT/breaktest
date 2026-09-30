@@ -123,6 +123,7 @@ import org.apache.hc.core5.reactor.IOSessionListener;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
+import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.CookieManager;
@@ -208,12 +209,38 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private volatile HttpUriRequest currentRequest;
 
+    private HTTPHC5Impl kerberosClient;
+    private volatile HTTPHC5Impl activeKerberosClient;
+
     HTTPHC5H2Impl(HTTPSamplerBase testElement) {
         super(testElement);
     }
 
+    // GSS must execute on the sampling thread under the logged-in Subject. The async
+    // HTTP/2 client cannot carry that Subject to its I/O threads.
+    HTTPHC5Impl kerberosClientFor(URL url) {
+        AuthManager manager = getAuthManager();
+        Authorization authorization = manager == null ? null : manager.getAuthForURL(url);
+        if (authorization == null || authorization.getMechanism() != AuthManager.Mechanism.KERBEROS) {
+            return null;
+        }
+        if (kerberosClient == null) {
+            kerberosClient = new HTTPHC5Impl(testElement);
+        }
+        return kerberosClient;
+    }
+
     @Override
     protected HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth) {
+        HTTPHC5Impl fallback = kerberosClientFor(url);
+        if (fallback != null) {
+            activeKerberosClient = fallback;
+            try {
+                return fallback.sample(url, method, areFollowingRedirect, frameDepth);
+            } finally {
+                activeKerberosClient = null;
+            }
+        }
         log.debug("Start HTTP/2 sample {} method {} followingRedirect {} depth {}",
                 url, method, areFollowingRedirect, frameDepth);
         int attempt = 0;
@@ -1443,6 +1470,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     @Override
     protected void notifyFirstSampleAfterLoopRestart() {
+        if (kerberosClient != null) {
+            kerberosClient.notifyFirstSampleAfterLoopRestart();
+        }
         JMeterVariables jMeterVariables = JMeterContextService.getContext().getVariables();
         if (jMeterVariables == null || !jMeterVariables.isSameUserOnNextIteration()) {
             resetThreadLocalConnections();
@@ -1451,6 +1481,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     @Override
     protected void threadFinished() {
+        if (kerberosClient != null) {
+            kerberosClient.threadFinished();
+        }
         Object cacheKey = jMeterThreadCacheKey;
         if (cacheKey != null) {
             closeThreadLocalConnections(cacheKey);
@@ -1497,6 +1530,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     @Override
     public boolean interrupt() {
+        HTTPHC5Impl active = activeKerberosClient;
+        if (active != null) {
+            return active.interrupt();
+        }
         HttpUriRequest request = currentRequest;
         if (request != null) {
             currentRequest = null;

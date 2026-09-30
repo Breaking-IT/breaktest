@@ -35,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -91,6 +92,75 @@ public class TestHTTPHC5Impl {
             JMeterUtils.loadJMeterProperties(properties.toString());
             Files.deleteIfExists(properties);
         }
+    }
+
+    @Test
+    public void childUserTeardownDoesNotCloseAnotherUsersActiveConnection() throws Exception {
+        WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
+        server.start();
+        var workers = Executors.newFixedThreadPool(2);
+        CountDownLatch slowRequestReceived = new CountDownLatch(1);
+        CountDownLatch releaseSlowResponse = new CountDownLatch(1);
+        server.addMockServiceRequestListener((request, response) -> {
+            if (request.getUrl().equals("/slow")) {
+                slowRequestReceived.countDown();
+                try {
+                    if (!releaseSlowResponse.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Timed out waiting for the other user's teardown");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        JMeterVariables previous = JMeterContextService.getContext().getVariables();
+        HTTPSamplerProxy parent = classicSampler(server.port(), "/fast");
+        try {
+            server.stubFor(WireMock.get("/fast").willReturn(WireMock.ok("ok")));
+            server.stubFor(WireMock.get("/slow").willReturn(WireMock.ok("ok")));
+            JMeterContextService.getContext().setVariables(new JMeterVariables());
+            // Populate the parent's pool before creating child threads. An inheritable
+            // pool map makes both children use (and eventually close) this same map.
+            assertTrue(parent.sample().isSuccessful());
+            var slow = workers.submit(() -> sampleAsChildUser(server.port(), "/slow"));
+            assertTrue(slowRequestReceived.await(5, TimeUnit.SECONDS));
+            assertFalse(slow.isDone(), "The first user's request must still be in flight");
+            var fast = workers.submit(() -> sampleAsChildUser(server.port(), "/fast"));
+            assertTrue(fast.get(5, TimeUnit.SECONDS).isSuccessful());
+            releaseSlowResponse.countDown();
+            SampleResult slowResult = slow.get(5, TimeUnit.SECONDS);
+            assertTrue(slowResult.isSuccessful(), slowResult.getResponseMessage());
+        } finally {
+            releaseSlowResponse.countDown();
+            workers.shutdownNow();
+            assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
+            parent.threadFinished();
+            JMeterContextService.getContext().setVariables(previous);
+            server.stop();
+        }
+    }
+
+    private static SampleResult sampleAsChildUser(int port, String path) {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        HTTPSamplerProxy sampler = classicSampler(port, path);
+        try {
+            return sampler.sample();
+        } finally {
+            sampler.threadFinished();
+        }
+    }
+
+    private static HTTPSamplerProxy classicSampler(int port, String path) {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProtocol("http");
+        sampler.setDomain("localhost");
+        sampler.setPort(port);
+        sampler.setPath(path);
+        sampler.setMethod("GET");
+        sampler.setHttpProtocol("HTTP/1.1");
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("5000");
+        return sampler;
     }
 
     @Test

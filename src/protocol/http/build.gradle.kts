@@ -31,7 +31,7 @@ extensions.configure<TestEnvironmentInputs> {
         "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
     ).forEach { flags.put(it, providers.environmentVariable(it).orElse("")) }
     listOf(
-        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
+        "BREAKTEST_KERBEROS_FIXTURE", "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
     ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
 }
 

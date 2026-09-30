@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.sampler;
 
 import java.net.URL;
+import java.util.Objects;
 
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.samplers.Interruptible;
@@ -34,6 +35,8 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible {
     private static final long serialVersionUID = 1L;
 
     private transient HTTPAbstractImpl impl;
+    private transient String implHttpProtocol;
+    private transient String implConfiguredImplementation;
 
     public HTTPSamplerProxy(){
         super();
@@ -56,9 +59,20 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible {
         // as the instance of Proxy is cloned, we end up with impl being null
         // testIterationStart will not be executed but it's not a problem for 51380 as it's download of resources
         // so SSL context is to be reused
+        String httpProtocol = getHttpProtocol();
+        String implementation = getImplementation();
+        if (impl != null && (!Objects.equals(implHttpProtocol, httpProtocol)
+                || !Objects.equals(implConfiguredImplementation, implementation))) {
+            // Variables and defaults can change between iterations. A cached HTTP/1.1
+            // implementation cannot honor a later HTTP/2 selection (or vice versa).
+            impl.threadFinished();
+            impl = null;
+        }
         if (impl == null) { // Not called from multiple threads, so this is OK
             try {
-                impl = HTTPSamplerFactory.getImplementation(getImplementation(), this);
+                impl = HTTPSamplerFactory.getImplementation(implementation, this);
+                implHttpProtocol = httpProtocol;
+                implConfiguredImplementation = implementation;
             } catch (Exception ex) {
                 return errorResult(ex, new HTTPSampleResult());
             }
