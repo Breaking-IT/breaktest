@@ -22,11 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
-import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.swing.JCheckBox;
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.gui.settings.SettingsCatalog;
 import org.apache.jmeter.gui.settings.SettingsGroup;
@@ -70,8 +74,57 @@ class WelcomeDialogTest extends JMeterTestCase {
         assertFalse(WelcomeDialog.shouldShow("test.jmx"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,io", "true,io", "false,catalog", "true,catalog", "false,properties", "true,properties"})
+    void failedCheckboxSaveRestoresStateAndReportsError(boolean initiallyHidden, String failure) throws Exception {
+        JMeterUtils.setProperty(WelcomeDialog.SHOW_PROPERTY, Boolean.toString(!initiallyHidden));
+        AtomicInteger errors = new AtomicInteger();
+        SwingUtilities.invokeAndWait(() -> {
+            JCheckBox skip = WelcomeDialog.createSkipCheckbox(() -> {
+                switch (failure) {
+                    case "io":
+                        throw new IOException("Unable to write user.properties");
+                    case "catalog":
+                        throw new IllegalStateException("Unable to load catalog");
+                    default:
+                        throw new IllegalArgumentException("Malformed properties");
+                }
+            }, errors::incrementAndGet);
+            assertEquals(initiallyHidden, skip.isSelected());
+            skip.doClick();
+            assertEquals(initiallyHidden, skip.isSelected());
+            assertEquals(1, errors.get());
+            assertEquals(!initiallyHidden, WelcomeDialog.shouldShow(null));
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"4000,2000,1000,700,false", "-4000,-2000,1000,700,false",
+        "-990,0,1000,700,false", "0,0,0,0,false", "0,0,1000,700,true"})
+    void unusableOwnerBoundsFallBackToMonitor(int x, int y, int width, int height, boolean minimized) {
+        Rectangle available = new Rectangle(0, 30, 1920, 1050);
+        Rectangle result = WelcomeDialog.dialogBounds(new Dimension(900, 600),
+                new Rectangle(x, y, width, height), available, minimized);
+        assertEquals(new Rectangle(510, 255, 900, 600), result);
+        assertTrue(available.contains(result));
+    }
+
     @Test
-    void userOverrideRoundTripLeavesDistributionDefaultsUntouched() throws IOException {
+    void sizingFitsContentsAndRespectsVisibleOwnerAndSmallMonitors() {
+        Rectangle available = new Rectangle(-1920, 30, 1920, 1050);
+        Rectangle owner = new Rectangle(-1800, 100, 1200, 800);
+        assertEquals(new Dimension(900, 500),
+                WelcomeDialog.dialogBounds(new Dimension(900, 500), owner, available, false).getSize());
+        Rectangle limited = WelcomeDialog.dialogBounds(new Dimension(3000, 2000), owner, available, false);
+        assertEquals(new Dimension(1020, 680), limited.getSize());
+        assertTrue(owner.contains(limited));
+        Rectangle smallMonitor = new Rectangle(0, 0, 500, 300);
+        assertEquals(smallMonitor, WelcomeDialog.dialogBounds(new Dimension(900, 600),
+                new Rectangle(), smallMonitor, true));
+    }
+
+    @Test
+    void userOverrideRoundTripLeavesDistributionDefaultsUntouched() throws Exception {
         Path jmeter = tempDir.resolve("jmeter.properties");
         Path user = tempDir.resolve("user.properties");
         Path system = tempDir.resolve("system.properties");
@@ -82,14 +135,19 @@ class WelcomeDialogTest extends JMeterTestCase {
         SettingsGroup general = catalog.getGroups().stream()
                 .filter(group -> group.getId().equals("general")).findFirst().orElseThrow();
         SettingsModel model = new SettingsModel(catalog, jmeter.toFile(), user.toFile(), system.toFile());
-        model.apply(SettingsGroup.Target.USER, Map.of(WelcomeDialog.SHOW_PROPERTY, "false"), Set.of());
+        AtomicInteger errors = new AtomicInteger();
+        JCheckBox skip = WelcomeDialog.createSkipCheckbox(() -> model, errors::incrementAndGet);
+        SwingUtilities.invokeAndWait(skip::doClick);
+        assertTrue(skip.isSelected());
         assertFalse(WelcomeDialog.shouldShow(null));
         SettingsModel reloaded = new SettingsModel(catalog, jmeter.toFile(), user.toFile(), system.toFile());
         assertEquals("false", reloaded.getValue(general, catalog.findSetting(WelcomeDialog.SHOW_PROPERTY)));
         assertTrue(Files.readString(user).contains("welcome.show=false"));
         assertEquals(defaults, Files.readString(jmeter));
 
-        reloaded.apply(SettingsGroup.Target.USER, Map.of(), Set.of(WelcomeDialog.SHOW_PROPERTY));
+        SwingUtilities.invokeAndWait(skip::doClick);
+        assertFalse(skip.isSelected());
+        assertEquals(0, errors.get());
         assertTrue(WelcomeDialog.shouldShow(null));
         assertNull(JMeterUtils.getJMeterProperties().getProperty(WelcomeDialog.SHOW_PROPERTY));
         SettingsModel reset = new SettingsModel(catalog, jmeter.toFile(), user.toFile(), system.toFile());

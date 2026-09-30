@@ -22,6 +22,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Frame;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Rectangle;
@@ -49,6 +50,7 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.KeyStroke;
@@ -196,16 +198,9 @@ public final class WelcomeDialog extends JDialog {
         choices.add(actionColumn, BorderLayout.EAST);
         content.add(choices, BorderLayout.CENTER);
 
-        JCheckBox skip = new JCheckBox(JMeterUtils.getResString("welcome_skip"));
-        skip.addActionListener(event -> {
-            try {
-                new SettingsModel().apply(SettingsGroup.Target.USER,
-                        skip.isSelected() ? Map.of(SHOW_PROPERTY, "false") : Map.of(),
-                        skip.isSelected() ? Set.of() : Set.of(SHOW_PROPERTY));
-            } catch (IOException ex) {
-                LOG.warn("Unable to save welcome screen preference", ex);
-            }
-        });
+        JCheckBox skip = createSkipCheckbox(SettingsModel::new, () -> JOptionPane.showMessageDialog(this,
+                JMeterUtils.getResString("welcome_save_failed"), JMeterUtils.getResString("welcome_title"),
+                JOptionPane.ERROR_MESSAGE));
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.LEADING, 0, 0));
         footer.add(skip);
         content.add(footer, BorderLayout.SOUTH);
@@ -218,14 +213,51 @@ public final class WelcomeDialog extends JDialog {
         available.y += insets.top;
         available.width -= insets.left + insets.right;
         available.height -= insets.top + insets.bottom;
-        Rectangle bounds = owner.getBounds().intersection(available);
-        int width = Math.min(getWidth(), Math.max(1, (int) (bounds.width * 0.85)));
-        int height = Math.min(getHeight(), Math.max(1, (int) (bounds.height * 0.85)));
-        setSize(width, height);
-        setMinimumSize(new Dimension(Math.min(640, width), Math.min(400, height)));
-        setLocationRelativeTo(owner);
-        setLocation(Math.max(available.x, Math.min(getX(), available.x + available.width - width)),
-                Math.max(available.y, Math.min(getY(), available.y + available.height - height)));
+        Rectangle bounds = dialogBounds(getSize(), owner.getBounds(), available,
+                (owner.getExtendedState() & Frame.ICONIFIED) != 0);
+        setBounds(bounds);
+        setMinimumSize(new Dimension(Math.min(640, bounds.width), Math.min(400, bounds.height)));
+    }
+
+    static Rectangle dialogBounds(Dimension preferred, Rectangle owner, Rectangle available, boolean minimized) {
+        Rectangle visibleOwner = owner.intersection(available);
+        // A tiny or absent intersection is not a useful sizing or centering reference.
+        Rectangle reference = minimized || visibleOwner.width < 640 || visibleOwner.height < 400
+                ? available : visibleOwner;
+        int minWidth = Math.min(640, available.width);
+        int minHeight = Math.min(400, available.height);
+        int width = Math.min(Math.max(minWidth, preferred.width),
+                Math.max(minWidth, (int) (reference.width * 0.85)));
+        int height = Math.min(Math.max(minHeight, preferred.height),
+                Math.max(minHeight, (int) (reference.height * 0.85)));
+        int x = Math.max(available.x, Math.min(reference.x + (reference.width - width) / 2,
+                available.x + available.width - width));
+        int y = Math.max(available.y, Math.min(reference.y + (reference.height - height) / 2,
+                available.y + available.height - height));
+        return new Rectangle(x, y, width, height);
+    }
+
+    @FunctionalInterface
+    interface SettingsModelFactory {
+        SettingsModel create() throws IOException;
+    }
+
+    static JCheckBox createSkipCheckbox(SettingsModelFactory modelFactory, Runnable reportFailure) {
+        JCheckBox skip = new JCheckBox(JMeterUtils.getResString("welcome_skip"),
+                !JMeterUtils.getPropDefault(SHOW_PROPERTY, true));
+        skip.addActionListener(event -> {
+            boolean selected = skip.isSelected();
+            try {
+                modelFactory.create().apply(SettingsGroup.Target.USER,
+                        selected ? Map.of(SHOW_PROPERTY, "false") : Map.of(),
+                        selected ? Set.of() : Set.of(SHOW_PROPERTY));
+            } catch (IOException | RuntimeException ex) {
+                skip.setSelected(!selected);
+                LOG.warn("Unable to save welcome screen preference", ex);
+                reportFailure.run();
+            }
+        });
+        return skip;
     }
 
     private JButton actionButton(String label, String command) {
