@@ -24,6 +24,31 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.09.30.1 — Hotfixes and Welcome Screen</h1>
+<p>This hotfix release fixes Module Controller references in migrated plans and Kerberos authentication compatibility, and adds a welcome screen for opening plans and starting recordings. It includes all three feature and fix PRs merged since 2026.09.30.</p>
+<ch_section>Hotfixes</ch_section>
+<ul>
+<li><b>Module Controller references:</b> preserve every reference when migrating legacy plans or renaming conflicting fragments during a merge. Identical controllers in different thread groups now all receive the updated target path, avoiding missing-target failures. <a href="https://github.com/Breaking-IT/breaktest/pull/199">#199</a></li>
+<li><b>Kerberos authentication:</b> requests matching a KERBEROS Authorization Manager row use the synchronous HTTP/1.1 transport, including when HTTP/2 is selected, so authentication runs within the logged-in JAAS Subject. Authentication remains challenge-driven and restricted to SPNEGO/Kerberos; login failures are reported explicitly. <a href="https://github.com/Breaking-IT/breaktest/pull/200">#200</a></li>
+<li><b>HTTP sampler lifecycle:</b> recreate cached implementations when resolved protocol settings change and isolate client pools per user thread, preventing another user's teardown from closing an active connection. Timeout and interruption classification is preserved. <a href="https://github.com/Breaking-IT/breaktest/pull/200">#200</a></li>
+</ul>
+<ch_section>Welcome Screen</ch_section>
+<ul>
+<li>Open a recent test plan, browse for a JMX file, import a HAR, or start an empty plan from the startup screen.</li>
+<li>Start with HTTP Recorder to create an empty thread group and a recorder already targeting it.</li>
+<li>Browse compact recent-file rows with full paths and modification dates. The window fits its contents and available screen space, including when the main window is minimized or off-screen.</li>
+<li>Configure <code>welcome.show</code> (default <code>true</code>) and <code>recent.files.max</code> (default <code>9</code>, range <code>1..100</code>) under General &amp; Startup. The welcome list shows the configured history; File &gt; Open Recent remains capped at nine entries.</li>
+<li>The “Don't show this screen again” checkbox saves to <code>user.properties</code>. Save failures restore the checkbox and report an error. Starting with a test file bypasses the screen.</li>
+</ul>
+<p>Source: <a href="https://github.com/Breaking-IT/breaktest/pull/201">#201</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<ul>
+<li>Non-default settings belong in <code>user.properties</code>; <code>jmeter.properties</code> documents the defaults.</li>
+<li>Kerberos still requires a matching Authorization Manager row and valid JAAS/realm configuration. This release does not add native Kerberos over HTTP/2. Enterprise Active Directory, cross-realm trust, and delegation are not covered by the checked-in regression tests.</li>
+<li>Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later.</li>
+</ul>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.09.30...2026.09.30.1">Full changelog since 2026.09.30</a></p>
+
 <h1>BreakTest 2026.09.30 — Fixed Plan Layout, Scenarios, and Ask AI</h1>
 <p>This release gives test plans a consistent home for every element. The new fixed node layout separates reusable thread-group scripts from scenarios and environment profiles, making larger plans easier to navigate and reuse. A visible <b>Ask AI</b> button brings CLI, provider/model, and reasoning choices into the script editor, alongside many improvements to validation, request inspection, run controls, and everyday editing.</p>
 <ch_section>A Fixed Layout for Every Test Plan</ch_section>
