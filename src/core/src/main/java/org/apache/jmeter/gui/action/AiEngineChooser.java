@@ -109,6 +109,8 @@ public final class AiEngineChooser {
          */
         public int run(String prompt, File workingDirectory, Duration timeout)
                 throws IOException, InterruptedException {
+            long started = System.nanoTime();
+            AiRunOutput output = new AiRunOutput();
             List<String> command = AiAutoScriptingAction.oneShotCommand(
                     tool, thinkingLevel, model, prompt, workingDirectory);
             AiCliProcess processCommand = AiCliProcess.prepare(command, AiAutoScriptingAction.promptStyle(tool));
@@ -116,6 +118,7 @@ public final class AiEngineChooser {
             try {
                 process = processCommand.start(workingDirectory);
             } catch (IOException ex) {
+                postRunMetrics(started, output);
                 throw new IOException(AiAutoScriptingAction.launchFailureMessage(tool, command, ex), ex);
             }
             AtomicBoolean stopped = new AtomicBoolean();
@@ -136,7 +139,7 @@ public final class AiEngineChooser {
             });
             try {
                 processCommand.writePrompt(process);
-                AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
+                output = AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
                 int exitCode = process.waitFor();
                 if (stopped.get()) {
                     throw new CancellationException(tool.displayName() + " was stopped.");
@@ -150,6 +153,16 @@ public final class AiEngineChooser {
                 AiAutoScriptingLogWindow.setStopHandler(null);
                 watchdog.interrupt();
                 destroyTree(process);
+                postRunMetrics(started, output);
+            }
+        }
+
+        private static void postRunMetrics(long started, AiRunOutput output) {
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+            AiAutoScriptingLogWindow.append("Total time: " + AiAutoScriptingAction.formatDuration(elapsed));
+            String usage = output.reportedTokenUsage();
+            if (!usage.isEmpty()) {
+                AiAutoScriptingLogWindow.append(usage);
             }
         }
 

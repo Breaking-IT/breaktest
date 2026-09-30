@@ -21,6 +21,8 @@ import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.io.File;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -31,7 +33,11 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
 
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -43,6 +49,10 @@ final class AiModelSelector extends JPanel {
     private final Map<String, AiModelCatalog.Result> cache = new HashMap<>();
     private final Map<String, String> selections = new HashMap<>();
     private SwingWorker<AiModelCatalog.Result, Void> worker;
+    private List<String> availableModels = List.of();
+    private boolean updatingChoices;
+    private int filterRevision;
+    private String query;
     private String tool;
     private File directory;
     private int generation;
@@ -57,6 +67,30 @@ final class AiModelSelector extends JPanel {
         this.loader = loader;
         model.setEditable(true);
         model.setMaximumRowCount(14);
+        JTextComponent editor = (JTextComponent) model.getEditor().getEditorComponent();
+        editor.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent event) {
+                scheduleFilter();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent event) {
+                scheduleFilter();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent event) {
+                scheduleFilter();
+            }
+        });
+        model.addActionListener(event -> {
+            if (!updatingChoices) {
+                // Choosing a suggestion must not narrow the list during keyboard navigation.
+                filterRevision++;
+                query = null;
+            }
+        });
         // Long provider/model IDs must not force the dialog wider.
         model.setPrototypeDisplayValue("openrouter/provider/model-name");
         model.setMinimumSize(new Dimension(160, model.getPreferredSize().height));
@@ -83,7 +117,8 @@ final class AiModelSelector extends JPanel {
     }
 
     void setSelectedModel(String selected) {
-        model.setSelectedItem(selected == null || selected.isBlank() ? DEFAULT : selected);
+        query = null;
+        replaceChoices(selected == null || selected.isBlank() ? DEFAULT : selected, false);
     }
 
     void selectTool(String selectedTool, File workingDirectory) {
@@ -92,8 +127,8 @@ final class AiModelSelector extends JPanel {
         }
         tool = selectedTool;
         directory = workingDirectory;
-        model.setModel(new DefaultComboBoxModel<>(new String[] { DEFAULT }));
-        model.setSelectedItem(selections.getOrDefault(tool, "").isBlank() ? DEFAULT : selections.get(tool));
+        availableModels = List.of();
+        setSelectedModel(selections.getOrDefault(tool, ""));
         load(false);
     }
 
@@ -137,11 +172,8 @@ final class AiModelSelector extends JPanel {
 
     private void display(AiModelCatalog.Result result) {
         String selected = selectedModel();
-        DefaultComboBoxModel<String> choices = new DefaultComboBoxModel<>();
-        choices.addElement(DEFAULT);
-        result.models().forEach(choices::addElement);
-        model.setModel(choices);
-        model.setSelectedItem(selected.isBlank() ? DEFAULT : selected);
+        availableModels = result.models();
+        replaceChoices(selected.isBlank() ? DEFAULT : selected, query != null);
         String summary;
         if (result.status().unavailable()) {
             summary = JMeterUtils.getResString("ai_model_unavailable");
@@ -151,6 +183,51 @@ final class AiModelSelector extends JPanel {
             summary = java.text.MessageFormat.format(JMeterUtils.getResString("ai_model_count"), result.models().size());
         }
         setStatus(summary, result.status().description());
+    }
+
+    private void scheduleFilter() {
+        if (updatingChoices) {
+            return;
+        }
+        int revision = ++filterRevision;
+        // Updating the editor while its document is notifying listeners is illegal.
+        SwingUtilities.invokeLater(() -> {
+            if (revision != filterRevision) {
+                return;
+            }
+            JTextComponent editor = (JTextComponent) model.getEditor().getEditorComponent();
+            query = editor.getText();
+            int caret = editor.getCaretPosition();
+            model.setPopupVisible(false);
+            replaceChoices(query, true);
+            editor.setCaretPosition(Math.min(caret, editor.getDocument().getLength()));
+            if (model.isShowing() && editor.isFocusOwner()) {
+                model.setPopupVisible(model.getItemCount() > 0);
+            }
+        });
+    }
+
+    private void replaceChoices(String selected, boolean filter) {
+        filterRevision++;
+        updatingChoices = true;
+        try {
+            String matching = filter && !DEFAULT.equals(selected) ? selected.trim().toLowerCase(Locale.ROOT) : "";
+            DefaultComboBoxModel<String> choices = new DefaultComboBoxModel<>();
+            if (matching.isEmpty() || DEFAULT.toLowerCase(Locale.ROOT).contains(matching)) {
+                choices.addElement(DEFAULT);
+            }
+            for (String candidate : availableModels) {
+                if (candidate.toLowerCase(Locale.ROOT).contains(matching)) {
+                    choices.addElement(candidate);
+                }
+            }
+            // Set the selection before installing the model to keep Swing from replacing typed text.
+            choices.setSelectedItem(selected);
+            model.setModel(choices);
+            model.getEditor().setItem(selected);
+        } finally {
+            updatingChoices = false;
+        }
     }
 
     private void setStatus(String summary, String detail) {

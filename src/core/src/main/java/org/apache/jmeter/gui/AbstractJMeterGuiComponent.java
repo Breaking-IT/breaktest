@@ -327,8 +327,9 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
      * @return a panel containing the component title and name panel
      */
     protected Container makeTitlePanel() {
+        // Keep button bounds aligned with the content edges used by the editor below.
         JPanel titlePanel = new JPanel(new MigLayout(
-                "fillx, wrap 4, insets 0, hidemode 3", // $NON-NLS-1$
+                "fillx, wrap 4, insets 0, hidemode 3, novisualpadding", // $NON-NLS-1$
                 "[][fill,grow][right][right]")); // $NON-NLS-1$
         titlePanel.add(createTitleLabel(), "span 4");
 

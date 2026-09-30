@@ -130,9 +130,9 @@ public class TextAreaEditor extends PropertyEditorSupport implements FocusListen
     }
 
     void installJsr223AiHelper(String elementType, Supplier<String> languageSupplier) {
-        Jsr223AiHelper.install(textUI, elementType, languageSupplier, this::firePropertyChange);
+        Jsr223AiHelper.install(textUI, elementType, languageSupplier);
         headerComponent = Jsr223AiHelper.createAskAiButton(
-                textUI, elementType, languageSupplier, this::firePropertyChange);
+                textUI, elementType, languageSupplier);
     }
 
     /**

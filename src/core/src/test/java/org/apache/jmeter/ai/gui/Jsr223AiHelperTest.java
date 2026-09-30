@@ -44,4 +44,17 @@ class Jsr223AiHelperTest {
         assertTrue(prompt.contains("Add logging"));
         assertFalse(prompt.contains("unique-script-body"), "The script is read from the file, not the prompt");
     }
+    @Test
+    void emptyScriptPromptCreatesCodeAndChoosesUnspecifiedVariableNames() {
+        Jsr223AiHelper.ScriptContext context = new Jsr223AiHelper.ScriptContext(
+                "", 0, 0, "", "JSR223 Sampler", "groovy", "Generate a Dutch IBAN");
+
+        String prompt = Jsr223AiHelper.prompt(context, "script.groovy");
+
+        assertTrue(prompt.contains("An empty script is a valid starting point"));
+        assertTrue(prompt.contains("choose a sensible default"));
+        assertTrue(prompt.contains("vars.put(\"iban\", generatedIban)"));
+        assertTrue(prompt.contains("Generate a Dutch IBAN"));
+    }
+
 }
