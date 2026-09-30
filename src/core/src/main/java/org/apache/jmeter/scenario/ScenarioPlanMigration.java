@@ -600,6 +600,39 @@ public final class ScenarioPlanMigration {
         });
     }
 
+    /**
+     * Gives a loaded test plan the name of the open plan it is merged into, so merging does not rename the open plan,
+     * whose Module Controllers find their targets by a path that starts with its name. Module Controllers of the
+     * merged plan follow the new name.
+     * @param tree a loaded test plan
+     * @param name the name of the open test plan
+     */
+    public static void renameTestPlan(HashTree tree, String name) {
+        Object[] roots = tree.getArray();
+        if (roots.length == 0 || !(roots[0] instanceof TestPlan plan) || plan.getName().equals(name)) {
+            return;
+        }
+        String oldName = plan.getName();
+        plan.setName(name);
+        renamePlanInModulePaths(tree, oldName, name);
+    }
+
+    private static void renamePlanInModulePaths(HashTree tree, String oldName, String newName) {
+        for (Object element : tree.list()) {
+            if (element instanceof TestElement testElement
+                    && testElement.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty path
+                    && path.size() > 1 && oldName.equals(path.get(1).getStringValue())) {
+                List<String> names = new ArrayList<>();
+                for (JMeterProperty name : path) {
+                    names.add(name.getStringValue());
+                }
+                names.set(1, newName);
+                testElement.setProperty(new CollectionProperty(MODULE_CONTROLLER_NODE_PATH, names));
+            }
+            renamePlanInModulePaths(tree.getTree(element), oldName, newName);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private static Class<? extends TestPlanSection> sectionClass(Object section) {
         return (Class<? extends TestPlanSection>) section.getClass();

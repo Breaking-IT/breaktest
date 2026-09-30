@@ -240,6 +240,11 @@ public class Load extends AbstractActionWithNoRunningTest {
         } else if (!merging) {
             ScenarioPlanMigration.makeNamesUnique(tree, new HashMap<>(), new HashSet<>());
         }
+        if (merging) {
+            // The open plan keeps its name: its Module Controllers find their targets by a path that starts with it
+            JMeterTreeNode openPlan = (JMeterTreeNode) ((JMeterTreeNode) guiPackage.getTreeModel().getRoot()).getChildAt(0);
+            ScenarioPlanMigration.renameTestPlan(tree, openPlan.getName());
+        }
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
         if (normalize && !migrate) {
             guiPackage.setConvertedPlanUnsaved(true);

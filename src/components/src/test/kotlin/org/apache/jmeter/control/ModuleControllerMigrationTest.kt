@@ -133,4 +133,35 @@ class ModuleControllerMigrationTest : JMeterTestCase() {
         module.resolveReplacementSubTree(model.root as JMeterTreeNode)
         assertEquals("Second flow", module.selectedNode?.name) { "The merged Module Controller still finds its target" }
     }
+
+    @Test
+    fun `merging keeps the name of the open plan and the targets of both plans`() {
+        val model = JMeterTreeModel()
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        plan.testElement.name = "My plan"
+        val fragments = model.getNodesOfType(org.apache.jmeter.scenario.TestFragmentsSection::class.java).single()
+        val login = JMeterTreeNode(GenericController().apply { name = "Login" }, model)
+        model.insertNodeInto(login, fragments, 0)
+        val threadGroups = model.getNodesOfType(ThreadGroupsSection::class.java).single()
+        val caller = JMeterTreeNode(ThreadGroup().apply { name = "Browse"; threadGroupId = "browse" }, model)
+        model.insertNodeInto(caller, threadGroups, 0)
+        val ownModule = ModuleController().apply { name = "Run login"; setSelectedNode(login) }
+        model.insertNodeInto(JMeterTreeNode(ownModule, model), caller, 0)
+        val merged = ScenarioPlanMigration.migrate(legacyPlanWithDuplicateFragments())
+
+        // As File > Merge does
+        ScenarioPlanMigration.makeNamesUnique(merged, UniqueNames.usedNames(model), UniqueNames.usedThreadGroupIds(model))
+        ScenarioPlanMigration.renameTestPlan(merged, plan.name)
+        model.addSubTree(merged, plan, false)
+
+        assertEquals("My plan", plan.name) { "Merging does not rename the open plan" }
+        val targets = model.getNodesOfType(ModuleController::class.java).associate { node ->
+            val module = node.testElement as ModuleController
+            val resolved = module.javaClass.getDeclaredField("selectedNode").apply { isAccessible = true }
+            resolved.set(module, null)
+            module.resolveReplacementSubTree(model.root as JMeterTreeNode)
+            module.name to module.selectedNode?.name
+        }
+        assertEquals(mapOf("Run login" to "Login", "Run second flow" to "Second flow"), targets)
+    }
 }
