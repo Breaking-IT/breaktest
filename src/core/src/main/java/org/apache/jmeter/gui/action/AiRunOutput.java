@@ -147,6 +147,24 @@ final class AiRunOutput {
         return totalTokens == null ? "not reported" : String.valueOf(totalTokens);
     }
 
+    String reportedTokenUsage() {
+        List<String> metrics = new ArrayList<>();
+        if (inputTokens != null) {
+            metrics.add("input=" + inputTokens);
+        }
+        if (outputTokens != null) {
+            metrics.add("output=" + outputTokens);
+        }
+        Long total = totalTokens;
+        if (total == null && inputTokens != null && outputTokens != null) {
+            total = inputTokens + outputTokens;
+        }
+        if (total != null) {
+            metrics.add("total=" + total);
+        }
+        return metrics.isEmpty() ? "" : "Token usage: " + String.join(", ", metrics);
+    }
+
     List<String> summaryLines() {
         List<String> summary = new ArrayList<>();
         for (String line : finalResponseLines) {

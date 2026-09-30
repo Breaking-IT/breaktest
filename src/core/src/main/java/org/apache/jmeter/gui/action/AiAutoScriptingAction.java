@@ -1374,7 +1374,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         });
     }
 
-    private static String formatDuration(Duration duration) {
+    static String formatDuration(Duration duration) {
         long totalSeconds = Math.max(0, duration.toSeconds());
         long minutes = totalSeconds / 60;
         long seconds = totalSeconds % 60;

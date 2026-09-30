@@ -52,8 +52,10 @@ import javax.swing.text.DefaultEditorKit;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.AiEngineChooser;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.util.JSR223TestElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,8 +76,7 @@ public final class Jsr223AiHelper {
     public static void install(
             JSyntaxTextArea textArea,
             String elementType,
-            Supplier<String> languageSupplier,
-            Runnable changedCallback) {
+            Supplier<String> languageSupplier) {
         if (Boolean.TRUE.equals(textArea.getClientProperty(MENU_ITEM_MARKER))) {
             return;
         }
@@ -86,7 +87,7 @@ public final class Jsr223AiHelper {
         }
         popupMenu.addSeparator();
         JMenuItem aiHelper = new JMenuItem(ASK_AI);
-        aiHelper.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
+        aiHelper.addActionListener(event -> openDialog(textArea, elementType, languageSupplier));
         popupMenu.add(aiHelper);
         textArea.putClientProperty(MENU_ITEM_MARKER, true);
     }
@@ -95,22 +96,24 @@ public final class Jsr223AiHelper {
     public static JButton createAskAiButton(
             JSyntaxTextArea textArea,
             String elementType,
-            Supplier<String> languageSupplier,
-            Runnable changedCallback) {
+            Supplier<String> languageSupplier) {
         JButton askAi = new JButton(ASK_AI);
         askAi.setToolTipText("Ask AI to change this JSR223 script"); // $NON-NLS-1$
-        askAi.addActionListener(event -> openDialog(textArea, elementType, languageSupplier, changedCallback));
+        askAi.addActionListener(event -> openDialog(textArea, elementType, languageSupplier));
         return askAi;
     }
 
     private static void openDialog(
             JSyntaxTextArea textArea,
             String elementType,
-            Supplier<String> languageSupplier,
-            Runnable changedCallback) {
+            Supplier<String> languageSupplier) {
         if (RUNNING.get()) {
             AiAutoScriptingLogWindow.append("JSR223 AI Helper is already running.");
             AiAutoScriptingLogWindow.showLog();
+            return;
+        }
+        JMeterTreeNode target = captureTarget();
+        if (target == null) {
             return;
         }
         JTextArea request = new JTextArea(7, 56);
@@ -159,7 +162,7 @@ public final class Jsr223AiHelper {
         AiAutoScriptingLogWindow.append("JSR223 AI Helper: generating script update.");
         AiAutoScriptingLogWindow.append(engine.description());
         Thread worker = new Thread(
-                () -> runAi(engine, textArea, context, changedCallback),
+                () -> runAi(engine, target, context),
                 "BreakTest JSR223 AI Helper"
         );
         worker.setDaemon(true);
@@ -193,8 +196,7 @@ public final class Jsr223AiHelper {
         );
     }
 
-    private static void runAi(AiEngineChooser.Engine engine, JSyntaxTextArea textArea,
-            ScriptContext context, Runnable changedCallback) {
+    private static void runAi(AiEngineChooser.Engine engine, JMeterTreeNode target, ScriptContext context) {
         Path workingDirectory = null;
         try {
             // A private folder holding only the script works the same for every AI CLI: the agent
@@ -222,9 +224,15 @@ public final class Jsr223AiHelper {
                 AiAutoScriptingLogWindow.finishRun("No changes");
                 return;
             }
-            applyScript(textArea, updatedScript, changedCallback);
-            AiAutoScriptingLogWindow.append("JSR223 AI Helper applied the script update.");
-            AiAutoScriptingLogWindow.finishRun("JSR223 helper finished");
+            SwingUtilities.invokeAndWait(() -> {
+                if (applyScript(target, updatedScript)) {
+                    AiAutoScriptingLogWindow.append("JSR223 AI Helper applied the script update to " + target.getName() + ".");
+                    AiAutoScriptingLogWindow.finishRun("JSR223 helper finished");
+                } else {
+                    AiAutoScriptingLogWindow.append("JSR223 AI Helper's original element was removed; no changes applied.");
+                    AiAutoScriptingLogWindow.finishRun("Original element removed");
+                }
+            });
         } catch (CancellationException ex) {
             AiAutoScriptingLogWindow.append("JSR223 AI Helper was stopped; no changes applied.");
             AiAutoScriptingLogWindow.finishRun("Stopped");
@@ -279,7 +287,13 @@ public final class Jsr223AiHelper {
                 the BreakTest test plan; only edit this script file.
 
                 Rules:
-                - Preserve existing behavior unless the user request requires a change.
+                - Preserve existing behavior, if any, unless the user request requires a change.
+                - An empty script is a valid starting point. Create the requested script without asking \
+                for existing behavior or treating the empty file as a blocker.
+                - For unspecified implementation details such as an output variable name, choose a sensible \
+                default (for example, vars.put("iban", generatedIban) for an IBAN) and briefly state it \
+                in your final response. Ask a question only if the request cannot be implemented safely \
+                without the answer.
                 - Prefer Groovy-compatible code when the language is groovy.
                 - JMeter variables are available as vars; use vars.get("name") and vars.put("name", value).
                 - JMeter runtime objects such as ctx, log, sampler, prev, props, and Parameters may be available.
@@ -321,23 +335,31 @@ public final class Jsr223AiHelper {
         return normalized;
     }
 
-    private static void applyScript(JSyntaxTextArea textArea, String updatedScript, Runnable changedCallback) {
-        SwingUtilities.invokeLater(() -> {
-            int caret = Math.min(textArea.getCaretPosition(), updatedScript.length());
-            textArea.setText(updatedScript);
-            textArea.setCaretPosition(caret);
-            textArea.discardAllEdits();
-            changedCallback.run();
-            GuiPackage gui = GuiPackage.getInstance();
-            if (gui != null) {
-                try {
-                    gui.updateCurrentNode();
-                    gui.setDirty(true);
-                } catch (RuntimeException ex) {
-                    log.debug("Could not mark GUI dirty after JSR223 AI Helper update", ex);
-                }
-            }
-        });
+    static JMeterTreeNode captureTarget() {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui == null || !(gui.getCurrentElement() instanceof JSR223TestElement)) {
+            return null;
+        }
+        return gui.getCurrentNode();
+    }
+
+    /** Applies the result on the EDT to the initiating node, never to a reused editor. */
+    static boolean applyScript(JMeterTreeNode target, String updatedScript) {
+        GuiPackage gui = GuiPackage.getInstance();
+        if (gui == null || target.getRoot() != gui.getTreeModel().getRoot()
+                || !(target.getTestElement() instanceof JSR223TestElement element)) {
+            return false;
+        }
+        // Flush any visible edits before changing the model so they cannot overwrite the result.
+        gui.updateCurrentNode();
+        element.setProperty("script", updatedScript); // $NON-NLS-1$
+        element.setScript(updatedScript);
+        if (gui.getCurrentNode() == target) {
+            gui.refreshCurrentGui();
+        }
+        target.nameChanged();
+        gui.setDirty(true);
+        return true;
     }
 
     record ScriptContext(

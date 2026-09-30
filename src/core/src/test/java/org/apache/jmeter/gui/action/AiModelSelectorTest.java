@@ -32,7 +32,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 
 import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -63,9 +65,10 @@ class AiModelSelectorTest {
         try {
             assertTrue(started.await(3, TimeUnit.SECONDS));
             release.countDown();
-            awaitEdt(() -> combo(picker.get()).getItemCount() == 2);
+            awaitEdt(() -> catalogLoaded(picker.get()));
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("custom/model", picker.get().selectedModel());
+                assertEquals(0, combo(picker.get()).getItemCount());
                 picker.get().selectTool("claude", new File("."));
                 assertEquals("", picker.get().selectedModel());
             });
@@ -115,6 +118,75 @@ class AiModelSelectorTest {
         } finally {
             SwingUtilities.invokeAndWait(() -> picker.get().cancelLookup());
         }
+    }
+
+    @Test
+    @Timeout(10)
+    void typingFiltersAnywhereIgnoringCaseAndPreservesManualEntry() throws Exception {
+        AtomicReference<AiModelSelector> picker = new AtomicReference<>();
+        SwingUtilities.invokeAndWait(() -> {
+            AiModelSelector selector = new AiModelSelector((tool, directory) -> new AiModelCatalog.Result(
+                    List.of("openrouter/google/gemini-3.8-flash", "google/gemini-pro", "openrouter/anthropic/claude"),
+                    AiModelCatalog.Status.LOADED));
+            picker.set(selector);
+            selector.selectTool("pi", new File("."));
+        });
+        try {
+            awaitEdt(() -> combo(picker.get()).getItemCount() == 4);
+            type(picker.get(), "GOOg");
+            SwingUtilities.invokeAndWait(() -> {
+                JComboBox<?> choices = combo(picker.get());
+                assertEquals(2, choices.getItemCount());
+                assertEquals("openrouter/google/gemini-3.8-flash", choices.getItemAt(0));
+                assertEquals("google/gemini-pro", choices.getItemAt(1));
+                assertEquals("GOOg", picker.get().selectedModel());
+                assertEquals(4, ((JTextComponent) choices.getEditor().getEditorComponent()).getCaretPosition());
+                choices.setSelectedItem(choices.getItemAt(0));
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals("openrouter/google/gemini-3.8-flash", picker.get().selectedModel());
+                assertEquals(2, combo(picker.get()).getItemCount(), "Choosing a suggestion keeps other matches available");
+            });
+            type(picker.get(), "custom/unlisted-model");
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(0, combo(picker.get()).getItemCount());
+                assertEquals("custom/unlisted-model", picker.get().selectedModel());
+            });
+            type(picker.get(), "");
+            SwingUtilities.invokeAndWait(() -> assertEquals(4, combo(picker.get()).getItemCount()));
+            type(picker.get(), "flash");
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(1, combo(picker.get()).getItemCount());
+                assertEquals("openrouter/google/gemini-3.8-flash", combo(picker.get()).getItemAt(0));
+                picker.get().selectTool("claude", new File("."));
+                assertEquals("", picker.get().selectedModel());
+            });
+            awaitEdt(() -> combo(picker.get()).getItemCount() == 4);
+        } finally {
+            SwingUtilities.invokeAndWait(() -> picker.get().cancelLookup());
+        }
+    }
+
+    private static void type(AiModelSelector selector, String text) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JTextComponent editor = (JTextComponent) combo(selector).getEditor().getEditorComponent();
+            editor.setText(text);
+            editor.setCaretPosition(text.length());
+        });
+        // Drain the deferred filter after the document notification has completed.
+        SwingUtilities.invokeAndWait(() -> { });
+    }
+
+    private static boolean catalogLoaded(Container parent) {
+        for (Component child : parent.getComponents()) {
+            if (child instanceof JLabel label && AiModelCatalog.Status.LOADED.description().equals(label.getToolTipText())) {
+                return true;
+            }
+            if (child instanceof Container container && catalogLoaded(container)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static JComboBox<?> combo(Container parent) {

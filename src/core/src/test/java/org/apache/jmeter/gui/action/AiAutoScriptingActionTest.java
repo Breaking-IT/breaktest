@@ -33,6 +33,10 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
 
+import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
+
+import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -62,6 +66,19 @@ class AiAutoScriptingActionTest {
         Method total = type.getDeclaredMethod("totalTokensText");
         total.setAccessible(true);
         assertEquals("69113", total.invoke(output));
+    }
+
+    @Test
+    void completionMetricsOmitUnavailableCountsAndRetainReportedTotals() {
+        AiRunOutput output = new AiRunOutput();
+        assertEquals("", output.reportedTokenUsage());
+        output.captureTokenLine("tokens used");
+        output.captureTokenLine("1,234");
+        assertEquals("Token usage: total=1234", output.reportedTokenUsage());
+        output.captureTokenLine("input_tokens: 1000");
+        assertEquals("Token usage: input=1000, total=1234", output.reportedTokenUsage());
+        output.captureTokenLine("output_tokens: 234");
+        assertEquals("Token usage: input=1000, output=234, total=1234", output.reportedTokenUsage());
     }
 
     @Test
@@ -702,7 +719,8 @@ class AiAutoScriptingActionTest {
         Path fakeClaude = workDir.resolve("fake-claude.sh");
         // Behave like a real CLI: consume stdin before writing the result and exiting.
         // Otherwise a fast process can close the pipe before the parent writes its prompt.
-        Files.writeString(fakeClaude, "#!/bin/sh\ncat > prompt.txt\nprintf 'updated' > script.groovy\necho done\n");
+        Files.writeString(fakeClaude, "#!/bin/sh\ncat > prompt.txt\nprintf 'updated' > script.groovy\necho done\n"
+                + "echo 'input_tokens: 120'\necho 'output_tokens: 45'\n");
         fakeClaude.toFile().setExecutable(true);
         Path scriptDir = Files.createDirectory(workDir.resolve("script"));
         Files.writeString(scriptDir.resolve("script.groovy"), "original");
@@ -713,6 +731,7 @@ class AiAutoScriptingActionTest {
             AiEngineChooser.Engine engine = new AiEngineChooser.Engine(
                     AiAutoScriptingAction.AiTool.CLAUDE, AiAutoScriptingAction.AiThinkingLevel.HIGH, "test-model");
 
+            AiAutoScriptingLogWindow.clear();
             String prompt = "Change the script\n".repeat(4096);
             int exitCode = engine.run(prompt, scriptDir.toFile(), Duration.ofSeconds(30));
 
@@ -720,6 +739,15 @@ class AiAutoScriptingActionTest {
             assertEquals("updated", Files.readString(scriptDir.resolve("script.groovy")));
             assertEquals(prompt, Files.readString(scriptDir.resolve("prompt.txt")));
             assertEquals("Claude Code", engine.displayName());
+            SwingUtilities.invokeAndWait(() -> { });
+            var logField = AiAutoScriptingLogWindow.class.getDeclaredField("textArea");
+            logField.setAccessible(true);
+            JTextArea activityLog = (JTextArea) logField.get(null);
+            SwingUtilities.invokeAndWait(() -> {
+                String activity = activityLog.getText();
+                assertTrue(activity.contains("Total time: "));
+                assertTrue(activity.contains("Token usage: input=120, output=45, total=165"));
+            });
         } finally {
             if (previous == null) {
                 properties.remove("breaktest.claude.command");

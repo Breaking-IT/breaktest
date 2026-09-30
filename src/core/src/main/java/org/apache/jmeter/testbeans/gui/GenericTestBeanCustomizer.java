@@ -17,7 +17,6 @@
 
 package org.apache.jmeter.testbeans.gui;
 
-import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -779,7 +778,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
     /**
      * Lays out JSR223 elements without a titled box per setting, so the script editor gets the
      * vertical space: the settings share one block (their group titles become label tooltips) and
-     * the script gets a single header row holding its group title and the editor's header actions.
+     * the script actions share the last settings row, leaving more room for the editor.
      */
     private void initCompactScripting() {
         setLayout(new GridBagLayout());
@@ -791,16 +790,17 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         label.insets = new Insets(1, 1, 1, 4);
         GridBagConstraints field = new GridBagConstraints();
         field.gridx = 1;
+        field.gridwidth = 2;
         field.fill = GridBagConstraints.HORIZONTAL;
         field.weightx = 1.0;
-        field.insets = new Insets(1, 1, 1, 1);
+        field.insets = new Insets(1, 1, 1, 0);
 
         GridBagConstraints row = new GridBagConstraints();
         row.gridx = 0;
         row.gridy = GridBagConstraints.RELATIVE;
         row.fill = GridBagConstraints.HORIZONTAL;
         row.weightx = 1.0;
-        row.insets = new Insets(0, 1, 2, 1);
+        row.insets = new Insets(0, 0, 2, 0);
         add(settings, row);
 
         int y = 0;
@@ -811,19 +811,15 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
             Component customEditor = editors[i].getCustomEditor();
             String groupName = groupDisplayName(group(descriptors[i]));
             if (isMultiLineEditor(i, customEditor)) {
-                JPanel header = new JPanel(new BorderLayout(8, 0));
-                JLabel title = new JLabel(groupName);
-                title.setLabelFor(customEditor);
-                title.setToolTipText(propertyToolTipMessage.format(
-                        new Object[] { descriptors[i].getShortDescription() }));
-                header.add(title, BorderLayout.WEST);
                 if (editors[i] instanceof TextAreaEditor textAreaEditor
                         && textAreaEditor.getHeaderComponent() != null) {
-                    header.add(textAreaEditor.getHeaderComponent(), BorderLayout.EAST);
+                    GridBagConstraints actions = new GridBagConstraints();
+                    actions.gridx = 2;
+                    actions.gridy = Math.max(0, y - 1);
+                    actions.anchor = GridBagConstraints.EAST;
+                    actions.insets = new Insets(1, 8, 1, 0);
+                    settings.add(textAreaEditor.getHeaderComponent(), actions);
                 }
-                row.fill = GridBagConstraints.HORIZONTAL;
-                row.weighty = 0.0;
-                add(header, row);
                 row.fill = GridBagConstraints.BOTH;
                 row.weighty = 1.0;
                 add(customEditor, row);
@@ -835,9 +831,11 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
                 // A trailing checkbox text keeps the label column as narrow as the text fields need.
                 checkBox.setText(descriptors[i].getDisplayName());
                 checkBox.setToolTipText(groupName);
+                field.gridwidth = 1;
                 field.fill = GridBagConstraints.NONE;
                 field.anchor = GridBagConstraints.WEST;
                 settings.add(checkBox, field);
+                field.gridwidth = 2;
                 field.fill = GridBagConstraints.HORIZONTAL;
                 field.anchor = GridBagConstraints.CENTER;
                 continue;
