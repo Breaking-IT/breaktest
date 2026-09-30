@@ -27,6 +27,7 @@ import kotlinx.coroutines.yield
 import org.apache.jmeter.ai.gui.BreakTestAgentGuiService
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.MainFrame
+import org.apache.jmeter.gui.WelcomeDialog
 import org.apache.jmeter.gui.action.ActionNames
 import org.apache.jmeter.gui.action.ActionRouter
 import org.apache.jmeter.gui.action.Load
@@ -127,6 +128,9 @@ public object JMeterGuiLauncher {
         setProgress(93)
         splash.close()
         BreakTestAgentGuiService.startIfEnabled()
+        if (WelcomeDialog.shouldShow(testFile)) {
+            WelcomeDialog(main).isVisible = true
+        }
     }
 
     private suspend fun loadFile(testFile: String) {
