@@ -98,7 +98,6 @@ import org.apache.hc.client5.http.impl.auth.BasicScheme;
 import org.apache.hc.client5.http.impl.auth.BasicSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.DigestScheme;
 import org.apache.hc.client5.http.impl.auth.DigestSchemeFactory;
-import org.apache.hc.client5.http.impl.auth.KerberosScheme;
 import org.apache.hc.client5.http.impl.auth.KerberosSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.NTLMSchemeFactory;
 import org.apache.hc.client5.http.impl.auth.SPNegoSchemeFactory;
@@ -419,10 +418,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                     digestAuth.initPreemptive(credentials, authScope.getRealm(), digestParameters.getNonce());
                     authCache.put(targetHost, digestAuth);
                 }
-            } else if (authorization.getMechanism() == Mechanism.KERBEROS) {
-                KerberosScheme kerberosScheme = new KerberosScheme();
-                authCache.put(targetHost, kerberosScheme);
             }
+            // Kerberos/SPNEGO is challenge-driven. Let the configured factories choose
+            // the server's scheme and apply the configured SPN options.
         }
     }
 
@@ -434,8 +432,24 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         if (log.isDebugEnabled()){
             log.debug("{} > D={} R={} M={}", username, domain, realm, auth.getMechanism());
         }
-        if(Mechanism.KERBEROS.equals(auth.getMechanism())) {
-            credentialsProvider.setCredentials(new AuthScope(null, null, -1, null, null), new Credentials() {
+        if (Mechanism.KERBEROS.equals(auth.getMechanism())) {
+            credentialsProvider.clear();
+            for (String scheme : List.of(StandardAuthScheme.SPNEGO, StandardAuthScheme.KERBEROS)) {
+                credentialsProvider.setCredentials(
+                        new AuthScope(url.getProtocol(), url.getHost(), url.getPort(), null, scheme),
+                        credentialsForAuthorization(auth));
+            }
+        } else {
+            credentialsProvider.setCredentials(
+                new AuthScope(url.getProtocol(), url.getHost(), url.getPort(), realm.isEmpty() ? null : realm, null),
+                credentialsForAuthorization(auth));
+        }
+    }
+
+    static Credentials credentialsForAuthorization(Authorization auth) {
+        if (auth.getMechanism() == Mechanism.KERBEROS) {
+            // GSS obtains tickets from the Subject, never from a password credential.
+            return new Credentials() {
                 @Override
                 public java.security.Principal getUserPrincipal() {
                     return null;
@@ -445,15 +459,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 public char[] getPassword() {
                     return null;
                 }
-            });
-        } else {
-            credentialsProvider.setCredentials(
-                new AuthScope(url.getProtocol(), url.getHost(), url.getPort(), realm.isEmpty() ? null : realm, null),
-                credentialsForAuthorization(auth));
+            };
         }
-    }
-
-    static Credentials credentialsForAuthorization(Authorization auth) {
         String user = resolveVariables(auth.getUser());
         String password = resolveVariables(auth.getPass());
         String domain = resolveVariables(auth.getDomain());
@@ -490,15 +497,19 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         private final URL url;
         private final String realm;
         final Credentials credentials;
+        private final boolean kerberos;
 
         private AuthManagerCredential(URL url, Authorization authorization) {
             this.url = url;
             this.realm = StringUtilities.isEmpty(authorization.getRealm()) ? null : authorization.getRealm();
             this.credentials = credentialsForAuthorization(authorization);
+            this.kerberos = authorization.getMechanism() == Mechanism.KERBEROS;
         }
 
         boolean matches(AuthScope authScope) {
-            return realmMatches(authScope.getRealm())
+            return (!kerberos || StandardAuthScheme.SPNEGO.equalsIgnoreCase(authScope.getSchemeName())
+                    || StandardAuthScheme.KERBEROS.equalsIgnoreCase(authScope.getSchemeName()))
+                    && (kerberos || realmMatches(authScope.getRealm()))
                     && url.getHost().equalsIgnoreCase(authScope.getHost())
                     && portMatches(authScope.getPort());
         }
@@ -688,10 +699,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     }
 
     /**
-     * 1 HttpClient instance per combination of (HttpClient,HttpClientKey)
+     * Each thread owns its client pool map. Inheriting a mutable map lets one user's
+     * teardown close another user's in-flight requests. Embedded downloads share
+     * their parent client explicitly through samplerContext.
      */
     private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
-            HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = new InheritableThreadLocal<>() {
+            HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = new ThreadLocal<>() {
         @Override
         protected Map<HttpClientKey, HttpClientState> initialValue() {
             return new HashMap<>(5);
@@ -1173,14 +1186,22 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         AuthManager authManager = getAuthManager();
         if (authManager != null) {
             Subject subject = authManager.getSubjectForUrl(url);
+            Authorization authorization = authManager.getAuthForURL(url);
+            if (subject == null && authorization != null && authorization.getMechanism() == Mechanism.KERBEROS) {
+                throw new IOException("Kerberos login failed; check the JAAS and krb5 configuration and the login error in the log");
+            }
             if (subject != null) {
                 try {
                     return Subject.doAs(subject,
                             (PrivilegedExceptionAction<CloseableHttpResponse>) () ->
                                     httpClient.execute(httpRequest, localContext));
                 } catch (PrivilegedActionException e) {
-                    log.error("Can't execute httpRequest with subject: {}", subject, e);
-                    throw new IllegalArgumentException("Can't execute httpRequest with subject:" + subject, e);
+                    // Preserve timeout/interruption classification and never include the
+                    // Subject (which contains private Kerberos tickets) in sample errors.
+                    if (e.getException() instanceof IOException ioe) {
+                        throw ioe;
+                    }
+                    throw new IOException("Kerberos-authenticated HTTP request failed", e.getException());
                 }
             }
         }
@@ -1542,7 +1563,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         rCB.setRedirectsEnabled(getAutoRedirects());
         rCB.setMaxRedirects(HTTPSamplerBase.MAX_REDIRECTS);
-        rCB.setTargetPreferredAuthSchemes(authSchemePriority());
+        AuthManager manager = getAuthManager();
+        Authorization authorization = manager == null ? null : manager.getAuthForURL(url);
+        rCB.setTargetPreferredAuthSchemes(authorization != null && authorization.getMechanism() == Mechanism.KERBEROS
+                ? List.of(StandardAuthScheme.SPNEGO, StandardAuthScheme.KERBEROS) : authSchemePriority());
         rCB.setProxyPreferredAuthSchemes(authSchemePriority());
         httpRequest.setConfig(rCB.build());
         // a well-behaved browser is supposed to send 'Connection: close'
