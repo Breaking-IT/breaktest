@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.function.Predicate;
 
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.MutableTreeNode;
@@ -34,8 +35,22 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JMeterGUIComponent;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.reporters.ResultCollector;
+import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.NonTestElementsSection;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.ScenariosSection;
+import org.apache.jmeter.scenario.SharedProfile;
+import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.TestPlanSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
+import org.apache.jmeter.scenario.gui.ScenarioGui;
+import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 
@@ -63,6 +78,7 @@ public class JMeterTreeModel extends DefaultTreeModel {
 
     public JMeterTreeModel() {
         this(new TestPlanGui().createTestElement());
+        addDefaultSections();
     }
 
     /**
@@ -164,6 +180,9 @@ public class JMeterTreeModel extends DefaultTreeModel {
                 userObject.setFunctionalMode(tp.isFunctionalMode());
                 userObject.setSerialized(tp.isSerialized());
                 addSubTreeNodes(subTree.getTree(item), current, configureGui);
+            } else if (existingFixedNode(current, item) != null) {
+                // A merged plan's sections and Shared Profile add their content to the ones of the open plan
+                addSubTreeNodes(subTree.getTree(item), existingFixedNode(current, item), configureGui);
             } else if (isWorkbench(item)) {
                 //Move item from WorkBench to TestPlan
                 HashTree workbenchTree = subTree.getTree(item);
@@ -175,6 +194,22 @@ public class JMeterTreeModel extends DefaultTreeModel {
             }
         }
         return current;
+    }
+
+    /**
+     * @return the section or Shared Profile of the same kind as {@code item} directly under {@code parent}, or
+     *     {@code null} when {@code item} is neither or {@code parent} has none
+     */
+    private static JMeterTreeNode existingFixedNode(JMeterTreeNode parent, TestElement item) {
+        if (!(item instanceof TestPlanSection || item instanceof SharedProfile) || parent == null) {
+            return null;
+        }
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            if (parent.getChildAt(i) instanceof JMeterTreeNode child && child.getUserObject().getClass() == item.getClass()) {
+                return child;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("deprecation")
@@ -195,8 +230,96 @@ public class JMeterTreeModel extends DefaultTreeModel {
         return addComponent(component, node, true);
     }
 
-    private JMeterTreeNode addComponent(TestElement component, JMeterTreeNode node, boolean configureGui)
+    /**
+     * Elements added to a test plan organised in sections go into their section rather than directly under the
+     * test plan.
+     * @param parent the node the element is being added to
+     * @param element the element being added
+     * @return the section node of the element, or {@code parent} when the element is not added to a sectioned
+     *     test plan or has no section
+     */
+    public static JMeterTreeNode sectionNodeFor(JMeterTreeNode parent, TestElement element) {
+        if (parent == null || !(parent.getUserObject() instanceof TestPlan)) {
+            return parent;
+        }
+        Class<? extends TestPlanSection> section = ScenarioPlanMigration.sectionFor(element);
+        if (section == null) {
+            return parent;
+        }
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            if (parent.getChildAt(i) instanceof JMeterTreeNode child && section.isInstance(child.getUserObject())) {
+                // Configuration goes into the shared profile, which applies to every thread group
+                return child.getUserObject() instanceof ProfilesSection && !(element instanceof Profile)
+                        ? sharedProfileNode(child)
+                        : child;
+            }
+        }
+        return parent;
+    }
+
+    private static JMeterTreeNode sharedProfileNode(JMeterTreeNode profilesSection) {
+        for (int i = 0; i < profilesSection.getChildCount(); i++) {
+            if (profilesSection.getChildAt(i) instanceof JMeterTreeNode child
+                    && child.getUserObject() instanceof SharedProfile) {
+                return child;
+            }
+        }
+        return profilesSection;
+    }
+
+    /**
+     * Like {@link #sectionNodeFor(JMeterTreeNode, TestElement)}, but creates the Non-Test Elements section the first
+     * time such an element is added to a test plan organised in sections.
+     * @param parent the node the element is being added to
+     * @param element the element being added
+     * @return the node to add the element to
+     */
+    public JMeterTreeNode addTargetFor(JMeterTreeNode parent, TestElement element) {
+        JMeterTreeNode target = sectionNodeFor(parent, element);
+        if (target == parent && parent != null && parent.getUserObject() instanceof TestPlan
+                && ScenarioPlanMigration.sectionFor(element) == NonTestElementsSection.class
+                && hasSections(parent)) {
+            target = addDefaultNode(ScenarioPlanMigration.newSection(NonTestElementsSection.class), parent);
+        }
+        return target;
+    }
+
+    private static boolean hasSections(JMeterTreeNode node) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (node.getChildAt(i) instanceof JMeterTreeNode child && child.getUserObject() instanceof TestPlanSection) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A copied element must not take over the role of its original: a copied active scenario becomes inactive and
+     * a copied default profile is no longer the default. Elements that were cut and pasted have no original left
+     * and keep their role. Copied thread groups get their own id when they are inserted, see {@link UniqueNames}.
+     * @param element an element about to be added to this tree
+     */
+    public void resolveCopyConflicts(TestElement element) {
+        if (element instanceof Scenario && element.isEnabled()
+                && anyOther(Scenario.class, element, TestElement::isEnabled)) {
+            element.setEnabled(false);
+        } else if (element instanceof Profile profile && profile.isDefault()
+                && anyOther(Profile.class, element, other -> ((Profile) other).isDefault())) {
+            profile.setDefault(false);
+        }
+        // A copied thread group gets its own id when it is inserted, see UniqueNames
+    }
+
+    private boolean anyOther(Class<?> type, TestElement element, Predicate<TestElement> condition) {
+        return getNodesOfType(type).stream()
+                .map(JMeterTreeNode::getTestElement)
+                .anyMatch(other -> other != element && condition.test(other));
+    }
+
+    private JMeterTreeNode addComponent(TestElement component, JMeterTreeNode parent, boolean configureGui)
             throws IllegalUserActionException {
+        resolveCopyConflicts(component);
+        JMeterTreeNode node = addTargetFor(parent, component);
         if (node.getUserObject() instanceof AbstractConfigGui) {
             throw new IllegalUserActionException("This node cannot hold sub-elements");
         }
@@ -249,6 +372,11 @@ public class JMeterTreeModel extends DefaultTreeModel {
     @Override
     public void insertNodeInto(MutableTreeNode newChild, MutableTreeNode parent, int index) {
         parent.insert(newChild, index);
+        if (newChild instanceof JMeterTreeNode node && node.getUserObject() instanceof TestElement) {
+            // Every way of adding an element ends here: add, paste, duplicate, drag and drop, loading, the AI agent.
+            // The name is fixed before the insertion is announced, so the tree shows the final name right away.
+            UniqueNames.apply(this, node, false);
+        }
         if (bulkUpdateDepth == 0) {
             nodesWereInserted(parent, new int[] { index });
         }
@@ -332,6 +460,28 @@ public class JMeterTreeModel extends DefaultTreeModel {
     public void clearTestPlan() {
         TestElement tp = new TestPlanGui().createTestElement();
         clearTestPlan(tp);
+    }
+
+    /**
+     * Organises a new test plan in sections, with one scenario ready to receive workloads.
+     * Only for new test plans: a restored or loaded plan brings its own sections.
+     */
+    public void addDefaultSections() {
+        JMeterTreeNode planNode = (JMeterTreeNode) getChild(getRoot(), 0);
+        // In ScenarioPlanMigration.SECTION_ORDER; Non-Test Elements is only added when needed
+        addDefaultNode(ScenarioPlanMigration.newSection(ListenersSection.class), planNode);
+        JMeterTreeNode scenarios = addDefaultNode(ScenarioPlanMigration.newSection(ScenariosSection.class), planNode);
+        addDefaultNode(new ScenarioGui().createTestElement(), scenarios);
+        JMeterTreeNode profiles = addDefaultNode(ScenarioPlanMigration.newSection(ProfilesSection.class), planNode);
+        addDefaultNode(ScenarioPlanMigration.newSharedProfile(), profiles);
+        addDefaultNode(ScenarioPlanMigration.newSection(TestFragmentsSection.class), planNode);
+        addDefaultNode(ScenarioPlanMigration.newSection(ThreadGroupsSection.class), planNode);
+    }
+
+    private JMeterTreeNode addDefaultNode(TestElement element, JMeterTreeNode parent) {
+        JMeterTreeNode node = new JMeterTreeNode(element, this);
+        insertNodeInto(node, parent, parent.getChildCount());
+        return node;
     }
 
     /**

@@ -18,11 +18,13 @@
 package org.apache.jmeter.gui.action;
 
 import java.awt.event.ActionEvent;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.gui.FixedNodes;
 
 import com.google.auto.service.AutoService;
 
@@ -54,7 +56,13 @@ public class Cut extends AbstractAction {
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_CUT));
         JMeterTreeNode[] currentNodes = guiPack.getTreeListener().getSelectedNodes();
 
-        currentNodes = Copy.keepOnlyAncestors(currentNodes);
+        // Sections and the Shared profile can neither be copied nor removed
+        currentNodes = Arrays.stream(Copy.keepOnlyAncestors(currentNodes))
+                .filter(node -> FixedNodes.isCopyable(node) && FixedNodes.isRemovable(node))
+                .toArray(JMeterTreeNode[]::new);
+        if (currentNodes.length == 0) {
+            return;
+        }
         Copy.setCopiedNodes(Copy.cloneForTransfer(currentNodes));
         for (JMeterTreeNode currentNode : currentNodes) {
             guiPack.getTreeModel().removeNodeFromParent(currentNode);

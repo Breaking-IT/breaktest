@@ -214,7 +214,6 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
             case "TOGGLE" -> "Toggle"; // $NON-NLS-1$ $NON-NLS-2$
             case "VALIDATE_TG" -> "Check"; // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_START" -> JMeterUtils.getResString("run"); // $NON-NLS-1$ $NON-NLS-2$
-            case "ACTION_START_NO_TIMERS" -> JMeterUtils.getResString("run"); // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_PAUSE" -> JMeterUtils.getResString("toolbar_pause"); // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_STOP" -> "Stop"; // $NON-NLS-1$ $NON-NLS-2$
             case "ACTION_SHUTDOWN" -> "Shutdown"; // $NON-NLS-1$ $NON-NLS-2$
@@ -303,6 +302,9 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         for (String key : oList) {
             log.debug("Toolbar icon key: {}", key); //$NON-NLS-1$
             String trimmed = key.trim();
+            if ("test_start_notimers".equals(trimmed)) { // $NON-NLS-1$
+                continue; // Start no pauses was removed; legacy custom toolbars may still list it
+            }
             if ("test_start".equals(trimmed) || "test_pause".equals(trimmed)) {
                 if (runAdded) {
                     continue;
@@ -372,7 +374,6 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         Map<String, Boolean> buttonStates = new HashMap<>();
         buttonStates.put(ActionNames.VALIDATE_TG, true);
         buttonStates.put(ActionNames.ACTION_START, true);
-        buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, true);
         buttonStates.put(ActionNames.ACTION_PAUSE, false);
         buttonStates.put(ActionNames.ACTION_STOP, false);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, false);
@@ -400,7 +401,6 @@ public class JMeterToolBar extends JToolBar implements LocaleChangeListener {
         Map<String, Boolean> buttonStates = new HashMap<>(6);
         buttonStates.put(ActionNames.VALIDATE_TG, !started);
         buttonStates.put(ActionNames.ACTION_START, !started);
-        buttonStates.put(ActionNames.ACTION_START_NO_TIMERS, !started);
         buttonStates.put(ActionNames.ACTION_PAUSE, started);
         buttonStates.put(ActionNames.ACTION_STOP, started);
         buttonStates.put(ActionNames.ACTION_SHUTDOWN, started);

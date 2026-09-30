@@ -32,19 +32,27 @@ import java.util.List;
 import java.util.Locale;
 
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.gui.LoopControlPanel;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JBooleanPropertyEditor;
 import org.apache.jmeter.gui.JTextComponentBinding;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.InfoButton;
+import org.apache.jmeter.gui.util.VerticalPanel;
+import org.apache.jmeter.scenario.ScenarioWorkload;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.AbstractThreadGroupSchema;
@@ -105,6 +113,19 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     private JPanel closedModelCustomSettings;
 
     private final JPanel previewCards = new JPanel(new CardLayout());
+
+    private final JPanel headerPanel = new JPanel(new MigLayout("fillx, insets 0", "[][fill,grow]"));
+
+    private final JPanel scriptSettingsPanel = new JPanel(new MigLayout());
+
+    private final JRadioButton validationContinue =
+            new JRadioButton(JMeterUtils.getResString("sampler_on_error_continue")); // $NON-NLS-1$
+
+    private final JRadioButton validationStop =
+            new JRadioButton(JMeterUtils.getResString("thread_group_validation_on_error_stop")); // $NON-NLS-1$
+
+    private JPanel workloadPanel;
+
 
     private final TargetRateChart closedModelPreview = new TargetRateChart();
 
@@ -248,6 +269,11 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         element.set(AbstractThreadGroupSchema.INSTANCE.getPacingMin(), "0"); // $NON-NLS-1$
         element.set(AbstractThreadGroupSchema.INSTANCE.getPacingMax(), "0"); // $NON-NLS-1$
         ((AbstractThreadGroup) element).setSamplerController((LoopController) loopPanel.createTestElement());
+        if (element instanceof AbstractThreadGroup threadGroup && isInThreadGroupsSection(element)) {
+            ScenarioWorkload.removeWorkload(threadGroup);
+            threadGroup.getOrCreateThreadGroupId();
+            threadGroup.setValidationStopOnError(true);
+        }
     }
 
     /**
@@ -258,6 +284,16 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     @Override
     @SuppressWarnings("deprecation")
     public void modifyTestElement(TestElement tg) {
+        modifyWorkloadAndScript(tg);
+        if (tg instanceof AbstractThreadGroup threadGroup && isInThreadGroupsSection(tg)) {
+            ScenarioWorkload.removeWorkload(threadGroup);
+            threadGroup.getOrCreateThreadGroupId();
+            threadGroup.setValidationStopOnError(validationStop.isSelected());
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void modifyWorkloadAndScript(TestElement tg) {
         closedModelSchedule.stopEditing();
         openModelSchedule.stopEditing();
         if (tg instanceof OpenModelThreadGroup openModelThreadGroup) {
@@ -305,10 +341,21 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     @Override
     public void configure(TestElement tg) {
         super.configure(tg);
+        setWorkloadSettingsVisible(!isInThreadGroupsSection(tg));
+        if (tg instanceof AbstractThreadGroup threadGroup && threadGroup.isValidationStopOnError()) {
+            validationStop.setSelected(true);
+        } else {
+            validationContinue.setSelected(true);
+        }
         boolean openModel = isOpenModelElement(tg);
         setSelectedThreadGroupModel(openModel ? ThreadGroup.MODEL_OPEN : ThreadGroup.MODEL_CLOSED);
         if (!openModel) {
-            loopPanel.configure((TestElement) tg.getProperty(AbstractThreadGroup.MAIN_CONTROLLER).getObjectValue());
+            Object mainController = tg.getProperty(AbstractThreadGroup.MAIN_CONTROLLER).getObjectValue();
+            if (mainController instanceof TestElement loopController) {
+                loopPanel.configure(loopController);
+            } else {
+                loopPanel.clearGui();
+            }
             configureDurationPolicyFromCurrentValues();
         }
         configureClosedModelFields(tg);
@@ -535,6 +582,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     // Initialise the gui field values
     private void initGui(){
         loopPanel.clearGui();
+        validationStop.setSelected(true);
         setSelectedThreadGroupModel(ThreadGroup.MODEL_CLOSED);
         setSelectedClosedModelThreadMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
         closedModelSchedule.setText(""); // $NON-NLS-1$
@@ -575,7 +623,88 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         addPreviewDocumentListener(delay);
         closedModelSchedule.addChangeListener(this::updatePreviewGraph);
         openModelSchedule.addChangeListener(this::updatePreviewGraph);
-        add(contentPanel, BorderLayout.CENTER);
+        workloadPanel = contentPanel;
+
+        headerPanel.setVisible(false);
+        scriptSettingsPanel.setBorder(BorderFactory.createTitledBorder(
+                JMeterUtils.getResString("thread_group_validation_on_error"))); // $NON-NLS-1$
+        ButtonGroup validationOnError = new ButtonGroup();
+        validationOnError.add(validationContinue);
+        validationOnError.add(validationStop);
+        validationStop.setSelected(true);
+        scriptSettingsPanel.add(validationContinue);
+        scriptSettingsPanel.add(validationStop);
+        scriptSettingsPanel.add(new JLabel(JMeterUtils.getResString("thread_group_validation_on_error_info")), // $NON-NLS-1$
+                "newline, span");
+        scriptSettingsPanel.setVisible(false);
+        VerticalPanel topPanel = new VerticalPanel();
+        topPanel.add(headerPanel);
+        topPanel.add(scriptSettingsPanel);
+        JPanel centerPanel = new JPanel(new BorderLayout(0, 5));
+        centerPanel.add(topPanel, BorderLayout.NORTH);
+        centerPanel.add(contentPanel, BorderLayout.CENTER);
+        add(centerPanel, BorderLayout.CENTER);
+    }
+
+    /**
+     * @return an initially hidden panel above the workload settings, for subclasses to add their own fields to
+     */
+    protected JPanel getHeaderPanel() {
+        headerPanel.setVisible(true);
+        return headerPanel;
+    }
+
+    /**
+     * Shows or hides the settings of how the thread group runs. Thread groups in the Thread groups section get
+     * them from scenarios, and only choose how a validation run reacts to sampler errors.
+     * @param visible whether the settings are shown
+     */
+    protected void setWorkloadSettingsVisible(boolean visible) {
+        workloadPanel.setVisible(visible);
+        setOnErrorSettingsVisible(visible);
+        scriptSettingsPanel.setVisible(!visible);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Hides all run settings, for thread groups that keep their own settings instead of taking them from scenarios.
+     * @param ownSettings whether the edited thread group keeps its own settings
+     */
+    protected void setOwnSettingsMode(boolean ownSettings) {
+        workloadPanel.setVisible(!ownSettings);
+        setOnErrorSettingsVisible(!ownSettings);
+        scriptSettingsPanel.setVisible(false);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Called when a setting that changes the expected load has been edited.
+     */
+    protected void workloadChanged() {
+        // Only needed by editors that show a summary of the load
+    }
+
+    /**
+     * @param element the thread group being edited or created
+     * @return whether the thread group belongs to the Thread groups section, whose workloads come from scenarios
+     */
+    protected boolean isInThreadGroupsSection(TestElement element) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return false;
+        }
+        JMeterTreeNode node = guiPackage.getTreeModel().getNodeOf(element);
+        if (node == null) {
+            // The element is being created: it is added to the selected node, or to its section
+            node = JMeterTreeModel.sectionNodeFor(guiPackage.getCurrentNode(), element);
+            if (node != null && node.getTestElement() instanceof ThreadGroupsSection) {
+                return true;
+            }
+        }
+        return node != null && node.getParent() instanceof JMeterTreeNode parent
+                && parent.getTestElement() instanceof ThreadGroupsSection;
     }
 
     private JPanel createClosedModelPanel() {
@@ -699,6 +828,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
     }
 
     private void updatePreviewGraph() {
+        workloadChanged();
         if (isOpenModelSelected()) {
             updateOpenModelPreview();
         } else {
@@ -907,6 +1037,7 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         pacingMaxFieldPanel.setVisible(random);
         pacingRate.setText(formatPacingRate(mode, fixedPacing.getText(), pacingMin.getText(), pacingMax.getText()));
         pacingRate.setVisible(!pacingRate.getText().isEmpty());
+        workloadChanged();
         pacingInfo.setVisible(!AbstractThreadGroup.PACING_DISABLED.equals(mode));
         revalidate();
         repaint();

@@ -19,6 +19,7 @@ package org.apache.jmeter.control.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,13 +29,17 @@ import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.ModuleController;
 import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.Test;
 
@@ -65,7 +70,7 @@ class ModuleControllerGuiTest implements JMeterSerialTest {
 
                 JMenuItem jumpTo = ModuleControllerGui.createJumpToMenuItem(
                         new TreePath(new DefaultMutableTreeNode(clicked)));
-                assertEquals("Jump to", jumpTo.getText());
+                assertEquals(JMeterUtils.getResString("module_controller_jump_to"), jumpTo.getText());
                 assertTrue(jumpTo.isEnabled());
                 jumpTo.doClick();
 
@@ -87,5 +92,90 @@ class ModuleControllerGuiTest implements JMeterSerialTest {
                 new TreePath(new DefaultMutableTreeNode())).isEnabled());
         assertFalse(ModuleControllerGui.createJumpToMenuItem(
                 new TreePath(new DefaultMutableTreeNode(new JMeterTreeNode(new TestPlan(), null)))).isEnabled());
+    }
+
+    @Test
+    void moduleToRunTreeShowsTargetInsideTestFragmentsSection() throws Exception {
+        GuiPackage previousGui = GuiPackage.getInstance();
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                JMeterTreeModel model = new JMeterTreeModel();
+                JTree tree = new JTree(model);
+                JMeterTreeListener listener = new JMeterTreeListener(model);
+                listener.setJTree(tree);
+                GuiPackage.initInstance(listener, model);
+                JMeterTreeNode fragments = model.getNodesOfType(TestFragmentsSection.class).get(0);
+                JMeterTreeNode group = add(model, new TestFragmentController(), fragments);
+                GenericController login = new GenericController();
+                login.setName("Login");
+                JMeterTreeNode target = add(model, login, group);
+                ModuleController module = new ModuleController();
+                module.setSelectedNode(target);
+
+                ModuleControllerGui gui = new ModuleControllerGui();
+                gui.configure(module);
+
+                JTree moduleToRun = moduleToRunTree(gui);
+                assertNotNull(moduleToRun.getSelectionPath(), "The linked target is selected in Module To Run");
+                DefaultMutableTreeNode selected = (DefaultMutableTreeNode) moduleToRun.getLastSelectedPathComponent();
+                assertSame(target, selected.getUserObject());
+            });
+        } finally {
+            restoreGui(previousGui);
+        }
+    }
+
+    @Test
+    void doubleClickTargetIsResolvedInTheOpenPlan() throws Exception {
+        GuiPackage previousGui = GuiPackage.getInstance();
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                ModuleController module = new ModuleController();
+                module.setSelectedNode(addLogin(new JMeterTreeModel()));
+
+                // A plan with the same path is opened: the module must point into it, not the previous plan
+                JMeterTreeModel model = new JMeterTreeModel();
+                JMeterTreeNode target = addLogin(model);
+                JTree tree = new JTree(model);
+                JMeterTreeListener listener = new JMeterTreeListener(model);
+                listener.setJTree(tree);
+                GuiPackage.initInstance(listener, model);
+
+                assertSame(target, module.getReferencedNode());
+                assertTrue(listener.selectNode(module.getReferencedNode()));
+                assertSame(target, tree.getLastSelectedPathComponent());
+            });
+        } finally {
+            restoreGui(previousGui);
+        }
+    }
+
+    private static JMeterTreeNode addLogin(JMeterTreeModel model) {
+        JMeterTreeNode fragments = model.getNodesOfType(TestFragmentsSection.class).get(0);
+        GenericController login = new GenericController();
+        login.setName("Login");
+        return add(model, login, fragments);
+    }
+
+    private static JMeterTreeNode add(JMeterTreeModel model, TestElement element, JMeterTreeNode parent) {
+        JMeterTreeNode node = new JMeterTreeNode(element, model);
+        model.insertNodeInto(node, parent, parent.getChildCount());
+        return node;
+    }
+
+    private static JTree moduleToRunTree(ModuleControllerGui gui) {
+        try {
+            var field = ModuleControllerGui.class.getDeclaredField("moduleToRunTreeNodes");
+            field.setAccessible(true);
+            return (JTree) field.get(gui);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void restoreGui(GuiPackage previousGui) throws Exception {
+        var field = GuiPackage.class.getDeclaredField("guiPack");
+        field.setAccessible(true);
+        field.set(null, previousGui);
     }
 }

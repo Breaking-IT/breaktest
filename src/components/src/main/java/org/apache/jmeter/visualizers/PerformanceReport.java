@@ -576,8 +576,6 @@ public class PerformanceReport extends AbstractVisualizer implements Clearable, 
         });
         installDetachedWindowAction(inputMap, actionMap, KeyStrokes.ACTION_START, ActionNames.ACTION_START);
         installDetachedWindowAction(inputMap, actionMap, KeyStrokes.VALIDATE, ActionNames.VALIDATE_TG);
-        installDetachedWindowAction(inputMap, actionMap, KeyStrokes.ACTION_START_NO_PAUSE,
-                ActionNames.ACTION_START_NO_TIMERS);
         installDetachedWindowAction(inputMap, actionMap, KeyStrokes.ACTION_STOP, ActionNames.ACTION_STOP);
         installDetachedWindowAction(inputMap, actionMap, KeyStrokes.ACTION_SHUTDOWN, ActionNames.ACTION_SHUTDOWN);
     }

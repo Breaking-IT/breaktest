@@ -83,6 +83,7 @@ import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.NonTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -1174,9 +1175,17 @@ public class ProxyControl extends GenericController implements NonTestElement {
         for (JMeterTreeNode controller = myTarget;
              controller != null;
              controller = (JMeterTreeNode) controller.getParent()) {
-            Enumeration<?> kids = controller.children();
-            while (kids.hasMoreElements()) {
-                JMeterTreeNode subNode = (JMeterTreeNode) kids.nextElement();
+            List<JMeterTreeNode> kids = new ArrayList<>();
+            controller.children().asIterator().forEachRemaining(kid -> kids.add((JMeterTreeNode) kid));
+            if (controller.getUserObject() instanceof TestPlan) {
+                // The Shared Profile holds the test plan level configuration of a plan with sections
+                for (JMeterTreeNode shared : treeModel.getNodesOfType(SharedProfile.class)) {
+                    if (shared.isEnabled()) {
+                        shared.children().asIterator().forEachRemaining(kid -> kids.add((JMeterTreeNode) kid));
+                    }
+                }
+            }
+            for (JMeterTreeNode subNode : kids) {
                 if (subNode.isEnabled()) {
                     TestElement element = (TestElement) subNode.getUserObject();
                     if (myClass.isInstance(element)) {

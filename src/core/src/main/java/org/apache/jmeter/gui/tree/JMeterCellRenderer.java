@@ -45,8 +45,18 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.scenario.ListenersSection;
+import org.apache.jmeter.scenario.NonTestElementsSection;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenariosSection;
+import org.apache.jmeter.scenario.SharedProfile;
+import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 
 /**
@@ -67,6 +77,11 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
 
     private String delaySummary;
 
+    /** "Active" scenario or "Default" profile: which one of its kind is used, shown as a pill after the name */
+    private String statusBadge;
+
+    private static final int STATUS_BADGE_PADDING = 6;
+
     public JMeterCellRenderer() {
         // A little more air between the node icon and its label
         setIconTextGap(6);
@@ -77,6 +92,7 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             boolean leaf, int row, boolean p_hasFocus) {
         JMeterTreeNode node = (JMeterTreeNode) value;
         this.delaySummary = delaySummary(node);
+        this.statusBadge = statusBadge(node);
         super.getTreeCellRendererComponent(tree,
                 StringUtilities.isBlank(node.getName()) ? BLANK : node.getName(),
                         sel, expanded, leaf, row, p_hasFocus);
@@ -103,6 +119,11 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             FontMetrics suffixMetrics = getFontMetrics(suffixFont);
             size.width += suffixMetrics.stringWidth(delaySummary) + DELAY_SUMMARY_GAP + BADGE_RIGHT_INSET;
         }
+        if (statusBadge != null) {
+            FontMetrics badgeMetrics = getFontMetrics(suffixFont());
+            size.width += badgeMetrics.stringWidth(statusBadge) + 2 * STATUS_BADGE_PADDING + DELAY_SUMMARY_GAP
+                    + BADGE_RIGHT_INSET;
+        }
         return size;
     }
 
@@ -114,6 +135,9 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             if (delaySummary != null) {
                 paintDelaySummary(g2);
+            }
+            if (statusBadge != null) {
+                paintStatusBadge(g2);
             }
         } finally {
             g2.dispose();
@@ -149,6 +173,34 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         g.setColor(isEnabled() ? new Color(0x9CA3AF) : new Color(0x6B7280));
         int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent() + 1;
         g.drawString(delaySummary, x, y);
+    }
+
+    private void paintStatusBadge(Graphics2D g) {
+        Font font = suffixFont();
+        FontMetrics metrics = g.getFontMetrics(font);
+        int width = metrics.stringWidth(statusBadge) + 2 * STATUS_BADGE_PADDING;
+        int height = metrics.getHeight();
+        int x = primaryTextEndX() + DELAY_SUMMARY_GAP;
+        if (x + width > getWidth() - BADGE_RIGHT_INSET) {
+            return;
+        }
+        int y = (getHeight() - height) / 2;
+        g.setColor(new Color(0x2563EB));
+        g.fillRoundRect(x, y, width, height, height, height);
+        g.setFont(font);
+        g.setColor(Color.WHITE);
+        g.drawString(statusBadge, x + STATUS_BADGE_PADDING, y + metrics.getAscent());
+    }
+
+    static String statusBadge(JMeterTreeNode node) {
+        TestElement element = node.getTestElement();
+        if (element instanceof Scenario && element.isEnabled()) {
+            return JMeterUtils.getResString("scenario_badge_active"); // $NON-NLS-1$
+        }
+        if (element instanceof Profile profile && profile.isDefault()) {
+            return JMeterUtils.getResString("profile_badge_default"); // $NON-NLS-1$
+        }
+        return null;
     }
 
     static String delaySummary(JMeterTreeNode node) {
@@ -300,6 +352,10 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             if (element == null) {
                 return Kind.NODE;
             }
+            Kind scenarioKind = scenarioStructureKind(element);
+            if (scenarioKind != null) {
+                return scenarioKind;
+            }
             if (element instanceof Arguments) {
                 return Kind.USER_DEFINED_VARIABLES;
             }
@@ -319,6 +375,26 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             }
             Kind fallback = matchKind(FALLBACK_KINDS, name);
             return fallback != null ? fallback : Kind.NODE;
+        }
+
+        private static final List<Map.Entry<Class<?>, Kind>> SCENARIO_STRUCTURE_KINDS = List.of(
+                Map.entry(ScenariosSection.class, Kind.SCENARIOS),
+                Map.entry(Scenario.class, Kind.SCENARIO),
+                Map.entry(ThreadGroupsSection.class, Kind.THREAD_GROUPS),
+                Map.entry(ListenersSection.class, Kind.REPORT),
+                Map.entry(ProfilesSection.class, Kind.PROFILES),
+                Map.entry(Profile.class, Kind.PROFILE),
+                Map.entry(SharedProfile.class, Kind.SHARED_PROFILE),
+                Map.entry(TestFragmentsSection.class, Kind.FRAGMENTS),
+                Map.entry(NonTestElementsSection.class, Kind.TOOLS));
+
+        private static Kind scenarioStructureKind(TestElement element) {
+            for (Map.Entry<Class<?>, Kind> entry : SCENARIO_STRUCTURE_KINDS) {
+                if (entry.getKey().isInstance(element)) {
+                    return entry.getValue();
+                }
+            }
+            return null;
         }
 
         private static Kind interfaceKind(TestElement element) {
@@ -898,6 +974,99 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                     g.drawLine(x + 11, y + 8, x + 4, y + 12);
                     g.setColor(stroke);
                     g.drawLine(x + 12, y + 4, x + 12, y + 12);
+                }
+            },
+            /** Scenarios section: what runs when the test starts */
+            SCENARIOS(new Color(0x6366F1)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 2, y + 2, 12, 12, 5, 5);
+                    g.setColor(accent);
+                    g.fillPolygon(new int[] {x + 6, x + 6, x + 11}, new int[] {y + 5, y + 11, y + 8}, 3);
+                }
+            },
+            /** Scenario: its load shape, ramping up, holding and ramping down */
+            SCENARIO(new Color(0x6366F1)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 2, y + 13, x + 14, y + 13);
+                    g.setColor(accent);
+                    g.drawPolyline(new int[] {x + 2, x + 6, x + 10, x + 14}, new int[] {y + 11, y + 4, y + 4, y + 11}, 4);
+                }
+            },
+            /** Thread groups section: the scripts, each run by a group of users */
+            THREAD_GROUPS(new Color(0xF59E0B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawOval(x + 9, y + 3, 4, 4);
+                    g.drawArc(x + 8, y + 8, 7, 6, 30, 120);
+                    g.setColor(accent);
+                    g.drawOval(x + 3, y + 4, 5, 5);
+                    g.drawArc(x + 1, y + 10, 9, 6, 20, 140);
+                    g.setColor(stroke);
+                    g.drawLine(x + 1, y + 13, x + 15, y + 13);
+                }
+            },
+            /** Profiles section: layers of configuration */
+            PROFILES(new Color(0x0D9488)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(accent);
+                    g.drawPolygon(new int[] {x + 8, x + 14, x + 8, x + 2}, new int[] {y + 2, y + 5, y + 8, y + 5}, 4);
+                    g.setColor(stroke);
+                    g.drawPolyline(new int[] {x + 2, x + 8, x + 14}, new int[] {y + 8, y + 11, y + 8}, 3);
+                    g.drawPolyline(new int[] {x + 2, x + 8, x + 14}, new int[] {y + 11, y + 14, y + 11}, 3);
+                }
+            },
+            /** Profile: a labelled environment, such as acceptance or production */
+            PROFILE(new Color(0x0D9488)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawPolygon(new int[] {x + 2, x + 10, x + 14, x + 10, x + 2},
+                            new int[] {y + 4, y + 4, y + 8, y + 12, y + 12}, 5);
+                    g.setColor(accent);
+                    g.fillOval(x + 9, y + 7, 3, 3);
+                    g.drawLine(x + 4, y + 7, x + 6, y + 7);
+                    g.drawLine(x + 4, y + 9, x + 6, y + 9);
+                }
+            },
+            /** Shared profile: configuration shared by every thread group */
+            SHARED_PROFILE(new Color(0x0D9488)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 5, y + 7, x + 11, y + 4);
+                    g.drawLine(x + 5, y + 9, x + 11, y + 12);
+                    g.setColor(accent);
+                    g.fillOval(x + 2, y + 6, 5, 5);
+                    g.fillOval(x + 10, y + 1, 5, 5);
+                    g.fillOval(x + 10, y + 10, 5, 5);
+                }
+            },
+            /** Test fragments section: reusable pieces of scripts */
+            FRAGMENTS(new Color(0xA855F7)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawRoundRect(x + 2, y + 5, 10, 9, 3, 3);
+                    g.setColor(accent);
+                    // Knobs on the top and right edges make it a puzzle piece
+                    g.drawArc(x + 5, y + 2, 4, 6, 0, 180);
+                    g.drawArc(x + 9, y + 8, 6, 4, -90, 180);
+                }
+            },
+            /** Non-test elements section: tools such as the recorder */
+            TOOLS(new Color(0x64748B)) {
+                @Override
+                void paint(Graphics2D g, int x, int y, Color stroke, Color accent) {
+                    g.setColor(stroke);
+                    g.drawLine(x + 3, y + 13, x + 9, y + 7);
+                    g.setColor(accent);
+                    g.drawArc(x + 8, y + 2, 6, 6, 135, 270);
                 }
             },
             NODE(new Color(0x64748B)) {

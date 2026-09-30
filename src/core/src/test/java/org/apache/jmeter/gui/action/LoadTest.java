@@ -160,6 +160,26 @@ class LoadTest {
     }
 
     @Test
+    void convertedPlanStaysUnsavedUntilItIsSavedOrReplaced() {
+        JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Root"));
+        GuiPackage.initInstance(new JMeterTreeListener(model), model);
+        GuiPackage guiPackage = GuiPackage.getInstance();
+
+        guiPackage.setConvertedPlanUnsaved(true);
+        guiPackage.setDirty(false); // what a dirty check finds when nothing was edited after opening
+        assertTrue(guiPackage.isDirty(), "A plan converted when it was opened must still be saved");
+
+        guiPackage.setConvertedPlanUnsaved(false); // after a save
+        guiPackage.setDirty(false);
+        assertFalse(guiPackage.isDirty());
+
+        guiPackage.setConvertedPlanUnsaved(true);
+        guiPackage.clearTestPlan(new TestPlan("Other plan"));
+        guiPackage.setDirty(false);
+        assertFalse(guiPackage.isDirty(), "Opening another plan starts clean");
+    }
+
+    @Test
     void fastLoadedResultCollectorIsBoundToVisualizerBeforeSelection() throws Exception {
         TestVisualizer.samplesReceived.set(0);
         JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Root"));

@@ -20,8 +20,12 @@ package org.apache.jmeter.threads;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.IdentityHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.IteratingController;
 import org.apache.jmeter.control.LoopController;
@@ -32,6 +36,7 @@ import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -83,6 +88,22 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
     /** The same user or different users */
     public static final String IS_SAME_USER_ON_NEXT_ITERATION = "ThreadGroup.same_user_on_next_iteration";
 
+    /** Variables of the profile this thread group runs with; only set on run-time copies of thread groups */
+    public static final String PROFILE_VARIABLES = "ThreadGroup.profile_variables";
+
+    /** What a validation run does after a sampler error: {@link #VALIDATION_ON_ERROR_CONTINUE} or {@link #VALIDATION_ON_ERROR_STOP} */
+    public static final String VALIDATION_ON_ERROR = "ThreadGroup.validation_on_error";
+
+    public static final String VALIDATION_ON_ERROR_CONTINUE = "continue"; // $NON-NLS-1$
+
+    public static final String VALIDATION_ON_ERROR_STOP = "stop"; // $NON-NLS-1$
+
+    /**
+     * Stable identifier used by scenario workloads to reference this thread group.
+     * The {@code BreakTest.} prefix keeps it when an editor clears the element to store its fields.
+     */
+    public static final String THREAD_GROUP_ID = "BreakTest.threadGroup.id";
+
     public static final String PACING_DISABLED = "Disabled"; // $NON-NLS-1$
 
     public static final String PACING_FIXED = "Fixed"; // $NON-NLS-1$
@@ -105,6 +126,86 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
     @Override
     public PropertiesAccessor<? extends AbstractThreadGroup, ? extends AbstractThreadGroupSchema> getProps() {
         return new PropertiesAccessor<>(this, getSchema());
+    }
+
+    /**
+     * @return the stable identifier of this thread group, or an empty string when none has been assigned yet
+     */
+    public String getThreadGroupId() {
+        return getPropertyAsString(THREAD_GROUP_ID);
+    }
+
+    public void setThreadGroupId(String id) {
+        setProperty(THREAD_GROUP_ID, id);
+    }
+
+    /**
+     * @return the variables of the profile this thread group runs with, which each of its threads starts with
+     */
+    public Map<String, String> getProfileVariables() {
+        return getProperty(PROFILE_VARIABLES).getObjectValue() instanceof Arguments arguments
+                ? arguments.getArgumentsAsMap()
+                : Map.of();
+    }
+
+    /**
+     * @param variables the variables of the profile this thread group runs with, already evaluated
+     */
+    public void setProfileVariables(Map<String, String> variables) {
+        Arguments arguments = new Arguments();
+        variables.forEach(arguments::addArgument);
+        setProperty(new TestElementProperty(PROFILE_VARIABLES, arguments));
+    }
+
+    /**
+     * @return whether a validation run stops at the first sampler error. Scenarios set their own error handling.
+     */
+    public boolean isValidationStopOnError() {
+        return VALIDATION_ON_ERROR_STOP.equals(getPropertyAsString(VALIDATION_ON_ERROR));
+    }
+
+    public void setValidationStopOnError(boolean stop) {
+        setProperty(VALIDATION_ON_ERROR, stop ? VALIDATION_ON_ERROR_STOP : VALIDATION_ON_ERROR_CONTINUE);
+    }
+
+    /**
+     * Returns the stable identifier of this thread group, assigning a new one when it has none.
+     * @return the stable identifier
+     */
+    public String getOrCreateThreadGroupId() {
+        String id = getThreadGroupId();
+        if (id.isEmpty()) {
+            id = readableId(getName());
+            setThreadGroupId(id);
+        }
+        return id;
+    }
+
+    /**
+     * Readable identifiers, such as {@code checkout-flow} for "Checkout flow", can serve as keys in other formats
+     * and keep saved plans readable. The identifier is kept when the thread group is renamed.
+     * @param name a thread group name
+     * @return the identifier derived from the name, not necessarily unique in its test plan
+     */
+    public static String readableId(String name) {
+        String id = name == null ? "" : name.trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-") // $NON-NLS-1$ $NON-NLS-2$
+                .replaceAll("(^-+)|(-+$)", ""); // $NON-NLS-1$ $NON-NLS-2$
+        return id.isEmpty() ? "thread-group" : id; // $NON-NLS-1$
+    }
+
+    /**
+     * @param name a thread group name
+     * @param usedIds the identifiers of the other thread groups of the test plan
+     * @return a readable identifier that is not in {@code usedIds}
+     */
+    public static String uniqueReadableId(String name, Set<String> usedIds) {
+        String base = readableId(name);
+        String id = base;
+        for (int i = 2; usedIds.contains(id); i++) {
+            id = base + "-" + i; // $NON-NLS-1$
+        }
+        return id;
     }
 
     /**
@@ -430,15 +531,41 @@ public abstract class AbstractThreadGroup extends AbstractTestElement
             int groupNumber, int threadNumber,
             ListedHashTree threadGroupTree,
             JMeterVariables variables) {
-        boolean onErrorStopTest = getOnErrorStopTest();
-        boolean onErrorStopTestNow = getOnErrorStopTestNow();
-        boolean onErrorStopThread = getOnErrorStopThread();
-        boolean onErrorStartNextLoop = getOnErrorStartNextLoop();
+        // Open model threads are made later, on another thread: read the settings with the variables the thread group
+        // started with, which may include those of its profile
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables previousVariables = context.getVariables();
+        boolean onErrorStopTest;
+        boolean onErrorStopTestNow;
+        boolean onErrorStopThread;
+        boolean onErrorStartNextLoop;
+        boolean sameUserOnNextIteration;
+        if (variables != null) {
+            context.setVariables(variables);
+        }
+        try {
+            onErrorStopTest = getOnErrorStopTest();
+            onErrorStopTestNow = getOnErrorStopTestNow();
+            onErrorStopThread = getOnErrorStopThread();
+            onErrorStartNextLoop = getOnErrorStartNextLoop();
+            sameUserOnNextIteration = isSameUserOnNextIteration();
+        } finally {
+            context.setVariables(previousVariables);
+        }
         String groupName = getName();
-        final JMeterThread jmeterThread = new JMeterThread(threadGroupTree, monitor, notifier, isSameUserOnNextIteration());
+        final JMeterThread jmeterThread = new JMeterThread(threadGroupTree, monitor, notifier, sameUserOnNextIteration);
         jmeterThread.setThreadNum(threadNumber);
         jmeterThread.setThreadGroup(this);
-        jmeterThread.putVariables(variables);
+        Map<String, String> profileVariables = getProfileVariables();
+        if (profileVariables.isEmpty()) {
+            jmeterThread.putVariables(variables);
+        } else {
+            // Profile variables only apply to the thread groups that use the profile
+            JMeterVariables threadVariables = new JMeterVariables();
+            threadVariables.putAll(variables);
+            profileVariables.forEach(threadVariables::put);
+            jmeterThread.putVariables(threadVariables);
+        }
         String distributedPrefix =
                 JMeterUtils.getPropDefault(JMeterUtils.THREAD_GROUP_DISTRIBUTED_PREFIX_PROPERTY_NAME, "");
         final String threadName = distributedPrefix + (distributedPrefix.isEmpty() ? "":"-") +groupName + " " + groupNumber + "-" + (threadNumber + 1);

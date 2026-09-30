@@ -108,6 +108,7 @@ import org.apache.jmeter.gui.logging.GuiLogEventListener;
 import org.apache.jmeter.gui.logging.LogEventObject;
 import org.apache.jmeter.gui.tree.JMeterCellRenderer;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.tree.JMeterTreeTransferHandler;
 import org.apache.jmeter.gui.update.ReleaseInfo;
@@ -1533,7 +1534,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
                 guiPackage.updateCurrentNode();
                 TestElement testElement = guiPackage.createTestElement(SaveService.aliasToClass(comp));
                 JMeterTreeNode parentNode = guiPackage.getCurrentNode();
-                while (!MenuFactory.canAddTo(parentNode, testElement)) {
+                while (!MenuFactory.canAddTo(JMeterTreeModel.sectionNodeFor(parentNode, testElement), testElement)) {
                     parentNode = (JMeterTreeNode) parentNode.getParent();
                 }
                 if (parentNode.getParent() == null) {

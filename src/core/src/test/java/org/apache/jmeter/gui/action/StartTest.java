@@ -18,21 +18,32 @@
 package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.lang.reflect.Field;
 
+import org.apache.jmeter.JMeter;
+import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.TestFragmentController;
+import org.apache.jmeter.engine.PreCompiler;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.ScenarioResolver;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
 
 class StartTest {
@@ -79,6 +90,41 @@ class StartTest {
 
         JMeterTreeNode planListener = addResultsTree(plan);
         assertSame(planListener, Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+    }
+
+    @Test
+    void validationSkipsListenersInsideTheTestFragmentsSection() {
+        JMeterTreeNode plan = (JMeterTreeNode) model.getNodeOf(first).getParent();
+        JMeterTreeNode fragments = addChild(new TestFragmentsSection(), plan);
+        addResultsTree(addChild(new GenericController(), fragments));
+        assertNull(Start.findValidationResultsTree(model, new AbstractThreadGroup[] {first}));
+    }
+
+    @Test
+    void validatingOneThreadGroupKeepsTestLevelVariablesOfAnOldPlan() {
+        HashTree oldPlan = new ListedHashTree();
+        HashTree plan = oldPlan.add(new TestPlan());
+        ThreadGroup first = new ThreadGroup();
+        first.setName("First");
+        plan.add(first);
+        Arguments globals = new Arguments();
+        globals.addArgument("host", "api.example.test");
+        plan.add(globals);
+        ThreadGroup second = new ThreadGroup();
+        second.setName("Second");
+        plan.add(second);
+
+        HashTree run = ScenarioResolver.flattenIgnoringScenarios(
+                JMeter.convertSubTree(ScenarioPlanMigration.migrate(oldPlan), false));
+        AbstractThreadGroup validated = run.getTree(run.getArray()[0]).list().stream()
+                .filter(element -> element instanceof ThreadGroup group && "Second".equals(group.getName()))
+                .map(AbstractThreadGroup.class::cast)
+                .findFirst().orElseThrow();
+        Start.keepOnlySelectedThreadGroupsInHashTree(run, new AbstractThreadGroup[] {validated});
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        run.traverse(new PreCompiler());
+
+        assertEquals("api.example.test", JMeterContextService.getContext().getVariables().get("host"));
     }
 
     @Test

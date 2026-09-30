@@ -25,6 +25,7 @@ import javax.swing.tree.TreeNode;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.tree.NodeReference;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -46,7 +47,7 @@ import org.apache.jorphan.util.JMeterStopTestException;
  * (which user logs in, which account is created, etc.) of the module.
  *
  */
-public class ModuleController extends GenericController implements ReplaceableController {
+public class ModuleController extends GenericController implements ReplaceableController, NodeReference {
 
     private static final long serialVersionUID = 240L;
 
@@ -94,10 +95,20 @@ public class ModuleController extends GenericController implements ReplaceableCo
      * @return JMeterTreeNode
      */
     public JMeterTreeNode getSelectedNode() {
+        GuiPackage gp = GuiPackage.getInstance();
+        if (selectedNode != null && gp != null && selectedNode.getRoot() != gp.getTreeModel().getRoot()) {
+            // Resolved against a test plan that is no longer open (for example while a new plan was loading)
+            selectedNode = null;
+        }
         if (selectedNode == null){
             restoreSelected();
         }
         return selectedNode;
+    }
+
+    @Override
+    public JMeterTreeNode getReferencedNode() {
+        return getSelectedNode();
     }
 
     private void setNodePath() {
@@ -132,6 +143,9 @@ public class ModuleController extends GenericController implements ReplaceableCo
      */
     @Override
     public void resolveReplacementSubTree(JMeterTreeNode context) {
+        if (selectedNode != null && context != null && selectedNode.getRoot() != context.getRoot()) {
+            selectedNode = null;
+        }
         if (selectedNode == null) {
             List<?> nodePathList = getNodePath();
             if (nodePathList != null && !nodePathList.isEmpty()) {

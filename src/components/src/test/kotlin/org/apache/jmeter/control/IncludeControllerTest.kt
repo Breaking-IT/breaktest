@@ -24,6 +24,7 @@ import org.apache.jmeter.test.assertions.executePlanAndCollectEvents
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -35,6 +36,88 @@ import kotlin.time.Duration.Companion.seconds
 class IncludeControllerTest : JMeterTestCase() {
     @TempDir
     lateinit var tmpDir: Path
+
+    @Test
+    fun `cloning preserves an explicitly empty legacy include path for dirty checks`() {
+        val controller = IncludeController().apply {
+            setProperty("IncludeController.includepath", "")
+        }
+
+        assertEquals(controller, controller.clone(), "Saving must not leave an unchanged legacy plan dirty")
+    }
+
+    /** Saved test plans need the GUI class of every element */
+    private fun withGuiClasses(tree: org.apache.jorphan.collections.HashTree) {
+        for (element in tree.list()) {
+            val testElement = element as org.apache.jmeter.testelement.TestElement
+            val gui = when (testElement) {
+                is TestPlan -> "org.apache.jmeter.control.gui.TestPlanGui"
+                is org.apache.jmeter.scenario.TestFragmentsSection -> "org.apache.jmeter.scenario.gui.TestFragmentsSectionGui"
+                is TestFragmentController -> "org.apache.jmeter.control.gui.TestFragmentControllerGui"
+                else -> "org.apache.jmeter.control.gui.LogicControllerGui"
+            }
+            testElement.setProperty(org.apache.jmeter.testelement.TestElement.GUI_CLASS, gui)
+            withGuiClasses(tree.getTree(element))
+        }
+    }
+
+    private fun includedElementNames(includedTree: org.apache.jorphan.collections.HashTree): List<String> {
+        withGuiClasses(includedTree)
+        val includedFile = tmpDir.resolve("included.jmx")
+        includedFile.outputStream().buffered().use {
+            SaveService.saveTree(includedTree, it)
+        }
+        val controller = IncludeController().apply {
+            includePath = includedFile.absolutePathString()
+            resolveReplacementSubTree(null)
+        }
+        return controller.replacementSubTree.list().map { (it as org.apache.jmeter.testelement.TestElement).name ?: "" }
+    }
+
+    @Test
+    fun `includes the controllers of a Test Fragments section`() {
+        val names = includedElementNames(
+            testTree {
+                TestPlan::class {
+                    org.apache.jmeter.scenario.TestFragmentsSection::class {
+                        GenericController::class { name = "Login" }
+                    }
+                }
+            }
+        )
+        assertEquals(listOf("Login"), names)
+    }
+
+    @Test
+    fun `a migrated library of fragments still includes only its first fragment`() {
+        val names = includedElementNames(
+            testTree {
+                TestPlan::class {
+                    org.apache.jmeter.scenario.TestFragmentsSection::class {
+                        TestFragmentController::class { GenericController::class { name = "Login" } }
+                        TestFragmentController::class { GenericController::class { name = "Logout" } }
+                    }
+                }
+            }
+        )
+        assertEquals(listOf("Login"), names)
+    }
+
+    @Test
+    fun `includes a Test Fragment kept in the Test Fragments section`() {
+        val names = includedElementNames(
+            testTree {
+                TestPlan::class {
+                    org.apache.jmeter.scenario.TestFragmentsSection::class {
+                        TestFragmentController::class {
+                            GenericController::class { name = "Login" }
+                        }
+                    }
+                }
+            }
+        )
+        assertEquals(listOf("Login"), names)
+    }
 
     @Test
     @Disabled("Variables in Include Controllers are not replaced yet")

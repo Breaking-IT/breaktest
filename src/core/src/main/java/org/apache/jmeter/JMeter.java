@@ -71,6 +71,9 @@ import org.apache.jmeter.report.dashboard.ReportGenerator;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.reporters.Summariser;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioException;
+import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestStateListener;
@@ -152,6 +155,16 @@ public class JMeter implements JMeterPlugin {
     private static final int NONPROXY_HOSTS     = 'N';// $NON-NLS-1$
     private static final int PROXY_PORT         = 'P';// $NON-NLS-1$
     private static final int SYSTEM_PROPFILE    = 'S';// $NON-NLS-1$
+
+    // Long options only: their ids are not letters
+    private static final int SCENARIO_OPT       = 3;
+    private static final int PROFILE_OPT        = 4;
+
+    /** JMeter property naming the scenario a non-GUI run uses instead of the enabled one */
+    public static final String SCENARIO_PROPERTY = "breaktest.scenario"; // $NON-NLS-1$
+
+    /** JMeter property naming the default profile of a non-GUI run */
+    public static final String PROFILE_PROPERTY = "breaktest.profile"; // $NON-NLS-1$
 
     private static final String JMX_SUFFIX = ".JMX"; // $NON-NLS-1$
 
@@ -257,6 +270,13 @@ public class JMeter implements JMeterPlugin {
                     CLOptionDescriptor.ARGUMENT_DISALLOWED, FORCE_DELETE_RESULT_FILE,
                     "force delete existing results files and web report folder if present before starting the test");
 
+    private static final CLOptionDescriptor D_SCENARIO_OPT =
+            new CLOptionDescriptor("scenario", CLOptionDescriptor.ARGUMENT_REQUIRED, SCENARIO_OPT,
+                    "name of the scenario to run instead of the enabled one (non-GUI mode)");
+    private static final CLOptionDescriptor D_PROFILE_OPT =
+            new CLOptionDescriptor("profile", CLOptionDescriptor.ARGUMENT_REQUIRED, PROFILE_OPT,
+                    "name of the default profile for this run, used by thread groups set to 'Use default' (non-GUI mode)");
+
     private static final String[][] DEFAULT_ICONS = {
             { "org.apache.jmeter.control.gui.TestPlanGui",               "org/apache/jmeter/images/beaker.gif" },     //$NON-NLS-1$ $NON-NLS-2$
             { "org.apache.jmeter.timers.gui.AbstractTimerGui",           "org/apache/jmeter/images/timer.gif" },      //$NON-NLS-1$ $NON-NLS-2$
@@ -297,6 +317,8 @@ public class JMeter implements JMeterPlugin {
             D_REPORT_GENERATING_OPT,
             D_REPORT_AT_END_OPT,
             D_REPORT_OUTPUT_FOLDER_OPT,
+            D_SCENARIO_OPT,
+            D_PROFILE_OPT,
     };
 
     /** should delete result file / report folder before start ? */
@@ -727,6 +749,14 @@ public class JMeter implements JMeterPlugin {
                         System.getProperties().remove(name);
                     }
                 }
+                case SCENARIO_OPT -> {
+                    log.info("Scenario to run: {}", name);
+                    jmeterProps.setProperty(SCENARIO_PROPERTY, name);
+                }
+                case PROFILE_OPT -> {
+                    log.info("Default profile: {}", name);
+                    jmeterProps.setProperty(PROFILE_PROPERTY, name);
+                }
                 case JMETER_PROPERTY -> {
                     if (!value.isEmpty()) { // Set it
                         log.info("Setting JMeter property: {}={}", name, value);
@@ -827,9 +857,35 @@ public class JMeter implements JMeterPlugin {
                 }
             }
 
+            // The scenario is looked up before disabled elements are removed: it does not have to be the enabled one
+            String scenarioName = JMeterUtils.getPropDefault(SCENARIO_PROPERTY, "").trim(); // $NON-NLS-1$
+            String profileName = JMeterUtils.getPropDefault(PROFILE_PROPERTY, "").trim(); // $NON-NLS-1$
+            boolean chooseScenario = !scenarioName.isEmpty() || !profileName.isEmpty();
+            Scenario scenario = null;
+            if (chooseScenario) {
+                if (!ScenarioResolver.hasSections(tree)) {
+                    throw new ConfigurationException("--scenario and --profile need a test plan organised in scenarios. "
+                            + "Open " + f.getName() + " in BreakTest and save it first.");
+                }
+                try {
+                    scenario = scenarioName.isEmpty() ? null : ScenarioResolver.findScenario(tree, scenarioName);
+                } catch (ScenarioException e) {
+                    throw new ConfigurationException(e.getMessage(), e);
+                }
+            }
+
             // Ensure tree is interpreted (ReplaceableControllers are replaced)
             // For GUI runs this is done in Start.java
             HashTree clonedTree = convertSubTree(tree, true);
+            if (chooseScenario) {
+                try {
+                    clonedTree = ScenarioResolver.resolve(clonedTree, scenario, profileName.isEmpty() ? null : profileName);
+                } catch (ScenarioException e) {
+                    throw new ConfigurationException(e.getMessage(), e);
+                }
+                println("Running scenario " + (scenarioName.isEmpty() ? "(enabled)" : "'" + scenarioName + "'")
+                        + (profileName.isEmpty() ? "" : " with default profile '" + profileName + "'"));
+            }
 
             Summariser summariser = null;
             String summariserName = JMeterUtils.getPropDefault("summariser.name", "");//$NON-NLS-1$

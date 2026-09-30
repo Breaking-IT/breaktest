@@ -43,6 +43,8 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver
 import org.apache.jmeter.samplers.Sampler
 import org.apache.jmeter.save.SaveService
+import org.apache.jmeter.scenario.ThreadGroupsSection
+import org.apache.jmeter.scenario.gui.FixedNodes
 import org.apache.jmeter.testbeans.gui.TestBeanGUI
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.TestPlan
@@ -2829,8 +2831,12 @@ public object BreakTestAgentGuiService {
                     "Cannot clone `${source.testElement.name}` under one of its descendants"
                 }
 
+                require(FixedNodes.isCopyable(source)) {
+                    "Cannot clone `${source.testElement.name}`: sections and the Shared profile are a fixed part of the test plan"
+                }
                 val cloned = Copy.cloneTreeNode(source)
                 RecordedHarExchangeResolver.carryInheritedRecordingSource(source, cloned.testElement)
+                resolveCopyConflicts(gui, cloned)
                 val insertIndex = when (position) {
                     "before" -> newParent.getIndex(target).coerceAtLeast(0)
                     "after" -> (newParent.getIndex(target) + 1).coerceAtMost(newParent.childCount)
@@ -2910,6 +2916,9 @@ public object BreakTestAgentGuiService {
                             "Refusing to delete a Test Plan or Thread Group through AI repair. " +
                                 "Pass allowStructuralContainerDelete=true only for an explicit user-requested structural deletion."
                         }
+                    }
+                    require(nodes.all { FixedNodes.isRemovable(it) }) {
+                        "Refusing to delete a section or the Shared profile: they are a fixed part of the test plan"
                     }
                     nodes.forEach { node ->
                         require(isNodeInOpenPlan(gui, node)) {
@@ -3090,17 +3099,35 @@ public object BreakTestAgentGuiService {
         // added a moment earlier in a batch - its name and content get silently
         // overwritten with this element's data, which manifested as assertions and
         // extractors "shifting one sampler back" after batch edits.
+        val target = sectionedTarget(gui, parent, element)
         val newNode = JMeterTreeNode(element, gui.treeModel)
         runCatching { newNode.isEnabled = element.isEnabled }
-        gui.treeModel.insertNodeInto(newNode, parent, parent.childCount)
+        gui.treeModel.insertNodeInto(newNode, target, target.childCount)
         return newNode
     }
 
+    /**
+     * Keeps the agent's edits consistent with the GUI ones: elements added to a sectioned test plan go into their
+     * section, and a copied thread group, scenario or profile does not take over the role of its original.
+     */
+    private fun sectionedTarget(gui: GuiPackage, parent: JMeterTreeNode, element: TestElement): JMeterTreeNode {
+        gui.treeModel.resolveCopyConflicts(element)
+        return gui.treeModel.addTargetFor(parent, element)
+    }
+
     private fun insertDetachedNode(gui: GuiPackage, parent: JMeterTreeNode, element: TestElement): JMeterTreeNode {
+        val target = sectionedTarget(gui, parent, element)
         val node = JMeterTreeNode(element, gui.treeModel)
         runCatching { node.isEnabled = element.isEnabled }
-        gui.treeModel.insertNodeInto(node, parent, parent.childCount)
+        gui.treeModel.insertNodeInto(node, target, target.childCount)
         return node
+    }
+
+    private fun resolveCopyConflicts(gui: GuiPackage, node: JMeterTreeNode) {
+        gui.treeModel.resolveCopyConflicts(node.testElement)
+        for (child in node.children().toList()) {
+            resolveCopyConflicts(gui, child as JMeterTreeNode)
+        }
     }
 
     private fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
@@ -5446,12 +5473,21 @@ public object BreakTestAgentGuiService {
             val scopedRootSubTree = ListedHashTree()
             for (child in rootSubTree.list()) {
                 val childSubTree = rootSubTree.getTree(child)
-                if (child is AbstractThreadGroup) {
-                    if (child === selectedThreadGroup) {
+                when (child) {
+                    is AbstractThreadGroup -> if (child === selectedThreadGroup) {
                         scopedRootSubTree.add(child, childSubTree)
                     }
-                } else {
-                    scopedRootSubTree.add(child, childSubTree)
+                    // Sectioned plans keep their thread groups in the Thread groups section
+                    is ThreadGroupsSection -> {
+                        val scopedSection = ListedHashTree()
+                        for (threadGroup in childSubTree.list()) {
+                            if (threadGroup !is AbstractThreadGroup || threadGroup === selectedThreadGroup) {
+                                scopedSection.add(threadGroup, childSubTree.getTree(threadGroup))
+                            }
+                        }
+                        scopedRootSubTree.add(child, scopedSection)
+                    }
+                    else -> scopedRootSubTree.add(child, childSubTree)
                 }
             }
             scoped.add(root, scopedRootSubTree)

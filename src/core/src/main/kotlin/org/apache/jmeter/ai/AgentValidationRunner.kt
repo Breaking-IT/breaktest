@@ -27,6 +27,7 @@ import org.apache.jmeter.reporters.AbstractListenerElement
 import org.apache.jmeter.samplers.SampleEvent
 import org.apache.jmeter.samplers.SampleListener
 import org.apache.jmeter.samplers.SampleResult
+import org.apache.jmeter.scenario.ScenarioResolver
 import org.apache.jmeter.threads.JMeterContextService
 import org.apache.jorphan.collections.HashTree
 import org.apache.jorphan.collections.ListedHashTree
@@ -60,8 +61,11 @@ public data class AgentValidationResult(
 public class AgentValidationRunner {
     public fun run(testTree: HashTree, options: AgentRunOptions = AgentRunOptions()): AgentValidationResult {
         val listener = AgentCollectSamplesListener(options)
-        val clonedTree = cloneTree(testTree, options)
-        JMeter.convertSubTree(clonedTree, false)
+        val clonedTree = cloneTree(testTree, options).let { tree ->
+            JMeter.convertSubTree(tree, false)
+            // Validation runs thread groups once, never the load of the active scenario
+            ScenarioResolver.flattenForValidation(tree) as ListedHashTree
+        }
         addListenerToRoot(clonedTree, listener)
 
         val previousValidationRun = JMeterContextService.isValidationRun()

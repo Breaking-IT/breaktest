@@ -66,6 +66,8 @@ import org.apache.jmeter.gui.logging.GuiLogEventBus;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.gui.TestBeanGUI;
@@ -120,6 +122,9 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * were last saved.
      */
     private boolean dirty = false;
+
+    /** Whether the open plan was converted when it was opened and has not been saved since */
+    private boolean convertedPlanUnsaved;
 
     /**
      * Map from TestElement to JMeterGUIComponent, mapping the nodes in the tree
@@ -643,6 +648,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 TestElement el = currentNode.getTestElement();
                 int before = 0;
                 int after = 0;
+                String nameBefore = el.getName();
                 final boolean historyEnabled = UndoHistory.isEnabled();
                 if (historyEnabled) {
                     before = getTestElementCheckSum(el);
@@ -653,6 +659,11 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 comp.modifyTestElement(el);
                 if (historyEnabled) {
                     after = getTestElementCheckSum(el);
+                }
+                // Thread groups, profiles, scenarios and fragments keep unique names when renamed
+                UniqueNames.apply(treeModel, currentNode);
+                if (el instanceof Profile) {
+                    UniqueNames.profileRenamed(treeModel, nameBefore, el.getName());
                 }
                 if (currentNodeEdited && (!historyEnabled || before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
@@ -690,10 +701,21 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      *            the new value of the dirty flag
      */
     public void setDirty(boolean dirty) {
-        this.dirty = dirty;
+        // A plan converted when it was opened stays unsaved until it is saved, even without further edits
+        this.dirty = dirty || convertedPlanUnsaved;
         if (mainFrame != null) {
-            mainFrame.updateDirtyStatus(dirty);
+            mainFrame.updateDirtyStatus(this.dirty);
         }
+    }
+
+    /**
+     * Marks the open test plan as converted in memory (for instance organised in scenarios when it was opened),
+     * so it counts as unsaved until it is saved. Opening a plan never writes its file.
+     * @param converted whether the open plan differs from its file because it was converted
+     */
+    public void setConvertedPlanUnsaved(boolean converted) {
+        convertedPlanUnsaved = converted;
+        setDirty(dirty);
     }
 
     /**
@@ -956,9 +978,11 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * Clears the test plan file name.
      */
     public void clearTestPlan() {
+        convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         testPlanListeners.stream().forEach(TestPlanListener::beforeTestPlanCleared);
         getTreeModel().clearTestPlan();
+        getTreeModel().addDefaultSections();
         nodesToGui.clear();
         setTestPlanFile(null);
         testPlanListeners.stream().forEach(TestPlanListener::afterTestPlanCleared);
@@ -972,6 +996,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * @param element to clear
      */
     public void clearTestPlan(TestElement element) {
+        convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         getTreeModel().clearTestPlan(element);
         removeNode(element);
