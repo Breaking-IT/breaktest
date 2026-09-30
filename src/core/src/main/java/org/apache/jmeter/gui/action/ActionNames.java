@@ -28,7 +28,6 @@ public final class ActionNames {
     public static final String ACTION_SHUTDOWN  = "shutdown"; // $NON-NLS-1$
     public static final String ACTION_PAUSE     = "pause"; // $NON-NLS-1$
     public static final String ACTION_START     = "start"; // $NON-NLS-1$
-    public static final String ACTION_START_NO_TIMERS = "start_no_timers"; // $NON-NLS-1$
     public static final String ACTION_STOP      = "stop"; // $NON-NLS-1$
     public static final String ADD              = "Add"; // $NON-NLS-1$
     public static final String ADD_ALL          = "add_all"; // $NON-NLS-1$
@@ -114,8 +113,8 @@ public final class ActionNames {
     public static final String QUICK_COMPONENT  = "quick_component"; // $NON-NLS-1$
     public static final String COLLAPSE         = "collapse"; // $NON-NLS-1$
     public static final String EXPAND           = "expand"; // $NON-NLS-1$
-    public static final String RUN_TG           = "run_tg"; // $NON-NLS-1$
-    public static final String RUN_TG_NO_TIMERS = "run_tg_no_timers"; // $NON-NLS-1$
+    public static final String RUN_SCENARIO     = "run_scenario"; // $NON-NLS-1$
+    public static final String MOVE_TO_TEST_FRAGMENTS = "move_to_test_fragments"; // $NON-NLS-1$
     public static final String SAVE_BEFORE_RUN  = "save_before_run"; //$NON-NLS-1$
     public static final String THREAD_DUMP      = "thread_dump"; // $NON-NLS-1$
     public static final String VALIDATE_TG      = "validate_tg"; //$NON-NLS-1$

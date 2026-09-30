@@ -25,15 +25,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.lang.reflect.Field;
 import java.util.List;
 
 import javax.swing.JComboBox;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.JTree;
 import javax.swing.SwingUtilities;
+import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeListener;
+import org.apache.jmeter.gui.tree.JMeterTreeModel;
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ThreadGroupSchema;
@@ -58,6 +66,27 @@ class ThreadGroupGuiTest {
         ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
 
         assertTrue(threadGroup.getOnErrorStartNextLoop());
+    }
+
+    @Test
+    void newThreadGroupInTheThreadGroupsSectionStopsValidationAtTheFirstError() throws Exception {
+        GuiPackage previous = GuiPackage.getInstance();
+        try {
+            JMeterTreeModel model = new JMeterTreeModel();
+            JMeterTreeListener listener = new JMeterTreeListener(model);
+            listener.setJTree(new JTree(model));
+            GuiPackage.initInstance(listener, model);
+            JMeterTreeNode section = model.getNodesOfType(ThreadGroupsSection.class).get(0);
+            listener.setSelectionPathWithoutEdit(new TreePath(section.getPath()));
+
+            ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+
+            assertTrue(threadGroup.isValidationStopOnError());
+        } finally {
+            Field field = GuiPackage.class.getDeclaredField("guiPack");
+            field.setAccessible(true);
+            field.set(null, previous);
+        }
     }
 
     @Test
@@ -105,6 +134,18 @@ class ThreadGroupGuiTest {
 
         assertFalse(setupThreadGroup.get(ThreadGroupSchema.INSTANCE.getDelayedStart()));
         assertFalse(postThreadGroup.get(ThreadGroupSchema.INSTANCE.getDelayedStart()));
+    }
+
+    @Test
+    void modifyTestElementKeepsTheIdScenariosReferenceTheThreadGroupBy() {
+        ThreadGroup threadGroup = (ThreadGroup) new ThreadGroupGui().createTestElement();
+        String id = threadGroup.getOrCreateThreadGroupId();
+
+        ThreadGroupGui gui = new ThreadGroupGui();
+        gui.configure(threadGroup);
+        gui.modifyTestElement(threadGroup);
+
+        assertEquals(id, threadGroup.getThreadGroupId());
     }
 
     @Test

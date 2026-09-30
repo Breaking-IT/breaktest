@@ -202,6 +202,15 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
     }
 
     /**
+     * Makes the name read-only, for elements whose name is fixed.
+     * @param editable whether the user can change the name
+     */
+    @SuppressWarnings("deprecation")
+    protected void setNameEditable(boolean editable) {
+        namePanel.getNameField().setEditable(editable);
+    }
+
+    /**
      * Provides a label containing the title for the component. Subclasses
      * typically place this label at the top of their GUI. The title is set to
      * the name returned from the component's

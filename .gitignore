@@ -84,10 +84,10 @@ jmeter-fb.*
 # Local packaging script output (see create_jmeter_archive.sh)
 /jmeter_*.tgz
 
-# ignore generated keystore and certs
-/bin/proxyserver.jks
-/bin/ApacheJMeterTemporaryRootCA.crt
-/bin/ApacheJMeterTemporaryRootCA.usr
+# ignore generated keystore and certs, also where recorder tests create them
+proxyserver.jks
+ApacheJMeterTemporaryRootCA.crt
+ApacheJMeterTemporaryRootCA.usr
 
 # ignore jar's in lib/
 /lib/**/*.jar

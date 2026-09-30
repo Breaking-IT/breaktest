@@ -48,6 +48,8 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
     private static final long serialVersionUID = 240L;
 
     // Sampler error action buttons
+    private JPanel onErrorPanel;
+
     private JRadioButton continueBox;
     private JRadioButton startNextLoop;
     private JRadioButton stopThreadBox;
@@ -74,8 +76,6 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             pop.addSeparator();
 
             pop.add(createMenuItem("add_think_times", ActionNames.ADD_THINK_TIME_BETWEEN_EACH_STEP));
-            pop.add(createMenuItem("run_threadgroup", ActionNames.RUN_TG));
-            pop.add(createMenuItem("run_threadgroup_no_timers", ActionNames.RUN_TG_NO_TIMERS));
             JMenuItem validate = createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG);
             validate.setAccelerator(KeyStrokes.VALIDATE);
             pop.add(validate);
@@ -132,12 +132,21 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
 
         VerticalPanel box = new VerticalPanel();
         box.add(makeTitlePanel());
-        box.add(createOnErrorPanel());
+        onErrorPanel = createOnErrorPanel();
+        box.add(onErrorPanel);
         add(box, BorderLayout.NORTH);
     }
 
     private void initGui() {
         startNextLoop.setSelected(true);
+    }
+
+    /**
+     * Shows or hides the sampler error handling. Thread groups run by scenarios get it from the scenario.
+     * @param visible whether the settings are shown
+     */
+    protected void setOnErrorSettingsVisible(boolean visible) {
+        onErrorPanel.setVisible(visible);
     }
 
     private JPanel createOnErrorPanel() {

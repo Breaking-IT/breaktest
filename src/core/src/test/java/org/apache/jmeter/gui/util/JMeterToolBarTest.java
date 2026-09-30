@@ -204,7 +204,6 @@ class JMeterToolBarTest extends JMeterTestCase {
             assertEquals(ActionNames.ACTION_STOP, stop.getActionCommand());
             assertEquals(JMeterUtils.getResString("stop_now_tooltip"), stop.getToolTipText());
             assertNotSame(gracefulIcon, stop.getIcon());
-            assertFalse(button(toolbar, ActionNames.ACTION_START_NO_TIMERS).isEnabled());
             assertFalse(button(toolbar, ActionNames.ACTION_PAUSE).isEnabled());
 
             toolbar.localeChanged(new LocaleChangeEvent(toolbar));

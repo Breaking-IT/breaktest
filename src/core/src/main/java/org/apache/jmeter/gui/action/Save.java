@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
 import java.text.DecimalFormat;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -179,6 +180,10 @@ public class Save extends AbstractAction {
             }
         }
 
+        if (!confirmConvertingJMeterFile(Path.of(updateFile))) {
+            return;
+        }
+
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.CHECK_DIRTY));
         boolean createBackup = GuiPackage.getInstance().isDirty();
         prepareSubTreeForSave(subTree);
@@ -257,10 +262,49 @@ public class Save extends AbstractAction {
         }
     }
 
+    /**
+     * Saving writes BreakTest's format. Overwriting a standard JMeter JMX therefore converts it, which only happens
+     * here, on an explicit save, after offering to keep the original as a JMeter-compatible backup.
+     * @return whether to go on with the save
+     */
+    private static boolean confirmConvertingJMeterFile(Path file) {
+        try {
+            if (!Files.isRegularFile(file) || BreakTestJmxUpgrade.isNativeBreakTestJmx(file)) {
+                return true;
+            }
+        } catch (IOException ex) {
+            log.warn("Could not determine whether {} is a BreakTest archive", file, ex);
+            return true;
+        }
+        String keepBackup = JMeterUtils.getResString("jmx_convert_keep_backup"); // $NON-NLS-1$
+        String withoutBackup = JMeterUtils.getResString("jmx_convert_without_backup"); // $NON-NLS-1$
+        String cancel = JMeterUtils.getResString("cancel"); // $NON-NLS-1$
+        int choice = JOptionPane.showOptionDialog(GuiPackage.getInstance().getMainFrame(),
+                MessageFormat.format(JMeterUtils.getResString("jmx_convert_on_save"), // $NON-NLS-1$
+                        BreakTestJmxUpgrade.nextBackupPath(file).getFileName()),
+                JMeterUtils.getResString("jmx_convert_on_save_title"), // $NON-NLS-1$
+                JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE, null,
+                new Object[]{keepBackup, withoutBackup, cancel}, keepBackup);
+        if (choice == 0) {
+            try {
+                Path backup = BreakTestJmxUpgrade.backupOriginal(file);
+                log.info("Kept the JMeter-format original of {} as {}", file, backup);
+            } catch (IOException ex) {
+                log.error("Could not back up {}", file, ex);
+                JMeterUtils.reportErrorToUser(MessageFormat.format(
+                        JMeterUtils.getResString("jmx_convert_backup_failed"), file), // $NON-NLS-1$
+                        JMeterUtils.getResString("jmx_convert_on_save_title")); // $NON-NLS-1$
+                return false;
+            }
+        }
+        return choice == 0 || choice == 1;
+    }
+
     private static void finishSuccessfulSave(ActionEvent event, boolean fullSave, String updateFile) {
         if (!fullSave) {
             return;
         }
+        GuiPackage.getInstance().setConvertedPlanUnsaved(false);
         FileServer.getFileServer().setScriptName(new File(updateFile).getName());
         HashTree refreshedTree = GuiPackage.getInstance().getTreeModel().getTestPlan();
         ActionRouter.getInstance().doActionNow(

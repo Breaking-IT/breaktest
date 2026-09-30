@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -33,13 +34,17 @@ import java.util.function.Consumer;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.scenario.ScenarioException;
+import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.PostThreadGroup;
 import org.apache.jmeter.threads.SetupThreadGroup;
@@ -223,6 +228,12 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     @Override
     public void configure(HashTree testTree) {
+        readPlanSettings(testTree);
+        active = true;
+        test = testTree;
+    }
+
+    private void readPlanSettings(HashTree testTree) {
         // Is testplan serialised?
         var testPlan = new SearchByClass<>(TestPlan.class);
         testTree.traverse(testPlan);
@@ -233,12 +244,24 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         var tp = (TestPlan) plan[0];
         serialized = tp.isSerialized();
         tearDownOnShutdown = tp.isTearDownOnShutdown();
-        active = true;
-        test = testTree;
     }
 
     @Override
     public void runTest() throws JMeterEngineException {
+        try {
+            // Resolving evaluates functions, which may register listeners on this thread: resolve first, so the
+            // run below also ends them
+            test = ScenarioResolver.resolve(test);
+            // The scenario decides whether its thread groups run one after another
+            readPlanSettings(test);
+        } catch (RuntimeException e) {
+            // The test does not start: release what functions registered, such as open files
+            endRegisteredListeners();
+            if (e instanceof ScenarioException) {
+                throw new JMeterEngineException(e.getMessage(), e);
+            }
+            throw e;
+        }
         submittedListeners.addAll(testList.get());
         testList.remove();
         try {
@@ -246,6 +269,38 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         } catch (Exception err) {
             stopTest();
             throw new JMeterEngineException(err);
+        }
+    }
+
+    private static void endRegisteredListeners() {
+        endListenersRegisteredSince(0);
+        testList.remove();
+    }
+
+    /**
+     * @return how many listeners are registered on this thread for the next test, to pass to
+     *     {@link #endListenersRegisteredSince(int)}
+     */
+    public static int registeredListenerCount() {
+        return testList.get().size();
+    }
+
+    /**
+     * Ends and forgets the listeners registered on this thread after {@link #registeredListenerCount()} returned
+     * {@code count}, for work that registered them but will not start a test, such as a failed scenario resolution.
+     * @param count the earlier number of registered listeners
+     */
+    public static void endListenersRegisteredSince(int count) {
+        List<TestStateListener> all = testList.get();
+        List<TestStateListener> added = all.subList(Math.min(count, all.size()), all.size());
+        List<TestStateListener> registered = new ArrayList<>(added);
+        added.clear();
+        for (TestStateListener listener : registered) {
+            try {
+                listener.testEnded();
+            } catch (RuntimeException e) {
+                log.warn("Error ending test listener {} of a test that did not start", listener, e);
+            }
         }
     }
 
@@ -631,6 +686,19 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
 
     private void startThreadGroup(AbstractThreadGroup group, int groupCount, SearchByClass<?> searcher, List<?> testLevelElements, ListenerNotifier notifier)
     {
+        JMeterContext context = JMeterContextService.getContext();
+        JMeterVariables testVariables = context.getVariables();
+        Map<String, String> profileVariables = group.getProfileVariables();
+        if (!profileVariables.isEmpty()) {
+            // Settings such as the number of threads may use the variables of the thread group's profile. The
+            // thread group reads them now and in its starter threads, which keep the variables they are given.
+            JMeterVariables groupVariables = new JMeterVariables();
+            if (testVariables != null) {
+                groupVariables.putAll(testVariables);
+            }
+            groupVariables.putAll(profileVariables);
+            context.setVariables(groupVariables);
+        }
         try {
             int numThreads = group.getNumThreads();
             JMeterContextService.addTotalThreads(numThreads);
@@ -660,6 +728,8 @@ public class StandardJMeterEngine implements JMeterEngine, Runnable {
         } catch (JMeterStopTestException ex) { // NOSONAR Reported by log
             JMeterUtils.reportErrorToUser("Error occurred starting thread group :" + group.getName()+ ", error message:"+ex.getMessage()
                 +", \r\nsee log file for more details", ex);
+        } finally {
+            context.setVariables(testVariables);
         }
     }
 

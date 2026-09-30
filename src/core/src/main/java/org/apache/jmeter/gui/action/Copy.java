@@ -32,6 +32,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
+import org.apache.jmeter.scenario.gui.FixedNodes;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterTreeNodeTransferable;
 import org.apache.jmeter.util.JMeterUtils;
@@ -62,7 +63,10 @@ public class Copy extends AbstractAction {
     public void doAction(ActionEvent e) {
         JMeterTreeListener treeListener = GuiPackage.getInstance().getTreeListener();
         JMeterTreeNode[] nodes = treeListener.getSelectedNodes();
-        nodes = keepOnlyAncestors(nodes);
+        nodes = FixedNodes.copyable(keepOnlyAncestors(nodes));
+        if (nodes.length == 0) {
+            return; // Sections and the Shared profile cannot be copied
+        }
         setCopiedNodes(cloneForTransfer(nodes));
     }
 

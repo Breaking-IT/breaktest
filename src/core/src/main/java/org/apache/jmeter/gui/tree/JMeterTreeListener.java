@@ -223,6 +223,30 @@ public class JMeterTreeListener implements TreeSelectionListener, MouseListener,
 
     @Override
     public void mouseClicked(MouseEvent ev) {
+        if (ev.getClickCount() != 2 || !SwingUtilities.isLeftMouseButton(ev)) {
+            return;
+        }
+        TreePath path = tree.getPathForLocation(ev.getX(), ev.getY());
+        if (path != null && path.getLastPathComponent() instanceof JMeterTreeNode node
+                && node.getUserObject() instanceof NodeReference reference) {
+            selectNode(reference.getReferencedNode());
+        }
+    }
+
+    /**
+     * Selects a node of this tree, expanding its parents and scrolling it into view.
+     *
+     * @param node the node to select; nothing happens when it is {@code null} or not in this tree
+     * @return {@code true} when the node was selected
+     */
+    public boolean selectNode(JMeterTreeNode node) {
+        if (node == null || tree == null || node.getRoot() != tree.getModel().getRoot()) {
+            return false;
+        }
+        TreePath path = new TreePath(node.getPath());
+        tree.setSelectionPath(path);
+        tree.scrollPathToVisible(path);
+        return true;
     }
 
     @Override

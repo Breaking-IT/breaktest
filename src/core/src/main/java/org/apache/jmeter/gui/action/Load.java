@@ -21,7 +21,9 @@ import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -42,6 +44,9 @@ import org.apache.jmeter.gui.util.FocusRequester;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.ScenarioPlanMigration;
+import org.apache.jmeter.scenario.TestPlanSection;
+import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -218,8 +223,41 @@ public class Load extends AbstractActionWithNoRunningTest {
             final boolean merging,
             final boolean setDetails,
             final GuiPackage guiPackage,
-            final HashTree tree) throws Exception {
+            final HashTree loadedTree) throws Exception {
+        // A plan merged into a plan organised in sections is organised the same way, so it merges into its sections
+        final boolean mergingIntoSections = merging
+                && !guiPackage.getTreeModel().getNodesOfType(TestPlanSection.class).isEmpty();
+        final boolean migrate = (!merging || mergingIntoSections) && ScenarioPlanMigration.needsMigration(loadedTree);
+        final HashTree migratedTree = migrate ? ScenarioPlanMigration.migrate(loadedTree) : loadedTree;
+        // Plans saved with sections in an earlier order or with outdated fixed names are shown as they are now
+        final boolean normalize = !merging && ScenarioPlanMigration.needsNormalizing(migratedTree);
+        final HashTree tree = normalize ? ScenarioPlanMigration.normalize(migratedTree) : migratedTree;
+        // Names and ids that clash, within the plan or with the open plan it is merged into, are made unique here,
+        // so the references to them inside the plan follow
+        if (mergingIntoSections) {
+            ScenarioPlanMigration.makeNamesUnique(tree, UniqueNames.usedNames(guiPackage.getTreeModel()),
+                    UniqueNames.usedThreadGroupIds(guiPackage.getTreeModel()));
+        } else if (!merging) {
+            ScenarioPlanMigration.makeNamesUnique(tree, new HashMap<>(), new HashSet<>());
+        }
+        if (merging) {
+            // The open plan keeps its name: its Module Controllers find their targets by a path that starts with it
+            JMeterTreeNode openPlan = (JMeterTreeNode) ((JMeterTreeNode) guiPackage.getTreeModel().getRoot()).getChildAt(0);
+            ScenarioPlanMigration.renameTestPlan(tree, openPlan.getName());
+        }
         final boolean isTestPlan = insertLoadedTree(e.getID(), tree, merging);
+        if (normalize && !migrate) {
+            guiPackage.setConvertedPlanUnsaved(true);
+        }
+        if (migrate && !merging) {
+            // Only the open plan is converted: the file changes when the user saves it
+            guiPackage.setConvertedPlanUnsaved(true);
+            log.info("Organised {} in scenarios, thread groups, listeners and configs", f);
+            JOptionPane.showMessageDialog(guiPackage.getMainFrame(),
+                    JMeterUtils.getResString("scenario_migration_done"), // $NON-NLS-1$
+                    JMeterUtils.getResString("scenario_migration_title"), // $NON-NLS-1$
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
         reportMissingPluginElements(tree);
         var archiveWarnings = SaveService.archiveWarnings(tree);
         if (!archiveWarnings.isEmpty()) {
@@ -233,42 +271,6 @@ public class Load extends AbstractActionWithNoRunningTest {
             // above?
             guiPackage.setTestPlanFile(f.getAbsolutePath());
             scheduleBreakTestHarPreflight(f);
-            offerBreakTestJmxUpgrade(f, guiPackage.getTreeModel().getTestPlan());
-        }
-    }
-
-    private static void offerBreakTestJmxUpgrade(File file, HashTree tree) {
-        Path source = file.toPath().toAbsolutePath();
-        try {
-            if (BreakTestJmxUpgrade.isNativeBreakTestJmx(source)) {
-                return;
-            }
-        } catch (IOException ex) {
-            log.warn("Could not determine whether JMX is a BreakTest archive: {}", source, ex);
-            return;
-        }
-
-        Path backup = BreakTestJmxUpgrade.nextBackupPath(source);
-        int choice = JOptionPane.showConfirmDialog(
-                GuiPackage.getInstance().getMainFrame(),
-                "This is a standard JMeter JMX. Convert it to BreakTest's native JMX format?\n\n"
-                        + "BreakTest will preserve the original as a JMeter-compatible backup:\n"
-                        + backup.getFileName(),
-                "Convert JMX to BreakTest format",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE);
-        try {
-            Path createdBackup = BreakTestJmxUpgrade.upgradeIfConfirmed(choice, source, tree);
-            if (createdBackup == null) {
-                return;
-            }
-            log.info("Converted JMX to BreakTest archive format: {}; original saved as {}", source, createdBackup);
-        } catch (IOException ex) {
-            log.error("Could not convert JMX to BreakTest archive format: {}", source, ex);
-            JMeterUtils.reportErrorToUser(
-                    "The JMX was not converted. Its original file was left in place; "
-                            + "any backup created before the save is retained at the same location.",
-                    "Could not convert JMX");
         }
     }
 

@@ -23,6 +23,8 @@ import java.util.Set;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.gui.ScenarioGui;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +69,9 @@ public class EnableComponent extends AbstractAction {
         for (JMeterTreeNode node : nodes) {
             node.setEnabled(enable);
             pack.getGui(node.getTestElement()).setEnabled(enable);
+            if (enable && node.getTestElement() instanceof Scenario) {
+                ScenarioGui.disableOtherScenarios(node);
+            }
         }
         pack.refreshCurrentGui();
     }
@@ -77,6 +82,9 @@ public class EnableComponent extends AbstractAction {
             boolean enable = !node.isEnabled();
             node.setEnabled(enable);
             pack.getGui(node.getTestElement()).setEnabled(enable);
+            if (enable && node.getTestElement() instanceof Scenario) {
+                ScenarioGui.disableOtherScenarios(node);
+            }
         }
         pack.refreshCurrentGui();
     }

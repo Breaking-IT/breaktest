@@ -17,7 +17,9 @@
 
 package org.apache.jmeter.gui.action;
 
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
+import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -25,6 +27,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.gui.FixedNodes;
 
 import com.google.auto.service.AutoService;
 
@@ -49,15 +52,30 @@ public class Duplicate extends AbstractAction {
     public void doAction(ActionEvent e) {
         GuiPackage instance = GuiPackage.getInstance();
         JMeterTreeListener treeListener = instance.getTreeListener();
-        JMeterTreeNode[] copiedNodes = Copy.cloneTreeNodes(treeListener.getSelectedNodes());
+        JMeterTreeNode[] selectedNodes = FixedNodes.copyable(treeListener.getSelectedNodes());
+        if (selectedNodes.length == 0) {
+            Toolkit.getDefaultToolkit().beep(); // Sections and the Shared profile cannot be duplicated
+            return;
+        }
+        JMeterTreeNode[] copiedNodes = Copy.cloneTreeNodes(selectedNodes);
         JMeterTreeNode currentNode = treeListener.getCurrentNode();
         JMeterTreeNode parentNode = (JMeterTreeNode) currentNode.getParent();
         JMeterTreeModel treeModel = instance.getTreeModel();
         for (int nodeIndex = copiedNodes.length - 1; nodeIndex >= 0; nodeIndex--) {
             JMeterTreeNode copiedNode = copiedNodes[nodeIndex];
+            resolveCopyConflicts(treeModel, copiedNode);
             int index = parentNode.getIndex(currentNode) + 1;
             treeModel.insertNodeInto(copiedNode, parentNode, index);
         }
         instance.getMainFrame().repaint();
+    }
+
+    @SuppressWarnings("JdkObsolete")
+    private static void resolveCopyConflicts(JMeterTreeModel treeModel, JMeterTreeNode copiedNode) {
+        treeModel.resolveCopyConflicts(copiedNode.getTestElement());
+        Enumeration<?> children = copiedNode.children();
+        while (children.hasMoreElements()) {
+            resolveCopyConflicts(treeModel, (JMeterTreeNode) children.nextElement());
+        }
     }
 }
