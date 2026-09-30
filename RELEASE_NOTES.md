@@ -13,6 +13,34 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.09.30.1 — Hotfixes and Welcome Screen
+
+This hotfix release fixes Module Controller references in migrated plans and Kerberos authentication compatibility, and adds a welcome screen for opening plans and starting recordings. It includes all three feature and fix PRs merged since 2026.09.30.
+
+## Hotfixes
+
+- **Module Controller references:** preserve every reference when migrating legacy plans or renaming conflicting fragments during a merge. Identical controllers in different thread groups now all receive the updated target path, avoiding missing-target failures. [#199](https://github.com/Breaking-IT/breaktest/pull/199)
+- **Kerberos authentication:** requests matching a KERBEROS Authorization Manager row use the synchronous HTTP/1.1 transport, including when HTTP/2 is selected, so authentication runs within the logged-in JAAS Subject. Authentication remains challenge-driven and restricted to SPNEGO/Kerberos; login failures are reported explicitly. [#200](https://github.com/Breaking-IT/breaktest/pull/200)
+- **HTTP sampler lifecycle:** recreate cached implementations when resolved protocol settings change and isolate client pools per user thread, preventing another user's teardown from closing an active connection. Timeout and interruption classification is preserved. [#200](https://github.com/Breaking-IT/breaktest/pull/200)
+
+## Welcome Screen
+
+- Open a recent test plan, browse for a JMX file, import a HAR, or start an empty plan from the startup screen.
+- Start with HTTP Recorder to create an empty thread group and a recorder already targeting it.
+- Browse compact recent-file rows with full paths and modification dates. The window fits its contents and available screen space, including when the main window is minimized or off-screen.
+- Configure `welcome.show` (default `true`) and `recent.files.max` (default `9`, range `1..100`) under General & Startup. The welcome list shows the configured history; File > Open Recent remains capped at nine entries.
+- The “Don't show this screen again” checkbox saves to `user.properties`. Save failures restore the checkbox and report an error. Starting with a test file bypasses the screen.
+
+Source: [#201](https://github.com/Breaking-IT/breaktest/pull/201).
+
+## Upgrade Notes
+
+- Non-default settings belong in `user.properties`; `jmeter.properties` documents the defaults.
+- Kerberos still requires a matching Authorization Manager row and valid JAAS/realm configuration. This release does not add native Kerberos over HTTP/2. Enterprise Active Directory, cross-realm trust, and delegation are not covered by the checked-in regression tests.
+- Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later.
+
+[Full changelog since 2026.09.30](https://github.com/Breaking-IT/breaktest/compare/2026.09.30...2026.09.30.1)
+
 # BreakTest 2026.09.30 — Fixed Plan Layout, Scenarios, and Ask AI
 
 This release gives test plans a consistent home for every element. The new fixed node layout separates reusable thread-group scripts from scenarios and environment profiles, making larger plans easier to navigate and reuse. A visible **Ask AI** button brings CLI, provider/model, and reasoning choices into the script editor, alongside many improvements to validation, request inspection, run controls, and everyday editing.
