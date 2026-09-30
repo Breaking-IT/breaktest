@@ -32,10 +32,54 @@ import org.apache.jorphan.collections.HashTree
 import org.apache.jorphan.collections.ListedHashTree
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 
 class ModuleControllerMigrationTest : JMeterTestCase() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `identical module controllers in separate thread groups both follow their fragment`(sectioned: Boolean) {
+        val tree = ListedHashTree()
+        val plan = tree.add(TestPlan().apply { name = "Test Plan" })
+        val fragment = TestFragmentController().apply { name = "Test Script" }
+        val fragmentSection = ScenarioPlanMigration.newSection(org.apache.jmeter.scenario.TestFragmentsSection::class.java)
+        val fragments = if (sectioned) plan.add(fragmentSection) else plan
+        fragments.add(fragment).add(GenericController().apply { name = "Login" })
+        val groups = if (sectioned) plan.add(ScenarioPlanMigration.newSection(ThreadGroupsSection::class.java)) else plan
+        val path = listOf("Test Plan", "Test Plan") +
+            (if (sectioned) listOf(fragmentSection.name) else emptyList()) + "Test Script"
+        val callers = listOf("Workers", "Debug").map { groupName ->
+            ModuleController().apply {
+                name = "Module Controller"
+                setProperty(CollectionProperty("ModuleController.node_path", path))
+            }.also { groups.add(ThreadGroup().apply { name = groupName }).add(it) }
+        }
+        assertEquals(callers[0], callers[1], "Separate controllers have identical saved properties")
+
+        val loaded = if (sectioned) {
+            // A merge can rename the fragment, requiring both references to follow it.
+            ScenarioPlanMigration.makeNamesUnique(
+                tree,
+                hashMapOf<Class<out TestPlanSection>, MutableSet<String>>(
+                    org.apache.jmeter.scenario.TestFragmentsSection::class.java to hashSetOf("Test Script")
+                ),
+                HashSet()
+            )
+            tree
+        } else {
+            ScenarioPlanMigration.migrate(tree)
+        }
+        val model = JMeterTreeModel(TestPlan())
+        model.addSubTreeForExecution(loaded, model.root as JMeterTreeNode)
+        for (module in callers) {
+            module.resolveReplacementSubTree(model.root as JMeterTreeNode)
+            assertSame(fragment, module.selectedNode?.testElement)
+        }
+    }
+
     private fun legacyPlanWithDuplicateFragments(): HashTree {
         val tree = ListedHashTree()
         val plan = tree.add(TestPlan().apply { name = "Plan" })

@@ -21,6 +21,7 @@ package org.apache.jmeter.scenario;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -200,7 +201,8 @@ public final class ScenarioPlanMigration {
         Object plan = tree.getArray()[0];
         HashTree planTree = tree.getTree(plan);
         // Resolved before thread groups are renamed, while the saved paths still find their targets
-        Map<TestElement, ModuleTarget> moduleTargets = new LinkedHashMap<>();
+        // Separate controllers can have identical properties; every instance needs its path updated.
+        IdentityHashMap<TestElement, ModuleTarget> moduleTargets = new IdentityHashMap<>();
         findModuleTargets(tree, planTree, moduleTargets);
 
         Scenario scenario = new Scenario(JMeterUtils.getResString("scenario_title")); // $NON-NLS-1$
@@ -405,7 +407,7 @@ public final class ScenarioPlanMigration {
      * Module Controller resolves it: when several elements have the same names, the last one that has the whole path
      * wins. A path that does not resolve still follows the first element with the name it starts with.
      */
-    private static void findModuleTargets(HashTree tree, HashTree planTree, Map<TestElement, ModuleTarget> targets) {
+    private static void findModuleTargets(HashTree tree, HashTree planTree, IdentityHashMap<TestElement, ModuleTarget> targets) {
         for (Object element : tree.list()) {
             if (element instanceof TestElement testElement
                     && testElement.getProperty(MODULE_CONTROLLER_NODE_PATH) instanceof CollectionProperty path
@@ -470,7 +472,7 @@ public final class ScenarioPlanMigration {
      * Module Controllers find their target by the names on its tree path. Thread groups and test fragments now sit
      * one level deeper, in their section, and elements may have been renamed to make their names unique.
      */
-    private static void fixModuleControllerPaths(Map<TestElement, ModuleTarget> targets, Map<Object, Object> replaced,
+    private static void fixModuleControllerPaths(IdentityHashMap<TestElement, ModuleTarget> targets, Map<Object, Object> replaced,
             Map<Class<? extends TestPlanSection>, String> sectionNames) {
         targets.forEach((controller, target) -> {
             Object top = replaced.getOrDefault(target.chain().get(0), target.chain().get(0));
@@ -508,7 +510,8 @@ public final class ScenarioPlanMigration {
             return;
         }
         HashTree planTree = tree.getTree(roots[0]);
-        Map<TestElement, ModuleTarget> moduleTargets = new LinkedHashMap<>();
+        // TestElement equality compares properties, not the controller's position in the plan.
+        IdentityHashMap<TestElement, ModuleTarget> moduleTargets = new IdentityHashMap<>();
         findModuleTargets(tree, planTree, moduleTargets);
         // Replacement ids must not take the original id of a group we have not visited yet.
         Set<String> reservedIds = new HashSet<>(usedIds);
