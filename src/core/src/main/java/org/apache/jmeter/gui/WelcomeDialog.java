@@ -30,14 +30,14 @@ import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.prefs.BackingStoreException;
-import java.util.prefs.Preferences;
+import java.util.Set;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -45,7 +45,6 @@ import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
-import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -60,6 +59,8 @@ import javax.swing.UIManager;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.LoadRecentProject;
+import org.apache.jmeter.gui.settings.SettingsGroup;
+import org.apache.jmeter.gui.settings.SettingsModel;
 import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,11 +69,10 @@ import org.slf4j.LoggerFactory;
 public final class WelcomeDialog extends JDialog {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(WelcomeDialog.class);
-    private static final Preferences PREFS = Preferences.userNodeForPackage(WelcomeDialog.class);
-    private static final String SKIP_WELCOME = "skip_welcome";
+    public static final String SHOW_PROPERTY = "welcome.show";
 
     public static boolean shouldShow(String testFile) {
-        return testFile == null && !PREFS.getBoolean(SKIP_WELCOME, false);
+        return testFile == null && JMeterUtils.getPropDefault(SHOW_PROPERTY, true);
     }
 
     public WelcomeDialog(MainFrame owner) {
@@ -91,8 +91,7 @@ public final class WelcomeDialog extends JDialog {
         Map<JMenuItem, String> modifiedDates = new HashMap<>();
         DateTimeFormatter dateFormat = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
                 .withLocale(JMeterUtils.getLocale()).withZone(ZoneId.systemDefault());
-        for (JComponent component : LoadRecentProject.getRecentFileMenuItems()) {
-            JMenuItem item = (JMenuItem) component;
+        for (JMenuItem item : LoadRecentProject.getRecentFileItems()) {
             if (item.isVisible()) {
                 recentFiles.addElement(item);
                 long modified = new File(item.getToolTipText()).lastModified();
@@ -199,10 +198,11 @@ public final class WelcomeDialog extends JDialog {
 
         JCheckBox skip = new JCheckBox(JMeterUtils.getResString("welcome_skip"));
         skip.addActionListener(event -> {
-            PREFS.putBoolean(SKIP_WELCOME, skip.isSelected());
             try {
-                PREFS.flush();
-            } catch (BackingStoreException ex) {
+                new SettingsModel().apply(SettingsGroup.Target.USER,
+                        skip.isSelected() ? Map.of(SHOW_PROPERTY, "false") : Map.of(),
+                        skip.isSelected() ? Set.of() : Set.of(SHOW_PROPERTY));
+            } catch (IOException ex) {
                 LOG.warn("Unable to save welcome screen preference", ex);
             }
         });

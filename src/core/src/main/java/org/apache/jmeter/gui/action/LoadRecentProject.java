@@ -35,6 +35,7 @@ import java.util.stream.IntStream;
 import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 
+import org.apache.jmeter.util.JMeterUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,7 @@ public class LoadRecentProject extends Load {
     private static final String USER_PREFS_KEY = "recent_file_"; //$NON-NLS-1$
     /** The number of menu items used for recent files */
     private static final int NUMBER_OF_MENU_ITEMS = 9;
+    private static final int MAX_RECENT_FILES = 100;
     private static final Set<String> commands = new HashSet<>();
     private static final Logger log = LoggerFactory.getLogger(LoadRecentProject.class);
 
@@ -88,26 +90,56 @@ public class LoadRecentProject extends Load {
         return new File(getRecentFile(Integer.parseInt(menuItem.getName())));
     }
 
+    /** @return the configured history size, constrained to 1 through 100 files */
+    public static int getMaxRecentFiles() {
+        return Math.max(1, Math.min(MAX_RECENT_FILES, JMeterUtils.getPropDefault("recent.files.max", 9)));
+    }
+
+    /** @return all remembered files within the configured history size, without the menu's nine-item cap */
+    public static List<JMenuItem> getRecentFileItems() {
+        syncPreferences();
+        List<JMenuItem> items = new ArrayList<>();
+        for (int i = 0; i < getMaxRecentFiles(); i++) {
+            String path = getRecentFile(i);
+            if (path == null || path.isEmpty()) {
+                continue;
+            }
+            JMenuItem item = createRecentFileItem(i);
+            item.setText(new File(path).getName());
+            item.setToolTipText(path);
+            items.add(item);
+        }
+        return items;
+    }
+
+    private static JMenuItem createRecentFileItem(int index) {
+        JMenuItem item = new JMenuItem();
+        item.setName(Integer.toString(index));
+        item.addActionListener(ActionRouter.getInstance());
+        item.setActionCommand(ActionNames.OPEN_RECENT);
+        return item;
+    }
+
+    private static void syncPreferences() {
+        try {
+            prefs.sync();
+        } catch (BackingStoreException e) {
+            log.warn("Unable to sync preferences for recent files", e);
+        }
+    }
+
     /**
      * Get the menu items to add to the menu bar, to get recent file functionality
      *
      * @return a List of JMenuItem, representing recent files. JMenuItem may not be visible
      */
     public static List<JComponent> getRecentFileMenuItems() {
-        try {
-            prefs.sync();
-        } catch (BackingStoreException e) {
-            log.warn("Unable to sync preferences for recent files", e);
-        }
+        syncPreferences();
         List<JComponent> menuItems = new ArrayList<>();
         // Get the preference for the recent files
         for(int i = 0; i < NUMBER_OF_MENU_ITEMS; i++) {
             // Create the menu item
-            JMenuItem recentFile = new JMenuItem();
-            // Use the index as the name, used when processing the action
-            recentFile.setName(Integer.toString(i));
-            recentFile.addActionListener(ActionRouter.getInstance());
-            recentFile.setActionCommand(ActionNames.OPEN_RECENT);
+            JMenuItem recentFile = createRecentFileItem(i);
             // Set the KeyStroke to use
             int shortKey = getShortcutKey(i);
             if(shortKey >= 0) {
@@ -135,9 +167,11 @@ public class LoadRecentProject extends Load {
             return;
         }
         // Get the preference for the recent files
-        Deque<String> newRecentFiles = IntStream.range(0, NUMBER_OF_MENU_ITEMS)
+        int maxRecentFiles = getMaxRecentFiles();
+        Deque<String> newRecentFiles = IntStream.range(0, maxRecentFiles)
                 .mapToObj(LoadRecentProject::getRecentFile)
                 .filter(Objects::nonNull)
+                .filter(s -> !s.isEmpty())
                 .filter(s -> !s.equals(loadedFileName))
                 .collect(Collectors.toCollection(ArrayDeque::new));
         newRecentFiles.addFirst(loadedFileName);
@@ -147,13 +181,18 @@ public class LoadRecentProject extends Load {
         for (String fileName : newRecentFiles) {
             setRecentFile(index, fileName);
             index++;
-            if (index >= NUMBER_OF_MENU_ITEMS) {
+            if (index >= maxRecentFiles) {
                 break;
             }
         }
-        while (index < NUMBER_OF_MENU_ITEMS) {
+        while (index < MAX_RECENT_FILES) {
             removeRecentFile(index);
             index++;
+        }
+        try {
+            prefs.flush();
+        } catch (BackingStoreException e) {
+            log.warn("Unable to flush preferences for recent files", e);
         }
         // Update menu items to reflect recent files
         updateMenuItems(menuItems);
@@ -170,8 +209,8 @@ public class LoadRecentProject extends Load {
             JMenuItem recentFile = (JMenuItem) menuItems.get(i);
 
             // Find and set the file for this recent file command
-            String recentFilePath = getRecentFile(i);
-            if (recentFilePath != null) {
+            String recentFilePath = i < getMaxRecentFiles() ? getRecentFile(i) : null;
+            if (recentFilePath != null && !recentFilePath.isEmpty()) {
                 File file = new File(recentFilePath);
                 String sb = String.valueOf(i + 1) + " " + //$NON-NLS-1$
                         getMenuItemDisplayName(file);
@@ -233,11 +272,6 @@ public class LoadRecentProject extends Load {
      */
     private static void setRecentFile(int index, String fileName) {
         prefs.put(USER_PREFS_KEY + index, fileName);
-        try {
-            prefs.flush();
-        } catch (BackingStoreException e) {
-            log.warn("Unable to flush preferences for recent files", e);
-        }
     }
 
     private static void removeRecentFile(int index) {
