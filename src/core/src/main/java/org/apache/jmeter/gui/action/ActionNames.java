@@ -37,6 +37,7 @@ public final class ActionNames {
     public static final String ADD_THINK_TIME_BETWEEN_EACH_STEP    = "Add Think Time between each step"; // $NON-NLS-1$
     public static final String ANALYZE_FILE     = "Analyze File"; // $NON-NLS-1$
     public static final String AI_AUTO_SCRIPTING = "ai_auto_scripting"; // $NON-NLS-1$
+    public static final String WELCOME_RECORDER = "welcome_recorder"; // $NON-NLS-1$
     public static final String HAR_IMPORT       = "har_import"; // $NON-NLS-1$
     /** Legacy action id for AI Auto Scripting toolbar compatibility. */
     public static final String CODEX_AI_REPAIR  = "codex_ai_repair"; // $NON-NLS-1$

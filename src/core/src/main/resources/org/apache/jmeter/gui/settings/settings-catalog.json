@@ -11,6 +11,8 @@
         {"key": "system.properties", "type": "file", "default": "system.properties", "description": "Name of the additional system properties file to load at startup. Clear to disable loading system properties."},
         {"key": "template.files", "type": "list", "default": "/bin/templates/templates.xml", "description": "Comma-separated list of files describing test plan templates and their descriptions, relative to the JMeter root folder."},
         {"key": "upgrade_properties", "type": "file", "default": "/bin/upgrade.properties", "description": "File that holds a record of element name changes for backward compatibility."},
+        {"key": "welcome.show", "type": "boolean", "default": "true", "description": "Show the welcome screen when starting without a test plan file."},
+        {"key": "recent.files.max", "type": "integer", "default": "9", "description": "Number of recent test plans to remember, clamped to 1 through 100. The welcome screen shows all remembered files; the File menu shows at most nine."},
         {"key": "onload.expandtree", "type": "boolean", "default": "false", "description": "Expand the whole test plan tree when loading a test plan."},
         {"key": "breaktest.gui.load.fast", "type": "boolean", "default": "false", "description": "Use the fast JMX loading mode when opening test plans. Applies the next time a test plan is opened."},
         {"key": "confirm.delete.skip", "type": "boolean", "default": "false", "description": "Skip the confirmation dialogue when deleting tree elements."},

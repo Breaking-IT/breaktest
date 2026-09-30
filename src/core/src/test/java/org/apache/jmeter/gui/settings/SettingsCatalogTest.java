@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.gui.settings;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -27,6 +28,21 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class SettingsCatalogTest {
+
+    @Test
+    void startupSettingsUseUserOverridesAndDocumentedDefaults() {
+        SettingsGroup general = SettingsCatalog.load().getGroups().stream()
+                .filter(group -> group.getId().equals("general")).findFirst().orElseThrow();
+        assertEquals(SettingsGroup.Target.USER, general.getTarget());
+        SettingDefinition welcome = general.getSettings().stream()
+                .filter(setting -> setting.getKey().equals("welcome.show")).findFirst().orElseThrow();
+        assertEquals(SettingType.BOOLEAN, welcome.getType());
+        assertEquals("true", welcome.getDefaultValue());
+        SettingDefinition recent = general.getSettings().stream()
+                .filter(setting -> setting.getKey().equals("recent.files.max")).findFirst().orElseThrow();
+        assertEquals(SettingType.INTEGER, recent.getType());
+        assertEquals("9", recent.getDefaultValue());
+    }
 
     @Test
     void catalogLoadsWithGroupsAndSettings() {
