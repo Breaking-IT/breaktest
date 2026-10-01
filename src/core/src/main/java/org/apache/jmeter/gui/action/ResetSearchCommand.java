@@ -46,6 +46,12 @@ public class ResetSearchCommand extends AbstractAction {
     @Override
     public void doAction(ActionEvent e) {
         GuiPackage guiPackage = GuiPackage.getInstance();
+        clearSearchMarks(guiPackage);
+        guiPackage.getMainFrame().repaint();
+    }
+
+    /** Clears display state without saving or reconfiguring the open editor. */
+    static void clearSearchMarks(GuiPackage guiPackage) {
         guiPackage.withoutUndoHistory(() -> guiPackage.getTreeModel()
                 .getNodesOfType(Searchable.class).stream()
                 .filter(node -> node.getUserObject() instanceof Searchable)
@@ -55,7 +61,6 @@ public class ResetSearchCommand extends AbstractAction {
                     matchingNode.setMarkedBySearch(false);
                     matchingNode.setChildrenNodesHaveMatched(false);
                 }));
-        GuiPackage.getInstance().getMainFrame().repaint();
     }
 
 

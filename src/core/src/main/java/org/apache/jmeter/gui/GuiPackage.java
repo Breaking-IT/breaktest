@@ -192,6 +192,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
 
     /** History for tree states */
     private final UndoHistory undoHistory = new UndoHistory();
+    private long testPlanSession;
 
     /** GUI Logging Event Bus. */
     private final GuiLogEventBus logEventBus = GuiLogEventBus.getInstance();
@@ -973,11 +974,17 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
         return testPlanFile;
     }
 
+    /** Identifies the open plan across undo/redo, changing when the plan is cleared or replaced. */
+    public long getTestPlanSession() {
+        return testPlanSession;
+    }
+
     /**
      * Clears the test plan and associated objects.
      * Clears the test plan file name.
      */
     public void clearTestPlan() {
+        testPlanSession++;
         convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         testPlanListeners.stream().forEach(TestPlanListener::beforeTestPlanCleared);
@@ -996,6 +1003,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
      * @param element to clear
      */
     public void clearTestPlan(TestElement element) {
+        testPlanSession++;
         convertedPlanUnsaved = false;
         Start.clearValidationThreadGroups();
         getTreeModel().clearTestPlan(element);
@@ -1219,9 +1227,12 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
         return logEventBus;
     }
 
-    /**
-     * Begin a group of actions modeled as 1 undo
-     */
+    /** Starts a batch from the current model, recording history only if the batch changes it. */
+    public void beginUndoTransaction(String description) {
+        undoHistory.beginUndoTransaction(treeModel, description);
+    }
+
+    /** Begin a group of actions modeled as one undo. */
     public void beginUndoTransaction() {
         undoHistory.beginUndoTransaction();
     }

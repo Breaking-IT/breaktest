@@ -24,11 +24,15 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.extractor.gui.RegexExtractorGui;
+import org.apache.jmeter.gui.RemovableRow;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
@@ -67,6 +71,129 @@ public class HTTPSamplerNativeHeadersTest {
     private static String valueOf(HeaderManager manager, String name) {
         Header header = manager.getFirstHeaderNamed(name);
         return header == null ? null : header.getValue();
+    }
+
+    @Test
+    void rowRemovalKeepsDuplicateRowsDistinctAndHandlesShiftingIndexes() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.setNativeHeaders(List.of(new Header("X-Same", "same"), new Header("X-Same", "same"), new Header("X-Keep", "keep")));
+        sampler.addArgument("same", "same");
+        sampler.addArgument("same", "same");
+        sampler.addArgument("keep", "keep");
+        List<RemovableRow> rows = sampler.getRemovableRows();
+        var headers = rows.stream().filter(row -> row.area() == SearchArea.HEADERS).toList();
+        var parameters = rows.stream().filter(row -> row.area() == SearchArea.PARAMETERS).toList();
+        assertTrue(headers.get(0).remove());
+        assertEquals(2, sampler.getNativeHeaderList().size());
+        assertFalse(headers.get(0).remove());
+        assertTrue(headers.get(1).remove());
+        assertEquals("X-Keep", sampler.getNativeHeaderList().get(0).getName());
+        assertTrue(parameters.get(0).remove());
+        assertEquals(2, sampler.getArguments().getArgumentCount());
+        assertTrue(parameters.get(1).remove());
+        assertEquals("keep", sampler.getArguments().getArgument(0).getName());
+        assertEquals("/api", sampler.getPath());
+        assertEquals("Request", sampler.getName());
+    }
+
+    @Test
+    void staleRowsCannotRemoveReplacementCollectionsAndRawBodiesAreExcluded() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.setNativeHeaders(List.of(new Header("X-Test", "old")));
+        RemovableRow stale = sampler.getRemovableRows().get(0);
+        sampler.setNativeHeaders(List.of(new Header("X-Test", "new")));
+        assertFalse(stale.remove());
+        assertEquals("new", sampler.getNativeHeaderList().get(0).getValue());
+        sampler.addArgument("", "raw-body");
+        assertTrue(sampler.getRemovableRows().stream().noneMatch(row -> row.area() == SearchArea.PARAMETERS));
+        sampler.setPostBodyRaw(true);
+        assertTrue(sampler.getRemovableRows().stream().noneMatch(row -> row.area() == SearchArea.PARAMETERS));
+    }
+
+    @Test
+    void headerManagerRowsCanBeRemovedWithoutDeletingTheirOwner() {
+        HeaderManager headers = manager(new Header("X-Same", "same"), new Header("X-Same", "same"));
+        List<RemovableRow> rows = headers.getRemovableRows();
+        assertTrue(rows.get(1).remove());
+        assertEquals(1, headers.size());
+        assertTrue(rows.get(0).remove());
+        assertEquals(0, headers.size());
+        assertEquals("scoped", headers.getName());
+    }
+
+    @Test
+    void identicalValuesRemainSearchableInEachSelectedArea() {
+        for (boolean pathFirst : List.of(false, true)) {
+            for (HTTPSamplerProxy sampler : List.of(new HTTPSamplerProxy(), new HTTPSamplerProxy() {
+                @Override
+                public List<String> getSearchableTokens() {
+                    return super.getSearchableTokens().stream().distinct().toList();
+                }
+            })) {
+                if (pathFirst) {
+                    sampler.setPath("/api/users");
+                    sampler.setName("/api/users");
+                } else {
+                    sampler.setName("/api/users");
+                    sampler.setPath("/api/users");
+                }
+                sampler.setComment("/api/users");
+                sampler.setNativeHeaders(List.of(new Header("X-Resource", "/api/users")));
+                assertEquals(List.of("/api/users"), sampler.getSearchableTokens(Set.of(SearchArea.NAME)));
+                assertEquals(List.of("/api/users"), sampler.getSearchableTokens(Set.of(SearchArea.PATH)));
+                assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.OTHER)).contains("/api/users"));
+                assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.HEADERS)).contains("/api/users"));
+                assertEquals(2, sampler.getSearchableTokens(Set.of(SearchArea.NAME, SearchArea.PATH)).size());
+            }
+        }
+    }
+
+    @Test
+    void searchAreasSeparateHttpFieldsAndPreserveAllTokens() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.setName("unique-name");
+        sampler.setPath("/unique-path");
+        sampler.addArgument("parameter-key", "parameter-value");
+        sampler.setNativeHeaders(List.of(new Header("X-Unique", "header-value")));
+        sampler.setComment("unique-comment");
+        assertEquals(List.of("unique-name"), sampler.getSearchableTokens(Set.of(SearchArea.NAME)));
+        assertEquals(List.of("/unique-path"), sampler.getSearchableTokens(Set.of(SearchArea.PATH)));
+        assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.HEADERS)).contains("header-value"));
+        assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.PARAMETERS)).toString().contains("parameter-value"));
+        assertFalse(sampler.getSearchableTokens(Set.of(SearchArea.OTHER)).toString().contains("header-value"));
+        assertFalse(sampler.getSearchableTokens(Set.of(SearchArea.OTHER)).toString().contains("parameter-value"));
+        assertTrue(sampler.getSearchableTokens(Set.of()).isEmpty());
+        assertEquals(sampler.getSearchableTokens().stream().sorted().toList(),
+                sampler.getSearchableTokens(EnumSet.allOf(SearchArea.class)).stream().sorted().toList());
+        assertEquals(List.of("/unique-path"), sampler.getReplaceableFields().stream()
+                .filter(field -> field.area() == SearchArea.PATH).map(field -> field.value()).toList());
+
+        sampler.setPostBodyRaw(true);
+        assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.BODY)).toString().contains("parameter-value"));
+        assertFalse(sampler.getSearchableTokens(Set.of(SearchArea.PARAMETERS)).toString().contains("parameter-value"));
+        assertTrue(sampler.getReplaceableFields().stream().anyMatch(field ->
+                field.area() == SearchArea.BODY && field.value().equals("parameter-value")));
+    }
+
+    @Test
+    void unnamedArgumentsAreBodyEvenWithoutRawBodyFlag() {
+        HTTPSamplerProxy sampler = newSampler();
+        sampler.addArgument("", "raw-content");
+        assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.BODY)).toString().contains("raw-content"));
+        assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.PARAMETERS)).isEmpty());
+        assertTrue(sampler.getReplaceableFields().stream().anyMatch(field ->
+                field.area() == SearchArea.BODY && field.value().equals("raw-content")));
+    }
+
+    @Test
+    void headerManagerAndHttpDefaultsRespectSearchAreas() {
+        HeaderManager headers = manager(new Header("X-Unique", "header-value"));
+        assertTrue(headers.getSearchableTokens(Set.of(SearchArea.HEADERS)).toString().contains("header-value"));
+        assertFalse(headers.getSearchableTokens(Set.of(SearchArea.OTHER)).toString().contains("header-value"));
+        ConfigTestElement defaults = new ConfigTestElement();
+        defaults.setProperty(HTTPSamplerBase.PATH, "/default-path");
+        assertEquals(List.of("/default-path"), defaults.getSearchableTokens(Set.of(SearchArea.PATH)));
+        assertFalse(defaults.getSearchableTokens(Set.of(SearchArea.OTHER)).contains("/default-path"));
     }
 
     @Test

@@ -462,6 +462,13 @@ public class UndoHistory implements TreeModelListener, Serializable {
         }
     }
 
+    /** Capture a fresh baseline without recording an edit or clearing redo. */
+    void beginUndoTransaction(JMeterTreeModel model, String comment) {
+        if (isEnabled()) {
+            transactions.push(new UndoTransaction(createHistoryItem(model, comment)));
+        }
+    }
+
     /**
      * Record the current tree state after a model mutation that does not emit a
      * Swing tree event, for example direct changes to a TestElement property.

@@ -28,12 +28,16 @@ import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -66,9 +70,14 @@ import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.config.ConfigElement;
+import org.apache.jmeter.control.Controller;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.RemovableRow;
 import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.ReplaceableField;
+import org.apache.jmeter.gui.RowField;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.gui.Searchable;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -95,9 +104,29 @@ import net.miginfocom.swing.MigLayout;
 public class SearchTreeDialog extends JDialog implements ActionListener { // NOSONAR
 
     record SearchConditions(String word, Boolean caseSensitive, Boolean regex,
-            FlagSource flagSource, Set<NodeType> nodeTypes, JMeterTreeNode scope, SearchMode mode) {}
+            FlagSource flagSource, Set<NodeType> nodeTypes, SearchScope scope, Set<SearchArea> areas, RowField rowField, SearchMode mode) {}
 
-    private record ScopeOption(String label, JMeterTreeNode node) {
+    record SearchScope(JMeterTreeNode threadGroup) {}
+
+    static final class ScopeOption {
+        private final String label;
+        private JMeterTreeNode node;
+        private ScopeKey key;
+
+        ScopeOption(String label, JMeterTreeNode node) {
+            this.label = label;
+            this.node = node;
+            this.key = scopeKey(node);
+        }
+
+        JMeterTreeNode resolve(JMeterTreeModel model) {
+            node = resolveScope(node, key, model);
+            if (node != null && node.getRoot() == model.getRoot()) {
+                key = scopeKey(node);
+            }
+            return node;
+        }
+
         @Override
         public String toString() {
             return node == null ? label : node.getName();
@@ -105,6 +134,26 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     record FieldChange(ReplaceableField field, String value, int replacements) {}
+
+    record RowMatch(JMeterTreeNode node, RemovableRow row, javax.swing.tree.TreeNode root) {}
+
+    enum RemovalTarget {
+        ELEMENTS, HEADERS, PARAMETERS, ROWS;
+
+        Set<SearchArea> areas() {
+            return switch (this) {
+                case ELEMENTS -> Set.of();
+                case HEADERS -> Set.of(SearchArea.HEADERS);
+                case PARAMETERS -> Set.of(SearchArea.PARAMETERS);
+                case ROWS -> Set.of(SearchArea.HEADERS, SearchArea.PARAMETERS);
+            };
+        }
+
+        @Override
+        public String toString() {
+            return JMeterUtils.getResString("search_removal_target_" + name().toLowerCase(java.util.Locale.ROOT));
+        }
+    }
 
     private enum SearchMode {
         FLAGGING,
@@ -150,6 +199,13 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private JButton removeMatchingButton;
 
+    private JComboBox<RemovalTarget> removalTarget;
+    private JComboBox<RowField> rowFieldCombo;
+    private transient GuiPackage scopeGui;
+    private long scopeSession = -1;
+    private Dimension searchDialogSize;
+    private final Map<String, Dimension> previewSizes = new java.util.HashMap<>();
+
     private JButton resetSearchButton;
 
     private JButton cancelButton;
@@ -159,6 +215,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private JTextField replaceTF;
 
     private JComboBox<ScopeOption> scopeComboBox;
+    private final Map<SearchArea, JCheckBox> areaBoxes = new EnumMap<>(SearchArea.class);
 
     private JTabbedPane modeTabs;
 
@@ -253,12 +310,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ParameterCompletion.install(replaceTF);
         replaceTF.setAlignmentX(TOP_ALIGNMENT);
         scopeComboBox = new JComboBox<>();
-        scopeComboBox.addActionListener(e -> {
-            lastSearchConditions = null;
-            lastSearchResult.clear();
-            currentSearchIndex = -1;
-            scheduleLiveFlagging();
-        });
+        scopeComboBox.addActionListener(e -> scopeChanged());
         statusLabel = new JLabel(" ");
         statusLabel.setPreferredSize(new Dimension(100, 20));
         statusLabel.setMinimumSize(new Dimension(100, 20));
@@ -292,8 +344,26 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
         JPanel criteriaPanel = new JPanel(new MigLayout("fillx, wrap 2, hidemode 3", "[][fill,grow]"));
         criteriaPanel.setBorder(BorderFactory.createEmptyBorder(7, 3, 3, 3));
-        criteriaPanel.add(JMeterUtils.labelFor(scopeComboBox, "scope"));
-        criteriaPanel.add(scopeComboBox);
+        JPanel scopeBox = new JPanel(new MigLayout("fillx, wrap 2", "[][fill,grow]"));
+        scopeBox.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("scope")));
+        scopeBox.add(JMeterUtils.labelFor(scopeComboBox, "search_thread_groups"));
+        scopeBox.add(scopeComboBox, "growx");
+        scopeBox.add(new JLabel(JMeterUtils.getResString("search_areas")), "top");
+        scopeBox.add(createAreaPanel(), "growx");
+        rowFieldCombo = new JComboBox<>(RowField.values());
+        rowFieldCombo.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list, Object value,
+                    int index, boolean selected, boolean focus) {
+                return super.getListCellRendererComponent(list, value instanceof RowField field
+                        ? JMeterUtils.getResString("search_row_field_" + field.name().toLowerCase(java.util.Locale.ROOT)) : value,
+                        index, selected, focus);
+            }
+        });
+        rowFieldCombo.addActionListener(e -> scopeChanged());
+        scopeBox.add(JMeterUtils.labelFor(rowFieldCombo, "search_row_fields"));
+        scopeBox.add(rowFieldCombo, "growx");
+        criteriaPanel.add(scopeBox, "span 2, growx");
         criteriaPanel.add(flagByTextRB, "span 2");
         JLabel searchLabel = JMeterUtils.labelFor(searchTF, "search_text_field");
         criteriaPanel.add(searchLabel);
@@ -312,7 +382,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         resetSearchButton = createButton("search_clear_flags");
         resetSearchButton.addActionListener(this);
 
-        JPanel flaggingButtons = new JPanel(new GridLayout(0, 1, 0, 4));
+        JPanel flaggingButtons = new JPanel(new MigLayout("insets 0, wrap 1, fillx, gapy 4", "[fill,grow]"));
         searchButton = createButton("search_flag_all"); //$NON-NLS-1$
         searchButton.addActionListener(this);
         nextButton = createButton("search_next"); //$NON-NLS-1$
@@ -327,6 +397,16 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         flaggingButtons.add(nextButton);
         flaggingButtons.add(previousButton);
         flaggingButtons.add(searchAndExpandButton);
+        removalTarget = new JComboBox<>(RemovalTarget.values());
+        removalTarget.addActionListener(e -> {
+            if (removalTarget.getSelectedItem() != RemovalTarget.ELEMENTS) {
+                flagByTextRB.doClick();
+            }
+        });
+        JPanel removalOptions = new JPanel(new BorderLayout(0, 2));
+        removalOptions.add(JMeterUtils.labelFor(removalTarget, "search_removal_target"), BorderLayout.NORTH);
+        removalOptions.add(removalTarget, BorderLayout.CENTER);
+        flaggingButtons.add(removalOptions);
         flaggingButtons.add(removeMatchingButton);
         flaggingButtons.add(resetSearchButton);
 
@@ -396,7 +476,11 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             lastSearchResult.clear();
             currentSearchIndex = -1;
             statusLabel.setText(" ");
+            Dimension previousSize = isVisible() ? getSize() : null;
             this.pack();
+            if (previousSize != null) {
+                setSize(Math.max(previousSize.width, getWidth()), Math.max(previousSize.height, getHeight()));
+            }
             scheduleLiveFlagging();
         });
 
@@ -571,11 +655,31 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         statusLabel.setText(" ");
     }
 
+    static <T> T editWithUndo(GuiPackage gui, String description, Predicate<T> changed, Supplier<T> edit) {
+        // Capture pending editor edits as the baseline, independently of dirty trackers.
+        gui.beginUndoTransaction(description);
+        try {
+            T result = edit.get();
+            if (!changed.test(result)) {
+                return result;
+            }
+            gui.setDirty(true);
+            if (gui.getCurrentNode() == null || gui.getCurrentNode().getRoot() != gui.getTreeModel().getRoot()) {
+                selectRootNode(gui);
+            }
+            gui.refreshCurrentGui();
+            gui.addUndoHistory(description);
+            return result;
+        } finally {
+            gui.endUndoTransaction();
+        }
+    }
+
     private boolean doReplace() {
         GuiPackage guiPackage = GuiPackage.getInstance();
         guiPackage.updateCurrentNode();
         JMeterTreeNode selectedNode = guiPackage.getCurrentNode();
-        if (selectedNode == null || !isWithinScope(selectedNode, selectedScopeNode())) {
+        if (selectedNode == null || !isWithinSearchScope(selectedNode, selectedScope())) {
             statusLabel.setText(JMeterUtils.getResString("search_replace_select_result"));
             return false;
         }
@@ -588,12 +692,11 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         if (changes == null) {
             return false;
         }
-        int replacements = applyChanges(changes);
+        int replacements = editWithUndo(guiPackage, "Replace in " + selectedNode.getName(), count -> count > 0, () -> applyChanges(changes));
         if (replacements > 0) {
-            guiPackage.addUndoHistory("Replace in " + selectedNode.getName());
-            guiPackage.updateCurrentGui();
+            guiPackage.refreshCurrentGui();
             guiPackage.getMainFrame().repaint();
-            scopeComboBox.repaint();
+            refreshScopeLabels();
         }
         refreshReplaceableResults(pattern);
         statusLabel.setText(MessageFormat.format(
@@ -698,8 +801,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
         // do search
         Map.Entry<Integer, Set<JMeterTreeNode>> result = !flagByNodeType
-                ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch, selectedScopeNode())
-                : flagNodeTypesInTree(guiPackage, nodeTypes, selectedScopeNode());
+                ? searchInTree(guiPackage, createSearcher(wordToSearch), wordToSearch, selectedScope())
+                : flagNodeTypesInTree(guiPackage, nodeTypes, selectedScope());
         int numberOfMatches = result.getKey();
         guiPackage.withoutUndoHistory(() -> markConcernedNodes(expand, result.getValue()));
         GuiPackage.getInstance().getMainFrame().repaint();
@@ -723,7 +826,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ActionRouter.getInstance().doActionNow(
                 new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
         SearchResult result = searchReplaceableInTree(
-                GuiPackage.getInstance(), pattern, selectedScopeNode());
+                GuiPackage.getInstance(), pattern, selectedScope());
         GuiPackage.getInstance().withoutUndoHistory(() -> markConcernedNodes(false, result.nodes()));
         GuiPackage.getInstance().getMainFrame().repaint();
         statusLabel.setText(MessageFormat.format(
@@ -733,6 +836,10 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private void doRemoveMatching(ActionEvent e) {
+        if (removalTarget.getSelectedItem() != RemovalTarget.ELEMENTS) {
+            doRemoveRows();
+            return;
+        }
         SearchConditions currentSearchConditions = currentSearchConditions(SearchMode.FLAGGING);
         String wordToSearch = currentSearchConditions.word();
         Set<NodeType> nodeTypes = currentSearchConditions.nodeTypes();
@@ -751,6 +858,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             return;
         }
 
+        liveFlaggingTimer.stop();
         GuiPackage guiPackage = GuiPackage.getInstance();
         guiPackage.updateCurrentNode();
         SearchResult result = findMatchingNodes(guiPackage, currentSearchConditions);
@@ -776,13 +884,40 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
 
         int removed = 0;
-        guiPackage.beginUndoTransaction();
+        int cleaned = 0;
+        int skipped = 0;
+        Set<JMeterTreeNode> affectedControllers = new LinkedHashSet<>();
+        guiPackage.beginUndoTransaction("Remove matching elements");
         try {
             for (JMeterTreeNode node : sortedForRemoval(confirmedNodesToRemove)) {
+                List<JMeterTreeNode> ancestors = controllerAncestors(node);
                 if (removeMatchingNode(guiPackage, node)) {
                     removed++;
+                    affectedControllers.addAll(ancestors);
+                } else {
+                    skipped++;
                 }
             }
+            List<JMeterTreeNode> emptied = emptiedControllers(affectedControllers, (JMeterTreeNode) guiPackage.getTreeModel().getRoot());
+            if (!emptied.isEmpty()) {
+                List<JMeterTreeNode> selected = confirmRemoveMatching(emptied, true);
+                if (selected != null) {
+                    for (JMeterTreeNode node : sortedForRemoval(selected)) {
+                        // A retained or busy child must also keep its parent controller.
+                        if (node.getChildCount() == 0 && removeMatchingNode(guiPackage, node)) {
+                            cleaned++;
+                        } else {
+                            skipped++;
+                        }
+                    }
+                }
+            }
+            if (removed > 0 || cleaned > 0) {
+                guiPackage.setDirty(true);
+            }
+            selectRootNode(guiPackage);
+            guiPackage.refreshCurrentGui();
+            guiPackage.addUndoHistory("Remove matching elements and empty controllers");
         } finally {
             guiPackage.endUndoTransaction();
         }
@@ -795,7 +930,107 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         guiPackage.getMainFrame().repaint();
         searchTF.requestFocusInWindow();
         statusLabel.setText(MessageFormat.format(
-                JMeterUtils.getResString("search_remove_matching_status"), removed));
+                JMeterUtils.getResString("search_remove_matching_cleanup_status"), removed, cleaned, skipped));
+    }
+
+    private void doRemoveRows() {
+        if (flagByNodeTypeRB.isSelected()) {
+            statusLabel.setText(JMeterUtils.getResString("search_remove_rows_text_only"));
+            return;
+        }
+        if (StringUtilities.isEmpty(searchTF.getText())) {
+            statusLabel.setText(JMeterUtils.getResString("search_enter_text"));
+            return;
+        }
+        if (!validateSearchPattern()) {
+            return;
+        }
+        Set<SearchArea> areas = selectedAreas();
+        areas.retainAll(((RemovalTarget) removalTarget.getSelectedItem()).areas());
+        if (areas.isEmpty()) {
+            statusLabel.setText(JMeterUtils.getResString("search_remove_rows_select_area"));
+            return;
+        }
+        // Modal confirmation runs a nested event loop: a pending live search must
+        // not save the editor and replace the row objects captured below.
+        liveFlaggingTimer.stop();
+        GuiPackage gui = GuiPackage.getInstance();
+        gui.updateCurrentNode();
+        List<RowMatch> matches = matchingRows(gui.getTreeModel().getNodesOfType(TestElement.class),
+                selectedScope(), areas, createSearcher(searchTF.getText()), selectedRowField());
+        if (matches.isEmpty()) {
+            statusLabel.setText(JMeterUtils.getResString("search_remove_rows_no_matches"));
+            return;
+        }
+        List<RowMatch> selected = confirmRemoval(matches, SearchTreeDialog::formatRowMatch,
+                "search_remove_rows_confirm", "search_remove_rows_title");
+        if (selected == null || selected.isEmpty()) {
+            return;
+        }
+        // ActionRouter refreshes the open editor before commands, invalidating
+        // row identities in its header/parameter collections. Only clear marks.
+        ResetSearchCommand.clearSearchMarks(gui);
+        RowRemovalResult removalResult = editWithUndo(gui, "Remove matching header/parameter rows", result -> result.removed() > 0,
+                () -> removeRowsWithResult(selected));
+        lastSearchConditions = null;
+        lastSearchResult.clear();
+        currentSearchIndex = -1;
+        gui.refreshCurrentGui();
+        gui.getMainFrame().repaint();
+        statusLabel.setText(MessageFormat.format(JMeterUtils.getResString("search_remove_rows_result"),
+                removalResult.removed(), removalResult.skipped(), removalResult.stale(), removalResult.busy()));
+    }
+
+    static List<RowMatch> matchingRows(List<JMeterTreeNode> nodes, SearchScope scope,
+            Set<SearchArea> areas, Searcher searcher) {
+        return matchingRows(nodes, scope, areas, searcher, RowField.ALL);
+    }
+
+    static List<RowMatch> matchingRows(List<JMeterTreeNode> nodes, SearchScope scope,
+            Set<SearchArea> areas, Searcher searcher, RowField field) {
+        List<RowMatch> matches = new ArrayList<>();
+        for (JMeterTreeNode node : nodes) {
+            if (!node.isRoot() && isWithinSearchScope(node, scope)) {
+                for (RemovableRow row : RemovableRow.forElement(node.getTestElement())) {
+                    if (areas.contains(row.area()) && searcher.search(field.tokens(row.tokens()))) {
+                        matches.add(new RowMatch(node, row, node.getRoot()));
+                    }
+                }
+            }
+        }
+        return matches;
+    }
+
+    record RowRemovalResult(int removed, int stale, int busy) {
+        int skipped() {
+            return stale + busy;
+        }
+    }
+
+    static int removeRows(List<RowMatch> rows) {
+        return removeRowsWithResult(rows).removed();
+    }
+
+    static RowRemovalResult removeRowsWithResult(List<RowMatch> rows) {
+        int removed = 0;
+        int stale = 0;
+        int busy = 0;
+        for (RowMatch match : rows) {
+            if (!match.node().getTestElement().canRemove()) {
+                busy++;
+            } else if (match.node().getParent() == null || match.node().getRoot() != match.root() || !match.row().remove()) {
+                stale++;
+            } else {
+                removed++;
+            }
+        }
+        return new RowRemovalResult(removed, stale, busy);
+    }
+
+    private static String formatRowMatch(RowMatch match) {
+        String area = JMeterUtils.getResString("search_area_" + match.row().area().name().toLowerCase(java.util.Locale.ROOT));
+        String values = String.join(" = ", match.row().tokens()).replace('\n', ' ').replace('\r', ' ');
+        return formatNodePath(match.node()) + " > " + area + " #" + match.row().number() + ": " + values;
     }
 
     private SearchResult findMatchingNodes(GuiPackage guiPackage, SearchConditions searchConditions) {
@@ -807,44 +1042,130 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private List<JMeterTreeNode> confirmRemoveMatching(List<JMeterTreeNode> nodesToRemove) {
-        List<JCheckBox> matchedElementCheckboxes = nodesToRemove.stream()
-                .map(node -> new JCheckBox(formatNodePath(node), true))
+        return confirmRemoveMatching(nodesToRemove, false);
+    }
+
+    private List<JMeterTreeNode> confirmRemoveMatching(List<JMeterTreeNode> nodesToRemove, boolean cleanup) {
+        return confirmRemoval(nodesToRemove, SearchTreeDialog::formatNodePath,
+                cleanup ? "search_cleanup_controllers_confirm" : "search_remove_matching_confirm",
+                cleanup ? "search_cleanup_controllers_title" : "search_remove_matching_title");
+    }
+
+    private <T> List<T> confirmRemoval(List<T> candidates, Function<T, String> label, String messageKey, String titleKey) {
+        List<JCheckBox> matchedElementCheckboxes = candidates.stream()
+                .map(candidate -> new JCheckBox(label.apply(candidate), true))
                 .toList();
-        JPanel matchedElements = new JPanel(new GridLayout(0, 1));
+        JPanel matchedElements = new JPanel(new MigLayout("insets 0, wrap 1, gapy 0, aligny top", "[left]"));
         for (JCheckBox matchedElementCheckbox : matchedElementCheckboxes) {
             matchedElements.add(matchedElementCheckbox);
         }
         JScrollPane scrollPane = new JScrollPane(matchedElements);
-        scrollPane.setPreferredSize(new Dimension(520, 260));
+        scrollPane.setPreferredSize(new Dimension(850, 420));
 
         JPanel panel = new JPanel(new BorderLayout(0, 8));
         panel.add(new JLabel(MessageFormat.format(
-                JMeterUtils.getResString("search_remove_matching_confirm"), nodesToRemove.size())), BorderLayout.NORTH);
+                JMeterUtils.getResString(messageKey), candidates.size())), BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
 
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                panel,
-                JMeterUtils.getResString("search_remove_matching_title"),
-                JOptionPane.OK_CANCEL_OPTION,
-                JOptionPane.WARNING_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) {
+        JButton removeSelected = createButton("search_remove_selected");
+        JButton cancel = createButton("cancel");
+        panel.add(removalSelectionControls(matchedElementCheckboxes, removeSelected), BorderLayout.SOUTH);
+        JOptionPane confirmation = new JOptionPane(panel, JOptionPane.WARNING_MESSAGE,
+                JOptionPane.OK_CANCEL_OPTION, null, new Object[] {removeSelected, cancel}, cancel);
+        removeSelected.addActionListener(e -> confirmation.setValue(JOptionPane.OK_OPTION));
+        cancel.addActionListener(e -> confirmation.setValue(JOptionPane.CANCEL_OPTION));
+        JDialog dialog = confirmation.createDialog(this, JMeterUtils.getResString(titleKey));
+        dialog.setResizable(true);
+        dialog.setMinimumSize(new Dimension(520, 300));
+        Dimension savedSize = previewSizes.get(titleKey);
+        if (savedSize != null) {
+            dialog.setSize(savedSize);
+        }
+        try {
+            dialog.setVisible(true);
+        } finally {
+            previewSizes.put(titleKey, dialog.getSize());
+            dialog.dispose();
+        }
+        if (!Integer.valueOf(JOptionPane.OK_OPTION).equals(confirmation.getValue())) {
             return null;
         }
-        List<JMeterTreeNode> selectedNodes = new ArrayList<>();
+        List<T> selectedNodes = new ArrayList<>();
         for (int i = 0; i < matchedElementCheckboxes.size(); i++) {
             if (matchedElementCheckboxes.get(i).isSelected()) {
-                selectedNodes.add(nodesToRemove.get(i));
+                selectedNodes.add(candidates.get(i));
             }
         }
         return selectedNodes;
     }
 
-    private static String formatNodePath(JMeterTreeNode node) {
+    static JPanel removalSelectionControls(List<JCheckBox> matchedElementCheckboxes, JButton removeSelected) {
+        JLabel count = new JLabel();
+        Runnable updateSelection = () -> {
+            long selected = matchedElementCheckboxes.stream().filter(JCheckBox::isSelected).count();
+            count.setText(MessageFormat.format(JMeterUtils.getResString("search_removal_selected_count"), selected, matchedElementCheckboxes.size()));
+            removeSelected.setEnabled(selected > 0);
+        };
+        JPanel selectionControls = new JPanel(new FlowLayout(FlowLayout.LEADING));
+        JButton all = createButton("search_select_all");
+        JButton none = createButton("search_select_none");
+        all.addActionListener(e -> {
+            matchedElementCheckboxes.forEach(box -> box.setSelected(true));
+            updateSelection.run();
+        });
+        none.addActionListener(e -> {
+            matchedElementCheckboxes.forEach(box -> box.setSelected(false));
+            updateSelection.run();
+        });
+        matchedElementCheckboxes.forEach(box -> box.addActionListener(e -> updateSelection.run()));
+        selectionControls.add(all);
+        selectionControls.add(none);
+        selectionControls.add(count);
+        updateSelection.run();
+        return selectionControls;
+    }
+
+    static String formatNodePath(JMeterTreeNode node) {
         return String.join(" > ",
                 List.of(node.getPath()).stream()
+                        // The tree model root is hidden and also holds the Test Plan.
+                        .skip(1)
                         .map(pathNode -> ((JMeterTreeNode) pathNode).getName())
                         .toList());
+    }
+
+    static List<JMeterTreeNode> controllerAncestors(JMeterTreeNode node) {
+        List<JMeterTreeNode> controllers = new ArrayList<>();
+        for (var parent = node.getParent(); parent instanceof JMeterTreeNode ancestor; parent = parent.getParent()) {
+            TestElement element = ancestor.getTestElement();
+            if (element instanceof AbstractThreadGroup || element instanceof TestFragmentController) {
+                break;
+            }
+            if (element instanceof Controller) {
+                controllers.add(ancestor);
+            }
+        }
+        return controllers;
+    }
+
+    static List<JMeterTreeNode> emptiedControllers(Set<JMeterTreeNode> affectedControllers, JMeterTreeNode root) {
+        Set<JMeterTreeNode> removable = new LinkedHashSet<>();
+        for (JMeterTreeNode node : sortedForRemoval(new ArrayList<>(affectedControllers))) {
+            if (node.getParent() == null || node.getRoot() != root || !node.getTestElement().canRemove()) {
+                continue;
+            }
+            boolean emptyAfterCleanup = true;
+            for (int i = 0; i < node.getChildCount(); i++) {
+                if (!removable.contains(node.getChildAt(i))) {
+                    emptyAfterCleanup = false;
+                    break;
+                }
+            }
+            if (emptyAfterCleanup) {
+                removable.add(node);
+            }
+        }
+        return new ArrayList<>(removable);
     }
 
     private static List<JMeterTreeNode> sortedForRemoval(List<JMeterTreeNode> nodes) {
@@ -853,8 +1174,12 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 .toList();
     }
 
-    private static boolean removeMatchingNode(GuiPackage guiPackage, JMeterTreeNode node) {
+    static boolean removeMatchingNode(GuiPackage guiPackage, JMeterTreeNode node) {
         TestElement testElement = node.getTestElement();
+        if (node.getParent() == null || node.getRoot() != guiPackage.getTreeModel().getRoot()
+                || testElement instanceof org.apache.jmeter.testelement.TestPlan) {
+            return false;
+        }
         if (!testElement.canRemove()) {
             logger.warn("Cannot remove matching search element {} because it is busy", testElement.getName());
             return false;
@@ -866,10 +1191,9 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private static void selectRootNode(GuiPackage guiPackage) {
-        Object root = guiPackage.getTreeModel().getRoot();
-        if (root instanceof JMeterTreeNode rootNode) {
-            guiPackage.getMainFrame().getTree().setSelectionPath(new TreePath(rootNode.getPath()));
-        }
+        JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
+        JMeterTreeNode plan = (JMeterTreeNode) root.getChildAt(0);
+        guiPackage.getTreeListener().setSelectionPathWithoutEdit(new TreePath(plan.getPath()));
     }
 
     /**
@@ -885,19 +1209,17 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private SearchResult searchInTree(GuiPackage guiPackage, Searcher searcher, String wordToSearch,
-            JMeterTreeNode scope) {
+            SearchScope scope) {
         int numberOfMatches = 0;
         JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
         Path testPlanFile = testPlanFile(guiPackage);
         for (JMeterTreeNode jMeterTreeNode : jMeterTreeModel.getNodesOfType(Searchable.class)) {
-            if (!isWithinScope(jMeterTreeNode, scope)) {
+            if (jMeterTreeNode.isRoot() || !isWithinSearchScope(jMeterTreeNode, scope)) {
                 continue;
             }
             try {
-                Searchable searchable = (Searchable) jMeterTreeNode.getUserObject();
-                List<String> searchableTokens = new ArrayList<>(searchable.getSearchableTokens());
-                addRecordedExchangeTokens(searchableTokens, jMeterTreeNode, testPlanFile);
+                List<String> searchableTokens = searchableTokens(jMeterTreeNode, testPlanFile, selectedAreas(), selectedRowField());
                 boolean result = searcher.search(searchableTokens);
                 if (result) {
                     numberOfMatches++;
@@ -914,14 +1236,14 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private SearchResult searchReplaceableInTree(
-            GuiPackage guiPackage, Pattern pattern, JMeterTreeNode scope) {
+            GuiPackage guiPackage, Pattern pattern, SearchScope scope) {
         int numberOfMatches = 0;
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
         for (JMeterTreeNode node : guiPackage.getTreeModel().getNodesOfType(TestElement.class)) {
-            if (!isWithinScope(node, scope)) {
+            if (node.isRoot() || !isWithinSearchScope(node, scope)) {
                 continue;
             }
-            int nodeMatches = replaceableFields(node).stream()
+            int nodeMatches = replaceableFields(node, selectedAreas(), selectedRowField()).stream()
                     .mapToInt(field -> countMatches(pattern, field.value()))
                     .sum();
             if (nodeMatches > 0) {
@@ -937,7 +1259,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private void refreshReplaceableResults(Pattern pattern) {
         lastSearchConditions = currentSearchConditions(SearchMode.REPLACE);
-        searchReplaceableInTree(GuiPackage.getInstance(), pattern, selectedScopeNode());
+        searchReplaceableInTree(GuiPackage.getInstance(), pattern, selectedScope());
     }
 
     @VisibleForTesting
@@ -946,12 +1268,55 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             return List.of();
         }
         List<ReplaceableField> fields = new ArrayList<>();
-        fields.add(new ReplaceableField("Name", testElement::getName, testElement::setName));
+        fields.add(new ReplaceableField("Name", testElement::getName, testElement::setName, SearchArea.NAME));
         fields.add(new ReplaceableField("Comments", testElement::getComment, testElement::setComment));
         if (testElement instanceof Replaceable replaceable) {
             fields.addAll(replaceable.getReplaceableFields());
         }
         return fields;
+    }
+
+    static List<ReplaceableField> replaceableFields(JMeterTreeNode node, Set<SearchArea> areas, RowField field) {
+        return replaceableFields(node, areas).stream().filter(value -> field == RowField.ALL
+                || (value.area() != SearchArea.HEADERS && value.area() != SearchArea.PARAMETERS)
+                || value.rowField() == field).toList();
+    }
+
+    static List<ReplaceableField> replaceableFields(JMeterTreeNode node, Set<SearchArea> areas) {
+        return replaceableFields(node).stream().filter(field -> areas.contains(field.area())).toList();
+    }
+
+    static List<String> searchableTokens(JMeterTreeNode node, Path testPlanFile, Set<SearchArea> areas, RowField field)
+            throws Exception {
+        if (field == RowField.ALL) {
+            return searchableTokens(node, testPlanFile, areas);
+        }
+        Set<SearchArea> nonRowAreas = EnumSet.noneOf(SearchArea.class);
+        nonRowAreas.addAll(areas);
+        nonRowAreas.removeAll(Set.of(SearchArea.HEADERS, SearchArea.PARAMETERS));
+        List<String> tokens = searchableTokens(node, testPlanFile, nonRowAreas);
+        for (RemovableRow row : RemovableRow.forElement(node.getTestElement())) {
+            if (areas.contains(row.area())) {
+                tokens.addAll(field.tokens(row.tokens()));
+            }
+        }
+        return tokens;
+    }
+
+    static List<String> searchableTokens(JMeterTreeNode node, Path testPlanFile, Set<SearchArea> areas)
+            throws Exception {
+        List<String> tokens = new ArrayList<>(((Searchable) node.getUserObject()).getSearchableTokens(areas));
+        if (areas.contains(SearchArea.RECORDED_REQUEST) || areas.contains(SearchArea.RECORDED_RESPONSE)) {
+            RecordedHarExchangeResolver.resolveFor(node, testPlanFile).exchange().ifPresent(exchange -> {
+                if (areas.contains(SearchArea.RECORDED_REQUEST)) {
+                    tokens.add(exchange.request());
+                }
+                if (areas.contains(SearchArea.RECORDED_RESPONSE)) {
+                    tokens.add(exchange.response());
+                }
+            });
+        }
+        return tokens;
     }
 
     private static int countMatches(Pattern pattern, String value) {
@@ -996,10 +1361,20 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     @VisibleForTesting
     static List<FieldChange> replacementChanges(
             JMeterTreeNode node, Pattern pattern, String replacement, boolean regex) {
+        return replacementChanges(node, pattern, replacement, regex, EnumSet.allOf(SearchArea.class));
+    }
+
+    static List<FieldChange> replacementChanges(JMeterTreeNode node, Pattern pattern,
+            String replacement, boolean regex, Set<SearchArea> areas) {
+        return replacementChanges(node, pattern, replacement, regex, areas, RowField.ALL);
+    }
+
+    static List<FieldChange> replacementChanges(JMeterTreeNode node, Pattern pattern,
+            String replacement, boolean regex, Set<SearchArea> areas, RowField field) {
         List<FieldChange> changes = new ArrayList<>();
         String effectiveReplacement = regex ? replacement : Matcher.quoteReplacement(replacement);
-        for (ReplaceableField field : replaceableFields(node)) {
-            String currentValue = field.value();
+        for (ReplaceableField valueField : replaceableFields(node, areas, field)) {
+            String currentValue = valueField.value();
             if (StringUtilities.isEmpty(currentValue)) {
                 continue;
             }
@@ -1012,7 +1387,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             }
             if (replacements > 0) {
                 matcher.appendTail(result);
-                changes.add(new FieldChange(field, result.toString(), replacements));
+                changes.add(new FieldChange(valueField, result.toString(), replacements));
             }
         }
         return changes;
@@ -1021,7 +1396,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private List<FieldChange> replacementChangesOrShowError(
             JMeterTreeNode node, Pattern pattern, String replacement) {
         try {
-            return replacementChanges(node, pattern, replacement, isRegexpCB.isSelected());
+            return replacementChanges(node, pattern, replacement, isRegexpCB.isSelected(), selectedAreas(), selectedRowField());
         } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
             statusLabel.setText(MessageFormat.format(
                     JMeterUtils.getResString("search_invalid_replacement"), ex.getMessage()));
@@ -1051,12 +1426,12 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     }
 
     private SearchResult flagNodeTypesInTree(
-            GuiPackage guiPackage, Set<NodeType> nodeTypes, JMeterTreeNode scope) {
+            GuiPackage guiPackage, Set<NodeType> nodeTypes, SearchScope scope) {
         int numberOfMatches = 0;
         JMeterTreeModel jMeterTreeModel = guiPackage.getTreeModel();
         Set<JMeterTreeNode> nodes = new LinkedHashSet<>();
         for (JMeterTreeNode jMeterTreeNode : jMeterTreeModel.getNodesOfType(TestElement.class)) {
-            if (!isWithinScope(jMeterTreeNode, scope)) {
+            if (jMeterTreeNode.isRoot() || !isWithinSearchScope(jMeterTreeNode, scope)) {
                 continue;
             }
             TestElement testElement = (TestElement) jMeterTreeNode.getUserObject();
@@ -1107,33 +1482,136 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 isRegexpCB.isSelected(),
                 flagSource,
                 flagSource == FlagSource.NODE_TYPES ? Set.copyOf(getSelectedNodeTypes()) : Set.of(),
-                selectedScopeNode(),
+                selectedScope(),
+                selectedAreas(),
+                selectedRowField(),
                 mode);
     }
 
-    private JMeterTreeNode selectedScopeNode() {
-        ScopeOption selectedScope = (ScopeOption) scopeComboBox.getSelectedItem();
-        return selectedScope == null ? null : selectedScope.node();
+    private SearchScope selectedScope() {
+        ScopeOption selected = (ScopeOption) scopeComboBox.getSelectedItem();
+        GuiPackage gui = GuiPackage.getInstance();
+        return new SearchScope(selected == null ? null : gui == null ? selected.node : selected.resolve(gui.getTreeModel()));
+    }
+
+    record ScopeKey(String path, int occurrence) {}
+
+    static ScopeKey scopeKey(JMeterTreeNode node) {
+        if (node == null) {
+            return null;
+        }
+        String path = formatNodePath(node);
+        int occurrence = 0;
+        var nodes = ((JMeterTreeNode) node.getRoot()).preorderEnumeration();
+        while (nodes.hasMoreElements()) {
+            JMeterTreeNode candidate = (JMeterTreeNode) nodes.nextElement();
+            if (candidate == node) {
+                return new ScopeKey(path, occurrence);
+            }
+            if (candidate.getTestElement() instanceof AbstractThreadGroup && formatNodePath(candidate).equals(path)) {
+                occurrence++;
+            }
+        }
+        throw new IllegalStateException("Scope is not in its tree");
+    }
+
+    static JMeterTreeNode resolveScope(JMeterTreeNode original, ScopeKey key, JMeterTreeModel model) {
+        if (original == null || original.getRoot() == model.getRoot() || key == null) {
+            return original;
+        }
+        // Keep an unresolved scope detached, so it matches nothing rather than
+        // silently widening a destructive action to All or another group.
+        return model.getNodesOfType(AbstractThreadGroup.class).stream()
+                .filter(group -> formatNodePath(group).equals(key.path()))
+                .skip(key.occurrence())
+                .findFirst().orElse(original);
+    }
+
+    private RowField selectedRowField() {
+        return (RowField) rowFieldCombo.getSelectedItem();
+    }
+
+    private Set<SearchArea> selectedAreas() {
+        Set<SearchArea> selected = EnumSet.noneOf(SearchArea.class);
+        areaBoxes.forEach((area, box) -> {
+            if (box.isSelected()) {
+                selected.add(area);
+            }
+        });
+        return selected;
+    }
+
+    private JPanel createAreaPanel() {
+        JPanel panel = new JPanel(new MigLayout("insets 0, wrap 4", "[][][][]"));
+        for (SearchArea area : SearchArea.values()) {
+            JCheckBox box = new JCheckBox(JMeterUtils.getResString(
+                    "search_area_" + area.name().toLowerCase(java.util.Locale.ROOT)), true);
+            if (area == SearchArea.OTHER) {
+                box.setToolTipText(JMeterUtils.getResString("search_area_other_help"));
+            } else if (area == SearchArea.BODY) {
+                box.setToolTipText(JMeterUtils.getResString("search_area_body_help"));
+            }
+            areaBoxes.put(area, box);
+            box.addActionListener(e -> scopeChanged());
+            panel.add(box);
+        }
+        JButton all = createButton("search_select_all");
+        JButton none = createButton("search_select_none");
+        all.addActionListener(e -> selectAreas(true));
+        none.addActionListener(e -> selectAreas(false));
+        panel.add(all);
+        panel.add(none);
+        return panel;
+    }
+
+    private void selectAreas(boolean selected) {
+        areaBoxes.values().forEach(box -> box.setSelected(selected));
+        scopeChanged();
+    }
+
+    private void scopeChanged() {
+        lastSearchConditions = null;
+        lastSearchResult.clear();
+        currentSearchIndex = -1;
+        scheduleLiveFlagging();
+    }
+
+    private void refreshScopeLabels() {
+        scopeComboBox.repaint();
     }
 
     private void refreshScopeOptions() {
         GuiPackage guiPackage = GuiPackage.getInstance();
         JMeterTreeNode currentNode = guiPackage == null ? null : guiPackage.getCurrentNode();
         JMeterTreeNode defaultScope = findThreadGroupScope(currentNode);
-
-        ScopeOption all = new ScopeOption(JMeterUtils.getResString("search_scope_all"), null);
+        boolean samePlan = guiPackage != null && guiPackage == scopeGui && scopeSession == guiPackage.getTestPlanSession();
+        JMeterTreeNode previousScope = samePlan ? selectedScope().threadGroup() : defaultScope;
+        ScopeOption previousOption = samePlan ? (ScopeOption) scopeComboBox.getSelectedItem() : null;
+        if (!samePlan) {
+            searchDialogSize = null;
+            previewSizes.clear();
+            areaBoxes.values().forEach(box -> box.setSelected(true));
+            rowFieldCombo.setSelectedItem(RowField.ALL);
+            removalTarget.setSelectedItem(RemovalTarget.ELEMENTS);
+        }
+        scopeGui = guiPackage;
+        scopeSession = guiPackage == null ? -1 : guiPackage.getTestPlanSession();
         scopeComboBox.removeAllItems();
+        ScopeOption all = new ScopeOption(JMeterUtils.getResString("search_scope_all"), null);
         scopeComboBox.addItem(all);
         ScopeOption selected = all;
         if (guiPackage != null && guiPackage.getTreeModel() != null) {
-            for (JMeterTreeNode threadGroupNode
-                    : guiPackage.getTreeModel().getNodesOfType(AbstractThreadGroup.class)) {
-                ScopeOption option = new ScopeOption(threadGroupNode.getName(), threadGroupNode);
+            for (JMeterTreeNode node : guiPackage.getTreeModel().getNodesOfType(AbstractThreadGroup.class)) {
+                ScopeOption option = new ScopeOption(node.getName(), node);
                 scopeComboBox.addItem(option);
-                if (threadGroupNode == defaultScope) {
+                if (node == previousScope) {
                     selected = option;
                 }
             }
+        }
+        if (selected.node == null && previousScope != null && previousOption != null) {
+            selected = previousOption;
+            scopeComboBox.addItem(selected);
         }
         scopeComboBox.setSelectedItem(selected);
         lastSearchConditions = null;
@@ -1149,6 +1627,11 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             current = current.getParent() instanceof JMeterTreeNode parent ? parent : null;
         }
         return null;
+    }
+
+    @VisibleForTesting
+    static boolean isWithinSearchScope(JMeterTreeNode node, SearchScope scope) {
+        return isWithinScope(node, scope.threadGroup());
     }
 
     @VisibleForTesting
@@ -1221,7 +1704,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         GuiPackage guiPackage = GuiPackage.getInstance();
         guiPackage.updateCurrentNode();
         ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.SEARCH_RESET));
-        SearchResult result = searchReplaceableInTree(guiPackage, pattern, selectedScopeNode());
+        SearchResult result = searchReplaceableInTree(guiPackage, pattern, selectedScope());
 
         List<Map.Entry<JMeterTreeNode, List<FieldChange>>> plannedChanges = new ArrayList<>();
         for (JMeterTreeNode node : result.nodes()) {
@@ -1233,20 +1716,22 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             plannedChanges.add(Map.entry(node, changes));
         }
 
-        int totalReplaced = 0;
         Set<JMeterTreeNode> replacedNodes = new HashSet<>();
-        for (Map.Entry<JMeterTreeNode, List<FieldChange>> plannedChange : plannedChanges) {
-            int replaced = applyChanges(plannedChange.getValue());
-            if (replaced > 0) {
-                totalReplaced += replaced;
-                replacedNodes.add(plannedChange.getKey());
+        int totalReplaced = editWithUndo(guiPackage, "Replace all", count -> count > 0, () -> {
+            int count = 0;
+            for (Map.Entry<JMeterTreeNode, List<FieldChange>> plannedChange : plannedChanges) {
+                int replaced = applyChanges(plannedChange.getValue());
+                if (replaced > 0) {
+                    count += replaced;
+                    replacedNodes.add(plannedChange.getKey());
+                }
             }
-        }
+            return count;
+        });
         if (totalReplaced > 0) {
-            guiPackage.addUndoHistory("Replace all");
             guiPackage.withoutUndoHistory(() -> markConcernedNodes(false, replacedNodes));
             guiPackage.refreshCurrentGui();
-            scopeComboBox.repaint();
+            refreshScopeLabels();
         }
         refreshReplaceableResults(pattern);
         guiPackage.getMainFrame().repaint();
@@ -1259,6 +1744,13 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     public void setVisible(boolean b) {
         if (b && !isVisible()) {
             refreshScopeOptions();
+            if (searchDialogSize != null) {
+                setSize(searchDialogSize);
+            } else {
+                pack();
+            }
+        } else if (!b && isVisible()) {
+            searchDialogSize = getSize();
         }
         super.setVisible(b);
         searchTF.requestFocusInWindow();
