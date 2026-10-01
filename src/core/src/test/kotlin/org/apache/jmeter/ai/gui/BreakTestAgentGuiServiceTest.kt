@@ -55,6 +55,36 @@ class BreakTestAgentGuiServiceTest {
     }
 
     @Test
+    fun `repair paths omit hidden root and resolve both visible and legacy paths`() {
+        val model = JMeterTreeModel(TestPlan("Example Plan"))
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        val group = JMeterTreeNode(ThreadGroup().apply { name = "Example Plan" }, model)
+        val request = JMeterTreeNode(ConfigTestElement().apply { name = "/api/resources" }, model)
+        model.insertNodeInto(group, plan, 0)
+        model.insertNodeInto(request, group, 0)
+
+        assertEquals("Example Plan", invokePrivateResult("nodePath", plan))
+        val path = invokePrivateResult("nodePath", request) as String
+        assertEquals("Example Plan / Example Plan / /api/resources", path)
+        val matching = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "matchingNodesByPath", org.apache.jorphan.collections.HashTree::class.java, String::class.java,
+        ).apply { isAccessible = true }
+        for (requestedPath in listOf(path, "Example Plan / $path")) {
+            assertEquals(listOf(request), matching.invoke(BreakTestAgentGuiService, model.testPlan, requestedPath))
+        }
+    }
+
+    @Test
+    fun `repair paths preserve detached test plan and repeated names`() {
+        val plan = JMeterTreeNode(TestPlan("Example Plan"), null)
+        val group = JMeterTreeNode(ThreadGroup().apply { name = "Example Plan" }, null)
+        plan.add(group)
+
+        assertEquals("Example Plan", invokePrivateResult("nodePath", plan))
+        assertEquals("Example Plan / Example Plan", invokePrivateResult("nodePath", group))
+    }
+
+    @Test
     fun `HTTP2 pseudo headers do not become csrf values while multiline body values remain`() {
         for (newline in listOf("\n", "\r\n")) {
             val request = listOf(
