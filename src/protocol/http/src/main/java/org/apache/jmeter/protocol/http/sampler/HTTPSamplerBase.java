@@ -3124,10 +3124,6 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         }
         List<String> tokens = super.getSearchableTokens(areas);
         for (Header header : getNativeHeaderList()) {
-            if (areas.contains(SearchArea.OTHER)) {
-                tokens.remove(header.getName());
-                tokens.remove(header.getValue());
-            }
             if (areas.contains(SearchArea.HEADERS)) {
                 tokens.add(header.getName());
                 tokens.add(header.getValue());

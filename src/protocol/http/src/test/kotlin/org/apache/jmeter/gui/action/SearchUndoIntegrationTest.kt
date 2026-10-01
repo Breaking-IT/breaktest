@@ -233,6 +233,44 @@ class SearchUndoIntegrationTest {
     }
 
     @Test
+    fun `duplicate group scope stays on the selected occurrence across undo redo`() = withPlan { gui, model, controller ->
+        val firstGroup = controller.parent as JMeterTreeNode
+        val secondGroup = JMeterTreeNode(firstGroup.testElement.clone() as TestElement, model)
+        model.insertNodeInto(secondGroup, firstGroup.parent as JMeterTreeNode, 1)
+        val secondRequest = JMeterTreeNode(samplers(model).first().clone() as TestElement, model)
+        model.insertNodeInto(secondRequest, secondGroup, 0)
+        val firstOption = SearchTreeDialog.ScopeOption("Group", firstGroup)
+        val secondOption = SearchTreeDialog.ScopeOption("Group", secondGroup)
+        val changes = SearchTreeDialog.replacementChanges(secondRequest, Pattern.compile("original"), "changed", false)
+        SearchTreeDialog.editWithUndo(gui, "Replace in second group", { count -> count > 0 }) {
+            SearchTreeDialog.applyChanges(changes)
+        }
+        gui.undo()
+        var groups = model.getNodesOfType(ThreadGroup::class.java)
+        assertEquals(listOf("Group", "Group"), groups.map { it.name })
+        assertTrue(firstOption.resolve(model) === groups[0])
+        assertTrue(secondOption.resolve(model) === groups[1])
+        gui.redo()
+        groups = model.getNodesOfType(ThreadGroup::class.java)
+        assertTrue(firstOption.resolve(model) === groups[0])
+        assertTrue(secondOption.resolve(model) === groups[1])
+        val rows = SearchTreeDialog.matchingRows(
+            model.getNodesOfType(HTTPSamplerProxy::class.java), SearchTreeDialog.SearchScope(secondOption.resolve(model)),
+            setOf(SearchArea.PARAMETERS), RawTextSearcher(true, "keep"), RowField.NAME
+        )
+        assertEquals(
+            1,
+            SearchTreeDialog.editWithUndo(gui, "Remove second group row", { count -> count > 0 }) {
+                SearchTreeDialog.removeRows(rows)
+            }
+        )
+        assertEquals(listOf(2, 2, 1), samplers(model).map { it.arguments.argumentCount })
+        gui.undo()
+        assertEquals(listOf(2, 2, 2), samplers(model).map { it.arguments.argumentCount })
+        assertTrue(secondOption.resolve(model) === model.getNodesOfType(ThreadGroup::class.java)[1])
+    }
+
+    @Test
     fun `empty selection adds no undo step and preserves redo`() = withPlan { gui, model, _ ->
         val node = model.getNodesOfType(HTTPSamplerProxy::class.java).first()
         val changes = SearchTreeDialog.replacementChanges(node, Pattern.compile("original"), "changed", false)

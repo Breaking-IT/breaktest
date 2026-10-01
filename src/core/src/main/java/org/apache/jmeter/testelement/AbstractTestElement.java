@@ -1572,20 +1572,15 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         if (areas.isEmpty()) {
             return List.of();
         }
-        List<String> remaining = new ArrayList<>(getSearchableTokens());
         List<String> tokens = new ArrayList<>();
         try (ResourceLock ignored = readLock()) {
             PropertyIterator properties = propertyIterator();
             while (properties.hasNext()) {
                 JMeterProperty property = properties.next();
-                String value = property.getStringValue();
-                if (remaining.remove(value) && areas.contains(searchAreaForProperty(property.getName()))) {
-                    tokens.add(value);
+                if (areas.contains(searchAreaForProperty(property.getName()))) {
+                    tokens.add(property.getStringValue());
                 }
             }
-        }
-        if (areas.contains(SearchArea.OTHER)) {
-            tokens.addAll(remaining);
         }
         return tokens;
     }

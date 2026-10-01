@@ -180,6 +180,33 @@ class SearchTreeDialogTest {
         assertEquals(2, result.skipped());
     }
 
+    @Test
+    void restoredScopeUsesOccurrenceForIdenticallyNamedGroups() {
+        JMeterTreeModel original = new JMeterTreeModel(new TestPlan("Plan"));
+        JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) original.getRoot()).getChildAt(0);
+        JMeterTreeNode first = new JMeterTreeNode(new ThreadGroup(), original);
+        JMeterTreeNode second = new JMeterTreeNode(new ThreadGroup(), original);
+        first.getTestElement().setName("Group");
+        second.getTestElement().setName("Group");
+        plan.add(first);
+        plan.add(second);
+        var firstKey = SearchTreeDialog.scopeKey(first);
+        var secondKey = SearchTreeDialog.scopeKey(second);
+        assertEquals(0, firstKey.occurrence());
+        assertEquals(1, secondKey.occurrence());
+        JMeterTreeModel restored = new JMeterTreeModel(new TestPlan("Plan"));
+        JMeterTreeNode restoredPlan = (JMeterTreeNode) ((JMeterTreeNode) restored.getRoot()).getChildAt(0);
+        JMeterTreeNode restoredFirst = new JMeterTreeNode((ThreadGroup) first.getTestElement().clone(), restored);
+        JMeterTreeNode restoredSecond = new JMeterTreeNode((ThreadGroup) second.getTestElement().clone(), restored);
+        restoredPlan.add(restoredFirst);
+        restoredPlan.add(restoredSecond);
+        assertSame(restoredFirst, SearchTreeDialog.resolveScope(first, firstKey, restored));
+        assertSame(restoredSecond, SearchTreeDialog.resolveScope(second, secondKey, restored));
+        restoredPlan.remove(restoredSecond);
+        assertSame(second, SearchTreeDialog.resolveScope(second, secondKey, restored));
+        assertFalse(SearchTreeDialog.isWithinSearchScope(restoredFirst, new SearchTreeDialog.SearchScope(second)));
+    }
+
     private static class RowElement extends ConfigTestElement implements Replaceable {
         private final List<RemovableRow> rows;
 

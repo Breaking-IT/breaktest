@@ -122,6 +122,33 @@ public class HTTPSamplerNativeHeadersTest {
     }
 
     @Test
+    void identicalValuesRemainSearchableInEachSelectedArea() {
+        for (boolean pathFirst : List.of(false, true)) {
+            for (HTTPSamplerProxy sampler : List.of(new HTTPSamplerProxy(), new HTTPSamplerProxy() {
+                @Override
+                public List<String> getSearchableTokens() {
+                    return super.getSearchableTokens().stream().distinct().toList();
+                }
+            })) {
+                if (pathFirst) {
+                    sampler.setPath("/api/users");
+                    sampler.setName("/api/users");
+                } else {
+                    sampler.setName("/api/users");
+                    sampler.setPath("/api/users");
+                }
+                sampler.setComment("/api/users");
+                sampler.setNativeHeaders(List.of(new Header("X-Resource", "/api/users")));
+                assertEquals(List.of("/api/users"), sampler.getSearchableTokens(Set.of(SearchArea.NAME)));
+                assertEquals(List.of("/api/users"), sampler.getSearchableTokens(Set.of(SearchArea.PATH)));
+                assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.OTHER)).contains("/api/users"));
+                assertTrue(sampler.getSearchableTokens(Set.of(SearchArea.HEADERS)).contains("/api/users"));
+                assertEquals(2, sampler.getSearchableTokens(Set.of(SearchArea.NAME, SearchArea.PATH)).size());
+            }
+        }
+    }
+
+    @Test
     void searchAreasSeparateHttpFieldsAndPreserveAllTokens() {
         HTTPSamplerProxy sampler = newSampler();
         sampler.setName("unique-name");

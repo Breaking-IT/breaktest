@@ -108,7 +108,25 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     record SearchScope(JMeterTreeNode threadGroup) {}
 
-    private record ScopeOption(String label, JMeterTreeNode node) {
+    static final class ScopeOption {
+        private final String label;
+        private JMeterTreeNode node;
+        private ScopeKey key;
+
+        ScopeOption(String label, JMeterTreeNode node) {
+            this.label = label;
+            this.node = node;
+            this.key = scopeKey(node);
+        }
+
+        JMeterTreeNode resolve(JMeterTreeModel model) {
+            node = resolveScope(node, key, model);
+            if (node != null && node.getRoot() == model.getRoot()) {
+                key = scopeKey(node);
+            }
+            return node;
+        }
+
         @Override
         public String toString() {
             return node == null ? label : node.getName();
@@ -185,8 +203,6 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
     private JComboBox<RowField> rowFieldCombo;
     private transient GuiPackage scopeGui;
     private long scopeSession = -1;
-    private String selectedScopePath;
-    private boolean refreshingScopes;
     private Dimension searchDialogSize;
     private final Map<String, Dimension> previewSizes = new java.util.HashMap<>();
 
@@ -294,13 +310,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         ParameterCompletion.install(replaceTF);
         replaceTF.setAlignmentX(TOP_ALIGNMENT);
         scopeComboBox = new JComboBox<>();
-        scopeComboBox.addActionListener(e -> {
-            if (!refreshingScopes) {
-                JMeterTreeNode group = selectedScope().threadGroup();
-                selectedScopePath = group == null ? null : formatNodePath(group);
-            }
-            scopeChanged();
-        });
+        scopeComboBox.addActionListener(e -> scopeChanged());
         statusLabel = new JLabel(" ");
         statusLabel.setPreferredSize(new Dimension(100, 20));
         statusLabel.setMinimumSize(new Dimension(100, 20));
@@ -1480,15 +1490,41 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private SearchScope selectedScope() {
         ScopeOption selected = (ScopeOption) scopeComboBox.getSelectedItem();
-        JMeterTreeNode node = selected == null ? null : selected.node();
         GuiPackage gui = GuiPackage.getInstance();
-        if (node != null && gui != null && node.getRoot() != gui.getTreeModel().getRoot()) {
-            // Undo replaces nodes while this nonmodal dialog can remain open.
-            node = gui.getTreeModel().getNodesOfType(AbstractThreadGroup.class).stream()
-                    .filter(group -> formatNodePath(group).equals(selectedScopePath))
-                    .findFirst().orElse(node);
+        return new SearchScope(selected == null ? null : gui == null ? selected.node : selected.resolve(gui.getTreeModel()));
+    }
+
+    record ScopeKey(String path, int occurrence) {}
+
+    static ScopeKey scopeKey(JMeterTreeNode node) {
+        if (node == null) {
+            return null;
         }
-        return new SearchScope(node);
+        String path = formatNodePath(node);
+        int occurrence = 0;
+        var nodes = ((JMeterTreeNode) node.getRoot()).preorderEnumeration();
+        while (nodes.hasMoreElements()) {
+            JMeterTreeNode candidate = (JMeterTreeNode) nodes.nextElement();
+            if (candidate == node) {
+                return new ScopeKey(path, occurrence);
+            }
+            if (candidate.getTestElement() instanceof AbstractThreadGroup && formatNodePath(candidate).equals(path)) {
+                occurrence++;
+            }
+        }
+        throw new IllegalStateException("Scope is not in its tree");
+    }
+
+    static JMeterTreeNode resolveScope(JMeterTreeNode original, ScopeKey key, JMeterTreeModel model) {
+        if (original == null || original.getRoot() == model.getRoot() || key == null) {
+            return original;
+        }
+        // Keep an unresolved scope detached, so it matches nothing rather than
+        // silently widening a destructive action to All or another group.
+        return model.getNodesOfType(AbstractThreadGroup.class).stream()
+                .filter(group -> formatNodePath(group).equals(key.path()))
+                .skip(key.occurrence())
+                .findFirst().orElse(original);
     }
 
     private RowField selectedRowField() {
@@ -1550,7 +1586,7 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         JMeterTreeNode defaultScope = findThreadGroupScope(currentNode);
         boolean samePlan = guiPackage != null && guiPackage == scopeGui && scopeSession == guiPackage.getTestPlanSession();
         JMeterTreeNode previousScope = samePlan ? selectedScope().threadGroup() : defaultScope;
-        String previousPath = samePlan ? selectedScopePath : null;
+        ScopeOption previousOption = samePlan ? (ScopeOption) scopeComboBox.getSelectedItem() : null;
         if (!samePlan) {
             searchDialogSize = null;
             previewSizes.clear();
@@ -1560,7 +1596,6 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         }
         scopeGui = guiPackage;
         scopeSession = guiPackage == null ? -1 : guiPackage.getTestPlanSession();
-        refreshingScopes = true;
         scopeComboBox.removeAllItems();
         ScopeOption all = new ScopeOption(JMeterUtils.getResString("search_scope_all"), null);
         scopeComboBox.addItem(all);
@@ -1569,15 +1604,16 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             for (JMeterTreeNode node : guiPackage.getTreeModel().getNodesOfType(AbstractThreadGroup.class)) {
                 ScopeOption option = new ScopeOption(node.getName(), node);
                 scopeComboBox.addItem(option);
-                if (node == previousScope || (samePlan && formatNodePath(node).equals(previousPath))) {
+                if (node == previousScope) {
                     selected = option;
                 }
             }
         }
+        if (selected.node == null && previousScope != null && previousOption != null) {
+            selected = previousOption;
+            scopeComboBox.addItem(selected);
+        }
         scopeComboBox.setSelectedItem(selected);
-        refreshingScopes = false;
-        JMeterTreeNode group = selectedScope().threadGroup();
-        selectedScopePath = group == null ? null : formatNodePath(group);
         lastSearchConditions = null;
     }
 
