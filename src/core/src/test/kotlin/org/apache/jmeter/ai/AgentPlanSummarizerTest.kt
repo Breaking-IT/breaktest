@@ -134,9 +134,9 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
         val uuid = "5d3bd642-5ced-49b6-9af7-5f945057a8ef"
         val nestedArgument = FakeRequestElement().apply {
             name = "HTTP Argument"
-            setProperty(StringProperty("Argument.value", "selectedBasketItem=$uuid"))
+            setProperty(StringProperty("Argument.value", "selectedResourceId=$uuid"))
         }
-        val sampler = ScriptRepairSampler("POST /basket").apply {
+        val sampler = ScriptRepairSampler("POST /requests").apply {
             setProperty(TestElementProperty("HTTPsampler.Arguments", nestedArgument))
         }
         val tree = testTree {
@@ -153,7 +153,7 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
             context.dynamicValueCandidates.any {
                 it.literal == uuid &&
                     it.propertyName == "Argument.value" &&
-                    it.samplerName == "POST /basket"
+                    it.samplerName == "POST /requests"
             },
         )
     }
@@ -260,7 +260,7 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
                         "POST /api/resources/11111111-2222-4333-8444-555555555555",
                         success = true,
                         requestBody = """
-                            {"transactionId":"$transactionId","items":[{"productId":"${'$'}{product_id}","drawId":"${'$'}{event_id}"}]}
+                            {"transactionId":"$transactionId","items":[{"productId":"${'$'}{product_id}","resourceId":"${'$'}{event_id}"}]}
                         """.trimIndent(),
                     )
                 }
@@ -308,14 +308,14 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
     }
 
     @Test
-    fun `summarize reports draw id candidates in json bodies`() {
+    fun `summarize reports resource UUID candidates in json bodies`() {
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
                     +ScriptRepairSampler(
-                        "POST /api/basket/verify",
+                        "POST /api/requests/verify",
                         success = true,
-                        requestBody = """{"drawId":"20990101TEST","productId":"${'$'}{product_id}"}""",
+                        requestBody = """{"resourceId":"11111111-2222-4333-8444-555555555555","productId":"${'$'}{product_id}"}""",
                     )
                 }
             }
@@ -325,7 +325,7 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
         assertTrue(
             context.dynamicValueCandidates.any {
-                it.kind == "draw-id" && it.literal == "20990101TEST"
+                it.kind == "uuid" && it.literal == "11111111-2222-4333-8444-555555555555"
             },
         )
     }

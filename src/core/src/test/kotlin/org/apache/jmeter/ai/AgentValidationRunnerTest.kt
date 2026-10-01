@@ -121,10 +121,10 @@ class AgentValidationRunnerTest : JMeterTestCase() {
 
     @Test
     fun `compact report summarizes transaction children and suggests field correlation actions`() {
-        val drawId = "DRAW20260110"
+        val resourceId = "11111111-2222-4333-8444-555555555555"
         val source = AgentSampleSummary(
             index = 0,
-            label = "GET /api/draws",
+            label = "GET /api/resources",
             success = true,
             responseCode = "200",
             responseMessage = "OK",
@@ -132,7 +132,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
             requestHeaders = "",
             requestBody = "",
             responseHeaders = "Content-Type: application/json",
-            responseBody = """{"drawId":"$drawId","name":"Saturday draw"}""",
+            responseBody = """{"resourceId":"$resourceId","name":"Example resource"}""",
             assertions = emptyList(),
         )
         val staticChildren = (1..25).map { index ->
@@ -152,15 +152,15 @@ class AgentValidationRunnerTest : JMeterTestCase() {
         }
         val failingChild = AgentSampleSummary(
             index = 26,
-            label = "POST /api/basket",
+            label = "POST /api/requests",
             success = false,
             responseCode = "500",
             responseMessage = "Server Error",
             elapsedTimeMillis = 1,
             requestHeaders = "",
-            requestBody = "drawId=$drawId",
+            requestBody = "resourceId=$resourceId",
             responseHeaders = "",
-            responseBody = "bad draw",
+            responseBody = "invalid resource",
             assertions = emptyList(),
         )
         val transaction = AgentSampleSummary(
@@ -197,11 +197,11 @@ class AgentValidationRunnerTest : JMeterTestCase() {
                     sampleIndex = failingChild.index,
                     sampleLabel = failingChild.label,
                     surface = "requestBody",
-                    kind = "draw-id",
-                    fieldName = "drawId",
-                    literal = drawId,
-                    tokenPreview = drawId,
-                    reason = "drawId request value",
+                    kind = "uuid",
+                    fieldName = "resourceId",
+                    literal = resourceId,
+                    tokenPreview = resourceId,
+                    reason = "resourceId request value",
                     priority = 98,
                 )
             ),
@@ -219,9 +219,9 @@ class AgentValidationRunnerTest : JMeterTestCase() {
         assertFalse(transactionEvidence.containsKey("subResults"))
         assertTrue(subResultEvidence.size < staticChildren.size)
         assertEquals("correlate_from_validated_response", firstAction["type"])
-        assertEquals("drawId", firstAction["fieldName"])
-        assertEquals("GET /api/draws", firstAction["sourceSampleLabel"])
-        assertEquals("POST /api/basket", firstAction["targetSampleLabel"])
+        assertEquals("resourceId", firstAction["fieldName"])
+        assertEquals("GET /api/resources", firstAction["sourceSampleLabel"])
+        assertEquals("POST /api/requests", firstAction["targetSampleLabel"])
     }
 
     @Test
@@ -324,7 +324,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
                 ),
                 AgentSampleSummary(
                     index = 1,
-                    label = "POST /api/basket/verify",
+                    label = "POST /api/requests/verify",
                     success = false,
                     responseCode = "500",
                     responseMessage = "Server Error",
@@ -332,7 +332,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
                     requestHeaders = "",
                     requestBody = "{\"transactionId\":\"11111111-2222-3333-4444-555555555555\"}",
                     responseHeaders = "",
-                    responseBody = "bad basket",
+                    responseBody = "invalid request",
                     assertions = emptyList(),
                 ),
             ),
@@ -343,7 +343,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
         assertFalse(result.successful)
         assertEquals(1, result.firstFailureIndex)
         assertEquals(1, result.ignoredStaticFailureCount)
-        assertEquals("POST /api/basket/verify", analysis.firstFailure?.label)
+        assertEquals("POST /api/requests/verify", analysis.firstFailure?.label)
         assertEquals(AgentFailureKind.HTTP_SERVER_ERROR, analysis.kind)
     }
 
@@ -360,7 +360,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
                         staticChildFailureLabel = "GET /_next/static/chunks/app.js",
                     )
                     +ScriptRepairSampler(
-                        sampleName = "POST /api/basket/verify",
+                        sampleName = "POST /api/requests/verify",
                         success = false,
                         responseCode = "500",
                         responseMessage = "Server Error",
@@ -384,7 +384,7 @@ class AgentValidationRunnerTest : JMeterTestCase() {
         assertEquals(2, result.samples.size)
         assertEquals(1, result.firstFailureIndex)
         assertEquals(1, result.ignoredStaticFailureCount)
-        assertEquals("POST /api/basket/verify", analysis.firstFailure?.label)
+        assertEquals("POST /api/requests/verify", analysis.firstFailure?.label)
     }
 
     @Test
