@@ -344,7 +344,7 @@ class BreakTestAgentGuiServiceTest {
 
     @Test
     fun `both preferred-occurrence overloads select the same match`() {
-        val body = "{\"pageId\":\"abc-123\",\"mail\":\"user%40example.com\"}"
+        val body = "{\"resourceId\":\"abc-123\",\"mail\":\"user%40example.com\"}"
         val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\nLocation: /next\r\n\r\n$body"
         val cases = listOf(
             "abc-123", // present in both the header block and the body
@@ -364,7 +364,7 @@ class BreakTestAgentGuiServiceTest {
 
     @Test
     fun `header block wins over a later body occurrence`() {
-        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\n\r\n{\"pageId\":\"abc-123\"}"
+        val response = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc-123\r\n\r\n{\"resourceId\":\"abc-123\"}"
         val occurrence = preferredOccurrenceByVariants(response, "abc-123")
         val index = occurrence?.first as Int
         assertTrue(index < response.indexOf("\r\n\r\n"), "expected the header-block match, got index $index")
