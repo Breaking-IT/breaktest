@@ -761,6 +761,7 @@ public final class HarConverter {
         ThreadGroup threadGroup = new ThreadGroup();
         threadGroup.setProperty(TestElement.GUI_CLASS, ThreadGroupGui.class.getName());
         threadGroup.setName("Thread Group");
+        threadGroup.setValidationStopOnError(true);
         threadGroup.setProperty(ThreadGroup.ON_SAMPLE_ERROR, ThreadGroup.ON_SAMPLE_ERROR_START_NEXT_LOOP);
         threadGroup.setProperty(ThreadGroup.DELAYED_START, true);
         threadGroup.setNumThreads(1);

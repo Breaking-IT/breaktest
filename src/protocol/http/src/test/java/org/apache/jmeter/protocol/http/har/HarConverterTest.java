@@ -182,6 +182,7 @@ public class HarConverterTest {
         assertNotNull(tg);
         assertEquals("test.har", tg.getPropertyAsString("BreakTest.har.filename"));
         assertEquals("abc123", tg.getPropertyAsString("BreakTest.har.md5"));
+        assertTrue(tg.isValidationStopOnError(), "HAR imports stop validation at the first sampler error");
         assertEquals("startnextloop", tg.getPropertyAsString("ThreadGroup.on_sample_error"));
     }
 
