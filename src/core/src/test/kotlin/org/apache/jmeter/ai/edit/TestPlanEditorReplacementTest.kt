@@ -123,8 +123,8 @@ class TestPlanEditorReplacementTest {
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
-                    +ScriptRepairSampler("GET /api/tickets/OLD_ID")
-                    +ScriptRepairSampler("POST /api/tickets/OLD_ID/confirm")
+                    +ScriptRepairSampler("GET /api/resources/OLD_ID")
+                    +ScriptRepairSampler("POST /api/resources/OLD_ID/confirm")
                     +ScriptRepairSampler("GET /api/health")
                 }
             }
@@ -134,13 +134,13 @@ class TestPlanEditorReplacementTest {
         val replacements = TestPlanEditor().replaceLiteralInNamesInTree(
             tree,
             "OLD_ID",
-            "{ticket_id}",
+            "{resource_id}",
             changedElements = changed,
         )
 
         assertEquals(2, replacements)
         assertEquals(
-            listOf("GET /api/tickets/{ticket_id}", "POST /api/tickets/{ticket_id}/confirm"),
+            listOf("GET /api/resources/{resource_id}", "POST /api/resources/{resource_id}/confirm"),
             changed.map { it.name.orEmpty() }.sorted(),
         )
     }
@@ -148,8 +148,8 @@ class TestPlanEditorReplacementTest {
     @Test
     fun `replace literal does not update sampler names by default`() {
         val sampler = ScriptRepairSampler(
-            "GET /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            requestBody = "/api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
+            "GET /api/resources/11111111-2222-4333-8444-555555555555",
+            requestBody = "/api/resources/11111111-2222-4333-8444-555555555555",
         )
         val tree = testTree {
             TestPlan::class {
@@ -161,20 +161,20 @@ class TestPlanEditorReplacementTest {
 
         val replacements = TestPlanEditor().replaceLiteralInTree(
             tree,
-            "b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            "\${checkout_page_id}",
+            "11111111-2222-4333-8444-555555555555",
+            "\${resource_id}",
         )
 
         assertEquals(1, replacements)
-        assertEquals("GET /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470", sampler.name)
-        assertEquals("/api/tickets/\${checkout_page_id}", sampler.getPropertyAsString("ScriptRepairSampler.requestBody"))
+        assertEquals("GET /api/resources/11111111-2222-4333-8444-555555555555", sampler.name)
+        assertEquals("/api/resources/\${resource_id}", sampler.getPropertyAsString("ScriptRepairSampler.requestBody"))
     }
 
     @Test
     fun `replace literal can update names when explicitly requested`() {
         val sampler = ScriptRepairSampler(
-            "GET /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            requestBody = "/api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
+            "GET /api/resources/11111111-2222-4333-8444-555555555555",
+            requestBody = "/api/resources/11111111-2222-4333-8444-555555555555",
         )
         val tree = testTree {
             TestPlan::class {
@@ -186,13 +186,13 @@ class TestPlanEditorReplacementTest {
 
         val replacements = TestPlanEditor().replaceLiteralInTree(
             tree,
-            "b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            "\${checkout_page_id}",
+            "11111111-2222-4333-8444-555555555555",
+            "\${resource_id}",
             includeNames = true,
         )
 
         assertEquals(2, replacements)
-        assertEquals("GET /api/tickets/\${checkout_page_id}", sampler.name)
+        assertEquals("GET /api/resources/\${resource_id}", sampler.name)
     }
 
     @Test
@@ -223,8 +223,8 @@ class TestPlanEditorReplacementTest {
     @Test
     fun `replace literal in names leaves request data unchanged`() {
         val sampler = ScriptRepairSampler(
-            "GET /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            requestBody = "/api/tickets/\${checkout_page_id}",
+            "GET /api/resources/11111111-2222-4333-8444-555555555555",
+            requestBody = "/api/resources/\${resource_id}",
         )
         val tree = testTree {
             TestPlan::class {
@@ -236,13 +236,13 @@ class TestPlanEditorReplacementTest {
 
         val replacements = TestPlanEditor().replaceLiteralInNamesInTree(
             tree,
-            "b4763075-14fe-4db9-3cd5-08d8c1d8d470",
-            "{checkout_page_id}",
+            "11111111-2222-4333-8444-555555555555",
+            "{resource_id}",
         )
 
         assertEquals(1, replacements)
-        assertEquals("GET /api/tickets/{checkout_page_id}", sampler.name)
-        assertEquals("/api/tickets/\${checkout_page_id}", sampler.getPropertyAsString("ScriptRepairSampler.requestBody"))
+        assertEquals("GET /api/resources/{resource_id}", sampler.name)
+        assertEquals("/api/resources/\${resource_id}", sampler.getPropertyAsString("ScriptRepairSampler.requestBody"))
     }
 
     @Test

@@ -42,8 +42,8 @@ class AgentLiteralIndexTest {
 
     @Test
     fun `reports the same first index as indexOf`() {
-        val text = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc123\r\n\r\n{\"pageId\":\"abc123\",\"n\":7}"
-        assertMatchesBruteForce(text, listOf("abc123", "pageId", "Set-Cookie", "missing", "7"))
+        val text = "HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc123\r\n\r\n{\"resourceId\":\"abc123\",\"n\":7}"
+        assertMatchesBruteForce(text, listOf("abc123", "resourceId", "Set-Cookie", "missing", "7"))
     }
 
     @Test

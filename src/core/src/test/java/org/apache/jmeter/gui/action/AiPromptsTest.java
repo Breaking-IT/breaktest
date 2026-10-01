@@ -77,7 +77,7 @@ class AiPromptsTest {
         // Single-backslash escapes and the literal percent-encoding example are easy to lose when
         // prompt text moves between Java text blocks and resource files.
         assertTrue(rendered.contains("\\Q...\\E"), "lost the ORO quoting example");
-        assertTrue(rendered.contains("\"pageId\"\\s*:\\s*\"([^\"]+)\""), "lost the regex example");
+        assertTrue(rendered.contains("\"resourceId\"\\s*:\\s*\"([^\"]+)\""), "lost the regex example");
         assertTrue(rendered.contains("@ appears as %40"), "lost the percent-encoding example");
     }
 

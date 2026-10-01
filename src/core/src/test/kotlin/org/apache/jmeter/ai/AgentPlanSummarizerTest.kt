@@ -134,9 +134,9 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
         val uuid = "5d3bd642-5ced-49b6-9af7-5f945057a8ef"
         val nestedArgument = FakeRequestElement().apply {
             name = "HTTP Argument"
-            setProperty(StringProperty("Argument.value", "selectedBasketItem=$uuid"))
+            setProperty(StringProperty("Argument.value", "selectedResourceId=$uuid"))
         }
-        val sampler = ScriptRepairSampler("POST /basket").apply {
+        val sampler = ScriptRepairSampler("POST /requests").apply {
             setProperty(TestElementProperty("HTTPsampler.Arguments", nestedArgument))
         }
         val tree = testTree {
@@ -153,14 +153,14 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
             context.dynamicValueCandidates.any {
                 it.literal == uuid &&
                     it.propertyName == "Argument.value" &&
-                    it.samplerName == "POST /basket"
+                    it.samplerName == "POST /requests"
             },
         )
     }
 
     @Test
     fun `summarize suppresses low signal static asset dynamic candidates`() {
-        val assetHash = "app-b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val assetHash = "app-11111111-2222-4333-8444-555555555555"
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
@@ -175,12 +175,12 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
         val context = AgentPlanSummarizer().summarize(tree)
 
-        assertTrue(context.dynamicValueCandidates.none { it.literal.contains("b4763075") })
+        assertTrue(context.dynamicValueCandidates.none { it.literal.contains("11111111") })
     }
 
     @Test
     fun `dynamic analyzer can include static asset requests when requested`() {
-        val assetId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val assetId = "11111111-2222-4333-8444-555555555555"
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
@@ -203,8 +203,8 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
     @Test
     fun `dynamic analyzer prioritizes functional request values before static asset noise`() {
-        val assetId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
-        val transactionId = "38240dbe-3d24-4222-a967-dce8da3df796"
+        val assetId = "11111111-2222-4333-8444-555555555555"
+        val transactionId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
@@ -214,7 +214,7 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
                         requestBody = "/assets/runtime.$assetId.js",
                     )
                     +ScriptRepairSampler(
-                        "POST /api/tickets",
+                        "POST /api/resources",
                         success = true,
                         requestBody = """{"transactionId":"$transactionId"}""",
                     )
@@ -232,14 +232,14 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
     @Test
     fun `summarize still reports functional api path opaque ids`() {
-        val pageId = "b4763075-14fe-4db9-3cd5-08d8c1d8d470"
+        val resourceId = "11111111-2222-4333-8444-555555555555"
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
                     +ScriptRepairSampler(
-                        "GET /api/tickets/$pageId",
+                        "GET /api/resources/$resourceId",
                         success = true,
-                        requestBody = "/api/tickets/$pageId",
+                        requestBody = "/api/resources/$resourceId",
                     )
                 }
             }
@@ -247,20 +247,20 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
         val context = AgentPlanSummarizer().summarize(tree)
 
-        assertTrue(context.dynamicValueCandidates.any { it.literal == pageId })
+        assertTrue(context.dynamicValueCandidates.any { it.literal == resourceId })
     }
 
     @Test
     fun `summarize reports fixed uuid in partially parameterized json body`() {
-        val transactionId = "38240dbe-3d24-4222-a967-dce8da3df796"
+        val transactionId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
                     +ScriptRepairSampler(
-                        "POST /api/tickets/b4763075-14fe-4db9-3cd5-08d8c1d8d470",
+                        "POST /api/resources/11111111-2222-4333-8444-555555555555",
                         success = true,
                         requestBody = """
-                            {"transactionId":"$transactionId","tickets":[{"productId":"${'$'}{stl_product_id}","drawId":"${'$'}{stl_draw_id}"}]}
+                            {"transactionId":"$transactionId","items":[{"productId":"${'$'}{product_id}","resourceId":"${'$'}{event_id}"}]}
                         """.trimIndent(),
                     )
                 }
@@ -308,14 +308,14 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
     }
 
     @Test
-    fun `summarize reports draw id candidates in json bodies`() {
+    fun `summarize reports resource UUID candidates in json bodies`() {
         val tree = testTree {
             TestPlan::class {
                 oneRequest {
                     +ScriptRepairSampler(
-                        "POST /api/basket/verify",
+                        "POST /api/requests/verify",
                         success = true,
-                        requestBody = """{"drawId":"20260620JUL","productId":"${'$'}{product_id}"}""",
+                        requestBody = """{"resourceId":"11111111-2222-4333-8444-555555555555","productId":"${'$'}{product_id}"}""",
                     )
                 }
             }
@@ -325,7 +325,7 @@ class AgentPlanSummarizerTest : JMeterTestCase() {
 
         assertTrue(
             context.dynamicValueCandidates.any {
-                it.kind == "draw-id" && it.literal == "20260620JUL"
+                it.kind == "uuid" && it.literal == "11111111-2222-4333-8444-555555555555"
             },
         )
     }

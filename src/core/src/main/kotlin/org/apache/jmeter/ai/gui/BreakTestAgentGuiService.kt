@@ -5165,10 +5165,17 @@ public object BreakTestAgentGuiService {
         return false
     }
 
-    private fun nodePath(node: JMeterTreeNode): String =
-        node.path
-            .filterIsInstance<JMeterTreeNode>()
-            .joinToString(" / ") { it.testElement.name.orEmpty() }
+    private fun nodePath(node: JMeterTreeNode): String {
+        val path = node.path.filterIsInstance<JMeterTreeNode>()
+        // The hidden GUI root and visible Test Plan wrap the same element.
+        // Compare identity so legitimate repeated names and detached trees survive.
+        val visiblePath = if (path.size >= 2 && path[0].testElement === path[1].testElement) {
+            path.drop(1)
+        } else {
+            path
+        }
+        return visiblePath.joinToString(" / ") { it.testElement.name.orEmpty() }
+    }
 
     private fun selectThreadGroup(gui: GuiPackage, threadGroupName: String?): JMeterTreeNode {
         val matches = mutableListOf<JMeterTreeNode>()
