@@ -18,27 +18,16 @@
 package org.apache.jmeter.gui;
 
 import java.util.List;
-import java.util.Set;
 
-/**
- * Interface for nodes that are searchable.
- * <p>
- * A {@link Searchable} component will get asked for tokens, that should be used
- * in a search. These tokens will then be matched against a user given search
- * string.
- */
-public interface Searchable {
-    /**
-     * Get a list of all tokens that should be visible to searching
-     *
-     * @return List of searchable tokens
-     * @throws Exception
-     *             when something fails while getting the searchable tokens
-     */
-    List<String> getSearchableTokens()
-        throws Exception;
-    /** Search selected areas; legacy implementations belong to Other. */
-    default List<String> getSearchableTokens(Set<SearchArea> areas) throws Exception {
-        return areas.contains(SearchArea.OTHER) ? getSearchableTokens() : List.of();
+/** Which columns of header and parameter rows participate in a search. */
+public enum RowField {
+    ALL, NAME, VALUE;
+
+    public List<String> tokens(List<String> values) {
+        return switch (this) {
+            case ALL -> values;
+            case NAME -> values.isEmpty() ? List.of() : List.of(values.get(0));
+            case VALUE -> values.size() < 2 ? List.of() : List.of(values.get(1));
+        };
     }
 }

@@ -36,6 +36,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.jmeter.engine.util.LightweightClone;
 import org.apache.jmeter.engine.util.NoThreadClone;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.gui.Searchable;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.CollectionProperty;
@@ -1561,6 +1562,45 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             }
         }
         return result;
+    }
+
+    @Override
+    public List<String> getSearchableTokens(Set<SearchArea> areas) {
+        if (areas.size() == SearchArea.values().length) {
+            return getSearchableTokens();
+        }
+        if (areas.isEmpty()) {
+            return List.of();
+        }
+        List<String> remaining = new ArrayList<>(getSearchableTokens());
+        List<String> tokens = new ArrayList<>();
+        try (ResourceLock ignored = readLock()) {
+            PropertyIterator properties = propertyIterator();
+            while (properties.hasNext()) {
+                JMeterProperty property = properties.next();
+                String value = property.getStringValue();
+                if (remaining.remove(value) && areas.contains(searchAreaForProperty(property.getName()))) {
+                    tokens.add(value);
+                }
+            }
+        }
+        if (areas.contains(SearchArea.OTHER)) {
+            tokens.addAll(remaining);
+        }
+        return tokens;
+    }
+
+    protected SearchArea searchAreaForProperty(String propertyName) {
+        return switch (propertyName) {
+            case TestElement.NAME -> SearchArea.NAME;
+            case "HTTPSampler.path" -> SearchArea.PATH;
+            case "HTTPSampler.headers", "HTTPSampler.header_manager", "HeaderManager.headers" -> SearchArea.HEADERS;
+            case "HTTPsampler.Arguments" -> getPropertyAsBoolean("HTTPSampler.postBodyRaw")
+                    ? SearchArea.BODY : SearchArea.PARAMETERS;
+            case "Arguments.arguments" -> SearchArea.PARAMETERS;
+            case "BreakTest.har.requestMethod", "BreakTest.har.requestUrl" -> SearchArea.RECORDED_REQUEST;
+            default -> SearchArea.OTHER;
+        };
     }
 
     /**

@@ -120,7 +120,22 @@ validate it, repair it, and show changes in the GUI.
   <li>Optional fast GUI loading through <code>breaktest.gui.load.fast=true</code>.</li>
   <li>Missing plugin elements load as disabled placeholders instead of failing the whole file.</li>
   <li>Search Tree can flag pre-processors, post-processors, assertions, timers, and config elements.</li>
-  <li>Search results can be removed selectively with confirmation.</li>
+  <li>Search scope offers a dropdown for one Thread Group or All, with checkboxes for names, paths,
+      headers, parameters, raw bodies, recorded requests, recorded responses, and other fields.
+      All field areas are selected by default; Select all and Select none simplify changing them.
+      Header and parameter columns can be restricted to names or values.
+      Search and Replace respects the selected areas and columns; recorded traffic remains read-only.
+      Scope choices and dialog sizes are remembered while working on the same plan.</li>
+  <li>The removal target can be whole elements, header rows, parameter rows, or both row types.
+      Row previews show the owning element, row number, and matching data. Row removal respects the selected
+      Thread Group and Search in areas and preserves samplers, Header Managers, and HTTP Request Defaults. Raw bodies and recorded traffic
+      cannot be deleted as parameter or header rows.</li>
+  <li>Show Matches for Removal opens a resizable review dialog; select the results to remove, then choose Remove Selected.
+      After removal, an optional cleanup prompt lists controllers emptied by that removal, including empty parents.
+      Previously empty controllers and Thread Groups are preserved. Both previews offer Select all/none,
+      show the selected count, and disable removal when nothing is selected. Completion reports skipped rows
+      that changed, disappeared, or became busy. Each replacement or removal (including controller cleanup)
+      is a single undoable action; undo and redo refresh the open editor.</li>
 </ul>
 
 <h2>Visual Debugging And HAR Migration</h2>

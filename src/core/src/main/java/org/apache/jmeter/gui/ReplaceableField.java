@@ -27,12 +27,23 @@ import java.util.function.Supplier;
  * @param name human-readable field name
  * @param getter current field value supplier
  * @param setter updated field value consumer
+ * @param area searchable area containing this field
+ * @param rowField row column, or ALL for fields outside row name/value columns
  * @since 2026.08
  */
-public record ReplaceableField(String name, Supplier<String> getter, Consumer<String> setter) {
+public record ReplaceableField(String name, Supplier<String> getter, Consumer<String> setter, SearchArea area, RowField rowField) {
+
+    public ReplaceableField(String name, Supplier<String> getter, Consumer<String> setter, SearchArea area) {
+        this(name, getter, setter, area, RowField.ALL);
+    }
+
+    public ReplaceableField(String name, Supplier<String> getter, Consumer<String> setter) {
+        this(name, getter, setter, SearchArea.OTHER);
+    }
 
     public ReplaceableField {
         Objects.requireNonNull(name);
+        Objects.requireNonNull(area);
         Objects.requireNonNull(getter);
         Objects.requireNonNull(setter);
     }

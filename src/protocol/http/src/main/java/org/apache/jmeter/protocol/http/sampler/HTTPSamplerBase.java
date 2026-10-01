@@ -60,8 +60,11 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.KeystoreConfig;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
+import org.apache.jmeter.gui.RemovableRow;
 import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.ReplaceableField;
+import org.apache.jmeter.gui.RowField;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.Cookie;
@@ -3008,8 +3011,32 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     /**
-     * Returns the editable URL, argument, native header, and upload-file fields.
+     * Returns removable parameter and native header rows.
      */
+    @Override
+    public List<RemovableRow> getRemovableRows() {
+        List<RemovableRow> rows = new ArrayList<>();
+        if (!getSendParameterValuesAsPostBody()) {
+            int number = 0;
+            for (JMeterProperty property : getArguments()) {
+                HTTPArgument argument = (HTTPArgument) property.getObjectValue();
+                rows.add(RemovableRow.inCollection(SearchArea.PARAMETERS, ++number,
+                        List.of(argument.getName(), argument.getValue(), argument.getDescription()),
+                        () -> getArguments().getArguments(), property));
+            }
+        }
+        CollectionProperty headers = getNativeHeaders();
+        if (headers != null) {
+            int number = 0;
+            for (JMeterProperty property : headers) {
+                Header header = (Header) property.getObjectValue();
+                rows.add(RemovableRow.inCollection(SearchArea.HEADERS, ++number,
+                        List.of(header.getName(), header.getValue()), this::getNativeHeaders, property));
+            }
+        }
+        return rows;
+    }
+
     @Override
     public List<ReplaceableField> getReplaceableFields() {
         List<ReplaceableField> fields = new ArrayList<>();
@@ -3017,17 +3044,18 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         fields.add(new ReplaceableField("Protocol", this::getProtocol, this::setProtocol));
         fields.add(new ReplaceableField(
                 "Port", () -> getString(getSchema().getPort()), value -> set(getSchema().getPort(), value)));
-        fields.add(new ReplaceableField("Path", this::getPath, this::setPath));
+        fields.add(new ReplaceableField("Path", this::getPath, this::setPath, SearchArea.PATH));
+        SearchArea argumentArea = getSendParameterValuesAsPostBody() ? SearchArea.BODY : SearchArea.PARAMETERS;
         for (JMeterProperty jMeterProperty : getArguments()) {
             HTTPArgument argument = (HTTPArgument) jMeterProperty.getObjectValue();
-            fields.add(new ReplaceableField("Parameter name", argument::getName, argument::setName));
-            fields.add(new ReplaceableField("Parameter value", argument::getValue, argument::setValue));
+            fields.add(new ReplaceableField("Parameter name", argument::getName, argument::setName, argumentArea, RowField.NAME));
+            fields.add(new ReplaceableField("Parameter value", argument::getValue, argument::setValue, argumentArea, RowField.VALUE));
             fields.add(new ReplaceableField(
-                    "Parameter description", argument::getDescription, argument::setDescription));
+                    "Parameter description", argument::getDescription, argument::setDescription, argumentArea));
         }
         for (Header header : getNativeHeaderList()) {
-            fields.add(new ReplaceableField("Header name", header::getName, header::setName));
-            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue));
+            fields.add(new ReplaceableField("Header name", header::getName, header::setName, SearchArea.HEADERS, RowField.NAME));
+            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue, SearchArea.HEADERS, RowField.VALUE));
         }
         for (HTTPFileArg file : getHTTPFiles()) {
             fields.add(new ReplaceableField("File path", file::getPath, file::setPath));
@@ -3070,6 +3098,42 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                     header.getValue(), header::setValue);
         }
         return totalReplaced;
+    }
+
+    @Override
+    protected SearchArea searchAreaForProperty(String propertyName) {
+        if (PATH.equals(propertyName)) {
+            return SearchArea.PATH;
+        }
+        if (HEADERS.equals(propertyName) || HEADER_MANAGER.equals(propertyName)) {
+            return SearchArea.HEADERS;
+        }
+        if (ARGUMENTS.equals(propertyName)) {
+            return getSendParameterValuesAsPostBody() ? SearchArea.BODY : SearchArea.PARAMETERS;
+        }
+        return super.searchAreaForProperty(propertyName);
+    }
+
+    @Override
+    public List<String> getSearchableTokens(Set<SearchArea> areas) {
+        if (areas.size() == SearchArea.values().length) {
+            return getSearchableTokens();
+        }
+        if (areas.isEmpty()) {
+            return List.of();
+        }
+        List<String> tokens = super.getSearchableTokens(areas);
+        for (Header header : getNativeHeaderList()) {
+            if (areas.contains(SearchArea.OTHER)) {
+                tokens.remove(header.getName());
+                tokens.remove(header.getValue());
+            }
+            if (areas.contains(SearchArea.HEADERS)) {
+                tokens.add(header.getName());
+                tokens.add(header.getValue());
+            }
+        }
+        return tokens;
     }
 
     @Override

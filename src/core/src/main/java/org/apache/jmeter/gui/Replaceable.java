@@ -40,6 +40,11 @@ public interface Replaceable {
         return List.of();
     }
 
+    /** Returns removable live header/parameter rows, excluding raw bodies and recordings. */
+    default List<RemovableRow> getRemovableRows() {
+        return List.of();
+    }
+
     /**
      * Replace in object  by replaceBy
      *

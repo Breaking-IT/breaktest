@@ -29,8 +29,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.jmeter.config.ConfigTestElement;
+import org.apache.jmeter.gui.RemovableRow;
 import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.ReplaceableField;
+import org.apache.jmeter.gui.RowField;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -357,12 +360,29 @@ public class HeaderManager extends ConfigTestElement implements Serializable, Re
     }
 
     @Override
+    protected SearchArea searchAreaForProperty(String propertyName) {
+        return HEADERS.equals(propertyName) ? SearchArea.HEADERS : super.searchAreaForProperty(propertyName);
+    }
+
+    @Override
+    public List<RemovableRow> getRemovableRows() {
+        List<RemovableRow> rows = new ArrayList<>();
+        int number = 0;
+        for (JMeterProperty property : getHeaders()) {
+            Header header = (Header) property.getObjectValue();
+            rows.add(RemovableRow.inCollection(SearchArea.HEADERS, ++number,
+                    List.of(header.getName(), header.getValue()), this::getHeaders, property));
+        }
+        return rows;
+    }
+
+    @Override
     public List<ReplaceableField> getReplaceableFields() {
         List<ReplaceableField> fields = new ArrayList<>();
         for (JMeterProperty headerProperty : getHeaders()) {
             Header header = (Header) headerProperty.getObjectValue();
-            fields.add(new ReplaceableField("Header name", header::getName, header::setName));
-            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue));
+            fields.add(new ReplaceableField("Header name", header::getName, header::setName, SearchArea.HEADERS, RowField.NAME));
+            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue, SearchArea.HEADERS, RowField.VALUE));
         }
         return fields;
     }
