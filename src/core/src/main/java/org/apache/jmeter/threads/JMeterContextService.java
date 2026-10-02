@@ -39,8 +39,6 @@ public final class JMeterContextService {
 
     private static final AtomicInteger TOTAL_THREADS = new AtomicInteger();
 
-    private static UnmodifiableJMeterVariables variables;
-
     private static volatile boolean validationRun;
 
 
@@ -143,7 +141,6 @@ public final class JMeterContextService {
      */
     public static synchronized void endTest() {
         testStart.set(0);
-        resetClientSideVariables();
     }
 
     public static long getTestStartTime() {
@@ -175,16 +172,6 @@ public final class JMeterContextService {
         NUMBER_OF_THREADS_FINISHED.set(0);
     }
 
-    /**
-     * Get all variables accessible for JMeter client in a distributed test
-     * (only test plan and user defined variables)
-     * Note this is a read-only collection
-     * @return {@link JMeterVariables} available for JMeter client
-     */
-    public static JMeterVariables getClientSideVariables() {
-        return variables;
-    }
-
     public static class ThreadCounts {
 
         public final int activeThreads;
@@ -200,18 +187,4 @@ public final class JMeterContextService {
         }
     }
 
-    /**
-     * Set client-side variables (INTERNAL API).
-     * @param clientSideVariables {@link JMeterVariables}
-     */
-    public static void initClientSideVariables(JMeterVariables clientSideVariables) {
-        JMeterContextService.variables = new UnmodifiableJMeterVariables(clientSideVariables);
-    }
-
-    /**
-     * Reset client-side variables.
-     */
-    public static void resetClientSideVariables() {
-        JMeterContextService.variables = null;
-    }
 }

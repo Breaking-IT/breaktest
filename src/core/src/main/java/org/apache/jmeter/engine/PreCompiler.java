@@ -22,12 +22,10 @@ import java.util.Map;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.functions.InvalidVariableException;
-import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
-import org.apache.jmeter.visualizers.backend.Backend;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.HashTreeTraverser;
 import org.slf4j.Logger;
@@ -42,61 +40,29 @@ public class PreCompiler implements HashTreeTraverser {
 
     private final ValueReplacer replacer;
 
-//   Used by StandardJMeterEngine.
-    private final boolean isClientSide; // skip certain processing for remote tests
-
-    private JMeterVariables clientSideVariables;
-
     public PreCompiler() {
         replacer = new ValueReplacer();
-        isClientSide = false;
-    }
-
-    public PreCompiler(boolean remote) {
-        replacer = new ValueReplacer();
-        isClientSide = remote;
     }
 
     /** {@inheritDoc} */
     @Override
     public void addNode(Object node, HashTree subTree) {
-        if(isClientSide) {
-            if(node instanceof ResultCollector || node instanceof Backend) {
-                try {
-                    replacer.replaceValues((TestElement) node);
-                } catch (InvalidVariableException e) {
-                    log.error("invalid variables in node {}", ((TestElement)node).getName(), e);
-                }
+        if(node instanceof TestElement testElement) {
+            try {
+                replacer.replaceValues(testElement);
+            } catch (InvalidVariableException e) {
+                log.error("invalid variables in node {}", testElement.getName(), e);
             }
+        }
 
-            if (node instanceof TestPlan testPlan) {
-                this.clientSideVariables = createVars(testPlan);
-            }
+        if (node instanceof TestPlan testPlan) {
+            JMeterVariables vars = createVars(testPlan);
+            JMeterContextService.getContext().setVariables(vars);
+        }
 
-            if (node instanceof Arguments arguments) {
-                // Don't store User Defined Variables in the context for client side
-                Map<String, String> args = createArgumentsMap(arguments);
-                clientSideVariables.putAll(args);
-            }
-
-        } else {
-            if(node instanceof TestElement testElement) {
-                try {
-                    replacer.replaceValues(testElement);
-                } catch (InvalidVariableException e) {
-                    log.error("invalid variables in node {}", testElement.getName(), e);
-                }
-            }
-
-            if (node instanceof TestPlan testPlan) {
-                JMeterVariables vars = createVars(testPlan);
-                JMeterContextService.getContext().setVariables(vars);
-            }
-
-            if (node instanceof Arguments arguments) {
-                Map<String, String> args = createArgumentsMap(arguments);
-                JMeterContextService.getContext().getVariables().putAll(args);
-            }
+        if (node instanceof Arguments arguments) {
+            Map<String, String> args = createArgumentsMap(arguments);
+            JMeterContextService.getContext().getVariables().putAll(args);
         }
     }
 
@@ -136,10 +102,4 @@ public class PreCompiler implements HashTreeTraverser {
     public void processPath() {
     }
 
-    /**
-     * @return the clientSideVariables
-     */
-    public JMeterVariables getClientSideVariables() {
-        return clientSideVariables;
-    }
 }
