@@ -19,6 +19,7 @@ package org.apache.jmeter.engine;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,10 +30,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.Interruptible;
@@ -41,9 +45,15 @@ import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.testelement.ThreadListener;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.SetupThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -328,6 +338,72 @@ class StandardJMeterEngineTest extends JMeterTestCase {
         @Override
         public void testEnded(String host) {
             testEnded();
+        }
+    }
+
+    @Nested
+    class PreCompilation {
+        private JMeterVariables previousVariables;
+
+        @BeforeEach
+        void saveContext() {
+            previousVariables = JMeterContextService.getContext().getVariables();
+            JMeterContextService.getContext().setVariables(null);
+        }
+
+        @AfterEach
+        void restoreContext() {
+            JMeterContextService.getContext().setVariables(previousVariables);
+        }
+
+        @Test
+        void expandsPlanAndChainedVariablesForOrdinaryElementsAndListeners() {
+            TestPlan plan = new TestPlan();
+            Arguments planVariables = new Arguments();
+            planVariables.addArgument("base", "example.test");
+            plan.setUserDefinedVariables(planVariables);
+            HashTree tree = new ListedHashTree();
+            HashTree children = tree.add(plan);
+            Arguments first = new Arguments();
+            first.addArgument("host", "api.${base}");
+            children.add(first);
+            Arguments second = new Arguments();
+            second.addArgument("endpoint", "https://${host}/v1");
+            children.add(second);
+            ConfigTestElement config = new ConfigTestElement();
+            config.setProperty("endpoint", "${endpoint}");
+            children.add(config);
+            ResultCollector listener = new ResultCollector();
+            listener.setFilename("${host}.jtl");
+            children.add(listener);
+
+            tree.traverse(new PreCompiler());
+            config.setRunningVersion(true);
+            listener.setRunningVersion(true);
+
+            assertEquals("api.example.test", JMeterContextService.getContext().getVariables().get("host"));
+            assertEquals("https://api.example.test/v1", config.getPropertyAsString("endpoint"));
+            assertEquals("api.example.test.jtl", listener.getFilename());
+        }
+
+        @Test
+        void compilingAnotherPlanReplacesThePreviousPlansVariables() {
+            TestPlan first = new TestPlan();
+            Arguments variables = new Arguments();
+            variables.addArgument("previousPlanOnly", "value");
+            first.setUserDefinedVariables(variables);
+            HashTree firstTree = new ListedHashTree();
+            firstTree.add(first);
+            firstTree.traverse(new PreCompiler());
+            assertEquals("value", JMeterContextService.getContext().getVariables().get("previousPlanOnly"));
+
+            HashTree secondTree = new ListedHashTree();
+            secondTree.add(new TestPlan());
+            secondTree.traverse(new PreCompiler());
+
+            assertNull(JMeterContextService.getContext().getVariables().get("previousPlanOnly"));
+            JMeterContextService.getContext().clear();
+            assertNull(JMeterContextService.getContext().getVariables());
         }
     }
 }

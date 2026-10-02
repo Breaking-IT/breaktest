@@ -236,9 +236,8 @@ workload remain unchanged; the runtime still accepts legacy syntax.
   on smaller heaps. Larger files can be exported, edited externally, and imported again.
   JMX saves replace the destination only after serialization succeeds, preserving existing POSIX
   permissions; new files use normal permissions subject to the process umask.
-  Archive portability currently covers local GUI and CLI execution. Distributed RMI engines receive
-  the test tree but not embedded file bytes; extract/copy files to each remote server and configure
-  external paths there instead of archive flags or archive-file references.
+  Archive portability covers local GUI and CLI execution. RMI Remote Server execution is not
+  supported. External orchestration must make the JMX archive available to each BreakTest process.
   The browser's **Clean up recordings** action can remove static-resource bodies, static-resource
   recordings, or all recorded headers and bodies. Its orphan cleanup removes exchanges without
   sampler references and unused recording blobs; shared files are preserved. Review the estimated

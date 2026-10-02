@@ -13,6 +13,17 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased
+
+## Remote-server cleanup
+
+- Remove the unused remote precompiler mode and client-side variable storage,
+  plus obsolete RMI batch-test setup and network diagnostics.
+- Plugins calling `PreCompiler(boolean)` or the client-side variable APIs on
+  `PreCompiler` and `JMeterContextService` must migrate to local execution.
+  Host-accepting listener callbacks remain available for plugin compatibility.
+- Result files containing sample counts and local stop/shutdown commands remain supported.
+
 # BreakTest 2026.09.30.1 — Hotfixes and Welcome Screen
 
 This hotfix release fixes Module Controller references in migrated plans and Kerberos authentication compatibility, and adds a welcome screen for opening plans and starting recordings. It includes all three feature and fix PRs merged since 2026.09.30.
@@ -429,7 +440,7 @@ Source: [#135](https://github.com/Breaking-IT/breaktest/pull/135).
 - Java 21 or later is required; HTTP/3 over QUIC requires Java 26 or later.
 - Both BreakTest processes must use an updated build to transfer recording
   attachments through copy/paste.
-- Embedded files are not automatically transferred to remote RMI engines.
+- Embedded files are available to local GUI and CLI runs; RMI Remote Server execution is not supported.
 - Imported archive filenames must be portable across operating systems,
   including Windows filename restrictions.
 
