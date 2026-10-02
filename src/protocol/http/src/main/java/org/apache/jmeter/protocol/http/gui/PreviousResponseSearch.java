@@ -19,6 +19,8 @@ package org.apache.jmeter.protocol.http.gui;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -71,6 +73,9 @@ final class PreviousResponseSearch {
             List<String> names = new ArrayList<>();
             for (var ancestor : node.getPath()) {
                 var original = (JMeterTreeNode) ancestor;
+                if (original.isRoot()) {
+                    continue;
+                }
                 var copy = new JMeterTreeNode((TestElement) original.getTestElement().clone(), null);
                 if (snapshot != null) {
                     snapshot.add(copy);
@@ -186,8 +191,20 @@ final class PreviousResponseSearch {
             table.getColumnModel().getColumn(1).setMaxWidth(90);
             table.getColumnModel().getColumn(2).setPreferredWidth(450);
             table.setPreferredScrollableViewportSize(new Dimension(900, 320));
-            if (JOptionPane.showConfirmDialog(owner, new JScrollPane(table), title,
-                    JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION
+            JOptionPane resultPane = new JOptionPane(new JScrollPane(table), JOptionPane.PLAIN_MESSAGE,
+                    JOptionPane.OK_CANCEL_OPTION);
+            JDialog resultDialog = resultPane.createDialog(owner, title);
+            table.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent event) {
+                    if (event.getClickCount() == 2 && SwingUtilities.isLeftMouseButton(event)) {
+                        resultPane.setValue(JOptionPane.OK_OPTION);
+                        resultDialog.dispose();
+                    }
+                }
+            });
+            resultDialog.setVisible(true);
+            if (!Integer.valueOf(JOptionPane.OK_OPTION).equals(resultPane.getValue())
                     || table.getSelectedRow() < 0) {
                 return;
             }
