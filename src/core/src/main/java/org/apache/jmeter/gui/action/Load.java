@@ -38,6 +38,7 @@ import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.TreeState;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.FileDialoger;
 import org.apache.jmeter.gui.util.FocusRequester;
@@ -500,6 +501,9 @@ public class Load extends AbstractActionWithNoRunningTest {
             }
         } else {
             jTree.expandRow(0);
+        }
+        if (!merging) {
+            TreeState.expandThreadGroups(jTree);
         }
         jTree.setSelectionPath(jTree.getPathForRow(1));
         FocusRequester.requestFocus(jTree);

@@ -21,8 +21,28 @@ import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.JTree;
+import javax.swing.tree.TreePath;
+
+import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 
 public interface TreeState {
+
+    /** Expand every thread group without expanding its sampler/controller children. */
+    static void expandThreadGroups(JTree tree) {
+        Object root = tree.getModel().getRoot();
+        if (!(root instanceof JMeterTreeNode treeRoot)) {
+            return;
+        }
+        for (var nodes = treeRoot.preorderEnumeration(); nodes.hasMoreElements();) {
+            JMeterTreeNode treeNode = (JMeterTreeNode) nodes.nextElement();
+            if (treeNode.getTestElement() instanceof AbstractThreadGroup
+                    || treeNode.getTestElement() instanceof ThreadGroupsSection) {
+                tree.expandPath(new TreePath(treeNode.getPath()));
+            }
+        }
+    }
 
     /**
      * Restore tree expanded and selected state
