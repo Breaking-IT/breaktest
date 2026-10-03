@@ -38,8 +38,10 @@ import javax.swing.event.TreeModelListener;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.config.ConfigTestElement;
+import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.TreeState;
 import org.apache.jmeter.gui.settings.SettingDefinition;
 import org.apache.jmeter.gui.settings.SettingsCatalog;
 import org.apache.jmeter.gui.settings.SettingsGroup;
@@ -52,6 +54,7 @@ import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.reporters.ResultCollector;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -64,6 +67,37 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class LoadTest {
+
+    @Test
+    void revealsThreadGroupsWithoutOpeningTheirTransactionsOrChangingSelection() {
+        JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Test Plan"));
+        JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
+        JMeterTreeNode section = new JMeterTreeNode(new ThreadGroupsSection(), model);
+        plan.add(section);
+        for (int i = 0; i < 2; i++) {
+            JMeterTreeNode group = new JMeterTreeNode(new ThreadGroup(), model);
+            JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);
+            transaction.add(new JMeterTreeNode(new ConfigTestElement(), model));
+            group.add(transaction);
+            section.add(group);
+        }
+        JTree tree = new JTree(model);
+        TreePath planPath = new TreePath(plan.getPath());
+        tree.setSelectionPath(planPath);
+        tree.collapsePath(planPath);
+
+        TreeState.expandThreadGroups(tree);
+
+        assertEquals(planPath, tree.getSelectionPath());
+        assertTrue(tree.isExpanded(new TreePath(section.getPath())));
+        for (int i = 0; i < section.getChildCount(); i++) {
+            JMeterTreeNode group = (JMeterTreeNode) section.getChildAt(i);
+            assertTrue(tree.isExpanded(new TreePath(group.getPath())));
+            JMeterTreeNode transaction = (JMeterTreeNode) group.getChildAt(0);
+            assertFalse(tree.isExpanded(new TreePath(transaction.getPath())));
+            assertTrue(tree.isVisible(new TreePath(transaction.getPath())));
+        }
+    }
 
     @AfterEach
     void resetGuiPackage() throws Exception {

@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.control.gui;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.util.Arrays;
 import java.util.Set;
 
@@ -458,7 +459,17 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         String text = recordedResponseData.getText();
         if (offset >= 0 && text.startsWith(value, offset)) {
             recordedResponseData.requestFocusInWindow();
+            recordedResponseData.setCaretPosition(offset);
             recordedResponseData.select(offset, offset + value.length());
+            try {
+                var hitShape = recordedResponseData.modelToView2D(offset);
+                if (hitShape != null) {
+                    Rectangle hitBounds = hitShape.getBounds();
+                    recordedResponseData.scrollRectToVisible(hitBounds);
+                }
+            } catch (javax.swing.text.BadLocationException ignored) {
+                // The response may have changed while the recorded exchange was loading.
+            }
         }
     }
 

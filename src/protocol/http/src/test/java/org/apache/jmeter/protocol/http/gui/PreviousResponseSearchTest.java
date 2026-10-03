@@ -33,11 +33,14 @@ class PreviousResponseSearchTest {
     @Test
     void includesOnlyEarlierHttpSamplersAndPreservesDetachedAncestorMetadata() {
         var root = new JMeterTreeNode(new TestPlan(), null);
-        root.setName("Plan");
+        root.setName("root");
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        plan.setName("Test Plan");
+        root.add(plan);
         var transaction = new JMeterTreeNode(new TransactionController(), null);
         transaction.setName("Login");
         transaction.getTestElement().setProperty("recording", "source");
-        root.add(transaction);
+        plan.add(transaction);
         var previous = new JMeterTreeNode(new HTTPSamplerProxy(), null);
         previous.setName("Token");
         transaction.add(previous);
@@ -49,7 +52,7 @@ class PreviousResponseSearchTest {
         assertEquals(1, candidates.size());
         var candidate = candidates.get(0);
         assertSame(previous, candidate.target());
-        assertEquals("Plan / Login / Token", candidate.path());
+        assertEquals("Test Plan / Login / Token", candidate.path());
         assertNotSame(previous.getTestElement(), candidate.snapshot().getTestElement());
         var parent = (JMeterTreeNode) candidate.snapshot().getParent();
         transaction.getTestElement().setProperty("recording", "changed");
