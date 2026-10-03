@@ -53,3 +53,7 @@ xdocs/yarn.lock
 
 # Generated diagnostic-header benchmark and validation evidence
 benchmarks/deferred-headers/results/**
+
+# Machine-generated benchmark observations (license documented in the benchmark README)
+extras/websocket-benchmark/results-2026-10-03/**/*.jsonl
+extras/websocket-benchmark/results-2026-10-03/**/client.txt

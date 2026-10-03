@@ -78,6 +78,11 @@ public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer {
     @Override
     protected void saveGuiFields() {
         super.saveGuiFields();
-        properties.put("headers", headers.getHeaders());
+        List<Header> values = headers.getHeaders();
+        if (values.isEmpty()) {
+            properties.remove("headers");
+        } else {
+            properties.put("headers", values);
+        }
     }
 }

@@ -1,3 +1,20 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements.  See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to you under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License.  You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
 I found 2 blocking defects, 3 high-priority concurrency defects and several medium/low issues. The control-character persistence, the Send+Wait core semantics and the TLS trust/alias binding look correct. The benchmark supports the platform-thread reduction but not the CPU or latency improvement claims.
 
 Everything here comes from reading the code; I did not compile or run anything. Where I say "won't compile", that comes from comparing method signatures.
