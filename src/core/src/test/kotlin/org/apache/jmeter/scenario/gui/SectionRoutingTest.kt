@@ -61,6 +61,21 @@ class SectionRoutingTest : JMeterTestCase() {
     }
 
     @Test
+    fun `legacy utilities go into non-test elements instead of the shared profile`() {
+        for (
+            guiClass in listOf(
+                "org.apache.jmeter.visualizers.PropertyControlGui",
+                "org.apache.jmeter.protocol.http.control.gui.HttpMirrorControlGui"
+            )
+        ) {
+            val utility = ConfigTestElement().apply { setProperty(TestElement.GUI_CLASS, guiClass) }
+            assertEquals(NonTestElementsSection::class, parentAfterAdding(utility))
+        }
+        assertEquals(0, model.getNodesOfType(SharedProfile::class.java).single().childCount)
+        assertEquals(1, model.getNodesOfType(NonTestElementsSection::class.java).size)
+    }
+
+    @Test
     fun `restoring a saved tree does not add a second set of sections`() {
         // Snapshot the way undo history does
         val nodes = model.getCurrentSubTree(model.root as JMeterTreeNode)

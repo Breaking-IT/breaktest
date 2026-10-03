@@ -17,13 +17,18 @@
 
 package org.apache.jmeter.gui.util
 
+import org.apache.jmeter.ai.knowledge.BreakTestAiKnowledge
+import org.apache.jmeter.config.ConfigTestElement
 import org.apache.jmeter.control.GenericController
 import org.apache.jmeter.control.TestFragmentController
 import org.apache.jmeter.gui.tree.JMeterTreeModel
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.junit.JMeterTestCase
+import org.apache.jmeter.protocol.http.control.gui.HttpMirrorControlGui
+import org.apache.jmeter.scenario.NonTestElementsSection
 import org.apache.jmeter.scenario.TestFragmentsSection
 import org.apache.jmeter.threads.ThreadGroup
+import org.apache.jmeter.visualizers.PropertyControlGui
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -58,6 +63,30 @@ class MenuFactoryTest : JMeterTestCase() {
         assertFalse(MenuFactory.canAddTo(group, TestFragmentController())) {
             "Test Fragment groups are one level deep"
         }
+    }
+
+    @Test
+    fun `non-test section accepts legacy utilities for paste drag and quick-add`() {
+        val model = JMeterTreeModel()
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        model.addComponent(BreakTestAiKnowledge(), plan)
+        val section = model.getNodesOfType(NonTestElementsSection::class.java).single()
+        val utilities = listOf(
+            PropertyControlGui().createTestElement(),
+            HttpMirrorControlGui().createTestElement()
+        ).map { JMeterTreeNode(it, model) }.toTypedArray()
+        utilities.forEach { node ->
+            assertTrue(MenuFactory.canAddTo(section, arrayOf(node)))
+            val target = JMeterTreeModel.sectionNodeFor(plan, node.testElement)
+            assertSame(section, target)
+            assertTrue(MenuFactory.canAddTo(target, arrayOf(node)))
+            assertTrue(MenuFactory.canAddTo(target, node.testElement))
+        }
+        assertTrue(MenuFactory.canAddTo(section, utilities))
+        assertTrue(MenuFactory.canAddTo(section, BreakTestAiKnowledge()))
+        val configuration = JMeterTreeNode(ConfigTestElement(), model)
+        assertFalse(MenuFactory.canAddTo(section, arrayOf(configuration)))
+        assertFalse(MenuFactory.canAddTo(section, utilities + configuration))
     }
 
     @Test
