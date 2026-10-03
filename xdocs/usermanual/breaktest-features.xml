@@ -61,6 +61,142 @@ preserved unless a closer configuration overrides that name.
   <li>Brotli and Zstandard response decoding were added alongside gzip and deflate.</li>
 </ul>
 
+<h2>WebSocket Sessions</h2>
+<p>
+Add <code>WebSocket Connect</code>, <code>WebSocket Send</code>, <code>WebSocket Send and Wait</code>, and
+<code>WebSocket Close</code> from the Samplers menu. Connect takes a
+<code>ws://</code> or <code>wss://</code> URL and a required session name.
+Send and Close select that name. Each virtual user owns its sessions, so multiple
+connections can coexist in one user and different users can use the same name.
+Close a session before reusing its name. Sessions persist across iterations and
+are aborted when the user thread ends.
+</p>
+<ul>
+  <li>Connect owns the session policy, fixed for the lifetime of that connection.</li>
+  <li><b>Count incoming messages as samples</b> defaults to enabled. Each complete
+  incoming text or binary message produces a separate successful sample through
+  the listeners in scope of Connect, including JTL and aggregate listeners. Disable
+  this to discard incoming messages. No Receive sampler is needed.</li>
+  <li><b>Fail on unexpected disconnect</b> defaults to enabled. A server-initiated
+  close (including status 1000) or transport error produces one failed disconnect
+  sample, even when incoming messages are ignored. WebSocket Close and thread-end
+  cleanup do not produce unexpected-disconnect failures. Close waits for the peer's
+  close handshake; a timeout still fails the Close sampler.</li>
+  <li><b>Ignore text matching regex</b> discards complete messages for which the Java
+  regular expression finds a match. Empty means no text filter. Use anchors for
+  full-message matching.</li>
+  <li><b>Ignore binary prefix</b> discards messages beginning with the supplied
+  hexadecimal bytes, for example <code>0102</code>. Empty means no binary filter.</li>
+  <li><b>Handle ping/pong automatically without samples</b> defaults to enabled. Disable it to count
+  those control frames too. Pong replies are automatic regardless of this setting.</li>
+  <li><b>Maximum incoming message bytes</b> defaults to 1048576. An oversized message
+  aborts the session. Fragmented messages are assembled before filtering and counting.</li>
+  <li>Send transmits UTF-8 text, or hexadecimal bytes when <b>Send binary message</b>
+  is enabled. Hex input accepts spaces, tabs and line breaks, including pasted hex rows.
+  Its elapsed time measures sending, not request/response latency.</li>
+  <li>Connect, Send and Close have positive millisecond timeouts (default 10000).
+  Failed handshakes and timed-out sends or closes release their connections.</li>
+  <li><b>Send and Wait</b> subscribes before sending so immediate replies are captured.
+  Choose <b>Next message</b> for the next complete text or binary message, or
+  <b>Message matching regular expression</b> for a text response matching a Java regex.
+  Matching uses find; use <code>^hallo$</code> to match exactly <code>hallo</code>.
+  Choose <b>Binary message containing hex sequence</b> and set <b>Response binary sequence (hex)</b>
+  to match bytes anywhere within a complete binary response, for example <code>07 95 03 80 A1 30 03 C0</code>.
+  Spaces, tabs and line breaks are ignored; the sequence must contain at least one complete byte.
+  Matching spans fragments of one message, but never separate messages.
+  Connect filters apply before matching; ping/pong never satisfies a wait.
+  Unrelated messages follow Connect's incoming-sample policy without completing the wait.
+  The matching response becomes the sampler response, without an extra incoming sample,
+  and supports normal assertions, extractors and thread error handling.</li>
+  <li><b>Wait timeout (milliseconds)</b> is separate from the send timeout and defaults to 10000.
+  It limits waiting after sending completes; unrelated messages never restart it.
+  Expiry fails the sampler and leaves the session available for subsequent operations.
+  Only one wait may be active per session. Previously received messages are not queued for a later wait.</li>
+</ul>
+<p>
+Incoming samples run on the transport callback thread. They record the originating
+user thread name and the <code>sample_variables</code> values captured at Connect.
+They do not execute assertions, extractors, timers, transaction-controller aggregation,
+or thread stop-on-error actions. Put listeners at the thread group or above when
+all sessions should report to them. Asynchronous listener notifications are serialized per virtual user, run outside
+session locks and have access to the originating user's variables. Ordinary
+per-thread listeners are cloned for this callback path; globally shared listeners
+must still support concurrent calls. Script listeners can update user variables,
+but their timing relative to the main flow remains asynchronous.
+</p>
+<p>
+The transport uses Java's built-in WebSocket client and adds no dependencies.
+BreakTest's pinned HttpClient 5.6.1 does not provide the optional WebSocket module
+introduced in <a href="https://hc.apache.org/httpcomponents-client-5.7.x/websocket.html">HttpClient 5.7</a>.
+WebSocket Connect reuses the HTTP Cookie Manager in its test-plan scope. Cookies
+received by previous HTTP requests are selected at each handshake using the same
+domain, path, expiry and Secure rules as HTTP: <code>ws</code> is treated as
+<code>http</code>, and <code>wss</code> as <code>https</code>. Variable-backed cookie
+values are resolved on the virtual user's thread. Cookies are sent during the
+opening handshake; they are not attached to individual WebSocket messages.
+Set-Cookie response headers from the WebSocket handshake are not currently imported.
+The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
+HTTP Header Managers in scope also apply. Connect's own headers take priority,
+then the closest scoped manager, with case-insensitive name matching and repeated
+values preserved within a manager. Names and values can use JMeter variables.
+When the Cookie Manager supplies matching cookies, they replace any manually
+configured Cookie header, following the HTTP sampler's behavior.
+The JDK controls Host, Connection, Upgrade, Content-Length, Expect, and
+Sec-WebSocket-* handshake headers; attempts to set those in Connect's own header table fail Connect. Transport-owned
+headers inherited from HTTP Header Managers are ignored.
+Secure WebSockets reuse the HTTP SSL Manager's certificate stores and permissive
+server-certificate policy, including self-signed certificates and hostname mismatches.
+Client certificate aliases are resolved on the user thread at Connect, including aliases
+from variables. Reconnecting reevaluates the alias. Transport clients are shared only
+within the same SSL Manager, certificate stores and selected client alias, preventing
+TLS session reuse across identities. User sessions, headers and cookies remain isolated.
+Transport tasks use virtual threads; the last session releases its shared client.
+Unlike HTTP's default per-thread SSL contexts, WebSocket clients share TLS session
+caches across users with the same identity. This can reduce full TLS handshake load
+and is independent of <code>https.sessioncontext.shared</code>. For mutual TLS,
+use a certificate-alias variable to select the same identity explicitly in HTTP
+and WebSocket samplers; automatic round-robin selection advances per connection.
+HTTP TLS protocol and cipher settings also apply to WebSocket clients.
+The JDK's default proxy configuration applies; Authorization Manager is not inherited. An explicit Authorization header is supported. This first implementation
+supports HTTP/1.1 WebSocket Upgrade, not HTTP/2 Extended CONNECT or permessage-deflate.
+</p>
+<p>
+In View Results Tree, choose <b>Binary</b> to inspect response bytes as hexadecimal
+with byte offsets and a printable ASCII column. The three columns scroll together
+and can be selected independently, so copying multiple rows of hex or ASCII preserves
+the 16-byte line breaks without including other columns. Non-printable bytes appear as dots.
+The view works for WebSocket and HTTP responses, preserves the original bytes,
+and respects <code>view.results.tree.max_size</code>, marking truncated displays.
+Hex previews additionally default to 65536 bytes via
+<code>view.results.tree.binary.max_bytes</code>, avoiding a multi-megabyte hex expansion.
+Text view decodes binary responses on a best-effort basis.
+</p>
+<p>
+Message payloads may contain control characters such as SignalR's record separator
+(0x1E). Values that XML 1.0 cannot represent are saved with a Base64 UTF-16 marker
+and restored unchanged. These marked properties require this BreakTest version
+or later; older readers do not decode the marker and must not be used for these plans.
+</p>
+<h3>Reference Plugin And License</h3>
+<p>
+The <a href="https://bitbucket.org/pjtr/jmeter-websocket-samplers/src/c599598e6f4023a88815fdf140338cb9c19f5e00/">reference
+plugin</a> was reviewed at commit <code>c599598e6f4023a88815fdf140338cb9c19f5e00</code>.
+Its README identifies LGPL, its distribution includes GPLv3 and LGPLv3 license texts,
+and its source headers specify LGPL version 3 or later. The GPL text is incorporated
+by the LGPL; its presence does not mean the plugin is simply GPL-only.
+</p>
+<p>
+We can study its documented behavior and independently implement session handling,
+filters, fragmentation, and close semantics. Copying or adapting its implementation
+would require preserving the applicable LGPL terms, notices and source obligations;
+copied code cannot simply be relabeled Apache-2.0. Linking it as a separate replaceable
+library is another option, with LGPL distribution, source and relinking obligations.
+Obtaining a separate compatible license from the relevant rights holders would be
+another route to direct reuse. This implementation copies no plugin source and does
+not depend on its binary. It reuses BreakTest's sampler, TestBean GUI, listener and
+result infrastructure and the JDK's RFC 6455 implementation.
+</p>
+
 <h2>Lower Runtime Resource Usage</h2>
 <ul>
   <li>Lazy response decompression stores compressed bytes and decompresses only when response data is accessed.</li>

@@ -75,6 +75,16 @@ public final class JMeterContextService {
     }
 
     /**
+     * Creates an unattached context for asynchronous callbacks. Callers installing
+     * it must restore the previous thread context after the callback.
+     * @return a new, empty context
+     */
+    public static JMeterContext createContext() {
+        return new JMeterContext();
+    }
+
+
+    /**
      * Allows the thread Context to be completely cleared.
      * <br/>
      * Invokes {@link ThreadLocal#remove()}.

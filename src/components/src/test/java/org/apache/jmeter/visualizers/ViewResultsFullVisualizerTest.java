@@ -1083,6 +1083,34 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         });
     }
 
+    @Test
+    public void textViewShowsBinaryResponseThroughActualTreeSelection() throws Exception {
+        JMeterContextService.setValidationRun(false);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                SampleResult response = new SampleResult();
+                response.setDataType(SampleResult.BINARY);
+                response.setResponseData(new byte[] {0x7b, 0x7d, 0x1e});
+                visualizer.add(response);
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                tree.setSelectionPath(new TreePath(((DefaultMutableTreeNode) root.getChildAt(0)).getPath()));
+                JTabbedPane details = (JTabbedPane) visualizerField(visualizer, "rightSide");
+                details.setSelectedIndex(details.indexOfTab(JMeterUtils.getResString("view_results_tab_response")));
+                SamplerResultTab renderer = (SamplerResultTab) visualizerField(visualizer, "resultsRender");
+                assertTrue(renderer instanceof RenderAsText);
+                assertFalse(renderer.isRenderedResponseViewVisible());
+                assertTrue(renderer.responseDataText().contains("{}" + (char) 0x1e));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
     @ParameterizedTest
     @CsvSource({"false,false,false", "false,false,true", "false,true,false", "false,true,true",
             "true,false,false", "true,false,true", "true,true,false", "true,true,true"})

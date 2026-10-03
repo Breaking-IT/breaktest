@@ -1,0 +1,22 @@
+RAMP users=2000 connected=2000 failed=0 seconds=1.097 cpuSeconds=8.713 nativeThreads=39 peakNativeThreads=39
+STEADY second=0 cpuPercent=11.720 nativeThreads=39 heapMiB=167.208
+STEADY second=1 cpuPercent=13.858 nativeThreads=39 heapMiB=172.208
+STEADY second=2 cpuPercent=12.164 nativeThreads=39 heapMiB=176.208
+STEADY second=3 cpuPercent=12.963 nativeThreads=39 heapMiB=181.208
+STEADY second=4 cpuPercent=12.893 nativeThreads=39 heapMiB=186.208
+STEADY second=5 cpuPercent=10.836 nativeThreads=39 heapMiB=191.208
+STEADY second=6 cpuPercent=10.403 nativeThreads=39 heapMiB=195.208
+STEADY second=7 cpuPercent=13.992 nativeThreads=39 heapMiB=200.208
+STEADY second=8 cpuPercent=9.164 nativeThreads=39 heapMiB=204.208
+STEADY second=9 cpuPercent=8.704 nativeThreads=39 heapMiB=208.208
+STEADY second=10 cpuPercent=10.257 nativeThreads=39 heapMiB=213.208
+STEADY second=11 cpuPercent=11.072 nativeThreads=39 heapMiB=217.208
+STEADY second=12 cpuPercent=9.536 nativeThreads=39 heapMiB=222.208
+STEADY second=13 cpuPercent=8.998 nativeThreads=39 heapMiB=226.208
+STEADY second=14 cpuPercent=13.316 nativeThreads=39 heapMiB=230.208
+STEADY second=15 cpuPercent=9.260 nativeThreads=39 heapMiB=235.208
+STEADY second=16 cpuPercent=15.443 nativeThreads=39 heapMiB=240.208
+STEADY second=17 cpuPercent=9.645 nativeThreads=39 heapMiB=245.208
+STEADY second=18 cpuPercent=9.381 nativeThreads=39 heapMiB=249.208
+STEADY second=19 cpuPercent=17.084 nativeThreads=39 heapMiB=255.208
+CLEANUP nativeThreads=39 heapMiB=13.458

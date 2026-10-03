@@ -871,7 +871,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         return sampleResult.getResponseDataAsString();
     }
 
-    private JPanel createResponseDataPanel() {
+    protected JPanel createResponseDataPanel() {
         results = new JEditorPane();
         results.setEditable(false);
 
