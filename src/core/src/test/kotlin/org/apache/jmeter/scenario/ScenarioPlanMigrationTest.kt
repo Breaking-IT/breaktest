@@ -19,6 +19,7 @@ package org.apache.jmeter.scenario
 
 import org.apache.jmeter.JMeter
 import org.apache.jmeter.config.Arguments
+import org.apache.jmeter.config.ConfigTestElement
 import org.apache.jmeter.control.GenericController
 import org.apache.jmeter.control.LoopController
 import org.apache.jmeter.control.TestFragmentController
@@ -27,6 +28,7 @@ import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.junit.JMeterTestCase
 import org.apache.jmeter.test.samplers.CollectSamplesListener
 import org.apache.jmeter.test.samplers.ThreadSleep
+import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.TestPlan
 import org.apache.jmeter.testelement.property.CollectionProperty
 import org.apache.jmeter.threads.AbstractThreadGroup
@@ -83,6 +85,27 @@ class ScenarioPlanMigrationTest : JMeterTestCase() {
     }
 
     private fun children(tree: HashTree, parent: Any = tree.array[0]): List<Any> = tree.getTree(parent).list().toList()
+
+    @Test
+    fun `legacy utilities are migrated to non-test elements`() {
+        val utilities = listOf(
+            "org.apache.jmeter.visualizers.PropertyControlGui",
+            "org.apache.jmeter.protocol.http.control.gui.HttpMirrorControlGui"
+        ).map { guiClass -> ConfigTestElement().apply { setProperty(TestElement.GUI_CLASS, guiClass) } }
+        val original = testTree {
+            TestPlan::class {
+                utilities.forEach { +it }
+                +variables
+            }
+        }
+        val migrated = ScenarioPlanMigration.migrate(original)
+        val planTree = migrated.getTree(migrated.array[0])
+        val nonTest = children(migrated).filterIsInstance<NonTestElementsSection>().single()
+        assertEquals(utilities, children(planTree, nonTest))
+        val profiles = children(migrated).filterIsInstance<ProfilesSection>().single()
+        val shared = children(planTree, profiles).single()
+        assertEquals(listOf(variables), children(planTree.getTree(profiles), shared))
+    }
 
     @Test
     fun `legacy plan is organised in sections`() {

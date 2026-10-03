@@ -99,7 +99,7 @@ public final class ScenarioPlanMigration {
         if (element instanceof TestFragmentController) {
             return TestFragmentsSection.class;
         }
-        if (element instanceof NonTestElement) {
+        if (element instanceof NonTestElement || isLegacyNonTestElement(element)) {
             return NonTestElementsSection.class;
         }
         if (!(element instanceof TestElement) || element instanceof TestPlan || element instanceof TestPlanSection
@@ -107,6 +107,18 @@ public final class ScenarioPlanMigration {
             return null;
         }
         return element instanceof SampleListener ? ListenersSection.class : ProfilesSection.class;
+    }
+
+    private static boolean isLegacyNonTestElement(Object element) {
+        // These older utilities do not implement NonTestElement. Property Display even uses the same
+        // ConfigTestElement class as ordinary configuration, so identify them by their saved GUI class.
+        // Class names keep migration usable without loading GUI classes or depending on protocol modules.
+        if (!(element instanceof TestElement testElement)) {
+            return false;
+        }
+        String guiClass = testElement.getPropertyAsString(TestElement.GUI_CLASS);
+        return "org.apache.jmeter.visualizers.PropertyControlGui".equals(guiClass)
+                || "org.apache.jmeter.protocol.http.control.gui.HttpMirrorControlGui".equals(guiClass);
     }
 
     /**

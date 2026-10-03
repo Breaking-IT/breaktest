@@ -73,7 +73,6 @@ include(
     "src:core",
     "src:examples",
     "src:functions",
-    "src:generator",
     "src:jorphan",
     "src:licenses",
     "src:protocol:bolt",
