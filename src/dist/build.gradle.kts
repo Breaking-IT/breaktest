@@ -60,16 +60,6 @@ inline fun <reified T : Named> AttributeContainer.attribute(attr: Attribute<T>, 
     attribute(attr, objects.named<T>(value))
 
 // isCanBeConsumed = false ==> other modules must not use the configuration as a dependency
-val generatorJar by configurations.creating {
-    isCanBeConsumed = false
-    isTransitive = false
-    attributes {
-        attribute(Category.CATEGORY_ATTRIBUTE, Category.LIBRARY)
-        attribute(LibraryElements.LIBRARY_ELEMENTS_ATTRIBUTE, LibraryElements.JAR)
-        attribute(Usage.USAGE_ATTRIBUTE, Usage.JAVA_RUNTIME)
-        attribute(Bundling.BUNDLING_ATTRIBUTE, Bundling.EXTERNAL)
-    }
-}
 val junitSampleJar by configurations.creating {
     isCanBeConsumed = false
     isTransitive = false
@@ -127,7 +117,6 @@ dependencies {
 
     binLicense(project(":src:licenses", "binLicense"))
     srcLicense(project(":src:licenses", "srcLicense"))
-    generatorJar(projects.src.generator)
     junitSampleJar(project(":src:protocol:junit-sample"))
 }
 
@@ -332,9 +321,6 @@ val copyLibs by tasks.registering(Sync::class) {
     }
     into("ext") {
         with(libsExt)
-        from(files(generatorJar)) {
-            rename { "ApacheJMeter_generator.jar" }
-        }
     }
     into("junit") {
         from(files(junitSampleJar)) {
