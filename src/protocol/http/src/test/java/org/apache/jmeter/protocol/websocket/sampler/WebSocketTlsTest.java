@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.websocket.sampler;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -118,9 +119,15 @@ class WebSocketTlsTest extends JMeterTestCase {
     @Test
     void usesHttpCertificatePolicyForSelfSignedAndMismatchedServerCertificate() throws Exception {
         try (WebSocketSamplerTest.Peer peer = peer(false)) {
+            peer.responseCookies = "Set-Cookie: tls_cookie=yes; Path=/; Secure; HttpOnly\r\n";
+            var cookies = new org.apache.jmeter.protocol.http.control.CookieManager();
+            cookies.testStarted();
             WebSocketConnectSampler connect = connect("tls", peer.url());
+            connect.addTestElement(cookies);
             SampleResult result = connect.sample(null);
             assertTrue(result.isSuccessful(), result::getResponseMessage);
+            assertEquals("tls_cookie=yes", connect.cookieHeader(URI.create(peer.url())));
+            assertNull(connect.cookieHeader(URI.create(peer.url().replace("wss:", "ws:"))));
             WebSocketCloseSampler close = new WebSocketCloseSampler();
             close.setSessionName("tls");
             assertTrue(close.sample(null).isSuccessful());

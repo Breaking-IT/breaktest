@@ -69,19 +69,45 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
         sessions.add(getSessionName(), session);
         active(session);
         try {
-            WebSocket.Builder builder = sessions.client(getSessionName(), session, uri).newWebSocketBuilder()
+            var client = sessions.client(getSessionName(), session, uri);
+            WebSocket.Builder builder = client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(getTimeout()));
             // Resolve variable-backed cookies on the virtual user's thread, before
             // the JDK starts the handshake on its transport threads.
             for (Header header : requestHeaders(uri)) {
                 builder.header(header.getName(), header.getValue());
             }
-            await(builder.buildAsync(uri, session));
+            WebSocketHandshakeCookies bridge = (WebSocketHandshakeCookies) client.cookieHandler().orElseThrow();
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(getTimeout());
+            try (var capture = bridge.begin(uri, getTimeout())) {
+                await(builder.buildAsync(uri, session), Math.max(1, deadline - System.nanoTime()),
+                        java.util.concurrent.TimeUnit.NANOSECONDS);
+                capture.succeeded();
+                // Import on the owner thread: CookieManager can also publish COOKIE_* variables.
+                storeCookies(capture.cookies(), WebSocketHandshakeCookies.httpUri(uri));
+            }
             result.setSamplerData(getUrl());
             result.setResponseCode("101");
         } catch (Exception e) {
             sessions.remove(getSessionName(), session);
+            Throwable cause = e;
+            while ((cause instanceof java.util.concurrent.ExecutionException
+                    || cause instanceof java.util.concurrent.CompletionException) && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            if (cause instanceof java.net.http.WebSocketHandshakeException handshake) {
+                var response = handshake.getResponse();
+                storeCookies(response.headers().allValues("Set-Cookie"), response.uri());
+            }
             throw e;
+        }
+    }
+
+    private void storeCookies(List<String> headers, URI uri) throws MalformedURLException {
+        if (getProperty(COOKIE_MANAGER).getObjectValue() instanceof CookieManager cookies) {
+            for (String header : headers) {
+                cookies.addCookieFromHeader(header, uri.toURL());
+            }
         }
     }
 

@@ -187,6 +187,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
         HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", exchange -> {
             exchange.getResponseHeaders().add("X-Rejection-Reason", "unknown-connection");
+            exchange.getResponseHeaders().add("Set-Cookie", "retry=token; Path=/");
             exchange.sendResponseHeaders(404, -1);
             exchange.close();
         });
@@ -195,7 +196,12 @@ class WebSocketSamplerTest extends JMeterTestCase {
             String host = server.getAddress().getAddress().getHostAddress();
             String url = "ws://" + (host.contains(":") ? "[" + host + "]" : host)
                     + ":" + server.getAddress().getPort() + "/";
-            SampleResult result = connect("rejected", url).sample(null);
+            CookieManager cookies = new CookieManager();
+            cookies.testStarted();
+            WebSocketConnectSampler connect = connect("rejected", url);
+            connect.addTestElement(cookies);
+            SampleResult result = connect.sample(null);
+            assertEquals("retry=token", connect.cookieHeader(URI.create(url)));
             assertFalse(result.isSuccessful());
             assertEquals("404", result.getResponseCode());
             assertEquals("WebSocket handshake rejected: HTTP 404", result.getResponseMessage());
@@ -239,6 +245,97 @@ class WebSocketSamplerTest extends JMeterTestCase {
             http.threadFinished();
             cookies.testEnded();
             login.stop(0);
+        }
+    }
+
+    @Test
+    void handshakeCookiesAreValidatedAndReusedByHttp() throws Exception {
+        CompletableFuture<String> received = new CompletableFuture<>();
+        HttpServer endpoint = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        endpoint.createContext("/", exchange -> {
+            received.complete(exchange.getRequestHeaders().getFirst("Cookie"));
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        endpoint.start();
+        CookieManager cookies = new CookieManager();
+        cookies.testStarted();
+        HTTPSamplerProxy http = new HTTPSamplerProxy();
+        try (Peer peer = new Peer(false)) {
+            peer.responseCookies = "Set-Cookie: upgraded=yes; Path=/; HttpOnly\r\n"
+                    + "Set-Cookie: rejected=no; Domain=other.example; Path=/\r\n"
+                    + "Set-Cookie: removed=gone; Max-Age=0; Path=/\r\n";
+            WebSocketConnectSampler connect = connect("cookies", peer.url());
+            connect.addTestElement(cookies);
+            SampleResult result = connect.sample(null);
+            assertTrue(result.isSuccessful(), result::getResponseMessage);
+            http.setProtocol("http");
+            http.setDomain(URI.create(peer.url()).getHost());
+            http.setPort(endpoint.getAddress().getPort());
+            http.setPath("/");
+            http.setMethod("GET");
+            http.setImplementation("HttpClient5");
+            http.setCookieManager(cookies);
+            assertTrue(http.sample().isSuccessful());
+            assertEquals("upgraded=yes", received.get(3, TimeUnit.SECONDS));
+        } finally {
+            http.threadFinished();
+            cookies.testEnded();
+            endpoint.stop(0);
+        }
+    }
+
+    @Test
+    void cancelledHandshakeRetiresClientWithoutClosingOtherLeases() throws Exception {
+        URI uri = URI.create("ws://localhost/");
+        try (var original = WebSocketTransportPool.acquire(uri)) {
+            var bridge = (WebSocketHandshakeCookies) original.client().cookieHandler().orElseThrow();
+            bridge.begin(uri, 100).close();
+            try (var replacement = WebSocketTransportPool.acquire(uri)) {
+                assertNotSame(original.client(), replacement.client());
+                assertFalse(original.client().isTerminated());
+            }
+        }
+    }
+
+    @Test
+    void concurrentSameUrlHandshakesKeepResponseCookiesWithTheirUser() throws Exception {
+        try (ServerSocket server = new ServerSocket(0, 2, InetAddress.getLoopbackAddress());
+                Peer first = new Peer(server); Peer second = new Peer(server);
+                var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            var barrier = new java.util.concurrent.CountDownLatch(2);
+            first.handshakeBarrier = barrier;
+            second.handshakeBarrier = barrier;
+            first.echoUserCookie = true;
+            second.echoUserCookie = true;
+            var keepConnected = new java.util.concurrent.CountDownLatch(2);
+            var alice = workers.submit(() -> handshakeForUser(first.url(), "alice", keepConnected));
+            var bob = workers.submit(() -> handshakeForUser(first.url(), "bob", keepConnected));
+            assertSame(alice.get(5, TimeUnit.SECONDS), bob.get(5, TimeUnit.SECONDS));
+        }
+    }
+
+    private java.net.http.HttpClient handshakeForUser(String url, String user,
+            java.util.concurrent.CountDownLatch connected) throws Exception {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        CookieManager cookies = new CookieManager();
+        cookies.testStarted();
+        try {
+            cookies.addCookieFromHeader("user=" + user + "; Path=/", WebSocketHandshakeCookies.httpUri(URI.create(url)).toURL());
+            WebSocketConnectSampler connect = connect("same", url);
+            connect.addTestElement(cookies);
+            SampleResult result = connect.sample(null);
+            assertTrue(result.isSuccessful(), result::getResponseMessage);
+            assertEquals("user=" + user + "; upgrade=" + user, connect.cookieHeader(URI.create(url)));
+            var sessions = WebSocketSessions.current();
+            var client = sessions.client("same", sessions.get("same"), URI.create(url));
+            connected.countDown();
+            assertTrue(connected.await(3, TimeUnit.SECONDS));
+            return client;
+        } finally {
+            WebSocketSessions.cleanup();
+            cookies.testEnded();
+            JMeterContextService.getContext().clear();
         }
     }
 
@@ -615,6 +712,9 @@ class WebSocketSamplerTest extends JMeterTestCase {
         private final CompletableFuture<byte[]> pong = new CompletableFuture<>();
         private volatile Socket accepted;
         private volatile boolean notifyBeforeEcho;
+        volatile String responseCookies = "";
+        volatile boolean echoUserCookie;
+        volatile java.util.concurrent.CountDownLatch handshakeBarrier;
 
         Peer(boolean remoteClose) throws IOException {
             this(remoteClose, false);
@@ -665,11 +765,20 @@ class WebSocketSamplerTest extends JMeterTestCase {
                     if (key == null) {
                         throw new IOException("Missing WebSocket key");
                     }
+                    if (handshakeBarrier != null) {
+                        handshakeBarrier.countDown();
+                        if (!handshakeBarrier.await(3, TimeUnit.SECONDS)) {
+                            throw new IOException("Concurrent handshakes did not reach the peer");
+                        }
+                    }
+                    String cookieResponse = echoUserCookie
+                            ? "Set-Cookie: upgrade=" + cookies.substring("user=".length()) + "; Path=/\r\n"
+                            : responseCookies;
                     String accept = Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-1")
                             .digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.US_ASCII)));
                     socket.getOutputStream().write(("HTTP/1.1 101 Switching Protocols\r\n"
                             + "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "
-                            + accept + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                            + accept + "\r\n" + cookieResponse + "\r\n").getBytes(StandardCharsets.US_ASCII));
                     socket.getOutputStream().flush();
                     if (sendPing) {
                         frame(socket, 9, new byte[] {17});
