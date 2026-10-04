@@ -185,6 +185,10 @@ public class StandardCookieHandler implements CookieHandler {
     }
 
     private static boolean matches(Cookie cookie, URL url) {
+        long expiry = cookie.getExpiresMillis();
+        if (expiry > 0 && expiry <= System.currentTimeMillis()) {
+            return false;
+        }
         String protocol = url.getProtocol();
         if (cookie.getSecure() && !HTTPSamplerBase.isSecure(protocol)) {
             return false;

@@ -37,6 +37,29 @@ import org.junit.jupiter.api.Test;
 public class SamplerResultTabTest {
 
     @Test
+    public void textViewDecodesBinarySignalRResponseWithoutChangingBytes() {
+        RenderAsText renderer = new RenderAsText();
+        renderer.setRightSide(new JTabbedPane());
+        SampleResult result = new SampleResult();
+        result.setDataType(SampleResult.BINARY);
+        result.setDataEncoding("UTF-8");
+        byte[] bytes = new byte[] {0x7b, 0x7d, 0x1e};
+        result.setResponseData(bytes);
+        renderer.setSamplerResult(result);
+        renderer.setupTabPane();
+        renderer.renderImage(result);
+        assertTrue(renderer.responseDataText().contains("{}" + (char) 0x1e));
+        assertEquals(SampleResult.BINARY, result.getDataType());
+        assertTrue(Arrays.equals(bytes, result.getResponseData()));
+        result.setResponseData("héllo".getBytes(StandardCharsets.UTF_8));
+        renderer.renderResult(result);
+        assertTrue(renderer.responseDataText().contains("héllo"));
+        result.setResponseData(new byte[0]);
+        renderer.renderImage(result);
+        assertFalse(renderer.responseDataText().contains("héllo"));
+    }
+
+    @Test
     public void selectionCreatesEscapedExtractorWithRequestedDefaults() {
         String headers = "X-Token: a.b[1]\r\n";
         String body = "url?x=(a+b)*[1].$^|\\end";

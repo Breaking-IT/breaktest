@@ -33,15 +33,14 @@ public class RenderAsText extends SamplerResultTab implements ResultRenderer {
     /** {@inheritDoc} */
     @Override
     public void renderResult(SampleResult sampleResult) {
-        String response = hasBinaryResponseBody(sampleResult)
-                ? JMeterUtils.getResString("view_results_binary_body") // $NON-NLS-1$
-                : ViewResultsFullVisualizer.getResponseAsString(sampleResult);
-        showTextResponse(response);
+        showTextResponse(ViewResultsFullVisualizer.getResponseAsString(sampleResult, true));
     }
 
-    private static boolean hasBinaryResponseBody(SampleResult sampleResult) {
-        return SampleResult.BINARY.equals(sampleResult.getDataType())
-                && sampleResult.getResponseData().length > 0;
+    @Override
+    public void renderImage(SampleResult sampleResult) {
+        // Selecting Text is an explicit request to decode the bytes, even for a
+        // binary sample. Keep image rendering in the other renderers unchanged.
+        renderResult(sampleResult);
     }
 
     private void showTextResponse(String response) {

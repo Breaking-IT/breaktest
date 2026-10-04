@@ -31,6 +31,15 @@ import org.junit.jupiter.api.Test;
 
 class StandardCookieHandlerTest {
     @Test
+    void excludesExpiredCookiesButKeepsSessionCookies() throws Exception {
+        CookieManager manager = new CookieManager();
+        manager.add(new Cookie("expired", "old", "example.test", "/", false, 1));
+        manager.add(new Cookie("session", "current", "example.test", "/", false, 0));
+        assertEquals("session=current", new StandardCookieHandler().getCookieHeaderForURL(
+                manager.getCookies(), URI.create("https://example.test/").toURL(), true));
+    }
+
+    @Test
     void shouldAcceptParentDomainCookieWithoutLeadingDot() throws Exception {
         CookieManager cookieManager = new CookieManager();
         StandardCookieHandler handler = new StandardCookieHandler();

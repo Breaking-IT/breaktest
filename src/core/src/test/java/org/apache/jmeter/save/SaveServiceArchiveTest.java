@@ -64,6 +64,31 @@ class SaveServiceArchiveTest extends JMeterTestCase implements JMeterSerialTest 
     Path tempDir;
 
     @Test
+    void stringPropertiesPreserveXmlForbiddenCharacters() throws Exception {
+        ThreadGroup element = new ThreadGroup();
+        element.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.threads.gui.ThreadGroupGui");
+        element.setProperty(TestElement.TEST_CLASS, ThreadGroup.class.getName());
+        String payload = "{\"protocol\":\"json\",\"version\":1}" + (char) 0x1e;
+        String unusual = "nul" + (char) 0 + (char) 0xffff + (char) 0xd800;
+        element.setProperty("payload", payload);
+        element.setProperty("unusual", unusual);
+        element.setProperty("ordinary", "plain <text> & 😀\nnext line");
+        ByteArrayOutputStream xml = new ByteArrayOutputStream();
+        SaveService.saveElement(element, xml);
+        String saved = xml.toString(StandardCharsets.UTF_8);
+        assertTrue(saved.contains("encoding=\"base64-utf16be\""));
+        assertFalse(saved.contains(String.valueOf((char) 0x1e)));
+        ThreadGroup restored = (ThreadGroup) SaveService.loadElement(new ByteArrayInputStream(xml.toByteArray()));
+        assertEquals(payload, restored.getPropertyAsString("payload"));
+        assertEquals(unusual, restored.getPropertyAsString("unusual"));
+        assertEquals(element.getPropertyAsString("ordinary"), restored.getPropertyAsString("ordinary"));
+        Path file = tempDir.resolve("signalr.jmx");
+        SaveService.saveTreeToFile(new ListedHashTree(element), file);
+        ThreadGroup archived = (ThreadGroup) SaveService.loadTree(file.toFile()).getArray()[0];
+        assertEquals(payload, archived.getPropertyAsString("payload"));
+    }
+
+    @Test
     void atomicSavePreservesPermissionsAndNewFilesRespectUmask() throws Exception {
         org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileAttributeView(tempDir,
                 java.nio.file.attribute.PosixFileAttributeView.class) != null);

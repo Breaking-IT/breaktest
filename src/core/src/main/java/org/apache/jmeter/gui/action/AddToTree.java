@@ -70,6 +70,11 @@ public class AddToTree extends AbstractAction {
             TestElement testElement = guiPackage.createTestElement(((JComponent) e.getSource()).getName());
             JMeterTreeNode parentNode = guiPackage.getCurrentNode();
             JMeterTreeNode node = guiPackage.getTreeModel().addComponent(testElement, parentNode);
+            if (testElement instanceof org.apache.jmeter.samplers.ChildControllerSampler eventSampler) {
+                for (var child : eventSampler.createDefaultChildControllers()) {
+                    guiPackage.getTreeModel().addComponent(child, node);
+                }
+            }
             guiPackage.getNamingPolicy().nameOnCreation(node);
             guiPackage.getTreeListener().setSelectionPathWithoutEdit(new TreePath(node.getPath()));
             ActionRouter.getInstance().doActionNow(new ActionEvent(e.getSource(), e.getID(), ActionNames.EDIT));

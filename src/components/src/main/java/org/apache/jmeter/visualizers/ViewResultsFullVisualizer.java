@@ -1768,27 +1768,38 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
     }
 
     public static String getResponseAsString(SampleResult res) {
+        return getResponseAsString(res, false);
+    }
+
+    static String getResponseAsString(SampleResult res, boolean decodeBinary) {
         String response = null;
-        if (isTextDataType(res)) {
-            String responseData = compactKnownTimeoutStackTrace(res, res.getResponseDataAsString());
-            // Showing large strings can be VERY costly, so we will avoid
-            // doing so if the response
-            // data is larger than 200K. TODO: instead, we could delay doing
-            // the result.setText
-            // call until the user chooses the "Response data" tab. Plus we
-            // could warn the user
-            // if this happens and revert the choice if they doesn't confirm
-            // they are ready to wait.
+        if (decodeBinary || isTextDataType(res)) {
+            byte[] bytes = res.getResponseData();
+            String decoded;
+            boolean bytesTruncated = decodeBinary && MAX_DISPLAY_SIZE > 0 && bytes.length > MAX_DISPLAY_SIZE;
+            if (bytesTruncated) {
+                java.nio.charset.Charset charset;
+                try {
+                    charset = java.nio.charset.Charset.forName(res.getDataEncodingWithDefault());
+                } catch (IllegalArgumentException invalidEncoding) {
+                    charset = java.nio.charset.StandardCharsets.UTF_8;
+                }
+                decoded = new String(bytes, 0, MAX_DISPLAY_SIZE, charset);
+            } else {
+                decoded = res.getResponseDataAsString();
+            }
+            String responseData = compactKnownTimeoutStackTrace(res, decoded);
+            // Bound text inserted into the response editor to keep the GUI responsive.
             int len = responseData.length();
-            if (MAX_DISPLAY_SIZE > 0 && len > MAX_DISPLAY_SIZE) {
+            if (bytesTruncated || MAX_DISPLAY_SIZE > 0 && len > MAX_DISPLAY_SIZE) {
                 response = """
                         %s%d > Max: %d, %s
                         %s
                         ...""".formatted(
                             JMeterUtils.getResString("view_results_response_too_large_message"), //$NON-NLS-1$
-                            len, MAX_DISPLAY_SIZE,
+                            bytesTruncated ? bytes.length : len, MAX_DISPLAY_SIZE,
                             JMeterUtils.getResString("view_results_response_partial_message"), // $NON-NLS-1$
-                            responseData.substring(0, MAX_DISPLAY_SIZE));
+                            responseData.substring(0, Math.min(len, MAX_DISPLAY_SIZE)));
             } else {
                 response = responseData;
             }

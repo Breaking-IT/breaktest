@@ -18,6 +18,7 @@
 package org.apache.jmeter.testbeans.gui;
 
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -29,11 +30,13 @@ import java.beans.PropertyEditor;
 import java.beans.PropertyEditorManager;
 import java.io.Serializable;
 import java.text.MessageFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.ResourceBundle;
 
 import javax.swing.BorderFactory;
@@ -174,6 +177,14 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
     }
 
     public static final String DEFAULT_GROUP = "";
+
+    /** Name of a property whose value controls whether this editor is enabled. */
+    public static final String ENABLED_WHEN_PROPERTY = "enabledWhenProperty";
+
+    /** Required value of the controlling property. Disabled editors retain their values. */
+    public static final String ENABLED_WHEN_VALUE = "enabledWhenValue";
+
+    private final List<Runnable> enabledStateUpdates = new ArrayList<>();
 
     /**
      * BeanInfo object for the class of the objects being edited.
@@ -682,6 +693,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
                 setEditorValue(i, descriptors[i].getValue(DEFAULT));
             }
         }
+        enabledStateUpdates.forEach(Runnable::run);
     }
 
     /**
@@ -739,6 +751,7 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
 
             JLabel label = createLabel(descriptors[i]);
             label.setLabelFor(customEditor);
+            configureEnabledState(descriptors[i], customEditor, label);
 
             cl.gridy = y;
             cl.gridwidth = multiLineEditor ? 2 : 1;
@@ -764,6 +777,36 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         // space that nobody wants:
         cp.weighty = 0.0001;
         add(Box.createHorizontalStrut(0), cp);
+    }
+
+    private void configureEnabledState(PropertyDescriptor descriptor, Component editor, JLabel label) {
+        Object controllerName = descriptor.getValue(ENABLED_WHEN_PROPERTY);
+        if (controllerName == null) {
+            return;
+        }
+        for (int i = 0; i < descriptors.length; i++) {
+            if (controllerName.equals(descriptors[i].getName()) && editors[i] != null) {
+                PropertyEditor controller = editors[i];
+                Runnable update = () -> {
+                    boolean enabled = Objects.equals(descriptor.getValue(ENABLED_WHEN_VALUE), controller.getValue());
+                    label.setEnabled(enabled);
+                    setEditorEnabled(editor, enabled);
+                };
+                controller.addPropertyChangeListener(event -> update.run());
+                enabledStateUpdates.add(update);
+                update.run();
+                return;
+            }
+        }
+    }
+
+    private static void setEditorEnabled(Component component, boolean enabled) {
+        component.setEnabled(enabled);
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                setEditorEnabled(child, enabled);
+            }
+        }
     }
 
     private boolean isMultiLineEditor(int index, Component customEditor) {

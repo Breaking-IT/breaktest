@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.save.converters;
 
+import java.util.Base64;
+
 import org.apache.jmeter.testelement.property.StringProperty;
 
 import com.thoughtworks.xstream.converters.Converter;
@@ -50,7 +52,21 @@ public class StringPropertyConverter implements Converter {
         writer.addAttribute(ConversionHelp.ATT_NAME, ConversionHelp.encode(prop.getName()));
         String encoded = ConversionHelp.encode(prop.getStringValue());
         if (encoded != null && !encoded.isEmpty()) {
-            writer.setValue(encoded);
+            if (encoded.codePoints().anyMatch(c -> !(c == 9 || c == 10 || c == 13
+                    || c >= 0x20 && c <= 0xD7FF || c >= 0xE000 && c <= 0xFFFD
+                    || c >= 0x10000 && c <= 0x10FFFF))) {
+                // XML 1.0 cannot represent these characters, even as numeric entities.
+                // Store UTF-16 code units verbatim to preserve every Java String value.
+                writer.addAttribute("encoding", "base64-utf16be");
+                byte[] bytes = new byte[encoded.length() * 2];
+                for (int i = 0; i < encoded.length(); i++) {
+                    bytes[2 * i] = (byte) (encoded.charAt(i) >>> 8);
+                    bytes[2 * i + 1] = (byte) encoded.charAt(i);
+                }
+                writer.setValue(Base64.getEncoder().encodeToString(bytes));
+            } else {
+                writer.setValue(encoded);
+            }
         }
     }
 
@@ -61,7 +77,20 @@ public class StringPropertyConverter implements Converter {
         if (name == null) {
             return null;
         }
-        final String value = ConversionHelp.getPropertyValue(reader, context, name);
+        final String value;
+        if ("base64-utf16be".equals(reader.getAttribute("encoding"))) {
+            byte[] bytes = Base64.getDecoder().decode(reader.getValue());
+            if (bytes.length % 2 != 0) {
+                throw new IllegalArgumentException("Invalid UTF-16 string property length");
+            }
+            char[] chars = new char[bytes.length / 2];
+            for (int i = 0; i < chars.length; i++) {
+                chars[i] = (char) ((bytes[2 * i] & 255) << 8 | bytes[2 * i + 1] & 255);
+            }
+            value = ConversionHelp.getUpgradePropertyValue(name, ConversionHelp.decode(new String(chars)), context);
+        } else {
+            value = ConversionHelp.getPropertyValue(reader, context, name);
+        }
         StringProperty prop = new StringProperty(name, value);
         return prop;
     }

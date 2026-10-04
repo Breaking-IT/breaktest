@@ -31,6 +31,7 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509ExtendedKeyManager;
@@ -229,7 +230,35 @@ public class JsseSSLManager extends SSLManager {
         return createContext(trustStore, false);
     }
 
+    /**
+     * Resolves the client identity on the user thread. The immutable key lets
+     * asynchronous transports share clients only for the same stores and alias.
+     *
+     * @return the selected TLS configuration
+     */
+    public AsyncClientIdentity getAsyncClientIdentity() {
+        JmeterKeyStore keys = getKeyStore();
+        String alias = keys.getAliasCount() > 0 ? keys.getAlias() : null;
+        if (alias != null) {
+            keys.getPrivateKey(alias);
+            keys.getCertificateChain(alias);
+        }
+        return new AsyncClientIdentity(this, keys, getTrustStore(), alias);
+    }
+
+    /** Store instances and manager identity isolate configuration generations. */
+    public record AsyncClientIdentity(JsseSSLManager manager, JmeterKeyStore keys, KeyStore trustStore, String alias) {
+        public SSLContext createContext() throws GeneralSecurityException {
+            return manager.createContext(trustStore, true, true, keys, alias);
+        }
+    }
+
     private SSLContext createContext(KeyStore trustStore, boolean lenientTrust) throws GeneralSecurityException {
+        return createContext(trustStore, lenientTrust, false, getKeyStore(), null);
+    }
+
+    private SSLContext createContext(KeyStore trustStore, boolean lenientTrust, boolean bindClientIdentity,
+            JmeterKeyStore keys, String clientAlias) throws GeneralSecurityException {
         SSLContext context;
         if (pro != null) {
             context = SSLContext.getInstance(DEFAULT_SSL_PROTOCOL, pro); // $NON-NLS-1$
@@ -238,7 +267,11 @@ public class JsseSSLManager extends SSLManager {
         }
         KeyManagerFactory managerFactory =
             KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        JmeterKeyStore keys = this.getKeyStore();
+        if (clientAlias != null) {
+            // Fail on the owner thread for an invalid configured alias.
+            keys.getPrivateKey(clientAlias);
+            keys.getCertificateChain(clientAlias);
+        }
         managerFactory.init(null, defaultpw == null ? new char[]{} : defaultpw.toCharArray());
         KeyManager[] managers = managerFactory.getKeyManagers();
         KeyManager[] newManagers = new KeyManager[managers.length];
@@ -250,7 +283,21 @@ public class JsseSSLManager extends SSLManager {
         // Now wrap the default managers with our key manager
         for (int i = 0; i < managers.length; i++) {
             if (managers[i] instanceof X509KeyManager manager) {
-                newManagers[i] = new WrappedX509KeyManager(manager, keys);
+                if (bindClientIdentity) {
+                    newManagers[i] = new WrappedX509KeyManager(manager, keys) {
+                        @Override
+                        public String chooseClientAlias(String[] keyTypes, Principal[] issuers, Socket socket) {
+                            return clientAlias;
+                        }
+
+                        @Override
+                        public String chooseEngineClientAlias(String[] keyTypes, Principal[] issuers, SSLEngine engine) {
+                            return clientAlias;
+                        }
+                    };
+                } else {
+                    newManagers[i] = new WrappedX509KeyManager(manager, keys);
+                }
             } else {
                 newManagers[i] = managers[i];
             }
@@ -267,8 +314,8 @@ public class JsseSSLManager extends SSLManager {
         if (lenientTrust) {
             for (int i = 0; i < trustmanagers.length; i++) {
                 if (trustmanagers[i] instanceof X509TrustManager) {
-                    trustmanagers[i] = new CustomX509TrustManager(
-                        (X509TrustManager)trustmanagers[i]);
+                    CustomX509TrustManager trust = new CustomX509TrustManager((X509TrustManager) trustmanagers[i]);
+                    trustmanagers[i] = bindClientIdentity ? new AsyncClientTrustManager(trust) : trust;
                 }
             }
         }

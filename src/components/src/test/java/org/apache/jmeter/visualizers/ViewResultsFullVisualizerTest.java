@@ -1083,6 +1083,51 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         });
     }
 
+    @Test
+    public void largeBinaryTextReportsOriginalByteSizeAndOneTruncationNotice() {
+        int limit = JMeterUtils.getPropDefault("view.results.tree.max_size", 10485760);
+        byte[] bytes = new byte[limit * 2];
+        java.util.Arrays.fill(bytes, (byte) 'a');
+        SampleResult sample = new SampleResult();
+        sample.setDataType(SampleResult.BINARY);
+        sample.setResponseData(bytes);
+        String response = ViewResultsFullVisualizer.getResponseAsString(sample, true);
+        assertTrue(response.contains(bytes.length + " > Max: " + limit));
+        String notice = JMeterUtils.getResString("view_results_response_partial_message");
+        assertEquals(response.indexOf(notice), response.lastIndexOf(notice));
+        assertTrue(response.contains(notice));
+        assertTrue(response.endsWith("..."));
+        assertTrue(response.length() < limit + 1024);
+    }
+
+    @Test
+    public void textViewShowsBinaryResponseThroughActualTreeSelection() throws Exception {
+        JMeterContextService.setValidationRun(false);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                SampleResult response = new SampleResult();
+                response.setDataType(SampleResult.BINARY);
+                response.setResponseData(new byte[] {0x7b, 0x7d, 0x1e});
+                visualizer.add(response);
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                tree.setSelectionPath(new TreePath(((DefaultMutableTreeNode) root.getChildAt(0)).getPath()));
+                JTabbedPane details = (JTabbedPane) visualizerField(visualizer, "rightSide");
+                details.setSelectedIndex(details.indexOfTab(JMeterUtils.getResString("view_results_tab_response")));
+                SamplerResultTab renderer = (SamplerResultTab) visualizerField(visualizer, "resultsRender");
+                assertTrue(renderer instanceof RenderAsText);
+                assertFalse(renderer.isRenderedResponseViewVisible());
+                assertTrue(renderer.responseDataText().contains("{}" + (char) 0x1e));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
     @ParameterizedTest
     @CsvSource({"false,false,false", "false,false,true", "false,true,false", "false,true,true",
             "true,false,false", "true,false,true", "true,true,false", "true,true,true"})

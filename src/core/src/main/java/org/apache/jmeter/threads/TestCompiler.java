@@ -201,6 +201,15 @@ public class TestCompiler implements HashTreeTraverser {
         stack.removeLast();
         if (!stack.isEmpty()) {
             TestElement parent = stack.getLast();
+            if (child instanceof org.apache.jmeter.samplers.ChildControllerSampler.Handler
+                    && !(parent instanceof org.apache.jmeter.samplers.ChildControllerSampler)) {
+                throw new IllegalArgumentException("Event match controller must be placed below its connection sampler: "
+                        + child.getName());
+            }
+            if (parent instanceof org.apache.jmeter.samplers.ChildControllerSampler eventSampler
+                    && child instanceof Controller controller) {
+                eventSampler.addChildController(controller);
+            }
             boolean duplicate = false;
             // Bug 53750: this condition used to be in ObjectPair#addTestElements()
             if (parent instanceof Controller && (child instanceof Sampler || child instanceof Controller)) {
@@ -263,12 +272,19 @@ public class TestCompiler implements HashTreeTraverser {
             List<PreProcessor>  tempPre = new ArrayList<>();
             List<PostProcessor> tempPost = new ArrayList<>();
             List<Assertion> tempAssertions = new ArrayList<>();
+            // Samplers nested in an event sampler's handlers inherit its configuration and
+            // listeners, but its timers, processors and assertions belong to that sampler only.
+            boolean ancestorSampler = i < stack.size()
+                    && stack.get(i - 1) instanceof org.apache.jmeter.samplers.ChildControllerSampler;
             for (Object item : testTree.list(stack.subList(0, i))) {
                 if (item instanceof ConfigTestElement configElement) {
                     configs.add(configElement);
                 }
                 if (item instanceof SampleListener listener) {
                     listeners.add(listener);
+                }
+                if (ancestorSampler) {
+                    continue;
                 }
                 if (item instanceof Timer timer) {
                     timers.add(timer);
