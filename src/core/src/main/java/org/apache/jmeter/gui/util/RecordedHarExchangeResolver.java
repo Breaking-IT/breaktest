@@ -42,6 +42,7 @@ import javax.swing.tree.TreeNode;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.recording.RecordedExchangeStore;
+import org.apache.jmeter.recording.RecordedSseEvent;
 import org.apache.jmeter.recording.RecordedWebSocketMessage;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
@@ -669,7 +670,7 @@ public final class RecordedHarExchangeResolver {
                 formatRequest(request), formatResponse(response, responseBody), responseBody,
                 request.path("url").asText(), formatRequestHeaders(request), formatResponseHeaders(response), // $NON-NLS-1$
                 response.path("status").asText(), response.path("statusText").asText(),
-                RecordedWebSocketMessage.fromExchange(entry)); // $NON-NLS-1$
+                RecordedWebSocketMessage.fromExchange(entry), RecordedSseEvent.fromExchange(entry)); // $NON-NLS-1$
     }
 
     private static String formatRequest(JsonNode request) {
@@ -943,10 +944,11 @@ public final class RecordedHarExchangeResolver {
         private final String responseCode;
         private final String responseMessage;
         private final List<RecordedWebSocketMessage> webSocketMessages;
+        private final List<RecordedSseEvent> serverSentEvents;
 
         RecordedExchange(String request, String response, String responseBody, String requestUrl,
                 String requestHeaders, String responseHeaders, String responseCode, String responseMessage,
-                List<RecordedWebSocketMessage> webSocketMessages) {
+                List<RecordedWebSocketMessage> webSocketMessages, List<RecordedSseEvent> serverSentEvents) {
             this.request = request;
             this.response = response;
             this.responseBody = responseBody;
@@ -956,6 +958,7 @@ public final class RecordedHarExchangeResolver {
             this.responseCode = responseCode;
             this.responseMessage = responseMessage;
             this.webSocketMessages = List.copyOf(webSocketMessages);
+            this.serverSentEvents = List.copyOf(serverSentEvents);
         }
 
         /** Search the handshake and recorded message payloads by direction. */
@@ -966,6 +969,13 @@ public final class RecordedHarExchangeResolver {
             }
             if (response) {
                 tokens.add(response());
+            }
+            if (response) {
+                for (RecordedSseEvent event : serverSentEvents) {
+                    tokens.add(event.data());
+                    tokens.add(event.eventName());
+                    tokens.add(event.eventId());
+                }
             }
             for (RecordedWebSocketMessage message : webSocketMessages) {
                 if (request && "send".equals(message.direction())
@@ -978,6 +988,8 @@ public final class RecordedHarExchangeResolver {
             }
             return tokens;
         }
+
+        public List<RecordedSseEvent> serverSentEvents() { return serverSentEvents; }
 
         public List<RecordedWebSocketMessage> webSocketMessages() {
             return webSocketMessages;

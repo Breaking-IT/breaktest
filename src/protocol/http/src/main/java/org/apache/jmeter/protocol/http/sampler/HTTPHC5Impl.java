@@ -188,6 +188,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private static final String JMETER_VARIABLE_USER_TOKEN = "__jmeter.U_T__"; //$NON-NLS-1$
 
+    static final String CONTEXT_ATTRIBUTE_SSE = "__jmeter.SSE__";
     static final String CONTEXT_ATTRIBUTE_SAMPLER_RESULT = "__jmeter.S_R__"; //$NON-NLS-1$
 
     // Holds data used by HTTP request if embedded resource download is enabled
@@ -701,7 +702,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     /**
      * Each thread owns its client pool map. Inheriting a mutable map lets one user's
      * teardown close another user's in-flight requests. Embedded downloads share
-     * their parent client explicitly through samplerContext.
+     * their parent client explicitly through samplerContext. SSE readers explicitly
+     * borrow their owner's map; cache creation and teardown synchronize on that map.
      */
     private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = new ThreadLocal<>() {
@@ -710,6 +712,14 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             return new HashMap<>(5);
         }
     };
+
+    /** Transfers this flow's HTTP/1.1 pool to its SSE reader, without transferring ownership. */
+    public static Runnable borrowClientCacheForSse() {
+        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        org.apache.jmeter.protocol.sse.SseSessions.current().registerTransportCleanup(
+                clients, () -> closeConnections(clients));
+        return () -> HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.set(clients);
+    }
 
     private static final class HttpClientState {
         private final CloseableHttpClient client;
@@ -806,6 +816,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         HttpUriRequestBase httpRequest = null;
         HttpContext localContext = new BasicHttpContext();
         HttpClientContext clientContext = HttpClientContext.adapt(localContext);
+        clientContext.setAttribute(CONTEXT_ATTRIBUTE_SSE, testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled());
         clientContext.setAttribute(CONTEXT_ATTRIBUTE_AUTH_MANAGER, getAuthManager());
         HttpClientKey key = createHttpClientKey(url);
         HttpClientState clientState;
@@ -878,6 +889,32 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             boolean successful = isSuccessCode(statusCode);
             recordNetworkEndpointsIfNeeded(localContext, successful);
 
+            // If we redirected automatically, the URL may have changed
+            if (getAutoRedirects()) {
+                HttpRequest req = (HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST);
+                URI redirectURI;
+                try {
+                    redirectURI = req.getUri();
+                } catch (URISyntaxException e) {
+                    throw new IllegalArgumentException("Invalid redirect URI", e);
+                }
+                if (redirectURI.isAbsolute()) {
+                    res.setURL(redirectURI.toURL());
+                } else {
+                    RouteInfo route = clientContext.getHttpRoute();
+                    if (route != null) {
+                        HttpHost target = route.getTargetHost();
+                        res.setURL(ConversionUtils.toUrl(ConversionUtils.toUrl(target.toURI()), redirectURI.toString()));
+                    } else {
+                        res.setURL(ConversionUtils.toUrl(res.getURL(), redirectURI.toString()));
+                    }
+                }
+            }
+
+            if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+                captureResponseHeaders(res, httpResponse, deferDiagnosticHeaders());
+                saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
+            }
             HttpEntity entity = httpResponse.getEntity();
             long bodyBytes = 0;
             if (entity == null) {
@@ -923,30 +960,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                         res.getHeadersSize(), res.getBodySizeAsLong(), total);
             }
 
-            // If we redirected automatically, the URL may have changed
-            if (getAutoRedirects()) {
-                HttpRequest req = (HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST);
-                URI redirectURI;
-                try {
-                    redirectURI = req.getUri();
-                } catch (URISyntaxException e) {
-                    throw new IllegalArgumentException("Invalid redirect URI", e);
-                }
-                if (redirectURI.isAbsolute()) {
-                    res.setURL(redirectURI.toURL());
-                } else {
-                    RouteInfo route = clientContext.getHttpRoute();
-                    if (route != null) {
-                        HttpHost target = route.getTargetHost();
-                        res.setURL(ConversionUtils.toUrl(ConversionUtils.toUrl(target.toURI()), redirectURI.toString()));
-                    } else {
-                        res.setURL(ConversionUtils.toUrl(res.getURL(), redirectURI.toString()));
-                    }
-                }
+            // SSE stores cookies at opening time; do not replay stale Set-Cookie values at EOF.
+            if (!(testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled())) {
+                saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
             }
-
-            // Store any cookies received in the cookie manager:
-            saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
 
             // Save cache information
             if (cacheManager != null){
@@ -1324,6 +1341,14 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             HttpClientContext clientContext) throws GeneralSecurityException {
         Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey =
                 HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        synchronized (mapHttpClientPerHttpClientKey) {
+            return setupClient(key, jMeterVariables, clientContext, mapHttpClientPerHttpClientKey);
+        }
+    }
+
+    private HttpClientState setupClient(HttpClientKey key, JMeterVariables jMeterVariables,
+            HttpClientContext clientContext, Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey)
+            throws GeneralSecurityException {
         clientContext.setAttribute(CONTEXT_ATTRIBUTE_CLIENT_KEY, key);
         CloseableHttpClient httpClient = null;
         HttpClientState clientState = null;
@@ -1396,6 +1421,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                     setDefaultCookieSpecRegistry(cookieSpecRegistry).
                     setRedirectStrategy(new LaxRedirectStrategy()).
                     setRetryStrategy(new DefaultHttpRequestRetryStrategy(RETRY_COUNT, TimeValue.ZERO_MILLISECONDS) {
+                        @Override
+                        public boolean retryRequest(HttpRequest request, IOException failure, int count, HttpContext context) {
+                            return !Boolean.TRUE.equals(context.getAttribute(CONTEXT_ATTRIBUTE_SSE))
+                                    && super.retryRequest(request, failure, count, context);
+                        }
+                        @Override
+                        public boolean retryRequest(HttpResponse response, int count, HttpContext context) {
+                            return !Boolean.TRUE.equals(context.getAttribute(CONTEXT_ATTRIBUTE_SSE))
+                                    && super.retryRequest(response, count, context);
+                        }
                         @Override
                         protected boolean handleAsIdempotent(HttpRequest request) {
                             return REQUEST_SENT_RETRY_ENABLED || super.handleAsIdempotent(request);
@@ -1561,6 +1596,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             rCB.setConnectTimeout(Timeout.ofMilliseconds(cto));
         }
 
+        if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+            // Cancelling an SSE request must reset its stream without closing a shared H2 connection.
+            rCB.setHardCancellationEnabled(false);
+        }
         rCB.setRedirectsEnabled(getAutoRedirects());
         rCB.setMaxRedirects(HTTPSamplerBase.MAX_REDIRECTS);
         AuthManager manager = getAuthManager();
@@ -1580,6 +1619,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
 
         setConnectionHeaders(httpRequest, url, getHeaderManager(), getCacheManager());
+        if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+            if (!httpRequest.containsHeader("Accept")) {
+                httpRequest.setHeader("Accept", "text/event-stream");
+            }
+            httpRequest.setHeader("Cache-Control", "no-cache");
+        }
 
         String cookies = setConnectionCookie(httpRequest, url, getCookieManager());
 
@@ -2166,16 +2211,23 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         closeThreadLocalConnections();
     }
 
+    @Override
+    protected void streamFinished() {
+        // SSE borrowed the owner's pool. Only user/thread cleanup may close it.
+        HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.remove();
+    }
+
     private static void closeThreadLocalConnections() {
-        // Does not need to be synchronised, as all access is from same thread
-        Map<HttpClientKey, HttpClientState>
-            mapHttpClientPerHttpClientKey = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
-        if (mapHttpClientPerHttpClientKey != null ) {
-            for (HttpClientState clientState : mapHttpClientPerHttpClientKey.values() ) {
+        closeConnections(HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get());
+    }
+
+    private static void closeConnections(Map<HttpClientKey, HttpClientState> clients) {
+        synchronized (clients) {
+            for (HttpClientState clientState : clients.values()) {
                 JOrphanUtils.closeQuietly(clientState.getClient());
                 JOrphanUtils.closeQuietly(clientState.getConnectionManager());
             }
-            mapHttpClientPerHttpClientKey.clear();
+            clients.clear();
         }
     }
 

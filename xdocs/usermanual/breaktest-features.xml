@@ -61,6 +61,64 @@ preserved unless a closer configuration overrides that name.
   <li>Brotli and Zstandard response decoding were added alongside gzip and deflate.</li>
 </ul>
 
+<h2>Server-Sent Events (SSE)</h2>
+<p>
+Add an <code>SSE Request</code> sampler. It provides the same URL, parameters, headers, body, files, and advanced
+settings as HTTP Request, with an <code>SSE</code> tab for session settings and a <code>Recorded Events</code> tab.
+The request returns after HTTP 200 event-stream headers arrive; events continue arriving in the background.
+The regular HTTP/1.1 or HTTP/2 transport retains HTTP headers, cookies, authentication, proxy and TLS settings.
+HTTP/3 is not supported for SSE. Set a unique session name for each concurrent stream.
+SSE Request reuses compatible existing HTTP connections: an idle connection for HTTP/1.1,
+or a shared connection with concurrent streams for HTTP/2. An occupied HTTP/1.1 connection requires another connection.
+In the SSE tab, <b>When session already exists</b> controls repeated execution, including later iterations:
+<b>Close and reconnect</b> (default) replaces only that named stream;
+<b>Reuse if connected</b> keeps the live stream's original URL, settings and Message Match actions, or reconnects if it ended;
+<b>Fail if exists</b> fails when the name is still registered, without disturbing its stream. Use SSE Close to remove it.
+</p>
+<p>
+Add an <code>SSE Message Match</code> child through SSE Request's Add menu and place actions beneath it.
+Match the event data using exact text or a regular expression, optionally restricted to an event name.
+The matching data can be saved in a variable; the previous result contains the data, with the event name
+in the response message and event name/ID in the response headers. Child actions run asynchronously
+in the virtual user's context, with their normal assertions, extractors and listeners.
+Each handler has a bounded queue of 64 messages or 4 MiB, allowing one larger event within the configured event limit;
+overflow reports a failed sample and stops that handler. Each handler receives its own event result.
+<b>Count incoming messages as samples</b> in the SSE tab defaults to enabled. Disable it to exclude incoming events
+from sample counts and results. Message Match actions still execute and report their own samples;
+stream failures remain visible. <b>Incoming sample naming</b> offers <b>Prefix + event name</b>
+(for example, prefix <code>Notifications / </code> produces <code>Notifications / ready</code>)
+or <b>Fixed name</b> to group every event under one sample name. A blank prefix preserves
+<code>request name / event name</code>; a blank fixed name uses the request name. Unnamed events use
+<code>message</code>. The inline example updates while editing. Naming only changes reported incoming
+samples; Message Match still receives the original event name and data.
+</p>
+<p>
+The parser handles UTF-8, multiline data, named events, persistent IDs, comments and CR/LF line endings.
+Maximum event size is configurable in characters (default 1,048,576 characters); incomplete events at EOF are discarded.
+New SSE requests include <code>Accept: text/event-stream</code> in their editable Headers list.
+The server must respond with <code>Content-Type: text/event-stream</code> and SSE-formatted data.
+Response timeout defaults to <code>0</code> (no read timeout) for new and imported SSE requests,
+so quiet streams remain open. Configure a finite read timeout in Advanced when inactivity should fail the request.
+Existing requests retain their configured timeout.
+The sampler makes one connection attempt: it does not automatically reconnect or act on <code>retry</code> fields.
+Use another SSE Request execution to reconnect. Streams close automatically when the virtual user ends;
+use <code>SSE Close</code> with the session name to stop receiving earlier. It cancels only that request/stream;
+HTTP/2 connections remain available for other requests and streams. Receiving stops immediately;
+the HTTP/2 transport sends the stream reset when the peer next sends data. Closing an already closed session is harmless.
+</p>
+<p>
+A new-user iteration closes the previous user's SSE sessions before resetting variables, regardless of the existing-session choice.
+Select <b>Same user on each iteration</b> and <b>Reuse if connected</b> to keep a stream across iterations.
+An explicit HTTP/2 connection reset also ends streams using that connection.
+</p>
+<p>
+HAR import recognizes <code>EventSource</code>, <code>text/event-stream</code>,
+<code>_breaktest.sse</code> and <code>_serverSentEvents</code>. It creates an SSE Request sampler.
+The recording archive retains event timestamps, names, IDs, multiline data, transaction IDs/names and capture metadata.
+The Recorded Events tab shows the captured events, with payload previews limited to 64 Ki characters. The archive retains the full data. Incoming recordings are reference data; add match handlers for the live behavior
+needed by the test. A recording ending does not imply a client close, so import does not invent an SSE Close step.
+</p>
+
 <h2>WebSocket Sessions</h2>
 <p>
 WebSocket Send has an Action setting: <code>Send only</code> or <code>Send and Wait</code>.
