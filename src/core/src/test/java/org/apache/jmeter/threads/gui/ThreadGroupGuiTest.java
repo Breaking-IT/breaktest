@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -42,6 +43,8 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
+import org.apache.jmeter.scenario.gui.ScenarioWorkloadGui;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ThreadGroupSchema;
@@ -160,6 +163,22 @@ class ThreadGroupGuiTest {
 
         assertEquals("recording.har", threadGroup.getPropertyAsString("BreakTest.har.filename"));
         assertEquals("3d8eeea2288e42557c6c4ced7920243b", threadGroup.getPropertyAsString("BreakTest.har.md5"));
+    }
+
+    @Test
+    void savingDefaultWorkloadsDoesNotAddSchedulerProperty() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            for (ThreadGroupGui gui : List.of(new ThreadGroupGui(), new SetupThreadGroupGui(),
+                    new PostThreadGroupGui(), new ScenarioWorkloadGui())) {
+                TestElement element = gui.createTestElement();
+                TestElement original = (TestElement) element.clone();
+                gui.configure(element);
+                gui.modifyTestElement(element);
+
+                assertNull(element.getPropertyOrNull(ThreadGroupSchema.INSTANCE.getUseScheduler()));
+                assertEquals(original, element, gui.getClass().getSimpleName());
+            }
+        });
     }
 
     @Test
