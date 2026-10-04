@@ -49,6 +49,11 @@ class WebSocketHandshakeCookiesTest {
                 bridge.put(HTTP, response("alice-key", "user=alice"));
                 assertEquals(List.of("user=alice"), alice.cookies());
                 assertEquals(List.of("user=bob"), bob.cookies());
+                assertTrue(alice.requestHeaders().contains("alice-key"));
+                assertTrue(bob.requestHeaders().contains("bob-key"));
+                assertTrue(alice.responseHeaders().contains("user=alice"));
+                assertTrue(bob.responseHeaders().contains("user=bob"));
+                assertTrue(!alice.responseHeaders().contains("user=bob"));
             }
         }
         try (var next = bridge.begin(WS)) {

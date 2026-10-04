@@ -63,7 +63,31 @@ preserved unless a closer configuration overrides that name.
 
 <h2>WebSocket Sessions</h2>
 <p>
-Add <code>WebSocket Connect</code>, <code>WebSocket Send</code>, <code>WebSocket Send and Wait</code>, and
+WebSocket Send has an Action setting: <code>Send only</code> or <code>Send and Wait</code>.
+Send only disables and ignores all waiting options. Send and Wait enables the timeout and
+response-selection settings; only the matching fields relevant to the selected wait mode are enabled.
+</p>
+
+<p>
+The HAR importer recognizes WebSocket connections and creates WebSocket Connect samplers.
+Imported connections are named websocket-1, websocket-2, and so on in chronological order, counting only selected WebSocket connections.
+When recording data is retained, their <code>Recorded messages</code> tab lists captured messages in recording order,
+with milliseconds relative to the connection's <code>startedDateTime</code>, sent/received direction, and message type. Times display three decimal places.
+Message payloads are stored as base64 in the recording archive. The viewer automatically displays text frames as
+UTF-8 and binary frames as hexadecimal bytes; select Text or Binary hex to override the display for inspection.
+The importer also inserts outgoing text and binary messages as WebSocket Send samplers in chronological order,
+including sends in later transactions. They use Send only and the recorded offset from connection start.
+A send waits only for the remaining time until that offset; if preceding work runs late, it sends immediately.
+Observed client-initiated disconnects produce a WebSocket Close sampler at the recorded close initiation time
+(or the observed close time when initiation time is unavailable), including in later transactions.
+Server-initiated or unattributed disconnects and stopping a recording do not create a client Close step.
+Recorded close timing uses the same connection-relative pacing as sends. Handshake response headers and
+close attribution remain available in the recording archive.
+Received messages remain reference data. Protocol control frames are handled by the WebSocket transport.
+</p>
+
+<p>
+Add <code>WebSocket Connect</code>, <code>WebSocket Send</code>, and
 <code>WebSocket Close</code> from the Samplers menu. Connect takes a
 <code>ws://</code> or <code>wss://</code> URL and a required session name.
 Send and Close select that name. Each virtual user owns its sessions, so multiple
@@ -72,7 +96,11 @@ Close a session before reusing its name. Sessions persist across iterations and
 are aborted when the user thread ends.
 </p>
 <ul>
-  <li>Connect owns the session policy, fixed for the lifetime of that connection.</li>
+  <li>Connect owns the session policy, fixed for the lifetime of that connection.
+  View Results Tree displays its HTTP upgrade as a GET request, with the HTTP/HTTPS URL,
+  query parameters, request headers, and response headers. Successful upgrades show
+  101 Switching Protocols; rejected handshakes retain their HTTP status and response data.
+  Reusing an existing connection does not report another handshake.</li>
   <li><b>Count incoming messages as samples</b> defaults to enabled. Each complete
   incoming text or binary message produces a separate successful sample through
   the listeners in scope of Connect, including JTL and aggregate listeners. Disable
@@ -91,8 +119,8 @@ are aborted when the user thread ends.
   those control frames too. Pong replies are automatic regardless of this setting.</li>
   <li><b>Maximum incoming message bytes</b> defaults to 1048576. An oversized message
   aborts the session. Fragmented messages are assembled before filtering and counting.</li>
-  <li>Send transmits UTF-8 text, or hexadecimal bytes when <b>Send binary message</b>
-  is enabled. Hex input accepts spaces, tabs and line breaks, including pasted hex rows.
+  <li>Send transmits UTF-8 text, or hexadecimal bytes when <b>Content type</b>
+  is set to <b>Binary (hex)</b>. Hex input accepts spaces, tabs and line breaks, including pasted hex rows.
   Its elapsed time measures sending, not request/response latency.</li>
   <li>Connect, Send and Close have positive millisecond timeouts (default 10000).
   Failed handshakes and timed-out sends or closes release their connections.</li>
@@ -208,6 +236,10 @@ configured Cookie header, following the HTTP sampler's behavior.
 The JDK controls Host, Connection, Upgrade, Content-Length, Expect, and
 Sec-WebSocket-* handshake headers; attempts to set those in Connect's own header table fail Connect. Transport-owned
 headers inherited from HTTP Header Managers are ignored.
+The <code>Sec-WebSocket-Protocol</code> header is imported and negotiated as a comma-separated
+list of subprotocols. Handshake keys are regenerated for each connection; compression
+extensions are not imported because the transport does not support them.
+Request views preserve the original <code>ws://</code> or <code>wss://</code> URL.
 Secure WebSockets reuse the HTTP SSL Manager's certificate stores and permissive
 server-certificate policy, including self-signed certificates and hostname mismatches.
 Client certificate aliases are resolved on the user thread at Connect, including aliases

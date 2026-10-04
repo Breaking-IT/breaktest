@@ -88,6 +88,156 @@ public class HarConverterTest {
         tree = converter.convert(Set.of("api.example.com", "cdn.example.com"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "2021-01-01T00:00:00Z", "2021-01-01T00:00:00", "2021-01-01T01:00:00+0100", "invalid"})
+    void importsOnlyObservedClientDisconnectsAtTheirInitiationTime(String startedDateTime) throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (String initiator : List.of("client", "server", "unknown")) {
+            for (boolean closed : List.of(true, false)) {
+                for (boolean initiatedTime : List.of(true, false)) {
+                    var root = json.createObjectNode();
+                    var entries = root.putObject("log").putArray("entries");
+                    var connection = entries.addObject();
+                    connection.put("startedDateTime", startedDateTime).put("time", 50);
+                    connection.putObject("request").put("method", "GET").put("url", "wss://api.example.com/chat");
+                    connection.putObject("response").put("status", 101);
+                    var lifecycle = connection.putObject("_breaktest").putObject("webSocket");
+                    lifecycle.put("closed", closed).put("closeInitiator", initiator)
+                            .put("closedTime", new java.math.BigDecimal("1609459200.5"));
+                    if (initiatedTime) {
+                        lifecycle.put("closeInitiatedTime", new java.math.BigDecimal("1609459200.400125"));
+                    }
+                    var messages = connection.putArray("_webSocketMessages");
+                    messages.addObject().put("type", "send").put("time", 1609459200.1)
+                            .put("opcode", 1).put("data", "hello");
+                    // Close frames (including a client's acknowledgment of a server close) aren't replayed twice.
+                    for (String direction : List.of("send", "receive")) {
+                        messages.addObject().put("type", direction).put("time", 1609459200.5)
+                                .put("opcode", 8).put("data", "");
+                    }
+                    var http = entries.addObject();
+                    http.put("startedDateTime", "2021-01-01T00:00:00.300Z").put("time", 20);
+                    http.putObject("request").put("method", "GET").put("url", "https://api.example.com/next");
+                    http.putObject("response").put("status", 200);
+                    http.putObject("_breaktest").put("transactionId", "next").put("transactionName", "Next");
+                    HashTree converted = new HarConverter(HarParser.parse(json.writeValueAsBytes(root)),
+                            new HarImportOptions(), "ws.har", "").convert(Set.of("api.example.com"));
+                    List<org.apache.jmeter.samplers.Sampler> samplers = new ArrayList<>();
+                    collect(converted, org.apache.jmeter.samplers.Sampler.class, samplers);
+                    boolean expectClose = !"invalid".equals(startedDateTime) && closed && "client".equals(initiator);
+                    assertEquals("invalid".equals(startedDateTime) ? 2 : expectClose ? 4 : 3, samplers.size());
+                    if (expectClose) {
+                        var close = (org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler) samplers.get(3);
+                        assertEquals("websocket-1", close.getSessionName());
+                        assertEquals(initiatedTime ? "400.125" : "500", close.getCloseOffset());
+                        assertNotNull(subtreeOf(subtreeOf(converted, findByName(converted, "Next")), close));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    void equalTimeSendsWaitForTheirConnectionsAndUseDistinctSessions() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var root = json.createObjectNode();
+        var recordings = root.putObject("log").putArray("entries");
+        // Neither ordinary HTTP entries nor excluded WebSockets consume a session number.
+        for (String url : List.of("https://api.example.com/page", "wss://excluded.example.com/chat")) {
+            var other = recordings.addObject();
+            other.put("startedDateTime", "2021-01-01T00:00:00Z").put("time", 1);
+            other.putObject("request").put("method", "GET").put("url", url);
+            other.putObject("response").put("status", 200);
+        }
+        for (String path : List.of("one", "two")) {
+            var connection = recordings.addObject();
+            connection.put("startedDateTime", "2021-01-01T00:00:00Z").put("time", 0);
+            connection.putObject("request").put("method", "GET").put("url", "wss://api.example.com/" + path);
+            connection.putObject("response").put("status", 101);
+            connection.putArray("_webSocketMessages").addObject().put("type", "send")
+                    .put("time", 1609459200).put("opcode", 1).put("data", path);
+        }
+        HashTree converted = new HarConverter(HarParser.parse(json.writeValueAsBytes(root)),
+                new HarImportOptions(), "ws.har", "").convert(Set.of("api.example.com"));
+        List<ParallelController> parallel = new ArrayList<>();
+        collect(converted, ParallelController.class, parallel);
+        assertEquals(2, parallel.size());
+        List<org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler> connects = new ArrayList<>();
+        collect(subtreeOf(converted, parallel.get(0)),
+                org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler.class, connects);
+        assertEquals(2, connects.size());
+        assertEquals("websocket-1", connects.get(0).getSessionName());
+        assertEquals("websocket-2", connects.get(1).getSessionName());
+        List<org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler> sends = new ArrayList<>();
+        collect(subtreeOf(converted, parallel.get(1)),
+                org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler.class, sends);
+        assertEquals(2, sends.size());
+        assertEquals(connects.get(0).getSessionName(), sends.get(0).getSessionName());
+        assertEquals(connects.get(1).getSessionName(), sends.get(1).getSessionName());
+        assertFalse(sends.get(0).getSessionName().equals(sends.get(1).getSessionName()));
+        assertEquals(List.of("one", "two"), sends.stream().map(send -> send.getPayload()).toList());
+    }
+
+    @Test
+    void insertsWebSocketSendsAmongHttpRequestsAndIntoTheirCurrentTransaction() throws Exception {
+        String socket = """
+                {"startedDateTime":"2021-01-01T00:00:00Z","time":50,
+                 "request":{"method":"GET","url":"wss://api.example.com/chat","headers":[
+                   {"name":"Sec-WebSocket-Protocol","value":"v1.push.openbet.com, fallback"},
+                   {"name":"Sec-WebSocket-Key","value":"recorded-key"},
+                   {"name":"Sec-WebSocket-Extensions","value":"permessage-deflate"}]},
+                 "response":{"status":101},
+                 "_breaktest":{"transactionId":"first","transactionName":"First"},
+                 "_webSocketMessages":[
+                   {"type":"send","time":1609459200.15,"opcode":1,"data":"hello"},
+                   {"type":"receive","time":1609459200.20,"opcode":1,"data":"reply"},
+                   {"type":"send","time":1609459200.25,"opcode":9,"data":""},
+                   {"type":"send","time":1609459200.35,"opcode":2,"data":"AP8=","_encoding":"base64"},
+                   {"type":"send","time":1609459200.35,"opcode":1,"data":"last"}]}
+                """;
+        String firstHttp = entry("2021-01-01T00:00:00.100Z", 30, "GET",
+                "https://api.example.com/one", "[]", "[]", null, 200);
+        String secondHttp = entry("2021-01-01T00:00:00.300Z", 30, "GET",
+                "https://api.example.com/two", "[]", "[]", null, 200);
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var second = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(secondHttp);
+        second.putObject("_breaktest").put("transactionId", "second").put("transactionName", "Second");
+        byte[] har = ("{\"log\":{\"entries\":[" + socket + "," + firstHttp + "," + second + "]}}")
+                .getBytes(StandardCharsets.UTF_8);
+        HashTree converted = new HarConverter(HarParser.parse(har), new HarImportOptions(), "ws.har", "")
+                .convert(Set.of("api.example.com"));
+        List<org.apache.jmeter.samplers.Sampler> samplers = new ArrayList<>();
+        collect(converted, org.apache.jmeter.samplers.Sampler.class, samplers);
+        assertEquals(6, samplers.size());
+        var connect = (org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler) samplers.get(0);
+        assertTrue(connect.getHeaders().stream().anyMatch(header ->
+                "Sec-WebSocket-Protocol".equals(header.getName())
+                        && "v1.push.openbet.com, fallback".equals(header.getValue())));
+        assertFalse(connect.getHeaders().stream().anyMatch(header ->
+                "Sec-WebSocket-Key".equals(header.getName()) || "Sec-WebSocket-Extensions".equals(header.getName())));
+        assertEquals("/one", ((HTTPSamplerProxy) samplers.get(1)).getPath());
+        var send = (org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler) samplers.get(2);
+        assertEquals(connect.getSessionName(), send.getSessionName());
+        assertEquals("Send only", send.getAction());
+        assertEquals("150", send.getSendOffset());
+        assertEquals("hello", send.getPayload());
+        assertFalse(send.getBinary());
+        assertEquals("/two", ((HTTPSamplerProxy) samplers.get(3)).getPath());
+        var binary = (org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler) samplers.get(4);
+        assertTrue(binary.getBinary());
+        assertEquals("00ff", binary.getPayload());
+        assertEquals("350", binary.getSendOffset());
+        List<org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler> later = new ArrayList<>();
+        collect(subtreeOf(converted, findByName(converted, "Second")),
+                org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler.class, later);
+        assertEquals(2, later.size());
+        assertEquals("last", later.get(1).getPayload());
+        List<ParallelController> parallel = new ArrayList<>();
+        collect(converted, ParallelController.class, parallel);
+        assertTrue(parallel.isEmpty(), "Equal-time sends on one connection must retain their order");
+    }
+
     @Test
     void encodesAtSignsInImportedFormAndQueryParametersExactlyOnce() throws Exception {
         for (String method : List.of("POST", "GET")) {

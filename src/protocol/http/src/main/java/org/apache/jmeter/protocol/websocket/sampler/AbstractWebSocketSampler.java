@@ -17,11 +17,13 @@
 
 package org.apache.jmeter.protocol.websocket.sampler;
 
+import java.math.BigDecimal;
 import java.net.http.WebSocketHandshakeException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -55,7 +57,7 @@ public abstract class AbstractWebSocketSampler extends AbstractSampler implement
     @Override
     public final SampleResult sample(Entry entry) {
         interrupted = false;
-        SampleResult result = new SampleResult();
+        SampleResult result = createSampleResult();
         result.setSampleLabel(getName());
         result.setDataType(SampleResult.TEXT);
         result.sampleStart();
@@ -80,6 +82,10 @@ public abstract class AbstractWebSocketSampler extends AbstractSampler implement
         return result;
     }
 
+    protected SampleResult createSampleResult() {
+        return new SampleResult();
+    }
+
     private void failure(SampleResult result, Exception error) {
         WebSocketSession session = active;
         if (session != null) {
@@ -95,7 +101,9 @@ public abstract class AbstractWebSocketSampler extends AbstractSampler implement
             var response = handshake.getResponse();
             result.setResponseCode(Integer.toString(response.statusCode()));
             result.setResponseMessage("WebSocket handshake rejected: HTTP " + response.statusCode());
-            StringBuilder headers = new StringBuilder();
+            String protocol = response.version() == java.net.http.HttpClient.Version.HTTP_2 ? "HTTP/2" : "HTTP/1.1";
+            result.setProtocolVersion(protocol);
+            StringBuilder headers = new StringBuilder(protocol).append(' ').append(response.statusCode()).append("\n");
             response.headers().map().forEach((name, values) ->
                     values.forEach(value -> headers.append(name).append(": ").append(value).append("\n")));
             result.setResponseHeaders(headers.toString());
@@ -107,6 +115,29 @@ public abstract class AbstractWebSocketSampler extends AbstractSampler implement
             }
         } else {
             result.setResponseMessage(cause.toString());
+        }
+    }
+
+    protected final void waitForRecordedTime(WebSocketSession session, SampleResult result, String offsetMs) throws Exception {
+        if (offsetMs.isBlank()) {
+            return;
+        }
+        long offset = new BigDecimal(offsetMs).movePointRight(6).longValueExact();
+        if (offset < 0) {
+            throw new IllegalArgumentException("Recorded time must not be negative");
+        }
+        long remaining = offset - (System.nanoTime() - session.startedAtNanos());
+        if (remaining > 0) {
+            // Pacing is idle time, not WebSocket operation latency.
+            result.samplePause();
+            // An uncompleted future is an interruptible delay without an extra scheduler/thread.
+            try {
+                await(new CompletableFuture<Void>(), remaining, TimeUnit.NANOSECONDS);
+            } catch (TimeoutException expected) {
+                // The recorded time has arrived. Operation timeout starts separately.
+            } finally {
+                result.sampleResume();
+            }
         }
     }
 

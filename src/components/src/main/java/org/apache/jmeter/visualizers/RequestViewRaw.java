@@ -154,8 +154,8 @@ public class RequestViewRaw implements RequestView {
 
     private static String buildRequestLine(SampleResult sampleResult, String protocol) {
         String method = invokeStringMethod(sampleResult, "getHTTPMethod"); //$NON-NLS-1$
-        URL url = sampleResult.getURL();
-        if (StringUtilities.isEmpty(method) || url == null) {
+        String url = sampleResult.getUrlAsString();
+        if (StringUtilities.isEmpty(method) || StringUtilities.isEmpty(url)) {
             return ""; //$NON-NLS-1$
         }
         if (StringUtilities.isEmpty(protocol)) {

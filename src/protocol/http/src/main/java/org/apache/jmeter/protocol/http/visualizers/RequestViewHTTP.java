@@ -211,7 +211,8 @@ public class RequestViewHTTP implements RequestView {
         addDetail("view_results_table_request_http_method", sampleResult.getHTTPMethod());
         URL url = sampleResult.getURL();
         if (url != null) {
-            addDetail("view_results_table_request_http_protocol", url.getProtocol());
+            addDetail("view_results_table_request_http_protocol",
+                    sampleResult.getUrlAsString().split(":", 2)[0]);
             addDetail("view_results_table_request_http_host", url.getHost());
             addDetail("view_results_table_request_http_port",
                     Integer.toString(url.getPort() < 0 ? url.getDefaultPort() : url.getPort()));

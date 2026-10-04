@@ -17,17 +17,28 @@
 
 package org.apache.jmeter.protocol.websocket.sampler;
 
-import org.apache.jmeter.testbeans.BeanInfoSupport;
+import java.beans.PropertyEditorSupport;
 
-public class WebSocketCloseSamplerBeanInfo extends BeanInfoSupport {
-    public WebSocketCloseSamplerBeanInfo() {
-        super(WebSocketCloseSampler.class);
-        createPropertyGroup("session", new String[] {"sessionName", "timeout", "closeOffset"});
-        property("closeOffset").setValue(NOT_UNDEFINED, true);
-        property("closeOffset").setValue(DEFAULT, "");
-        property("sessionName").setValue(NOT_UNDEFINED, true);
-        property("sessionName").setValue(DEFAULT, "default");
-        property("timeout").setValue(NOT_UNDEFINED, true);
-        property("timeout").setValue(DEFAULT, 10000);
+/** Displays descriptive content choices while preserving the saved boolean property. */
+public class WebSocketContentEditor extends PropertyEditorSupport {
+    private static final String TEXT = "Text";
+    private static final String HEX = "Binary (hex)";
+
+    @Override
+    public String[] getTags() {
+        return new String[] {TEXT, HEX};
+    }
+
+    @Override
+    public String getAsText() {
+        return Boolean.TRUE.equals(getValue()) ? HEX : TEXT;
+    }
+
+    @Override
+    public void setAsText(String text) {
+        if (!TEXT.equals(text) && !HEX.equals(text)) {
+            throw new IllegalArgumentException("Unknown WebSocket content type: " + text);
+        }
+        setValue(HEX.equals(text));
     }
 }

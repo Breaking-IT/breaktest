@@ -18,11 +18,9 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +35,7 @@ import org.apache.hc.core5.http.message.BasicHeaderValueParser;
 import org.apache.hc.core5.http.message.ParserCursor;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
+import org.apache.jmeter.recording.HarTimestamp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -153,6 +152,10 @@ public final class HarParser {
         entry.setMethod(request.path("method").asText("GET"));
         entry.setUrl(request.path("url").asText(""));
         entry.setProtocol(resolveProtocol(entryNode, request));
+        entry.setWebSocket(entry.getUrl().regionMatches(true, 0, "ws:", 0, 3)
+                || entry.getUrl().regionMatches(true, 0, "wss:", 0, 4)
+                || "websocket".equalsIgnoreCase(entryNode.path("_resourceType").asText())
+                || entryNode.has("_webSocketMessages"));
         if (entryNode.hasNonNull("_fromCache")) {
             entry.setFromCache(entryNode.get("_fromCache").asText());
         }
@@ -162,7 +165,22 @@ public final class HarParser {
 
         String startedDateTime = entryNode.path("startedDateTime").asText("");
         entry.setStartedDateTime(startedDateTime);
+        entry.setWebSocketMessages(org.apache.jmeter.recording.RecordedWebSocketMessage.fromHar(entryNode));
         JsonNode breakTest = entryNode.path("_breaktest");
+        JsonNode lifecycle = breakTest.path("webSocket");
+        if (lifecycle.path("closed").asBoolean(false)
+                && "client".equals(lifecycle.path("closeInitiator").asText())) {
+            JsonNode closeTime = lifecycle.path("closeInitiatedTime").isNumber()
+                    ? lifecycle.path("closeInitiatedTime") : lifecycle.path("closedTime");
+            var parsedStart = HarTimestamp.parse(startedDateTime);
+            if (closeTime.isNumber() && parsedStart.isPresent()) {
+                Instant start = parsedStart.get();
+                BigDecimal startSeconds = BigDecimal.valueOf(start.getEpochSecond())
+                        .add(BigDecimal.valueOf(start.getNano(), 9));
+                entry.setClientCloseOffset(closeTime.decimalValue().subtract(startSeconds).movePointRight(3)
+                        .max(BigDecimal.ZERO).stripTrailingZeros());
+            }
+        }
         entry.setTransactionId(firstText(
                 breakTest.path("transactionId"), entryNode.path("_breaktestTransactionId")));
         entry.setTransactionName(firstText(
@@ -430,23 +448,6 @@ public final class HarParser {
 
     /** Parse a HAR ISO-8601 timestamp to epoch millis, tolerating a missing zone offset. */
     private static double parseStartedMillis(String value) {
-        if (value == null || value.isEmpty()) {
-            return 0;
-        }
-        try {
-            return OffsetDateTime.parse(value).toInstant().toEpochMilli();
-        } catch (Exception ignored) {
-            // fall through
-        }
-        try {
-            return Instant.parse(value).toEpochMilli();
-        } catch (Exception ignored) {
-            // fall through
-        }
-        try {
-            return LocalDateTime.parse(value).toInstant(ZoneOffset.UTC).toEpochMilli();
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return HarTimestamp.parse(value).map(Instant::toEpochMilli).orElse(0L);
     }
 }

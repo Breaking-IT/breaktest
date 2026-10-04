@@ -312,6 +312,28 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
     }
 
     @Test
+    public void resolvesWebSocketMessagesFromNativeRecording() throws Exception {
+        byte[] har = """
+                {"log":{"entries":[{
+                  "startedDateTime":"2026-10-03T20:31:13.246Z",
+                  "request":{"method":"GET","url":"wss://example.invalid/client"},
+                  "response":{"status":101},
+                  "_webSocketMessages":[
+                    {"type":"receive","time":1791059474.194004,"opcode":2,"data":"e30e","_encoding":"base64"}]
+                }]}}
+                """.getBytes(StandardCharsets.UTF_8);
+        RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(har, "socket.har");
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        var resolution = RecordedHarExchangeResolver.resolveFor(nativeSamplerNode(archive, 0), null);
+        assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+        var messages = resolution.exchange().orElseThrow().webSocketMessages();
+        assertEquals(1, messages.size());
+        assertEquals("receive", messages.get(0).direction());
+        assertEquals("7b 7d 1e", messages.get(0).hex());
+        assertEquals(0, new java.math.BigDecimal("948.004").compareTo(messages.get(0).relativeTimeMs()));
+    }
+
+    @Test
     public void resolvesNativeRecordingWithExternalizedBodies() throws Exception {
         RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
                 harWithTwoEntries().getBytes(StandardCharsets.UTF_8), "recording.har");

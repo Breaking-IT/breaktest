@@ -101,6 +101,12 @@ public final class RecordedExchangeStore {
             exchange.set("response", harEntry.path("response").deepCopy()); // $NON-NLS-1$ //$NON-NLS-2$
             externalizeBody(exchange.path("request").path("postData"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
             externalizeBody(exchange.path("response").path("content"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
+            if (harEntry.has("_webSocketMessages")) {
+                RecordedWebSocketMessage.copyToArchive(harEntry, exchange.putArray("webSocketMessages"));
+            }
+            if (harEntry.path("_breaktest").has("webSocket")) {
+                exchange.set("webSocket", harEntry.path("_breaktest").path("webSocket").deepCopy());
+            }
             exchanges.add(exchange);
             exchangeIds.add(exchangeId);
         }

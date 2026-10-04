@@ -40,6 +40,20 @@ import org.junit.jupiter.api.Test;
 
 class RequestViewHTTPDiffTest {
     @Test
+    void recordedWebSocketUpgradeUsesHttpRequestDetails() throws Exception {
+        for (String scheme : java.util.List.of("ws", "wss")) {
+            var result = RequestViewHTTPDiff.recordedSample(
+                    "GET " + scheme + "://example.test/chat?hub=live HTTP/1.1\nUpgrade: websocket\n\n");
+            assertEquals("ws".equals(scheme) ? "http" : "https", result.getURL().getProtocol());
+            assertEquals(scheme + "://example.test/chat?hub=live", result.getUrlAsString());
+            assertEquals("/chat", result.getURL().getPath());
+            assertEquals("hub=live", result.getURL().getQuery());
+            assertEquals("GET", result.getHTTPMethod());
+            assertEquals("Upgrade: websocket", result.getRequestHeaders());
+        }
+    }
+
+    @Test
     void alignsDuplicateFieldsAndDistinguishesEmptyFromAbsent() {
         var before = List.of(field("a", "1"), field("a", "2"), field("removed", ""));
         var after = List.of(field("a", "1"), field("a", "3"), field("added", ""));

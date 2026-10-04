@@ -336,6 +336,9 @@ public class TestBeanGUI extends AbstractJMeterGuiComponent implements JMeterGUI
 
         if (customizer != null) {
             customizer.setObject(propertyMap);
+            if (customizer instanceof GenericTestBeanCustomizer generic) {
+                generic.configureElement(element);
+            }
         } else {
             if (initialized){
                 remove(customizerIndexInPanel);
@@ -345,6 +348,9 @@ public class TestBeanGUI extends AbstractJMeterGuiComponent implements JMeterGUI
                 result.setObject(propertyMap);
                 return result;
             });
+            if (c instanceof GenericTestBeanCustomizer generic) {
+                generic.configureElement(element);
+            }
             add((Component) c, BorderLayout.CENTER);
         }
     }

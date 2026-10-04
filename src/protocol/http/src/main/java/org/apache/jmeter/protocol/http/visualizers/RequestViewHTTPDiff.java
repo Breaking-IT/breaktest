@@ -154,7 +154,10 @@ public class RequestViewHTTPDiff implements RequestView {
         }
         HTTPSampleResult result = new HTTPSampleResult();
         result.setHTTPMethod(start[0]);
-        result.setURL(URI.create(start[1]).toURL());
+        // A recorded WebSocket URL describes its HTTP upgrade request.
+        String requestUrl = start[1].replaceFirst("(?i)^wss:", "https:").replaceFirst("(?i)^ws:", "http:");
+        result.setURL(URI.create(requestUrl).toURL());
+        result.setDisplayUrl(start[1]);
         if (start.length > 2) {
             result.setProtocolVersion(start[2]);
         }

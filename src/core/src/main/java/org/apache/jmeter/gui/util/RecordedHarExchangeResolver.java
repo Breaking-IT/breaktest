@@ -42,6 +42,7 @@ import javax.swing.tree.TreeNode;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.recording.RecordedExchangeStore;
+import org.apache.jmeter.recording.RecordedWebSocketMessage;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
@@ -266,7 +267,7 @@ public final class RecordedHarExchangeResolver {
     public static List<String> searchableTokensFor(JMeterTreeNode samplerNode, Path testPlanFile) {
         return resolveFor(samplerNode, testPlanFile)
                 .exchange()
-                .map(exchange -> List.of(exchange.request(), exchange.response()))
+                .map(exchange -> exchange.searchableTokens(true, true))
                 .orElseGet(List::of);
     }
 
@@ -667,7 +668,8 @@ public final class RecordedHarExchangeResolver {
         return new RecordedExchange(
                 formatRequest(request), formatResponse(response, responseBody), responseBody,
                 request.path("url").asText(), formatRequestHeaders(request), formatResponseHeaders(response), // $NON-NLS-1$
-                response.path("status").asText(), response.path("statusText").asText()); // $NON-NLS-1$
+                response.path("status").asText(), response.path("statusText").asText(),
+                RecordedWebSocketMessage.fromExchange(entry)); // $NON-NLS-1$
     }
 
     private static String formatRequest(JsonNode request) {
@@ -940,9 +942,11 @@ public final class RecordedHarExchangeResolver {
         private final String responseHeaders;
         private final String responseCode;
         private final String responseMessage;
+        private final List<RecordedWebSocketMessage> webSocketMessages;
 
         RecordedExchange(String request, String response, String responseBody, String requestUrl,
-                String requestHeaders, String responseHeaders, String responseCode, String responseMessage) {
+                String requestHeaders, String responseHeaders, String responseCode, String responseMessage,
+                List<RecordedWebSocketMessage> webSocketMessages) {
             this.request = request;
             this.response = response;
             this.responseBody = responseBody;
@@ -951,6 +955,32 @@ public final class RecordedHarExchangeResolver {
             this.responseHeaders = responseHeaders;
             this.responseCode = responseCode;
             this.responseMessage = responseMessage;
+            this.webSocketMessages = List.copyOf(webSocketMessages);
+        }
+
+        /** Search the handshake and recorded message payloads by direction. */
+        public List<String> searchableTokens(boolean request, boolean response) {
+            List<String> tokens = new ArrayList<>();
+            if (request) {
+                tokens.add(request());
+            }
+            if (response) {
+                tokens.add(response());
+            }
+            for (RecordedWebSocketMessage message : webSocketMessages) {
+                if (request && "send".equals(message.direction())
+                        || response && "receive".equals(message.direction())) {
+                    tokens.add(message.text());
+                    if (message.opcode() != 1) {
+                        tokens.add(message.hex());
+                    }
+                }
+            }
+            return tokens;
+        }
+
+        public List<RecordedWebSocketMessage> webSocketMessages() {
+            return webSocketMessages;
         }
 
         public String request() {

@@ -58,6 +58,7 @@ import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
+import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
@@ -104,6 +105,143 @@ class WebSocketSamplerTest extends JMeterTestCase {
         sampler.setUrl(url);
         sampler.setTimeout(2000);
         return sampler;
+    }
+
+    @Test
+    void searchesReadableContentInsideBinarySendPayloads() {
+        WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+        send.setBinary(true);
+        send.setPayload("ff 61 62 63 64 65 66 67 68 69 6a 6b 31 32 37 33\n34 37 30 32 00");
+        var body = java.util.Set.of(org.apache.jmeter.gui.SearchArea.BODY);
+        assertTrue(send.getSearchableTokens(body).stream().anyMatch(value -> value.contains("12734702")));
+        assertTrue(send.getSearchableTokens().stream().anyMatch(value -> value.contains("12734702")));
+        assertFalse(send.getSearchableTokens(java.util.Set.of(org.apache.jmeter.gui.SearchArea.NAME))
+                .stream().anyMatch(value -> value.contains("12734702")));
+        send.setPayload("${binaryMessage}");
+        assertTrue(send.getSearchableTokens(body).contains("${binaryMessage}"));
+    }
+
+    @Test
+    void searchesSendBodiesAndConnectionUrlsAndHeadersInTheirAreas() {
+        WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+        send.setPayload("message-content");
+        var body = java.util.Set.of(org.apache.jmeter.gui.SearchArea.BODY);
+        assertTrue(send.getSearchableTokens(body).contains("message-content"));
+        assertFalse(send.getSearchableTokens(java.util.Set.of(org.apache.jmeter.gui.SearchArea.OTHER))
+                .contains("message-content"));
+        send.setBinary(true);
+        send.setPayload("00 ff 41");
+        assertTrue(send.getSearchableTokens(body).contains("00 ff 41"));
+        WebSocketConnectSampler connect = new WebSocketConnectSampler();
+        connect.setUrl("wss://example.test/chat");
+        connect.setHeaders(java.util.List.of(new org.apache.jmeter.protocol.http.control.Header("X-Chat", "chat-header")));
+        assertTrue(connect.getSearchableTokens(java.util.Set.of(org.apache.jmeter.gui.SearchArea.PATH))
+                .contains("wss://example.test/chat"));
+        assertTrue(connect.getSearchableTokens(java.util.Set.of(org.apache.jmeter.gui.SearchArea.HEADERS))
+                .containsAll(java.util.List.of("X-Chat", "chat-header")));
+        assertTrue(connect.getSearchableTokens().containsAll(java.util.List.of("X-Chat", "chat-header")));
+        assertTrue(connect.getSearchableTokens(java.util.Set.of()).isEmpty());
+        assertFalse(connect.getSearchableTokens(body).contains("chat-header"));
+    }
+
+    @Test
+    void unifiedSendOnlyIgnoresWaitingSettingsAndPersistsAction() throws Exception {
+        try (Peer peer = new Peer(false)) {
+            assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setSessionName("chat");
+            send.setAction(WebSocketSendWaitSampler.SEND_ONLY);
+            send.setPayload("hello" + (char) 30);
+            send.setWaitMode("unused invalid mode");
+            send.setResponsePattern("[");
+            send.setResponseBinary("not hex");
+            send.setWaitTimeout(0);
+            send.setSendOffset("0.125");
+            send.setProperty("TestElement.test_class", WebSocketSendWaitSampler.class.getName());
+            send.setProperty("TestElement.gui_class", "org.apache.jmeter.testbeans.gui.TestBeanGUI");
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            SaveService.saveElement(send, output);
+            WebSocketSendWaitSampler restored = (WebSocketSendWaitSampler) SaveService.loadElement(
+                    new ByteArrayInputStream(output.toByteArray()));
+            TestBeanHelper.prepare(restored);
+            assertEquals(WebSocketSendWaitSampler.SEND_ONLY, restored.getAction());
+            assertEquals("0.125", restored.getSendOffset());
+            SampleResult result = restored.sample(null);
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertEquals(6, result.getSentBytes());
+            assertEquals("hello" + (char) 30,
+                    collector.results.poll(2, TimeUnit.SECONDS).getResponseDataAsString());
+            assertFalse(Introspector.getBeanInfo(WebSocketSendWaitSampler.class).getBeanDescriptor().isHidden());
+        }
+    }
+
+    @Test
+    void recordedCloseWaitsForConnectionRelativeTime() throws Exception {
+        try (Peer peer = new Peer(false)) {
+            assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
+            WebSocketSession session = WebSocketSessions.current().get("chat");
+            long offsetMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - session.startedAtNanos()) + 600;
+            WebSocketCloseSampler close = new WebSocketCloseSampler();
+            close.setSessionName("chat");
+            close.setCloseOffset(Long.toString(offsetMs));
+            close.setTimeout(2000);
+            SampleResult result = close.sample(null);
+            assertTrue(result.isSuccessful(), result.getResponseMessage());
+            assertTrue(result.getIdleTime() >= 500, "Recorded pacing must be excluded from close latency");
+            assertTrue(System.nanoTime() - session.startedAtNanos() >= TimeUnit.MILLISECONDS.toNanos(offsetMs));
+            assertFalse(close.sample(null).isSuccessful(), "Closed session must have been removed");
+        }
+    }
+
+    @Test
+    void recordedSendTimeIsRelativeToConnectionAndDoesNotRepeatTheDelay() throws Exception {
+        try (Peer peer = new Peer(false)) {
+            assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
+            WebSocketSession session = WebSocketSessions.current().get("chat");
+            long offsetMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - session.startedAtNanos()) + 600;
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setSessionName("chat");
+            send.setAction(WebSocketSendWaitSampler.SEND_ONLY);
+            send.setPayload("scheduled");
+            send.setSendOffset(Long.toString(offsetMs));
+            // The recorded delay is independent of the send timeout.
+            send.setTimeout(200);
+            SampleResult first = send.sample(null);
+            assertTrue(first.isSuccessful(), first.getResponseMessage());
+            assertTrue(first.getIdleTime() >= 500, "Recorded pacing must be excluded from send latency");
+            assertTrue(System.nanoTime() - session.startedAtNanos() >= TimeUnit.MILLISECONDS.toNanos(offsetMs));
+            SampleResult second = send.sample(null);
+            assertTrue(second.isSuccessful(), second.getResponseMessage());
+            assertTrue(second.getTime() < 500, "A past offset must not repeat the recorded delay");
+        }
+    }
+
+    @Test
+    void recordedDelayCanBeInterruptedWithoutClosingTheSession() throws Exception {
+        try (Peer peer = new Peer(false)) {
+            assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
+            JMeterVariables variables = JMeterContextService.getContext().getVariables();
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setSessionName("chat");
+            send.setAction(WebSocketSendWaitSampler.SEND_ONLY);
+            send.setSendOffset("60000");
+            send.setPayload("must not be sent");
+            CompletableFuture<SampleResult> pending = CompletableFuture.supplyAsync(() -> {
+                JMeterContextService.getContext().setVariables(variables);
+                try {
+                    return send.sample(null);
+                } finally {
+                    JMeterContextService.getContext().clear();
+                }
+            });
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (!send.interrupt() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertFalse(pending.get(2, TimeUnit.SECONDS).isSuccessful());
+            assertTrue(WebSocketSessions.current().get("chat").isOpen());
+            assertTrue(collector.results.isEmpty());
+        }
     }
 
     @Test
@@ -311,6 +449,10 @@ class WebSocketSamplerTest extends JMeterTestCase {
             assertEquals("retry=token", connect.cookieHeader(URI.create(url)));
             assertFalse(result.isSuccessful());
             assertEquals("404", result.getResponseCode());
+            assertTrue(result instanceof HTTPSampleResult);
+            assertEquals("GET", ((HTTPSampleResult) result).getHTTPMethod());
+            assertTrue(result.getRequestHeaders().toLowerCase(Locale.ROOT).contains("sec-websocket-key:"));
+            assertTrue(result.getResponseHeaders().startsWith("HTTP/1.1 404"));
             assertEquals("WebSocket handshake rejected: HTTP 404", result.getResponseMessage());
             assertTrue(result.getResponseHeaders().contains("unknown-connection"));
         } finally {
@@ -458,13 +600,30 @@ class WebSocketSamplerTest extends JMeterTestCase {
             HeaderManager inherited = new HeaderManager();
             inherited.add(new Header("X-Application", "from-manager"));
             connect.addTestElement(inherited);
-            connect.setHeaders(List.of(new Header("Origin", "https://example.test")));
+            connect.setHeaders(List.of(new Header("Origin", "https://example.test"),
+                    new Header("Sec-WebSocket-Protocol", "v1.push.openbet.com, fallback")));
             SampleResult connected = connect.sample(null);
             assertTrue(connected.isSuccessful(), connected::getResponseMessage);
             assertEquals("101", connected.getResponseCode());
+            assertTrue(connected instanceof HTTPSampleResult);
+            assertEquals("GET", ((HTTPSampleResult) connected).getHTTPMethod());
+            assertEquals("http", connected.getURL().getProtocol());
+            assertEquals(peer.url(), connected.getUrlAsString());
+            assertEquals(peer.url(), new HTTPSampleResult((HTTPSampleResult) connected).getUrlAsString());
+            assertEquals("HTTP/1.1", connected.getProtocolVersion());
+            assertEquals("Switching Protocols", connected.getResponseMessage());
+            String requestHeaders = connected.getRequestHeaders().toLowerCase(Locale.ROOT);
+            assertTrue(requestHeaders.contains("sec-websocket-key:"), requestHeaders);
+            assertTrue(requestHeaders.contains("upgrade: websocket"), requestHeaders);
+            assertTrue(connected.getResponseHeaders().startsWith("HTTP/1.1 101 Switching Protocols"));
+            assertTrue(connected.getResponseHeaders().toLowerCase(Locale.ROOT).contains("sec-websocket-accept:"));
             assertEquals("from-manager", peer.applicationHeader.get(3, TimeUnit.SECONDS));
             assertEquals("https://example.test", peer.originHeader.get(3, TimeUnit.SECONDS));
-            WebSocketSendSampler send = new WebSocketSendSampler();
+            assertTrue(requestHeaders.contains("sec-websocket-protocol: v1.push.openbet.com, fallback"), requestHeaders);
+            assertTrue(connected.getResponseHeaders().contains("Sec-WebSocket-Protocol: v1.push.openbet.com")
+                    || connected.getResponseHeaders().contains("sec-websocket-protocol: v1.push.openbet.com"));
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setAction(WebSocketSendWaitSampler.SEND_ONLY);
             send.setSessionName("chat");
             send.setPayload("heartbeat");
             assertTrue(send.sample(null).isSuccessful());
@@ -502,7 +661,8 @@ class WebSocketSamplerTest extends JMeterTestCase {
                 new SamplePackage(List.of(), List.of(script, collector), List.of(), List.of(), List.of(), List.of(), List.of()));
         try (Peer peer = new Peer(false)) {
             assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
-            WebSocketSendSampler send = new WebSocketSendSampler();
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setAction(WebSocketSendWaitSampler.SEND_ONLY);
             send.setSessionName("chat");
             send.setPayload("event");
             assertTrue(send.sample(null).isSuccessful());
@@ -598,6 +758,18 @@ class WebSocketSamplerTest extends JMeterTestCase {
             SampleResult connected = next.sample(null);
             assertTrue(connected.isSuccessful(), connected::getResponseMessage);
             assertEquals("101", connected.getResponseCode());
+            assertTrue(connected instanceof HTTPSampleResult);
+            assertEquals("GET", ((HTTPSampleResult) connected).getHTTPMethod());
+            assertEquals("http", connected.getURL().getProtocol());
+            assertEquals(replacement.url(), connected.getUrlAsString());
+            assertEquals(replacement.url(), new HTTPSampleResult((HTTPSampleResult) connected).getUrlAsString());
+            assertEquals("HTTP/1.1", connected.getProtocolVersion());
+            assertEquals("Switching Protocols", connected.getResponseMessage());
+            String requestHeaders = connected.getRequestHeaders().toLowerCase(Locale.ROOT);
+            assertTrue(requestHeaders.contains("sec-websocket-key:"), requestHeaders);
+            assertTrue(requestHeaders.contains("upgrade: websocket"), requestHeaders);
+            assertTrue(connected.getResponseHeaders().startsWith("HTTP/1.1 101 Switching Protocols"));
+            assertTrue(connected.getResponseHeaders().toLowerCase(Locale.ROOT).contains("sec-websocket-accept:"));
             first.done.get(3, TimeUnit.SECONDS);
             assertNotSame(old, registry.get("chat"));
             assertSame(untouched, registry.get("other"));
@@ -676,7 +848,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
         assertFalse(restored.getFailOnDisconnect());
         assertEquals("WebSocket Connect", Introspector.getBeanInfo(WebSocketConnectSampler.class)
                 .getBeanDescriptor().getDisplayName());
-        assertEquals("WebSocket Send", Introspector.getBeanInfo(WebSocketSendSampler.class)
+        assertEquals("WebSocket Send", Introspector.getBeanInfo(WebSocketSendWaitSampler.class)
                 .getBeanDescriptor().getDisplayName());
         assertEquals("WebSocket Close", Introspector.getBeanInfo(WebSocketCloseSampler.class)
                 .getBeanDescriptor().getDisplayName());
@@ -718,7 +890,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
             assertEquals("hallo", result.getResponseDataAsString());
             assertEquals("notification", collector.results.poll(3, TimeUnit.SECONDS).getResponseDataAsString());
             assertTrue(collector.results.isEmpty());
-            assertEquals("WebSocket Send and Wait", Introspector.getBeanInfo(WebSocketSendWaitSampler.class)
+            assertEquals("WebSocket Send", Introspector.getBeanInfo(WebSocketSendWaitSampler.class)
                     .getBeanDescriptor().getDisplayName());
             wait.setProperty("TestElement.gui_class", "org.apache.jmeter.testbeans.gui.TestBeanGUI");
             wait.setProperty("TestElement.test_class", WebSocketSendWaitSampler.class.getName());
@@ -829,7 +1001,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
         invalid.setTextFilter("");
         invalid.setTimeout(0);
         assertFalse(invalid.sample(null).isSuccessful());
-        assertFalse(new WebSocketSendSampler().sample(null).isSuccessful());
+        assertFalse(new WebSocketSendWaitSampler().sample(null).isSuccessful());
         assertFalse(new WebSocketCloseSampler().sample(null).isSuccessful());
     }
 
@@ -895,6 +1067,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.US_ASCII));
                     requestLine.complete(reader.readLine());
                     String key = null;
+                    String protocol = "";
                     String cookies = "";
                     String line;
                     while ((line = reader.readLine()) != null && !line.isEmpty()) {
@@ -906,6 +1079,9 @@ class WebSocketSamplerTest extends JMeterTestCase {
                         }
                         if (line.regionMatches(true, 0, "Origin:", 0, 7)) {
                             originHeader.complete(line.substring(7).trim());
+                        }
+                        if (line.regionMatches(true, 0, "Sec-WebSocket-Protocol:", 0, 23)) {
+                            protocol = line.substring(23).trim().split(",")[0].trim();
                         }
                         if (line.startsWith("Sec-WebSocket-Key:")) {
                             key = line.substring(line.indexOf(':') + 1).trim();
@@ -931,7 +1107,8 @@ class WebSocketSamplerTest extends JMeterTestCase {
                             .digest((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes(StandardCharsets.US_ASCII)));
                     socket.getOutputStream().write(("HTTP/1.1 101 Switching Protocols\r\n"
                             + "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "
-                            + accept + "\r\n" + cookieResponse + "\r\n").getBytes(StandardCharsets.US_ASCII));
+                            + accept + "\r\n" + (protocol.isEmpty() ? "" : "Sec-WebSocket-Protocol: " + protocol + "\r\n")
+                            + cookieResponse + "\r\n").getBytes(StandardCharsets.US_ASCII));
                     socket.getOutputStream().flush();
                     if (sendPing) {
                         frame(socket, 9, new byte[] {17});
