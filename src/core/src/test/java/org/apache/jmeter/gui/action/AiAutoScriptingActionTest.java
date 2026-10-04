@@ -48,6 +48,126 @@ import org.junit.jupiter.params.provider.CsvSource;
 class AiAutoScriptingActionTest {
 
     @Test
+    void successfulTemplateStillReportsUnverifiedEndpointAndLimitations() {
+        AiRunOutput output = new AiRunOutput();
+        output.captureFinalResponse("Status: completed");
+        output.captureFinalResponse("Set the endpoint; your actual stream remains unverified.");
+        output.captureFinalResponse("Limitations: fixed representation selection; DRM is unsupported.");
+        assertFalse(output.hasRepairBlocker());
+        assertEquals(2, output.followUpLines().size());
+    }
+
+    @Test
+    void cachedUsageIsIncludedInInputRatherThanAddedAgain() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":2169064,\"cached_input_tokens\":2086016,\"output_tokens\":22220}}");
+        assertEquals("2191284", output.totalTokensText());
+        assertTrue(output.inputCacheSummary().contains("cached=2086016, uncached=83048"));
+        assertEquals("", new AiRunOutput().inputCacheSummary());
+    }
+
+    @Test
+    void generationUsesFocusedPromptAndRequiresCompletionReport() throws Exception {
+        withDefaultPrompt(() -> {
+            Object request = newRunRequest("CODEX");
+            var mode = request.getClass().getDeclaredField("mode");
+            mode.setAccessible(true);
+            mode.set(request, enumConstant(mode.getType(), "GENERATE_SCRIPT"));
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+            method.setAccessible(true);
+            String prompt = (String) method.invoke(null, request);
+            assertTrue(prompt.contains("Build the user's requested native BreakTest script"));
+            assertTrue(prompt.contains("one bounded synthetic integration replay"));
+            assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
+            assertTrue(prompt.contains("ignoreTimers=false"));
+            assertTrue(prompt.contains("Restore every temporary endpoint/configuration override"));
+            assertFalse(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertFalse(prompt.contains("{{"));
+            assertTrue(prompt.length() < renderedPrompt("CODEX").length());
+        });
+    }
+
+    @Test
+    void emptyControllerDefaultsToGenerationButNestedSamplerDoesNot() {
+        var model = new org.apache.jmeter.gui.tree.JMeterTreeModel();
+        var group = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        var controller = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.control.LoopController(), model);
+        group.add(controller);
+        assertTrue(AiTaskWorkspace.hasNoSamplers(group));
+        var sampler = new org.apache.jmeter.samplers.AbstractSampler() {
+            @Override
+            public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+                return null;
+            }
+        };
+        controller.add(new org.apache.jmeter.gui.tree.JMeterTreeNode(sampler, model));
+        assertFalse(AiTaskWorkspace.hasNoSamplers(group));
+    }
+
+    @Test
+    void unsavedWorkspaceDoesNotInheritInstallationOrOtherRuns() throws IOException {
+        File first = AiTaskWorkspace.unsavedPlanDirectory();
+        File second = AiTaskWorkspace.unsavedPlanDirectory();
+        try {
+            assertTrue(first.isDirectory());
+            assertFalse(first.equals(second));
+            assertFalse(first.toString().equals(JMeterUtils.getJMeterHome()));
+        } finally {
+            Files.delete(first.toPath());
+            Files.delete(second.toPath());
+        }
+    }
+
+    @Test
+    void codexStructuredOutputPreservesBlockerExplanationAfterToolOutput() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"aggregated_output\":\"diff --git a/x b/x\"}}",
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Status: blocked\\nCreated the DASH client.\\n"
+                        + "Real-stream validation remains pending because localhost is a placeholder. "
+                        + "Native transaction creation was unavailable.\"}}",
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":120,\"output_tokens\":30}}");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().stream().anyMatch(line -> line.contains("localhost is a placeholder")));
+        assertFalse(output.followUpLines().stream().anyMatch(line -> line.contains("without a repair completion")));
+        assertEquals("120", output.inputTokensText());
+        assertEquals("30", output.outputTokensText());
+    }
+
+    @Test
+    void codexStructuredErrorsRemainActionable() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"turn.failed\",\"error\":{\"message\":\"Usage limit reached\"}}");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().get(0).contains("Usage limit reached"));
+    }
+
+    @Test
+    void codexLegacyFinalSentinelEndsDiffSuppression() throws Exception {
+        AiRunOutput output = parseCodexOutput("exec", "diff --git a/x b/x", "codex",
+                "Status: blocked", "Endpoint validation remains pending because localhost is a placeholder.");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.followUpLines().stream().anyMatch(line -> line.contains("localhost is a placeholder")));
+        assertFalse(output.followUpLines().stream().anyMatch(line -> line.contains("without a repair completion")));
+    }
+
+    private static AiRunOutput parseCodexOutput(String... lines) throws Exception {
+        Class<?> type = Class.forName(AiAutoScriptingAction.class.getName() + "$AiOutputFilter");
+        var constructor = type.getDeclaredConstructor(AiAutoScriptingAction.AiTool.class);
+        constructor.setAccessible(true);
+        Object filter = constructor.newInstance(AiAutoScriptingAction.AiTool.CODEX);
+        Method display = type.getDeclaredMethod("displayLine", String.class);
+        display.setAccessible(true);
+        for (String line : lines) {
+            display.invoke(filter, line);
+        }
+        Method output = type.getDeclaredMethod("output");
+        output.setAccessible(true);
+        return (AiRunOutput) output.invoke(filter);
+    }
+
+    @Test
     void tokenMetricsIgnoreToolDataAndAcceptExplicitUsage() throws Exception {
         Class<?> type = AiRunOutput.class;
         var constructor = type.getDeclaredConstructor();

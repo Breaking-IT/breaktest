@@ -35,6 +35,20 @@ import org.junit.jupiter.api.io.TempDir;
 class AiCliProcessTest {
 
     @Test
+    @EnabledOnOs({OS.LINUX, OS.MAC})
+    void runEnvironmentPinsBridgeAndInstallation(@TempDir Path tempDirectory) throws Exception {
+        AiCliProcess command = AiCliProcess.prepare(List.of("/bin/sh", "-c",
+                "printf '%s|%s' \"$BREAKTEST_AGENT_DESCRIPTOR\" \"$BREAKTEST_HOME\"", "prompt"),
+                AiCliProcess.PromptStyle.POSITIONAL);
+        Process process = command.start(tempDirectory.toFile(), Map.of(
+                "BREAKTEST_AGENT_DESCRIPTOR", tempDirectory.resolve("run.json").toString(),
+                "BREAKTEST_HOME", tempDirectory.toString()));
+        String result = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, process.waitFor());
+        assertEquals(tempDirectory.resolve("run.json") + "|" + tempDirectory, result);
+    }
+
+    @Test
     void promptIsMovedFromCommandLineToStdinForEachCliSyntax() {
         AiCliProcess codex = AiCliProcess.prepare(List.of("missing-codex", "exec", "prompt"),
                 AiCliProcess.PromptStyle.CODEX);

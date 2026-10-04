@@ -35,6 +35,42 @@ import java.time.Duration
 
 class AgentValidationRunnerTest : JMeterTestCase() {
     @Test
+    fun `GUI and file bridge options preserve timers when requested`() {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        for (
+            service in listOf(
+                org.apache.jmeter.ai.gui.BreakTestAgentGuiService,
+                org.apache.jmeter.ai.mcp.BreakTestAgentMcpServer,
+            )
+        ) {
+            val method = service.javaClass.getDeclaredMethod("optionsFrom", com.fasterxml.jackson.databind.JsonNode::class.java)
+                .apply { isAccessible = true }
+            val defaults = method.invoke(service, mapper.createObjectNode()) as AgentRunOptions
+            val paced = method.invoke(service, mapper.readTree("""{"ignoreTimers":false}""")) as AgentRunOptions
+            assertTrue(defaults.ignoreTimers)
+            assertFalse(paced.ignoreTimers)
+        }
+    }
+
+    @Test
+    fun `paced validation executes native timers while default repair skips them`() {
+        val calls = IntegrationReplayTimer.calls.apply { set(0) }
+        val timer = IntegrationReplayTimer()
+        val tree = testTree {
+            TestPlan::class {
+                oneRequest {
+                    +timer
+                    +ScriptRepairSampler(sampleName = "Paced request", success = true)
+                }
+            }
+        }
+        AgentValidationRunner().run(tree, AgentRunOptions(ignoreTimers = true))
+        assertEquals(0, calls.get())
+        AgentValidationRunner().run(tree, AgentRunOptions(ignoreTimers = false))
+        assertEquals(1, calls.get())
+    }
+
+    @Test
     fun `run captures ordered sample evidence and first failure`() {
         val tree = testTree {
             TestPlan::class {
@@ -561,5 +597,16 @@ class ScriptRepairSampler(
         const val RESPONSE_HEADERS = "ScriptRepairSampler.responseHeaders"
         const val RESPONSE_BODY = "ScriptRepairSampler.responseBody"
         const val STATIC_CHILD_FAILURE_LABEL = "ScriptRepairSampler.staticChildFailureLabel"
+    }
+}
+
+class IntegrationReplayTimer : org.apache.jmeter.testelement.AbstractTestElement(), org.apache.jmeter.timers.Timer {
+    override fun delay(): Long {
+        calls.incrementAndGet()
+        return 0
+    }
+
+    companion object {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
     }
 }

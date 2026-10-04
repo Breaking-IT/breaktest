@@ -37,6 +37,7 @@ import java.util.regex.Pattern;
  */
 final class AiPrompts {
     static final String LIVE_GUI_REPAIR = "ai-prompt-live-gui-repair.txt";
+    static final String GENERATE_SCRIPT = "ai-prompt-generate-script.txt";
     static final String SPECIFIC_REQUEST = "ai-prompt-specific-request.txt";
     static final String FILE_BACKED_REPAIR = "ai-prompt-file-backed-repair.txt";
     static final String USER_INSTRUCTIONS = "ai-prompt-user-instructions.txt";

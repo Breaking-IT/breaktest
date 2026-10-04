@@ -20,11 +20,13 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentDynamicValueAnalyzer
+import org.apache.jmeter.ai.AgentElementCatalog
 import org.apache.jmeter.ai.AgentLiteralIndex
 import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
 import org.apache.jmeter.ai.AgentSampleSummary
+import org.apache.jmeter.ai.AgentWebSocketSupport
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
 import org.apache.jmeter.ai.edit.LiteralReplacementRequest
@@ -376,6 +378,22 @@ public object BreakTestAgentGuiService {
             "add_jsr223_open_plan" -> addJsr223OpenPlan(arguments)
             "add_response_assertion_open_plan" -> addResponseAssertionOpenPlan(arguments)
             "update_response_assertion_open_plan" -> updateResponseAssertionOpenPlan(arguments)
+            "add_websocket_match_open_plan" -> addWebSocketMatchOpenPlan(arguments)
+            "list_available_elements" -> guiCall {
+                val entries = AgentElementCatalog.list(arguments.path("query").asText(""))
+                val offset = arguments.path("offset").asInt(0).coerceAtLeast(0)
+                val limit = arguments.path("limit").asInt(20).coerceIn(1, 50)
+                mapOf(
+                    "total" to entries.size, "elements" to entries.drop(offset).take(limit),
+                    "nextOffset" to (offset + limit).takeIf { it < entries.size }
+                )
+            }
+            "describe_element" -> guiCall {
+                AgentElementCatalog.describe(AgentElementCatalog.create(arguments.requiredText("elementId")))
+            }
+            "add_element_open_plan" -> addElementOpenPlan(arguments)
+            "configure_element_open_plan" -> configureElementOpenPlan(arguments)
+            "update_websocket_open_plan" -> updateWebSocketOpenPlan(arguments)
             "set_redirect_mode_open_plan" -> setRedirectModeOpenPlan(arguments)
             "clone_node_open_plan" -> cloneNodeOpenPlan(arguments)
             "move_node_open_plan" -> moveNodeOpenPlan(arguments)
@@ -623,12 +641,15 @@ public object BreakTestAgentGuiService {
                         "samplerIndex" to index,
                         "samplerLabel" to sampler.testElement.name,
                         "nodePath" to nodePath(sampler),
+                        "nodeId" to nodeId(sampler),
                         "status" to resolution.status().name,
                         "hasExchange" to resolution.exchange().isPresent,
                         "requestLine" to firstNonBlankLine(resolution.requestText()),
                         "responseLine" to firstNonBlankLine(resolution.responseText()),
                         "requestSnippet" to resolution.requestText().truncate(bodyLimit),
                         "responseSnippet" to resolution.responseText().truncate(bodyLimit),
+                        "webSocket" to AgentWebSocketSupport.settings(sampler.testElement),
+                        "recordedWebSocketMessageCount" to resolution.exchange().map { it.webSocketMessages().size }.orElse(0),
                     )
                 }
                 .take(maxEntries)
@@ -648,7 +669,9 @@ public object BreakTestAgentGuiService {
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
                 ?: error("The open plan must be saved before its linked recording can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
-            val sampler = selectSampler(
+            val sampler = if (arguments.path("targetNodeId").optionalText() != null || arguments.path("targetNodePath").optionalText() != null) {
+                selectSamplerReference(gui, arguments, "target", "target")
+            } else selectSampler(
                 scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText()),
                 arguments.path("targetSamplerIndex").takeIfPresent()?.asInt(),
                 arguments.path("targetSamplerLabel").optionalText(),
@@ -658,12 +681,24 @@ public object BreakTestAgentGuiService {
             mapOf(
                 "samplerLabel" to sampler.testElement.name,
                 "nodePath" to nodePath(sampler),
+                "nodeId" to nodeId(sampler),
                 "status" to resolution.status().name,
                 "hasExchange" to resolution.exchange().isPresent,
                 "requestLine" to firstNonBlankLine(resolution.requestText()),
                 "responseLine" to firstNonBlankLine(resolution.responseText()),
                 "request" to resolution.requestText().truncate(bodyLimit),
                 "response" to resolution.responseText().truncate(bodyLimit),
+                "webSocket" to AgentWebSocketSupport.settings(sampler.testElement),
+                "webSocketCorrelationHints" to resolution.exchange().map {
+                    AgentWebSocketSupport.correlationHints(it.webSocketMessages())
+                }.orElse(null),
+                "recordedWebSocket" to resolution.exchange().map {
+                    AgentWebSocketSupport.recorded(
+                        it.webSocketMessages(),
+                        arguments.path("messageOffset").asInt(0), arguments.path("messageLimit").asInt(50),
+                        arguments.path("messageByteLimit").asInt(1024)
+                    )
+                }.orElse(null),
             )
         }
 
@@ -691,7 +726,7 @@ public object BreakTestAgentGuiService {
                 if (!includeStaticAssets && isStaticHarRequest(resolution.requestText())) {
                     continue
                 }
-                fun search(surface: String, text: String) {
+                fun search(surface: String, text: String, metadata: Map<String, Any?> = emptyMap()) {
                     if (matches.size >= maxMatches) {
                         return
                     }
@@ -705,14 +740,32 @@ public object BreakTestAgentGuiService {
                         "samplerIndex" to index,
                         "samplerLabel" to sampler.testElement.name,
                         "nodePath" to nodePath(sampler),
+                        "nodeId" to nodeId(sampler),
                         "surface" to surface,
                         "requestLine" to firstNonBlankLine(resolution.requestText()),
                         "responseLine" to firstNonBlankLine(resolution.responseText()),
                         "context" to text.contextAround(range.first, range.last + 1, contextChars),
-                    )
+                    ) + metadata
                 }
                 search("recorded_request", resolution.requestText())
                 search("recorded_response", resolution.responseText())
+                for ((messageIndex, message) in resolution.exchange().get().webSocketMessages().withIndex()) {
+                    if (matches.size >= maxMatches) break
+                    val metadata = mapOf(
+                        "messageIndex" to messageIndex, "direction" to message.direction(),
+                        "relativeTimeMs" to message.relativeTimeMs(), "opcode" to message.opcode(),
+                        "sessionName" to sampler.testElement.getPropertyAsString("sessionName")
+                    )
+                    if (message.opcode() == 1) {
+                        search("recorded_websocket_text", message.text(), metadata)
+                    } else {
+                        search("recorded_websocket_hex", message.hex(), metadata)
+                        // ASCII is an inspection aid, never a substitute for decoding the original bytes.
+                        val bytes = java.util.Base64.getDecoder().decode(message.data())
+                        val ascii = bytes.map { if ((it.toInt() and 255) in 32..126) it.toInt().toChar() else '.' }.joinToString("")
+                        search("recorded_websocket_ascii", ascii, metadata)
+                    }
+                }
                 if (matches.size >= maxMatches) {
                     break
                 }
@@ -2311,6 +2364,10 @@ public object BreakTestAgentGuiService {
                     "success" to sample.success,
                     "responseCode" to sample.responseCode,
                     "surface" to surface,
+                    "responseBodyEncoding" to sample.responseBodyEncoding,
+                    "responseByteLength" to sample.responseByteLength,
+                    "responseBodyTruncated" to sample.responseBodyTruncated,
+                    "startTimeMillis" to sample.startTimeMillis,
                     "snippet" to text.contextAround(range.first, range.last + 1, contextChars),
                 )
                 if (matches.size >= maxMatches) {
@@ -2688,6 +2745,126 @@ public object BreakTestAgentGuiService {
                     "assertionNodeId" to nodeId(assertionNode),
                     "pattern" to request.pattern,
                     "targetAssertions" to assertionPlacementSummary(target),
+                )
+            } finally {
+                gui.endUndoTransaction()
+            }
+        }
+
+    private fun elementEditResult(node: JMeterTreeNode, arguments: JsonNode): Map<String, Any?> = mapOf(
+        "nodeId" to nodeId(node),
+        "nodePath" to nodePath(node),
+        "element" to if (arguments.path("compact").asBoolean(true)) {
+            mapOf(
+                "className" to node.testElement.javaClass.name,
+                "name" to node.name,
+                "enabled" to node.testElement.isEnabled,
+                "configuredProperties" to arguments.path("properties").fieldNames().asSequence().toList(),
+                "tableRowCounts" to arguments.path("tables").properties().associate { it.key to it.value.size() },
+            )
+        } else {
+            AgentElementCatalog.describe(node.testElement)
+        },
+    )
+
+    private fun addElementOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
+        val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+        gui.updateCurrentNode()
+        val parent = if (arguments.path("targetNodeId").optionalText() != null || arguments.path("targetNodePath").optionalText() != null) {
+            selectNodeReference(gui, arguments, "target", "parent")
+        } else {
+            // An empty plan has no sampler to select. Only the Test Plan root is implicit.
+            gui.treeModel.testPlan.list().filterIsInstance<JMeterTreeNode>().single { it.testElement is TestPlan }
+        }
+        val element = AgentElementCatalog.configured(
+            AgentElementCatalog.create(arguments.requiredText("elementId")),
+            arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
+            arguments.get("tables"),
+        )
+        arguments.path("name").optionalText()?.let { element.name = it }
+        val target = sectionedTarget(gui, parent, element)
+        require(org.apache.jmeter.gui.util.MenuFactory.canAddTo(target, element)) { "This element cannot be added under the selected parent" }
+        ensureBackupForOpenPlan(gui)
+        gui.beginUndoTransaction()
+        try {
+            val node = insertDetachedNode(gui, parent, element)
+            markEdited(gui, parent, node)
+            recordChange("Added element", node, "Generated native element", element.javaClass.simpleName)
+            elementEditResult(node, arguments)
+        } finally {
+            gui.endUndoTransaction()
+        }
+    }
+
+    private fun configureElementOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
+        val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+        gui.updateCurrentNode()
+        val target = selectNodeReference(gui, arguments, "target", "target")
+        val configured = AgentElementCatalog.configured(
+            target.testElement,
+            arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
+            arguments.get("tables"),
+        )
+        ensureBackupForOpenPlan(gui)
+        gui.beginUndoTransaction()
+        try {
+            target.testElement.clear()
+            configured.propertyIterator().forEachRemaining { target.testElement.setProperty(it) }
+            markEdited(gui, target)
+            recordChange("Configured element", target, "Updated native settings", (arguments.path("properties").fieldNames().asSequence() + arguments.path("tables").fieldNames().asSequence()).joinToString())
+            elementEditResult(target, arguments)
+        } finally {
+            gui.endUndoTransaction()
+        }
+    }
+
+    private fun addWebSocketMatchOpenPlan(arguments: JsonNode): Map<String, Any?> =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            val target = selectSamplerReference(gui, arguments, "target", "target")
+            require(target.testElement.javaClass.name == "org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler") {
+                "A WebSocket Match must be attached to WebSocket Connect"
+            }
+            val settings = com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().apply {
+                put("matchMode", arguments.requiredText("matchMode"))
+                put("matchValue", arguments.requiredText("matchValue"))
+                put("saveMessageVariable", arguments.requiredText("saveMessageVariable"))
+            }
+            val element = Class.forName("org.apache.jmeter.protocol.websocket.sampler.WebSocketMatchController")
+                .getDeclaredConstructor().newInstance() as TestElement
+            AgentWebSocketSupport.update(element, settings)
+            element.name = arguments.path("name").optionalText() ?: "Capture WebSocket message"
+            element.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.testbeans.gui.TestBeanGUI")
+            element.setProperty(TestElement.TEST_CLASS, element.javaClass.name)
+            ensureBackupForOpenPlan(gui)
+            gui.beginUndoTransaction()
+            try {
+                val added = insertDetachedNode(gui, target, element)
+                markEdited(gui, target, added)
+                recordChange("Added WebSocket Match", added, "Capture unsolicited message", "Review and validate before consuming its variable")
+                mapOf("nodeId" to nodeId(added), "nodePath" to nodePath(added), "webSocket" to AgentWebSocketSupport.settings(element))
+            } finally {
+                gui.endUndoTransaction()
+            }
+        }
+
+    private fun updateWebSocketOpenPlan(arguments: JsonNode): Map<String, Any?> =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            val target = selectNodeReference(gui, arguments, "target", "target")
+            // Reject the entire edit before backup or mutation if any setting is invalid.
+            AgentWebSocketSupport.update(target.testElement.clone() as TestElement, arguments)
+            ensureBackupForOpenPlan(gui)
+            gui.beginUndoTransaction()
+            try {
+                val changed = AgentWebSocketSupport.update(target.testElement, arguments)
+                markEdited(gui, target)
+                recordChange("Updated WebSocket", target, "Updated WebSocket settings", changed.joinToString())
+                mapOf(
+                    "targetNodeId" to nodeId(target), "targetNodePath" to nodePath(target),
+                    "changedFields" to changed, "webSocket" to AgentWebSocketSupport.settings(target.testElement)
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -3964,6 +4141,7 @@ public object BreakTestAgentGuiService {
             "name" to node.testElement.name,
             "nodePath" to nodePath(node),
             "className" to node.testElement::class.java.name,
+            "webSocket" to AgentWebSocketSupport.settings(node.testElement),
             "enabled" to node.isEnabled,
             "childCount" to node.childCount,
             "samplerIndex" to samplerIndex,
@@ -5392,6 +5570,7 @@ public object BreakTestAgentGuiService {
     private fun optionsFrom(arguments: JsonNode): AgentRunOptions =
         AgentRunOptions(
             timeout = Duration.ofSeconds(arguments.path("timeoutSeconds").asLong(30)),
+            ignoreTimers = arguments.path("ignoreTimers").asBoolean(true),
             responseBodyLimit = arguments.path("responseBodyLimit").asInt(32 * 1024),
             requestBodyLimit = arguments.path("requestBodyLimit").asInt(16 * 1024),
             maxSamples = arguments.path("maxSamples").takeIfPresent()?.asInt(),
@@ -5503,21 +5682,36 @@ public object BreakTestAgentGuiService {
     private fun writeDescriptor(port: Int, socketFile: File?, serviceToken: String) {
         val descriptor = descriptorFile()
         descriptor.parentFile.mkdirs()
+        writeDescriptorTo(descriptor, port, socketFile, serviceToken)
+    }
+
+    private fun writeDescriptorTo(descriptor: File, port: Int, socketFile: File?, serviceToken: String) {
         descriptor.writeText(
             mapper.writeValueAsString(
-                mapOf(
-                    "host" to "127.0.0.1",
-                    "port" to port,
-                    "socketPath" to socketFile?.path,
-                    "token" to serviceToken,
-                )
+                mapOf("host" to "127.0.0.1", "port" to port, "socketPath" to socketFile?.path, "token" to serviceToken)
             ),
             Charsets.UTF_8,
         )
     }
 
+    /** Pin a launched agent to this GUI even when another GUI republishes the shared descriptor. */
+    @JvmStatic
+    public fun createRunDescriptor(): File {
+        val server = checkNotNull(serverSocket) { "GUI agent service is not running" }
+        val serviceToken = checkNotNull(token) { "GUI agent service has no token" }
+        check(!server.isClosed) { "GUI agent service is closed" }
+        val descriptor = File.createTempFile("breaktest-agent-run-", ".json")
+        descriptor.deleteOnExit()
+        writeDescriptorTo(descriptor, server.localPort, unixSocketFile().takeIf { unixServerSocket?.isOpen == true }, serviceToken)
+        return descriptor
+    }
+
+    @JvmStatic
     public fun descriptorFile(): File =
-        File(System.getProperty("breaktest.agent.descriptor", defaultDescriptorPath()))
+        File(
+            System.getenv("BREAKTEST_AGENT_DESCRIPTOR")?.takeIf { it.isNotBlank() }
+                ?: System.getProperty("breaktest.agent.descriptor", defaultDescriptorPath())
+        )
 
     private fun defaultDescriptorPath(): String =
         File(System.getProperty("java.io.tmpdir"), "breaktest-agent-${System.getProperty("user.name")}.json").path

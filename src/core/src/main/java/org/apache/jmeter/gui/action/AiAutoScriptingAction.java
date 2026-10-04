@@ -244,6 +244,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         AiRunOutput output = new AiRunOutput();
         AtomicBoolean timedOut = new AtomicBoolean(false);
         List<String> command = new ArrayList<>();
+        File runDescriptor = null;
         try {
             if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR && request.editSurface() == AiEditSurface.LIVE_GUI) {
                 long analysisStarted = System.nanoTime();
@@ -282,7 +283,11 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postActivity("Working directory: " + workingDirectory.getPath());
 
-            Process process = processCommand.start(workingDirectory);
+            runDescriptor = BreakTestAgentGuiService.createRunDescriptor();
+            Process process = processCommand.start(workingDirectory, java.util.Map.of(
+                    "BREAKTEST_AGENT_DESCRIPTOR", runDescriptor.getAbsolutePath(),
+                    "BREAKTEST_HOME", JMeterUtils.getJMeterHome(),
+                    "JMETER_HOME", JMeterUtils.getJMeterHome()));
             CURRENT_PROCESS.set(process);
             startTimeoutWatchdog(process, request, timedOut);
             if (STOP_REQUESTED.get()) {
@@ -341,6 +346,9 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
         } finally {
+            if (runDescriptor != null && !runDescriptor.delete()) {
+                runDescriptor.deleteOnExit();
+            }
             AgentBridgeCommand.deleteArgumentsFile();
             CURRENT_PROCESS.set(null);
             STOP_REQUESTED.set(false);
@@ -433,6 +441,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("--ask-for-approval");
         command.add(JMeterUtils.getPropDefault("breaktest.codex.approval", "never"));
         command.add("exec");
+        command.add("--json");
         command.add("--skip-git-repo-check");
         command.add("--sandbox");
         command.add(JMeterUtils.getPropDefault("breaktest.codex.sandbox", "danger-full-access"));
@@ -678,11 +687,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 return planDirectory;
             }
         }
-        File jmeterHome = new File(JMeterUtils.getJMeterHome());
-        if (jmeterHome.isDirectory()) {
-            return jmeterHome;
-        }
-        return new File(".").getAbsoluteFile();
+        return AiTaskWorkspace.unsavedPlanDirectory();
     }
 
     private static String prompt(AiRunRequest request) {
@@ -695,7 +700,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request.editSurface().fileBacked()) {
             return fileBackedRepairPrompt(request, testPlanFile);
         }
-        if (request.mode() == AiRunMode.SPECIFIC_REQUEST) {
+        if (request.mode() != AiRunMode.FULL_SCRIPT_REPAIR) {
             return specificRequestPrompt(request, testPlanFile);
         }
         AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
@@ -715,7 +720,8 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
         AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
-        return AiPrompts.render(AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
+        return AiPrompts.render(request.mode() == AiRunMode.GENERATE_SCRIPT
+                ? AiPrompts.GENERATE_SCRIPT : AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
                 Map.entry("BRIDGE", bridge.command()),
                 Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
                 Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
@@ -729,7 +735,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static String fileBackedRepairPrompt(AiRunRequest request, String testPlanFile) {
-        String taskScope = AiPrompts.fragment(request.mode() == AiRunMode.SPECIFIC_REQUEST
+        String taskScope = AiPrompts.fragment(request.mode() != AiRunMode.FULL_SCRIPT_REPAIR
                 ? "taskScope.specificRequest"
                 : "taskScope.fullRepair");
         AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
@@ -788,14 +794,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static AiRunRequest showStartDialog(GuiPackage gui) {
         List<ThreadGroupChoice> threadGroups = enabledThreadGroups(gui);
-        if (threadGroups.isEmpty()) {
-            JOptionPane.showMessageDialog(
-                    gui == null ? null : gui.getMainFrame(),
-                    "No enabled Thread Groups are available for AI Auto Scripting (Beta).",
-                    "Start AI Auto Scripting (Beta)",
-                    JOptionPane.WARNING_MESSAGE
-            );
-            return null;
+        boolean emptyPlan = threadGroups.isEmpty();
+        if (emptyPlan) {
+            threadGroups.add(new ThreadGroupChoice(null));
         }
         String testPlanFile = gui != null ? gui.getTestPlanFile() : null;
 
@@ -811,16 +812,21 @@ public class AiAutoScriptingAction extends AbstractAction {
         ThreadGroupChoice defaultThreadGroup = defaultThreadGroup(threadGroups, currentThreadGroupNode(gui));
         threadGroup.setSelectedItem(defaultThreadGroup);
 
-        JRadioButton fullRepair = new JRadioButton("Full script repair", true);
+        boolean generationDefault = emptyPlan || AiTaskWorkspace.hasNoSamplers(defaultThreadGroup.node());
+        JRadioButton fullRepair = new JRadioButton("Full script repair", !generationDefault);
         JRadioButton specificRequest = new JRadioButton("Specific request");
+        JRadioButton generateScript = new JRadioButton("Generate script", generationDefault);
+        fullRepair.setEnabled(!emptyPlan);
         ButtonGroup modeGroup = new ButtonGroup();
         modeGroup.add(fullRepair);
         modeGroup.add(specificRequest);
+        modeGroup.add(generateScript);
         JPanel modePanel = new JPanel(new BorderLayout(0, 4));
         modePanel.add(new JLabel("Mode"), BorderLayout.NORTH);
         JPanel modeChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         modeChoices.add(fullRepair);
         modeChoices.add(specificRequest);
+        modeChoices.add(generateScript);
         modePanel.add(modeChoices, BorderLayout.CENTER);
 
         JRadioButton liveGui = new JRadioButton("GUI mode", defaultEditSurface() == AiEditSurface.LIVE_GUI);
@@ -850,11 +856,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         JLabel instructionsLabel = new JLabel("Instructions (optional)");
 
         Runnable updateModeOptions = () -> {
-            addAssertions.setEnabled(fullRepair.isSelected());
+            addAssertions.setEnabled(fullRepair.isSelected() || generateScript.isSelected());
             instructionsLabel.setText(fullRepair.isSelected() ? "Instructions (optional)" : "Instructions (required)");
         };
         fullRepair.addActionListener(event -> updateModeOptions.run());
         specificRequest.addActionListener(event -> updateModeOptions.run());
+        generateScript.addActionListener(event -> updateModeOptions.run());
         updateModeOptions.run();
 
         JTextArea instructions = new JTextArea(6, 56);
@@ -966,10 +973,11 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
         AiTool selectedTool = (AiTool) aiTool.getSelectedItem();
         ThreadGroupChoice selectedThreadGroup = (ThreadGroupChoice) threadGroup.getSelectedItem();
-        AiRunMode mode = specificRequest.isSelected() ? AiRunMode.SPECIFIC_REQUEST : AiRunMode.FULL_SCRIPT_REPAIR;
+        AiRunMode mode = generateScript.isSelected() ? AiRunMode.GENERATE_SCRIPT
+                : specificRequest.isSelected() ? AiRunMode.SPECIFIC_REQUEST : AiRunMode.FULL_SCRIPT_REPAIR;
         AiEditSurface editSurface = liveGui.isSelected() ? AiEditSurface.LIVE_GUI : AiEditSurface.NON_GUI;
         String instructionText = instructions.getText().trim();
-        if (mode == AiRunMode.SPECIFIC_REQUEST && instructionText.isBlank()) {
+        if (mode != AiRunMode.FULL_SCRIPT_REPAIR && instructionText.isBlank()) {
             JOptionPane.showMessageDialog(
                     gui == null ? null : gui.getMainFrame(),
                     "Add instructions for a specific request.",
@@ -983,7 +991,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 selectedThreadGroup,
                 mode,
                 editSurface,
-                mode == AiRunMode.FULL_SCRIPT_REPAIR && addAssertions.isSelected(),
+                mode != AiRunMode.SPECIFIC_REQUEST && addAssertions.isSelected(),
                 parseIntegerField(maxRuntimeSeconds, "Maximum runtime", 60, 14400),
                 parseIntegerField(maxSimilarRetries, "Similar retry limit", 0, 50),
                 instructionText
@@ -1243,6 +1251,9 @@ public class AiAutoScriptingAction extends AbstractAction {
         postActivity("Token usage: input=" + output.inputTokensText()
                 + ", output=" + output.outputTokensText()
                 + ", total=" + output.totalTokensText());
+        if (!output.inputCacheSummary().isEmpty()) {
+            postActivity(output.inputCacheSummary());
+        }
         if (output.piUsageMessages() > 0) {
             postActivity("Pi usage: model responses=" + output.piUsageMessages()
                     + ", cached input=" + output.piCachedInputTokens()
@@ -1270,7 +1281,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static void enforceRepairCompletionStatus(AiRunRequest request, AiRunOutput output) {
-        if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR) {
+        if (request.mode() != AiRunMode.SPECIFIC_REQUEST) {
             output.requireRepairCompletionStatus();
         }
     }
@@ -1386,7 +1397,8 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private enum AiRunMode {
         FULL_SCRIPT_REPAIR("Full script repair"),
-        SPECIFIC_REQUEST("Specific request");
+        SPECIFIC_REQUEST("Specific request"),
+        GENERATE_SCRIPT("Generate script");
 
         private final String displayName;
 
@@ -1636,8 +1648,8 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private ThreadGroupChoice(JMeterTreeNode node) {
             this.node = node;
-            this.name = node.getName();
-            this.path = treePath(node);
+            this.name = node == null ? "New Thread Group" : node.getName();
+            this.path = node == null ? "" : treePath(node);
         }
 
         private JMeterTreeNode node() {
@@ -1687,15 +1699,15 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         AiOutputFilter(AiTool tool) {
             this.tool = tool;
-            // Codex marks its final response with a "codex" sentinel line; every
-            // other CLI streams plain agent text from the first line onwards.
+            // Keep the legacy plain-text Codex parser for custom CLI wrappers.
+            // Normal Codex runs use structured events via CodexRunEvents.
             this.finalResponseStarted = tool != AiTool.CODEX;
         }
 
         String displayLine(String rawLine) {
             String line = stripAnsi(rawLine);
-            if (tool == AiTool.PI && line.stripLeading().startsWith("{")) {
-                return displayPiEvent(line);
+            if ((tool == AiTool.CODEX || tool == AiTool.PI) && line.stripLeading().startsWith("{")) {
+                return tool == AiTool.CODEX ? CodexRunEvents.display(line, output) : displayPiEvent(line);
             }
             String display = null;
             String trimmed = line.trim();
@@ -1724,6 +1736,11 @@ public class AiAutoScriptingAction extends AbstractAction {
                         suppressGeminiErrorDetails = false;
                     }
                     return null;
+                } else if (trimmed.equals("codex")) {
+                    finalResponseStarted = true;
+                    suppressToolOutput = false;
+                    suppressDiffOutput = false;
+                    output.startFinalResponseBlock();
                 } else if (shouldStartDiffSuppression(trimmed)) {
                     suppressDiffOutput = true;
                 } else if (suppressDiffOutput && !shouldEndDiffSuppression(trimmed)) {
@@ -1734,10 +1751,6 @@ public class AiAutoScriptingAction extends AbstractAction {
                 } else if (isToolOutputBoundary(trimmed)) {
                     finalResponseStarted = false;
                     suppressToolOutput = true;
-                } else if (trimmed.equals("codex")) {
-                    finalResponseStarted = true;
-                    suppressToolOutput = false;
-                    output.startFinalResponseBlock();
                 } else if (trimmed.equals("tokens used")) {
                     skipNextTokenCount = true;
                 } else if (skipNextTokenCount) {

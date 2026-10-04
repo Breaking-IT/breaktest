@@ -85,7 +85,12 @@ public final class AiCliProcess {
     }
 
     public Process start(File workingDirectory) throws IOException {
+        return start(workingDirectory, Map.of());
+    }
+
+    public Process start(File workingDirectory, Map<String, String> environment) throws IOException {
         ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.environment().putAll(environment);
         processBuilder.directory(workingDirectory);
         processBuilder.redirectErrorStream(true);
         return processBuilder.start();

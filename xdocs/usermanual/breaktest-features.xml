@@ -61,7 +61,49 @@ preserved unless a closer configuration overrides that name.
   <li>Brotli and Zstandard response decoding were added alongside gzip and deflate.</li>
 </ul>
 
+<h2>Generating scripts with AI Repair</h2>
+<p>
+Choose <code>Generate script</code> to build a new flow. It is selected by default when the selected Thread Group
+has no samplers, including an empty Test Plan. This mode uses a focused generation workflow instead of the full
+recording-repair and correlation workflow.
+AI Repair discovers installed samplers, controllers, timers and processors from the same catalog as the Add menu,
+then reads native defaults, property types, choices and supported table schemas before creating elements.
+It can configure HTTP arguments and request bodies, Header Managers and WebSocket handshake headers,
+including <code>Sec-WebSocket-Protocol</code>. New elements participate in backup, undo and the AI change list.
+</p>
+<p>
+For example, request a charger simulation and specify the OCPP version, endpoint, authentication and desired messages.
+The agent can assemble Connect, Send/Wait, Match handlers, paced loops and background Fork branches using native elements.
+Missing configuration remains a labelled placeholder. Generate script mode requests one bounded synthetic integration
+replay by default, using a loopback fixture and native timers, unless the user explicitly opts out. Requested assertions
+are added before replay. Temporary endpoint overrides are restored and fixtures stopped afterward. Offline checks alone
+are not an integration pass; missing coverage or an infeasible fixture must be reported explicitly. Synthetic validation
+does not establish compatibility with a real server.
+</p>
+
+<p>
+Native creation/configuration tools return compact confirmations by default, avoiding repeated payload and script echoes.
+Use <code>compact=false</code> when full element details are needed. Catalog discovery is paginated, and the agent
+is instructed to reuse schemas and batch independent operations. Unsaved plans without an explicitly configured AI
+working directory use a separate temporary task directory, shown in the activity log; saved plans retain their directory.
+Generated fixtures remain there for inspection. Codex usage summaries distinguish cached and uncached input when reported;
+input totals accumulate across model requests and already include cached input. Successful template reports still show
+unverified behavior and limitations under Follow-up.
+</p>
+
 <h2>WebSocket Sessions</h2>
+<p>
+AI Repair exposes WebSocket session and Send/Wait settings, searches recorded text, hex and ASCII,
+and retrieves paged message evidence with direction, relative timestamps and lossless byte previews.
+It suggests exact earlier-received token matches as correlation candidates for review, including embedded
+ASCII tokens in binary messages. These candidates are not proof of a dynamic field.
+The live <code>update_websocket_open_plan</code> tool edits existing Connect, Send, Close and Match settings
+with undo/change tracking; <code>add_websocket_match_open_plan</code> creates a handler for unsolicited messages. Binary validation responses are labelled hex and include byte length and truncation.
+Text extractors belong on a Send and Wait response or a captured Match message, not the Connect handshake.
+Binary application protocols require a proven decoder/encoder and byte-aware extraction/assertions; AI Repair
+does not automatically infer arbitrary MessagePack, protobuf, compressed or encrypted schemas.
+</p>
+
 <p>
 WebSocket Send has an Action setting: <code>Send only</code> or <code>Send and Wait</code>.
 Send only disables and ignores all waiting options. Send and Wait enables the timeout and

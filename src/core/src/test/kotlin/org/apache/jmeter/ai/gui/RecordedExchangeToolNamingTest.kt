@@ -59,7 +59,12 @@ class RecordedExchangeToolNamingTest {
 
     @Test
     fun `renamed tools dispatch`() {
-        for (tool in renamedTools) {
+        for (
+            tool in renamedTools + listOf(
+                "update_websocket_open_plan", "add_websocket_match_open_plan",
+                "list_available_elements", "describe_element", "add_element_open_plan", "configure_element_open_plan"
+            )
+        ) {
             assertTrue(isDispatched(tool), "$tool is not dispatched")
         }
     }

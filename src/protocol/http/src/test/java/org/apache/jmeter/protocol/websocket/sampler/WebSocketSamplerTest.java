@@ -592,6 +592,35 @@ class WebSocketSamplerTest extends JMeterTestCase {
     }
 
     @Test
+    void aiConfiguredNativeElementsNegotiateExchangeAndClose() throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var catalog = org.apache.jmeter.ai.AgentElementCatalog.INSTANCE;
+        try (Peer peer = new Peer(false)) {
+            var connectProperties = json.createObjectNode()
+                    .put("sessionName", "generated").put("url", peer.url()).put("timeout", 2000);
+            var connect = (WebSocketConnectSampler) catalog.configured(new WebSocketConnectSampler(),
+                    connectProperties, json.readTree("""
+                            {"headers":[{"name":"Sec-WebSocket-Protocol","value":"test.protocol"}]}
+                            """));
+            SampleResult connected = connect.sample(null);
+            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+            assertTrue(connected.getResponseHeaders().toLowerCase(Locale.ROOT)
+                    .contains("sec-websocket-protocol: test.protocol"));
+            var send = (WebSocketSendWaitSampler) catalog.configured(new WebSocketSendWaitSampler(),
+                    json.createObjectNode().put("sessionName", "generated").put("payload", "request-1")
+                            .put("action", WebSocketSendWaitSampler.SEND_AND_WAIT)
+                            .put("waitMode", WebSocketSendWaitSampler.MATCHING_MESSAGE)
+                            .put("responsePattern", "^request-1$").put("waitTimeout", 2000), null);
+            SampleResult reply = send.sample(null);
+            assertTrue(reply.isSuccessful(), reply::getResponseMessage);
+            assertEquals("request-1", reply.getResponseDataAsString());
+            var close = (WebSocketCloseSampler) catalog.configured(new WebSocketCloseSampler(),
+                    json.createObjectNode().put("sessionName", "generated").put("timeout", 2000), null);
+            assertTrue(close.sample(null).isSuccessful());
+        }
+    }
+
+    @Test
     void realHandshakeEchoFilteringAndClose() throws Exception {
         JMeterContextService.getContext().getVariables().put("callbackMarker", "own-user");
         try (Peer peer = new Peer(false)) {
