@@ -31,14 +31,6 @@ final class AgentBridgeCommand {
     private AgentBridgeCommand() {
     }
 
-    static String resolve() {
-        return resolveInstructions().command();
-    }
-
-    static String resolve(boolean windows) {
-        return resolveInstructions(windows).command();
-    }
-
     static Instructions resolveInstructions() {
         return resolveInstructions(File.pathSeparatorChar == ';');
     }

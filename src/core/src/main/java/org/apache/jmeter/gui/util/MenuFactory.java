@@ -780,7 +780,8 @@ public final class MenuFactory {
                     Profile.class, SharedProfile.class})
                     && !foundMenuCategories(nodes, NON_TEST_ELEMENTS);
         }
-        return allOfClass(nodes, NonTestElement.class);
+        return Arrays.stream(nodes).allMatch(node ->
+                ScenarioPlanMigration.sectionFor(node.getUserObject()) == NonTestElementsSection.class);
     }
 
     /** Elements that are not in any menu, such as sections, scenarios and profiles, have no categories. */
