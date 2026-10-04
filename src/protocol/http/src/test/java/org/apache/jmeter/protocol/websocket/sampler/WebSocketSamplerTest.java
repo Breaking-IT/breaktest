@@ -529,6 +529,14 @@ class WebSocketSamplerTest extends JMeterTestCase {
             assertNotNull(disconnect);
             assertFalse(disconnect.isSuccessful());
             assertEquals("1000", disconnect.getResponseCode());
+            WebSocketCloseSampler close = new WebSocketCloseSampler();
+            close.setSessionName("push");
+            SampleResult closed = close.sample(null);
+            assertFalse(closed.isSuccessful());
+            assertEquals("WS_ERROR", closed.getResponseCode());
+            assertTrue(closed.getResponseMessage().contains("WebSocket session is not open: push"));
+            assertThrows(IllegalStateException.class, () -> WebSocketSessions.current().get("push"));
+            assertFalse(close.sample(null).isSuccessful(), "A missing session must also fail Close");
         }
     }
 

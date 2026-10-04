@@ -128,6 +128,7 @@ class WebSocketSessionTest extends JMeterTestCase {
         WebSocketSession ignored = session(true, false, true, "", "");
         ignored.onClose(ignored.socket(), 1001, "gone");
         assertTrue(results.isEmpty());
+        assertThrows(IllegalStateException.class, ignored::close);
         WebSocketSession failed = session(true, true, true, "", "");
         WebSocket socket = failed.socket();
         failed.onError(socket, new IllegalStateException("broken"));
@@ -135,12 +136,14 @@ class WebSocketSessionTest extends JMeterTestCase {
         assertEquals(1, results.size());
         assertFalse(results.get(0).isSuccessful());
         assertThrows(IllegalStateException.class, failed::socket);
+        assertThrows(IllegalStateException.class, failed::close);
     }
 
     @Test
     void deliberateCloseCanCompleteSynchronouslyWithoutFailure() {
         WebSocketSession session = session(true, true, true, "", "");
         assertTrue(session.close().isDone());
+        assertThrows(IllegalStateException.class, session::close);
         assertTrue(results.isEmpty());
         assertThrows(IllegalStateException.class, session::socket);
     }

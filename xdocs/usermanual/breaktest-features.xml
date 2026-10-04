@@ -151,7 +151,9 @@ disposes the previous connection for that name and performs a fresh handshake.
 <b>Reuse if connected</b> keeps an open connection with its original URL, headers,
 and session settings; a disconnected session is replaced. Reuse reports success
 without a handshake. <b>Fail if exists</b> reports an error without changing the
-existing session. Other named sessions are unaffected. In new-user mode, the old
+existing session. Other named sessions are unaffected. An explicit Close sampler fails if the connection
+is already closed or the session is missing, even when unexpected-disconnect reporting
+is disabled. Closing an already disconnected session still removes its registry entry. In new-user mode, the old
 sessions have already been cleared, so all three options create a fresh connection.
 The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
 HTTP Header Managers in scope also apply. Connect's own headers take priority,

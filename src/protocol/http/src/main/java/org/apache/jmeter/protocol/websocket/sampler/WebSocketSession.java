@@ -336,8 +336,8 @@ final class WebSocketSession implements WebSocket.Listener {
     }
 
     synchronized CompletableFuture<Void> close() {
-        if (terminated) {
-            return closed;
+        if (!isOpen()) {
+            throw new IllegalStateException("WebSocket session is not open: " + name);
         }
         WebSocket open = socket();
         expectedClose = true; // Set before sendClose: the peer can answer immediately.
