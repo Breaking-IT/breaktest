@@ -144,7 +144,15 @@ leave shared clients available. Existing
 sessions remain usable; late responses cannot populate another user's store.
 With Same user on each iteration disabled, open WebSockets are closed before user
 variables reset, even if an error skipped the Close sampler. Same-user iterations
-retain their named sessions.
+retain their named sessions until a sampler closes or replaces them.
+Connect's <b>When session already exists</b> setting applies on every execution,
+including subsequent same-user iterations. <b>Close and reconnect</b> (the default)
+disposes the previous connection for that name and performs a fresh handshake.
+<b>Reuse if connected</b> keeps an open connection with its original URL, headers,
+and session settings; a disconnected session is replaced. Reuse reports success
+without a handshake. <b>Fail if exists</b> reports an error without changing the
+existing session. Other named sessions are unaffected. In new-user mode, the old
+sessions have already been cleared, so all three options create a fresh connection.
 The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
 HTTP Header Managers in scope also apply. Connect's own headers take priority,
 then the closest scoped manager, with case-insensitive name matching and repeated

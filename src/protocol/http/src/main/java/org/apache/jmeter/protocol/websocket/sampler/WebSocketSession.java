@@ -83,6 +83,11 @@ final class WebSocketSession implements WebSocket.Listener {
         }
     }
 
+    synchronized boolean isOpen() {
+        return socket != null && !terminated && !disposed && !expectedClose
+                && !socket.isInputClosed() && !socket.isOutputClosed();
+    }
+
     synchronized WebSocket socket() {
         if (socket == null || terminated || disposed || expectedClose) {
             throw new IllegalStateException("WebSocket session is not open: " + name);

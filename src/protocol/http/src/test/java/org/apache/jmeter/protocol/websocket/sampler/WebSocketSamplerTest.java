@@ -164,9 +164,33 @@ class WebSocketSamplerTest extends JMeterTestCase {
         assertDoesNotThrow(() -> new WebSocketConnectSampler().threadFinished());
     }
 
+    private void assertExistingSessionAction(String action, Peer first, Peer second,
+            WebSocketSessions registry, WebSocketSession previous) throws Exception {
+        WebSocketConnectSampler next = connect("chat", second.url());
+        next.setExistingSessionAction(action);
+        SampleResult connected = next.sample(null);
+        if (WebSocketConnectSampler.FAIL.equals(action)) {
+            assertFalse(connected.isSuccessful());
+            assertSame(previous, registry.get("chat"));
+            assertNotNull(previous.socket());
+        } else if (WebSocketConnectSampler.REUSE.equals(action)) {
+            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+            assertEquals("200", connected.getResponseCode());
+            assertSame(previous, registry.get("chat"));
+            assertFalse(second.requestLine.isDone(), "Reuse must not send another handshake");
+        } else {
+            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+            assertNotSame(previous, registry.get("chat"));
+            assertThrows(IllegalStateException.class, () -> previous.socket());
+            first.done.get(3, TimeUnit.SECONDS);
+        }
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
-    void iterationBoundaryClosesOnlyNewUserSessionsEvenWhenCloseWasSkipped(boolean sameUser) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false,Close and reconnect", "false,Reuse if connected", "false,Fail if exists",
+            "true,Close and reconnect", "true,Reuse if connected", "true,Fail if exists"})
+    void iterationBoundaryClosesOnlyNewUserSessionsEvenWhenCloseWasSkipped(boolean sameUser, String action) throws Exception {
         try (Peer first = new Peer(false); Peer second = new Peer(false)) {
             var iteration = new java.util.concurrent.atomic.AtomicInteger();
             var previous = new java.util.concurrent.atomic.AtomicReference<WebSocketSession>();
@@ -188,6 +212,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
                         } else if (sameUser) {
                             assertSame(registry.get(), WebSocketSessions.current());
                             assertNotNull(previous.get().socket());
+                            assertExistingSessionAction(action, first, second, registry.get(), previous.get());
                         } else {
                             first.done.get(3, TimeUnit.SECONDS);
                             assertThrows(IllegalStateException.class, () -> previous.get().socket());
@@ -195,7 +220,9 @@ class WebSocketSamplerTest extends JMeterTestCase {
                                 throw new AssertionError("Old user must not publish notifications");
                             });
                             assertNotSame(registry.get(), WebSocketSessions.current());
-                            SampleResult connected = connect("chat", second.url()).sample(null);
+                            WebSocketConnectSampler next = connect("chat", second.url());
+                            next.setExistingSessionAction(action);
+                            SampleResult connected = next.sample(null);
                             assertTrue(connected.isSuccessful(), connected::getResponseMessage);
                         }
                     } catch (Throwable error) {
@@ -532,11 +559,44 @@ class WebSocketSamplerTest extends JMeterTestCase {
             assertTrue(connect("first", first.url()).sample(null).isSuccessful());
             assertTrue(connect("second", second.url()).sample(null).isSuccessful());
             assertNotSame(WebSocketSessions.current().get("first"), WebSocketSessions.current().get("second"));
-            assertFalse(connect("first", first.url()).sample(null).isSuccessful());
+            WebSocketConnectSampler duplicate = connect("first", first.url());
+            duplicate.setExistingSessionAction(WebSocketConnectSampler.FAIL);
+            assertFalse(duplicate.sample(null).isSuccessful());
             WebSocketCloseSampler close = new WebSocketCloseSampler();
             close.setSessionName("first");
             assertTrue(close.sample(null).isSuccessful());
             assertNotNull(WebSocketSessions.current().get("second").socket());
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"Close and reconnect", "Reuse if connected"})
+    void reconnectReplacesOnlyNamedSessionIncludingDisconnectedSessions(String action) throws Exception {
+        try (Peer first = new Peer(false); Peer other = new Peer(false); Peer replacement = new Peer(false)) {
+            assertEquals(WebSocketConnectSampler.RECONNECT, new WebSocketConnectSampler().getExistingSessionAction());
+            assertTrue(connect("chat", first.url()).sample(null).isSuccessful());
+            assertTrue(connect("other", other.url()).sample(null).isSuccessful());
+            WebSocketSessions registry = WebSocketSessions.current();
+            WebSocketSession old = registry.get("chat");
+            WebSocketSession untouched = registry.get("other");
+            if (WebSocketConnectSampler.REUSE.equals(action)) {
+                old.close().get(3, TimeUnit.SECONDS);
+            }
+            WebSocketConnectSampler next = connect("chat", replacement.url());
+            next.setExistingSessionAction(action);
+            SampleResult connected = next.sample(null);
+            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+            assertEquals("101", connected.getResponseCode());
+            first.done.get(3, TimeUnit.SECONDS);
+            assertNotSame(old, registry.get("chat"));
+            assertSame(untouched, registry.get("other"));
+            assertNotNull(untouched.socket());
+            WebSocketSendWaitSampler send = new WebSocketSendWaitSampler();
+            send.setSessionName("chat");
+            send.setPayload("replacement works");
+            SampleResult response = send.sample(null);
+            assertTrue(response.isSuccessful(), response::getResponseMessage);
+            assertEquals("replacement works", response.getResponseDataAsString());
         }
     }
 
@@ -587,6 +647,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
         WebSocketConnectSampler original = connect("chat", "wss://example.test/socket");
         original.setProperty("TestElement.gui_class", "org.apache.jmeter.testbeans.gui.TestBeanGUI");
         original.setProperty("TestElement.test_class", WebSocketConnectSampler.class.getName());
+        original.setExistingSessionAction(WebSocketConnectSampler.REUSE);
         original.setTextFilter("^heartbeat$");
         original.setBinaryFilter("0102");
         original.setCountIncoming(false);
@@ -596,6 +657,7 @@ class WebSocketSamplerTest extends JMeterTestCase {
         WebSocketConnectSampler restored = (WebSocketConnectSampler) SaveService.loadElement(
                 new ByteArrayInputStream(output.toByteArray()));
         assertEquals(original.getUrl(), restored.getUrl());
+        assertEquals(WebSocketConnectSampler.REUSE, restored.getExistingSessionAction());
         assertEquals("chat", restored.getSessionName());
         assertEquals("^heartbeat$", restored.getTextFilter());
         assertEquals("0102", restored.getBinaryFilter());

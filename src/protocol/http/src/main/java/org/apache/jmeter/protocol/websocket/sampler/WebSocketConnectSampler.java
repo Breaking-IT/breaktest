@@ -51,6 +51,18 @@ import org.apache.jmeter.threads.SamplePackage;
 @TestElementMetadata(labelResource = "displayName")
 public class WebSocketConnectSampler extends AbstractWebSocketSampler {
     private static final long serialVersionUID = 1L;
+    public static final String RECONNECT = "Close and reconnect";
+    public static final String REUSE = "Reuse if connected";
+    public static final String FAIL = "Fail if exists";
+
+    public String getExistingSessionAction() {
+        return getPropertyAsString("existingSessionAction", RECONNECT);
+    }
+
+    public void setExistingSessionAction(String value) {
+        setProperty("existingSessionAction", value);
+    }
+
     private static final String COOKIE_MANAGER = "WebSocketConnect.cookieManager";
     private static final String HEADER_MANAGER = "WebSocketConnect.headerManager";
     private static final Set<String> TRANSPORT_HEADERS = Set.of("connection", "content-length", "expect", "host", "upgrade");
@@ -66,7 +78,11 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
                 getFailOnDisconnect(), getIgnoreControlFrames(), getTextFilter(), getBinaryFilter(),
                 getMaxMessageBytes(), publisher());
         WebSocketSessions sessions = WebSocketSessions.current();
-        sessions.add(getSessionName(), session);
+        if (!sessions.connect(getSessionName(), session, getExistingSessionAction())) {
+            result.setSamplerData("Reused WebSocket session: " + getSessionName());
+            result.setResponseMessage("Existing WebSocket connection reused; no handshake performed");
+            return;
+        }
         active(session);
         try {
             var client = sessions.client(getSessionName(), session, uri);

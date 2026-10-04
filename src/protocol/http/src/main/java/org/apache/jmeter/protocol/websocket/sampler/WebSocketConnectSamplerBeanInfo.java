@@ -36,7 +36,7 @@ public class WebSocketConnectSamplerBeanInfo extends BeanInfoSupport {
             descriptor.setValue(key, source.getValue(key));
         }
         property("headers").setHidden(true);
-        createPropertyGroup("session", new String[] {"sessionName", "timeout", "url", "countIncoming",
+        createPropertyGroup("session", new String[] {"sessionName", "timeout", "url", "existingSessionAction", "countIncoming",
                 "failOnDisconnect", "ignoreControlFrames", "textFilter", "binaryFilter", "maxMessageBytes"});
         property("sessionName").setValue(NOT_UNDEFINED, true);
         property("sessionName").setValue(DEFAULT, "default");
@@ -44,6 +44,11 @@ public class WebSocketConnectSamplerBeanInfo extends BeanInfoSupport {
         property("timeout").setValue(DEFAULT, 10000);
         property("url").setValue(NOT_UNDEFINED, true);
         property("url").setValue(DEFAULT, "ws://localhost:8080/");
+        property("existingSessionAction").setValue(NOT_UNDEFINED, true);
+        property("existingSessionAction").setValue(DEFAULT, WebSocketConnectSampler.RECONNECT);
+        property("existingSessionAction").setValue(TAGS, new String[] {
+                WebSocketConnectSampler.RECONNECT, WebSocketConnectSampler.REUSE, WebSocketConnectSampler.FAIL});
+        property("existingSessionAction").setValue(NOT_OTHER, true);
         property("countIncoming").setValue(NOT_UNDEFINED, true);
         property("countIncoming").setValue(DEFAULT, true);
         property("failOnDisconnect").setValue(NOT_UNDEFINED, true);

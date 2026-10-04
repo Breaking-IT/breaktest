@@ -75,6 +75,29 @@ final class WebSocketSessions {
         sessions.put(name, session);
     }
 
+    /** Atomically reserves a new connection, or returns false when reusing an open one. */
+    synchronized boolean connect(String name, WebSocketSession replacement, String action) {
+        if (!WebSocketConnectSampler.RECONNECT.equals(action) && !WebSocketConnectSampler.REUSE.equals(action)
+                && !WebSocketConnectSampler.FAIL.equals(action)) {
+            throw new IllegalArgumentException("Unknown existing session action: " + action);
+        }
+        if (closed) {
+            throw new IllegalStateException("WebSocket user session registry is closed");
+        }
+        WebSocketSession existing = sessions.get(name);
+        if (existing != null) {
+            if (WebSocketConnectSampler.FAIL.equals(action)) {
+                throw new IllegalStateException("WebSocket session already exists: " + name);
+            }
+            if (WebSocketConnectSampler.REUSE.equals(action) && existing.isOpen()) {
+                return false;
+            }
+            remove(name, existing);
+        }
+        add(name, replacement);
+        return true;
+    }
+
     synchronized WebSocketSession get(String name) {
         WebSocketSession session = sessions.get(name);
         if (session == null) {
