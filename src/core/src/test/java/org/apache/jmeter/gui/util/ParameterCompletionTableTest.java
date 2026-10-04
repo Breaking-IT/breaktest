@@ -27,6 +27,7 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
+import java.awt.KeyEventDispatcher;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -65,6 +66,9 @@ import com.formdev.flatlaf.util.SystemInfo;
 class ParameterCompletionTableTest {
     private static JFrame frame;
     private static LookAndFeel originalLookAndFeel;
+    private static boolean dispatchingTestKey;
+    private static final KeyEventDispatcher IGNORE_DESKTOP_KEYS = event ->
+            !dispatchingTestKey && SwingUtilities.isDescendingFrom(event.getComponent(), frame);
 
     @BeforeAll
     static void openWindow() throws Exception {
@@ -75,6 +79,9 @@ class ParameterCompletionTableTest {
                     SystemInfo.isMacOS ? new FlatMacLightLaf() : new FlatLightLaf()));
             frame = new JFrame("Parameter completion focus test");
             frame.setSize(400, 200);
+            // Foreground activation can deliver real desktop typing to this test window.
+            // Only the synchronously dispatched test keys should exercise its bindings.
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(IGNORE_DESKTOP_KEYS);
         });
     }
 
@@ -82,6 +89,7 @@ class ParameterCompletionTableTest {
     static void closeWindow() throws Exception {
         if (frame != null) {
             SwingUtilities.invokeAndWait(() -> {
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(IGNORE_DESKTOP_KEYS);
                 frame.dispose();
                 assertDoesNotThrow(() -> UIManager.setLookAndFeel(originalLookAndFeel));
             });
@@ -188,7 +196,15 @@ class ParameterCompletionTableTest {
                 if (!standalone) {
                     table.setDefaultEditor(Object.class, new DefaultCellEditor(editor));
                 }
-                table.addFocusListener(focusLatch(tableFocused));
+                table.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusGained(FocusEvent event) {
+                        // The activation listener only bootstraps table focus. Leaving it installed
+                        // can steal focus back from the standalone field on a late activation event.
+                        frame.removeWindowFocusListener(focusListener);
+                        tableFocused.countDown();
+                    }
+                });
                 editor.addFocusListener(focusLatch(editorFocused));
                 // Keep the native window alive across cases to avoid desktop activation races.
                 frame.setContentPane(new JPanel(new BorderLayout()));
@@ -261,6 +277,11 @@ class ParameterCompletionTableTest {
 
     private static void dispatch(int id, int code, char character) {
         Component focus = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-        focus.dispatchEvent(new KeyEvent(focus, id, System.currentTimeMillis(), 0, code, character));
+        dispatchingTestKey = true;
+        try {
+            focus.dispatchEvent(new KeyEvent(focus, id, System.currentTimeMillis(), 0, code, character));
+        } finally {
+            dispatchingTestKey = false;
+        }
     }
 }

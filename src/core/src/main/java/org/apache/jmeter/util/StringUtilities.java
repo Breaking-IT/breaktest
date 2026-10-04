@@ -15,22 +15,35 @@
  * limitations under the License.
  */
 
-package org.apache.jorphan.reflect;
+package org.apache.jmeter.util;
 
+import org.apache.jorphan.util.JOrphanUtils;
 import org.apiguardian.api.API;
 
-/**
- * Service loading might fail (e.g. due to a missing dependency).
- * This handler enables client code factor the failure handing.
- *
- * @param <S> type of the service
- * @since 5.6
- * @see IgnoreServiceLoadExceptionHandler
- * @see LogAndIgnoreServiceLoadExceptionHandler
- * @see RethrowServiceLoadExceptionHandler
- */
-@FunctionalInterface
-@API(status = API.Status.EXPERIMENTAL, since = "5.6")
-public interface ServiceLoadExceptionHandler<S> {
-    void handle(Class<? extends S> service, String className, Throwable throwable);
+@Deprecated
+@API(since = "1.0.0", status = API.Status.DEPRECATED)
+public final class StringUtilities {
+
+    /**
+     * Private constructor to prevent instantiation.
+     */
+    private StringUtilities() {
+    }
+
+    /**
+     * Replace all patterns in a String
+     *
+     * @see String#replaceAll(String,String)
+     *  - JDK1.4 only
+     *
+     * @param input - string to be transformed
+     * @param pattern - pattern to replace
+     * @param sub - replacement
+     * @return the updated string
+     */
+    @Deprecated
+    @API(since = "1.0.0", status = API.Status.DEPRECATED)
+    public static String substitute(final String input, final String pattern, final String sub) {
+        return JOrphanUtils.substitute(input, pattern, sub);
+    }
 }

@@ -17,20 +17,12 @@
 
 package org.apache.jorphan.reflect;
 
-import org.apiguardian.api.API;
-
 /**
- * Service loading might fail (e.g. due to a missing dependency).
- * This handler enables client code factor the failure handing.
- *
- * @param <S> type of the service
- * @since 5.6
- * @see IgnoreServiceLoadExceptionHandler
- * @see LogAndIgnoreServiceLoadExceptionHandler
- * @see RethrowServiceLoadExceptionHandler
+ * Rethrows service loading failures as {@link IllegalStateException}.
  */
-@FunctionalInterface
-@API(status = API.Status.EXPERIMENTAL, since = "5.6")
-public interface ServiceLoadExceptionHandler<S> {
-    void handle(Class<? extends S> service, String className, Throwable throwable);
+public class RethrowServiceLoadExceptionHandler implements ServiceLoadExceptionHandler<Object> {
+    @Override
+    public void handle(Class<?> service, String className, Throwable throwable) {
+        throw new IllegalStateException("Can't load class " + className + " for instantiating service " + service, throwable);
+    }
 }

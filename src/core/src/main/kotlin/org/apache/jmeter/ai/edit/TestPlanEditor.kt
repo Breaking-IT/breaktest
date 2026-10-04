@@ -106,6 +106,11 @@ public data class TestPlanEditResult(
     val extractorClass: String,
 )
 
+public data class LiteralReplacementResult(
+    val targetSamplerLabel: String,
+    val replacements: Int,
+)
+
 private const val TEST_PLAN_USER_DEFINED_VARIABLES = "TestPlan.user_defined_variables"
 
 public class TestPlanEditor {
