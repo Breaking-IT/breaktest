@@ -25,9 +25,7 @@ import org.apiguardian.api.API;
  *
  * @param <S> type of the service
  * @since 5.6
- * @see IgnoreServiceLoadExceptionHandler
  * @see LogAndIgnoreServiceLoadExceptionHandler
- * @see RethrowServiceLoadExceptionHandler
  */
 @FunctionalInterface
 @API(status = API.Status.EXPERIMENTAL, since = "5.6")

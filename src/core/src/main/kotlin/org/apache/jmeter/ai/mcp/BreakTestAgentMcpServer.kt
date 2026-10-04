@@ -1245,8 +1245,6 @@ public object BreakTestAgentMcpServer {
         set<JsonNode>("result", result)
     }
 
-    private fun response(id: JsonNode, result: Any): ObjectNode = response(id, mapper.valueToTree(result))
-
     private fun error(id: JsonNode, code: Int, message: String): ObjectNode = mapper.createObjectNode().apply {
         put("jsonrpc", "2.0")
         set<JsonNode>("id", id)
