@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -153,6 +154,10 @@ public final class HarParser {
         entry.setMethod(request.path("method").asText("GET"));
         entry.setUrl(request.path("url").asText(""));
         entry.setProtocol(resolveProtocol(entryNode, request));
+        entry.setWebSocket(entry.getUrl().regionMatches(true, 0, "ws:", 0, 3)
+                || entry.getUrl().regionMatches(true, 0, "wss:", 0, 4)
+                || "websocket".equalsIgnoreCase(entryNode.path("_resourceType").asText())
+                || entryNode.has("_webSocketMessages"));
         if (entryNode.hasNonNull("_fromCache")) {
             entry.setFromCache(entryNode.get("_fromCache").asText());
         }
@@ -162,7 +167,21 @@ public final class HarParser {
 
         String startedDateTime = entryNode.path("startedDateTime").asText("");
         entry.setStartedDateTime(startedDateTime);
+        entry.setWebSocketMessages(org.apache.jmeter.recording.RecordedWebSocketMessage.fromHar(entryNode));
         JsonNode breakTest = entryNode.path("_breaktest");
+        JsonNode lifecycle = breakTest.path("webSocket");
+        if (lifecycle.path("closed").asBoolean(false)
+                && "client".equals(lifecycle.path("closeInitiator").asText())) {
+            JsonNode closeTime = lifecycle.path("closeInitiatedTime").isNumber()
+                    ? lifecycle.path("closeInitiatedTime") : lifecycle.path("closedTime");
+            if (closeTime.isNumber()) {
+                Instant start = Instant.parse(startedDateTime);
+                BigDecimal startSeconds = BigDecimal.valueOf(start.getEpochSecond())
+                        .add(BigDecimal.valueOf(start.getNano(), 9));
+                entry.setClientCloseOffset(closeTime.decimalValue().subtract(startSeconds).movePointRight(3)
+                        .max(BigDecimal.ZERO).stripTrailingZeros());
+            }
+        }
         entry.setTransactionId(firstText(
                 breakTest.path("transactionId"), entryNode.path("_breaktestTransactionId")));
         entry.setTransactionName(firstText(

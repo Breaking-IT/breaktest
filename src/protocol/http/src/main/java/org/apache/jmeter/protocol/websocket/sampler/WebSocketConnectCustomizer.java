@@ -29,9 +29,11 @@ import java.util.ResourceBundle;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -40,6 +42,10 @@ public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer {
     private static final long serialVersionUID = 1L;
     private final HeaderTablePanel headers = new HeaderTablePanel(false);
     private transient Map<String, Object> properties;
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final WebSocketRecordedMessagesPanel recorded;
+    private TestElement recordedElement;
+    private boolean recordingLoaded;
 
     public WebSocketConnectCustomizer() {
         super(new WebSocketConnectSamplerBeanInfo());
@@ -51,11 +57,34 @@ public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer {
         removeAll();
         ResourceBundle resources = ResourceBundle.getBundle(
                 WebSocketConnectSampler.class.getName() + "Resources", JMeterUtils.getLocale());
-        JTabbedPane tabs = new JTabbedPane();
+        recorded = new WebSocketRecordedMessagesPanel(resources);
         tabs.addTab(resources.getString("session.displayName"), session);
         tabs.addTab(resources.getString("headers.displayName"), headers);
+        tabs.addTab(resources.getString("recorded.displayName"), recorded);
+        tabs.addChangeListener(event -> loadRecording());
         setLayout(new BorderLayout());
         add(tabs, BorderLayout.CENTER);
+    }
+
+    @Override
+    public void configureElement(TestElement element) {
+        recordedElement = element;
+        recordingLoaded = false;
+        recorded.setMessages(List.of(), JMeterUtils.getResString("websocket_recorded_messages_hint"));
+        loadRecording();
+    }
+
+    private void loadRecording() {
+        if (recordedElement == null || recordingLoaded || tabs.getSelectedComponent() != recorded) {
+            return;
+        }
+        RecordedHarExchangeResolver.Resolution resolution = RecordedHarExchangeResolver.resolveFor(recordedElement);
+        recordingLoaded = true;
+        recorded.setMessages(resolution.exchange().map(exchange -> exchange.webSocketMessages()).orElseGet(List::of),
+                resolution.exchange().isPresent()
+                        ? JMeterUtils.getResString("websocket_recorded_messages_time")
+                        : resolution.status() == RecordedHarExchangeResolver.Status.NOT_LINKED
+                                ? JMeterUtils.getResString("websocket_recorded_messages_hint") : resolution.requestText());
     }
 
     @Override

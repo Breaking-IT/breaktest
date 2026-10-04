@@ -109,6 +109,7 @@ final class WebSocketHandshakeCookies extends CookieHandler {
                 return Map.of();
             }
             if (!capture.closed) {
+                capture.requestHeaders = formatRequestHeaders(uri, headers);
                 capture.accept = accept;
                 if (responses.putIfAbsent(accept, capture) != null) {
                     throw new IOException("Duplicate WebSocket handshake key");
@@ -129,6 +130,7 @@ final class WebSocketHandshakeCookies extends CookieHandler {
         }
         synchronized (capture) {
             if (!capture.closed) {
+                capture.responseHeaders = formatHeaders(headers);
                 headers.forEach((name, values) -> {
                     if ("Set-Cookie".equalsIgnoreCase(name)) {
                         capture.cookies.addAll(values);
@@ -136,6 +138,38 @@ final class WebSocketHandshakeCookies extends CookieHandler {
                 });
             }
         }
+    }
+
+    private static String formatRequestHeaders(URI uri, Map<String, List<String>> headers) {
+        StringBuilder text = new StringBuilder(formatHeaders(headers));
+        // CookieHandler sees user headers. The JDK adds these required transport
+        // headers separately when serializing its HTTP/1.1 WebSocket upgrade.
+        if (singleHeader(headers, "Host") == null) {
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || port == ("https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80);
+            text.append("Host: ").append(uri.getHost());
+            if (!defaultPort) {
+                text.append(':').append(port);
+            }
+            text.append("\n");
+        }
+        if (singleHeader(headers, "Connection") == null) {
+            text.append("Connection: Upgrade\n");
+        }
+        if (singleHeader(headers, "Upgrade") == null) {
+            text.append("Upgrade: websocket\n");
+        }
+        return text.toString();
+    }
+
+    private static String formatHeaders(Map<String, List<String>> headers) {
+        StringBuilder text = new StringBuilder();
+        headers.forEach((name, values) -> {
+            if (name != null) {
+                values.forEach(value -> text.append(name).append(": ").append(value).append("\n"));
+            }
+        });
+        return text.toString();
     }
 
     private static String singleHeader(Map<String, List<String>> headers, String name) {
@@ -160,6 +194,8 @@ final class WebSocketHandshakeCookies extends CookieHandler {
         private final URI uri;
         private final List<String> cookies = new ArrayList<>();
         private String accept;
+        private String requestHeaders = "";
+        private String responseHeaders = "";
         private boolean registered;
         private boolean closed;
 
@@ -186,6 +222,14 @@ final class WebSocketHandshakeCookies extends CookieHandler {
             }
         }
 
+        synchronized String requestHeaders() {
+            return requestHeaders;
+        }
+
+        synchronized String responseHeaders() {
+            return responseHeaders;
+        }
+
         synchronized List<String> cookies() {
             return List.copyOf(cookies);
         }
@@ -199,6 +243,8 @@ final class WebSocketHandshakeCookies extends CookieHandler {
                 responses.remove(accept, this);
             }
             cookies.clear();
+            requestHeaders = "";
+            responseHeaders = "";
         }
     }
 }

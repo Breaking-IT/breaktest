@@ -433,6 +433,14 @@ class SearchTreeDialogTest {
                 {
                   "log": {
                     "entries": [{
+                      "startedDateTime": "2021-01-01T00:00:00Z",
+                      "_webSocketMessages": [
+                        {"type":"send","time":1609459200.1,"opcode":1,"data":"outgoing-message"},
+                        {"type":"receive","time":1609459200.2,"opcode":1,"data":"incoming-message"},
+                        {"type":"send","time":1609459200.3,"opcode":2,"data":"AP8="},
+                        {"type":"receive","time":1609459200.4,"opcode":2,"data":"Af4="},
+                        {"type":"send","time":1609459200.5,"opcode":2,"data":"/2FiY2RlZmdoaWprMTI3MzQ3MDIA"}
+                      ],
                       "request": {
                         "method": "GET",
                         "url": "https://example.invalid/unsaved-search-value",
@@ -469,6 +477,16 @@ class SearchTreeDialogTest {
         assertTrue(searchableTokens.stream().anyMatch(token -> token.contains("unsaved-response-value")));
         List<String> request = SearchTreeDialog.searchableTokens(samplerNode, null, Set.of(SearchArea.RECORDED_REQUEST));
         List<String> response = SearchTreeDialog.searchableTokens(samplerNode, null, Set.of(SearchArea.RECORDED_RESPONSE));
+        assertTrue(searchableTokens.containsAll(List.of("outgoing-message", "incoming-message", "00 ff", "01 fe")));
+        assertTrue(request.containsAll(List.of("outgoing-message", "00 ff")));
+        assertTrue(new RawTextSearcher(true, "12734702").search(request));
+        assertTrue(new RegexpSearcher(true, "1273[0-9]{4}").search(request));
+        assertFalse(new RawTextSearcher(true, "12734702").search(response));
+        assertFalse(request.contains("incoming-message"));
+        assertFalse(request.contains("01 fe"));
+        assertTrue(response.containsAll(List.of("incoming-message", "01 fe")));
+        assertFalse(response.contains("outgoing-message"));
+        assertFalse(response.contains("00 ff"));
         assertTrue(request.stream().anyMatch(token -> token.contains("unsaved-search-value")));
         assertFalse(request.stream().anyMatch(token -> token.contains("unsaved-response-value")));
         assertTrue(response.stream().anyMatch(token -> token.contains("unsaved-response-value")));

@@ -24,12 +24,17 @@ import java.util.Collection;
 import java.util.Collections;
 
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextArea;
 
+import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.testelement.MissingTestElement;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.util.JMeterUtils;
 
 /**
  * Displays a placeholder for JMX elements whose plugin classes are unavailable.
@@ -134,7 +139,14 @@ public class MissingTestElementGui extends JPanel implements JMeterGUIComponent 
 
     @Override
     public JPopupMenu createPopupMenu() {
-        return null;
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem remove = new JMenuItem(JMeterUtils.getResString("remove")); // $NON-NLS-1$
+        remove.setName("remove"); // $NON-NLS-1$
+        remove.setActionCommand(ActionNames.REMOVE);
+        remove.setAccelerator(KeyStrokes.REMOVE);
+        remove.addActionListener(ActionRouter.getInstance());
+        menu.add(remove);
+        return menu;
     }
 
     @Override

@@ -35,6 +35,12 @@ import org.apache.jmeter.samplers.SampleResult;
 /** A session's immutable policy and serialized incoming-message lifecycle. */
 final class WebSocketSession implements WebSocket.Listener {
     private final String name;
+    private final long startedAtNanos = System.nanoTime();
+
+    long startedAtNanos() {
+        return startedAtNanos;
+    }
+
     private final boolean countIncoming;
     private final boolean failOnDisconnect;
     private final boolean ignoreControlFrames;

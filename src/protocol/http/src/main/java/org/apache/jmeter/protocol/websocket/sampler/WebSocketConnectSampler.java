@@ -29,10 +29,13 @@ import java.util.function.Consumer;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.util.NoThreadClone;
+import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
+import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -48,6 +51,7 @@ import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.SamplePackage;
 
+@GUIMenuSortOrder(101)
 @TestElementMetadata(labelResource = "displayName")
 public class WebSocketConnectSampler extends AbstractWebSocketSampler implements org.apache.jmeter.samplers.ChildControllerSampler {
     private static final long serialVersionUID = 1L;
@@ -102,6 +106,11 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
     }
 
     @Override
+    protected SampleResult createSampleResult() {
+        return new HTTPSampleResult();
+    }
+
+    @Override
     protected void execute(SampleResult result) throws Exception {
         URI uri = URI.create(getUrl());
         if (!("ws".equalsIgnoreCase(uri.getScheme()) || "wss".equalsIgnoreCase(uri.getScheme()))
@@ -120,6 +129,12 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
             result.setResponseMessage("Existing WebSocket connection reused; no handshake performed");
             return;
         }
+        HTTPSampleResult httpResult = (HTTPSampleResult) result;
+        httpResult.setHTTPMethod("GET");
+        httpResult.setURL(WebSocketHandshakeCookies.httpUri(uri).toURL());
+        httpResult.setDisplayUrl(uri.toString());
+        httpResult.setProtocolVersion("HTTP/1.1");
+        httpResult.setSamplerData("GET " + httpResult.getUrlAsString() + "\n");
         active(session);
         try {
             handlers.start();
@@ -128,17 +143,35 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
                     .connectTimeout(Duration.ofMillis(getTimeout()));
             // Resolve variable-backed cookies on the virtual user's thread, before
             // the JDK starts the handshake on its transport threads.
+            List<String> subprotocols = new ArrayList<>();
             for (Header header : requestHeaders(uri)) {
-                builder.header(header.getName(), header.getValue());
+                if ("Sec-WebSocket-Protocol".equalsIgnoreCase(header.getName())) {
+                    for (String protocol : header.getValue().split(",", -1)) {
+                        subprotocols.add(protocol.trim());
+                    }
+                } else {
+                    builder.header(header.getName(), header.getValue());
+                }
+            }
+            if (!subprotocols.isEmpty()) {
+                builder.subprotocols(subprotocols.get(0), subprotocols.subList(1, subprotocols.size()).toArray(String[]::new));
             }
             WebSocketHandshakeCookies bridge = (WebSocketHandshakeCookies) client.cookieHandler().orElseThrow();
             try (var capture = bridge.begin(uri)) {
-                await(capture.start(() -> builder.buildAsync(uri, session)));
-                // Import on the owner thread: CookieManager can also publish COOKIE_* variables.
-                storeCookies(capture.cookies(), WebSocketHandshakeCookies.httpUri(uri));
+                try {
+                    await(capture.start(() -> builder.buildAsync(uri, session)));
+                    // Import on the owner thread: CookieManager can also publish COOKIE_* variables.
+                    storeCookies(capture.cookies(), WebSocketHandshakeCookies.httpUri(uri));
+                } finally {
+                    // Copy before closing the capture, including the request on a rejected handshake.
+                    httpResult.setRequestHeaders(capture.requestHeaders());
+                    if (!capture.responseHeaders().isEmpty()) {
+                        httpResult.setResponseHeaders("HTTP/1.1 101 Switching Protocols\n" + capture.responseHeaders());
+                    }
+                }
             }
-            result.setSamplerData(getUrl());
             result.setResponseCode("101");
+            result.setResponseMessage("Switching Protocols");
         } catch (Exception e) {
             sessions.remove(getSessionName(), session);
             Throwable cause = e;
@@ -180,6 +213,39 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
         }
     }
 
+    @Override
+    protected SearchArea searchAreaForProperty(String propertyName) {
+        return switch (propertyName) {
+            case "url" -> SearchArea.PATH;
+            case "headers" -> SearchArea.HEADERS;
+            default -> super.searchAreaForProperty(propertyName);
+        };
+    }
+
+    @Override
+    public List<String> getSearchableTokens() {
+        List<String> tokens = super.getSearchableTokens();
+        addHeaderSearchTokens(tokens);
+        return tokens;
+    }
+
+    @Override
+    public List<String> getSearchableTokens(Set<SearchArea> areas) {
+        List<String> tokens = super.getSearchableTokens(areas);
+        if (areas.size() != SearchArea.values().length
+                && areas.contains(SearchArea.HEADERS)) {
+            addHeaderSearchTokens(tokens);
+        }
+        return tokens;
+    }
+
+    private void addHeaderSearchTokens(List<String> tokens) {
+        for (Header header : getHeaders()) {
+            tokens.add(header.getName());
+            tokens.add(header.getValue());
+        }
+    }
+
     public List<Header> getHeaders() {
         List<Header> headers = new ArrayList<>();
         if (getProperty("headers") instanceof CollectionProperty collection) {
@@ -206,7 +272,7 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
             for (int i = 0; i < scoped.size(); i++) {
                 Header header = scoped.get(i);
                 String name = header.getName().toLowerCase(Locale.ROOT);
-                if (!TRANSPORT_HEADERS.contains(name) && !name.startsWith("sec-websocket-")) {
+                if (!TRANSPORT_HEADERS.contains(name) && (!name.startsWith("sec-websocket-") || "sec-websocket-protocol".equals(name))) {
                     compatible.add(header);
                 }
             }
@@ -218,7 +284,7 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
             Header header = effective.get(i);
             String name = header.getName();
             String lowerName = name.toLowerCase(Locale.ROOT);
-            if (TRANSPORT_HEADERS.contains(lowerName) || lowerName.startsWith("sec-websocket-")) {
+            if (TRANSPORT_HEADERS.contains(lowerName) || (lowerName.startsWith("sec-websocket-") && !"sec-websocket-protocol".equals(lowerName))) {
                 throw new IllegalArgumentException("WebSocket transport controls header: " + name);
             }
             // Match the HTTP sampler: Cookie Manager replaces an explicit Cookie

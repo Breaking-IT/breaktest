@@ -19,20 +19,36 @@ package org.apache.jmeter.protocol.websocket.sampler;
 
 import org.apache.jmeter.testbeans.BeanInfoSupport;
 import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
-import org.apache.jmeter.testbeans.gui.TypeEditor;
 
 public class WebSocketSendWaitSamplerBeanInfo extends BeanInfoSupport {
     public WebSocketSendWaitSamplerBeanInfo() {
         super(WebSocketSendWaitSampler.class);
-        createPropertyGroup("session", new String[] {"sessionName", "timeout", "payload", "binary",
+        createPropertyGroup("session", new String[] {"sessionName", "timeout", "binary", "payload", "action",
                 "waitMode", "responsePattern", "responseBinary", "waitTimeout"});
+        property("action").setValue(NOT_UNDEFINED, true);
+        property("action").setValue(DEFAULT, WebSocketSendWaitSampler.SEND_AND_WAIT);
+        property("action").setValue(TAGS, new String[] {
+                WebSocketSendWaitSampler.SEND_ONLY, WebSocketSendWaitSampler.SEND_AND_WAIT});
+        property("action").setValue(NOT_OTHER, true);
+        // HAR replay timing is persisted internally, not edited in the sampler settings.
+        property("sendOffset").setHidden(true);
+        property("sendOffset").setValue(NOT_UNDEFINED, true);
+        property("sendOffset").setValue(DEFAULT, "");
+        for (String name : new String[] {"waitMode", "waitTimeout"}) {
+            property(name).setValue(GenericTestBeanCustomizer.ENABLED_WHEN_PROPERTY, "action");
+            property(name).setValue(GenericTestBeanCustomizer.ENABLED_WHEN_VALUE, WebSocketSendWaitSampler.SEND_AND_WAIT);
+        }
         property("sessionName").setValue(NOT_UNDEFINED, true);
         property("sessionName").setValue(DEFAULT, "default");
         property("timeout").setValue(NOT_UNDEFINED, true);
         property("timeout").setValue(DEFAULT, 10000);
-        property("payload", TypeEditor.TextAreaEditor).setValue(NOT_UNDEFINED, true);
+        property("payload").setValue(NOT_UNDEFINED, true);
+        property("payload").setPropertyEditorClass(WebSocketPayloadEditor.class);
         property("payload").setValue(DEFAULT, "");
         property("payload").setValue(MULTILINE, true);
+        property("binary").setPropertyEditorClass(WebSocketContentEditor.class);
+        property("binary").setValue(NOT_EXPRESSION, true);
+        property("binary").setValue(NOT_OTHER, true);
         property("binary").setValue(NOT_UNDEFINED, true);
         property("binary").setValue(DEFAULT, false);
         property("waitTimeout").setValue(NOT_UNDEFINED, true);
@@ -45,7 +61,8 @@ public class WebSocketSendWaitSamplerBeanInfo extends BeanInfoSupport {
         property("waitMode").setValue(NOT_OTHER, true);
         property("responsePattern").setValue(NOT_UNDEFINED, true);
         property("responsePattern").setValue(DEFAULT, "");
-        property("responseBinary", TypeEditor.TextAreaEditor).setValue(NOT_UNDEFINED, true);
+        property("responseBinary").setValue(NOT_UNDEFINED, true);
+        property("responseBinary").setPropertyEditorClass(WebSocketPayloadEditor.class);
         property("responseBinary").setValue(DEFAULT, "");
         property("responseBinary").setValue(MULTILINE, true);
         property("responsePattern").setValue(GenericTestBeanCustomizer.ENABLED_WHEN_PROPERTY, "waitMode");

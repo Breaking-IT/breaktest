@@ -647,6 +647,11 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
     }
 
 
+    /** Supplies the source element for read-only contextual views after values are loaded. */
+    public void configureElement(org.apache.jmeter.testelement.TestElement element) {
+        // Most bean editors only need the property map.
+    }
+
     /**
      * {@inheritDoc}
      * @param map must be an instance of Map&lt;String, Object&gt;
@@ -780,24 +785,40 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
     }
 
     private void configureEnabledState(PropertyDescriptor descriptor, Component editor, JLabel label) {
-        Object controllerName = descriptor.getValue(ENABLED_WHEN_PROPERTY);
-        if (controllerName == null) {
+        List<PropertyEditor> controllers = new ArrayList<>();
+        List<Object> expectedValues = new ArrayList<>();
+        java.util.Set<String> visited = new java.util.HashSet<>();
+        PropertyDescriptor current = descriptor;
+        while (current.getValue(ENABLED_WHEN_PROPERTY) instanceof String controllerName
+                && visited.add(controllerName)) {
+            PropertyDescriptor parent = null;
+            for (int i = 0; i < descriptors.length; i++) {
+                if (controllerName.equals(descriptors[i].getName()) && editors[i] != null) {
+                    controllers.add(editors[i]);
+                    expectedValues.add(current.getValue(ENABLED_WHEN_VALUE));
+                    parent = descriptors[i];
+                    break;
+                }
+            }
+            if (parent == null) {
+                break;
+            }
+            current = parent;
+        }
+        if (controllers.isEmpty()) {
             return;
         }
-        for (int i = 0; i < descriptors.length; i++) {
-            if (controllerName.equals(descriptors[i].getName()) && editors[i] != null) {
-                PropertyEditor controller = editors[i];
-                Runnable update = () -> {
-                    boolean enabled = Objects.equals(descriptor.getValue(ENABLED_WHEN_VALUE), controller.getValue());
-                    label.setEnabled(enabled);
-                    setEditorEnabled(editor, enabled);
-                };
-                controller.addPropertyChangeListener(event -> update.run());
-                enabledStateUpdates.add(update);
-                update.run();
-                return;
+        Runnable update = () -> {
+            boolean enabled = true;
+            for (int i = 0; i < controllers.size(); i++) {
+                enabled &= Objects.equals(expectedValues.get(i), controllers.get(i).getValue());
             }
-        }
+            label.setEnabled(enabled);
+            setEditorEnabled(editor, enabled);
+        };
+        controllers.forEach(controller -> controller.addPropertyChangeListener(event -> update.run()));
+        enabledStateUpdates.add(update);
+        update.run();
     }
 
     private static void setEditorEnabled(Component component, boolean enabled) {

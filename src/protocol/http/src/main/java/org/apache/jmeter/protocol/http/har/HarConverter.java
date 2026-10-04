@@ -60,7 +60,11 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
+import org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler;
+import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
+import org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler;
 import org.apache.jmeter.reporters.ResultCollector;
+import org.apache.jmeter.testbeans.gui.TestBeanGUI;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.threads.ThreadGroup;
@@ -87,6 +91,7 @@ public final class HarConverter {
     private final String harMd5;
 
     private int sampleCounter;
+    private final Map<Integer, String> webSocketSessionNames = new HashMap<>();
     private int parallelCounter;
 
     public HarConverter(List<HarEntry> entries, HarImportOptions options, String harName, String harMd5) {
@@ -155,6 +160,12 @@ public final class HarConverter {
             }
         }
         kept.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
+        webSocketSessionNames.clear();
+        for (HarEntry entry : kept) {
+            if (entry.isWebSocket()) {
+                webSocketSessionNames.put(entry.getOriginalIndex(), "websocket-" + (webSocketSessionNames.size() + 1));
+            }
+        }
 
         Map<String, String> commonHeaders = findCommonHeaders(kept);
         Set<String> commonHeadersLower = new HashSet<>();
@@ -182,11 +193,37 @@ public final class HarConverter {
             threadGroupHt.add(buildHeaderManager("Common Headers", commonHeaders));
         }
 
-        List<Transaction> transactions = groupIntoTransactions(kept);
+        List<Transaction> transactions = groupIntoTransactions(withWebSocketEvents(kept));
         for (int i = 0; i < transactions.size(); i++) {
             populateTransaction(threadGroupHt, transactions.get(i), commonHeadersLower, i == 0);
         }
         return tree;
+    }
+
+    private static List<HarEntry> withWebSocketEvents(List<HarEntry> kept) {
+        List<HarEntry> timeline = new ArrayList<>(kept);
+        int syntheticIndex = -1;
+        for (HarEntry connection : kept) {
+            for (var message : connection.getWebSocketMessages()) {
+                if ("send".equals(message.direction()) && (message.opcode() == 1 || message.opcode() == 2)) {
+                    timeline.add(HarEntry.webSocketSend(connection, message, syntheticIndex--));
+                }
+            }
+            if (connection.isWebSocket() && connection.getClientCloseOffset() != null) {
+                timeline.add(HarEntry.webSocketClose(connection, syntheticIndex--));
+            }
+        }
+        timeline.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
+        HarEntry transaction = null;
+        for (HarEntry entry : timeline) {
+            if (entry.getWebSocketConnection() == null && !entry.getTransactionId().isBlank()) {
+                transaction = entry;
+            } else if (entry.getWebSocketConnection() != null && transaction != null) {
+                entry.setTransactionId(transaction.getTransactionId());
+                entry.setTransactionName(transaction.getTransactionName());
+            }
+        }
+        return timeline;
     }
 
     private void populateTransaction(HashTree threadGroupHt, Transaction transaction,
@@ -347,7 +384,11 @@ public final class HarConverter {
             // start a new wave because HAR timestamps can round their start to just
             // before the redirect response's recorded end.
             boolean followsRedirect = consumeRedirectTarget(pendingRedirectTargets, entry.getUrl());
-            if (!currentGroup.isEmpty() && (entry.getStartMs() > earliestEndMs || followsRedirect)) {
+            HarEntry connection = entry.getWebSocketConnection();
+            boolean needsEarlierWebSocketStep = connection != null && currentGroup.stream()
+                    .anyMatch(previous -> previous == connection || previous.getWebSocketConnection() == connection);
+            if (!currentGroup.isEmpty()
+                    && (entry.getStartMs() > earliestEndMs || followsRedirect || needsEarlierWebSocketStep)) {
                 groups.add(currentGroup);
                 currentGroup = new ArrayList<>();
                 earliestEndMs = Double.POSITIVE_INFINITY;
@@ -473,7 +514,7 @@ public final class HarConverter {
         if (entry.getServerIpAddress() != null && !entry.getServerIpAddress().isEmpty()) {
             return false;
         }
-        return !entry.hasPositiveTiming();
+        return !entry.isWebSocket() && !entry.hasPositiveTiming();
     }
 
     private static Map<String, String> findCommonHeaders(List<HarEntry> entries) {
@@ -507,6 +548,48 @@ public final class HarConverter {
         return common;
     }
 
+    private void addWebSocketSend(HashTree parent, HarEntry entry) {
+        var message = entry.getOutgoingMessage();
+        WebSocketSendWaitSampler sampler = new WebSocketSendWaitSampler();
+        sampler.setProperty(TestElement.GUI_CLASS, TestBeanGUI.class.getName());
+        sampler.setProperty(TestElement.TEST_CLASS, WebSocketSendWaitSampler.class.getName());
+        sampler.setName("WebSocket Send");
+        sampler.setSessionName(webSocketSessionNames.get(entry.getWebSocketConnection().getOriginalIndex()));
+        sampler.setAction(WebSocketSendWaitSampler.SEND_ONLY);
+        sampler.setSendOffset(message.relativeTimeMs().max(java.math.BigDecimal.ZERO).toPlainString());
+        sampler.setBinary(message.opcode() == 2);
+        sampler.setPayload(message.opcode() == 2 ? java.util.HexFormat.of().formatHex(
+                java.util.Base64.getDecoder().decode(message.data())) : message.text());
+        parent.add(sampler);
+    }
+
+    private void addWebSocketSampler(HashTree parent, HarEntry entry, String name) {
+        WebSocketConnectSampler sampler = new WebSocketConnectSampler();
+        sampler.setProperty(TestElement.GUI_CLASS, TestBeanGUI.class.getName());
+        sampler.setProperty(TestElement.TEST_CLASS, WebSocketConnectSampler.class.getName());
+        sampler.setName(name);
+        sampler.setSessionName(webSocketSessionNames.get(entry.getOriginalIndex()));
+        String url = entry.getUrl().replaceFirst("(?i)^https:", "wss:").replaceFirst("(?i)^http:", "ws:");
+        sampler.setUrl(replaceCorrelations(entry, url,
+                HarPredefinedCorrelation.RequestLocation.URL_PATH,
+                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER));
+        List<Header> headers = new ArrayList<>();
+        for (NameValue header : entry.getRequestHeaders()) {
+            String lower = header.getName().toLowerCase(Locale.ROOT);
+            if (isExportableHeader(lower) && !Set.of("connection", "upgrade", "expect").contains(lower)
+                    && (!lower.startsWith("sec-websocket-") || "sec-websocket-protocol".equals(lower))) {
+                headers.add(new Header(header.getName(), replaceCorrelations(entry, header.getValue(),
+                        HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER)));
+            }
+        }
+        sampler.setHeaders(headers);
+        sampler.setProperty(RecordedHarExchangeResolver.HAR_ENTRY_INDEX, String.valueOf(entry.getOriginalIndex()));
+        sampler.setProperty(RecordedHarExchangeResolver.HAR_STARTED_DATE_TIME, entry.getStartedDateTime());
+        sampler.setProperty(RecordedHarExchangeResolver.HAR_REQUEST_METHOD, entry.getMethod());
+        sampler.setProperty(RecordedHarExchangeResolver.HAR_REQUEST_URL, entry.getUrl());
+        parent.add(sampler);
+    }
+
     static boolean isExportableHeader(String name) {
         return !IGNORED_REQUEST_HEADERS.contains(name.toLowerCase(Locale.ROOT)) && !name.startsWith(":");
     }
@@ -522,6 +605,20 @@ public final class HarConverter {
     // ---------------------------------------------------------------------
 
     private void addSampler(HashTree parent, HarEntry entry, Set<String> commonHeadersLower) {
+        if (entry.isWebSocketClose()) {
+            WebSocketCloseSampler sampler = new WebSocketCloseSampler();
+            sampler.setProperty(TestElement.GUI_CLASS, TestBeanGUI.class.getName());
+            sampler.setProperty(TestElement.TEST_CLASS, WebSocketCloseSampler.class.getName());
+            sampler.setName("WebSocket Close " + entry.getClientCloseOffset().toPlainString() + " ms");
+            sampler.setSessionName(webSocketSessionNames.get(entry.getWebSocketConnection().getOriginalIndex()));
+            sampler.setCloseOffset(entry.getClientCloseOffset().toPlainString());
+            parent.add(sampler);
+            return;
+        }
+        if (entry.getOutgoingMessage() != null) {
+            addWebSocketSend(parent, entry);
+            return;
+        }
         String method = entry.getMethod().toUpperCase(Locale.ROOT);
         ParsedUrl url = parseUrl(entry.getUrl());
         String path = url.path;
@@ -543,6 +640,11 @@ public final class HarConverter {
         }
         if ("OPTIONS".equals(method)) {
             name += "_preflight";
+        }
+
+        if (entry.isWebSocket()) {
+            addWebSocketSampler(parent, entry, name);
+            return;
         }
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();

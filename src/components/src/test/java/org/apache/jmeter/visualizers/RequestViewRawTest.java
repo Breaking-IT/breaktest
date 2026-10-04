@@ -64,6 +64,22 @@ public class RequestViewRawTest {
                 """, RequestViewRaw.formatRequest(result));
     }
 
+    @Test
+    void preservesWebSocketDisplayScheme() throws Exception {
+        for (String scheme : java.util.List.of("ws", "wss")) {
+            HttpLikeSampleResult result = new HttpLikeSampleResult() {
+                @Override
+                public String getUrlAsString() {
+                    return scheme + "://example.invalid/chat";
+                }
+            };
+            result.setURL(URI.create("https://example.invalid/chat").toURL());
+            result.setProtocolVersion("HTTP/1.1");
+            assertEquals("GET " + scheme + "://example.invalid/chat HTTP/1.1\n",
+                    RequestViewRaw.formatRequest(result));
+        }
+    }
+
     public static class HttpLikeSampleResult extends SampleResult {
         private String cookies = ""; // $NON-NLS-1$
 

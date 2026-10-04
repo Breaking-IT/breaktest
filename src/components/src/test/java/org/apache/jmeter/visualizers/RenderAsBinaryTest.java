@@ -22,6 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
@@ -30,11 +33,48 @@ import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.TransferHandler;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
 
 class RenderAsBinaryTest extends org.apache.jmeter.junit.JMeterTestCase {
+    @Test
+    void clipboardOmitsVisualRowBreaksButPreservesHexAndAsciiSpaces() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RenderAsBinary renderer = new RenderAsBinary();
+            JPanel panel = renderer.createResponseDataPanel();
+            JPanel columns = (JPanel) ((JScrollPane) panel.getComponent(0)).getViewport().getView();
+            List<JTextArea> areas = Arrays.stream(columns.getComponents())
+                    .filter(JTextArea.class::isInstance).map(JTextArea.class::cast).toList();
+            SampleResult sample = new SampleResult();
+            sample.setResponseData("abcdefghijkl12734702 space here".getBytes(StandardCharsets.US_ASCII));
+            renderer.renderResult(sample);
+            JTextArea ascii = areas.get(2);
+            ascii.select(12, 21);
+            assertEquals("1273\n4702", ascii.getSelectedText());
+            assertEquals("12734702", copiedText(ascii));
+            ascii.selectAll();
+            assertEquals("abcdefghijkl12734702 space here", copiedText(ascii));
+            JTextArea hex = areas.get(1);
+            hex.select(12 * 3, 16 * 3 + 4 * 3 - 1);
+            assertEquals("31 32 37 33 34 37 30 32", copiedText(hex));
+            hex.selectAll();
+            assertEquals(hex.getText().replace('\n', ' '), copiedText(hex));
+            assertTrue(hex.getText().contains("\n"), "Copying must not change the displayed rows");
+        });
+    }
+
+    private static String copiedText(JTextArea area) {
+        Clipboard clipboard = new Clipboard("binary-view-test");
+        area.getTransferHandler().exportToClipboard(area, clipboard, TransferHandler.COPY);
+        try {
+            return (String) clipboard.getData(DataFlavor.stringFlavor);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
     @Test
     void multilineSelectionsStayWithinTheirColumnAndRowsAlign() throws Exception {
         SwingUtilities.invokeAndWait(() -> {

@@ -43,6 +43,29 @@ class WebSocketWaitEditorTest extends JMeterTestCase {
             GenericTestBeanCustomizer gui = new GenericTestBeanCustomizer(new WebSocketSendWaitSamplerBeanInfo());
             Map<String, Object> values = new HashMap<>();
             gui.setObject(values);
+            JComboBox<?> content = descendants(label(gui, "Content type").getLabelFor())
+                    .filter(JComboBox.class::isInstance).map(JComboBox.class::cast).findFirst().orElseThrow();
+            assertEquals(2, content.getItemCount());
+            assertEquals("Text", content.getSelectedItem());
+            values.put("binary", true);
+            gui.setObject(values);
+            assertEquals("Binary (hex)", content.getSelectedItem());
+            java.awt.GridBagLayout layout = (java.awt.GridBagLayout) label(gui, "Content type").getParent().getLayout();
+            assertTrue(layout.getConstraints(label(gui, "Content type")).gridy
+                    < layout.getConstraints(label(gui, "Message")).gridy);
+            var editor = new WebSocketContentEditor();
+            editor.setAsText("Text");
+            assertEquals(false, editor.getValue());
+            editor.setAsText("Binary (hex)");
+            assertEquals(true, editor.getValue());
+            int connectOrder = new org.apache.jmeter.gui.util.MenuInfo("Connect",
+                    WebSocketConnectSampler.class.getName()).getSortOrder();
+            int sendOrder = new org.apache.jmeter.gui.util.MenuInfo("Send",
+                    WebSocketSendWaitSampler.class.getName()).getSortOrder();
+            int closeOrder = new org.apache.jmeter.gui.util.MenuInfo("Close",
+                    WebSocketCloseSampler.class.getName()).getSortOrder();
+            assertTrue(connectOrder > org.apache.jmeter.gui.util.MenuInfo.SORT_ORDER_DEFAULT);
+            assertTrue(connectOrder < sendOrder && sendOrder < closeOrder);
             JLabel regex = label(gui, "Response regular expression");
             JLabel binary = label(gui, "Response binary sequence");
             JComboBox<?> mode = descendants(label(gui, "Wait for").getLabelFor())
@@ -74,6 +97,28 @@ class WebSocketWaitEditorTest extends JMeterTestCase {
             assertEnabled(regex, true);
             assertEnabled(binary, false);
             assertEquals("saved regex", text(regex).getText());
+            JComboBox<?> action = descendants(label(gui, "Action").getLabelFor())
+                    .filter(JComboBox.class::isInstance).map(JComboBox.class::cast).findFirst().orElseThrow();
+            action.setSelectedItem(WebSocketSendWaitSampler.SEND_ONLY);
+            assertEnabled(regex, false);
+            assertEnabled(binary, false);
+            assertEnabled(label(gui, "Wait timeout"), false);
+            assertFalse(label(gui, "Wait for").isEnabled());
+            assertFalse(mode.isEnabled());
+            mode.setSelectedItem(WebSocketSendWaitSampler.BINARY_MESSAGE);
+            assertEnabled(binary, false);
+            action.setSelectedItem(WebSocketSendWaitSampler.SEND_AND_WAIT);
+            assertEnabled(binary, true);
+            assertEnabled(regex, false);
+            assertEnabled(label(gui, "Wait timeout"), true);
+            assertTrue(mode.isEnabled());
+            assertEquals("AA BB", text(binary).getText());
+            values.put("action", WebSocketSendWaitSampler.SEND_ONLY);
+            gui.setObject(values);
+            assertEnabled(regex, false);
+            assertEnabled(binary, false);
+            assertFalse(mode.isEnabled());
+
         });
     }
 

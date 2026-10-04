@@ -17,9 +17,11 @@
 
 package org.apache.jmeter.protocol.websocket.sampler;
 
+import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.samplers.SampleResult;
 
+@GUIMenuSortOrder(103)
 @TestElementMetadata(labelResource = "displayName")
 public class WebSocketCloseSampler extends AbstractWebSocketSampler {
     private static final long serialVersionUID = 1L;
@@ -28,11 +30,20 @@ public class WebSocketCloseSampler extends AbstractWebSocketSampler {
     protected void execute(SampleResult result) throws Exception {
         WebSocketSessions sessions = WebSocketSessions.current();
         WebSocketSession session = sessions.get(getSessionName());
+        waitForRecordedTime(session, result, getCloseOffset());
         active(session);
         try {
             await(session.close());
         } finally {
             sessions.remove(getSessionName(), session);
         }
+    }
+
+    public String getCloseOffset() {
+        return getPropertyAsString("closeOffset");
+    }
+
+    public void setCloseOffset(String value) {
+        setProperty("closeOffset", value);
     }
 }

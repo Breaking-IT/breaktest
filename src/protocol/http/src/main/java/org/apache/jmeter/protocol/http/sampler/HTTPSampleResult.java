@@ -88,6 +88,18 @@ public class HTTPSampleResult extends SampleResult {
 
     private String method;
 
+    private String displayUrl;
+
+    /** Retains the logical request URL when the transport uses a different scheme (WebSocket upgrade). */
+    public void setDisplayUrl(String url) {
+        displayUrl = url;
+    }
+
+    @Override
+    public String getUrlAsString() {
+        return displayUrl == null ? super.getUrlAsString() : displayUrl;
+    }
+
     /**
      * The raw value of the Location: header; may be null.
      * This is supposed to be an absolute URL:
@@ -119,6 +131,7 @@ public class HTTPSampleResult extends SampleResult {
     public HTTPSampleResult(HTTPSampleResult res) {
         super(res);
         method=res.method;
+        displayUrl=res.displayUrl;
         cookies=res.cookies;
         queryString=res.queryString;
         redirectLocation=res.redirectLocation;

@@ -49,6 +49,51 @@ class HarArchiveFilterTest extends JMeterTestCase {
             + "]}}";
 
     @Test
+    void importsWebSocketConnectionAndLinksItsRecordedMessages() throws Exception {
+        byte[] har = """
+                {"log":{"entries":[{
+                  "startedDateTime":"2026-10-03T20:31:13.246Z","time":0,
+                  "request":{"method":"GET","url":"wss://api.example.com/client?hub=live",
+                    "headers":[{"name":"Connection","value":"Upgrade"},
+                      {"name":"Sec-WebSocket-Key","value":"old-key"},
+                      {"name":"Origin","value":"https://example.com"}]},
+                  "response":{"status":101,"headers":[
+                    {"name":"Upgrade","value":"websocket"},
+                    {"name":"Set-Cookie","value":"first=1"},
+                    {"name":"Set-Cookie","value":"second=2"}]},
+                  "_breaktest":{"webSocket":{"closed":true,"closeInitiator":"client",
+                    "closeInitiatedTime":1791059475,"closedTime":1791059475.1}},
+                  "_webSocketMessages":[
+                    {"type":"send","time":1791059473.44524,"opcode":1,"data":"hello"},
+                    {"type":"receive","time":1791059474.194004,"opcode":2,"data":"e30e","_encoding":"base64"}]
+                }]}}
+                """.getBytes(StandardCharsets.UTF_8);
+        HashTree tree = convert(har);
+        var sampler = find(tree, org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler.class);
+        assertEquals("wss://api.example.com/client?hub=live", sampler.getUrl());
+        assertEquals(List.of("Origin"), sampler.getHeaders().stream().map(header -> header.getName()).toList());
+        var archive = HarArchiveFilter.filterAndRelink(har, tree, "socket.har", RecordingStorageMode.ALL)
+                .orElseThrow();
+        String id = sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY);
+        var exchange = archive.resolveExchange(id).orElseThrow();
+        var headers = exchange.path("response").path("headers");
+        assertEquals(3, headers.size());
+        assertEquals("first=1", headers.get(1).path("value").asText());
+        assertEquals("second=2", headers.get(2).path("value").asText());
+        assertEquals("client", exchange.path("webSocket").path("closeInitiator").asText());
+        var messages = org.apache.jmeter.recording.RecordedWebSocketMessage
+                .fromExchange(archive.resolveExchange(id).orElseThrow());
+        assertEquals(2, messages.size());
+        assertEquals("hello", messages.get(0).text());
+        assertEquals("7b 7d 1e", messages.get(1).hex());
+
+        HashTree withoutRecording = convert(har);
+        HarArchiveFilter.filterAndRelink(har, withoutRecording, "socket.har", RecordingStorageMode.NONE);
+        var unlinked = find(withoutRecording, org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler.class);
+        assertEquals("", unlinked.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+    }
+
+    @Test
     void keepsOnlyEntriesThatProducedSamplersAndRemapsTheirIndexes() throws Exception {
         byte[] originalHar = harContent();
         HashTree tree = convert(originalHar);

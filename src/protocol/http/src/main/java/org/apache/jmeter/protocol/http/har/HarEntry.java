@@ -17,8 +17,11 @@
 
 package org.apache.jmeter.protocol.http.har;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.apache.jmeter.recording.RecordedWebSocketMessage;
 
 /**
  * A single parsed HAR {@code log.entries[]} element, holding just the fields
@@ -160,6 +163,76 @@ public class HarEntry {
 
     /** Original 0-based position of this entry in the HAR, before filter/sort. */
     private int originalIndex;
+    private boolean webSocket;
+    private List<RecordedWebSocketMessage> webSocketMessages = List.of();
+    private HarEntry webSocketConnection;
+    private RecordedWebSocketMessage outgoingMessage;
+    private BigDecimal clientCloseOffset;
+    private boolean webSocketClose;
+
+    public BigDecimal getClientCloseOffset() {
+        return clientCloseOffset;
+    }
+
+    public void setClientCloseOffset(BigDecimal offset) {
+        clientCloseOffset = offset;
+    }
+
+    boolean isWebSocketClose() {
+        return webSocketClose;
+    }
+
+    static HarEntry webSocketClose(HarEntry connection, int index) {
+        HarEntry close = webSocketEvent(connection, connection.clientCloseOffset, index);
+        close.webSocketClose = true;
+        close.clientCloseOffset = connection.clientCloseOffset;
+        return close;
+    }
+
+    public List<RecordedWebSocketMessage> getWebSocketMessages() {
+        return webSocketMessages;
+    }
+
+    public void setWebSocketMessages(List<RecordedWebSocketMessage> messages) {
+        webSocketMessages = List.copyOf(messages);
+    }
+
+    HarEntry getWebSocketConnection() {
+        return webSocketConnection;
+    }
+
+    RecordedWebSocketMessage getOutgoingMessage() {
+        return outgoingMessage;
+    }
+
+    static HarEntry webSocketSend(HarEntry connection, RecordedWebSocketMessage message, int index) {
+        HarEntry send = webSocketEvent(connection, message.relativeTimeMs(), index);
+        send.outgoingMessage = message;
+        return send;
+    }
+
+    private static HarEntry webSocketEvent(HarEntry connection, BigDecimal relativeTimeMs, int index) {
+        HarEntry send = new HarEntry();
+        send.webSocketConnection = connection;
+        send.originalIndex = index;
+        send.url = connection.url;
+        send.webSocket = true;
+        send.hasPositiveTiming = true;
+        send.startMs = Math.max(java.time.Instant.parse(connection.startedDateTime).toEpochMilli()
+                + relativeTimeMs.doubleValue(), connection.endMs);
+        send.endMs = send.startMs;
+        return send;
+    }
+
+
+    public boolean isWebSocket() {
+        return webSocket;
+    }
+
+    public void setWebSocket(boolean webSocket) {
+        this.webSocket = webSocket;
+    }
+
 
     private String method = "GET";
     private String url = "";

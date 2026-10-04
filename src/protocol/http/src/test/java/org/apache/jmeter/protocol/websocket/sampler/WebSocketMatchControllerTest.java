@@ -172,7 +172,8 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
             WebSocketMatchController ping = new WebSocketMatchController();
             ping.setName("application ping");
             ping.setMatchValue("ping");
-            WebSocketSendSampler reply = new WebSocketSendSampler();
+            WebSocketSendWaitSampler reply = new WebSocketSendWaitSampler();
+            reply.setAction(WebSocketSendWaitSampler.SEND_ONLY);
             reply.setName("automatic pong");
             reply.setSessionName("chat");
             reply.setPayload("pong");
@@ -343,7 +344,7 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
     @Test
     void queuesAreBoundedAndReportOverflowOnce() {
         var match = new WebSocketMatchController();
-        match.addTestElement(new WebSocketSendSampler());
+        match.addTestElement(new WebSocketSendWaitSampler());
         match.setMatchValue("ping");
         List<SampleResult> failures = new CopyOnWriteArrayList<>();
         try (var handlers = new WebSocketMessageHandlers(List.of(match), "chat", failures::add)) {

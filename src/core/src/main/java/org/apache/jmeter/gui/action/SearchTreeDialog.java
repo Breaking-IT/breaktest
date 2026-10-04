@@ -1307,14 +1307,9 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             throws Exception {
         List<String> tokens = new ArrayList<>(((Searchable) node.getUserObject()).getSearchableTokens(areas));
         if (areas.contains(SearchArea.RECORDED_REQUEST) || areas.contains(SearchArea.RECORDED_RESPONSE)) {
-            RecordedHarExchangeResolver.resolveFor(node, testPlanFile).exchange().ifPresent(exchange -> {
-                if (areas.contains(SearchArea.RECORDED_REQUEST)) {
-                    tokens.add(exchange.request());
-                }
-                if (areas.contains(SearchArea.RECORDED_RESPONSE)) {
-                    tokens.add(exchange.response());
-                }
-            });
+            RecordedHarExchangeResolver.resolveFor(node, testPlanFile).exchange().ifPresent(exchange ->
+                    tokens.addAll(exchange.searchableTokens(areas.contains(SearchArea.RECORDED_REQUEST),
+                            areas.contains(SearchArea.RECORDED_RESPONSE))));
         }
         return tokens;
     }
