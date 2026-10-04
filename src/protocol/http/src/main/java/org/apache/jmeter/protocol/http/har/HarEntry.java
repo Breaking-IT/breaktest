@@ -218,7 +218,8 @@ public class HarEntry {
         send.url = connection.url;
         send.webSocket = true;
         send.hasPositiveTiming = true;
-        send.startMs = Math.max(java.time.Instant.parse(connection.startedDateTime).toEpochMilli()
+        send.startMs = Math.max(org.apache.jmeter.recording.HarTimestamp.parse(connection.startedDateTime)
+                .map(java.time.Instant::toEpochMilli).orElse(0L)
                 + relativeTimeMs.doubleValue(), connection.endMs);
         send.endMs = send.startMs;
         return send;

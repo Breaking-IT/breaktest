@@ -88,8 +88,10 @@ public class HarConverterTest {
         tree = converter.convert(Set.of("api.example.com", "cdn.example.com"));
     }
 
-    @Test
-    void importsOnlyObservedClientDisconnectsAtTheirInitiationTime() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "2021-01-01T00:00:00Z", "2021-01-01T00:00:00", "2021-01-01T01:00:00+0100", "invalid"})
+    void importsOnlyObservedClientDisconnectsAtTheirInitiationTime(String startedDateTime) throws Exception {
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
         for (String initiator : List.of("client", "server", "unknown")) {
             for (boolean closed : List.of(true, false)) {
@@ -97,7 +99,7 @@ public class HarConverterTest {
                     var root = json.createObjectNode();
                     var entries = root.putObject("log").putArray("entries");
                     var connection = entries.addObject();
-                    connection.put("startedDateTime", "2021-01-01T00:00:00Z").put("time", 50);
+                    connection.put("startedDateTime", startedDateTime).put("time", 50);
                     connection.putObject("request").put("method", "GET").put("url", "wss://api.example.com/chat");
                     connection.putObject("response").put("status", 101);
                     var lifecycle = connection.putObject("_breaktest").putObject("webSocket");
@@ -123,8 +125,8 @@ public class HarConverterTest {
                             new HarImportOptions(), "ws.har", "").convert(Set.of("api.example.com"));
                     List<org.apache.jmeter.samplers.Sampler> samplers = new ArrayList<>();
                     collect(converted, org.apache.jmeter.samplers.Sampler.class, samplers);
-                    boolean expectClose = closed && "client".equals(initiator);
-                    assertEquals(expectClose ? 4 : 3, samplers.size());
+                    boolean expectClose = !"invalid".equals(startedDateTime) && closed && "client".equals(initiator);
+                    assertEquals("invalid".equals(startedDateTime) ? 2 : expectClose ? 4 : 3, samplers.size());
                     if (expectClose) {
                         var close = (org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler) samplers.get(3);
                         assertEquals("websocket-1", close.getSessionName());

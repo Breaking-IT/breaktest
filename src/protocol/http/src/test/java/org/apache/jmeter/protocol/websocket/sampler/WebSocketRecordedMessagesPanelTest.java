@@ -91,6 +91,22 @@ class WebSocketRecordedMessagesPanelTest {
         });
     }
 
+    @Test
+    void messageCellsOnlyDecodePayloadPrefixes() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var panel = new WebSocketRecordedMessagesPanel(ResourceBundle.getBundle(
+                    WebSocketConnectSampler.class.getName() + "Resources", Locale.ENGLISH));
+            var text = new RecordedWebSocketMessage(BigDecimal.ZERO, "send", 1, "aGk=");
+            // A deliberately invalid suffix makes accidental full-payload decoding observable.
+            String prefix = java.util.Base64.getEncoder().encodeToString(new byte[900]);
+            var binary = new RecordedWebSocketMessage(BigDecimal.ONE, "receive", 2, prefix + "%%%");
+            panel.setMessages(List.of(text, binary), "");
+            JTable table = find(panel, JTable.class);
+            assertEquals("hi", table.getValueAt(0, 3));
+            assertEquals(("00 ".repeat(67)).substring(0, 200) + "…", table.getValueAt(1, 3));
+        });
+    }
+
     private static <T> T find(Component root, Class<T> type) {
         return descendants(root).filter(type::isInstance).map(type::cast).findFirst().orElseThrow();
     }

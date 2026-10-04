@@ -160,10 +160,7 @@ class WebSocketRecordedMessagesPanel extends JPanel {
                     case 10 -> resources.getString("recorded.pong");
                     default -> resources.getString("recorded.unknown") + " (" + message.opcode() + ")";
                 };
-                default -> {
-                    String preview = message.opcode() == 1 ? message.text() : message.hex();
-                    yield preview.length() > 200 ? preview.substring(0, 200) + "…" : preview;
-                }
+                default -> message.preview();
             };
         }
     }

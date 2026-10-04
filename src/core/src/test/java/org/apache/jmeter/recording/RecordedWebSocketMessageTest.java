@@ -18,7 +18,6 @@
 package org.apache.jmeter.recording;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
@@ -81,12 +80,65 @@ class RecordedWebSocketMessageTest {
                 .put("time", new BigDecimal("1791059473.246")).put("opcode", 1)
                 .put("data", "aGk=").put("_encoding", "base64");
         assertEquals("hi", RecordedWebSocketMessage.fromHar(source).get(0).text());
+        for (int opcode : new int[] {1, 2, 8, 9, 10}) {
+            source.withArray("_webSocketMessages").removeAll().addObject().put("type", "receive")
+                    .put("time", new BigDecimal("1791059473.246")).put("opcode", opcode);
+            var parsed = RecordedWebSocketMessage.fromHar(source);
+            assertEquals(1, parsed.size());
+            assertEquals("", parsed.get(0).data());
+        }
     }
 
     @Test
-    void rejectsCorruptBinaryRatherThanSilentlyChangingItsBytes() throws Exception {
+    void skipsCorruptBinaryWithoutLosingValidMessages() throws Exception {
         ObjectNode source = entry();
         ((ObjectNode) source.path("_webSocketMessages").get(1)).put("data", "%%%");
-        assertThrows(IllegalArgumentException.class, () -> RecordedWebSocketMessage.fromHar(source));
+        assertEquals(2, RecordedWebSocketMessage.fromHar(source).size());
+        assertEquals("hello", RecordedWebSocketMessage.fromHar(source).get(0).text());
+        assertEquals("02 91 06", RecordedWebSocketMessage.fromHar(source).get(1).hex());
     }
+    @Test
+    void tolerantDatesAndMalformedMessagesDoNotPreventArchiving() throws Exception {
+        for (String date : java.util.List.of("2026-10-03T20:31:13.246",
+                "2026-10-03T21:31:13.246+0100", "2026-10-03T21:31:13.246+01:00")) {
+            ObjectNode source = entry().put("startedDateTime", date);
+            var messages = source.withArray("_webSocketMessages");
+            messages.addObject().put("type", "unknown").put("time", 1).put("data", "ignored");
+            messages.addObject().put("type", "send").put("data", "missing time");
+            messages.addObject().put("type", "send").put("time", "bad").put("data", "bad time");
+            messages.addObject().put("type", "receive").put("time", 1).put("opcode", 8).put("data", "%%%");
+            byte[] har = JSON.writeValueAsBytes(JSON.createObjectNode()
+                    .set("log", JSON.createObjectNode().set("entries", JSON.createArrayNode().add(source))));
+            var archive = RecordedExchangeStore.fromHar(har, "mixed.har");
+            var stored = archive.resolveExchange(archive.exchangeIds().get(0)).orElseThrow();
+            var parsed = RecordedWebSocketMessage.fromExchange(stored);
+            assertEquals(3, parsed.size());
+            assertEquals(0, new BigDecimal("199.24").compareTo(parsed.get(0).relativeTimeMs()));
+        }
+        assertTrue(RecordedWebSocketMessage.fromHar(entry().put("startedDateTime", "bad")).isEmpty());
+        assertTrue(HarTimestamp.parse(null).isEmpty());
+        assertTrue(HarTimestamp.parse("").isEmpty());
+    }
+
+    @Test
+    void previewsMatchFullRenderingAtBoundariesWithoutDecodingTheEntirePayload() {
+        for (int length : new int[] {0, 1, 66, 67, 68, 199, 200, 201, 1000000}) {
+            for (String unit : java.util.List.of("a", "é", "中", "😀")) {
+                String data = Base64.getEncoder().encodeToString(unit.repeat(length).getBytes(StandardCharsets.UTF_8));
+                for (int opcode : new int[] {1, 2}) {
+                    var message = new RecordedWebSocketMessage(BigDecimal.ZERO, "send", opcode, data);
+                    String full = opcode == 1 ? message.text() : message.hex();
+                    assertEquals(full.length() > 200 ? full.substring(0, 200) + "…" : full, message.preview());
+                }
+            }
+        }
+        // A corrupt suffix cannot affect a bounded preview; decoding the complete payload would throw.
+        for (int opcode : new int[] {1, 2}) {
+            String prefix = Base64.getEncoder().encodeToString(new byte[900]);
+            var valid = new RecordedWebSocketMessage(BigDecimal.ZERO, "send", opcode, prefix);
+            var suffix = new RecordedWebSocketMessage(BigDecimal.ZERO, "send", opcode, prefix + "%%%");
+            assertEquals(valid.preview(), suffix.preview());
+        }
+    }
+
 }

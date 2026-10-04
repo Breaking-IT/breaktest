@@ -19,17 +19,21 @@ package org.apache.jmeter.recording;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 
 /** Captured WebSocket frame with a base64 payload and a connection-relative timestamp. */
 public record RecordedWebSocketMessage(BigDecimal relativeTimeMs, String direction, int opcode, String data) {
+    private static final Logger LOG = LoggerFactory.getLogger(RecordedWebSocketMessage.class);
+
     public RecordedWebSocketMessage {
         relativeTimeMs = relativeTimeMs.stripTrailingZeros();
     }
@@ -42,31 +46,55 @@ public record RecordedWebSocketMessage(BigDecimal relativeTimeMs, String directi
         return HexFormat.ofDelimiter(" ").formatHex(Base64.getDecoder().decode(data));
     }
 
+    /** Decode only enough base64 for a table preview, independent of the full payload size. */
+    public String preview() {
+        int limit = 200;
+        int byteLimit = opcode == 1 ? (limit + 1) * 4 : (limit + 2) / 3 + 1;
+        int encodedLimit = ((byteLimit + 2) / 3) * 4;
+        byte[] prefix = Base64.getDecoder().decode(data.substring(0, Math.min(data.length(), encodedLimit)));
+        String value = opcode == 1 ? new String(prefix, StandardCharsets.UTF_8)
+                : HexFormat.ofDelimiter(" ").formatHex(prefix);
+        return value.length() > limit ? value.substring(0, limit) + "…" : value;
+    }
+
     public static List<RecordedWebSocketMessage> fromHar(JsonNode entry) {
         JsonNode messages = entry.path("_webSocketMessages");
         if (!messages.isArray() || messages.isEmpty()) {
             return List.of();
         }
-        Instant start = Instant.parse(entry.path("startedDateTime").asText());
+        var parsedStart = HarTimestamp.parse(entry.path("startedDateTime").asText());
+        if (parsedStart.isEmpty()) {
+            LOG.warn("Skipping recorded WebSocket messages with an invalid connection timestamp");
+            return List.of();
+        }
+        var start = parsedStart.get();
         BigDecimal startSeconds = BigDecimal.valueOf(start.getEpochSecond())
                 .add(BigDecimal.valueOf(start.getNano(), 9));
         List<RecordedWebSocketMessage> result = new ArrayList<>();
+        int skipped = 0;
         for (JsonNode message : messages) {
             String direction = message.path("type").asText();
-            if (!"send".equals(direction) && !"receive".equals(direction)) {
-                throw new IllegalArgumentException("Unknown recorded WebSocket message direction: " + direction);
+            if ((!"send".equals(direction) && !"receive".equals(direction))
+                    || !message.path("time").isNumber()
+                    || (!message.path("data").isTextual() && !message.path("data").isMissingNode())) {
+                skipped++;
+                continue;
             }
-            if (!message.path("time").isNumber()) {
-                throw new IllegalArgumentException("Recorded WebSocket message has no numeric timestamp");
+            try {
+                int opcode = message.path("opcode").asInt(1);
+                String value = message.path("data").asText("");
+                // Chromium HAR exports encode non-text frames as base64, with or without _encoding.
+                byte[] bytes = "base64".equals(message.path("_encoding").asText()) || opcode != 1
+                        ? Base64.getDecoder().decode(value) : value.getBytes(StandardCharsets.UTF_8);
+                result.add(new RecordedWebSocketMessage(
+                        message.path("time").decimalValue().subtract(startSeconds).movePointRight(3),
+                        direction, opcode, Base64.getEncoder().encodeToString(bytes)));
+            } catch (IllegalArgumentException invalid) {
+                skipped++;
             }
-            int opcode = message.path("opcode").asInt(1);
-            String value = message.path("data").asText("");
-            // Chromium HAR exports encode non-text frames as base64, with or without _encoding.
-            byte[] bytes = "base64".equals(message.path("_encoding").asText()) || opcode != 1
-                    ? Base64.getDecoder().decode(value) : value.getBytes(StandardCharsets.UTF_8);
-            result.add(new RecordedWebSocketMessage(
-                    message.path("time").decimalValue().subtract(startSeconds).movePointRight(3),
-                    direction, opcode, Base64.getEncoder().encodeToString(bytes)));
+        }
+        if (skipped > 0) {
+            LOG.warn("Skipped {} invalid recorded WebSocket messages", skipped);
         }
         return List.copyOf(result);
     }

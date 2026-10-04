@@ -21,9 +21,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -38,6 +35,7 @@ import org.apache.hc.core5.http.message.BasicHeaderValueParser;
 import org.apache.hc.core5.http.message.ParserCursor;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
+import org.apache.jmeter.recording.HarTimestamp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -174,8 +172,9 @@ public final class HarParser {
                 && "client".equals(lifecycle.path("closeInitiator").asText())) {
             JsonNode closeTime = lifecycle.path("closeInitiatedTime").isNumber()
                     ? lifecycle.path("closeInitiatedTime") : lifecycle.path("closedTime");
-            if (closeTime.isNumber()) {
-                Instant start = Instant.parse(startedDateTime);
+            var parsedStart = HarTimestamp.parse(startedDateTime);
+            if (closeTime.isNumber() && parsedStart.isPresent()) {
+                Instant start = parsedStart.get();
                 BigDecimal startSeconds = BigDecimal.valueOf(start.getEpochSecond())
                         .add(BigDecimal.valueOf(start.getNano(), 9));
                 entry.setClientCloseOffset(closeTime.decimalValue().subtract(startSeconds).movePointRight(3)
@@ -449,23 +448,6 @@ public final class HarParser {
 
     /** Parse a HAR ISO-8601 timestamp to epoch millis, tolerating a missing zone offset. */
     private static double parseStartedMillis(String value) {
-        if (value == null || value.isEmpty()) {
-            return 0;
-        }
-        try {
-            return OffsetDateTime.parse(value).toInstant().toEpochMilli();
-        } catch (Exception ignored) {
-            // fall through
-        }
-        try {
-            return Instant.parse(value).toEpochMilli();
-        } catch (Exception ignored) {
-            // fall through
-        }
-        try {
-            return LocalDateTime.parse(value).toInstant(ZoneOffset.UTC).toEpochMilli();
-        } catch (Exception ignored) {
-            return 0;
-        }
+        return HarTimestamp.parse(value).map(Instant::toEpochMilli).orElse(0L);
     }
 }
