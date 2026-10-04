@@ -308,9 +308,6 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             return;
         }
         boolean openModel = isOpenModelSelected();
-        if (!openModel) {
-            applyDurationPolicyToFields();
-        }
         super.modifyTestElement(tg);
         if (tg instanceof ThreadGroup threadGroup) {
             threadGroup.setThreadGroupModel(openModel ? ThreadGroup.MODEL_OPEN : ThreadGroup.MODEL_CLOSED);
@@ -333,7 +330,9 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
             abstractThreadGroup.setPacingMin(pacingMin.getText());
             abstractThreadGroup.setPacingMax(pacingMax.getText());
             if (!openModel) {
-                abstractThreadGroup.setSamplerController((LoopController) loopPanel.createTestElement());
+                LoopController controller = (LoopController) loopPanel.createTestElement();
+                applyDurationPolicy(tg, controller);
+                abstractThreadGroup.setSamplerController(controller);
             }
         }
     }
@@ -487,27 +486,15 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
         delayLabel.setEnabled(true);
     }
 
-    private void applyDurationPolicyToFields() {
-        if (isDurationPolicySelected()) {
-            scheduler.setValue(JEditableCheckBox.Value.of(true));
-            setLoopCountInfinite();
-        } else if (isNoLimitPolicySelected()) {
-            scheduler.setValue(JEditableCheckBox.Value.of(false));
-            setLoopCountInfinite();
-        } else {
-            scheduler.setValue(JEditableCheckBox.Value.of(false));
-            if (loopPanel.getLoops().getText().trim().isEmpty()) {
-                loopPanel.getLoops().setText("1"); // $NON-NLS-1$
-            }
-            loopPanel.getInfinite().setSelected(false);
-            loopPanel.getLoops().setEnabled(true);
+    /** Saving can run inside a document notification: normalize the model without rewriting the editor. */
+    private void applyDurationPolicy(TestElement tg, LoopController controller) {
+        // Match the boolean editor: false is stored as an absent property.
+        tg.set(ThreadGroupSchema.INSTANCE.getUseScheduler(), isDurationPolicySelected() ? Boolean.TRUE : null);
+        if (!isLoopCountPolicySelected()) {
+            controller.setLoops(LoopController.INFINITE_LOOP_COUNT);
+        } else if (loopPanel.getLoops().getText().trim().isEmpty()) {
+            controller.setLoops(1);
         }
-    }
-
-    private void setLoopCountInfinite() {
-        loopPanel.getInfinite().setSelected(true);
-        loopPanel.getLoops().setText(""); // $NON-NLS-1$
-        loopPanel.getLoops().setEnabled(false);
     }
 
     private static boolean isOpenModelElement(TestElement element) {
