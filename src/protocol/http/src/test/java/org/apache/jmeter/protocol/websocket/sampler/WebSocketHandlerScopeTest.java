@@ -338,6 +338,81 @@ class WebSocketHandlerScopeTest extends JMeterTestCase {
                 "Only an immediate new-user stop should suppress the in-flight handler result");
     }
 
+    /** Parallel branch threads inside a handler belong to the background flow, not the failed iteration. */
+    @Test
+    void immediateForkErrorPreservesBusyParallelBranchInsideHandler() throws Exception {
+        CountDownLatch branchStarted = new CountDownLatch(1);
+        CountDownLatch releaseBranch = new CountDownLatch(1);
+        CountDownLatch allowForkFailure = new CountDownLatch(1);
+        AtomicInteger interrupted = new AtomicInteger();
+        AtomicInteger iteration = new AtomicInteger();
+        CountDownLatch busyReported = results.latchFor("busy branch");
+        try (var peer = new WebSocketSamplerTest.Peer(false)) {
+            var group = group(2);
+            ListedHashTree tree = new ListedHashTree();
+            HashTree children = tree.add(group);
+            children.add(results);
+            children.add(new Probe("iteration", () -> {
+                if (iteration.incrementAndGet() == 2) {
+                    assertEquals(0, interrupted.get(), "Immediate fork error interrupted a handler's parallel branch");
+                    releaseBranch.countDown();
+                    assertTrue(busyReported.await(3, TimeUnit.SECONDS), "Busy branch result was not reported");
+                }
+            }));
+            WebSocketMatchController match = new WebSocketMatchController();
+            match.setMatchValue("go");
+            org.apache.jmeter.control.ParallelController parallel = new org.apache.jmeter.control.ParallelController();
+            parallel.setName("handler branches");
+            parallel.setMaxParallel(2);
+            HashTree branches = children.add(connect(peer.url(), WebSocketConnectSampler.REUSE)).add(match).add(parallel);
+            branches.add(new Probe("busy branch", () -> {
+                branchStarted.countDown();
+                try {
+                    assertTrue(releaseBranch.await(5, TimeUnit.SECONDS), "Main flow never released branch");
+                } catch (InterruptedException e) {
+                    interrupted.incrementAndGet();
+                }
+            }));
+            branches.add(new Probe("quick branch", () -> { }));
+            children.add(new Probe("send go", () -> {
+                if (iteration.get() == 1) {
+                    WebSocketSessions.current().get("chat")
+                            .send("go".getBytes(StandardCharsets.UTF_8), false).get(3, TimeUnit.SECONDS);
+                    assertTrue(branchStarted.await(3, TimeUnit.SECONDS), "Branch must be busy before cancellation");
+                }
+            }));
+            ForkController fork = new ForkController();
+            fork.setErrorAction(ForkController.ErrorAction.END_ITERATION_IMMEDIATE);
+            children.add(fork).add(new Fail(() -> {
+                if (iteration.get() != 1) {
+                    return false;
+                }
+                try {
+                    assertTrue(allowForkFailure.await(3, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    failure.compareAndSet(null, e);
+                }
+                return true;
+            }));
+            children.add(new Probe("await cancellation", () -> {
+                if (iteration.get() == 1) {
+                    allowForkFailure.countDown();
+                    try {
+                        new CountDownLatch(1).await(5, TimeUnit.SECONDS);
+                        throw new AssertionError("Immediate fork error did not interrupt the main flow");
+                    } catch (InterruptedException expected) {
+                        // The failed iteration ends here.
+                    }
+                }
+            }));
+            run(tree, group, true);
+        } finally {
+            releaseBranch.countDown();
+        }
+        assertEquals(2, iteration.get());
+        assertTrue(results.only("busy branch").isSuccessful(), results::summary);
+    }
+
     private static void addScopeProbes(HashTree tree, String scope, List<String> calls) {
         tree.add(new ScopePreProcessor(scope, calls));
         tree.add(new ScopeTimer(scope, calls));
