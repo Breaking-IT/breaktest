@@ -19,7 +19,9 @@ package org.apache.jmeter.protocol.websocket.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -33,10 +35,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.control.ForkController;
+import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.PreCompiler;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleEvent;
@@ -47,6 +52,7 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
+import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -54,6 +60,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /** Handler lifecycle and scoping when handlers close sessions, Connect has children, or forks fail. */
 @Timeout(20)
@@ -177,6 +185,200 @@ class WebSocketHandlerScopeTest extends JMeterTestCase {
             run(tree, group, true);
         }
         assertEquals(2, iteration.get());
+    }
+
+    @Test
+    void connectTimersAndProcessorsStayLocalWhileOuterAndMatchScopesStillApply() throws Exception {
+        List<String> calls = new CopyOnWriteArrayList<>();
+        CountDownLatch handled = results.latchFor("nested handler");
+        try (var peer = new WebSocketSamplerTest.Peer(false)) {
+            var group = group(1);
+            ListedHashTree tree = new ListedHashTree();
+            HashTree children = tree.add(group);
+            children.add(results);
+            addScopeProbes(children, "outer", calls);
+            HashTree connectTree = children.add(connect(peer.url(), WebSocketConnectSampler.RECONNECT));
+            addScopeProbes(connectTree, "connect", calls);
+            WebSocketMatchController match = new WebSocketMatchController();
+            match.setMatchValue("go");
+            HashTree handler = connectTree.add(match);
+            addScopeProbes(handler, "match", calls);
+            handler.add(new Probe("direct handler", () -> { }));
+            handler.add(new GenericController()).add(new Probe("nested handler", () -> { }));
+            children.add(new Probe("send go", () -> {
+                WebSocketSessions.current().get("chat")
+                        .send("go".getBytes(StandardCharsets.UTF_8), false).get(3, TimeUnit.SECONDS);
+                assertTrue(handled.await(5, TimeUnit.SECONDS), "Handler never finished");
+            }));
+            run(tree, group, false);
+        }
+        for (String stage : List.of("pre", "timer", "post")) {
+            assertEquals(List.of("connect"), calls.stream()
+                    .filter(call -> call.startsWith("connect:" + stage + ":"))
+                    .map(call -> call.substring(("connect:" + stage + ":").length())).toList(),
+                    "Connect's " + stage + " must execute once, on Connect only");
+            assertEquals(List.of("direct handler", "nested handler"), calls.stream()
+                    .filter(call -> call.startsWith("match:" + stage + ":"))
+                    .map(call -> call.substring(("match:" + stage + ":").length())).toList(),
+                    "Match-scoped " + stage + " must still execute for both handler samplers");
+            for (String sampler : List.of("connect", "direct handler", "nested handler", "send go")) {
+                assertEquals(1L, calls.stream().filter(call -> call.equals("outer:" + stage + ":" + sampler)).count(),
+                        "Outer-scoped " + stage + " must still execute for " + sampler);
+            }
+        }
+        assertTrue(results.samples.stream().allMatch(SampleResult::isSuccessful), results::summary);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void immediateForkErrorPreservesBusyHandlerOnlyForSameUser(boolean sameUser) throws Exception {
+        CountDownLatch handlerStarted = new CountDownLatch(1);
+        CountDownLatch handlerExited = new CountDownLatch(1);
+        CountDownLatch releaseHandler = new CountDownLatch(1);
+        CountDownLatch allowForkFailure = new CountDownLatch(1);
+        AtomicInteger interrupted = new AtomicInteger();
+        AtomicInteger iteration = new AtomicInteger();
+        AtomicReference<WebSocketSession> firstSession = new AtomicReference<>();
+        var seen = new LinkedBlockingQueue<String>();
+        try (var first = new WebSocketSamplerTest.Peer(false); var second = new WebSocketSamplerTest.Peer(false)) {
+            var group = group(2);
+            ListedHashTree tree = new ListedHashTree();
+            HashTree children = tree.add(group);
+            children.add(results);
+            children.add(new Probe("iteration", () -> {
+                JMeterContextService.getContext().getVariables().put("targetUrl",
+                        iteration.incrementAndGet() == 1 ? first.url() : second.url());
+                if (iteration.get() == 2) {
+                    if (sameUser) {
+                        assertEquals(1L, handlerExited.getCount(), "Busy handler must survive the cancelled iteration");
+                        assertEquals(0, interrupted.get());
+                        assertTrue(firstSession.get().isOpen());
+                        releaseHandler.countDown();
+                        assertEquals("msg 1", seen.poll(3, TimeUnit.SECONDS), "Busy block must finish in the next iteration");
+                    } else {
+                        assertEquals(0L, handlerExited.getCount(), "Old handler must exit before new user starts");
+                        assertEquals(1, interrupted.get());
+                        assertFalse(firstSession.get().isOpen());
+                        assertTrue(seen.isEmpty(), "Cancelled handler must not execute its next sampler");
+                        assertNull(JMeterContextService.getContext().getVariables().get("received"));
+                    }
+                }
+            }));
+            WebSocketMatchController match = new WebSocketMatchController();
+            match.setMatchMode(WebSocketMatchController.REGEX);
+            match.setMatchValue("^msg ");
+            match.setSaveMessageVariable("received");
+            HashTree handler = children.add(connect("${targetUrl}", WebSocketConnectSampler.REUSE)).add(match);
+            handler.add(new Probe("busy handler", () -> {
+                if ("msg 1".equals(JMeterContextService.getContext().getVariables().get("received"))) {
+                    handlerStarted.countDown();
+                    try {
+                        assertTrue(releaseHandler.await(5, TimeUnit.SECONDS), "Main flow never released handler");
+                    } catch (InterruptedException expectedOnNewUser) {
+                        interrupted.incrementAndGet();
+                        assertFalse(sameUser, "Immediate iteration error interrupted retained handler");
+                    } finally {
+                        handlerExited.countDown();
+                    }
+                }
+            }));
+            handler.add(new Probe("after busy handler", () ->
+                    seen.add(JMeterContextService.getContext().getVariables().get("received"))));
+            children.add(new Probe("send message", () -> {
+                WebSocketSession session = WebSocketSessions.current().get("chat");
+                if (iteration.get() == 1) {
+                    firstSession.set(session);
+                } else {
+                    if (sameUser) {
+                        assertSame(firstSession.get(), session);
+                    } else {
+                        assertNotSame(firstSession.get(), session);
+                    }
+                }
+                session.send(("msg " + iteration.get()).getBytes(StandardCharsets.UTF_8), false).get(3, TimeUnit.SECONDS);
+                if (iteration.get() == 1) {
+                    assertTrue(handlerStarted.await(3, TimeUnit.SECONDS), "Handler must be busy before cancellation");
+                } else {
+                    assertEquals("msg 2", seen.poll(3, TimeUnit.SECONDS), "Handler must process the next user's/iteration's message");
+                }
+            }));
+            ForkController fork = new ForkController();
+            fork.setErrorAction(ForkController.ErrorAction.END_ITERATION_IMMEDIATE);
+            children.add(fork).add(new Fail(() -> {
+                if (iteration.get() != 1) {
+                    return false;
+                }
+                try {
+                    assertTrue(allowForkFailure.await(3, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    failure.compareAndSet(null, e);
+                }
+                return true;
+            }));
+            children.add(new Probe("await cancellation", () -> {
+                if (iteration.get() == 1) {
+                    allowForkFailure.countDown();
+                    // Stay in a registered main-flow sampler until immediate cancellation interrupts it.
+                    try {
+                        new CountDownLatch(1).await(5, TimeUnit.SECONDS);
+                        throw new AssertionError("Immediate fork error did not interrupt the main flow");
+                    } catch (InterruptedException expected) {
+                        assertFalse(JMeterContextService.getContext().getThread().isIterationRunning());
+                    }
+                }
+            }));
+            run(tree, group, sameUser);
+        } finally {
+            releaseHandler.countDown();
+        }
+        assertEquals(2, iteration.get());
+        assertEquals(sameUser ? 0 : 1, interrupted.get());
+        assertEquals(sameUser ? 2 : 1, results.samples.stream()
+                .filter(result -> "busy handler".equals(result.getSampleLabel())).count(),
+                "Only an immediate new-user stop should suppress the in-flight handler result");
+    }
+
+    private static void addScopeProbes(HashTree tree, String scope, List<String> calls) {
+        tree.add(new ScopePreProcessor(scope, calls));
+        tree.add(new ScopeTimer(scope, calls));
+        tree.add(new ScopePostProcessor(scope, calls));
+    }
+
+    private abstract static class ScopeProbe extends AbstractTestElement implements NoThreadClone {
+        private static final long serialVersionUID = 1L;
+        private final String scope;
+        private final transient List<String> calls;
+
+        ScopeProbe(String scope, List<String> calls) {
+            this.scope = scope;
+            this.calls = calls;
+        }
+
+        void record(String stage) {
+            calls.add(scope + ":" + stage + ":" + JMeterContextService.getContext().getCurrentSampler().getName());
+        }
+    }
+
+    private static final class ScopePreProcessor extends ScopeProbe implements PreProcessor {
+        private static final long serialVersionUID = 1L;
+        ScopePreProcessor(String scope, List<String> calls) { super(scope, calls); }
+        @Override public void process() { record("pre"); }
+    }
+
+    private static final class ScopePostProcessor extends ScopeProbe implements PostProcessor {
+        private static final long serialVersionUID = 1L;
+        ScopePostProcessor(String scope, List<String> calls) { super(scope, calls); }
+        @Override public void process() { record("post"); }
+    }
+
+    private static final class ScopeTimer extends ScopeProbe implements Timer {
+        private static final long serialVersionUID = 1L;
+        ScopeTimer(String scope, List<String> calls) { super(scope, calls); }
+        @Override
+        public long delay() {
+            record("timer");
+            return 0;
+        }
     }
 
     private void run(ListedHashTree tree, org.apache.jmeter.threads.ThreadGroup group, boolean sameUser)
