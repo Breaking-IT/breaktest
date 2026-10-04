@@ -54,7 +54,8 @@ final class WebSocketMessageHandlers implements AutoCloseable {
         }
         for (Worker worker : workers) {
             worker.owner = owner;
-            worker.stop = owner.startBackgroundFlow(worker.getName(), worker,
+            // Close wakes the worker itself; user shutdown is handled by the engine lifecycle.
+            owner.startBackgroundFlow(worker.getName(), worker,
                     sampler -> worker.sources.getOrDefault(sampler, sampler));
         }
     }
@@ -73,6 +74,8 @@ final class WebSocketMessageHandlers implements AutoCloseable {
     private static final class Worker extends GenericController {
         private static final long serialVersionUID = 1L;
         private static final long MAX_QUEUED_BYTES = 4 * 1024 * 1024;
+        /** Wakes an idle worker after close. Never matched or delivered to a handler. */
+        private static final SampleResult END_OF_MESSAGES = new SampleResult();
         private final ArrayBlockingQueue<SampleResult> queue = new ArrayBlockingQueue<>(64);
         private final AtomicLong queuedBytes = new AtomicLong();
         private final IdentityHashMap<Sampler, Sampler> sources = new IdentityHashMap<>();
@@ -80,7 +83,6 @@ final class WebSocketMessageHandlers implements AutoCloseable {
         private final WebSocketMatchController.MessageMatcher matcher;
         private final Consumer<SampleResult> failures;
         private volatile boolean closed;
-        private volatile Runnable stop = () -> { };
         private JMeterThread owner;
         private boolean executing;
 
@@ -120,12 +122,15 @@ final class WebSocketMessageHandlers implements AutoCloseable {
             }
             closed = true;
             queue.clear();
-            stop.run();
+            // Do not interrupt a running handler block: it may be the one closing this
+            // session (Close or reconnecting Connect). It completes and is reported, then the
+            // worker stops instead of waiting for another message.
+            queue.offer(END_OF_MESSAGES);
         }
 
         @Override
         public Sampler next() {
-            while (!closed && !owner.isBackgroundFlowStopping()) {
+            while (!owner.isBackgroundFlowStopping()) {
                 if (executing) {
                     Sampler next = execution.next();
                     if (next != null) {
@@ -133,8 +138,14 @@ final class WebSocketMessageHandlers implements AutoCloseable {
                     }
                     executing = false;
                 }
+                if (closed) {
+                    return null;
+                }
                 try {
                     SampleResult message = owner.awaitBackgroundEvent(queue);
+                    if (message == END_OF_MESSAGES || closed) {
+                        return null;
+                    }
                     queuedBytes.addAndGet(-message.getResponseData().length);
                     matcher.saveMessage(message, JMeterContextService.getContext().getVariables());
                     JMeterContextService.getContext().setPreviousResult(message);

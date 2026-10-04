@@ -272,12 +272,19 @@ public class TestCompiler implements HashTreeTraverser {
             List<PreProcessor>  tempPre = new ArrayList<>();
             List<PostProcessor> tempPost = new ArrayList<>();
             List<Assertion> tempAssertions = new ArrayList<>();
+            // Samplers nested in an event sampler's handlers inherit its configuration and
+            // listeners, but its timers, processors and assertions belong to that sampler only.
+            boolean ancestorSampler = i < stack.size()
+                    && stack.get(i - 1) instanceof org.apache.jmeter.samplers.ChildControllerSampler;
             for (Object item : testTree.list(stack.subList(0, i))) {
                 if (item instanceof ConfigTestElement configElement) {
                     configs.add(configElement);
                 }
                 if (item instanceof SampleListener listener) {
                     listeners.add(listener);
+                }
+                if (ancestorSampler) {
+                    continue;
                 }
                 if (item instanceof Timer timer) {
                     timers.add(timer);

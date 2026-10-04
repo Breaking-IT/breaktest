@@ -187,11 +187,15 @@ Match blocks if their messages must remain separate.
 <p>
 Each Match parks its background worker while idle. Its pending queue is bounded to
 64 messages and 4 MiB; overflow stops that handler and reports
-<code>WS_HANDLER_OVERFLOW</code>. Close, disconnect, replacement, new-user iteration
-and thread shutdown stop handlers. Same-user iterations retain them when the connection
-is retained; Connect's reuse mode retains the original handlers and settings.
-Handlers have their own transaction scope and their samples use the normal engine
-processing path. The main script must remain running for background handlers to run.
+<code>WS_HANDLER_OVERFLOW</code>. Close, disconnect and replacement stop handlers after
+any block already running completes, so a handler can close its own session; queued
+messages are discarded. New-user iteration and thread shutdown stop handlers immediately.
+Same-user iterations retain them when the connection is retained, including when a
+Fork Controller error ends the iteration; Connect's reuse mode retains the original
+handlers and settings. Handlers have their own transaction scope and their samples use
+the normal engine processing path. Assertions, timers, pre- and post-processors attached
+to Connect apply to Connect only; its config elements and listeners also apply to handler
+samples. The main script must remain running for background handlers to run.
 </p>
 <p>
 The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
