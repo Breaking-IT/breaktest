@@ -393,13 +393,16 @@ class WebSocketSamplerTest extends JMeterTestCase {
     }
 
     @Test
-    void cancelledHandshakeRetiresClientWithoutClosingOtherLeases() throws Exception {
+    void cancelledHandshakeKeepsSharedClientAvailableToOtherUsers() throws Exception {
         URI uri = URI.create("ws://localhost/");
         try (var original = WebSocketTransportPool.acquire(uri)) {
             var bridge = (WebSocketHandshakeCookies) original.client().cookieHandler().orElseThrow();
-            bridge.begin(uri, 100).close();
-            try (var replacement = WebSocketTransportPool.acquire(uri)) {
-                assertNotSame(original.client(), replacement.client());
+            var pending = bridge.begin(uri);
+            try (var next = WebSocketTransportPool.acquire(uri)) {
+                // A handshake that is still pending, or was cancelled, never holds up other users.
+                assertSame(original.client(), next.client());
+                bridge.begin(uri).close();
+                pending.close();
                 assertFalse(original.client().isTerminated());
             }
         }

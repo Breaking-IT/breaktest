@@ -63,7 +63,8 @@ final class WebSocketTransportPool {
                 ExecutorService executor = Executors.newThreadPerTaskExecutor(
                         Thread.ofVirtual().name("websocket-worker-", 0).factory());
                 try {
-                    HttpClient.Builder builder = HttpClient.newBuilder().executor(executor)
+                    HttpClient.Builder builder = HttpClient.newBuilder()
+                            .executor(WebSocketHandshakeCookies.ownerAwareExecutor(executor))
                             .cookieHandler(new WebSocketHandshakeCookies());
                     if (identity != null) {
                         builder.sslContext(identity.createContext());
@@ -96,10 +97,6 @@ final class WebSocketTransportPool {
             synchronized (entry) {
                 if (CLIENTS.get(key) != future) {
                     continue; // Its last lease closed before this acquisition.
-                }
-                if (!((WebSocketHandshakeCookies) entry.client.cookieHandler().orElseThrow()).acceptsHandshakes()) {
-                    CLIENTS.remove(key, future);
-                    continue;
                 }
                 entry.references++;
                 return new Lease(key, future, entry);
