@@ -70,33 +70,57 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
     }
 
     @Test
-    void textRegexAndBinaryMatchersExposeCapturesWithoutCrossMatchingFrameTypes() {
+    void textRegexAndBinaryMatchersDoNotCrossMatchFrameTypes() {
         WebSocketMatchController match = new WebSocketMatchController();
         match.setMatchValue("ping");
-        var exact = match.matcher("chat");
-        assertNotNull(exact.match(message("ping", false)));
-        assertNull(exact.match(message("prefix ping", false)));
-        assertNull(exact.match(message("ping", true)));
+        var exact = match.matcher();
+        assertTrue(exact.match(message("ping", false)));
+        assertFalse(exact.match(message("prefix ping", false)));
+        assertFalse(exact.match(message("ping", true)));
         match.setMatchMode(WebSocketMatchController.REGEX);
         match.setMatchValue("process ready for page: (.*?) done");
-        match.setCaptureVariable("pageDone");
-        var regex = match.matcher("chat");
-        var values = regex.match(message("notice: process ready for page: 42 done", false));
-        assertEquals("42", values.get("pageDone"));
-        assertEquals("42", values.get("ws_g1"));
-        assertEquals("chat", values.get("ws_session"));
-        assertNull(regex.match(message("unrelated", false)));
-        match.setCaptureVariable("");
+        var regex = match.matcher();
+        assertTrue(regex.match(message("notice: process ready for page: 42 done", false)));
+        assertFalse(regex.match(message("unrelated", false)));
         match.setMatchMode(WebSocketMatchController.BINARY);
         match.setMatchValue("07 95\n03 80 A1 30 03 C0");
-        var binary = match.matcher("chat");
+        var binary = match.matcher();
         SampleResult frame = message("", true);
         frame.setResponseData(java.util.HexFormat.of().parseHex("0007950380a13003c0ff"));
-        assertNotNull(binary.match(frame));
+        assertTrue(binary.match(frame));
         frame.setDataType(SampleResult.TEXT);
-        assertNull(binary.match(frame));
+        assertFalse(binary.match(frame));
         match.setMatchValue(" ");
-        assertThrows(IllegalArgumentException.class, () -> match.matcher("chat"));
+        assertThrows(IllegalArgumentException.class, match::matcher);
+    }
+
+    @Test
+    void savesOnlyTheSelectedVariableWithTheCompleteTextOrLosslessBinaryMessage() {
+        WebSocketMatchController match = new WebSocketMatchController();
+        JMeterVariables user = new JMeterVariables();
+        JMeterVariables otherUser = new JMeterVariables();
+        user.put("existing", "unchanged");
+        String text = "prefix {ping: true} suffix" + (char) 30;
+        match.setMatchMode(WebSocketMatchController.REGEX);
+        match.setMatchValue("(ping)");
+        match.setSaveMessageVariable(" ");
+        var noSave = match.matcher();
+        assertTrue(noSave.match(message(text, false)));
+        noSave.saveMessage(message(text, false), user);
+        assertEquals(1, user.entrySet().size());
+        match.setSaveMessageVariable("received.message");
+        var save = match.matcher();
+        save.saveMessage(message(text, false), user);
+        assertEquals(text, user.get("received.message"));
+        assertNull(otherUser.get("received.message"));
+        assertEquals(2, user.entrySet().size(), "No automatic capture or prefix variables");
+        SampleResult binary = message("", true);
+        binary.setResponseData(new byte[] {0, (byte) 255, 7, 30});
+        save.saveMessage(binary, user);
+        assertEquals("00ff071e", user.get("received.message"));
+        assertEquals("unchanged", user.get("existing"));
+        match.setSaveMessageVariable(JMeterThread.PACKAGE_OBJECT);
+        assertThrows(IllegalArgumentException.class, match::matcher);
     }
 
     @Test
@@ -159,7 +183,7 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
             ready.setName("page ready");
             ready.setMatchMode(WebSocketMatchController.REGEX);
             ready.setMatchValue("process ready for page: (.*?) done");
-            ready.setCaptureVariable("pageDone");
+            ready.setSaveMessageVariable("receivedMessage");
             TransactionController page = new TransactionController();
             page.setName("page transaction");
             HTTPSamplerProxy get = new HTTPSamplerProxy();
@@ -169,6 +193,13 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
             get.setPath("/page/${pageDone}");
             get.setResponseTimeout("3000");
             var pageFlow = handlers.add(ready).add(page);
+            pageFlow.add(new Probe(() -> {
+                var vars = JMeterContextService.getContext().getVariables();
+                String received = vars.get("receivedMessage");
+                var pageNumber = java.util.regex.Pattern.compile("page: (.*?) done").matcher(received);
+                assertTrue(pageNumber.find());
+                vars.put("pageDone", pageNumber.group(1));
+            }, failure));
             var httpScope = pageFlow.add(get);
             var assertion = new org.apache.jmeter.assertions.ResponseAssertion();
             assertion.setName("page body assertion");
@@ -194,7 +225,8 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
                 session.send("ping".getBytes(StandardCharsets.UTF_8), false).get(3, TimeUnit.SECONDS);
                 assertTrue(transaction.await(4, TimeUnit.SECONDS));
                 assertTrue(duplicatePing.await(3, TimeUnit.SECONDS), "Equal match settings must still run both blocks");
-                assertEquals("main flow value", vars.get("pageDone"));
+                assertEquals("42", vars.get("pageDone"));
+                assertEquals("process ready for page: 42 done", vars.get("receivedMessage"));
                 assertNull(vars.get("ws_message"));
             }, failure));
             WebSocketCloseSampler close = new WebSocketCloseSampler();
@@ -252,12 +284,18 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
             var match = new WebSocketMatchController();
             match.setMatchMode(WebSocketMatchController.REGEX);
             match.setMatchValue("msg (.*)");
+            match.setSaveMessageVariable("receivedMessage");
             children.add(connect).add(match).add(new Probe(() -> {
                 var context = JMeterContextService.getContext();
                 assertNotNull(context.getThread());
                 assertSame(group, context.getThreadGroup());
-                seen.add(context.getVariables().get("ws_g1"));
+                seen.add(context.getVariables().get("receivedMessage"));
             }, failure));
+            var storeOnly = new WebSocketMatchController();
+            storeOnly.setMatchMode(WebSocketMatchController.REGEX);
+            storeOnly.setMatchValue("msg .*");
+            storeOnly.setSaveMessageVariable("savedWithoutChildren");
+            children.getTree(connect).add(storeOnly);
             children.add(new Probe(() -> {
                 WebSocketSession session = WebSocketSessions.current().get("chat");
                 if (previous.get() != null) {
@@ -272,9 +310,16 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
                 String id = Integer.toString(iteration.get());
                 session.send(("msg " + id + "a").getBytes(StandardCharsets.UTF_8), false).get(2, TimeUnit.SECONDS);
                 session.send(("msg " + id + "b").getBytes(StandardCharsets.UTF_8), false).get(2, TimeUnit.SECONDS);
-                assertEquals(id + "a", seen.poll(3, TimeUnit.SECONDS));
-                assertEquals(id + "b", seen.poll(3, TimeUnit.SECONDS));
+                assertEquals("msg " + id + "a", seen.poll(3, TimeUnit.SECONDS));
+                assertEquals("msg " + id + "b", seen.poll(3, TimeUnit.SECONDS));
                 assertEquals("main", JMeterContextService.getContext().getVariables().get("ws_g1"));
+                assertEquals("msg " + id + "b", JMeterContextService.getContext().getVariables().get("receivedMessage"));
+                var vars = JMeterContextService.getContext().getVariables();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+                while (!("msg " + id + "b").equals(vars.get("savedWithoutChildren")) && System.nanoTime() < deadline) {
+                    Thread.sleep(10);
+                }
+                assertEquals("msg " + id + "b", vars.get("savedWithoutChildren"));
             }, failure));
             tree.traverse(new PreCompiler());
             JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
@@ -336,12 +381,12 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
         assertFalse(connect.acceptsChildController(new LoopController()));
         match.setMatchMode(WebSocketMatchController.REGEX);
         match.setMatchValue("page (.*)");
-        match.setCaptureVariable("pageDone");
+        match.setSaveMessageVariable("receivedMessage");
         var output = new java.io.ByteArrayOutputStream();
         org.apache.jmeter.save.SaveService.saveElement(match, output);
         var loaded = (WebSocketMatchController) org.apache.jmeter.save.SaveService.loadElement(
                 new java.io.ByteArrayInputStream(output.toByteArray()));
-        assertEquals("pageDone", loaded.getCaptureVariable());
+        assertEquals("receivedMessage", loaded.getSaveMessageVariable());
         assertEquals("page (.*)", loaded.getMatchValue());
         assertEquals(WebSocketMatchController.REGEX, loaded.getMatchMode());
     }

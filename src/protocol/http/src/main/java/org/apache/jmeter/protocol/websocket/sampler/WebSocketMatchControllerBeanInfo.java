@@ -18,26 +18,19 @@
 package org.apache.jmeter.protocol.websocket.sampler;
 
 import org.apache.jmeter.testbeans.BeanInfoSupport;
-import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
-import org.apache.jmeter.testbeans.gui.TypeEditor;
 
 public class WebSocketMatchControllerBeanInfo extends BeanInfoSupport {
     public WebSocketMatchControllerBeanInfo() {
         super(WebSocketMatchController.class);
-        createPropertyGroup("match", new String[] {"matchMode", "matchValue", "variablePrefix", "captureVariable"});
+        createPropertyGroup("match", new String[] {"matchMode", "matchValue", "saveMessageVariable"});
         property("matchMode").setValue(NOT_UNDEFINED, true);
         property("matchMode").setValue(DEFAULT, WebSocketMatchController.TEXT);
         property("matchMode").setValue(TAGS, new String[] {
                 WebSocketMatchController.TEXT, WebSocketMatchController.REGEX, WebSocketMatchController.BINARY});
         property("matchMode").setValue(NOT_OTHER, true);
-        property("matchValue", TypeEditor.TextAreaEditor).setValue(NOT_UNDEFINED, true);
+        property("matchValue").setValue(NOT_UNDEFINED, true);
         property("matchValue").setValue(DEFAULT, "");
-        property("matchValue").setValue(MULTILINE, true);
-        property("variablePrefix").setValue(NOT_UNDEFINED, true);
-        property("variablePrefix").setValue(DEFAULT, "ws");
-        property("captureVariable").setValue(NOT_UNDEFINED, true);
-        property("captureVariable").setValue(DEFAULT, "");
-        property("captureVariable").setValue(GenericTestBeanCustomizer.ENABLED_WHEN_PROPERTY, "matchMode");
-        property("captureVariable").setValue(GenericTestBeanCustomizer.ENABLED_WHEN_VALUE, WebSocketMatchController.REGEX);
+        property("saveMessageVariable").setValue(NOT_UNDEFINED, true);
+        property("saveMessageVariable").setValue(DEFAULT, "");
     }
 }

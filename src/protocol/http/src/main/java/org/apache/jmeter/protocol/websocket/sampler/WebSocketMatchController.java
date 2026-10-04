@@ -18,9 +18,7 @@
 package org.apache.jmeter.protocol.websocket.sampler;
 
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.apache.jmeter.control.GenericController;
@@ -43,10 +41,8 @@ public class WebSocketMatchController extends GenericController implements TestB
     public void setMatchMode(String value) { setProperty("matchMode", value); }
     public String getMatchValue() { return getPropertyAsString("matchValue", ""); }
     public void setMatchValue(String value) { setProperty("matchValue", value); }
-    public String getVariablePrefix() { return getPropertyAsString("variablePrefix", "ws"); }
-    public void setVariablePrefix(String value) { setProperty("variablePrefix", value); }
-    public String getCaptureVariable() { return getPropertyAsString("captureVariable", ""); }
-    public void setCaptureVariable(String value) { setProperty("captureVariable", value); }
+    public String getSaveMessageVariable() { return getPropertyAsString("saveMessageVariable", ""); }
+    public void setSaveMessageVariable(String value) { setProperty("saveMessageVariable", value); }
 
     List<TestElement> children() { return List.copyOf(getSubControllers()); }
 
@@ -59,8 +55,8 @@ public class WebSocketMatchController extends GenericController implements TestB
         return controller;
     }
 
-    MessageMatcher matcher(String sessionName) {
-        return new MessageMatcher(getMatchMode(), getMatchValue(), getVariablePrefix(), getCaptureVariable(), sessionName);
+    MessageMatcher matcher() {
+        return new MessageMatcher(getMatchMode(), getMatchValue(), getSaveMessageVariable());
     }
 
     // A misplaced Match must not execute its children as part of the normal script.
@@ -70,62 +66,42 @@ public class WebSocketMatchController extends GenericController implements TestB
     static final class MessageMatcher {
         private final String mode;
         private final String value;
-        private final String prefix;
-        private final String capture;
-        private final String session;
+        private final String saveVariable;
         private final Pattern pattern;
         private final java.util.function.Predicate<SampleResult> binary;
 
-        MessageMatcher(String mode, String value, String prefix, String capture, String session) {
+        MessageMatcher(String mode, String value, String saveVariable) {
             if (!List.of(TEXT, REGEX, BINARY).contains(mode)) {
                 throw new IllegalArgumentException("Unknown WebSocket match mode: " + mode);
             }
-            if (!prefix.matches("[A-Za-z_][A-Za-z_0-9]*")
-                    || !capture.isEmpty() && !capture.matches("[A-Za-z_][A-Za-z_0-9]*")) {
-                throw new IllegalArgumentException("Match variable names must be identifiers");
-            }
-            if (capture.equals(org.apache.jmeter.threads.JMeterThread.LAST_SAMPLE_OK)) {
-                throw new IllegalArgumentException("Match capture cannot overwrite an engine variable");
-            }
             this.mode = mode;
             this.value = value;
-            this.prefix = prefix;
-            this.capture = REGEX.equals(mode) ? capture : "";
-            this.session = session;
+            this.saveVariable = saveVariable.trim();
+            if (this.saveVariable.equals(org.apache.jmeter.threads.JMeterThread.LAST_SAMPLE_OK)
+                    || this.saveVariable.equals(org.apache.jmeter.threads.JMeterThread.PACKAGE_OBJECT)) {
+                throw new IllegalArgumentException("Cannot save a message over an engine variable");
+            }
             pattern = REGEX.equals(mode) ? Pattern.compile(value) : null;
             binary = BINARY.equals(mode) ? WebSocketBinary.matcher(WebSocketBinary.parse(value)) : null;
-            if (!this.capture.isEmpty() && pattern.matcher("").groupCount() < 1) {
-                throw new IllegalArgumentException("Capture variable requires a regular expression with a capture group");
-            }
         }
 
-        Map<String, Object> match(SampleResult message) {
+        boolean match(SampleResult message) {
             boolean text = SampleResult.TEXT.equals(message.getDataType());
-            String content = message.getResponseDataAsString();
-            var matcher = pattern == null || !text ? null : pattern.matcher(content);
-            boolean matched = switch (mode) {
-                case TEXT -> text && value.equals(content);
-                case REGEX -> matcher != null && matcher.find();
+            return switch (mode) {
+                case TEXT -> text && value.equals(message.getResponseDataAsString());
+                case REGEX -> text && pattern.matcher(message.getResponseDataAsString()).find();
                 case BINARY -> !text && binary.test(message);
                 default -> false;
             };
-            if (!matched) {
-                return null;
+        }
+
+        void saveMessage(SampleResult message, org.apache.jmeter.threads.JMeterVariables variables) {
+            if (!saveVariable.isEmpty()) {
+                String completeMessage = SampleResult.BINARY.equals(message.getDataType())
+                        ? java.util.HexFormat.of().formatHex(message.getResponseData())
+                        : message.getResponseDataAsString();
+                variables.put(saveVariable, completeMessage);
             }
-            Map<String, Object> variables = new LinkedHashMap<>();
-            variables.put(prefix + "_message", content);
-            variables.put(prefix + "_hex", java.util.HexFormat.of().formatHex(message.getResponseData()));
-            variables.put(prefix + "_session", session);
-            variables.put(prefix + "_binary", Boolean.toString(!text));
-            if (matcher != null) {
-                for (int i = 0; i <= matcher.groupCount(); i++) {
-                    variables.put(prefix + "_g" + i, matcher.group(i) == null ? "" : matcher.group(i));
-                }
-                if (!capture.isEmpty()) {
-                    variables.put(capture, matcher.group(1) == null ? "" : matcher.group(1));
-                }
-            }
-            return variables;
         }
     }
 }

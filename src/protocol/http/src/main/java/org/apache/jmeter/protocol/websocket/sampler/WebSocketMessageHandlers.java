@@ -20,7 +20,6 @@ package org.apache.jmeter.protocol.websocket.sampler;
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -38,8 +37,8 @@ final class WebSocketMessageHandlers implements AutoCloseable {
 
     WebSocketMessageHandlers(List<WebSocketMatchController> matches, String session, Consumer<SampleResult> failures) {
         for (WebSocketMatchController match : matches) {
-            if (!match.children().isEmpty()) {
-                TestBeanHelper.prepare(match);
+            TestBeanHelper.prepare(match);
+            if (!match.children().isEmpty() || !match.getSaveMessageVariable().isBlank()) {
                 workers.add(new Worker(match, session, failures));
             }
         }
@@ -74,8 +73,7 @@ final class WebSocketMessageHandlers implements AutoCloseable {
     private static final class Worker extends GenericController {
         private static final long serialVersionUID = 1L;
         private static final long MAX_QUEUED_BYTES = 4 * 1024 * 1024;
-        private record Invocation(SampleResult message, Map<String, Object> captures) { }
-        private final ArrayBlockingQueue<Invocation> queue = new ArrayBlockingQueue<>(64);
+        private final ArrayBlockingQueue<SampleResult> queue = new ArrayBlockingQueue<>(64);
         private final AtomicLong queuedBytes = new AtomicLong();
         private final IdentityHashMap<Sampler, Sampler> sources = new IdentityHashMap<>();
         private final GenericController execution;
@@ -88,7 +86,7 @@ final class WebSocketMessageHandlers implements AutoCloseable {
 
         Worker(WebSocketMatchController match, String session, Consumer<SampleResult> failures) {
             setName("WebSocket " + session + " / " + match.getName());
-            this.matcher = match.matcher(session);
+            this.matcher = match.matcher();
             this.execution = match.execution(sources);
             this.failures = failures;
         }
@@ -97,12 +95,11 @@ final class WebSocketMessageHandlers implements AutoCloseable {
             if (closed) {
                 return;
             }
-            Map<String, Object> captures = matcher.match(message);
-            if (captures == null) {
+            if (!matcher.match(message)) {
                 return;
             }
             int size = message.getResponseData().length;
-            if (queuedBytes.addAndGet(size) <= MAX_QUEUED_BYTES && queue.offer(new Invocation(message, captures))) {
+            if (queuedBytes.addAndGet(size) <= MAX_QUEUED_BYTES && queue.offer(message)) {
                 return;
             }
             queuedBytes.addAndGet(-size);
@@ -137,10 +134,10 @@ final class WebSocketMessageHandlers implements AutoCloseable {
                     executing = false;
                 }
                 try {
-                    Invocation invocation = owner.awaitBackgroundEvent(queue);
-                    queuedBytes.addAndGet(-invocation.message().getResponseData().length);
-                    JMeterThread.setBackgroundLocalVariables(invocation.captures());
-                    JMeterContextService.getContext().setPreviousResult(invocation.message());
+                    SampleResult message = owner.awaitBackgroundEvent(queue);
+                    queuedBytes.addAndGet(-message.getResponseData().length);
+                    matcher.saveMessage(message, JMeterContextService.getContext().getVariables());
+                    JMeterContextService.getContext().setPreviousResult(message);
                     execution.initialize();
                     executing = true;
                 } catch (InterruptedException e) {

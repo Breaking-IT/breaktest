@@ -169,16 +169,20 @@ ping/pong frames do not trigger these handlers. Incoming-message sample filters 
 Send and Wait consumption do not suppress application handlers.
 </p>
 <p>
+The editor has three rows: match type, matching value, and optional
+<b>Save message to variable</b>. Leave the variable name empty to store nothing.
+Otherwise the complete matching text message is saved unchanged, or the complete
+binary payload is saved as a lossless hex string. The variable is updated before
+that handler block runs and remains available to later steps in the same virtual
+user's script. No automatic prefix or regex-capture variables are created.
 For example, match exact text <code>ping</code> and place a WebSocket Send with payload
-<code>pong</code> below it. Match regex <code>process ready for page: (.*?) done</code>,
-set First regex group variable to <code>pageDone</code>, and place a Transaction
-Controller containing HTTP Request <code>/page/${pageDone}</code> below it.
-With the default variable prefix <code>ws</code>, the block can also read
-<code>${ws_message}</code>, <code>${ws_hex}</code>, <code>${ws_session}</code>,
-<code>${ws_binary}</code>, and regex captures <code>${ws_g0}</code> (whole match),
-<code>${ws_g1}</code>, etc. Use <code>${ws_session}</code> in nested WebSocket samplers.
-These captures are local to the handler; ordinary variables and HTTP cookie managers
-remain shared within the same virtual user. They are never shared with another user.
+<code>pong</code> below it. For page-ready messages, match regex
+<code>process ready for page: (.*?) done</code> and save to <code>receivedMessage</code>.
+A script or extractor can then read <code>${receivedMessage}</code> and extract the
+page number before an HTTP request. Configure nested WebSocket samplers with the
+same session name as Connect. Each virtual user has its own variables and cookies;
+handlers of the same user share them. Use distinct save-variable names for concurrent
+Match blocks if their messages must remain separate.
 </p>
 <p>
 Each Match parks its background worker while idle. Its pending queue is bounded to

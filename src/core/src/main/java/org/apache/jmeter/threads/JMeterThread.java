@@ -906,16 +906,6 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    /** Replaces event-local captures without modifying the main flow's variables. */
-    @API(status = API.Status.INTERNAL)
-    public static void setBackgroundLocalVariables(Map<String, Object> values) {
-        JMeterVariables variables = JMeterContextService.getContext().getVariables();
-        if (!(variables instanceof ParallelWorkerVariables worker)) {
-            throw new IllegalStateException("Event variables require a background worker");
-        }
-        worker.setEventVariables(values);
-    }
-
     private void runForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext,
             RunningTransaction enclosingTransaction, Function<? super Sampler, ? extends Sampler> sourceSampler) {
         JMeterContext workerContext = createParallelContext(parentContext, enclosingTransaction);
