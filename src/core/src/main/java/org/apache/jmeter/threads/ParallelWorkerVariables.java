@@ -42,23 +42,42 @@ class ParallelWorkerVariables extends JMeterVariables {
     private static final Object NOT_SET = new Object();
 
     private final JMeterVariables parent;
+    private volatile Map<String, Object> eventVariables = Map.of();
     private volatile Object lastSampleOk = NOT_SET;
     private volatile Object samplePackage = NOT_SET;
 
     ParallelWorkerVariables(JMeterVariables parent) {
         this.parent = parent;
+        if (parent instanceof ParallelWorkerVariables worker) {
+            Map<String, Object> captures = worker.eventVariables;
+            synchronized (captures) {
+                if (!captures.isEmpty()) {
+                    setEventVariables(captures);
+                }
+            }
+        }
     }
 
-    private static boolean isWorkerLocal(String key) {
-        return JMeterThread.LAST_SAMPLE_OK.equals(key) || JMeterThread.PACKAGE_OBJECT.equals(key);
+    void setEventVariables(Map<String, Object> values) {
+        eventVariables = Collections.synchronizedMap(new LinkedHashMap<>(values));
+    }
+
+    private boolean isWorkerLocal(String key) {
+        return JMeterThread.LAST_SAMPLE_OK.equals(key) || JMeterThread.PACKAGE_OBJECT.equals(key)
+                || eventVariables.containsKey(key);
     }
 
     private Object getLocal(String key) {
+        if (eventVariables.containsKey(key)) {
+            return eventVariables.get(key);
+        }
         return JMeterThread.LAST_SAMPLE_OK.equals(key) ? lastSampleOk : samplePackage;
     }
 
     private void setLocal(String key, Object value) {
-        if (JMeterThread.LAST_SAMPLE_OK.equals(key)) {
+        if (eventVariables.containsKey(key)) {
+            eventVariables.put(key, value);
+        } else if (JMeterThread.LAST_SAMPLE_OK.equals(key)) {
             lastSampleOk = value;
         } else {
             samplePackage = value;
@@ -121,6 +140,9 @@ class ParallelWorkerVariables extends JMeterVariables {
 
     @Override
     public Object remove(String key) {
+        if (eventVariables.containsKey(key)) {
+            return eventVariables.put(key, null);
+        }
         if (isWorkerLocal(key)) {
             Object local = getLocal(key);
             setLocal(key, NOT_SET);
@@ -133,6 +155,7 @@ class ParallelWorkerVariables extends JMeterVariables {
     public void clear() {
         lastSampleOk = NOT_SET;
         samplePackage = NOT_SET;
+        eventVariables = Map.of();
         parent.clear();
     }
 
@@ -149,6 +172,10 @@ class ParallelWorkerVariables extends JMeterVariables {
         Object localSamplePackage = samplePackage;
         if (localSamplePackage != NOT_SET) {
             merged.put(JMeterThread.PACKAGE_OBJECT, localSamplePackage);
+        }
+        Map<String, Object> captures = eventVariables;
+        synchronized (captures) {
+            merged.putAll(captures);
         }
         return Collections.unmodifiableMap(merged).entrySet();
     }

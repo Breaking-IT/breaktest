@@ -35,6 +35,8 @@ public class WebSocketConnectSamplerBeanInfo extends BeanInfoSupport {
             String key = attributes.nextElement();
             descriptor.setValue(key, source.getValue(key));
         }
+        descriptor.setValue("childControllerClass", WebSocketMatchController.class);
+        descriptor.setValue("childControllerLabel", "WebSocket Match");
         property("headers").setHidden(true);
         createPropertyGroup("session", new String[] {"sessionName", "timeout", "url", "existingSessionAction", "countIncoming",
                 "failOnDisconnect", "ignoreControlFrames", "textFilter", "binaryFilter", "maxMessageBytes"});

@@ -669,13 +669,8 @@ public final class MenuFactory {
         }
         TestElement parent = parentNode.getTestElement();
 
-        // Let the parent element veto specific child types (e.g. HTTP samplers reject Header Managers)
-        if (parent instanceof ChildElementFilter filter) {
-            for (JMeterTreeNode node : nodes) {
-                if (node.getUserObject() instanceof TestElement child && !filter.acceptsChildElement(child)) {
-                    return false;
-                }
-            }
+        if (!acceptsChildTypes(parent, nodes)) {
+            return false;
         }
 
         // Force TestFragment to only be pastable under a Test Plan, or in the Test Fragments section together with
@@ -713,9 +708,13 @@ public final class MenuFactory {
             return true;
         }
 
-        // No Samplers and Controllers
+        // Only event-capable samplers accept child controllers.
         if (parent instanceof Sampler) {
-            return !foundClass(nodes, new Class[]{Sampler.class, Controller.class});
+            return parent instanceof org.apache.jmeter.samplers.ChildControllerSampler eventSampler
+                    ? Arrays.stream(nodes).allMatch(node -> !(node.getTestElement() instanceof Sampler)
+                            && (!(node.getTestElement() instanceof Controller controller)
+                            || eventSampler.acceptsChildController(controller)))
+                    : !foundClass(nodes, new Class[]{Sampler.class, Controller.class});
         }
 
         // All other
@@ -728,6 +727,21 @@ public final class MenuFactory {
      *
      * @return whether the nodes can be added, or {@code null} when these rules do not apply
      */
+    private static boolean acceptsChildTypes(TestElement parent, JMeterTreeNode[] nodes) {
+        for (JMeterTreeNode node : nodes) {
+            TestElement child = node.getTestElement();
+            if (parent instanceof ChildElementFilter filter && !filter.acceptsChildElement(child)) {
+                return false;
+            }
+            if (child instanceof org.apache.jmeter.samplers.ChildControllerSampler.Handler handler
+                    && (!(parent instanceof org.apache.jmeter.samplers.ChildControllerSampler sampler)
+                    || !sampler.acceptsChildController(handler))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static Boolean canAddToScenarioStructure(JMeterTreeNode parentNode, JMeterTreeNode[] nodes) {
         TestElement parent = parentNode.getTestElement();
         if (foundClass(nodes, new Class[]{TestPlanSection.class})) {

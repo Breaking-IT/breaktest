@@ -34,7 +34,7 @@ public class ForkControllerSampler extends AbstractSampler {
         this(null, "", new GenericController());
     }
 
-    ForkControllerSampler(ForkController sourceController, String name, Controller controller) {
+    public ForkControllerSampler(ForkController sourceController, String name, Controller controller) {
         this.sourceController = sourceController;
         this.controller = controller;
         setName(name);

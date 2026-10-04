@@ -279,6 +279,15 @@ public class TestBeanGUI extends AbstractJMeterGuiComponent implements JMeterGUI
     public JPopupMenu createPopupMenu() {
         if (Timer.class.isAssignableFrom(testBeanClass)) {
             return MenuFactory.getDefaultTimerMenu();
+        } else if (org.apache.jmeter.samplers.ChildControllerSampler.class.isAssignableFrom(testBeanClass)) {
+            JPopupMenu menu = MenuFactory.getDefaultSamplerMenu();
+            Object child = beanInfo.getBeanDescriptor().getValue("childControllerClass");
+            if (child instanceof Class<?> childClass) {
+                ((javax.swing.JMenu) menu.getComponent(0)).add(MenuFactory.makeMenuItem(
+                        (String) beanInfo.getBeanDescriptor().getValue("childControllerLabel"),
+                        childClass.getName(), org.apache.jmeter.gui.action.ActionNames.ADD));
+            }
+            return menu;
         } else if (Sampler.class.isAssignableFrom(testBeanClass)) {
             return MenuFactory.getDefaultSamplerMenu();
         } else if (ConfigElement.class.isAssignableFrom(testBeanClass)) {

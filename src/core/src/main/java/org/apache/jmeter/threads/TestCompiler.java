@@ -201,6 +201,15 @@ public class TestCompiler implements HashTreeTraverser {
         stack.removeLast();
         if (!stack.isEmpty()) {
             TestElement parent = stack.getLast();
+            if (child instanceof org.apache.jmeter.samplers.ChildControllerSampler.Handler
+                    && !(parent instanceof org.apache.jmeter.samplers.ChildControllerSampler)) {
+                throw new IllegalArgumentException("Event match controller must be placed below its connection sampler: "
+                        + child.getName());
+            }
+            if (parent instanceof org.apache.jmeter.samplers.ChildControllerSampler eventSampler
+                    && child instanceof Controller controller) {
+                eventSampler.addChildController(controller);
+            }
             boolean duplicate = false;
             // Bug 53750: this condition used to be in ObjectPair#addTestElements()
             if (parent instanceof Controller && (child instanceof Sampler || child instanceof Controller)) {

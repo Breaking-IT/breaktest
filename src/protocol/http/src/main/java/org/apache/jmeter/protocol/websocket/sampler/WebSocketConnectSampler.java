@@ -49,7 +49,7 @@ import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.SamplePackage;
 
 @TestElementMetadata(labelResource = "displayName")
-public class WebSocketConnectSampler extends AbstractWebSocketSampler {
+public class WebSocketConnectSampler extends AbstractWebSocketSampler implements org.apache.jmeter.samplers.ChildControllerSampler {
     private static final long serialVersionUID = 1L;
     public static final String RECONNECT = "Close and reconnect";
     public static final String REUSE = "Reuse if connected";
@@ -67,6 +67,40 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
     private static final String HEADER_MANAGER = "WebSocketConnect.headerManager";
     private static final Set<String> TRANSPORT_HEADERS = Set.of("connection", "content-length", "expect", "host", "upgrade");
 
+    private transient List<WebSocketMatchController> matchControllers = new java.util.ArrayList<>();
+
+    @Override
+    public boolean acceptsChildController(org.apache.jmeter.control.Controller controller) {
+        return controller instanceof WebSocketMatchController;
+    }
+
+    @Override
+    @SuppressWarnings("ReferenceEquality") // Equal properties do not make two tree nodes the same handler.
+    public void addChildController(org.apache.jmeter.control.Controller controller) {
+        if (!(controller instanceof WebSocketMatchController match)) {
+            throw new IllegalArgumentException("WebSocket Connect only accepts WebSocket Match controllers");
+        }
+        if (matchControllers.stream().noneMatch(existing -> existing == match)) {
+            matchControllers.add(match);
+        }
+    }
+
+    @Override
+    public List<org.apache.jmeter.control.Controller> createDefaultChildControllers() {
+        WebSocketMatchController match = new WebSocketMatchController();
+        match.setName("WebSocket Match");
+        match.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.testbeans.gui.TestBeanGUI.class.getName());
+        match.setProperty(TestElement.TEST_CLASS, WebSocketMatchController.class.getName());
+        return List.of(match);
+    }
+
+    @Override
+    public Object clone() {
+        WebSocketConnectSampler copy = (WebSocketConnectSampler) super.clone();
+        copy.matchControllers = new java.util.ArrayList<>(matchControllers);
+        return copy;
+    }
+
     @Override
     protected void execute(SampleResult result) throws Exception {
         URI uri = URI.create(getUrl());
@@ -74,9 +108,12 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
                 || uri.getHost() == null || uri.getFragment() != null || uri.getUserInfo() != null) {
             throw new IllegalArgumentException("A ws:// or wss:// URL without fragment or user information is required");
         }
+        Consumer<SampleResult> publish = publisher();
+        WebSocketMessageHandlers handlers = new WebSocketMessageHandlers(matchControllers, getSessionName(), publish);
         WebSocketSession session = new WebSocketSession(getSessionName(), getCountIncoming(),
                 getFailOnDisconnect(), getIgnoreControlFrames(), getTextFilter(), getBinaryFilter(),
-                getMaxMessageBytes(), publisher());
+                getMaxMessageBytes(), publish);
+        session.setHandlers(handlers);
         WebSocketSessions sessions = WebSocketSessions.current();
         if (!sessions.connect(getSessionName(), session, getExistingSessionAction())) {
             result.setSamplerData("Reused WebSocket session: " + getSessionName());
@@ -85,6 +122,7 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
         }
         active(session);
         try {
+            handlers.start();
             var client = sessions.client(getSessionName(), session, uri);
             WebSocket.Builder builder = client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(getTimeout()));

@@ -155,6 +155,41 @@ existing session. Other named sessions are unaffected. An explicit Close sampler
 is already closed or the session is missing, even when unexpected-disconnect reporting
 is disabled. Closing an already disconnected session still removes its registry entry. In new-user mode, the old
 sessions have already been cleared, so all three options create a fresh connection.
+</p>
+<p>
+<b>WebSocket Match</b> controllers under Connect react to application messages in the
+background while the main script continues. Adding Connect in the GUI creates an
+empty Match child; use Connect's Add menu to add more. Each Match has an exact text,
+text regular expression (find), or binary hex sequence condition. Hex accepts spaces
+and newlines and matches anywhere in a binary frame. Every matching block runs,
+in arrival order within that block; different Match blocks run concurrently.
+Normal samplers and controllers can be nested underneath, including HTTP Request,
+WebSocket Send, Transaction Controller, assertions, and extractors. Native control
+ping/pong frames do not trigger these handlers. Incoming-message sample filters and
+Send and Wait consumption do not suppress application handlers.
+</p>
+<p>
+For example, match exact text <code>ping</code> and place a WebSocket Send with payload
+<code>pong</code> below it. Match regex <code>process ready for page: (.*?) done</code>,
+set First regex group variable to <code>pageDone</code>, and place a Transaction
+Controller containing HTTP Request <code>/page/${pageDone}</code> below it.
+With the default variable prefix <code>ws</code>, the block can also read
+<code>${ws_message}</code>, <code>${ws_hex}</code>, <code>${ws_session}</code>,
+<code>${ws_binary}</code>, and regex captures <code>${ws_g0}</code> (whole match),
+<code>${ws_g1}</code>, etc. Use <code>${ws_session}</code> in nested WebSocket samplers.
+These captures are local to the handler; ordinary variables and HTTP cookie managers
+remain shared within the same virtual user. They are never shared with another user.
+</p>
+<p>
+Each Match parks its background worker while idle. Its pending queue is bounded to
+64 messages and 4 MiB; overflow stops that handler and reports
+<code>WS_HANDLER_OVERFLOW</code>. Close, disconnect, replacement, new-user iteration
+and thread shutdown stop handlers. Same-user iterations retain them when the connection
+is retained; Connect's reuse mode retains the original handlers and settings.
+Handlers have their own transaction scope and their samples use the normal engine
+processing path. The main script must remain running for background handlers to run.
+</p>
+<p>
 The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
 HTTP Header Managers in scope also apply. Connect's own headers take priority,
 then the closest scoped manager, with case-insensitive name matching and repeated

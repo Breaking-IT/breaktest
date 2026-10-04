@@ -50,6 +50,13 @@ final class WebSocketSession implements WebSocket.Listener {
     private WebSocket socket;
     private boolean expectedClose;
     private boolean terminated;
+    private WebSocketMessageHandlers handlers;
+    private final java.util.Queue<SampleResult> handlerNotifications = new java.util.ArrayDeque<>();
+
+    synchronized void setHandlers(WebSocketMessageHandlers handlers) {
+        this.handlers = handlers;
+    }
+
     private boolean disposed;
     private int messageBytes;
     private boolean pendingHighSurrogate;
@@ -174,10 +181,13 @@ final class WebSocketSession implements WebSocket.Listener {
 
     private void complete(byte[] data, String type, boolean filtered) {
         incoming.sampleEnd();
+        incoming.setResponseData(data);
+        incoming.setDataType(type);
+        incoming.setDataEncoding(StandardCharsets.UTF_8.name());
+        if (handlers != null) {
+            handlerNotifications.add(incoming);
+        }
         if (!filtered) {
-            incoming.setResponseData(data);
-            incoming.setDataType(type);
-            incoming.setDataEncoding(StandardCharsets.UTF_8.name());
             boolean consumed = false;
             if (response != null && responseMatcher.test(incoming)) {
                 consumed = response.complete(incoming);
@@ -205,6 +215,16 @@ final class WebSocketSession implements WebSocket.Listener {
     }
 
     private void publishNotifications() {
+        while (true) {
+            SampleResult message;
+            synchronized (this) {
+                message = handlerNotifications.poll();
+            }
+            if (message == null) {
+                break;
+            }
+            handlers.accept(message);
+        }
         while (true) {
             SampleResult notification;
             synchronized (this) {
@@ -329,6 +349,9 @@ final class WebSocketSession implements WebSocket.Listener {
             notifications.add(result);
         }
         terminated = true;
+        if (handlers != null) {
+            handlers.close();
+        }
         failWait("WebSocket session disconnected: " + code + " " + message);
         text.setLength(0);
         binary.reset();
@@ -348,6 +371,10 @@ final class WebSocketSession implements WebSocket.Listener {
     synchronized void dispose() {
         disposed = true;
         expectedClose = true;
+        if (handlers != null) {
+            handlers.close();
+        }
+        handlerNotifications.clear();
         failWait("WebSocket session was stopped: " + name);
         if (socket != null) {
             socket.abort();

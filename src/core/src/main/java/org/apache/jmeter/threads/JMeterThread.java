@@ -287,6 +287,7 @@ public class JMeterThread implements Runnable, Interruptible {
         private volatile Sampler sampler;
         private volatile List<? extends Timer> timers = List.of();
         private volatile boolean waitingInTimer;
+        private volatile boolean waitingForEvent;
 
         private ForkWorker(Future<?> task) {
             this.task = task;
@@ -864,6 +865,57 @@ public class JMeterThread implements Runnable, Interruptible {
         };
     }
 
+    /** Starts an event-driven flow with normal sampler processing and virtual-user lifecycle. */
+    @API(status = API.Status.INTERNAL)
+    public Runnable startBackgroundFlow(String name, Controller controller, Function<Sampler, Sampler> sourceSampler) {
+        ForkController lifecycle = new ForkController();
+        lifecycle.setIterationEndAction(IterationEndAction.KEEP_RUNNING);
+        lifecycle.setFinalStopAction(FinalStopAction.IMMEDIATE);
+        JMeterContext parent = createParallelContext(JMeterContextService.getContext(), null);
+        // This lifecycle is unique to this registration: no per-controller start lock is needed.
+        startForkSamplerLocked(new ForkControllerSampler(lifecycle, name, controller), parent, sourceSampler);
+        Future<?> task = activeForkTasksByController.get(lifecycle);
+        return () -> {
+            if (task != null) {
+                requestStopForkTasks(List.of(task), List.of(task));
+            }
+        };
+    }
+
+    /** Event controllers must recheck this while waiting for another event. */
+    @API(status = API.Status.INTERNAL)
+    public boolean isBackgroundFlowStopping() {
+        return !running || forkIterationEndAction != null || isCurrentForkStopRequested();
+    }
+
+    /** Parks an event worker without polling; graceful and immediate stops wake it. */
+    @API(status = API.Status.INTERNAL)
+    public <T> T awaitBackgroundEvent(java.util.concurrent.BlockingQueue<T> events) throws InterruptedException {
+        ForkWorker worker = forkWorkers.get(Thread.currentThread());
+        if (worker == null) {
+            throw new IllegalStateException("Events require a background worker");
+        }
+        worker.waitingForEvent = true;
+        try {
+            if (isBackgroundFlowStopping()) {
+                throw new InterruptedException("Background flow stopped");
+            }
+            return events.take();
+        } finally {
+            worker.waitingForEvent = false;
+        }
+    }
+
+    /** Replaces event-local captures without modifying the main flow's variables. */
+    @API(status = API.Status.INTERNAL)
+    public static void setBackgroundLocalVariables(Map<String, Object> values) {
+        JMeterVariables variables = JMeterContextService.getContext().getVariables();
+        if (!(variables instanceof ParallelWorkerVariables worker)) {
+            throw new IllegalStateException("Event variables require a background worker");
+        }
+        worker.setEventVariables(values);
+    }
+
     private void runForkSampler(ForkControllerSampler forkSampler, JMeterContext parentContext,
             RunningTransaction enclosingTransaction, Function<? super Sampler, ? extends Sampler> sourceSampler) {
         JMeterContext workerContext = createParallelContext(parentContext, enclosingTransaction);
@@ -1008,7 +1060,7 @@ public class JMeterThread implements Runnable, Interruptible {
             stopTimers(worker.timers);
             boolean immediate = containsIdentity(hardStop, worker.task);
             if (!immediate) {
-                if (worker.waitingInTimer) {
+                if (worker.waitingInTimer || worker.waitingForEvent) {
                     entry.getKey().interrupt();
                 }
                 continue;
