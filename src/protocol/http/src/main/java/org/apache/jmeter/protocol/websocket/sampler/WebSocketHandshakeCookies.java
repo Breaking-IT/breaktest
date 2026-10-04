@@ -25,8 +25,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +40,9 @@ final class WebSocketHandshakeCookies extends CookieHandler {
     // Network handshakes proceed concurrently once their keys have been registered.
     private final Semaphore requestSlot = new Semaphore(1);
     private final Map<String, Capture> responses = new ConcurrentHashMap<>();
+    // Retried requests retain their original header key. Weak keys avoid retaining
+    // completed/cancelled requests for the lifetime of a shared transport client.
+    private final Map<String, Boolean> registeredRequests = Collections.synchronizedMap(new WeakHashMap<>());
     private volatile Capture starting;
     private volatile boolean accepting = true;
 
@@ -73,7 +78,7 @@ final class WebSocketHandshakeCookies extends CookieHandler {
             throw new IOException("Missing WebSocket handshake key");
         }
         String accept = acceptFor(key);
-        if (responses.containsKey(accept)) {
+        if (registeredRequests.containsKey(key)) {
             return Map.of(); // Retry of an already registered request.
         }
         Capture capture = starting;
@@ -90,6 +95,7 @@ final class WebSocketHandshakeCookies extends CookieHandler {
                     throw new IOException("Duplicate WebSocket handshake key");
                 }
             }
+            registeredRequests.put(key, Boolean.TRUE);
             starting = null;
             capture.registered = true;
             requestSlot.release();
@@ -139,7 +145,6 @@ final class WebSocketHandshakeCookies extends CookieHandler {
         private String accept;
         private boolean registered;
         private boolean closed;
-        private boolean succeeded;
 
         private Capture(URI uri) {
             this.uri = uri;
@@ -149,18 +154,14 @@ final class WebSocketHandshakeCookies extends CookieHandler {
             return List.copyOf(cookies);
         }
 
-        synchronized void succeeded() {
-            succeeded = true;
-        }
-
         @Override
         public synchronized void close() {
             closed = true;
-            if (accept != null && succeeded) {
+            if (accept != null) {
                 responses.remove(accept, this);
             }
-            if (!succeeded) {
-                // An asynchronous request filter or retry may still arrive after cancellation.
+            if (!registered) {
+                // An unregistered request filter may still arrive after cancellation.
                 // Never assign that late request to another user's capture. Existing
                 // sockets stay usable; the pool creates a fresh client for new connects.
                 accepting = false;

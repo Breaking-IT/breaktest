@@ -138,9 +138,13 @@ Set-Cookie response headers from successful upgrades and rejected handshakes are
 into the same user's Cookie Manager on the user thread, using the normal cookie validation
 rules. Concurrent successful upgrades are correlated by their unique WebSocket handshake
 keys, including when users connect to the same URL through a shared transport client.
-Cookies are available to subsequent HTTP requests and WebSocket connects. Failed or
-cancelled handshake transports are retired from new connection acquisition while existing
-sessions on those clients remain usable; late responses cannot populate another user's store.
+Cookies are available to subsequent HTTP requests and WebSocket connects. Only cancelled handshakes whose requests were never registered retire their transport
+from new connection acquisition; ordinary server rejections and registered-request timeouts
+leave shared clients available. Existing
+sessions remain usable; late responses cannot populate another user's store.
+With Same user on each iteration disabled, open WebSockets are closed before user
+variables reset, even if an error skipped the Close sampler. Same-user iterations
+retain their named sessions.
 The <b>HTTP Headers</b> tab on Connect uses the same header editor as HTTP Request.
 HTTP Header Managers in scope also apply. Connect's own headers take priority,
 then the closest scoped manager, with case-insensitive name matching and repeated

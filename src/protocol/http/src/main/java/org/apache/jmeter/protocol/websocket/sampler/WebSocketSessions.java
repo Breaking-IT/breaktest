@@ -46,7 +46,7 @@ final class WebSocketSessions {
                 variables.putObject(KEY, sessions);
                 if (owner != null) {
                     // The engine clears context variables before threadFinished callbacks.
-                    owner.registerThreadCleanup(sessions, sessions::close);
+                    owner.registerUserCleanup(sessions, sessions::close);
                 }
             }
             return sessions;
@@ -66,6 +66,9 @@ final class WebSocketSessions {
     }
 
     synchronized void add(String name, WebSocketSession session) {
+        if (closed) {
+            throw new IllegalStateException("WebSocket user session registry is closed");
+        }
         if (sessions.containsKey(name)) {
             throw new IllegalStateException("WebSocket session already exists; close it before reconnecting: " + name);
         }
@@ -114,11 +117,18 @@ final class WebSocketSessions {
         }
     }
 
-    private synchronized void close() {
-        closed = true;
-        sessions.values().forEach(WebSocketSession::dispose);
-        sessions.clear();
-        clients.values().forEach(WebSocketTransportPool.Lease::close);
-        clients.clear();
+    private void close() {
+        notificationLock.lock();
+        try {
+            synchronized (this) {
+                closed = true;
+                sessions.values().forEach(WebSocketSession::dispose);
+                sessions.clear();
+                clients.values().forEach(WebSocketTransportPool.Lease::close);
+                clients.clear();
+            }
+        } finally {
+            notificationLock.unlock();
+        }
     }
 }

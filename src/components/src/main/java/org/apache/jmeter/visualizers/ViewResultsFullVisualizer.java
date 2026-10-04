@@ -1776,30 +1776,30 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         if (decodeBinary || isTextDataType(res)) {
             byte[] bytes = res.getResponseData();
             String decoded;
-            if (decodeBinary && MAX_DISPLAY_SIZE > 0 && bytes.length > MAX_DISPLAY_SIZE) {
+            boolean bytesTruncated = decodeBinary && MAX_DISPLAY_SIZE > 0 && bytes.length > MAX_DISPLAY_SIZE;
+            if (bytesTruncated) {
                 java.nio.charset.Charset charset;
                 try {
                     charset = java.nio.charset.Charset.forName(res.getDataEncodingWithDefault());
                 } catch (IllegalArgumentException invalidEncoding) {
                     charset = java.nio.charset.StandardCharsets.UTF_8;
                 }
-                decoded = new String(bytes, 0, MAX_DISPLAY_SIZE, charset)
-                        + "\n" + JMeterUtils.getResString("view_results_response_partial_message");
+                decoded = new String(bytes, 0, MAX_DISPLAY_SIZE, charset);
             } else {
                 decoded = res.getResponseDataAsString();
             }
             String responseData = compactKnownTimeoutStackTrace(res, decoded);
             // Bound text inserted into the response editor to keep the GUI responsive.
             int len = responseData.length();
-            if (MAX_DISPLAY_SIZE > 0 && len > MAX_DISPLAY_SIZE) {
+            if (bytesTruncated || MAX_DISPLAY_SIZE > 0 && len > MAX_DISPLAY_SIZE) {
                 response = """
                         %s%d > Max: %d, %s
                         %s
                         ...""".formatted(
                             JMeterUtils.getResString("view_results_response_too_large_message"), //$NON-NLS-1$
-                            len, MAX_DISPLAY_SIZE,
+                            bytesTruncated ? bytes.length : len, MAX_DISPLAY_SIZE,
                             JMeterUtils.getResString("view_results_response_partial_message"), // $NON-NLS-1$
-                            responseData.substring(0, MAX_DISPLAY_SIZE));
+                            responseData.substring(0, Math.min(len, MAX_DISPLAY_SIZE)));
             } else {
                 response = responseData;
             }

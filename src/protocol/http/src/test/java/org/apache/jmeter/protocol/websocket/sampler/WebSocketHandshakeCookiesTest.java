@@ -46,15 +46,15 @@ class WebSocketHandshakeCookiesTest {
                 bridge.put(HTTP, response("alice-key", "user=alice"));
                 assertEquals(List.of("user=alice"), alice.cookies());
                 assertEquals(List.of("user=bob"), bob.cookies());
-                alice.succeeded();
-                bob.succeeded();
+
+
             }
         }
         try (var next = bridge.begin(WS, 100)) {
             bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of("next-key")));
             bridge.put(HTTP, response("alice-key", "late=alice"));
             assertTrue(next.cookies().isEmpty());
-            next.succeeded();
+
         }
         assertTrue(bridge.acceptsHandshakes());
     }
@@ -79,14 +79,31 @@ class WebSocketHandshakeCookiesTest {
         bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of("first-key")));
         try (var second = bridge.begin(WS, 100)) {
             first.close();
+            assertTrue(bridge.acceptsHandshakes());
             bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of("first-key")));
             bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of("second-key")));
             bridge.put(HTTP, response("first-key", "late=first"));
             bridge.put(HTTP, response("second-key", "user=second"));
             assertTrue(first.cookies().isEmpty());
             assertEquals(List.of("user=second"), second.cookies());
-            second.succeeded();
+
         }
+    }
+
+    @Test
+    void registeredFailureAllowsFurtherRequestsWithoutKeepingCookieCaptures() throws Exception {
+        WebSocketHandshakeCookies bridge = new WebSocketHandshakeCookies();
+        for (int i = 0; i < 100; i++) {
+            String key = "rejected-" + i;
+            try (var capture = bridge.begin(WS, 100)) {
+                bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of(key)));
+            }
+            assertTrue(bridge.acceptsHandshakes());
+            bridge.get(HTTP, Map.of("Sec-WebSocket-Key", List.of(key))); // Late retry is harmless.
+        }
+        var field = WebSocketHandshakeCookies.class.getDeclaredField("responses");
+        field.setAccessible(true);
+        assertTrue(((Map<?, ?>) field.get(bridge)).isEmpty());
     }
 
     private static Map<String, List<String>> response(String key, String cookie) throws Exception {

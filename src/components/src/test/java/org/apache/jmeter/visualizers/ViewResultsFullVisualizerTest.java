@@ -1084,6 +1084,23 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
     }
 
     @Test
+    public void largeBinaryTextReportsOriginalByteSizeAndOneTruncationNotice() {
+        int limit = JMeterUtils.getPropDefault("view.results.tree.max_size", 10485760);
+        byte[] bytes = new byte[limit * 2];
+        java.util.Arrays.fill(bytes, (byte) 'a');
+        SampleResult sample = new SampleResult();
+        sample.setDataType(SampleResult.BINARY);
+        sample.setResponseData(bytes);
+        String response = ViewResultsFullVisualizer.getResponseAsString(sample, true);
+        assertTrue(response.contains(bytes.length + " > Max: " + limit));
+        String notice = JMeterUtils.getResString("view_results_response_partial_message");
+        assertEquals(response.indexOf(notice), response.lastIndexOf(notice));
+        assertTrue(response.contains(notice));
+        assertTrue(response.endsWith("..."));
+        assertTrue(response.length() < limit + 1024);
+    }
+
+    @Test
     public void textViewShowsBinaryResponseThroughActualTreeSelection() throws Exception {
         JMeterContextService.setValidationRun(false);
         SwingUtilities.invokeAndWait(() -> {

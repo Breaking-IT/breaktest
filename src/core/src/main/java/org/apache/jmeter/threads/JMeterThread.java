@@ -306,6 +306,7 @@ public class JMeterThread implements Runnable, Interruptible {
     // ThreadListeners when the source test tree finishes. Resources created by those clones can
     // register one cleanup action on the owning virtual user instead.
     private final Map<Object, Runnable> threadCleanupActions = new ConcurrentHashMap<>();
+    private final Map<Object, Runnable> userCleanupActions = new ConcurrentHashMap<>();
 
     public JMeterThread(HashTree test, JMeterThreadMonitor monitor, ListenerNotifier note) {
         this(test, monitor, note, false);
@@ -1810,9 +1811,25 @@ public class JMeterThread implements Runnable, Interruptible {
                 Objects.requireNonNull(cleanup, "cleanup"));
     }
 
+    /**
+     * Registers resources scoped to the current user identity. Cleanup runs before
+     * variables reset for a new user, or at thread shutdown for the last user.
+     * @param key resource-owner key
+     * @param cleanup action to release that user's resources
+     */
+    @API(status = API.Status.INTERNAL)
+    public void registerUserCleanup(Object key, Runnable cleanup) {
+        userCleanupActions.putIfAbsent(Objects.requireNonNull(key), Objects.requireNonNull(cleanup));
+    }
+
     private void runThreadCleanupActions() {
-        List<Runnable> actions = new ArrayList<>(threadCleanupActions.values());
-        threadCleanupActions.clear();
+        runCleanupActions(userCleanupActions);
+        runCleanupActions(threadCleanupActions);
+    }
+
+    private static void runCleanupActions(Map<Object, Runnable> registrations) {
+        List<Runnable> actions = new ArrayList<>(registrations.values());
+        registrations.clear();
         for (Runnable action : actions) {
             try {
                 action.run();
@@ -2174,6 +2191,7 @@ public class JMeterThread implements Runnable, Interruptible {
         if (isSameUserOnNextIteration || threadVars.getIteration() == 0) {
             return;
         }
+        runCleanupActions(userCleanupActions);
         synchronized (initialVariables) {
             threadVars.clear();
             threadVars.putAll(initialVariables);

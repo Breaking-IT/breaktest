@@ -164,6 +164,80 @@ class WebSocketSamplerTest extends JMeterTestCase {
         assertDoesNotThrow(() -> new WebSocketConnectSampler().threadFinished());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void iterationBoundaryClosesOnlyNewUserSessionsEvenWhenCloseWasSkipped(boolean sameUser) throws Exception {
+        try (Peer first = new Peer(false); Peer second = new Peer(false)) {
+            var iteration = new java.util.concurrent.atomic.AtomicInteger();
+            var previous = new java.util.concurrent.atomic.AtomicReference<WebSocketSession>();
+            var registry = new java.util.concurrent.atomic.AtomicReference<WebSocketSessions>();
+            var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            var step = new org.apache.jmeter.samplers.AbstractSampler() {
+                private static final long serialVersionUID = 1L;
+                @Override
+                public SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+                    SampleResult result = new SampleResult();
+                    result.sampleStart();
+                    int current = iteration.incrementAndGet();
+                    try {
+                        if (current == 1) {
+                            SampleResult connected = connect("chat", first.url()).sample(null);
+                            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+                            registry.set(WebSocketSessions.current());
+                            previous.set(registry.get().get("chat"));
+                        } else if (sameUser) {
+                            assertSame(registry.get(), WebSocketSessions.current());
+                            assertNotNull(previous.get().socket());
+                        } else {
+                            first.done.get(3, TimeUnit.SECONDS);
+                            assertThrows(IllegalStateException.class, () -> previous.get().socket());
+                            registry.get().notifyListeners(() -> {
+                                throw new AssertionError("Old user must not publish notifications");
+                            });
+                            assertNotSame(registry.get(), WebSocketSessions.current());
+                            SampleResult connected = connect("chat", second.url()).sample(null);
+                            assertTrue(connected.isSuccessful(), connected::getResponseMessage);
+                        }
+                    } catch (Throwable error) {
+                        failure.set(error);
+                    }
+                    result.setSuccessful(current != 1); // Skip the first iteration's Close sampler.
+                    result.sampleEnd();
+                    return result;
+                }
+            };
+            LoopController loop = new LoopController();
+            loop.setLoops(2);
+            loop.setContinueForever(false);
+            ListedHashTree tree = new ListedHashTree();
+            org.apache.jmeter.threads.ThreadGroup group = new org.apache.jmeter.threads.ThreadGroup();
+            group.setSamplerController(loop);
+            var children = tree.add(group);
+            children.add(step);
+            WebSocketCloseSampler close = new WebSocketCloseSampler();
+            close.setSessionName("chat");
+            children.add(close);
+            JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier(), sameUser);
+            user.setThreadGroup(group);
+            user.setThreadName("websocket-iteration-test");
+            user.setOnErrorStartNextLoop(true);
+            Thread carrier = Thread.ofVirtual().start(user);
+            try {
+                carrier.join(8000);
+                assertFalse(carrier.isAlive());
+            } finally {
+                user.stop();
+                carrier.interrupt();
+                carrier.join(2000);
+            }
+            if (failure.get() != null) {
+                throw new AssertionError(failure.get());
+            }
+            assertEquals(2, iteration.get());
+            first.done.get(3, TimeUnit.SECONDS);
+        }
+    }
+
     @Test
     void urlVariablesResolveBeforeHandshake() throws Exception {
         try (Peer peer = new Peer(false)) {
@@ -200,7 +274,13 @@ class WebSocketSamplerTest extends JMeterTestCase {
             cookies.testStarted();
             WebSocketConnectSampler connect = connect("rejected", url);
             connect.addTestElement(cookies);
-            SampleResult result = connect.sample(null);
+            SampleResult result;
+            try (var existing = WebSocketTransportPool.acquire(URI.create(url))) {
+                result = connect.sample(null);
+                try (var next = WebSocketTransportPool.acquire(URI.create(url))) {
+                    assertSame(existing.client(), next.client());
+                }
+            }
             assertEquals("retry=token", connect.cookieHeader(URI.create(url)));
             assertFalse(result.isSuccessful());
             assertEquals("404", result.getResponseCode());

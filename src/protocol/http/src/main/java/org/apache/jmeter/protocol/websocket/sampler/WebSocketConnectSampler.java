@@ -82,7 +82,6 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler {
             try (var capture = bridge.begin(uri, getTimeout())) {
                 await(builder.buildAsync(uri, session), Math.max(1, deadline - System.nanoTime()),
                         java.util.concurrent.TimeUnit.NANOSECONDS);
-                capture.succeeded();
                 // Import on the owner thread: CookieManager can also publish COOKIE_* variables.
                 storeCookies(capture.cookies(), WebSocketHandshakeCookies.httpUri(uri));
             }
