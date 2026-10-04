@@ -30,15 +30,12 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -74,7 +71,6 @@ import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.ExceptionUtils;
 import org.apache.jorphan.util.JMeterError;
-import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -201,8 +197,6 @@ public class SaveService {
     static final String PROPVERSION = "5.0";// Expected version $NON-NLS-1$
 
     // Internal information only
-    private static String fileVersion = ""; // computed from saveservice.properties file// $NON-NLS-1$
-
     private static String fileEncoding = ""; // read from properties file// $NON-NLS-1$
 
     static {
@@ -246,29 +240,10 @@ public class SaveService {
         return nameMap;
     }
 
-    private static String checksum(Properties nameMap) throws NoSuchAlgorithmException {
-        MessageDigest md = MessageDigest.getInstance("SHA-1");
-        // This checksums the actual entries, and it ignores comments and blank lines
-        nameMap.entrySet().stream().sorted(
-                Comparator.comparing((Map.Entry<Object, Object> e) -> e.getKey().toString())
-                        .thenComparing(e -> e.getValue().toString())
-        ).forEachOrdered(e -> {
-            md.update(e.getKey().toString().getBytes(StandardCharsets.UTF_8));
-            md.update(e.getValue().toString().getBytes(StandardCharsets.UTF_8));
-        });
-        return JOrphanUtils.baToHexString(md.digest());
-    }
-
     private static void initProps() {
         // Load the alias properties
         try {
             Properties nameMap = loadProperties();
-            try {
-                fileVersion = checksum(nameMap);
-            } catch (NoSuchAlgorithmException e) {
-                log.error("Can't compute checksum for saveservice properties file", e);
-                throw new JMeterError("JMeter requires the checksum of saveservice properties file to continue", e);
-            }
             // now create the aliases
             for (Map.Entry<Object, Object> me : nameMap.entrySet()) {
                 String key = (String) me.getKey();
@@ -582,10 +557,6 @@ public class SaveService {
     // Routines for TestSaveService
     static String getPropertyVersion(){
         return SaveService.propertiesVersion;
-    }
-
-    static String getFileVersion(){
-        return SaveService.fileVersion;
     }
 
     // Allow test code to check for spurious class references

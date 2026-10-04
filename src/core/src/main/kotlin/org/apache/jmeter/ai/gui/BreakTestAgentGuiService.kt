@@ -4979,18 +4979,6 @@ public object BreakTestAgentGuiService {
         return selectSamplerReference(gui, arguments, prefix, role)
     }
 
-    private fun selectOptionalSampler(
-        samplers: List<JMeterTreeNode>,
-        index: Int?,
-        label: String?,
-        role: String,
-    ): JMeterTreeNode? {
-        if (index == null && label.isNullOrBlank()) {
-            return null
-        }
-        return selectSampler(samplers, index, label, role)
-    }
-
     private fun selectNodeReference(
         gui: GuiPackage,
         arguments: JsonNode,
