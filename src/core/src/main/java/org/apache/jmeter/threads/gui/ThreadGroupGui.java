@@ -488,7 +488,8 @@ public class ThreadGroupGui extends AbstractThreadGroupGui implements ItemListen
 
     /** Saving can run inside a document notification: normalize the model without rewriting the editor. */
     private void applyDurationPolicy(TestElement tg, LoopController controller) {
-        tg.set(ThreadGroupSchema.INSTANCE.getUseScheduler(), isDurationPolicySelected());
+        // Match the boolean editor: false is stored as an absent property.
+        tg.set(ThreadGroupSchema.INSTANCE.getUseScheduler(), isDurationPolicySelected() ? Boolean.TRUE : null);
         if (!isLoopCountPolicySelected()) {
             controller.setLoops(LoopController.INFINITE_LOOP_COUNT);
         } else if (loopPanel.getLoops().getText().trim().isEmpty()) {
