@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.har;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
+import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Frame;
 import java.awt.GridBagConstraints;
@@ -27,6 +28,7 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.text.MessageFormat;
@@ -132,6 +134,8 @@ public class HarImportWizard extends JDialog {
     }
 
     private static final String HOST_PROPERTY = "harHostname";
+    private static final URI RECORDER_STORE_URI = URI.create(
+            "https://chromewebstore.google.com/detail/breaktest-browser-recorde/nhndlgmkjpgkpmfkpmecedmccdgbbajm");
 
     private static final int STEP_FILE = 0;
     private static final int STEP_HOSTS = 1;
@@ -305,6 +309,38 @@ public class HarImportWizard extends JDialog {
         center.add(Box.createVerticalStrut(6));
         center.add(analysisLabel);
         panel.add(center, BorderLayout.CENTER);
+        panel.add(buildRecorderPanel(), BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel buildRecorderPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("har_import_recorder_title")));
+        JTextArea description = new JTextArea(JMeterUtils.getResString("har_import_recorder_description"));
+        description.setEditable(false);
+        description.setLineWrap(true);
+        description.setWrapStyleWord(true);
+        description.setOpaque(false);
+        description.setFont(fileLabel.getFont());
+        description.setRows(3);
+        panel.add(description, BorderLayout.CENTER);
+        JButton storeLink = new JButton(JMeterUtils.getResString("har_import_recorder_chrome_store"));
+        storeLink.setToolTipText(RECORDER_STORE_URI.toString());
+        storeLink.addActionListener(e -> {
+            try {
+                Desktop.getDesktop().browse(RECORDER_STORE_URI);
+            } catch (IOException | UnsupportedOperationException | SecurityException ex) {
+                LOG.warn("Could not open HAR recorder store", ex);
+                JTextArea fallback = new JTextArea(JMeterUtils.getResString("har_import_recorder_browser_error")
+                        + "\n\n" + RECORDER_STORE_URI);
+                fallback.setEditable(false);
+                JOptionPane.showMessageDialog(this, fallback,
+                        JMeterUtils.getResString("har_import_recorder_title"), JOptionPane.WARNING_MESSAGE);
+            }
+        });
+        JPanel links = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEADING, 0, 0));
+        links.add(storeLink);
+        panel.add(links, BorderLayout.SOUTH);
         return panel;
     }
 
