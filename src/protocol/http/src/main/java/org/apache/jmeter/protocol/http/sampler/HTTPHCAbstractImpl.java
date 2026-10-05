@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.sampler;
 
 import java.net.InetAddress;
+import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -25,6 +26,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.protocol.HttpContext;
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -120,6 +123,75 @@ public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
 
     protected HTTPHCAbstractImpl(HTTPSamplerBase testElement) {
         super(testElement);
+    }
+
+    static final String PROXY_POLICY = "breaktest.proxyPolicy";
+    private volatile CachedPolicy cachedPolicy;
+
+    private record CachedPolicy(String mode, String patterns, ProxyDestinationPolicy policy) { }
+
+    protected record ProxySettings(boolean enabled, String scheme, String host, int port,
+            String username, String password, ProxyDestinationPolicy policy, boolean global, boolean legacy) {
+        // Never expose credentials through generated record diagnostics.
+        @Override
+        public String toString() {
+            return "ProxySettings[enabled=" + enabled + ", host=" + host + ", port=" + port + "]";
+        }
+    }
+
+    /** Resolve once per sample; keep an immutable snapshot in the context for redirect hops. */
+    protected final ProxySettings resolveProxy(URL url, HttpContext context) {
+        var schema = HTTPSamplerBaseSchema.INSTANCE.getProxy();
+        String mode = testElement.get(schema.getDestinationMode());
+        String patterns = testElement.get(schema.getDestinationPatterns());
+        boolean explicitPolicy = !mode.isBlank() || !patterns.isBlank();
+        if (mode.isBlank() && ProxyDestinationPolicy.hasSettings(testElement)) {
+            mode = patterns.isBlank() ? ProxyDestinationPolicy.Mode.ALL.getResourceKey()
+                    : ProxyDestinationPolicy.Mode.EXCLUDE.getResourceKey();
+        }
+        CachedPolicy cached = cachedPolicy;
+        if (cached == null || !cached.mode.equals(mode) || !cached.patterns.equals(patterns)) {
+            cached = new CachedPolicy(mode, patterns, ProxyDestinationPolicy.compile(mode, patterns));
+            cachedPolicy = cached;
+        }
+        boolean globalEndpoint = getProxyHost().isBlank();
+        String host = globalEndpoint ? PROXY_HOST : getProxyHost();
+        int port = getProxyPortInt() == 0 ? PROXY_PORT : getProxyPortInt();
+        String scheme = getProxyScheme().isBlank() ? PROXY_SCHEME : getProxyScheme();
+        boolean direct = cached.policy.mode() == ProxyDestinationPolicy.Mode.DIRECT;
+        if (explicitPolicy && !direct && (!host.isBlank() || port != 0)) {
+            if (host.isBlank() || port < 1 || port > 65535) {
+                throw new IllegalArgumentException("Proxy requires a hostname and a port between 1 and 65535");
+            }
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                throw new IllegalArgumentException("Proxy scheme must be http or https");
+            }
+        }
+        boolean enabled = !direct && !host.isBlank() && port > 0;
+        boolean globalPolicy = mode.isEmpty();
+        ProxySettings settings = new ProxySettings(enabled, scheme, host, port,
+                globalEndpoint && getProxyUser().isBlank() ? PROXY_USER : getProxyUser(),
+                globalEndpoint && getProxyPass().isEmpty() ? PROXY_PASS : getProxyPass(),
+                cached.policy, globalPolicy, false);
+        if (context != null) {
+            context.setAttribute(PROXY_POLICY, settings);
+        }
+        return settings;
+    }
+
+    protected static HttpHost selectProxy(HttpHost proxy, HttpHost target, HttpContext context) {
+        ProxySettings settings = (ProxySettings) context.getAttribute(PROXY_POLICY);
+        if (settings == null) {
+            return proxy;
+        }
+        boolean useProxy = proxy != null && settings.enabled && settings.policy.allowsProxy(target.getHostName())
+                && (!settings.global || settings.legacy || !isNonProxy(target.getHostName()));
+        if (log.isDebugEnabled()) {
+            log.debug("Proxy route for {}: {} (mode={}, source={}, matchedPattern={})", target,
+                    useProxy ? proxy : "direct", settings.policy.mode(), settings.global ? "global properties" : "request/defaults override",
+                    settings.policy.matchingPattern(target.getHostName()));
+        }
+        return useProxy ? proxy : null;
     }
 
     protected static boolean isNonProxy(String host){

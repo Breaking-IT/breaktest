@@ -30,6 +30,12 @@ import org.apiguardian.api.API
  */
 @API(status = API.Status.EXPERIMENTAL, since = "5.6")
 public open class HTTPSamplerProxyParamsSchema<Schema : BaseTestElementSchema> : BasePropertyGroupSchema<Schema>() {
+    public val destinationMode: StringPropertyDescriptor<Schema>
+        by string("HTTPSampler.proxyDestinationMode")
+
+    public val destinationPatterns: StringPropertyDescriptor<Schema>
+        by string("HTTPSampler.proxyDestinationPatterns")
+
     public val scheme: StringPropertyDescriptor<Schema>
         by string("HTTPSampler.proxyScheme")
 

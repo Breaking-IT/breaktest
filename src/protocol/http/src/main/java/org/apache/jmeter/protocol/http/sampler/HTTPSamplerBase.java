@@ -962,6 +962,35 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     @Override
+    protected void mergeIn(TestElement element) {
+        // Config elements arrive nearest first. Proxy endpoint fields overlay individually,
+        // but the closest configured scope supplies the entire destination policy.
+        boolean localProxy = ProxyDestinationPolicy.hasSettings(this);
+        boolean incomingProxy = ProxyDestinationPolicy.hasSettings(element);
+        if (!localProxy && !incomingProxy) {
+            super.mergeIn(element);
+            return;
+        }
+        TestElement policySource = localProxy ? this : element;
+        String mode = policySource.getPropertyAsString(ProxyDestinationPolicy.MODE_PROPERTY);
+        String patterns = policySource.getPropertyAsString(ProxyDestinationPolicy.PATTERNS_PROPERTY);
+        // Preserve an absent policy so older plans keep their endpoint validation behavior.
+        if (mode.isBlank() && !patterns.isBlank()) {
+            mode = ProxyDestinationPolicy.Mode.EXCLUDE.getResourceKey();
+        }
+        setProperty(ProxyDestinationPolicy.MODE_PROPERTY, mode);
+        setProperty(ProxyDestinationPolicy.PATTERNS_PROPERTY, patterns);
+        var properties = element.propertyIterator();
+        while (properties.hasNext()) {
+            JMeterProperty property = properties.next();
+            if (!ProxyDestinationPolicy.MODE_PROPERTY.equals(property.getName())
+                    && !ProxyDestinationPolicy.PATTERNS_PROPERTY.equals(property.getName())) {
+                addProperty(property, false);
+            }
+        }
+    }
+
+    @Override
     protected void addProperty(JMeterProperty property, boolean clone) {
         if (HEADERS.equals(property.getName()) && property instanceof CollectionProperty defaults) {
             // Defaults and Header Managers arrive in scope order (nearest first). Keep

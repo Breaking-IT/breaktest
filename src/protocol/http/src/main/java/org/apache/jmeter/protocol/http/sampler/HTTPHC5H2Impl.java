@@ -254,7 +254,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             try {
                 resolveAuthManagerForAsyncRequest(clientContext, getAuthManager());
                 HttpVersionPolicy versionPolicy = versionPolicy();
-                HttpClientKey key = createHttpClientKey(url, versionPolicy);
+                HttpClientKey key = createHttpClientKey(url, versionPolicy, clientContext);
                 clientState = setupClient(key);
                 httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
                 setupRequest(url, httpRequest, res);
@@ -1397,26 +1397,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private HttpClientKey createHttpClientKey(URL url, HttpVersionPolicy versionPolicy) {
-        String host = url.getHost();
-        String proxyScheme = getProxyScheme();
-        String proxyHost = getProxyHost();
-        int proxyPort = getProxyPortInt();
-        String proxyPass = getProxyPass();
-        String proxyUser = getProxyUser();
-
-        boolean useStaticProxy = isStaticProxy(host);
-        boolean useDynamicProxy = isDynamicProxy(proxyHost, proxyPort);
-        boolean useProxy = useStaticProxy || useDynamicProxy;
-        if (!useDynamicProxy) {
-            proxyScheme = PROXY_SCHEME;
-            proxyHost = PROXY_HOST;
-            proxyPort = PROXY_PORT;
-            proxyUser = PROXY_USER;
-            proxyPass = PROXY_PASS;
-        }
-        return new HttpClientKey(url, useProxy, proxyScheme, proxyHost, proxyPort, proxyUser, proxyPass,
-                versionPolicy);
+    private HttpClientKey createHttpClientKey(URL url, HttpVersionPolicy versionPolicy, HttpContext context) {
+        ProxySettings proxy = resolveProxy(url, context);
+        return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
+                proxy.username(), proxy.password(), versionPolicy);
     }
 
     private HttpUriRequestBase createHttpRequest(URI uri, String method, boolean areFollowingRedirect) {
@@ -1707,7 +1691,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) {
-            return proxy;
+            return selectProxy(proxy, target, context);
         }
 
         @Override

@@ -150,8 +150,10 @@ public open class JEditableComboBox<T : ResourceKeyed>(
         add(
             Container().apply {
                 layout = FlowLayout(FlowLayout.LEADING, 0, 0)
-                add(comboLabel)
-                add(Box.createHorizontalStrut(5))
+                if (label.isNotEmpty()) {
+                    add(comboLabel)
+                    add(Box.createHorizontalStrut(5))
+                }
                 add(nonEditableCombo)
                 add(Box.createHorizontalStrut(3))
                 add(expressionButton)
@@ -161,8 +163,10 @@ public open class JEditableComboBox<T : ResourceKeyed>(
         add(
             Container().apply {
                 layout = FlowLayout(FlowLayout.LEADING, 0, 0)
-                add(editableLabel)
-                add(Box.createHorizontalStrut(5))
+                if (label.isNotEmpty()) {
+                    add(editableLabel)
+                    add(Box.createHorizontalStrut(5))
+                }
                 add(editableCombo)
             },
             EDITABLE_CARD
