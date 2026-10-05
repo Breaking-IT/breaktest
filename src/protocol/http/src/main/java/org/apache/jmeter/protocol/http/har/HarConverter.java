@@ -91,6 +91,7 @@ public final class HarConverter {
     private final String harMd5;
 
     private int sampleCounter;
+    private int sseSessionCounter;
     private final Map<Integer, String> webSocketSessionNames = new HashMap<>();
     private int parallelCounter;
 
@@ -160,6 +161,7 @@ public final class HarConverter {
             }
         }
         kept.sort((a, b) -> Double.compare(a.getStartMs(), b.getStartMs()));
+        sseSessionCounter = 0;
         webSocketSessionNames.clear();
         for (HarEntry entry : kept) {
             if (entry.isWebSocket()) {
@@ -514,7 +516,7 @@ public final class HarConverter {
         if (entry.getServerIpAddress() != null && !entry.getServerIpAddress().isEmpty()) {
             return false;
         }
-        return !entry.isWebSocket() && !entry.hasPositiveTiming();
+        return !entry.isWebSocket() && !entry.isServerSentEvents() && !entry.hasPositiveTiming();
     }
 
     private static Map<String, String> findCommonHeaders(List<HarEntry> entries) {
@@ -647,9 +649,16 @@ public final class HarConverter {
             return;
         }
 
-        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
-        sampler.setProperty(TestElement.GUI_CLASS, HttpTestSampleGui.class.getName());
-        sampler.setProperty(TestElement.TEST_CLASS, HTTPSamplerProxy.class.getName());
+        HTTPSamplerProxy sampler = entry.isServerSentEvents()
+                ? new org.apache.jmeter.protocol.sse.SseSampler() : new HTTPSamplerProxy();
+        if (entry.isServerSentEvents()) {
+            sseSessionCounter++;
+            sampler.setSseSessionName("sse-" + sseSessionCounter);
+            sampler.setResponseTimeout(org.apache.jmeter.protocol.sse.SseSampler.DEFAULT_RESPONSE_TIMEOUT);
+        }
+        sampler.setProperty(TestElement.GUI_CLASS, entry.isServerSentEvents()
+                ? org.apache.jmeter.protocol.sse.SseSamplerGui.class.getName() : HttpTestSampleGui.class.getName());
+        sampler.setProperty(TestElement.TEST_CLASS, sampler.getClass().getName());
         sampler.setName(name);
         sampler.setMethod(method);
         sampler.setDomain(url.host == null ? "" : url.host);
@@ -756,6 +765,10 @@ public final class HarConverter {
                 && entry.getRequestHeaders().stream()
                         .noneMatch(header -> "content-type".equalsIgnoreCase(header.getName()))) {
             uniqueHeaders.add(new Header("Content-Type", entry.getPostData().getMimeType()));
+        }
+        if (entry.isServerSentEvents() && entry.getRequestHeaders().stream()
+                .noneMatch(header -> "Accept".equalsIgnoreCase(header.getName()))) {
+            uniqueHeaders.add(new Header("Accept", "text/event-stream"));
         }
         if (!uniqueHeaders.isEmpty()) {
             sampler.setNativeHeaders(uniqueHeaders);

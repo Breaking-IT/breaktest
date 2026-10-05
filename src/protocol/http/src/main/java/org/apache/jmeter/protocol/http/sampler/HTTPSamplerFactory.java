@@ -105,6 +105,12 @@ public final class HTTPSamplerFactory {
         if (!StringUtilities.isBlank(impl) && !isKnownImplementation(impl)) {
             throw new IllegalArgumentException("Unknown implementation type: '"+impl+"'");
         }
+        if (base instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+            if (base.isHttp3Protocol()) {
+                throw new IllegalArgumentException("SSE supports HTTP/1.1 and HTTP/2; select either or the default protocol");
+            }
+            return base.isHttp11Protocol() ? new HTTPHC5Impl(base) : new HTTPHC5H2Impl(base);
+        }
         if (base.isHttp3Protocol()) {
             if (http3Supported) {
                 return new HTTPJavaHttp3Impl(base);

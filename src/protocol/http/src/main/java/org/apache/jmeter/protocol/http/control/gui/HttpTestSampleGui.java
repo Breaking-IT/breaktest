@@ -84,6 +84,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     private UrlConfigGui urlConfigGui;
     private JTabbedPane configTabbedPane;
+    private final org.apache.jmeter.protocol.sse.SsePanel ssePanel;
     private Component configTabToRestore;
     private JPanel recordedRequestPane;
     private JPanel recordedResponsePane;
@@ -136,7 +137,13 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     // For use by AJP
     protected HttpTestSampleGui(boolean ajp) {
+        this(ajp, false);
+    }
+
+    /** Reuses the HTTP editor for the dedicated SSE sampler. */
+    protected HttpTestSampleGui(boolean ajp, boolean sse) {
         isAJP = ajp;
+        ssePanel = sse ? new org.apache.jmeter.protocol.sse.SsePanel() : null;
         init();
         HTTPSamplerBaseSchema schema = HTTPSamplerBaseSchema.INSTANCE;
         bindingGroup.addAll(
@@ -188,6 +195,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             sourceIpType.setSelectedIndex(samplerBase.getIpSourceType());
             httpProtocol.setSelectedItem(configuredHttpProtocol());
         }
+        if (ssePanel != null) {
+            ssePanel.configure(element);
+        }
         updateRecordedHarTabs(element);
         restoreSelectedConfigTab();
     }
@@ -220,6 +230,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     public void modifyTestElement(TestElement sampler) {
         super.modifyTestElement(sampler);
         urlConfigGui.modifyTestElement(sampler);
+        if (ssePanel != null) {
+            ssePanel.modify(sampler);
+        }
         final HTTPSamplerBase samplerBase = (HTTPSamplerBase) sampler;
         HTTPSamplerBaseSchema httpSchema = samplerBase.getSchema();
         enableConcurrentDwn();
@@ -257,8 +270,14 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
      */
     @Override
     public JPopupMenu createPopupMenu() {
-        return MenuFactory.getDefaultSamplerMenu(
-                Set.of("org.apache.jmeter.protocol.http.gui.HeaderPanel")); // $NON-NLS-1$
+        JPopupMenu menu = MenuFactory.getDefaultSamplerMenu(
+                Set.of("org.apache.jmeter.protocol.http.gui.HeaderPanel"));
+        if (ssePanel != null) {
+            ((javax.swing.JMenu) menu.getComponent(0)).add(MenuFactory.makeMenuItem(
+                    JMeterUtils.getResString("sse_match"), org.apache.jmeter.protocol.sse.SseMatchController.class.getName(),
+                    org.apache.jmeter.gui.action.ActionNames.ADD));
+        }
+        return menu; // $NON-NLS-1$
     }
 
     private void init() {// called from ctor, so must not be overridable
@@ -274,6 +293,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             configTabbedPane = urlConfigGui.getContentTabbedPane();
             urlConfigGui.addContentTab(JMeterUtils
                     .getResString("web_request_tab_advanced"), createAdvancedConfigPanel(true)); // $NON-NLS-1$
+            if (ssePanel != null) {
+                configTabbedPane.add(JMeterUtils.getResString("sse_settings"), ssePanel.getSettingsPanel());
+                configTabbedPane.add(JMeterUtils.getResString("sse_recorded_events"), ssePanel);
+            }
             configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 5));
@@ -315,6 +338,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         final JPanel advancedPanel = createAdvancedConfigPanel(true);
         configTabbedPane.add(JMeterUtils
                 .getResString("web_testing_advanced"), advancedPanel);
+        if (ssePanel != null) {
+            configTabbedPane.add(JMeterUtils.getResString("sse_settings"), ssePanel.getSettingsPanel());
+            configTabbedPane.add(JMeterUtils.getResString("sse_recorded_events"), ssePanel);
+        }
         configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
 
         return configTabbedPane;
@@ -437,6 +464,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         }
         recordedHarResolution = RecordedHarExchangeResolver.resolveFor(recordedHarElement);
         recordedHarExchangeLoaded = true;
+        if (ssePanel != null) {
+            ssePanel.setEvents(recordedHarResolution.exchange().map(
+                    RecordedHarExchangeResolver.RecordedExchange::serverSentEvents).orElse(java.util.List.of()));
+        }
         recordedRequestData.setText(recordedHarResolution.requestText());
         recordedRequestData.setCaretPosition(0);
         recordedResponseData.setText(recordedHarResolution.responseText());
@@ -449,7 +480,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             return false;
         }
         String selectedTitle = configTabbedPane.getTitleAt(selectedIndex);
-        return RECORDED_REQUEST_TAB.equals(selectedTitle) || RECORDED_RESPONSE_TAB.equals(selectedTitle);
+        return RECORDED_REQUEST_TAB.equals(selectedTitle) || RECORDED_RESPONSE_TAB.equals(selectedTitle)
+                || configTabbedPane.getSelectedComponent() == ssePanel;
     }
 
     /** Open a recorded response and select a literal search hit. */
@@ -662,6 +694,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     public void clearGui() {
         configTabToRestore = configTabbedPane.getSelectedComponent();
         super.clearGui();
+        if (ssePanel != null) {
+            ssePanel.configure(new HTTPSamplerProxy());
+        }
         urlConfigGui.clear();
         legacyStoreAsMD5 = null;
         legacyHttpProtocol = null;

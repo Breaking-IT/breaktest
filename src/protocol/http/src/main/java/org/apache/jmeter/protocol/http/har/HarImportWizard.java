@@ -134,8 +134,10 @@ public class HarImportWizard extends JDialog {
     }
 
     private static final String HOST_PROPERTY = "harHostname";
-    private static final URI RECORDER_STORE_URI = URI.create(
+    private static final URI RECORDER_CHROME_STORE_URI = URI.create(
             "https://chromewebstore.google.com/detail/breaktest-browser-recorde/nhndlgmkjpgkpmfkpmecedmccdgbbajm");
+    private static final URI RECORDER_EDGE_STORE_URI = URI.create(
+            "https://microsoftedge.microsoft.com/addons/detail/breaktest-browser-recorde/keilkcnnahbilkeakefndohijlkknkdp");
 
     private static final int STEP_FILE = 0;
     private static final int STEP_HOSTS = 1;
@@ -324,24 +326,32 @@ public class HarImportWizard extends JDialog {
         description.setFont(fileLabel.getFont());
         description.setRows(3);
         panel.add(description, BorderLayout.CENTER);
-        JButton storeLink = new JButton(JMeterUtils.getResString("har_import_recorder_chrome_store"));
-        storeLink.setToolTipText(RECORDER_STORE_URI.toString());
+        JPanel links = new JPanel();
+        links.setLayout(new BoxLayout(links, BoxLayout.Y_AXIS));
+        links.add(buildRecorderStoreLink("har_import_recorder_chrome_store", RECORDER_CHROME_STORE_URI));
+        links.add(Box.createVerticalStrut(6));
+        links.add(buildRecorderStoreLink("har_import_recorder_edge_store", RECORDER_EDGE_STORE_URI));
+        panel.add(links, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JButton buildRecorderStoreLink(String labelKey, URI storeUri) {
+        JButton storeLink = new JButton(JMeterUtils.getResString(labelKey));
+        storeLink.setAlignmentX(Component.LEFT_ALIGNMENT);
+        storeLink.setToolTipText(storeUri.toString());
         storeLink.addActionListener(e -> {
             try {
-                Desktop.getDesktop().browse(RECORDER_STORE_URI);
+                Desktop.getDesktop().browse(storeUri);
             } catch (IOException | UnsupportedOperationException | SecurityException ex) {
                 LOG.warn("Could not open HAR recorder store", ex);
                 JTextArea fallback = new JTextArea(JMeterUtils.getResString("har_import_recorder_browser_error")
-                        + "\n\n" + RECORDER_STORE_URI);
+                        + "\n\n" + storeUri);
                 fallback.setEditable(false);
                 JOptionPane.showMessageDialog(this, fallback,
                         JMeterUtils.getResString("har_import_recorder_title"), JOptionPane.WARNING_MESSAGE);
             }
         });
-        JPanel links = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEADING, 0, 0));
-        links.add(storeLink);
-        panel.add(links, BorderLayout.SOUTH);
-        return panel;
+        return storeLink;
     }
 
     private void chooseFile() {
