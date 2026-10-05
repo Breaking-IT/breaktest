@@ -24,13 +24,66 @@
 <body>
 <section name="Release Notes">
 
-<h1>Unreleased</h1>
-<ch_section>Remote-server cleanup</ch_section>
+<h1>BreakTest 2026.10.05 — Native WebSocket &amp; SSE, Better Recording, and AI Scripting</h1>
+<p>BreakTest now supports WebSocket and Server-Sent Events natively, bringing long-lived connections, incoming messages, and event-driven actions into the same test plan as your HTTP requests. The proxy recorder captures these conversations and turns them into editable native elements. AI Repair can build new flows as well as repair recordings, with less repeated context and token overhead. This release also adds scoped proxy filters and improves search, correlation, and everyday editing.</p>
+<ch_section>Native WebSocket Testing</ch_section>
 <ul>
-<li>Remove the unused remote precompiler mode and client-side variable storage, plus obsolete RMI batch-test setup and network diagnostics.</li>
-<li>Plugins calling <code>PreCompiler(boolean)</code> or the client-side variable APIs on <code>PreCompiler</code> and <code>JMeterContextService</code> must migrate to local execution. Host-accepting listener callbacks remain available for plugin compatibility.</li>
-<li>Result files containing sample counts and local stop/shutdown commands remain supported.</li>
+<li><b>Connect, send, wait, and close without custom transport scripts.</b> Use named <code>ws://</code> and <code>wss://</code> sessions for each virtual user. WebSocket Send supports Send only or Send and Wait, with text or binary payloads and matching by text regex or a binary byte sequence.</li>
+<li><b>React to incoming messages.</b> WebSocket Match handlers can match exact text, regexes, or binary sequences, save a complete message to a variable, and run native samplers and controllers in the originating user's context. Independent handler queues keep slow actions from blocking message reception.</li>
+<li><b>Keep HTTP and WebSocket flows connected.</b> Handshakes use scoped cookies and headers, support subprotocol negotiation and TLS client certificates, and return received cookies to the user's HTTP Cookie Manager. Choose reconnect, reuse, or fail when a named session already exists.</li>
+<li><b>Inspect and correlate recorded conversations.</b> HAR imports create native Connect, Send, and client-initiated Close steps. Recorded messages retain direction, timestamps, text, and binary data. Search, replacement, and the Regex Extractor tester cover connection URLs, handshake headers, and message payloads. Results include handshake details and improved hex/ASCII viewing and copying.</li>
 </ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/209">#209</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/213">#213</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/219">#219</a>.</p>
+<ch_section>Native Server-Sent Events</ch_section>
+<ul>
+<li><b>Open streams while the script continues.</b> SSE Connect returns after the event-stream response headers arrive and receives events in the background. It uses the familiar HTTP request editor and supports HTTP/1.1 and HTTP/2, with HTTP cookies, authentication, proxy, and TLS settings.</li>
+<li><b>Run actions when events arrive.</b> SSE Match handlers match event data by exact text or regex, optionally restricted to an event name, and execute actions in the virtual user's context. Configure incoming-event reporting, sample names, and event-size limits independently.</li>
+<li><b>Control each stream explicitly.</b> Named sessions support reconnect, reuse, and fail-if-present behavior. SSE Close ends the selected stream while preserving other compatible pooled connections. HTTP/2 streams can share a connection with ordinary HTTP requests from the same user.</li>
+<li><b>Retain recording evidence.</b> HAR import recognizes SSE streams and keeps event names, IDs, multiline data, timestamps, and transaction associations in the saved recording archive.</li>
+</ul>
+<p>Source: <a href="https://github.com/Breaking-IT/breaktest/pull/215">#215</a>.</p>
+<ch_section>A Better Proxy Recorder for HTTP, WebSocket, and SSE</ch_section>
+<ul>
+<li><b>Record live traffic independently of replay.</b> The recorder now forwards traffic without executing replay samplers, preserving browser-facing compression, framing, repeated headers, and request targets. Capture processing runs on recording workers.</li>
+<li><b>Turn streaming traffic into native script elements.</b> WebSocket recording captures handshakes and text/binary messages, including fragmented and compressed messages, and generates Connect, timed Send, and Close steps. SSE recording creates native Connect steps and retains complete events when a stream is stopped. Recorded messages and events remain available after saving and reopening the JMX archive.</li>
+<li><b>Review before importing.</b> A finish-recording wizard brings host selection, failed-capture selection, transaction grouping, think time, and predefined correlation processing together. Failed and partial captures include diagnostic details; failed captures start unselected. Correlation can find and replace tokens in WebSocket handshake URLs and headers as well as HTTP requests.</li>
+<li><b>Cleaner plans with less manual work.</b> Requests follow their recorded start times and transaction boundaries, overlapping requests are grouped, and generated stream session names avoid collisions. Query strings are omitted from default sampler names, while request URLs remain intact. Recorder preferences are remembered, including optional OPTIONS preflight naming.</li>
+</ul>
+<p>Incoming messages and events are recording evidence; the recorder does not infer application-specific assertions or event handlers.</p>
+<p>Source: <a href="https://github.com/Breaking-IT/breaktest/pull/218">#218</a>.</p>
+<ch_section>Leaner AI Repair and More Powerful Script Creation</ch_section>
+<ul>
+<li><b>Build new flows, not just repair existing requests.</b> Use Specific request to create a flow from an empty plan or make a focused change. AI Repair discovers installed native elements and can add samplers, controllers, timers, and processors, configure supported settings and tables, and assemble WebSocket sessions, Match handlers, paced loops, and background branches. New elements participate in backup, undo, and the AI change list.</li>
+<li><b>Less context overhead per AI run.</b> Task-directed prompts, compact edit confirmations, paginated discovery, schema reuse, and batched independent operations avoid repeatedly sending large schemas, scripts, and payloads. These changes are designed to reduce turnaround time and token usage; actual savings depend on the task and model, and this release does not claim a fixed speedup percentage.</li>
+<li><b>Better validation and clearer completion reports.</b> Newly generated flows request a bounded synthetic integration replay by default unless you opt out, with assertions before replay, fixture cleanup, and restoration of temporary settings. Codex output handling preserves final reports and actionable limitations, and usage summaries distinguish cached and uncached input when available.</li>
+<li><b>More focused, readable repairs.</b> Script generation is now part of Specific request, which is selected by default for empty plans; Full script repair remains available for recorded flows. Runs stay attached to their originating GUI, unsaved plans get separate workspaces, and broad replacements require an explicit whole-plan override. Repair guidance favors meaningful variable names and stable sampler labels instead of recorded identifiers.</li>
+</ul>
+<p>Synthetic replay checks a generated flow against a local fixture; it does not establish compatibility with your real backend. Native creation capabilities depend on the installed element's exposed settings; file-backed authoring and some specialized properties remain limited.</p>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/204">#204</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/214">#214</a>.</p>
+<ch_section>Scoped Proxy Routing</ch_section>
+<ul>
+<li><b>Include or exclude destinations.</b> Match exact hostnames, IP literals, or wildcard subdomains, separated by newlines, commas, or semicolons. Matching is cached and performs no DNS lookups. Use Bypass proxy to connect directly.</li>
+<li><b>Override settings where they belong.</b> Global settings provide the baseline, HTTP Request Defaults can override the proxy policy, and HTTP Request samplers can override it again. A filter-only override can reuse the broader proxy endpoint. Global credentials are used only when the proxy host also comes from global settings.</li>
+<li><b>Use the same routing for streaming traffic.</b> SSE follows HTTP proxy routing. WebSocket Connect inherits proxy settings, filters, and bypass from HTTP Request Defaults, with global fallback, for both <code>ws://</code> and <code>wss://</code>. Proxy failures never silently fall back to direct connections.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/220">#220</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/221">#221</a>.</p>
+<ch_section>Other Improvements</ch_section>
+<ul>
+<li><b>More precise search and cleanup:</b> scope searches to a thread group, choose search areas, and target header/parameter names or values. Preview and remove individual rows without deleting their requests, optionally remove emptied controllers, and undo the operation. Recorded-response search opens the exact occurrence. <a href="https://github.com/Breaking-IT/breaktest/pull/205">#205</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/207">#207</a></li>
+<li><b>Smoother importing and editing:</b> HAR thread groups default to Stop on validation errors, HAR Import links to the Chrome and Edge recorder extensions, loaded/imported thread groups expand to reveal their contents, and editing a scenario loop count no longer triggers a document-notification exception. <a href="https://github.com/Breaking-IT/breaktest/pull/203">#203</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/211">#211</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/212">#212</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/216">#216</a></li>
+<li><b>GUI and test reliability:</b> repaint recovery after wake or restore addresses partially black windows; GUI completion tests, SSE connection-reuse checks, and WebSocket listener timing tests are more robust. <a href="https://github.com/Breaking-IT/breaktest/pull/210">#210</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/217">#217</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/221">#221</a></li>
+<li><b>Simpler internals:</b> remove unused helpers and the obsolete Test Generator. HTTP Mirror Server and Property Display are correctly routed to Non-Test Elements when added or migrated from a legacy layout. <a href="https://github.com/Breaking-IT/breaktest/pull/208">#208</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/210">#210</a></li>
+</ul>
+<ch_section>Upgrade Notes</ch_section>
+<ul>
+<li>Java 21 or later remains required. HTTP/3 over QUIC requires Java 26 or later; SSE does not support HTTP/3.</li>
+<li>WebSocket replay uses HTTP/1.1 Upgrade and does not negotiate <code>permessage-deflate</code>. The recorder can capture compressed WebSocket messages and HTTP/2 extended CONNECT traffic, but replay uses the native transport's supported handshake and message format.</li>
+<li>WebSocket proxy routing now uses shared <code>http.proxyHost</code>, <code>http.proxyPort</code>, and <code>http.nonProxyHosts</code> settings or HTTP Request Defaults, replacing the JDK default proxy selector. Migrate plans relying on <code>https.proxyHost</code> or SOCKS properties. HTTP proxy endpoints are supported; HTTPS proxy endpoints are not. Authentication follows JDK tunneling policy. Reconnect existing sessions to apply changed proxy settings.</li>
+<li>SSE reconnection is controlled by script execution; it is not automatic. SSE Close stops reception immediately; on HTTP/2, the current transport sends the stream reset when the peer next sends data.</li>
+<li>The remaining remote-server precompiler mode, client-side variable APIs, and obsolete RMI test scaffolding are removed. Plugins using <code>PreCompiler(boolean)</code> or those APIs on <code>PreCompiler</code> and <code>JMeterContextService</code> must migrate to local execution. Host-accepting listener callbacks, sample-count result files, and local stop/shutdown commands remain supported. <a href="https://github.com/Breaking-IT/breaktest/pull/206">#206</a></li>
+<li>New stream elements and embedded recording data require a compatible BreakTest reader.</li>
+</ul>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.09.30.1...2026.10.05">Full changelog since 2026.09.30.1</a></p>
 
 <h1>BreakTest 2026.09.30.1 — Hotfixes and Welcome Screen</h1>
 <p>This hotfix release fixes Module Controller references in migrated plans and Kerberos authentication compatibility, and adds a welcome screen for opening plans and starting recordings. It includes all three feature and fix PRs merged since 2026.09.30.</p>
