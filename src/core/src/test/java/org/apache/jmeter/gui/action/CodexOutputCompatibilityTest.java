@@ -62,6 +62,24 @@ class CodexOutputCompatibilityTest {
     }
 
     @Test
+    void recoveredCommentaryOrSuccessCannotEraseExplicitCodexFailure() throws Exception {
+        for (String reportText : List.of("Still working on validation.", "Status: completed")) {
+            try (var compatibility = CodexOutputCompatibility.configure(COMMAND, "--json --output-last-message")) {
+                var command = compatibility.command();
+                var report = Path.of(command.get(command.indexOf("--output-last-message") + 1));
+                Files.writeString(report, reportText);
+                var output = new AiRunOutput();
+                CodexRunEvents.display("{\"type\":\"turn.failed\",\"error\":{\"message\":\"Usage limit reached\"}}", output);
+                compatibility.recoverFinalReport(output, ignored -> { });
+                output.requireRepairCompletionStatus();
+                assertTrue(output.hasRepairBlocker());
+                assertTrue(output.followUpLines().contains("Status: failed - Usage limit reached"));
+                assertFalse(output.followUpLines().stream().anyMatch(line -> line.contains("No specific blocker")));
+            }
+        }
+    }
+
+    @Test
     void emptyReportPreservesStreamedCompletion() throws Exception {
         try (var compatibility = CodexOutputCompatibility.configure(COMMAND, "--output-last-message")) {
             assertFalse(compatibility.command().contains("--json"));

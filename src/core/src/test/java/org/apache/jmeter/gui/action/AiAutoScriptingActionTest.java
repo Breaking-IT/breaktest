@@ -83,7 +83,12 @@ class AiAutoScriptingActionTest {
             assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
             assertTrue(prompt.contains("ignoreTimers=false"));
             assertTrue(prompt.contains("Restore every temporary endpoint/configuration override"));
-            assertFalse(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Always pass threadGroupName or scopeNodePath"));
+            assertTrue(prompt.contains("only when the user explicitly requests a global edit"));
+            assertTrue(prompt.contains("plain final reply ends it permanently"));
+            assertTrue(prompt.contains("no markdown tables"));
+            assertTrue(prompt.contains("Do not read, use, update or create legacy BreakTest AI Knowledge"));
             assertFalse(prompt.contains("{{"));
             assertTrue(prompt.length() < renderedPrompt("CODEX").length());
         });
@@ -814,11 +819,19 @@ class AiAutoScriptingActionTest {
     void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
         withDefaultPrompt(() -> {
             for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
-                String prompt = renderedPrompt(tool);
-                assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
-                assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
-                assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
-                assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+                for (String mode : new String[] {"FULL_SCRIPT_REPAIR", "SPECIFIC_REQUEST"}) {
+                    Object request = newRunRequest(tool);
+                    var field = request.getClass().getDeclaredField("mode");
+                    field.setAccessible(true);
+                    field.set(request, enumConstant(field.getType(), mode));
+                    Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+                    method.setAccessible(true);
+                    String prompt = (String) method.invoke(null, request);
+                    assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
+                    assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
+                    assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
+                    assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+                }
             }
         });
     }

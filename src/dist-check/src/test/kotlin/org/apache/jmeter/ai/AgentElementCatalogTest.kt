@@ -82,6 +82,24 @@ class AgentElementCatalogTest : JMeterTestCase() {
                     call("configure_element_open_plan", """{"targetNodeId":"$sendId","properties":{"payload":"broken","unknown":true}}""")
                 }
                 assertEquals("changed", (model.getNodesOfType(WebSocketSendWaitSampler::class.java).single().testElement as WebSocketSendWaitSampler).payload)
+                val backup = call("add_element_open_plan", """{"elementId":"org.apache.jmeter.threads.gui.ThreadGroupGui","name":"Backup"}""")
+                model.getNodesOfType(org.apache.jmeter.threads.ThreadGroup::class.java).single { it.name == "Backup" }.isEnabled = false
+                val backupId = backup.path("nodeId").asText()
+                call(
+                    "add_element_open_plan",
+                    """{"elementId":"org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler",
+                        "targetNodeId":"$backupId","properties":{"payload":"changed"}}""",
+                )
+                val refused = assertThrows(java.lang.reflect.InvocationTargetException::class.java) {
+                    call("replace_literal_open_plan", """{"literal":"changed","replacement":"wrong"}""")
+                }
+                assertTrue(refused.cause!!.message!!.contains("Refusing unscoped"))
+                call("replace_literal_open_plan", """{"threadGroupName":"Generated","literal":"changed","replacement":"scoped"}""")
+                val payloads = model.getNodesOfType(WebSocketSendWaitSampler::class.java)
+                    .map { (it.testElement as WebSocketSendWaitSampler).payload }
+                assertEquals(listOf("scoped", "changed"), payloads)
+                call("replace_literal_open_plan", """{"allowWholePlan":true,"literal":"changed","replacement":"global"}""")
+                assertEquals("global", (model.getNodesOfType(WebSocketSendWaitSampler::class.java).last().testElement as WebSocketSendWaitSampler).payload)
                 assertTrue(gui.isDirty)
                 assertTrue(java.nio.file.Files.list(directory).use { files -> files.anyMatch { it.fileName.toString().contains("ai-backup") } })
             } finally {

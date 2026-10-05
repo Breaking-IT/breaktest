@@ -2069,10 +2069,10 @@ public object BreakTestAgentGuiService {
         if (!threadGroupName.isNullOrBlank()) {
             return selectThreadGroup(gui, threadGroupName)
         }
-        if (!allowWholePlan && enabledThreadGroupCount(gui) > 1) {
+        if (!allowWholePlan) {
             throw IllegalArgumentException(
-                "Refusing whole-plan literal replacement because multiple enabled Thread Groups exist. " +
-                    "Pass threadGroupName, scopeNodePath, targetNodePath, target sampler, or allowWholePlan=true.",
+                "Refusing unscoped whole-plan literal replacement. " +
+                    "Pass threadGroupName, scopeNodePath, targetNodePath or target sampler. Use allowWholePlan=true only for an explicitly requested global edit.",
             )
         }
         return null
@@ -5365,9 +5365,6 @@ public object BreakTestAgentGuiService {
             else -> throw IllegalArgumentException("Expected one enabled Thread Group named '$threadGroupName', found ${matches.size}")
         }
     }
-
-    private fun enabledThreadGroupCount(gui: GuiPackage): Int =
-        gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java).count { it.isEnabled }
 
     @Volatile
     private var activeAgentLabel: String = "Codex"

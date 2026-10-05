@@ -52,7 +52,7 @@ final class CodexRunEvents {
         if ("turn.failed".equals(type) || "error".equals(type)) {
             String message = event.path("error").path("message").asText(
                     event.path("message").asText("Codex reported an unspecified error."));
-            output.captureFinalResponse("Status: failed - " + message);
+            output.captureRunError(message);
             return "Codex error: " + message;
         }
         JsonNode item = event.path("item");

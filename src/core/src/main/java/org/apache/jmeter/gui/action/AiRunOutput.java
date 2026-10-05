@@ -34,6 +34,7 @@ final class AiRunOutput {
     private long piReasoningTokens;
     private int piUsageMessages;
     private boolean nextLineIsTotalTokens;
+    private final List<String> runErrors = new ArrayList<>();
     private final List<String> finalResponseLines = new ArrayList<>();
 
     int piUsageMessages() {
@@ -107,6 +108,10 @@ final class AiRunOutput {
         return java.util.Optional.ofNullable(found);
     }
 
+    void captureRunError(String message) {
+        addDistinct(runErrors, "Status: failed - " + message);
+    }
+
     void startFinalResponseBlock() {
         finalResponseLines.clear();
     }
@@ -127,6 +132,9 @@ final class AiRunOutput {
     }
 
     private String completionStatus() {
+        if (!runErrors.isEmpty()) {
+            return "failed";
+        }
         // Only a standalone status declaration controls the outcome. Later declarations
         // supersede earlier ones in the final response; prose remains display-only.
         String status = null;
@@ -213,7 +221,7 @@ final class AiRunOutput {
     }
 
     List<String> followUpLines() {
-        List<String> followUpLines = new ArrayList<>();
+        List<String> followUpLines = new ArrayList<>(runErrors);
         for (String line : finalResponseLines) {
             if (followUpLines.size() >= MAX_FOLLOW_UP_LINES) {
                 break;
