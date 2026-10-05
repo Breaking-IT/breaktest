@@ -33,7 +33,10 @@ public class CaseFormat extends AbstractNativeFunction {
     @Override
     protected String evaluate() {
         String text = argument(0);
-        String mode = parameterCount() > 1 ? argument(1).trim().toUpperCase(Locale.ROOT) : "LOWER_CAMEL_CASE";
+        String mode = parameterCount() > 1 ? argument(1).trim().toUpperCase(Locale.ROOT) : "";
+        if (mode.isEmpty()) {
+            mode = "LOWER_CAMEL_CASE";
+        }
         String separated = text.replaceAll("([\\p{Lu}]+)([\\p{Lu}][\\p{Ll}])", "$1 $2")
                 .replaceAll("([\\p{Ll}\\p{Nd}])(\\p{Lu})", "$1 $2");
         String[] words = separated.strip().split("[\\s_\\-]+", -1);

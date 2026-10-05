@@ -39,7 +39,8 @@ Where supported, the final result-variable argument stores the returned value; o
 it empty only returns the value. For functions requiring a final result-variable position, keep the
 trailing comma even when no result variable is needed. To pass empty text to a one-text-argument function,
 use a variable with an empty value or an empty result-variable position, for example <code>${__SHA256(,)}</code>.
-Invalid arguments fail function evaluation.
+Invalid arguments log a warning, contribute an empty value to the expression, and clear the configured
+result variable to an empty string so a previous result cannot be reused.
 All byte-to-text decoders use UTF-8, replacing malformed UTF-8 sequences with the replacement character.</p>
 <subsection name="__chooseRandom" anchor="__chooseRandom">
 <p>Chooses one of the values before the final, required result-variable argument. Use an empty final argument to discard the variable. Only the selected value is evaluated.</p>
@@ -135,7 +136,7 @@ Equivalent to <code>${__time()}</code>. Optional argument: result variable. Eval
 <p><code>${__epochSeconds()}</code></p>
 </subsection>
 <subsection name="__caseFormat" anchor="__caseFormat">
-<p>Arguments: text, optional case mode (default LOWER_CAMEL_CASE), optional result variable. Splits spaces, hyphens, underscores and camel-case boundaries. Modes (case-insensitive): LOWER_CAMEL_CASE, UPPER_CAMEL_CASE, SNAKE_CASE/LOWER_UNDERSCORE, KEBAB_CASE/LISP_CASE/SPINAL_CASE/LOWER_HYPHEN, TRAIN_CASE (uppercase with hyphens), UPPER_UNDERSCORE. An unknown mode returns the original text.</p>
+<p>Arguments: text, optional case mode (missing or empty defaults to LOWER_CAMEL_CASE), optional result variable. Splits spaces, hyphens, underscores and camel-case boundaries. Modes (case-insensitive): LOWER_CAMEL_CASE, UPPER_CAMEL_CASE, SNAKE_CASE/LOWER_UNDERSCORE, KEBAB_CASE/LISP_CASE/SPINAL_CASE/LOWER_HYPHEN, TRAIN_CASE (uppercase with hyphens), UPPER_UNDERSCORE. An unknown mode returns the original text.</p>
 <p><code>${__caseFormat(my string,LOWER_HYPHEN)}</code></p>
 </subsection>
 </subsection>

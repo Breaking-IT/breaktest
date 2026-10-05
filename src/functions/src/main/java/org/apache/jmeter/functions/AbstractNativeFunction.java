@@ -25,9 +25,12 @@ import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.util.JMeterUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Common parameter validation and result storage for native utility functions. */
 abstract class AbstractNativeFunction extends AbstractFunction {
+    private static final Logger log = LoggerFactory.getLogger(AbstractNativeFunction.class);
     private final String key;
     private final int minimum;
     private final int maximum;
@@ -73,15 +76,23 @@ abstract class AbstractNativeFunction extends AbstractFunction {
         String result;
         try {
             result = evaluate();
-        } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+        } catch (IllegalArgumentException | IndexOutOfBoundsException | InvalidVariableException ex) {
+            // Exception messages may contain the input (for example tokens or payloads).
+            log.warn("{}: invalid argument ({}); returning an empty value and clearing the result variable if configured",
+                    key, ex.getClass().getSimpleName());
+            storeResult("");
             throw new InvalidVariableException(key + ": invalid argument", ex);
         }
+        storeResult(result);
+        return result;
+    }
+
+    private void storeResult(String result) {
         // -1 means no result variable; -2 means the final argument is always its name.
         int index = resultIndex == -2 ? parameters.length - 1 : resultIndex;
         if (index >= 0) {
             addVariableValue(result, parameters, index);
         }
-        return result;
     }
 
     protected abstract String evaluate() throws InvalidVariableException;

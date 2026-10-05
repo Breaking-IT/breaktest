@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -32,6 +33,12 @@ import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -195,6 +202,64 @@ class NativeFunctionsTest extends JMeterTestCase {
         } finally {
             Locale.setDefault(original);
         }
+    }
+
+    @Test
+    void emptyCaseModeUsesTheDefaultAndStoresTheResult() {
+        assertEquals("myString", new CompoundVariable("${__caseFormat(my string,,formatted)}").execute());
+        assertEquals("myString", variables.get("formatted"));
+        assertEquals("myString", new CompoundVariable("${__caseFormat(my string,   ,formatted)}").execute());
+        assertEquals("myString", variables.get("formatted"));
+    }
+
+    @Test
+    void invalidInputWarnsAndClearsThePreviousResultThroughTheExpressionParser() {
+        List<LogEvent> events = new ArrayList<>();
+        AbstractAppender appender = new AbstractAppender("native-function-errors", null, null, true, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                events.add(event.toImmutable());
+            }
+        };
+        Logger logger = (Logger) LogManager.getLogger(AbstractNativeFunction.class);
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            CompoundVariable expression = new CompoundVariable("${__base64Decode(${token},decoded)}");
+            variables.put("token", "dGVzdA==");
+            assertEquals("test", expression.execute());
+            assertEquals("test", variables.get("decoded"));
+            variables.put("token", "private-token!");
+            assertEquals("", expression.execute());
+            assertEquals("", variables.get("decoded"));
+            assertEquals(1, events.size());
+            assertEquals(Level.WARN, events.get(0).getLevel());
+            String message = events.get(0).getMessage().getFormattedMessage();
+            assertTrue(message.contains("__base64Decode"));
+            assertFalse(message.contains("private-token"));
+            assertEquals(null, events.get(0).getThrown());
+            variables.put("token", "b2s=");
+            assertEquals("ok", expression.execute());
+            assertEquals("ok", variables.get("decoded"));
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void invalidInputClearsTheFinalResultArgumentAndSupportsNoResultVariable() {
+        variables.put("number", "2");
+        CompoundVariable expression = new CompoundVariable("${__doubleSum(1,${number},sum)}");
+        assertEquals("3.0", expression.execute());
+        assertEquals("3.0", variables.get("sum"));
+        variables.put("number", "invalid");
+        assertEquals("", expression.execute());
+        assertEquals("", variables.get("sum"));
+        assertEquals("", new CompoundVariable("${__hexToString(zz)}").execute());
+        assertEquals("", new CompoundVariable("${__hexToString(zz,)}").execute());
+        JMeterContextService.getContext().setVariables(null);
+        assertEquals("", new CompoundVariable("${__hexToString(zz,result)}").execute());
     }
 
     static Stream<Arguments> invalidValues() {
