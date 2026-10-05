@@ -23,14 +23,122 @@
 <body>
 <section name="Functions Reference">
 <p>
-This inherited page is intentionally not maintained as a forked copy in BreakTest.
-BreakTest documents only the features and behavior that differ from Apache JMeter.
+This page documents the native utility functions added by BreakTest.
+For inherited functions, use the Apache JMeter reference linked below.
 </p>
 <h2>Use The Apache JMeter Documentation</h2>
 <p>
 For the generic JMeter-compatible behavior behind this topic, use the official
 <a href="https://jmeter.apache.org/usermanual/functions.html">Apache JMeter documentation</a>.
 </p>
+<subsection name="Native BreakTest utility functions">
+<p>These functions ship with BreakTest; no Custom JMeter Functions plugin is required.
+Function names are case-sensitive. Arguments can contain variables or nested functions and are evaluated
+on each call. Escape literal commas as <code>\,</code>. Do not surround string arguments with quotes.
+Where supported, the final result-variable argument stores the returned value; omitting it or leaving
+it empty only returns the value. For functions requiring a final result-variable position, keep the
+trailing comma even when no result variable is needed. To pass empty text to a one-text-argument function,
+use a variable with an empty value or an empty result-variable position, for example <code>${__SHA256(,)}</code>.
+Invalid arguments fail function evaluation.
+All byte-to-text decoders use UTF-8, replacing malformed UTF-8 sequences with the replacement character.</p>
+<subsection name="__chooseRandom" anchor="__chooseRandom">
+<p>Chooses one of the values before the final, required result-variable argument. Use an empty final argument to discard the variable. Only the selected value is evaluated.</p>
+<p><code>${__chooseRandom(red,green,blue,color)}</code></p>
+</subsection>
+<subsection name="__doubleSum" anchor="__doubleSum">
+<p>Adds two or more Java floating-point numbers. The final argument is always the result-variable name (which may be empty); it is never added.</p>
+<p><code>${__doubleSum(3.5,4.7,sum)}</code></p>
+</subsection>
+<subsection name="__env" anchor="__env">
+<p>Reads an environment variable on the machine running the test. Arguments: environment name, optional result-variable name, optional default. If unset and no default is supplied, returns the environment name.</p>
+<p><code>${__env(API_HOST,,localhost)}</code></p>
+</subsection>
+<subsection name="__isDefined" anchor="__isDefined">
+<p>Returns 1 when the named thread variable exists, otherwise 0. An empty value is defined. Pass its name, not its expanded value.</p>
+<p><code>${__isDefined(token)}</code></p>
+</subsection>
+<subsection name="__MD5" anchor="__MD5">
+<p>MD5 digest of UTF-8 text, returned as lowercase hexadecimal. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__MD5(test)}</code></p>
+</subsection>
+<subsection name="__SHA256" anchor="__SHA256">
+<p>SHA-256 digest of UTF-8 text, returned as lowercase hexadecimal. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__SHA256(${payload})}</code></p>
+</subsection>
+<subsection name="__base64Encode" anchor="__base64Encode">
+<p>Encodes UTF-8 text as standard Base64 with padding. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__base64Encode(test string)}</code></p>
+</subsection>
+<subsection name="__base64Decode" anchor="__base64Decode">
+<p>Decodes standard Base64 into UTF-8 text. Invalid Base64 is rejected. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__base64Decode(dGVzdA==)}</code></p>
+</subsection>
+<subsection name="__base64UrlEncode" anchor="__base64UrlEncode">
+<p>Encodes UTF-8 text as URL-safe Base64 without padding. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__base64UrlEncode(${payload})}</code></p>
+</subsection>
+<subsection name="__base64UrlDecode" anchor="__base64UrlDecode">
+<p>Decodes URL-safe Base64 into UTF-8 text, with or without padding. Invalid Base64 is rejected. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__base64UrlDecode(dGVzdA)}</code></p>
+</subsection>
+<subsection name="__strLen" anchor="__strLen">
+<p>Returns the Java string length (UTF-16 code units). An optional second argument stores the result in a thread variable.</p>
+<p><code>${__strLen(test string,length)}</code></p>
+</subsection>
+<subsection name="__uppercase" anchor="__uppercase">
+<p>Converts text to uppercase using locale-independent rules. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__uppercase(test)}</code></p>
+</subsection>
+<subsection name="__lowercase" anchor="__lowercase">
+<p>Converts text to lowercase using locale-independent rules. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__lowercase(TEST)}</code></p>
+</subsection>
+<subsection name="__stringToHex" anchor="__stringToHex">
+<p>Encodes UTF-8 bytes as lowercase hexadecimal without a prefix or separators. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__stringToHex(Hello)}</code></p>
+</subsection>
+<subsection name="__hexToString" anchor="__hexToString">
+<p>Decodes hexadecimal bytes into UTF-8 text. Accepts either letter case; rejects non-hex characters and odd lengths. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__hexToString(48656c6c6f)}</code></p>
+</subsection>
+<subsection name="__trim" anchor="__trim">
+<p>Removes leading and trailing Java Unicode whitespace. An optional second argument stores the result in a thread variable.</p>
+<p><code>${__trim(  hello  )}</code></p>
+</subsection>
+<subsection name="__substring" anchor="__substring">
+<p>Arguments: text, zero-based inclusive begin index, exclusive end index, optional result variable. Indices use UTF-16 code units; invalid ranges are rejected.</p>
+<p><code>${__substring(test string,5,8)}</code></p>
+</subsection>
+<subsection name="__strReplace" anchor="__strReplace">
+<p>Arguments: text, literal search text, literal replacement, optional result variable. Replaces every occurrence.</p>
+<p><code>${__strReplace(banana apple orange,apple,dog)}</code></p>
+</subsection>
+<subsection name="__strReplaceRegex" anchor="__strReplaceRegex">
+<p>Arguments: text, Java regular expression, replacement, optional result variable. Replaces all matches. Replacement supports Java group references such as $1; escape backslashes and commas for the function parser.</p>
+<p><code>${__strReplaceRegex(banana apple orange, +,-)}</code></p>
+</subsection>
+<subsection name="__iterationNum" anchor="__iterationNum">
+<p>Returns the current thread-group iteration, starting at 1 during a run. Returns 0 before iteration begins or when no thread variables exist. Takes no arguments.</p>
+<p><code>${__iterationNum()}</code></p>
+</subsection>
+<subsection name="__if" anchor="__if">
+<p>Arguments: actual text, expected text, value when equal, value when unequal, optional result variable. Comparison is exact and case-sensitive; only the selected branch is evaluated.</p>
+<p><code>${__if(${size},5,ok,invalid)}</code></p>
+</subsection>
+<subsection name="__epochMilliSeconds" anchor="__epochMilliSeconds">
+<p>Returns the current Unix epoch timestamp in milliseconds, independent of the local timezone.
+Equivalent to <code>${__time()}</code>. Optional argument: result variable. Evaluated on each call.</p>
+<p><code>${__epochMilliSeconds()}</code> or <code>${__epochMilliSeconds(timestamp)}</code></p>
+</subsection>
+<subsection name="__epochSeconds" anchor="__epochSeconds">
+<p>Returns the current Unix epoch timestamp in whole seconds, independent of the local timezone. Optional argument: result variable. Evaluated on each call; the inherited ${__time(/1000)} also returns epoch seconds.</p>
+<p><code>${__epochSeconds()}</code></p>
+</subsection>
+<subsection name="__caseFormat" anchor="__caseFormat">
+<p>Arguments: text, optional case mode (default LOWER_CAMEL_CASE), optional result variable. Splits spaces, hyphens, underscores and camel-case boundaries. Modes (case-insensitive): LOWER_CAMEL_CASE, UPPER_CAMEL_CASE, SNAKE_CASE/LOWER_UNDERSCORE, KEBAB_CASE/LISP_CASE/SPINAL_CASE/LOWER_HYPHEN, TRAIN_CASE (uppercase with hyphens), UPPER_UNDERSCORE. An unknown mode returns the original text.</p>
+<p><code>${__caseFormat(my string,LOWER_HYPHEN)}</code></p>
+</subsection>
+</subsection>
 <h2>BreakTest-Specific Differences</h2>
 <ul>
   <li><a href="../usermanual/breaktest-features.html">BreakTest Features And Differences</a></li>

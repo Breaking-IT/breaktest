@@ -37,7 +37,8 @@ class ParameterFunctionCompletionTest extends JMeterTestCase {
                 .filter(name -> name.startsWith("__")).collect(Collectors.toSet());
         assertEquals(installed, names);
         assertTrue(names.containsAll(Set.of("__time", "__P", "__Random", "__groovy", "__threadNum",
-                "__UUID", "__urlencode", "__RandomFromMultipleVars")));
+                "__UUID", "__urlencode", "__RandomFromMultipleVars", "__SHA256", "__epochSeconds", "__epochMilliSeconds",
+                "__stringToHex", "__hexToString", "__chooseRandom", "__caseFormat", "__if", "__env")));
         assertEquals("${__threadNum}", ParameterCompletionCatalog.functions().stream()
                 .filter(value -> value.name().equals("__threadNum")).findFirst().orElseThrow().replacement());
         assertEquals("${__time()}", ParameterCompletionCatalog.functions().stream()
