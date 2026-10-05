@@ -403,7 +403,8 @@ and is independent of <code>https.sessioncontext.shared</code>. For mutual TLS,
 use a certificate-alias variable to select the same identity explicitly in HTTP
 and WebSocket samplers; automatic round-robin selection advances per connection.
 HTTP TLS protocol and cipher settings also apply to WebSocket clients.
-The JDK's default proxy configuration applies; Authorization Manager is not inherited. An explicit Authorization header is supported. This first implementation
+Proxy settings and filters come from HTTP Request Defaults or the shared HTTP proxy properties, as described above.
+Authorization Manager is not inherited; an explicit Authorization header is supported. WebSocket replay
 supports HTTP/1.1 WebSocket Upgrade, not HTTP/2 Extended CONNECT or permessage-deflate.
 </p>
 <p>
