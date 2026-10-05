@@ -486,6 +486,10 @@ Failed captures are unchecked by default;
 selected failures are included as enabled samplers with their diagnostic comments. HTTP 4xx/5xx responses are included normally.
 Choose <b>Review later</b> to keep the pending recording, then use <b>Review recording...</b> to reopen it before starting another session.
 After adding the recording, the target thread groups expand automatically.
+<b>Process correlation rules</b> is enabled by default when the selected recording has stored requests/responses.
+It scans only newly added requests using the plan's enabled correlation rules, then opens the existing match review before applying extractors and replacements.
+Each thread group is processed separately; consumers that depend on an extractor in the same parallel group use the existing split confirmation.
+The choice is saved with recorder preferences. Without stored exchanges the option is unavailable; the wizard explains the storage requirement.
 Non-GUI recording has no wizard and retains failures as disabled samplers.
 The recorder and wizard show session counts for captured requests (before filtering), filtered requests, failed captures,
 incomplete captures, and processing errors. Incomplete and failed counts can overlap. HTTP/2 inspection failures leave a

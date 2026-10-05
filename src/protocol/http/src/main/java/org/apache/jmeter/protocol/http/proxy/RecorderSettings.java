@@ -57,7 +57,12 @@ public final class RecorderSettings {
     }
 
     public static void save(ProxyControl recorder, HarImportOptions options) throws IOException {
+        save(recorder, options, JMeterUtils.getPropDefault(PREFIX + "process_correlations", true));
+    }
+
+    public static void save(ProxyControl recorder, HarImportOptions options, boolean processCorrelations) throws IOException {
         Map<String, String> values = new LinkedHashMap<>();
+        values.put(PREFIX + "process_correlations", Boolean.toString(processCorrelations));
         for (String key : KEYS) {
             values.put(PREFIX + key, recorder.getPropertyAsString("ProxyControlGui." + key));
         }

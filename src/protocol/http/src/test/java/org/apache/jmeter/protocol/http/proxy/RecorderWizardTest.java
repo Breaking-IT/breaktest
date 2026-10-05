@@ -56,6 +56,41 @@ class RecorderWizardTest extends JMeterTestCase {
     }
 
     @Test
+    void offersCorrelationReviewOnlyWhenSelectedCapturesHaveStoredExchanges() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var stored = sample("stored.test", false);
+        stored.sampler.setProperty(org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "capture-1");
+        var unstored = sample("unstored.test", false);
+        SwingUtilities.invokeAndWait(() -> {
+            var wizard = new RecorderWizard(null, new ProxyControl(), List.of(stored, unstored));
+            try {
+                var correlation = field(wizard, "processCorrelations", JCheckBox.class);
+                assertTrue(correlation.isSelected());
+                assertTrue(correlation.isEnabled());
+                checkbox(field(wizard, "hosts", RecordingHostsPanel.class), "stored.test").doClick();
+                assertFalse(correlation.isEnabled());
+                checkbox(field(wizard, "hosts", RecordingHostsPanel.class), "stored.test").doClick();
+                assertTrue(correlation.isEnabled());
+                field(wizard, "next", JButton.class).doClick();
+                field(wizard, "remember", JCheckBox.class).setSelected(false);
+                field(wizard, "finish", JButton.class).doClick();
+                assertTrue(wizard.getResult().processCorrelations());
+            } finally {
+                wizard.dispose();
+            }
+            var withoutStorage = new RecorderWizard(null, new ProxyControl(), List.of(unstored));
+            try {
+                field(withoutStorage, "next", JButton.class).doClick();
+                field(withoutStorage, "remember", JCheckBox.class).setSelected(false);
+                field(withoutStorage, "finish", JButton.class).doClick();
+                assertFalse(withoutStorage.getResult().processCorrelations());
+            } finally {
+                withoutStorage.dispose();
+            }
+        });
+    }
+
+    @Test
     void reviewsHostsFailuresAndSettingsWithoutSelectingFailuresByDefault() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());
         var success = sample("app.test", false);

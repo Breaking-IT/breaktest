@@ -89,6 +89,10 @@ public final class RecordedSampler implements Serializable {
         }
     }
 
+    public boolean hasStoredExchange() {
+        return !sampler.getPropertyAsString(org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY).isEmpty();
+    }
+
     public HarEntry entry() { return entry; }
     public boolean failed() { return failed; }
     public String diagnostic() { return diagnostic; }

@@ -53,6 +53,24 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
     private Path tempDir;
 
     @Test
+    void recorderScanOnlyIncludesNewRequests() throws Exception {
+        RecordedFlow flow = recordedFlow(2);
+        var source = new JMeterTreeNode(flow.source(), null);
+        var included = new JMeterTreeNode(flow.consumers().get(0), null);
+        var existing = new JMeterTreeNode(flow.consumers().get(1), null);
+        flow.group().add(source);
+        flow.group().add(existing);
+        flow.group().add(included);
+        var scan = FindPredefinedCorrelationsAction.scan(List.of(source, included), tempDir.resolve("plan.jmx"),
+                HarCorrelationRuleCatalog.builtInRules());
+        assertEquals(1, scan.correlations().size());
+        assertEquals(List.of(source, included), scan.nodesByEntryIndex().entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey()).map(java.util.Map.Entry::getValue).toList());
+        assertEquals(1, scan.unavailableCount(), "Warn about the selected consumer without stored response data");
+        assertTrue(scan.correlations().get(0).getReplacements().stream().allMatch(replacement -> replacement.getTargetEntryIndex() == 1));
+    }
+
+    @Test
     void contributesPredefinedCorrelationsToToolsMenu() {
         FindPredefinedCorrelationsAction action = new FindPredefinedCorrelationsAction();
 

@@ -899,8 +899,14 @@ public class ProxyControl extends GenericController implements NonTestElement {
             return; // Review later keeps every pending capture available.
         }
         List<RecordedSampler> included = selectRecording(samples, selection.hosts(), selection.failed());
+        Set<JMeterTreeNode> previousRequests = new HashSet<>(getJmeterTreeModel().getNodesOfType(HTTPSamplerBase.class));
         applyRecording(included, selection.options(), selection.grouping(), true);
         RecordingTreeExpansion.expand(included);
+        if (selection.processCorrelations()) {
+            org.apache.jmeter.protocol.http.har.FindPredefinedCorrelationsAction.reviewRecording(GuiPackage.getInstance(),
+                    getJmeterTreeModel().getNodesOfType(HTTPSamplerBase.class).stream()
+                            .filter(node -> !previousRequests.contains(node)).toList());
+        }
         sampleQueue.removeAll(samples);
         diagnostics.reviewed();
     }

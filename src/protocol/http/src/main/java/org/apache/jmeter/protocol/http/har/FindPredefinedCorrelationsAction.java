@@ -221,6 +221,43 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         worker.execute();
     }
 
+    /** Review only the newly inserted recorder requests, independently for each thread group. */
+    public static void reviewRecording(GuiPackage gui, List<JMeterTreeNode> recordedNodes) {
+        Map<JMeterTreeNode, List<JMeterTreeNode>> groups = new LinkedHashMap<>();
+        for (JMeterTreeNode node : recordedNodes) {
+            ancestors(node).stream().filter(parent -> parent.getTestElement() instanceof AbstractThreadGroup)
+                    .findFirst().ifPresent(group -> groups.computeIfAbsent(group, ignored -> new ArrayList<>()).add(node));
+        }
+        if (groups.isEmpty()) {
+            return;
+        }
+        Path file = StringUtilities.isEmpty(gui.getTestPlanFile()) ? null : Path.of(gui.getTestPlanFile());
+        Map<JMeterTreeNode, List<Rule>> rules = new LinkedHashMap<>();
+        groups.keySet().forEach(group -> rules.put(group, HarCorrelationRuleCatalog.rulesFor(group)));
+        gui.getMainFrame().showLoadingOverlay(JMeterUtils.getResString("find_predefined_correlations_searching"));
+        new SwingWorker<Map<JMeterTreeNode, ScanResult>, Void>() {
+            @Override
+            protected Map<JMeterTreeNode, ScanResult> doInBackground() {
+                Map<JMeterTreeNode, ScanResult> scans = new LinkedHashMap<>();
+                groups.forEach((group, nodes) -> scans.put(group, scan(nodes, file, rules.get(group))));
+                return scans;
+            }
+
+            @Override
+            protected void done() {
+                gui.getMainFrame().hideLoadingOverlay();
+                try {
+                    get().forEach((group, scan) -> reviewAndApply(gui, new ThreadGroupChoice(group, nodePath(group)), scan));
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException ex) {
+                    LOG.warn("Unable to process recorder correlations", ex.getCause());
+                    JMeterUtils.reportErrorToUser("Recording added, but correlation analysis failed: " + ex.getCause().getMessage());
+                }
+            }
+        }.execute();
+    }
+
     private static List<Rule> importCustomRules(GuiPackage gui, JMeterTreeNode testPlanNode) {
         JFileChooser chooser = FileDialoger.promptToOpenFile(new String[] {".json"});
         if (chooser == null) {
@@ -411,20 +448,31 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     }
 
     static ScanResult scan(JMeterTreeNode threadGroupNode, Path testPlanFile, List<Rule> rules) {
+        List<JMeterTreeNode> recordedNodes = new ArrayList<>();
+        Enumeration<TreeNode> nodes = threadGroupNode.preorderEnumeration();
+        while (nodes.hasMoreElements()) {
+            TreeNode candidate = nodes.nextElement();
+            if (candidate instanceof JMeterTreeNode node && node.getTestElement() instanceof HTTPSamplerBase) {
+                recordedNodes.add(node);
+            }
+        }
+        return scan(recordedNodes, testPlanFile, rules, false);
+    }
+
+    static ScanResult scan(List<JMeterTreeNode> recordedNodes, Path testPlanFile, List<Rule> rules) {
+        return scan(recordedNodes, testPlanFile, rules, true);
+    }
+
+    private static ScanResult scan(List<JMeterTreeNode> recordedNodes, Path testPlanFile, List<Rule> rules, boolean reportMissingRecordings) {
         List<HarEntry> entries = new ArrayList<>();
         Map<Integer, JMeterTreeNode> nodesByEntryIndex = new LinkedHashMap<>();
         int unavailableCount = 0;
         int entryIndex = 0;
-        Enumeration<TreeNode> nodes = threadGroupNode.preorderEnumeration();
-        while (nodes.hasMoreElements()) {
-            TreeNode candidate = nodes.nextElement();
-            if (!(candidate instanceof JMeterTreeNode node)
-                    || !(node.getTestElement() instanceof HTTPSamplerBase sampler)) {
-                continue;
-            }
+        for (JMeterTreeNode node : recordedNodes) {
+            HTTPSamplerBase sampler = (HTTPSamplerBase) node.getTestElement();
             RecordedHarExchangeResolver.Resolution resolution =
                     RecordedHarExchangeResolver.resolveFor(node, testPlanFile);
-            if (resolution.exchange().isEmpty() && hasRecordingMetadata(sampler)) {
+            if (resolution.exchange().isEmpty() && (reportMissingRecordings || hasRecordingMetadata(sampler))) {
                 unavailableCount++;
             }
             RecordedExchange exchange = resolution.exchange().orElse(null);

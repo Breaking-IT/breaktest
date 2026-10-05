@@ -54,7 +54,7 @@ import net.miginfocom.swing.MigLayout;
 
 /** Reviews a stopped recording before any samplers are inserted into the plan. */
 public final class RecorderWizard extends JDialog {
-    public record Result(Set<String> hosts, Set<RecordedSampler> failed, HarImportOptions options, int grouping) { }
+    public record Result(Set<String> hosts, Set<RecordedSampler> failed, HarImportOptions options, int grouping, boolean processCorrelations) { }
 
     private final List<RecordedSampler> samples;
     private final ProxyControl recorder;
@@ -76,6 +76,8 @@ public final class RecorderWizard extends JDialog {
     private final JTextField minimum = new JTextField(12);
     private final JTextField maximum = new JTextField(12);
     private final JCheckBox remember = new JCheckBox("Remember recorder settings for other scripts", true);
+    private final JCheckBox processCorrelations = new JCheckBox("Process correlation rules", true);
+    private final JLabel correlationHint = new JLabel();
     private int step;
     private Result result;
 
@@ -197,6 +199,9 @@ public final class RecorderWizard extends JDialog {
         panel.add(new JLabel("Maximum delay (ms)"));
         panel.add(maximum);
         panel.add(new JLabel("Requests are ordered by start time; overlapping requests use Parallel Controllers."), "span 2");
+        processCorrelations.setSelected(org.apache.jmeter.util.JMeterUtils.getPropDefault("proxy.recorder.process_correlations", true));
+        panel.add(processCorrelations, "span 2, gaptop 16");
+        panel.add(correlationHint, "span 2");
         panel.add(remember, "span 2, gaptop 16");
         delay.addActionListener(e -> updateDelayFields());
         transactions.addActionListener(e -> updateDelayFields());
@@ -242,6 +247,12 @@ public final class RecorderWizard extends JDialog {
         long included = samples == null ? 0 : samples.stream().filter(sample ->
                 hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
                         && (!sample.failed() || failures.selected.contains(sample))).count();
+        boolean storedResponses = samples != null && samples.stream().anyMatch(sample -> sample.hasStoredExchange() && !sample.entry().isWebSocket()
+                && hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
+                && (!sample.failed() || failures.selected.contains(sample)));
+        processCorrelations.setEnabled(storedResponses);
+        correlationHint.setText(storedResponses ? "Review matches after adding these requests; only selected matches are applied."
+                : "Requires stored HTTP requests/responses in the selected recording.");
         finish.setEnabled(true);
         finish.setText(included == 0 ? "Finish without adding requests" : "Add " + included + " requests to test plan");
     }
@@ -280,13 +291,14 @@ public final class RecorderWizard extends JDialog {
         recorder.setGroupingMode(grouping);
         if (remember.isSelected()) {
             try {
-                RecorderSettings.save(recorder, options);
+                RecorderSettings.save(recorder, options, processCorrelations.isSelected());
             } catch (java.io.IOException e) {
                 JOptionPane.showMessageDialog(this, "Unable to save recorder preferences: " + e.getMessage());
                 return;
             }
         }
-        result = new Result(hosts.selectedHostnames(), Set.copyOf(failures.selected), options, grouping);
+        result = new Result(hosts.selectedHostnames(), Set.copyOf(failures.selected), options, grouping,
+                processCorrelations.isEnabled() && processCorrelations.isSelected());
         dispose();
     }
 

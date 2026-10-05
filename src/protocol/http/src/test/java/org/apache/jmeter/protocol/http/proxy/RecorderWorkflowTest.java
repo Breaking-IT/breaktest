@@ -363,7 +363,8 @@ class RecorderWorkflowTest extends JMeterTestCase {
             HarImportOptions options = new HarImportOptions();
             options.setDelayMode(HarImportOptions.DelayMode.FIXED);
             options.setFixedDelay("${ThinkTime}");
-            RecorderSettings.save(recorder, options);
+            RecorderSettings.save(recorder, options, false);
+            assertFalse(JMeterUtils.getPropDefault("proxy.recorder.process_correlations", true));
             ProxyControl anotherPlan = new ProxyControl();
             assertTrue(anotherPlan.getStoreRecordedExchanges());
             RecorderSettings.applyDefaults(anotherPlan);
