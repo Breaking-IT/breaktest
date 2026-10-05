@@ -34,6 +34,12 @@ export BREAKTEST_HTTP3_SELF_SIGNED_URL=https://localhost:19443/
 ./gradlew :src:protocol:http:test --tests '*HTTP3MutualTlsTest' \
   -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
   -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts"
+for retry in false true; do
+  ./gradlew :src:protocol:http:test --tests '*HTTP3ScopedClientCertificateTest' \
+    -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
+    -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts" \
+    -Djmeter.properties.httpsampler.http3.ignore_certificate_errors="$retry"
+done
 ./gradlew :src:protocol:http:test \
   --tests '*TestHTTPJavaHttp3Impl.embeddedClientWithoutStartupSettingRejectsWrongHostname' \
   -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=false
@@ -53,3 +59,16 @@ The embedded regression deliberately omits the permissive startup setting and
 expects a wrong-host failure. It documents the JDK initialization requirement,
 not a different sampler setting. CI runs the regular tests on Java 21 and 26,
 with these Docker integration tests on 26.
+
+The scoped-certificate suite uses `/identity` on port 19446, which reports the
+client certificate subject authenticated by Caddy. Disposable `alice.p12` and
+`bob.p12` stores and a combined `users.p12` store verify concurrent thread groups,
+profile defaults and overrides, CSV aliases per virtual user, and alias changes
+on reused clients. Every successful request asserts its protocol: direct requests
+must use HTTP/3, and Alt-Svc requests must progress HTTP/2 → HTTP/3 → HTTP/3 without
+changing client identity. Sending no certificate must fail the mTLS handshake.
+
+Run that suite separately in both modes. With retries disabled it trusts the
+fixture CA; with retries enabled it deliberately leaves that CA untrusted, testing
+that the TLS probe and certificate-retry client preserve the scoped identity.
+The Java 26 sampler TLS CI job runs both modes.

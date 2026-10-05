@@ -49,6 +49,16 @@ jobs:
           ./gradlew :src:protocol:http:test --tests '*HTTP3MutualTlsTest' \
             -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
             -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts"
+      - name: HTTP/3 scoped client certificates
+        if: matrix.java == 26
+        run: |
+          # Each mode gets a fresh JVM: HTTP/3 certificate policy is initialized once.
+          for retry in false true; do
+            ./gradlew :src:protocol:http:test --tests '*HTTP3ScopedClientCertificateTest' \
+              -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
+              -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts" \
+              -Djmeter.properties.httpsampler.http3.ignore_certificate_errors="$retry"
+          done
       - name: Embedded startup configuration regression
         if: matrix.java == 26
         run: |

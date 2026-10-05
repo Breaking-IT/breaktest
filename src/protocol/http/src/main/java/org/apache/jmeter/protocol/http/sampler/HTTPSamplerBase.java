@@ -57,6 +57,7 @@ import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.KeystoreConfig;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
@@ -96,6 +97,7 @@ import org.apache.jmeter.testelement.ThreadListener;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
+import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.testelement.schema.PropertyDescriptor;
 import org.apache.jmeter.threads.JMeterContext;
@@ -131,6 +133,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     private static final Set<String> APPLIABLE_CONFIG_CLASSES = new HashSet<>(
             Arrays.asList(
                     "org.apache.jmeter.config.gui.LoginConfigGui",
+                    "org.apache.jmeter.config.gui.ClientCertificateConfigGui",
                     "org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui",
                     "org.apache.jmeter.config.gui.SimpleConfigGui",
                     "org.apache.jmeter.protocol.http.gui.HeaderPanel",
@@ -944,7 +947,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     @Override
     public void addTestElement(TestElement el) {
-        if (el instanceof CookieManager cookieManager) {
+        if (el instanceof ClientCertificateConfig config) {
+            // Configurations arrive nearest first. Inherit leaves the outer scope eligible.
+            if (!config.isInherit() && getClientCertificateConfig() == null) {
+                setProperty(new TestElementProperty(
+                        "HTTPSampler.client_certificate", config));
+            }
+        } else if (el instanceof CookieManager cookieManager) {
             setCookieManager(cookieManager);
         } else if (el instanceof CacheManager cacheManager) {
             setCacheManager(cacheManager);
@@ -1349,6 +1358,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     private void setCacheManagerProperty(CacheManager value) {
         set(getSchema().getCacheManager(), value);
     }
+    public ClientCertificateConfig getClientCertificateConfig() {
+        return (ClientCertificateConfig) getProperty("HTTPSampler.client_certificate").getObjectValue();
+    }
+
     private void setKeystoreConfigProperty(KeystoreConfig value) {
         set(getSchema().getKeystoreConfig(), value);
     }

@@ -137,6 +137,7 @@ import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -544,7 +545,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         PoolingAsyncClientConnectionManager poolingConnectionManager =
                 JMeterPoolingAsyncClientConnectionManagerBuilder.newBuilder()
                         .setDnsResolver(resolver)
-                        .setTlsStrategy(createTlsStrategy())
+                        .setTlsStrategy(createTlsStrategy(key.clientIdentity))
                         .setDefaultConnectionConfig(ConnectionConfig.custom()
                                 .setTimeToLive(TimeValue.ofMilliseconds(TIME_TO_LIVE))
                                 .build())
@@ -1330,8 +1331,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         };
     }
 
-    private static TlsStrategy createTlsStrategy() throws GeneralSecurityException {
-        SSLContext sslContext = ((JsseSSLManager) SSLManager.getInstance()).getContext();
+    private static TlsStrategy createTlsStrategy(AsyncClientIdentity identity) throws GeneralSecurityException {
+        SSLContext sslContext = identity == null ? ((JsseSSLManager) SSLManager.getInstance()).getContext()
+                : identity.createContext();
         ClientTlsStrategyBuilder builder = ClientTlsStrategyBuilder.create()
                 .setSslContext(sslContext)
                 .setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
@@ -1414,10 +1416,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private HttpClientKey createHttpClientKey(URL url, HttpVersionPolicy versionPolicy, HttpContext context) {
+    private HttpClientKey createHttpClientKey(URL url, HttpVersionPolicy versionPolicy, HttpContext context)
+            throws GeneralSecurityException {
         ProxySettings proxy = resolveProxy(url, context);
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password(), versionPolicy);
+                proxy.username(), proxy.password(), versionPolicy, clientCertificateIdentity(url, true));
     }
 
     private HttpUriRequestBase createHttpRequest(URI uri, String method, boolean areFollowingRedirect) {
@@ -1739,6 +1742,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static final class HttpClientKey {
+        private final AsyncClientIdentity clientIdentity;
         private final String protocol;
         private final String authority;
         private final boolean hasProxy;
@@ -1751,7 +1755,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final int hashCode;
 
         private HttpClientKey(URL url, boolean hasProxy, String proxyScheme, String proxyHost,
-                int proxyPort, String proxyUser, String proxyPass, HttpVersionPolicy versionPolicy) {
+                int proxyPort, String proxyUser, String proxyPass, HttpVersionPolicy versionPolicy, AsyncClientIdentity clientIdentity) {
+            this.clientIdentity = clientIdentity;
             this.protocol = url.getProtocol();
             this.authority = url.getAuthority();
             this.hasProxy = hasProxy;
@@ -1762,7 +1767,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             this.proxyPass = proxyPass;
             this.versionPolicy = versionPolicy;
             this.hashCode = Objects.hash(protocol, authority, hasProxy, proxyScheme, proxyHost, proxyPort,
-                    proxyUser, proxyPass, versionPolicy);
+                    proxyUser, proxyPass, versionPolicy, clientIdentity);
         }
 
         @Override
@@ -1781,7 +1786,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     && Objects.equals(proxyHost, other.proxyHost)
                     && Objects.equals(proxyUser, other.proxyUser)
                     && Objects.equals(proxyPass, other.proxyPass)
-                    && versionPolicy == other.versionPolicy;
+                    && versionPolicy == other.versionPolicy
+                    && Objects.equals(clientIdentity, other.clientIdentity);
         }
 
         @Override

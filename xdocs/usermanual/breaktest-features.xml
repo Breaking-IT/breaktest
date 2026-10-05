@@ -86,6 +86,45 @@ Routing is resolved once when opening the connection; reconnect an existing sess
 Enable debug logging for <code>org.apache.jmeter.protocol.http.sampler.HTTPHCAbstractImpl</code> to inspect
 routing decisions. Proxy credentials are omitted from these diagnostics.
 </p>
+<h2>Scoped Client Certificates</h2>
+<p>
+Add <code>Client Certificate Config</code> from <code>Add &gt; Config Element</code>
+inside a shared profile, a named profile, or a thread group. It applies to HTTPS
+requests (HTTP/1.1, HTTP/2 and HTTP/3) and secure WebSocket connection handshakes.
+A thread group's explicit certificate config overrides the selected profile; the
+selected profile overrides the shared profile. A closer config under a controller
+or request overrides its ancestors. The whole configuration is selected together:
+fields from different certificate configs are not combined.
+</p>
+<p>
+Choose <code>Inherit</code>, <code>Use certificate</code>, or <code>Send no client certificate</code>.
+Inherit uses the outer scope, ultimately falling back to the existing global SSL
+Manager settings. Use certificate accepts a keystore path, type (PKCS12 by default),
+password and alias. Relative paths resolve against the test plan directory.
+A blank path uses the global keystore and its type; a blank password in that case
+uses the global password. An alias may be omitted only if the store contains
+exactly one private-key entry. Missing files, incorrect passwords, unknown aliases
+and unresolved variables fail the request rather than falling back to another identity.
+</p>
+<p>
+For example, put an employee keystore in the selected profile, and override it
+with a partner keystore in one thread group. To select a certificate per virtual
+user, set the alias to <code>${clientCertAlias}</code> and supply that variable
+from a CSV Data Set Config or initialization script. The keystore path and password
+also accept variables. Assign the values once per user when its identity should
+remain stable; CSV data normally advances every iteration. Use password variables
+supplied at runtime: a literal password is stored in the JMX file even though the
+editor masks it. Each distributed worker needs access to its own keystore files
+and password values; the configuration does not transfer certificates.
+</p>
+<p>
+Connections and TLS contexts are isolated by resolved certificate identity. A
+changed alias selects a separate HTTP client instead of reusing a connection
+authenticated with the previous certificate. WebSocket connections keep their
+identity until they are closed or reconnected. The legacy Keystore Configuration
+element retains its global behavior; use Client Certificate Config for scoped overrides.
+</p>
+
 <h2>Modern HTTP And HTTP/2</h2>
 <p>
 HTTP Request Defaults includes a Headers tab with the same add, edit, and remove controls

@@ -27,6 +27,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
@@ -144,7 +145,8 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
         try {
             handlers.start();
             var route = HttpProxyConfiguration.resolve(this, uri);
-            var client = sessions.client(getSessionName(), session, uri, route);
+            var client = sessions.client(getSessionName(), session, uri, route,
+                    (ClientCertificateConfig) getProperty("WebSocket.client_certificate").getObjectValue());
             WebSocket.Builder builder = client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(getTimeout()));
             // Resolve variable-backed cookies on the virtual user's thread, before
@@ -214,7 +216,11 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
 
     @Override
     public void addTestElement(TestElement element) {
-        if (element instanceof CookieManager) {
+        if (element instanceof ClientCertificateConfig config) {
+            if (!config.isInherit() && getProperty("WebSocket.client_certificate").getObjectValue() == null) {
+                setProperty(new TestElementProperty("WebSocket.client_certificate", config));
+            }
+        } else if (element instanceof CookieManager) {
             setProperty(new TestElementProperty(COOKIE_MANAGER, element));
         } else if (element instanceof HeaderManager incoming) {
             Object existing = getProperty(HEADER_MANAGER).getObjectValue();

@@ -21,6 +21,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 
+import javax.net.ssl.SSLContext;
+
 import org.apache.hc.client5.http.socket.LayeredConnectionSocketFactory;
 import org.apache.hc.client5.http.ssl.NoopHostnameVerifier;
 import org.apache.hc.client5.http.ssl.SSLConnectionSocketFactory;
@@ -59,19 +61,35 @@ public final class LazyLayeredConnectionSocketFactoryHC5 implements LayeredConne
         }
     }
 
+    private final LayeredConnectionSocketFactory boundFactory;
+
+    public LazyLayeredConnectionSocketFactoryHC5() {
+        boundFactory = null;
+    }
+
+    public LazyLayeredConnectionSocketFactoryHC5(SSLContext context) {
+        boundFactory = new SSLConnectionSocketFactory(
+                new HttpSSLProtocolSocketFactory(JsseSSLManager.CPS, context.getSocketFactory()),
+                SOCKET_PROTOCOL_ARRAY, CIPHER_SUITE_ARRAY, NoopHostnameVerifier.INSTANCE);
+    }
+
+    private LayeredConnectionSocketFactory factory() {
+        return boundFactory == null ? AdapteeHolder.ADAPTEE : boundFactory;
+    }
+
     @Override
     public Socket createSocket(HttpContext context) throws IOException {
-        return AdapteeHolder.ADAPTEE.createSocket(context);
+        return factory().createSocket(context);
     }
 
     @Override
     public Socket connectSocket(TimeValue connectTimeout, Socket socket, HttpHost host,
             InetSocketAddress remoteAddress, InetSocketAddress localAddress, HttpContext context) throws IOException {
-        return AdapteeHolder.ADAPTEE.connectSocket(connectTimeout, socket, host, remoteAddress, localAddress, context);
+        return factory().connectSocket(connectTimeout, socket, host, remoteAddress, localAddress, context);
     }
 
     @Override
     public Socket createLayeredSocket(Socket socket, String target, int port, HttpContext context) throws IOException {
-        return AdapteeHolder.ADAPTEE.createLayeredSocket(socket, target, port, context);
+        return factory().createLayeredSocket(socket, target, port, context);
     }
 }

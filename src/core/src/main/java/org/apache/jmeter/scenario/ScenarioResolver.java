@@ -29,6 +29,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.engine.util.CompoundVariable;
@@ -244,7 +245,10 @@ public final class ScenarioResolver {
                     profileEvaluator.put(name, evaluated);
                     variables.put(name, evaluated);
                 });
-            } else {
+            } else if (!(element instanceof ClientCertificateConfig)
+                    || script.list().stream().noneMatch(candidate -> candidate instanceof ClientCertificateConfig config
+                            && config.isEnabled() && !config.isInherit())) {
+                // An explicit thread-group identity overrides the profile at the same tree depth.
                 result.add(element, profileTree.getTree(element));
             }
         }

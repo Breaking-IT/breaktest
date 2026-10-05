@@ -17,6 +17,10 @@
 
 package org.apache.jmeter.util;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.security.GeneralSecurityException;
@@ -26,6 +30,8 @@ import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.KeyManager;
@@ -38,6 +44,8 @@ import javax.net.ssl.X509ExtendedKeyManager;
 import javax.net.ssl.X509KeyManager;
 import javax.net.ssl.X509TrustManager;
 
+import org.apache.jmeter.config.ClientCertificateConfig;
+import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.util.keystore.JmeterKeyStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -246,10 +254,100 @@ public class JsseSSLManager extends SSLManager {
         return new AsyncClientIdentity(this, keys, getTrustStore(), alias);
     }
 
+    private final Map<ScopedStoreKey, JmeterKeyStore> scopedKeyStores = new ConcurrentHashMap<>();
+
+    private record ScopedStoreKey(String path, String type, String password) {
+        @Override
+        public String toString() {
+            return "Scoped client keystore";
+        }
+    }
+
+    public void clearScopedKeyStores() {
+        synchronized (scopedKeyStores) {
+            scopedKeyStores.clear();
+        }
+    }
+
+    /** Resolve once before handing work to an asynchronous transport. Never changes global settings. */
+    public AsyncClientIdentity getClientIdentity(ClientCertificateConfig config)
+            throws GeneralSecurityException {
+        String mode = config.getMode();
+        if (ClientCertificateConfig.INHERIT.equals(mode)) {
+            return getAsyncClientIdentity();
+        }
+        boolean none = ClientCertificateConfig.NONE.equals(mode);
+        if (!none && !ClientCertificateConfig.CERTIFICATE.equals(mode)) {
+            throw new IllegalArgumentException("Unknown client certificate mode");
+        }
+        String path = none ? "" : config.getPropertyAsString(ClientCertificateConfig.STORE);
+        String type = none ? "PKCS12" : config.getPropertyAsString(ClientCertificateConfig.TYPE, "PKCS12");
+        String password = none ? "" : config.getPropertyAsString(ClientCertificateConfig.PASSWORD);
+        String alias = none ? "" : config.getPropertyAsString(ClientCertificateConfig.ALIAS);
+        if (path.contains("${") || type.contains("${") || password.contains("${") || alias.contains("${")) {
+            throw new IllegalArgumentException("Unresolved variable in Client Certificate Config");
+        }
+        JmeterKeyStore keys;
+        boolean globalStore = !none && path.isEmpty();
+        if (globalStore) {
+            path = System.getProperty(JAVAX_NET_SSL_KEY_STORE, "");
+            if (path.isEmpty()) {
+                throw new IllegalArgumentException("No global client keystore configured");
+            }
+            type = System.getProperty("javax.net.ssl.keyStoreType",
+                    path.toLowerCase(java.util.Locale.ROOT).endsWith(".jks") ? "JKS" : "PKCS12");
+            if (password.isEmpty()) {
+                password = defaultpw == null ? "" : defaultpw;
+            }
+        }
+        File file = none ? null : globalStore ? new File(path) : FileServer.getFileServer().resolveFile(path);
+        ScopedStoreKey key = new ScopedStoreKey(file == null ? "" : file.getAbsolutePath(), type, password);
+        keys = scopedKeyStores.get(key);
+        if (keys == null) {
+            synchronized (scopedKeyStores) {
+                keys = scopedKeyStores.get(key);
+                if (keys == null) {
+                    keys = JmeterKeyStore.getInstance(type, 0, -1, "");
+                    try {
+                        if (file == null) {
+                            keys.load(null, password);
+                        } else {
+                            try (InputStream input = new FileInputStream(file)) {
+                                keys.load(input, password);
+                            }
+                        }
+                    } catch (IOException e) {
+                        throw new GeneralSecurityException("Cannot load Client Certificate Config keystore", e);
+                    }
+                    scopedKeyStores.put(key, keys);
+                }
+            }
+        }
+        if (!none) {
+            if (alias.isEmpty()) {
+                if (keys.getAliasCount() != 1) {
+                    throw new IllegalArgumentException("Specify a client certificate alias when the keystore does not contain exactly one key");
+                }
+                alias = keys.getAlias(0);
+            }
+            keys.getPrivateKey(alias);
+            keys.getCertificateChain(alias);
+        }
+        return new AsyncClientIdentity(this, keys, getTrustStore(), none ? null : alias);
+    }
+
     /** Store instances and manager identity isolate configuration generations. */
     public record AsyncClientIdentity(JsseSSLManager manager, JmeterKeyStore keys, KeyStore trustStore, String alias) {
         public SSLContext createContext() throws GeneralSecurityException {
             return manager.createContext(trustStore, true, true, keys, alias);
+        }
+
+        public SSLContext createQuicContext() throws GeneralSecurityException {
+            return createContextWithTrustStore(trustStore);
+        }
+
+        public SSLContext createContextWithTrustStore(KeyStore trusted) throws GeneralSecurityException {
+            return manager.createContext(trusted, false, true, keys, alias);
         }
     }
 

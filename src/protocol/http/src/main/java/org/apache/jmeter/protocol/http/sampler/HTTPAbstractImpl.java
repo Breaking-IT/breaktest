@@ -27,10 +27,12 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.net.URL;
 import java.net.UnknownHostException;
+import java.security.GeneralSecurityException;
 import java.util.List;
 import java.util.function.Predicate;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.CacheManager;
 import org.apache.jmeter.protocol.http.control.CookieManager;
@@ -42,6 +44,9 @@ import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
+import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.util.EnumUtils;
 import org.jspecify.annotations.Nullable;
 
@@ -97,6 +102,23 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
 
     protected HTTPAbstractImpl(HTTPSamplerBase testElement){
         this.testElement = testElement;
+    }
+
+    protected AsyncClientIdentity clientCertificateIdentity(URL url) throws GeneralSecurityException {
+        return clientCertificateIdentity(url, false);
+    }
+
+    protected AsyncClientIdentity clientCertificateIdentity(URL url, boolean bindGlobalIdentity)
+            throws GeneralSecurityException {
+        if (!"https".equalsIgnoreCase(url.getProtocol())) {
+            return null;
+        }
+        ClientCertificateConfig config = testElement.getClientCertificateConfig();
+        if (config == null && !bindGlobalIdentity) {
+            return null;
+        }
+        JsseSSLManager manager = (JsseSSLManager) SSLManager.getInstance();
+        return config == null ? manager.getAsyncClientIdentity() : manager.getClientIdentity(config);
     }
 
     protected abstract HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth);

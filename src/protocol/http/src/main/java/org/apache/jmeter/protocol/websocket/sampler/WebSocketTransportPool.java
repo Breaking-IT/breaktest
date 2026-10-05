@@ -37,6 +37,7 @@ import java.util.concurrent.Executors;
 
 import javax.net.ssl.SSLParameters;
 
+import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
@@ -61,10 +62,18 @@ final class WebSocketTransportPool {
     }
 
     static Lease acquire(URI uri, Route route) throws GeneralSecurityException {
+        return acquire(uri, route, null);
+    }
+
+    static Lease acquire(URI uri, Route route, ClientCertificateConfig certificate)
+            throws GeneralSecurityException {
         // Resolve aliases before entering transport callbacks, and exactly once
         // per connection (keystore rotation can advance on every getAlias call).
-        AsyncClientIdentity identity = "wss".equalsIgnoreCase(uri.getScheme())
-                ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity() : null;
+        AsyncClientIdentity identity = null;
+        if ("wss".equalsIgnoreCase(uri.getScheme())) {
+            JsseSSLManager manager = (JsseSSLManager) SSLManager.getInstance();
+            identity = certificate == null ? manager.getAsyncClientIdentity() : manager.getClientIdentity(certificate);
+        }
         String[] protocols = JMeterUtils.getArrayPropDefault("https.socket.protocols", new String[0]);
         String[] ciphers = JMeterUtils.getArrayPropDefault("https.cipherSuites",
                 JMeterUtils.getArrayPropDefault("https.socket.ciphers", new String[0]));

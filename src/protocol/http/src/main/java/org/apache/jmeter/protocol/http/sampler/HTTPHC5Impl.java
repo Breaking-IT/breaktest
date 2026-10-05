@@ -171,6 +171,7 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -1235,6 +1236,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      */
     private static final class HttpClientKey {
 
+        private final AsyncClientIdentity clientIdentity;
         private final String protocol;
         private final String authority;
         private final boolean hasProxy;
@@ -1256,9 +1258,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
          * @param proxyPass proxy password
          */
         private HttpClientKey(URL url, boolean hasProxy, String proxyScheme, String proxyHost,
-                int proxyPort, String proxyUser, String proxyPass) {
+                int proxyPort, String proxyUser, String proxyPass, AsyncClientIdentity clientIdentity) {
             // N.B. need to separate protocol from authority otherwise http://server would match https://erver (<= sic, not typo error)
             // could use separate fields, but simpler to combine them
+            this.clientIdentity = clientIdentity;
             this.protocol = url.getProtocol();
             this.authority = url.getAuthority();
             this.hasProxy = hasProxy;
@@ -1280,6 +1283,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 hash = hash*31 + getHash(proxyUser);
                 hash = hash*31 + getHash(proxyPass);
             }
+            hash = hash*31 + Objects.hashCode(clientIdentity);
             hash = hash*31 + getHash(protocol);
             hash = hash*31 + getHash(authority);
             return hash;
@@ -1300,7 +1304,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             if (!Objects.equals(authority, other.authority) ||
                     !Objects.equals(protocol, other.protocol) ||
-                    hasProxy != other.hasProxy) {
+                    hasProxy != other.hasProxy || !Objects.equals(clientIdentity, other.clientIdentity)) {
                 return false;
             }
             if (!hasProxy) {
@@ -1358,7 +1362,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         HttpClientState clientState = null;
         boolean concurrentDwn = this.testElement.isConcurrentDwn();
         Map<String, Object> samplerContext = JMeterContextService.getContext().getSamplerContext();
-        if(concurrentDwn) {
+        if(concurrentDwn && key.clientIdentity == null) {
             clientState = (HttpClientState)
                     samplerContext.get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
         }
@@ -1390,7 +1394,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 };
             }
             Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory> create().
-                    register("https", new LazyLayeredConnectionSocketFactoryHC5()).
+                    register("https", (key.clientIdentity == null ? new LazyLayeredConnectionSocketFactoryHC5()
+                            : new LazyLayeredConnectionSocketFactoryHC5(key.clientIdentity.createContext()))).
                     register("http", CONNECTION_SOCKET_FACTORY).
                     build();
 
@@ -1503,10 +1508,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         return DefaultAuthenticationStrategy.INSTANCE;
     }
 
-    private HttpClientKey createHttpClientKey(URL url, HttpContext context) {
+    private HttpClientKey createHttpClientKey(URL url, HttpContext context) throws GeneralSecurityException {
         ProxySettings proxy = resolveProxy(url, context);
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password());
+                proxy.username(), proxy.password(), clientCertificateIdentity(url));
     }
 
     /**
