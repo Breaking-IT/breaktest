@@ -52,6 +52,7 @@ final class Http2ProxyRelay {
     private boolean observationFailed;
     private final java.util.function.Supplier<RecordingRequestSettings> settings;
     private final RecordingDiagnostics diagnostics;
+    private String destination = "Unknown HTTP/2 destination";
     private final java.util.function.BooleanSupplier stopped;
     private final java.util.Set<Integer> observedRequests = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Set<Integer> completedStreams = new java.util.HashSet<>();
@@ -71,6 +72,13 @@ final class Http2ProxyRelay {
         this.settings = settings;
         this.diagnostics = diagnostics;
         this.stopped = stopped;
+    }
+
+    Http2ProxyRelay(Consumer<HttpProxyTransport.Capture> recorder,
+            java.util.function.Supplier<RecordingRequestSettings> settings, RecordingDiagnostics diagnostics,
+            java.util.function.BooleanSupplier stopped, String destination) {
+        this(recorder, settings, diagnostics, stopped);
+        this.destination = destination;
     }
 
     void relay(Socket browser, InputStream browserInput, Socket server, InputStream serverInput) throws IOException {
@@ -118,7 +126,8 @@ final class Http2ProxyRelay {
             finishIncomplete(closedAt);
             for (int id : observedRequests) {
                 if (!recordedRequests.contains(id)) {
-                    diagnostics.incomplete("HTTP/2 request stream " + id + " could not be captured; " + endReason());
+                    diagnostics.uncapturedFailure(destination, "HTTP/2 stream " + id,
+                            "Request could not be captured; " + endReason());
                 }
             }
         }
@@ -256,7 +265,7 @@ final class Http2ProxyRelay {
                     } catch (IOException invalidTarget) {
                         streams.remove(id);
                         completedStreams.add(id);
-                        diagnostics.processingError("Unable to capture HTTP/2 stream " + id + ": " + invalidTarget);
+                        diagnostics.processingError(destination + " — Unable to capture HTTP/2 stream " + id + ": " + invalidTarget);
                         return;
                     }
                     if (direction.endStream) {
@@ -392,7 +401,7 @@ final class Http2ProxyRelay {
                 recorder.accept(stream.capture);
                 recordedRequests.add(stream.id);
             } catch (RuntimeException e) {
-                diagnostics.processingError("Unable to enqueue HTTP/2 stream " + stream.id + ": " + e);
+                diagnostics.processingError(destination + " — Unable to enqueue HTTP/2 stream " + stream.id + ": " + e);
                 LOG.error("Unable to record HTTP/2 stream {}", stream.id, e);
             }
         }

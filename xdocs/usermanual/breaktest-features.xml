@@ -470,6 +470,8 @@ Incoming events remain reference data; the recorder does not invent SSE Match ac
 <p>
 WebSocket connections are recorded as native WebSocket Connect, Send, and Close samplers, using the same conversion as HAR import.
 Both plain and TLS connections are supported, including WebSocket streams carried by HTTP/2 extended CONNECT.
+Session names use <code>websocket-1</code>, <code>websocket-2</code>, or <code>sse-1</code>, <code>sse-2</code>,
+skipping names already present in the test plan.
 Outgoing text and binary messages become timed Send samplers; incoming messages and control frames remain available as recorded reference data.
 Fragmented messages are assembled and negotiated permessage-deflate payloads are decoded in the background, while forwarded bytes remain unchanged.
 With <b>Store recorded requests/responses</b> enabled, the native recording retains handshake headers, message directions, payloads,
@@ -477,7 +479,9 @@ connection-relative times, and original frame bytes. Turning storage off still c
 </p>
 <p>
 Stopping the recorder opens a wizard: choose hostnames with the same grouped selector used by HAR import,
-review failed captures (skipped when the selected hosts have none), then configure transactions and think times.
+review recording failures (skipped only when there are none), then configure transactions and think times.
+Failures remain visible even for excluded hosts. Select a row to read its full destination and error details.
+TLS negotiation failures before an HTTP request arrives are shown with the CONNECT destination and cannot be selected for replay.
 Failed captures are unchecked by default;
 selected failures are included as enabled samplers with their diagnostic comments. HTTP 4xx/5xx responses are included normally.
 Choose <b>Review later</b> to keep the pending recording, then use <b>Review recording...</b> to reopen it before starting another session.

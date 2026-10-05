@@ -520,6 +520,39 @@ class ProxyControlSectionsTest extends JMeterTestCase {
     }
 
     @Test
+    void retainsTlsNegotiationFailureWithItsConnectDestination() throws Exception {
+        var proxy = new ProxyControl();
+        proxy.setNonGuiTreeModel(model);
+        proxy.setTarget(recordMe());
+        try (ServerSocket available = new ServerSocket(0)) {
+            proxy.setPort(available.getLocalPort());
+        }
+        model.addComponent(proxy, (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0));
+        proxy.startProxy();
+        try (var browser = new java.net.Socket("localhost", proxy.getPort())) {
+            browser.setSoTimeout(5000);
+            browser.getOutputStream().write(("CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\n\r\n")
+                    .getBytes(StandardCharsets.ISO_8859_1));
+            assertEquals("200", HttpProxyTransport.readHead(browser.getInputStream()).target());
+            // Plain HTTP on the TLS socket fails before there can be a captured HTTP request.
+            browser.getOutputStream().write("GET / HTTP/1.1\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+            try {
+                browser.getInputStream().readAllBytes();
+            } catch (java.net.SocketException ignored) {
+                // The failed handshake may close with a reset instead of EOF.
+            }
+        } finally {
+            proxy.stopProxy();
+        }
+        var failures = proxy.getRecordingDiagnostics().uncapturedFailures();
+        assertEquals(1, failures.size());
+        assertEquals("https://localhost:443", failures.get(0).url());
+        assertEquals("CONNECT (TLS handshake)", failures.get(0).method());
+        assertTrue(failures.get(0).reason().contains("SSL"));
+        assertTrue(model.getNodesOfType(HTTPSamplerBase.class).isEmpty());
+    }
+
+    @Test
     void disablesTransportFailuresAndOnlyAddsOptInAssertionsForHttpErrors() throws Exception {
         ProxyControl proxy = new ProxyControl();
         proxy.setNonGuiTreeModel(model);
@@ -574,6 +607,7 @@ class ProxyControlSectionsTest extends JMeterTestCase {
         result.setURL(sampler.getUrl());
         result.setContentType("text/plain");
         result.setResponseData("excluded", "UTF-8");
+        result.setResponseCode("200");
 
         proxy.deliverSampler(sampler, new TestElement[0], result);
 

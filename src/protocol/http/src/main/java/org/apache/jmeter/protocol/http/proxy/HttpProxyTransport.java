@@ -538,7 +538,7 @@ final class HttpProxyTransport implements AutoCloseable {
 
     void relayHttp2(Socket client, InputStream input, java.util.function.Consumer<Capture> recorder,
             java.util.function.Supplier<RecordingRequestSettings> settings, RecordingDiagnostics diagnostics) throws IOException {
-        new Http2ProxyRelay(recorder, settings, diagnostics, () -> stopped).relay(client, input, upstream, serverInput);
+        new Http2ProxyRelay(recorder, settings, diagnostics, () -> stopped, origin).relay(client, input, upstream, serverInput);
     }
 
     private void connect(URL url) throws IOException {

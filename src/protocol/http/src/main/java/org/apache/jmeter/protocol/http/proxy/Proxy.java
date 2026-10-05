@@ -157,6 +157,8 @@ public class Proxy extends Thread {
     @Override
     public void run() {
         boolean http2 = false;
+        String destination = "Unknown destination (request headers incomplete)";
+        String method = "Unknown";
         try {
             JMeterContextService.getContext().setRecording(true);
             java.io.InputStream input = clientSocket.getInputStream();
@@ -164,6 +166,8 @@ public class Proxy extends Thread {
             HttpProxyTransport.Head head = HttpProxyTransport.readHead(input, this::requestSettings);
             if (head != null && "CONNECT".equals(head.method())) {
                 tunnelAuthority = head.target();
+                destination = "https://" + tunnelAuthority;
+                method = "CONNECT (TLS handshake)";
                 java.net.URI endpoint = java.net.URI.create("https://" + tunnelAuthority);
                 clientSocket.getOutputStream().write(
                         "HTTP/1.1 200 Connection Established\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
@@ -177,11 +181,14 @@ public class Proxy extends Thread {
                             () -> RecordingRequestSettings.capture(target), target.getRecordingDiagnostics());
                     return;
                 }
+                method = "Unknown (request headers incomplete)";
                 head = HttpProxyTransport.readHead(input, this::requestSettings);
             } else {
                 input = new BufferedInputStream(input);
             }
             while (head != null) {
+                destination = head.url(tunnelAuthority).toString();
+                method = head.method();
                 HttpProxyTransport.Capture capture = transport.forward(head, head.url(tunnelAuthority), clientSocket, input);
                 if (capture.upgraded()) {
                     requestStarted = false;
@@ -202,11 +209,13 @@ public class Proxy extends Thread {
                 if (!capture.keepAlive()) {
                     break;
                 }
+                destination = tunnelAuthority == null ? "Unknown destination (request headers incomplete)" : "https://" + tunnelAuthority;
+                method = "Unknown (request headers incomplete)";
                 head = HttpProxyTransport.readHead(input, this::requestSettings);
             }
         } catch (Exception e) {
             if (!http2 && requestStarted) {
-                target.getRecordingDiagnostics().incomplete((stopRequested ? "Recorder stopped" : "Recording connection ended")
+                target.getRecordingDiagnostics().uncapturedFailure(destination, method, (stopRequested ? "Recorder stopped" : "Recording connection ended")
                         + " before the request could be captured: " + e);
             }
             log.debug("{} Recording connection closed: {}", port, e.toString());

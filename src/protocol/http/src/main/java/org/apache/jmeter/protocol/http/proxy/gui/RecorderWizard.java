@@ -38,6 +38,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.table.AbstractTableModel;
@@ -124,19 +125,37 @@ public final class RecorderWizard extends JDialog {
     private JPanel failurePanel() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
-        panel.add(new JLabel("Include failed captures only if you want to replay them. HTTP 4xx/5xx responses are kept normally."), BorderLayout.NORTH);
+        panel.add(new JLabel("<html>All recording failures are shown. Select a host first to include its captured requests.<br>"
+                + "Failures before capture cannot be replayed.</html>"), BorderLayout.NORTH);
         JTable table = new JTable(failures);
         table.setAutoCreateRowSorter(true);
         table.setRowHeight(Math.max(24, table.getRowHeight()));
         table.getColumnModel().getColumn(0).setMaxWidth(70);
         table.getColumnModel().getColumn(3).setPreferredWidth(400);
         table.getColumnModel().getColumn(4).setPreferredWidth(300);
-        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+        JTextArea details = new JTextArea(5, 60);
+        details.setEditable(false);
+        details.setLineWrap(true);
+        details.setWrapStyleWord(true);
+        details.setText("Select a failure to read its full destination and error details.");
+        table.getSelectionModel().addListSelectionListener(event -> {
+            int selected = table.getSelectedRow();
+            if (selected >= 0) {
+                int row = table.convertRowIndexToModel(selected);
+                details.setText(failures.getValueAt(row, 2) + " " + failures.getValueAt(row, 3)
+                        + "\n" + failures.getValueAt(row, 5) + "\n" + failures.getValueAt(row, 4));
+                details.setCaretPosition(0);
+            }
+        });
+        JPanel content = new JPanel(new BorderLayout(8, 8));
+        content.add(new JScrollPane(table), BorderLayout.CENTER);
+        content.add(new JScrollPane(details), BorderLayout.SOUTH);
+        panel.add(content, BorderLayout.CENTER);
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton all = new JButton("Select all");
         JButton none = new JButton("Select none");
         all.addActionListener(e -> {
-            failures.selected.addAll(failures.visible);
+            failures.visible.stream().filter(failures::hostSelected).forEach(failures.selected::add);
             failures.changed();
         });
         none.addActionListener(e -> {
@@ -196,9 +215,7 @@ public final class RecorderWizard extends JDialog {
 
     private void showStep() {
         if (step == 1) {
-            Set<String> selected = hosts.selectedHostnames();
-            failures.visible = samples.stream().filter(RecordedSampler::failed)
-                    .filter(sample -> selected.contains(HarConverter.hostnameOf(sample.entry().getUrl()))).toList();
+            failures.visible = samples.stream().filter(RecordedSampler::failed).toList();
             failures.changed();
         }
         layout.show(cards, Integer.toString(step));
@@ -206,8 +223,8 @@ public final class RecorderWizard extends JDialog {
     }
 
     private boolean hasFailedCaptures() {
-        return samples != null && samples.stream().anyMatch(sample -> sample.failed()
-                && hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl())));
+        return samples != null && (samples.stream().anyMatch(RecordedSampler::failed)
+                || !recorder.getRecordingDiagnostics().uncapturedFailures().isEmpty());
     }
 
     private void updateButtons() {
@@ -276,30 +293,49 @@ public final class RecorderWizard extends JDialog {
     private final class FailureTable extends AbstractTableModel {
         private final Set<RecordedSampler> selected = new HashSet<>();
         private List<RecordedSampler> visible = new ArrayList<>();
-        private final String[] columns = {"Include", "Host", "Method", "URL", "Failure"};
+        private final String[] columns = {"Include", "Host", "Method", "URL", "Failure", "Replay availability"};
 
         void changed() {
             fireTableDataChanged();
-            failureCount.setText(visible.stream().filter(selected::contains).count() + " of " + visible.size() + " selected");
+            failureCount.setText(visible.stream().filter(this::hostSelected).filter(selected::contains).count() + " selected; " + getRowCount() + " failures");
             updateButtons();
         }
 
-        @Override public int getRowCount() { return visible.size(); }
+        private boolean hostSelected(RecordedSampler sample) {
+            return hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()));
+        }
+
+        @Override public int getRowCount() { return visible.size() + recorder.getRecordingDiagnostics().uncapturedFailures().size(); }
         @Override public int getColumnCount() { return columns.length; }
         @Override public String getColumnName(int column) { return columns[column]; }
         @Override public Class<?> getColumnClass(int column) { return column == 0 ? Boolean.class : String.class; }
-        @Override public boolean isCellEditable(int row, int column) { return column == 0; }
+        @Override public boolean isCellEditable(int row, int column) { return column == 0 && row < visible.size() && hostSelected(visible.get(row)); }
         @Override public Object getValueAt(int row, int column) {
+            if (row >= visible.size()) {
+                var failure = recorder.getRecordingDiagnostics().uncapturedFailures().get(row - visible.size());
+                return switch (column) {
+                    case 0 -> false;
+                    case 1 -> HarConverter.hostnameOf(failure.url());
+                    case 2 -> failure.method();
+                    case 3 -> failure.url();
+                    case 4 -> failure.reason();
+                    default -> "Unavailable — no HTTP request captured";
+                };
+            }
             RecordedSampler sample = visible.get(row);
             return switch (column) {
-                case 0 -> selected.contains(sample);
+                case 0 -> hostSelected(sample) && selected.contains(sample);
                 case 1 -> HarConverter.hostnameOf(sample.entry().getUrl());
                 case 2 -> sample.entry().getMethod();
                 case 3 -> sample.entry().getUrl();
-                default -> sample.diagnostic();
+                case 4 -> sample.diagnostic();
+                default -> hostSelected(sample) ? "Available" : "Host excluded — select it in the previous step";
             };
         }
         @Override public void setValueAt(Object value, int row, int column) {
+            if (!isCellEditable(row, column)) {
+                return;
+            }
             if (Boolean.TRUE.equals(value)) {
                 selected.add(visible.get(row));
             } else {

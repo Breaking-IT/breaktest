@@ -139,7 +139,7 @@ class RecorderWizardTest extends JMeterTestCase {
     }
 
     @Test
-    void skipsFailureReviewAndUpdatesStepNumbersWhenSelectedHostsHaveNoFailures() throws Exception {
+    void showsFailuresForExcludedHostsButSkipsReviewWhenThereAreNoFailures() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());
         var success = sample("app.test", false);
         var failure = sample("other.test", true);
@@ -148,12 +148,13 @@ class RecorderWizardTest extends JMeterTestCase {
             try {
                 var hosts = field(wizard, "hosts", RecordingHostsPanel.class);
                 checkbox(hosts, "other.test").doClick();
-                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().startsWith("1 of 2"));
+                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().startsWith("1 of 3"));
                 field(wizard, "next", JButton.class).doClick();
-                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().startsWith("2 of 2"));
-                assertTrue(field(wizard, "finish", JButton.class).isVisible());
+                JTable table = find(wizard, JTable.class);
+                assertEquals(1, table.getRowCount());
+                assertFalse(table.isCellEditable(0, 0));
+                assertTrue(table.getValueAt(0, 5).toString().contains("Host excluded"));
                 field(wizard, "back", JButton.class).doClick();
-                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().startsWith("1 of 2"));
                 checkbox(hosts, "other.test").doClick();
                 assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().startsWith("1 of 3"));
                 field(wizard, "next", JButton.class).doClick();
@@ -170,6 +171,30 @@ class RecorderWizardTest extends JMeterTestCase {
                 assertTrue(field(successful, "title", javax.swing.JLabel.class).getText().startsWith("1 of 2"));
             } finally {
                 successful.dispose();
+            }
+        });
+    }
+
+    @Test
+    void showsTlsFailuresWithDestinationsEvenWithoutCapturedRequests() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        SwingUtilities.invokeAndWait(() -> {
+            var recorder = new ProxyControl();
+            recorder.getRecordingDiagnostics().uncapturedFailure("https://secure.test:443", "CONNECT (TLS handshake)",
+                    "SSLHandshakeException: certificate_unknown");
+            var wizard = new RecorderWizard(null, recorder, List.of());
+            try {
+                field(wizard, "next", JButton.class).doClick();
+                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().contains("Review failed captures"));
+                JTable table = find(wizard, JTable.class);
+                assertEquals(1, table.getRowCount());
+                assertEquals("secure.test", table.getValueAt(0, 1));
+                assertEquals("https://secure.test:443", table.getValueAt(0, 3));
+                assertTrue(table.getValueAt(0, 4).toString().contains("certificate_unknown"));
+                assertFalse(table.isCellEditable(0, 0));
+                assertTrue(table.getValueAt(0, 5).toString().contains("no HTTP request captured"));
+            } finally {
+                wizard.dispose();
             }
         });
     }

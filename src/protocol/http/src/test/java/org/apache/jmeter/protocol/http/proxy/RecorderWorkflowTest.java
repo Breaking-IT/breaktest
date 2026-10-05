@@ -77,6 +77,50 @@ class RecorderWorkflowTest extends JMeterTestCase {
     }
 
     @Test
+    void retainsFailuresDespiteRecorderUrlFilters() throws Exception {
+        var recorder = new ProxyControl();
+        recorder.setNonGuiTreeModel(model);
+        recorder.setTarget(target());
+        recorder.setExcludeList(Set.of(".*"));
+        var request = sampler("excluded.test", "/failed");
+        recorder.deliverSampler(request, new TestElement[0], result(request, 1000, 1100, "0"));
+        recorder.stopProxy();
+        assertEquals(1, model.getNodesOfType(HTTPSamplerBase.class).size());
+        assertFalse(model.getNodesOfType(HTTPSamplerBase.class).get(0).getTestElement().isEnabled());
+    }
+
+    @Test
+    void assignsNumberedSessionNamesAndAvoidsExistingPlanSessions() throws Exception {
+        var target = target();
+        var existing = new org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler();
+        existing.setSessionName("websocket-1");
+        model.insertNodeInto(new JMeterTreeNode(existing, model), target, 0);
+        var existingSse = new org.apache.jmeter.protocol.sse.SseSampler();
+        existingSse.setSseSessionName("sse-1");
+        model.insertNodeInto(new JMeterTreeNode(existingSse, model), target, 1);
+        var names = new RecordingSessionNames(model);
+        var tree = new org.apache.jorphan.collections.ListedHashTree();
+        var connect = new org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler();
+        connect.setSessionName("temporary-connection-a");
+        var send = new org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler();
+        send.setSessionName(connect.getSessionName());
+        var close = new org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler();
+        close.setSessionName(connect.getSessionName());
+        var second = new org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler();
+        second.setSessionName("temporary-connection-b");
+        tree.add(connect).add(send);
+        tree.add(close);
+        tree.add(second);
+        names.renameWebSockets(tree);
+        assertEquals("websocket-2", connect.getSessionName());
+        assertEquals(connect.getSessionName(), send.getSessionName());
+        assertEquals(connect.getSessionName(), close.getSessionName());
+        assertEquals("websocket-3", second.getSessionName());
+        assertEquals("sse-2", names.next("sse-"));
+        assertEquals("sse-3", names.next("sse-"));
+    }
+
+    @Test
     void ordersByStartAndGroupsOverlapsUsingLatestEndForThinkTime() throws Exception {
         ProxyControl recorder = new ProxyControl();
         recorder.setNonGuiTreeModel(model);

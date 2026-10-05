@@ -132,6 +132,7 @@ class SseProxyRecordingTest extends JMeterTestCase {
         var nodes = model.getNodesOfType(SseSampler.class);
         assertEquals(1, nodes.size());
         var sampler = (SseSampler) nodes.get(0).getTestElement();
+        assertEquals("sse-1", sampler.getSseSessionName());
         assertTrue(sampler.isEnabled(), sampler.getComment());
         assertEquals(0, sampler.getResponseTimeout());
         assertTrue(sampler.getNativeHeaderList().stream().anyMatch(header -> "Last-Event-ID".equals(header.getName())));

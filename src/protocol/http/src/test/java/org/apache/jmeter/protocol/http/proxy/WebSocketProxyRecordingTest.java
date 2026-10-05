@@ -148,6 +148,7 @@ class WebSocketProxyRecordingTest extends JMeterTestCase {
         var sends = model.getNodesOfType(WebSocketSendWaitSampler.class);
         assertEquals(1, sends.size());
         var send = (WebSocketSendWaitSampler) sends.get(0).getTestElement();
+        assertEquals("websocket-1", connect.getSessionName());
         assertEquals(connect.getSessionName(), send.getSessionName());
         assertEquals("hello", send.getPayload());
         assertEquals(stopEarly ? 0 : 1, model.getNodesOfType(WebSocketCloseSampler.class).size());

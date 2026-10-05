@@ -647,14 +647,14 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     || result instanceof HttpProxyTransport.Capture capture && !capture.transportError().isEmpty();
             diagnostics.captured(transportFailure || sampler.getComment().startsWith("Replay conversion failed:"));
             if (transportFailure) {
-                diagnostics.incomplete(result instanceof HttpProxyTransport.Capture capture
-                        ? capture.transportError() : result.getResponseMessage());
                 sampler.setEnabled(false);
                 String diagnostic = result instanceof HttpProxyTransport.Capture capture
                         ? capture.transportError() : result.getResponseMessage();
+                diagnostics.incomplete(result.getUrlAsString() + " — " + diagnostic);
                 sampler.setComment(sampler.getComment() + "\nRecording transport failed: " + diagnostic);
             }
-            if ((transportFailure || filterContentType(result)) && filterUrl(sampler)) {
+            if (transportFailure || sampler.getComment().startsWith("Replay conversion failed:")
+                    || filterContentType(result) && filterUrl(sampler)) {
                 JMeterTreeNode myTarget = settings.target();
                 @SuppressWarnings("unchecked") // OK, because find only returns correct element types
                 Collection<ConfigTestElement> defaultConfigurations = (Collection<ConfigTestElement>) findApplicableElements(
@@ -904,6 +904,12 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     void applyRecording(List<RecordedSampler> samples, HarImportOptions options, int grouping, boolean enableSelectedFailures) {
         RecordingTransactions.assign(samples);
+        RecordingSessionNames sessionNames = new RecordingSessionNames(getJmeterTreeModel());
+        for (RecordedSampler sample : samples) {
+            if (sample.sampler instanceof org.apache.jmeter.protocol.sse.SseSampler sse) {
+                sse.setSseSessionName(sessionNames.next("sse-"));
+            }
+        }
         if (enableSelectedFailures) {
             samples.stream().filter(RecordedSampler::failed).forEach(sample -> sample.sampler.setEnabled(true));
         }
@@ -937,6 +943,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
         for (var target : targets.entrySet()) {
             HashTree tree = new HarConverter(List.of(), options, "Proxy recording", "")
                     .layoutRecorded(target.getValue(), grouping);
+            sessionNames.renameWebSockets(tree);
             if (getAssertions()) {
                 for (Object element : tree.list()) {
                     HashTree first = firstRecordedSampler(tree.getTree(element));

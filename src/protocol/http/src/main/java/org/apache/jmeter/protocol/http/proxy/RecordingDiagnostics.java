@@ -17,11 +17,16 @@
 
 package org.apache.jmeter.protocol.http.proxy;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /** Session diagnostics survive review and are reset only by starting a new recording. */
 public final class RecordingDiagnostics {
+    public record UncapturedFailure(String url, String method, String reason) { }
+
+    private final List<UncapturedFailure> uncapturedFailures = new ArrayList<>();
     private int captured;
     private int filtered;
     private int failed;
@@ -29,6 +34,15 @@ public final class RecordingDiagnostics {
     private int processingErrors;
     private boolean reviewed;
     private final Set<String> issues = new LinkedHashSet<>();
+
+    public synchronized void uncapturedFailure(String url, String method, String reason) {
+        uncapturedFailures.add(new UncapturedFailure(url, method, reason));
+        incomplete(url + " — " + reason);
+    }
+
+    public synchronized List<UncapturedFailure> uncapturedFailures() {
+        return List.copyOf(uncapturedFailures);
+    }
 
     synchronized void captured(boolean failure) {
         captured++;
@@ -66,7 +80,7 @@ public final class RecordingDiagnostics {
 
     public synchronized String summary() {
         return "Captured: " + captured + " | Filtered: " + filtered + " | Failed: " + failed
-                + " | Incomplete: " + incomplete + " | Processing errors: " + processingErrors;
+                + " | Before capture: " + uncapturedFailures.size() + " | Incomplete: " + incomplete + " | Processing errors: " + processingErrors;
     }
 
     public synchronized String details() {
