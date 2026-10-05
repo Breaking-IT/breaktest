@@ -122,6 +122,10 @@ final class AiRunOutput {
         }
     }
 
+    boolean hasCompletionStatus() {
+        return completionStatus() != null;
+    }
+
     private String completionStatus() {
         // Only a standalone status declaration controls the outcome. Later declarations
         // supersede earlier ones in the final response; prose remains display-only.

@@ -38,6 +38,21 @@ final class AiTaskWorkspace {
         }
     }
 
+    static boolean hasOnlyDisabledGroups(org.apache.jmeter.gui.tree.JMeterTreeModel model) {
+        var groups = model.getNodesOfType(org.apache.jmeter.threads.AbstractThreadGroup.class);
+        return !groups.isEmpty() && groups.stream().noneMatch(JMeterTreeNode::isEnabled);
+    }
+
+    static boolean warnIfAllGroupsDisabled(org.apache.jmeter.gui.GuiPackage gui) {
+        if (gui == null || !hasOnlyDisabledGroups(gui.getTreeModel())) {
+            return false;
+        }
+        javax.swing.JOptionPane.showMessageDialog(gui.getMainFrame(),
+                "All Thread Groups are disabled. Enable the group you want AI to work on and try again.",
+                "Start AI Auto Scripting", javax.swing.JOptionPane.WARNING_MESSAGE);
+        return true;
+    }
+
     static boolean hasNoSamplers(JMeterTreeNode node) {
         if (node == null) {
             return true;

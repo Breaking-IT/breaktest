@@ -107,6 +107,23 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
+    void disabledGroupsAreNotAnEmptyPlan() {
+        var model = new org.apache.jmeter.gui.tree.JMeterTreeModel();
+        assertFalse(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        var root = (org.apache.jmeter.gui.tree.JMeterTreeNode) model.getRoot();
+        var group = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        root.add(group);
+        group.setEnabled(false);
+        assertTrue(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        var enabled = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        root.add(enabled);
+        enabled.setEnabled(true);
+        assertFalse(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        enabled.setEnabled(false);
+        assertTrue(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+    }
+
+    @Test
     void unsavedWorkspaceDoesNotInheritInstallationOrOtherRuns() throws IOException {
         File first = AiTaskWorkspace.unsavedPlanDirectory();
         File second = AiTaskWorkspace.unsavedPlanDirectory();

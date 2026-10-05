@@ -245,6 +245,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         AtomicBoolean timedOut = new AtomicBoolean(false);
         List<String> command = new ArrayList<>();
         File runDescriptor = null;
+        CodexOutputCompatibility codexOutput = null;
         try {
             if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR && request.editSurface() == AiEditSurface.LIVE_GUI) {
                 long analysisStarted = System.nanoTime();
@@ -258,6 +259,10 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             File workingDirectory = aiWorkingDirectory(request.tool());
             command = aiCommand(request, workingDirectory);
+            if (request.tool() == AiTool.CODEX) {
+                codexOutput = CodexOutputCompatibility.prepare(command, workingDirectory);
+                command = codexOutput.command();
+            }
             AiCliProcess processCommand = AiCliProcess.prepare(command, promptStyle(request.tool()));
             BreakTestAgentGuiService.setActiveAgentLabel(request.tool().displayName());
             postActivity("Starting AI Auto Scripting.");
@@ -296,8 +301,11 @@ public class AiAutoScriptingAction extends AbstractAction {
                 processCommand.writePrompt(process);
             }
             output = streamOutput(process.getInputStream(), request.tool());
-            enforceRepairCompletionStatus(output);
             int exitCode = process.waitFor();
+            if (codexOutput != null) {
+                codexOutput.recoverFinalReport(output, AiAutoScriptingAction::postActivity);
+            }
+            enforceRepairCompletionStatus(output);
             boolean stopped = STOP_REQUESTED.get();
             if (timedOut.get()) {
                 postActivity("AI Auto Scripting stopped after reaching the maximum runtime.");
@@ -346,6 +354,9 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
             postCompletionSummary(request, -1, Duration.between(started, Instant.now()), output);
         } finally {
+            if (codexOutput != null) {
+                codexOutput.close();
+            }
             if (runDescriptor != null && !runDescriptor.delete()) {
                 runDescriptor.deleteOnExit();
             }
@@ -441,7 +452,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         command.add("--ask-for-approval");
         command.add(JMeterUtils.getPropDefault("breaktest.codex.approval", "never"));
         command.add("exec");
-        command.add("--json");
         command.add("--skip-git-repo-check");
         command.add("--sandbox");
         command.add(JMeterUtils.getPropDefault("breaktest.codex.sandbox", "danger-full-access"));
@@ -793,6 +803,9 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static AiRunRequest showStartDialog(GuiPackage gui) {
         List<ThreadGroupChoice> threadGroups = enabledThreadGroups(gui);
+        if (AiTaskWorkspace.warnIfAllGroupsDisabled(gui)) {
+            return null;
+        }
         boolean emptyPlan = threadGroups.isEmpty();
         if (emptyPlan) {
             threadGroups.add(new ThreadGroupChoice(null));
@@ -1638,7 +1651,7 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private ThreadGroupChoice(JMeterTreeNode node) {
             this.node = node;
-            this.name = node == null ? "New Thread Group" : node.getName();
+            this.name = node == null ? "" : node.getName();
             this.path = node == null ? "" : treePath(node);
         }
 
@@ -1656,7 +1669,7 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         @Override
         public String toString() {
-            return name;
+            return node == null ? "New Thread Group" : name;
         }
 
         private static String treePath(JMeterTreeNode node) {
