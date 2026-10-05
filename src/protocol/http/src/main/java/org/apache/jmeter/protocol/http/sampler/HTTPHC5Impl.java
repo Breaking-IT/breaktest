@@ -915,6 +915,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 captureResponseHeaders(res, httpResponse, deferDiagnosticHeaders());
                 saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
             }
+            // The request has been sent; SSE publishes its opening sample before the body finishes.
+            Long sentBytes = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES);
+            long sent = sentBytes == null || sentBytes <= 0 ? HTTPHC5Metrics.estimateSentBytes(request, "HTTP/1.1") : sentBytes;
+            res.setSentBytes(sent);
             HttpEntity entity = httpResponse.getEntity();
             long bodyBytes = 0;
             if (entity == null) {
@@ -951,9 +955,6 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
             // record some sizes to allow HTTPSampleResult.getBytes() with different options
             res.setBodySize(bodyBytes);
-            Long sentBytes = (Long) localContext.getAttribute(CONTEXT_ATTRIBUTE_SENT_BYTES);
-            long sent = sentBytes == null || sentBytes <= 0 ? HTTPHC5Metrics.estimateSentBytes(request, "HTTP/1.1") : sentBytes;
-            res.setSentBytes(sent);
             if (log.isDebugEnabled()) {
                 long total = res.getHeadersSize() + res.getBodySizeAsLong();
                 log.debug("ResponseHeadersSize={} Content-Length={} Total={}",

@@ -151,6 +151,9 @@ class SseSamplerTest extends JMeterTestCase {
             match.setSaveMessageVariable("eventData");
             children.add(open).add(match).add(request(server, "/${eventData}"));
             children.add(new Probe(() -> {
+                assertTrue(results.samples.stream().anyMatch(sample ->
+                        "SSE stream opened".equals(sample.getResponseMessage()) && sample.getSentBytes() > 0),
+                        "Opening sample must include sent bytes while the stream is still waiting for its first event");
                 mainContinued.countDown();
                 assertTrue(acted.await(5, TimeUnit.SECONDS));
                 assertTrue(actionReported.await(5, TimeUnit.SECONDS), "Wait for the handler's sample before closing its flow");

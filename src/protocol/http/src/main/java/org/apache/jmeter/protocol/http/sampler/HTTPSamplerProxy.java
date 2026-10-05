@@ -139,6 +139,9 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
     protected HTTPSampleResult sample(URL u, String method, boolean areFollowingRedirect, int depth) {
         if (isSseEnabled() && sseReader == null) {
             org.apache.jmeter.protocol.sse.SseSession session = null;
+            org.apache.jmeter.protocol.sse.SseSessions sessions = null;
+            String sessionName = getSseSessionName();
+            boolean opened = false;
             try {
                 if (!"http".equalsIgnoreCase(u.getProtocol()) && !"https".equalsIgnoreCase(u.getProtocol())) {
                     throw new IllegalArgumentException("SSE requires an HTTP or HTTPS URL");
@@ -147,8 +150,8 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
                     throw new IllegalArgumentException("SSE needs a session name and a positive maximum event size");
                 }
                 session = new org.apache.jmeter.protocol.sse.SseSession(this, sseMatches);
-                if (!org.apache.jmeter.protocol.sse.SseSessions.current().connect(
-                        getSseSessionName(), session, getSseExistingSessionAction())) {
+                sessions = org.apache.jmeter.protocol.sse.SseSessions.current();
+                if (!sessions.connect(sessionName, session, getSseExistingSessionAction())) {
                     session.close();
                     HTTPSampleResult result = new HTTPSampleResult();
                     result.sampleStart();
@@ -161,7 +164,9 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
                     return result;
                 }
                 activeSse = session;
-                return session.open();
+                HTTPSampleResult result = session.open();
+                opened = result.isSuccessful() && org.apache.jmeter.protocol.sse.SseSession.isEventStream(result);
+                return result;
             } catch (Exception failure) {
                 if (session != null) {
                     session.close();
@@ -173,6 +178,10 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
                 result.sampleStart();
                 result.sampleEnd();
                 return errorResult(failure, result);
+            } finally {
+                if (!opened && session != null && sessions != null) {
+                    sessions.remove(sessionName, session);
+                }
             }
         }
         // When Retrieve Embedded resources + Concurrent Pool is used

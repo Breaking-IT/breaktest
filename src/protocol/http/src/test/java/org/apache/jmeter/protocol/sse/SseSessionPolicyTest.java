@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.sse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.InetSocketAddress;
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.sun.net.httpserver.HttpServer;
 
@@ -143,6 +145,42 @@ class SseSessionPolicyTest extends JMeterTestCase {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/reject", "/wrong-type", "/no-content", "/timeout"})
+    void failedOpeningAllowsRetryWithFailIfExists(String path) throws Exception {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        try (var fixture = new Server()) {
+            var request = fixture.request(path);
+            request.setSseExistingSessionAction(SseSampler.FAIL);
+            request.setResponseTimeout("100");
+            var rejected = request.sample();
+            if (!"/no-content".equals(path)) {
+                assertFalse(rejected.isSuccessful());
+            }
+            request.setPath("/events");
+            request.setResponseTimeout("3000");
+            var retry = request.sample();
+            assertTrue(retry.isSuccessful(), retry::getResponseMessage);
+            assertEquals("SSE stream opened", retry.getResponseMessage());
+            assertEquals(2, fixture.requests.get());
+        }
+    }
+
+    @Test
+    void failedOpeningCleanupDoesNotRemoveReplacement() throws Exception {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        try (var fixture = new Server()) {
+            var registry = SseSessions.current();
+            var failed = new SseSession(fixture.request("/events"), List.of());
+            var replacement = new SseSession(fixture.request("/events"), List.of());
+            registry.replace("sse", failed);
+            registry.replace("sse", replacement);
+            registry.remove("sse", failed);
+            assertThrows(IllegalStateException.class, () -> registry.connect("sse", failed, SseSampler.FAIL));
+            assertTrue(replacement.open().isSuccessful(), "Cleanup must not close the replacement");
+        }
+    }
+
     private static final class Server implements AutoCloseable {
         final HttpServer server;
         final java.util.concurrent.ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -153,6 +191,22 @@ class SseSessionPolicyTest extends JMeterTestCase {
             server.setExecutor(executor);
             server.createContext("/", exchange -> {
                 requests.incrementAndGet();
+                String path = exchange.getRequestURI().getPath();
+                if ("/timeout".equals(path)) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    exchange.close();
+                    return;
+                }
+                if ("/reject".equals(path) || "/wrong-type".equals(path) || "/no-content".equals(path)) {
+                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    exchange.sendResponseHeaders("/reject".equals(path) ? 503 : "/no-content".equals(path) ? 204 : 200, -1);
+                    exchange.close();
+                    return;
+                }
                 exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
                 exchange.sendResponseHeaders(200, 0);
                 try {

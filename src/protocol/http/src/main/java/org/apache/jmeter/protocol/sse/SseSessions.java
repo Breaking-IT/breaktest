@@ -81,6 +81,13 @@ public final class SseSessions implements AutoCloseable {
         }
     }
 
+    /** Release a failed opening without removing a concurrent replacement. */
+    public synchronized void remove(String name, SseSession expected) {
+        if (sessions.remove(name, expected)) {
+            expected.close();
+        }
+    }
+
     public synchronized void close(String name) {
         SseSession session = sessions.remove(name);
         if (session != null) {
