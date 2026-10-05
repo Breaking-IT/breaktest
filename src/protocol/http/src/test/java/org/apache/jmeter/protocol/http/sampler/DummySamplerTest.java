@@ -52,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -216,6 +217,41 @@ class DummySamplerTest extends JMeterTestCase {
             assertEquals(37, result.getTime());
             assertFalse(result.isSuccessful());
             assertEquals("200", result.getResponseCode());
+        } finally {
+            JMeterContextService.getContext().clear();
+        }
+    }
+
+    @Test
+    void cachedUrlDoesNotFreezeVariablesOrShareResponseBytes() throws Exception {
+        DummySampler sampler = new DummySampler();
+        JMeterVariables variables = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(variables);
+        JMeterContextService.getContext().setSamplingStarted(true);
+        sampler.setProperty(new FunctionProperty(URL.propertyName(), new CompoundVariable("${url}")));
+        sampler.setProperty(new FunctionProperty(RESPONSE_DATA.propertyName(), new CompoundVariable("${body}")));
+        sampler.setRunningVersion(true);
+        try {
+            for (String path : new String[] {"first", "first", "second"}) {
+                variables.incIteration();
+                variables.put("url", "https://example.invalid/" + path);
+                variables.put("body", path);
+                SampleResult result = sampler.sample(null);
+                assertEquals("https://example.invalid/" + path, result.getURL().toString());
+                assertEquals(path, result.getResponseDataAsString());
+                result.getResponseData()[0] = 0;
+                assertEquals(path, sampler.sample(null).getResponseDataAsString());
+            }
+            variables.incIteration();
+            variables.put("url", "invalid");
+            assertEquals("DUMMY_ERROR", sampler.sample(null).getResponseCode());
+            variables.incIteration();
+            variables.put("url", "");
+            variables.put("body", "");
+            SampleResult empty = sampler.sample(null);
+            assertTrue(empty.isSuccessful());
+            assertEquals("", empty.getResponseDataAsString());
+            assertNull(empty.getURL());
         } finally {
             JMeterContextService.getContext().clear();
         }

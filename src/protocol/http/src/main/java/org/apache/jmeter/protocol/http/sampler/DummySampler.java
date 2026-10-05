@@ -68,6 +68,10 @@ public class DummySampler extends AbstractSampler implements Interruptible {
     public enum ResultType { HTTP, STANDARD, STATISTICAL }
 
     private transient volatile Thread sleepingThread;
+    // Samplers are cloned per worker. Cache only the last parsed URL, never evaluated properties.
+    private transient ParsedUrl parsedUrl;
+
+    private record ParsedUrl(String text, java.net.URL url) { }
 
     public ResultType getResultType() {
         return ResultType.valueOf(getPropertyAsString(RESULT_TYPE, ResultType.HTTP.name()));
@@ -97,15 +101,19 @@ public class DummySampler extends AbstractSampler implements Interruptible {
             result.setRequestHeaders(value(REQUEST_HEADERS));
             result.setResponseHeaders(value(RESPONSE_HEADERS));
             result.setContentType(value(CONTENT_TYPE));
-            String encoding = Charset.forName(value(ENCODING)).name();
-            result.setDataEncoding(encoding);
+            Charset encoding = Charset.forName(value(ENCODING));
+            result.setDataEncoding(encoding.name());
             String dataType = value(DATA_TYPE);
             if (!SampleResult.TEXT.equals(dataType) && !SampleResult.BINARY.equals(dataType)) {
                 throw new IllegalArgumentException("Data type must be text or bin");
             }
             result.setDataType(dataType);
-            result.setResponseData(flag(BASE64) ? Base64.getDecoder().decode(value(RESPONSE_DATA))
-                    : value(RESPONSE_DATA).getBytes(Charset.forName(encoding)));
+            boolean base64 = flag(BASE64);
+            String response = value(RESPONSE_DATA);
+            // New results already have an empty response; avoid allocating another empty array.
+            if (!response.isEmpty()) {
+                result.setResponseData(base64 ? Base64.getDecoder().decode(response) : response.getBytes(encoding));
+            }
             result.setSentBytes(number(SENT_BYTES));
             result.setBodySize(number(BODY_SIZE));
             result.setHeadersSize(integer(HEADERS_SIZE));
@@ -115,7 +123,7 @@ public class DummySampler extends AbstractSampler implements Interruptible {
             result.setTlsVersion(value(TLS_VERSION));
             String url = value(URL);
             if (!url.isEmpty()) {
-                result.setURL(URI.create(url).toURL());
+                result.setURL(parseUrl(url));
             }
             if (result instanceof HTTPSampleResult http) {
                 http.setHTTPMethod(value(HTTP_METHOD));
@@ -147,6 +155,15 @@ public class DummySampler extends AbstractSampler implements Interruptible {
         } catch (IllegalArgumentException | MalformedURLException ex) {
             return failure(started, "Invalid dummy sampler configuration: " + ex.getMessage());
         }
+    }
+
+    private java.net.URL parseUrl(String text) throws MalformedURLException {
+        ParsedUrl cached = parsedUrl;
+        if (cached == null || !cached.text().equals(text)) {
+            cached = new ParsedUrl(text, URI.create(text).toURL());
+            parsedUrl = cached;
+        }
+        return cached.url();
     }
 
     private static SampleResult createResult(ResultType type, long stamp, long elapsed) {

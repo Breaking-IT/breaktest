@@ -53,12 +53,17 @@ public enum DummySamplerField {
     SAMPLE_COUNT("1", "statistics", DummySampler.ResultType.STATISTICAL, false),
     ERROR_COUNT("0", "statistics", DummySampler.ResultType.STATISTICAL, false);
 
+    private final String propertyName;
+    private final String resourceKey;
     private final String defaultValue;
     private final String group;
     private final DummySampler.ResultType type;
     private final boolean multiline;
 
     DummySamplerField(String defaultValue, String group, DummySampler.ResultType type, boolean multiline) {
+        String key = name().toLowerCase(Locale.ROOT);
+        this.propertyName = "DummySampler." + key;
+        this.resourceKey = "dummy_sampler_" + key;
         this.defaultValue = defaultValue;
         this.group = group;
         this.type = type;
@@ -66,11 +71,11 @@ public enum DummySamplerField {
     }
 
     public String propertyName() {
-        return "DummySampler." + name().toLowerCase(Locale.ROOT);
+        return propertyName;
     }
 
     public String resourceKey() {
-        return "dummy_sampler_" + name().toLowerCase(Locale.ROOT);
+        return resourceKey;
     }
 
     public String defaultValue() {
