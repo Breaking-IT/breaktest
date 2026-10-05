@@ -717,9 +717,8 @@ public final class HarConverter {
             WebSocketCloseSampler sampler = new WebSocketCloseSampler();
             sampler.setProperty(TestElement.GUI_CLASS, TestBeanGUI.class.getName());
             sampler.setProperty(TestElement.TEST_CLASS, WebSocketCloseSampler.class.getName());
-            sampler.setName("WebSocket Close " + entry.getClientCloseOffset().toPlainString() + " ms");
+            sampler.setName("WebSocket Close");
             sampler.setSessionName(webSocketSessionNames.get(entry.getWebSocketConnection().getOriginalIndex()));
-            sampler.setCloseOffset(entry.getClientCloseOffset().toPlainString());
             parent.add(sampler);
             return;
         }

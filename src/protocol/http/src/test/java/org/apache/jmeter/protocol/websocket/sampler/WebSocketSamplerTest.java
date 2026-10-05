@@ -176,19 +176,16 @@ class WebSocketSamplerTest extends JMeterTestCase {
     }
 
     @Test
-    void recordedCloseWaitsForConnectionRelativeTime() throws Exception {
+    void closeIgnoresLegacyRecordedTime() throws Exception {
         try (Peer peer = new Peer(false)) {
             assertTrue(connect("chat", peer.url()).sample(null).isSuccessful());
-            WebSocketSession session = WebSocketSessions.current().get("chat");
-            long offsetMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - session.startedAtNanos()) + 600;
             WebSocketCloseSampler close = new WebSocketCloseSampler();
             close.setSessionName("chat");
-            close.setCloseOffset(Long.toString(offsetMs));
+            close.setProperty("closeOffset", "60000");
             close.setTimeout(2000);
             SampleResult result = close.sample(null);
             assertTrue(result.isSuccessful(), result.getResponseMessage());
-            assertTrue(result.getIdleTime() >= 500, "Recorded pacing must be excluded from close latency");
-            assertTrue(System.nanoTime() - session.startedAtNanos() >= TimeUnit.MILLISECONDS.toNanos(offsetMs));
+            assertEquals(0, result.getIdleTime(), "Close must not wait for a legacy recorded offset");
             assertFalse(close.sample(null).isSuccessful(), "Closed session must have been removed");
         }
     }

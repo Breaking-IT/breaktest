@@ -182,8 +182,8 @@ A send waits only for the remaining time until that offset; if preceding work ru
 Observed client-initiated disconnects produce a WebSocket Close sampler at the recorded close initiation time
 (or the observed close time when initiation time is unavailable), including in later transactions.
 Server-initiated or unattributed disconnects and stopping a recording do not create a client Close step.
-Recorded close timing uses the same connection-relative pacing as sends. Handshake response headers and
-close attribution remain available in the recording archive.
+Close samplers close immediately when executed; recorded timestamps only determine their position in the script.
+Handshake response headers and close attribution remain available in the recording archive.
 Received messages remain reference data. Protocol control frames are handled by the WebSocket transport.
 </p>
 

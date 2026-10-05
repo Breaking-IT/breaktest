@@ -158,7 +158,12 @@ class WebSocketProxyRecordingTest extends JMeterTestCase {
         assertEquals("websocket-1", connect.getSessionName());
         assertEquals(connect.getSessionName(), send.getSessionName());
         assertEquals("hello", send.getPayload());
-        assertEquals(stopEarly ? 0 : 1, model.getNodesOfType(WebSocketCloseSampler.class).size());
+        var closes = model.getNodesOfType(WebSocketCloseSampler.class);
+        assertEquals(stopEarly ? 0 : 1, closes.size());
+        if (!stopEarly) {
+            assertEquals("WebSocket Close", closes.get(0).getTestElement().getName());
+            assertEquals("", closes.get(0).getTestElement().getPropertyAsString("closeOffset"));
+        }
         assertTrue(connect.isEnabled());
     }
 

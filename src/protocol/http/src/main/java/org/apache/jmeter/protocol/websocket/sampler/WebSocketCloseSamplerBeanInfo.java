@@ -22,9 +22,7 @@ import org.apache.jmeter.testbeans.BeanInfoSupport;
 public class WebSocketCloseSamplerBeanInfo extends BeanInfoSupport {
     public WebSocketCloseSamplerBeanInfo() {
         super(WebSocketCloseSampler.class);
-        createPropertyGroup("session", new String[] {"sessionName", "timeout", "closeOffset"});
-        property("closeOffset").setValue(NOT_UNDEFINED, true);
-        property("closeOffset").setValue(DEFAULT, "");
+        createPropertyGroup("session", new String[] {"sessionName", "timeout"});
         property("sessionName").setValue(NOT_UNDEFINED, true);
         property("sessionName").setValue(DEFAULT, "default");
         property("timeout").setValue(NOT_UNDEFINED, true);
