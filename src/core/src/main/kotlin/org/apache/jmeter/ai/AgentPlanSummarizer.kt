@@ -31,6 +31,7 @@ public data class AgentSamplerContext(
     val className: String,
     val transactionName: String? = null,
     val staticAsset: Boolean = false,
+    val webSocket: Map<String, Any?>? = null,
 )
 
 public data class AgentExtractorContext(
@@ -142,6 +143,7 @@ public class AgentPlanSummarizer(
                     className = node::class.java.name,
                     transactionName = transactionStack.lastOrNull(),
                     staticAsset = staticAsset,
+                    webSocket = testElement?.let(AgentWebSocketSupport::settings),
                 )
                 if (staticAsset && !includeStaticAssets) {
                     omittedStaticSamplerCount++

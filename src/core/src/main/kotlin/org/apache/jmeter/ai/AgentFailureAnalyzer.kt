@@ -98,7 +98,7 @@ public class AgentFailureAnalyzer {
         val previousSamples = samples.take(failure.index)
         val candidates = mutableListOf<AgentCorrelationCandidate>()
         for (token in targetTokens) {
-            val source = previousSamples.lastOrNull { it.responseBody.contains(token) }
+            val source = previousSamples.lastOrNull { it.responseBodyEncoding == "text" && it.responseBody.contains(token) }
                 ?: continue
             candidates += AgentCorrelationCandidate(
                 sourceSampleIndex = source.index,

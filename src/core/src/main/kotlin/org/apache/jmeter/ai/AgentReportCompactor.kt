@@ -131,6 +131,10 @@ public object AgentReportCompactor {
             "requestBody" to requestBody.limit(bodyLimit),
             "responseHeaders" to responseHeaders.limit(bodyLimit),
             "responseBody" to responseBody.limit(bodyLimit),
+            "responseBodyEncoding" to responseBodyEncoding,
+            "responseByteLength" to responseByteLength,
+            "responseBodyTruncated" to (responseBodyTruncated || responseBody.length > bodyLimit),
+            "startTimeMillis" to startTimeMillis,
             "assertions" to assertions,
             "subResultCount" to subResults.size,
             "subResultSummary" to subResults.map { it.summary() }.take(MAX_SUB_RESULT_SUMMARY),
@@ -154,6 +158,7 @@ public object AgentReportCompactor {
                 "success" to success,
                 "responseCode" to responseCode,
                 "elapsedTimeMillis" to elapsedTimeMillis,
+                "responseBodyEncoding" to responseBodyEncoding,
                 "responseBodyPreview" to responseBody.limit(bodyLimit.coerceAtMost(MAX_LIGHT_PREVIEW)),
                 "assertions" to assertions,
                 "staticAsset" to isStaticAssetRequest(),
@@ -171,6 +176,7 @@ public object AgentReportCompactor {
             "success" to success,
             "responseCode" to responseCode,
             "elapsedTimeMillis" to elapsedTimeMillis,
+            "responseBodyEncoding" to responseBodyEncoding,
             "responseBodyPreview" to responseBody.limit(lightPreviewLimit(bodyLimit)),
             // Transaction parent samples have no response body. Expose a bounded set of actual
             // HTTP responses so assertion selection does not need one search call per transaction.
@@ -179,6 +185,7 @@ public object AgentReportCompactor {
                 .takeLast(3).map {
                     mapOf(
                         "label" to it.label, "success" to it.success, "responseCode" to it.responseCode,
+                        "responseBodyEncoding" to it.responseBodyEncoding,
                         "responseBodyPreview" to it.responseBody.limit(minOf(lightPreviewLimit(bodyLimit), 400)),
                     )
                 },
@@ -201,6 +208,10 @@ public object AgentReportCompactor {
             "requestBody" to requestBody.limit(bodyLimit),
             "responseHeaders" to responseHeaders.limit(bodyLimit),
             "responseBody" to responseBody.limit(bodyLimit),
+            "responseBodyEncoding" to responseBodyEncoding,
+            "responseByteLength" to responseByteLength,
+            "responseBodyTruncated" to (responseBodyTruncated || responseBody.length > bodyLimit),
+            "startTimeMillis" to startTimeMillis,
             "assertions" to assertions,
             "staticAsset" to isStaticAssetRequest(),
         )

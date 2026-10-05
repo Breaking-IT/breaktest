@@ -179,11 +179,12 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "validate_open_plan",
-                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
+                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Timers are skipped by default; set ignoreTimers=false to verify generated pacing and background work. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
                     mapOf(
                         "threadGroupName" to "string",
                         "scopeNodePath" to "string",
                         "timeoutSeconds" to "number",
+                        "ignoreTimers" to "boolean",
                         "responseBodyLimit" to "number",
                         "requestBodyLimit" to "number",
                         "maxSamples" to "number",
@@ -276,12 +277,17 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "get_recorded_exchange_open_plan",
-                    "Fetch the recorded request/response text linked to one sampler in the open BreakTest GUI plan. Use this as recorded_response evidence before adding extractors or assertions.",
+                    "Fetch the recorded handshake and paginated WebSocket messages (direction, relative time, text, hex, ASCII and base64) linked to one sampler in the open BreakTest GUI plan. Use this as recorded_response evidence before adding extractors or assertions.",
                     mapOf(
                         "threadGroupName" to "string",
+                        "targetNodeId" to "string",
+                        "targetNodePath" to "string",
                         "targetSamplerIndex" to "number",
                         "targetSamplerLabel" to "string",
                         "bodyLimit" to "number",
+                        "messageOffset" to "number",
+                        "messageLimit" to "number",
+                        "messageByteLimit" to "number",
                     ),
                     emptyList(),
                 )
@@ -289,7 +295,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "search_recorded_exchanges_open_plan",
-                    "Search the linked recorded requests and responses for a literal or regex. Use this to find where recorded UUIDs, state/code/nonce, CSRF tokens, resource IDs, basket/order IDs, timestamps, or credentials were issued before running validation.",
+                    "Search the linked recorded requests, responses and WebSocket messages (text, binary hex and ASCII) for a literal or regex. WebSocket matches include messageIndex, direction and relativeTimeMs; only earlier received messages can be correlation sources. Use this to find where recorded UUIDs, state/code/nonce, CSRF tokens, resource IDs, basket/order IDs, timestamps, or credentials were issued before running validation.",
                     mapOf(
                         "threadGroupName" to "string",
                         "query" to "string",
@@ -423,7 +429,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "apply_regex_correlation_open_plan",
-                    "Add or update a Regex Extractor in the running BreakTest GUI plan and optionally replace a literal. The regex runs in JMeter's ORO/Perl5 engine: \\Q...\\E quoting, lookbehind, named groups, and Java-only constructs are NOT supported; escape literal metacharacters with single backslashes. The regex is validated against that engine AND must match the exact provided evidence snippet, otherwise the call is rejected (allowUnmatchedEvidence=true skips only the evidence-match check). For JSON evidence, first verify whether the field is a quoted string, number, array, escaped/encoded value, or absent; e.g. \"resourceId\"\\s*:\\s*\"([^\"]+)\" only matches a quoted string value in the snippet. If a Regex Extractor with the same variableName already exists under the source sampler, it is updated instead of duplicated unless allowDuplicateExtractor=true. If literal is omitted, this adds/updates the extractor only. If no target sampler is specified and literal is present, the literal is replaced under threadGroupName/scopeNodePath; whole-plan replacement is refused when multiple enabled Thread Groups exist unless allowWholePlan=true. Prefer sourceNodeId/targetNodeId when available. useField accepts body, headers, request_headers, unescaped, as_document, url, code, or message. Use useField=headers immediately when evidence is in response headers, Location, or Set-Cookie. Provide evidenceSource and evidence details proving the regex came from a validated or recorded response. Set failOnNoMatch=true to enable the GUI option \"Assertion error when not matched\" when the extracted value is required by later requests. Static inference requires allowStaticInference=true and is logged as unvalidated.",
+                    "Add or update a Regex Extractor in the running BreakTest GUI plan and optionally replace a literal. The regex runs in JMeter's ORO/Perl5 engine: \\Q...\\E quoting, lookbehind, named groups, and Java-only constructs are NOT supported; escape literal metacharacters with single backslashes. The regex is validated against that engine AND must match the exact provided evidence snippet, otherwise the call is rejected (allowUnmatchedEvidence=true skips only the evidence-match check). For JSON evidence, first verify whether the field is a quoted string, number, array, escaped/encoded value, or absent; e.g. \"resourceId\"\\s*:\\s*\"([^\"]+)\" only matches a quoted string value in the snippet. If a Regex Extractor with the same variableName already exists under the source sampler, it is updated instead of duplicated unless allowDuplicateExtractor=true. If literal is omitted, this adds/updates the extractor only. If no target sampler is specified and literal is present, the literal is replaced under threadGroupName/scopeNodePath; whole-plan replacement is refused unless allowWholePlan=true for an explicitly requested global edit. Prefer sourceNodeId/targetNodeId when available. useField accepts body, headers, request_headers, unescaped, as_document, url, code, or message. Use useField=headers immediately when evidence is in response headers, Location, or Set-Cookie. Provide evidenceSource and evidence details proving the regex came from a validated or recorded response. Set failOnNoMatch=true to enable the GUI option \"Assertion error when not matched\" when the extracted value is required by later requests. Static inference requires allowStaticInference=true and is logged as unvalidated.",
                     mapOf(
                         "sourceNodeId" to "string",
                         "sourceSamplerIndex" to "number",
@@ -491,7 +497,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "replace_literal_open_plan",
-                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true or there is a single enabled Thread Group. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
+                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true for an explicitly requested global edit. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
                     mapOf(
                         "targetNodeId" to "string",
                         "targetSamplerIndex" to "number",
@@ -512,7 +518,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "replace_literal_in_names_open_plan",
-                    "Replace a literal only in element names in the running BreakTest GUI plan, under threadGroupName/scopeNodePath, or under one target sampler when specified. Whole-plan name replacement is refused when multiple enabled Thread Groups exist unless allowWholePlan=true. Use this after parameterizing request data to turn stale UUIDs/IDs in sampler labels into static display placeholders such as {resource_id}. This rejects ${'$'}{variable} replacements because element names must stay static.",
+                    "Replace a literal only in element names in the running BreakTest GUI plan, under threadGroupName/scopeNodePath, or under one target sampler when specified. Whole-plan name replacement is refused unless allowWholePlan=true for an explicitly requested global edit. Use this after parameterizing request data to turn stale UUIDs/IDs in sampler labels into static display placeholders such as {resource_id}. This rejects ${'$'}{variable} replacements because element names must stay static.",
                     mapOf(
                         "targetNodeId" to "string",
                         "targetSamplerIndex" to "number",
@@ -682,6 +688,60 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
+                    "list_available_elements", "Discover installed native samplers, controllers, timers, extractors and other GUI elements. Use a targeted query and reuse each discovered schema. Results are paginated (default 20, maximum 50); use nextOffset only if needed. Filter with query, then describe_element before creating/configuring. elementId is the installed GUI/TestBean identifier, not an invented class.",
+                    mapOf("query" to "string", "offset" to "number", "limit" to "number"), emptyList()
+                )
+            )
+            add(
+                tool(
+                    "describe_element", "Get default settings, writable property names/types/choices and execution constraints for an installed element. Also describes supported tables and their row schemas.",
+                    mapOf("elementId" to "string"), listOf("elementId")
+                )
+            )
+            add(
+                tool(
+                    "add_element_open_plan", "Create a native element with GUI defaults and typed properties. targetNodeId/targetNodePath identifies its parent; omit only to add at the Test Plan root (e.g. the first Thread Group). Uses normal GUI parent rules, backup, undo and change tracking. Returns compact confirmation by default without echoing payloads or scripts; compact=false returns the full element schema. Returned nodeId can parent the next element. Build hierarchy before validation; do not run placeholders.",
+                    mapOf("elementId" to "string", "name" to "string", "targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "compact" to "boolean"), listOf("elementId")
+                )
+            )
+            add(
+                tool(
+                    "configure_element_open_plan", "Configure an existing element using the property and table schemas from describe_element. All setters are validated on a clone before applying; supports enums, text, booleans, integers and expressions when a string setter exists. Includes undo/change tracking. Returns compact confirmation by default; compact=false returns the full element schema.",
+                    mapOf("targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "compact" to "boolean"), emptyList()
+                )
+            )
+            add(
+                tool(
+                    "add_websocket_match_open_plan",
+                    "Add a Match handler below WebSocket Connect to capture unsolicited messages. Match modes: Exact text, Text regular expression, Binary sequence (hex). saveMessageVariable stores the complete text or lossless binary hex before the handler runs. Check for an existing handler first; update it instead of duplicating. Ensure consumers wait for the variable; this is not synchronization by itself.",
+                    mapOf(
+                        "targetNodeId" to "string", "targetNodePath" to "string",
+                        "targetSamplerIndex" to "number", "targetSamplerLabel" to "string",
+                        "threadGroupName" to "string", "name" to "string", "matchMode" to "string",
+                        "matchValue" to "string", "saveMessageVariable" to "string",
+                    ),
+                    listOf("matchMode", "matchValue", "saveMessageVariable"),
+                )
+            )
+            add(
+                tool(
+                    "update_websocket_open_plan",
+                    "Update a WebSocket Connect, Send, Close or Match element with undo and change tracking. Prefer targetNodeId. Send payload is text or spaced hex according to binary; JMeter variables are allowed. Set action to Send and Wait and an evidence-based waitMode/responsePattern/responseBinary to capture a reply for correlation. This does not decode application binary protocols or create a Match controller. Inspect recorded message order and validate after editing.",
+                    mapOf(
+                        "targetNodeId" to "string", "targetNodePath" to "string",
+                        "targetSamplerIndex" to "number", "targetSamplerLabel" to "string",
+                        "threadGroupName" to "string", "sessionName" to "string", "url" to "string",
+                        "payload" to "string", "binary" to "boolean", "action" to "string",
+                        "timeout" to "number", "waitMode" to "string", "waitTimeout" to "number",
+                        "responsePattern" to "string", "responseBinary" to "string",
+                        "textFilter" to "string", "binaryFilter" to "string",
+                        "matchMode" to "string", "matchValue" to "string", "saveMessageVariable" to "string",
+                    ),
+                    emptyList(),
+                )
+            )
+            add(
+                tool(
                     "set_redirect_mode_open_plan",
                     "Set followRedirects and/or autoRedirects on an HTTP sampler in the running BreakTest GUI plan. Use only as a diagnostic edit after inspection proves an intermediate response/header is hidden by redirect handling; post the reason and revalidate immediately because redirect changes can alter auth/payment behavior.",
                     mapOf(
@@ -774,10 +834,11 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "validate_jmx",
-                    "Run a bounded BreakTest/JMeter validation pass and return sampler evidence plus failure analysis. Use compact=true for the first repair run so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise.",
+                    "Run a bounded BreakTest/JMeter validation pass and return sampler evidence plus failure analysis. Set ignoreTimers=false to preserve pacing; the default skips timers. Use compact=true for the first repair run so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise.",
                     mapOf(
                         "path" to "string",
                         "timeoutSeconds" to "number",
+                        "ignoreTimers" to "boolean",
                         "responseBodyLimit" to "number",
                         "requestBodyLimit" to "number",
                         "maxSamples" to "number",
@@ -820,6 +881,7 @@ public object BreakTestAgentMcpServer {
                         "path" to "string",
                         "outputPath" to "string",
                         "timeoutSeconds" to "number",
+                        "ignoreTimers" to "boolean",
                         "responseBodyLimit" to "number",
                         "requestBodyLimit" to "number",
                         "maxSamples" to "number",
@@ -942,6 +1004,9 @@ public object BreakTestAgentMcpServer {
                 "add_jsr223_open_plan" -> callGuiTool("add_jsr223_open_plan", arguments)
                 "add_response_assertion_open_plan" -> callGuiTool("add_response_assertion_open_plan", arguments)
                 "update_response_assertion_open_plan" -> callGuiTool("update_response_assertion_open_plan", arguments)
+                "add_websocket_match_open_plan" -> callGuiTool("add_websocket_match_open_plan", arguments)
+                "list_available_elements", "describe_element", "add_element_open_plan", "configure_element_open_plan" -> callGuiTool(name, arguments)
+                "update_websocket_open_plan" -> callGuiTool("update_websocket_open_plan", arguments)
                 "set_redirect_mode_open_plan" -> callGuiTool("set_redirect_mode_open_plan", arguments)
                 "clone_node_open_plan" -> callGuiTool("clone_node_open_plan", arguments)
                 "move_node_open_plan" -> callGuiTool("move_node_open_plan", arguments)
@@ -1126,6 +1191,7 @@ public object BreakTestAgentMcpServer {
     private fun optionsFrom(arguments: JsonNode): AgentRunOptions =
         AgentRunOptions(
             timeout = Duration.ofSeconds(arguments.path("timeoutSeconds").asLong(30)),
+            ignoreTimers = arguments.path("ignoreTimers").asBoolean(true),
             responseBodyLimit = arguments.path("responseBodyLimit").asInt(32 * 1024),
             requestBodyLimit = arguments.path("requestBodyLimit").asInt(16 * 1024),
             maxSamples = arguments.path("maxSamples").takeIfPresent()?.asInt(),
