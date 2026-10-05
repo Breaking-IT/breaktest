@@ -126,7 +126,8 @@ class AgentElementCatalogTest : JMeterTestCase() {
             val whileLoop = create("While", "WhileControllerGui", """{"condition":"false"}""")
             val parallel = create("Parallel", "ParallelControllerGui")
             val heartbeat = create("WebSocket", "WebSocketSendWaitSampler", """{"sessionName":"station","payload":"heartbeat","action":"Send only"}""")
-            val timer = create("Constant Timer", "ConstantTimerGui", """{"delay":"1000"}""")
+            // Search the stable class identifier; the display label is localized.
+            val timer = create("ConstantTimer", "ConstantTimerGui", """{"delay":"1000"}""")
             val close = create("WebSocket", "WebSocketCloseSampler", """{"sessionName":"station"}""")
             val root = JMeterTreeNode(TestPlan(), null)
             fun child(parent: JMeterTreeNode, element: org.apache.jmeter.testelement.TestElement): JMeterTreeNode {
