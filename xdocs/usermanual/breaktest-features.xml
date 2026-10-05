@@ -37,6 +37,39 @@ test-plan model, use the official Apache JMeter documentation.
   <li>JMeter-compatible names are retained where they are part of file formats, APIs, plugins, scripts, or automation.</li>
 </ul>
 
+<h2>Native Dummy Sampler</h2>
+<p>
+Add <code>Sampler &gt; Dummy Sampler</code> to produce configurable results without network activity.
+The result type defaults to HTTP. Standard results and statistical aggregate results are also supported.
+HTTP shows method, HTTP request body, cookies and redirect location; statistical results show
+sample and error counts. Switching types preserves the hidden values but does not apply them at runtime.
+Put URL query parameters directly in the URL, for example <code>https://localhost/test?test=bla</code>.
+The <code>HTTP request body</code> field supplies body content; it does not append parameters to the URL.
+For HTTP results, the common <code>Request data</code> field supplies additional sampler details after
+JMeter's generated HTTP request representation.
+No third-party dummy sampler or monitoring plugin is required.
+</p>
+<p>
+Common fields cover success, response code/message, request and response data/headers, URL,
+timestamp, response time, latency, connect/idle time, content type, character encoding, data type, byte sizes,
+and local/destination endpoints, protocol and TLS versions. The sampler name is the result label.
+Leave the timestamp blank for the current time; otherwise use epoch milliseconds (following the native
+start/end timestamp setting). Statistical timestamps report the end time. Thread identity/counts, source
+location, transactions and assertion results are supplied by the test engine.
+Received bytes follow the native result model: header bytes plus body bytes. A body size of zero uses
+the actual response bytes. Binary response bytes can be supplied as Base64 with decoding enabled;
+set the data type to <code>bin</code> to identify binary content.
+</p>
+<p>
+Fields accept JMeter variables and functions, including timing expressions such as
+<code>${__Random(50,500)}</code>. Numeric values must be non-negative integers; sample count must be
+positive and error count cannot exceed it. Boolean fields accept <code>true</code> or <code>false</code>.
+Invalid values produce a failed <code>DUMMY_ERROR</code> result with a diagnostic message.
+Enable <code>Simulate response time</code> to sleep for the configured response time; otherwise results
+are generated immediately with the configured elapsed time. Simulated waits can be interrupted when
+stopping the test. Timings and success are independently configurable to support synthetic edge cases.
+</p>
+
 <h2>Proxy Destination Filters</h2>
 <p>
 Proxy settings apply in order: global properties, HTTP Request Defaults, then the HTTP request sampler.
