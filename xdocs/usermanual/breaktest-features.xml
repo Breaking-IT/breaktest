@@ -76,7 +76,7 @@ In the SSE tab, <b>When session already exists</b> controls repeated execution, 
 <b>Fail if exists</b> fails when the name is still registered, without disturbing its stream. Use SSE Close to remove it.
 </p>
 <p>
-Add an <code>SSE Message Match</code> child through SSE Connect's Add menu and place actions beneath it.
+Add an <code>SSE Match</code> child through SSE Connect's Add menu and place actions beneath it.
 Match the event data using exact text or a regular expression, optionally restricted to an event name.
 The matching data can be saved in a variable; the previous result contains the data, with the event name
 in the response message and event name/ID in the response headers. Child actions run asynchronously
