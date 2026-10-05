@@ -82,6 +82,90 @@ public final class RecordedExchangeStore {
             throw new IOException("Not a valid HAR file: missing log.entries array"); // $NON-NLS-1$
         }
 
+        return fromEntries(harEntries, "har", sourceName, parsed.path("log").path("_breaktest").path("transactions")); // $NON-NLS-1$
+    }
+
+    /** Creates a native recording for a request and response captured by the HTTP(S) proxy. */
+    public static Archive fromProxy(SampleResult result) throws IOException {
+        return fromEntries(JSON.createArrayNode().add(sampleExchange("", result)), // $NON-NLS-1$
+                "proxy", "HTTP(S) Test Script Recorder"); // $NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /** Preserve the client-facing HTTP bytes alongside decoded content used by the recording views. */
+    public static Archive fromProxy(SampleResult result, byte[] requestWire, byte[] responseWire,
+            byte[] requestBody, String transportError) throws IOException {
+        return fromProxy(result, requestWire, responseWire, requestBody, transportError, List.of(), null, null);
+    }
+
+    /** Store WebSocket messages using the same native representation as a HAR import. */
+    public static Archive fromProxy(SampleResult result, byte[] requestWire, byte[] responseWire,
+            byte[] requestBody, String transportError, List<RecordedWebSocketMessage> messages,
+            byte[] outgoingFrames, byte[] incomingFrames) throws IOException {
+        return fromProxy(result, requestWire, responseWire, requestBody, transportError, messages, outgoingFrames, incomingFrames, null);
+    }
+
+    public static Archive fromProxy(SampleResult result, byte[] requestWire, byte[] responseWire,
+            byte[] requestBody, String transportError, List<RecordedWebSocketMessage> messages,
+            byte[] outgoingFrames, byte[] incomingFrames, List<RecordedSseEvent> events) throws IOException {
+        ObjectNode exchange = sampleExchange("", result);
+        if (events != null) {
+            ArrayNode recorded = exchange.putArray("serverSentEvents");
+            for (RecordedSseEvent event : events) {
+                recorded.addObject().put("relativeTimeMs", event.relativeTimeMs()).put("eventName", event.eventName())
+                        .put("eventId", event.eventId()).put("data", event.data()).put("transactionId", event.transactionId())
+                        .put("transactionName", event.transactionName());
+            }
+            exchange.withObject("_breaktest").putObject("sse").put("recorded", true);
+        }
+        if (outgoingFrames != null) {
+            ArrayNode recorded = exchange.putArray("webSocketMessages");
+            for (RecordedWebSocketMessage message : messages) {
+                recorded.addObject().put("relativeTimeMs", message.relativeTimeMs()).put("type", message.direction())
+                        .put("opcode", message.opcode()).put("data", message.data()).put("_encoding", "base64");
+            }
+            ObjectNode lifecycle = exchange.putObject("_breaktest").putObject("webSocket");
+            messages.stream().filter(message -> message.opcode() == 8).findFirst().ifPresent(message -> {
+                lifecycle.put("closed", true);
+                lifecycle.put("closeInitiator", "send".equals(message.direction()) ? "client" : "server");
+                lifecycle.put("closeInitiatedOffsetMs", message.relativeTimeMs());
+            });
+        }
+        ObjectNode request = (ObjectNode) exchange.path("request");
+        ObjectNode response = (ObjectNode) exchange.path("response");
+        putWire(request, requestWire);
+        putWire(response, responseWire);
+        if (outgoingFrames != null) {
+            request.putObject("_breaktestWebSocketWire").put("encoding", BASE64_ENCODING)
+                    .put("text", Base64.getEncoder().encodeToString(outgoingFrames)).put("format", "websocket-frames");
+            response.putObject("_breaktestWebSocketWire").put("encoding", BASE64_ENCODING)
+                    .put("text", Base64.getEncoder().encodeToString(incomingFrames)).put("format", "websocket-frames");
+        }
+        String wireFormat = "HTTP/2".equals(result.getProtocolVersion()) ? "http2-frames" : "http1-message";
+        request.withObject("_breaktestWire").put("format", wireFormat);
+        response.withObject("_breaktestWire").put("format", wireFormat);
+        if (requestBody.length > 0) {
+            ObjectNode body = request.putObject("postData");
+            body.put("mimeType", headerValue((ArrayNode) request.path("headers"), "Content-Type"));
+            body.put("encoding", BASE64_ENCODING);
+            body.put("text", Base64.getEncoder().encodeToString(requestBody));
+        }
+        if (!transportError.isEmpty()) {
+            response.put("_breaktestTransportError", transportError);
+        }
+        return fromEntries(JSON.createArrayNode().add(exchange), "proxy", "HTTP(S) Test Script Recorder");
+    }
+
+    private static void putWire(ObjectNode message, byte[] bytes) {
+        ObjectNode wire = message.putObject("_breaktestWire");
+        wire.put("encoding", BASE64_ENCODING);
+        wire.put("text", Base64.getEncoder().encodeToString(bytes));
+    }
+
+    private static Archive fromEntries(JsonNode harEntries, String source, String sourceName) throws IOException {
+        return fromEntries(harEntries, source, sourceName, JSON.createArrayNode());
+    }
+
+    private static Archive fromEntries(JsonNode harEntries, String source, String sourceName, JsonNode transactions) throws IOException {
         String recordingId = UUID.randomUUID().toString();
         String captureId = UUID.randomUUID().toString();
         String manifestEntryName = "recordings/manifests/" + recordingId + ".json"; // $NON-NLS-1$ //$NON-NLS-2$
@@ -101,19 +185,27 @@ public final class RecordedExchangeStore {
             exchange.set("response", harEntry.path("response").deepCopy()); // $NON-NLS-1$ //$NON-NLS-2$
             externalizeBody(exchange.path("request").path("postData"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
             externalizeBody(exchange.path("response").path("content"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
-            if (harEntry.has("_webSocketMessages")) {
+            if (harEntry.has("webSocketMessages")) {
+                exchange.set("webSocketMessages", harEntry.path("webSocketMessages").deepCopy());
+            } else if (harEntry.has("_webSocketMessages")) {
                 RecordedWebSocketMessage.copyToArchive(harEntry, exchange.putArray("webSocketMessages"));
             }
             if (harEntry.path("_breaktest").has("webSocket")) {
                 exchange.set("webSocket", harEntry.path("_breaktest").path("webSocket").deepCopy());
             }
-            if (harEntry.has("_serverSentEvents")) {
+            if (harEntry.has("serverSentEvents")) {
+                exchange.set("serverSentEvents", harEntry.path("serverSentEvents").deepCopy());
+            } else if (harEntry.has("_serverSentEvents")) {
                 RecordedSseEvent.copyToArchive(harEntry, exchange.putArray("serverSentEvents"),
-                        parsed.path("log").path("_breaktest").path("transactions"));
+                        transactions);
             }
             if (harEntry.path("_breaktest").has("sse")) {
                 exchange.set("sse", harEntry.path("_breaktest").path("sse").deepCopy());
             }
+            externalizeBody(exchange.path("request").path("_breaktestWire"), archiveEntries);
+            externalizeBody(exchange.path("response").path("_breaktestWire"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
+            externalizeBody(exchange.path("request").path("_breaktestWebSocketWire"), archiveEntries);
+            externalizeBody(exchange.path("response").path("_breaktestWebSocketWire"), archiveEntries);
             exchanges.add(exchange);
             exchangeIds.add(exchangeId);
         }
@@ -127,7 +219,7 @@ public final class RecordedExchangeStore {
 
         ObjectNode capture = JSON.createObjectNode();
         capture.put("id", captureId); // $NON-NLS-1$
-        capture.put("source", "har"); // $NON-NLS-1$ //$NON-NLS-2$
+        capture.put("source", source); // $NON-NLS-1$
         capture.put("sourceName", sourceName == null ? "" : sourceName); // $NON-NLS-1$ //$NON-NLS-2$
         capture.put("createdAt", Instant.now().toString()); // $NON-NLS-1$
         capture.put("exchanges", exchangesEntryName); // $NON-NLS-1$
@@ -264,7 +356,7 @@ public final class RecordedExchangeStore {
 
         ArrayNode exchanges = (ArrayNode) exchangesDocument.path("exchanges"); // $NON-NLS-1$
         for (Map.Entry<String, ? extends SampleResult> sample : storedSamples.entrySet()) {
-            ObjectNode exchange = replayExchange(sample.getKey(), sample.getValue());
+            ObjectNode exchange = sampleExchange(sample.getKey(), sample.getValue());
             if (storageMode == RecordingStorageMode.OMIT_STATIC_BODIES && isStaticResource(sample.getValue())) {
                 ((ObjectNode) exchange.path("request")).remove("postData"); // $NON-NLS-1$ //$NON-NLS-2$
                 if (exchange.path("response").path("content") instanceof ObjectNode content) { // $NON-NLS-1$ //$NON-NLS-2$
@@ -272,7 +364,11 @@ public final class RecordedExchangeStore {
                 }
             }
             externalizeBody(exchange.path("request").path("postData"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
-            externalizeBody(exchange.path("response").path("content"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
+            externalizeBody(exchange.path("response").path("content"), archiveEntries);
+            externalizeBody(exchange.path("request").path("_breaktestWire"), archiveEntries);
+            externalizeBody(exchange.path("response").path("_breaktestWire"), archiveEntries); // $NON-NLS-1$ //$NON-NLS-2$
+            externalizeBody(exchange.path("request").path("_breaktestWebSocketWire"), archiveEntries);
+            externalizeBody(exchange.path("response").path("_breaktestWebSocketWire"), archiveEntries);
             exchanges.add(exchange);
         }
         archiveEntries.put(exchangesEntryName, JSON.writeValueAsBytes(exchangesDocument));
@@ -329,6 +425,12 @@ public final class RecordedExchangeStore {
                 }
                 retainedIds.add(id);
                 if (mode == RecordingStorageMode.OMIT_STATIC_BODIES && isStatic) {
+                    for (String side : List.of("request", "response")) {
+                        if (exchange.path(side) instanceof ObjectNode message && message.has("_breaktestWire")) {
+                            message.remove("_breaktestWire");
+                            captureChanged = true;
+                        }
+                    }
                     if (exchange.path("request") instanceof ObjectNode request && request.has("postData")) {
                         request.remove("postData");
                         captureChanged = true;
@@ -425,7 +527,7 @@ public final class RecordedExchangeStore {
         return null;
     }
 
-    private static ObjectNode replayExchange(String exchangeId, SampleResult result) {
+    private static ObjectNode sampleExchange(String exchangeId, SampleResult result) {
         ObjectNode exchange = JSON.createObjectNode();
         exchange.put("id", exchangeId); // $NON-NLS-1$
         if (result.getStartTime() > 0) {
@@ -509,7 +611,7 @@ public final class RecordedExchangeStore {
             return;
         }
         for (String line : headerText.split("\\r?\\n")) { // $NON-NLS-1$
-            int separator = line.indexOf(':');
+            int separator = line.indexOf(':', line.startsWith(":") ? 1 : 0);
             if (separator <= 0) {
                 continue;
             }
@@ -594,7 +696,11 @@ public final class RecordedExchangeStore {
                 if (exchangeId.equals(candidate.path("id").asText())) { // $NON-NLS-1$
                     ObjectNode exchange = candidate.deepCopy();
                     hydrateBody(exchange.path("request").path("postData"), entryLoader); // $NON-NLS-1$ //$NON-NLS-2$
-                    hydrateBody(exchange.path("response").path("content"), entryLoader); // $NON-NLS-1$ //$NON-NLS-2$
+                    hydrateBody(exchange.path("response").path("content"), entryLoader);
+                    hydrateBody(exchange.path("request").path("_breaktestWire"), entryLoader);
+                    hydrateBody(exchange.path("request").path("_breaktestWebSocketWire"), entryLoader);
+                    hydrateBody(exchange.path("response").path("_breaktestWebSocketWire"), entryLoader);
+                    hydrateBody(exchange.path("response").path("_breaktestWire"), entryLoader); // $NON-NLS-1$ //$NON-NLS-2$
                     return Optional.of(exchange);
                 }
             }
@@ -638,7 +744,11 @@ public final class RecordedExchangeStore {
             requireFormat(exchangesDocument, EXCHANGES_FORMAT, "recording exchanges"); // $NON-NLS-1$
             for (JsonNode exchange : exchangesDocument.path("exchanges")) { // $NON-NLS-1$
                 collectBodyReference(exchange.path("request").path("postData"), references); // $NON-NLS-1$ //$NON-NLS-2$
-                collectBodyReference(exchange.path("response").path("content"), references); // $NON-NLS-1$ //$NON-NLS-2$
+                collectBodyReference(exchange.path("response").path("content"), references);
+                collectBodyReference(exchange.path("request").path("_breaktestWire"), references);
+                collectBodyReference(exchange.path("request").path("_breaktestWebSocketWire"), references);
+                collectBodyReference(exchange.path("response").path("_breaktestWebSocketWire"), references);
+                collectBodyReference(exchange.path("response").path("_breaktestWire"), references); // $NON-NLS-1$ //$NON-NLS-2$
             }
         }
         return Collections.unmodifiableSet(references);

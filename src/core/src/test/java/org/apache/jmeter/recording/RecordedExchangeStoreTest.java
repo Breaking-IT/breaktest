@@ -23,12 +23,74 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Map;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 class RecordedExchangeStoreTest {
+
+    @Test
+    void proxyWebSocketMessagesAndFrameBodiesSurviveArchiveCleanup() throws Exception {
+        SampleResult result = new SampleResult();
+        result.setURL(URI.create("https://example.invalid/socket").toURL());
+        result.setResponseCode("101");
+        var message = new RecordedWebSocketMessage(new java.math.BigDecimal("12.345"), "send", 1,
+                Base64.getEncoder().encodeToString("hello".getBytes(StandardCharsets.UTF_8)));
+        byte[] frames = {(byte) 129, 0};
+        var recording = RecordedExchangeStore.fromProxy(result, new byte[0], new byte[0], new byte[0], "",
+                java.util.List.of(message), frames, frames);
+        String id = recording.exchangeIds().get(0);
+        var kept = RecordedExchangeStore.cleanArchive(recording.manifestEntryName(), recording.entries(),
+                RecordingStorageMode.ALL, java.util.Set.of(id));
+        var exchange = kept.resolveExchange(id).orElseThrow();
+        assertEquals(java.util.List.of(message), RecordedWebSocketMessage.fromExchange(exchange));
+        assertEquals(Base64.getEncoder().encodeToString(frames),
+                exchange.path("request").path("_breaktestWebSocketWire").path("text").asText());
+        assertTrue(kept.entries().containsKey("recordings/bodies/" + RecordedExchangeStore.sha256Hex(frames)));
+    }
+
+    @Test
+    void proxyCapturePreservesBinaryResponseAndIdentifiesItsSource() throws Exception {
+        SampleResult result = new SampleResult();
+        result.setURL(URI.create("https://example.invalid/image.png").toURL());
+        result.setResponseCode("200");
+        result.setContentType("image/png");
+        result.setDataType(SampleResult.BINARY);
+        byte[] body = {0, 1, (byte) 255};
+        result.setResponseData(body);
+
+        var archive = RecordedExchangeStore.fromProxy(result);
+        var manifest = new ObjectMapper().readTree(archive.entries().get(archive.manifestEntryName()));
+        assertEquals("proxy", manifest.path("captures").get(0).path("source").asText());
+        var exchange = archive.resolveExchange(archive.exchangeIds().get(0)).orElseThrow();
+        assertEquals("https://example.invalid/image.png", exchange.path("request").path("url").asText());
+        assertEquals("base64", exchange.path("response").path("content").path("encoding").asText());
+        assertEquals(Base64.getEncoder().encodeToString(body),
+                exchange.path("response").path("content").path("text").asText());
+    }
+
+    @Test
+    void nativeWireDataIsRetainedAndHonorsBodyCleanup() throws Exception {
+        SampleResult result = new SampleResult();
+        result.setURL(URI.create("https://example.invalid/image.png").toURL());
+        result.setResponseCode("200");
+        result.setContentType("image/png");
+        byte[] wire = "HTTP/1.1 200 OK\r\n\r\nimage".getBytes(StandardCharsets.UTF_8);
+        var recording = RecordedExchangeStore.fromProxy(result, new byte[0], wire, new byte[0], "");
+        String id = recording.exchangeIds().get(0);
+        var kept = RecordedExchangeStore.cleanArchive(recording.manifestEntryName(), recording.entries(),
+                RecordingStorageMode.ALL, java.util.Set.of(id));
+        assertEquals(Base64.getEncoder().encodeToString(wire), kept.resolveExchange(id).orElseThrow()
+                .path("response").path("_breaktestWire").path("text").asText());
+        var cleaned = RecordedExchangeStore.cleanArchive(recording.manifestEntryName(), recording.entries(),
+                RecordingStorageMode.OMIT_STATIC_BODIES, java.util.Set.of(id));
+        assertFalse(cleaned.resolveExchange(id).orElseThrow().path("response").has("_breaktestWire"));
+        assertFalse(cleaned.entries().containsKey("recordings/bodies/" + RecordedExchangeStore.sha256Hex(wire)));
+    }
 
     @Test
     void replayOverlayReplacesOneSamplerAndPreservesImportedFallbacks() throws Exception {

@@ -228,6 +228,109 @@ public final class HarConverter {
         return timeline;
     }
 
+    /** Build a recorder scenario without recreating its samplers or their native capture links. */
+    public HashTree layoutRecorded(Map<HarEntry, HashTree> recorded, boolean transactions) {
+        return layoutRecorded(recorded, transactions ? 4 : 0);
+    }
+
+    /** Recorder grouping values: none, separators, simple controllers, first only, transactions. */
+    public HashTree layoutRecorded(Map<HarEntry, HashTree> recorded, int grouping) {
+        if (grouping == 3) {
+            Map<HarEntry, HashTree> firstOnly = new LinkedHashMap<>();
+            Set<String> seen = new HashSet<>();
+            recorded.entrySet().stream().sorted(Map.Entry.comparingByKey(
+                    java.util.Comparator.comparingDouble(HarEntry::getStartMs))).forEach(entry -> {
+                        if (seen.add(entry.getKey().getTransactionId())) {
+                            firstOnly.put(entry.getKey(), entry.getValue());
+                            Object sampler = entry.getValue().list().iterator().next();
+                            if (sampler instanceof HTTPSamplerBase http && !entry.getKey().isWebSocket()) {
+                                http.setFollowRedirects(true);
+                                http.setImageParser(true);
+                            }
+                        }
+                    });
+            recorded = firstOnly;
+        }
+        recorded = expandRecordedWebSockets(recorded);
+        List<HarEntry> ordered = new ArrayList<>(recorded.keySet());
+        ordered.sort(java.util.Comparator.comparingDouble(HarEntry::getStartMs));
+        HashTree tree = new ListedHashTree();
+        if (grouping == 0 || grouping == 3) {
+            appendRecordedGroups(tree, ordered, recorded);
+            return tree;
+        }
+        List<Transaction> groups = groupIntoTransactions(ordered);
+        for (int i = 0; i < groups.size(); i++) {
+            Transaction group = groups.get(i);
+            boolean parallel = splitParallelGroups(group.entries, true).stream().anyMatch(wave -> wave.size() > 1);
+            HashTree parent = tree;
+            if (grouping == 4) {
+                parent = tree.add(buildTransactionController(group.name, group.recordedGapMs, i == 0, parallel));
+            } else if (grouping == 2 || i > 0) {
+                var controller = new org.apache.jmeter.control.GenericController();
+                controller.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.control.gui.LogicControllerGui.class.getName());
+                controller.setName(grouping == 2 ? group.name : "-------------------");
+                HashTree added = tree.add(controller);
+                if (grouping == 2) {
+                    parent = added;
+                }
+            }
+            appendRecordedGroups(parent, group.entries, recorded);
+        }
+        return tree;
+    }
+
+    private Map<HarEntry, HashTree> expandRecordedWebSockets(Map<HarEntry, HashTree> recorded) {
+        Map<HarEntry, HashTree> expanded = new LinkedHashMap<>(recorded);
+        List<HarEntry> entries = new ArrayList<>(recorded.keySet());
+        int index = 0;
+        for (HarEntry entry : entries) {
+            entry.setOriginalIndex(index++);
+            if (entry.isWebSocket()) {
+                webSocketSessionNames.put(entry.getOriginalIndex(), "proxy-websocket-" + java.util.UUID.randomUUID());
+                HashTree original = recorded.get(entry);
+                TestElement source = (TestElement) original.list().iterator().next();
+                HashTree replacement = new ListedHashTree();
+                addWebSocketSampler(replacement, entry, source.getName());
+                TestElement connect = (TestElement) replacement.list().iterator().next();
+                for (String property : List.of(org.apache.jmeter.recording.RecordedExchangeStore.MANIFEST_PROPERTY,
+                        org.apache.jmeter.recording.RecordedExchangeStore.CHECKSUM_PROPERTY,
+                        org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY)) {
+                    connect.setProperty(property, source.getPropertyAsString(property));
+                }
+                connect.setEnabled(source.isEnabled());
+                connect.setComment(source.getComment());
+                replacement.getTree(connect).add(original.getTree(source));
+                expanded.put(entry, replacement);
+            }
+        }
+        for (HarEntry event : withWebSocketEvents(entries)) {
+            if (event.getWebSocketConnection() != null) {
+                HashTree tree = new ListedHashTree();
+                addSampler(tree, event, Set.of());
+                TestElement connect = (TestElement) expanded.get(event.getWebSocketConnection()).list().iterator().next();
+                for (Object element : tree.list()) {
+                    ((TestElement) element).setEnabled(connect.isEnabled());
+                }
+                expanded.put(event, tree);
+            }
+        }
+        return expanded;
+    }
+
+    private void appendRecordedGroups(HashTree parent, List<HarEntry> entries, Map<HarEntry, HashTree> recorded) {
+        for (List<HarEntry> wave : splitParallelGroups(entries, true)) {
+            HashTree destination = parent;
+            if (wave.size() > 1) {
+                destination = parent.add(buildParallelController("Parallel Requests " + ++parallelCounter,
+                        allMultiplexedProtocol(wave) ? 100 : 6));
+            }
+            for (HarEntry entry : wave) {
+                destination.add(recorded.get(entry));
+            }
+        }
+    }
+
     private void populateTransaction(HashTree threadGroupHt, Transaction transaction,
             Set<String> commonHeadersLower, boolean isFirst) {
         List<List<HarEntry>> groups = splitForCorrelations(splitParallelGroups(transaction.entries));
@@ -283,9 +386,6 @@ public final class HarConverter {
         Double previousEnd = null;
 
         for (HarEntry entry : kept) {
-            if (shouldSkip(entry)) {
-                continue;
-            }
             if (currentName == null) {
                 transactionCounter++;
                 currentName = String.format(Locale.ROOT, "%02d_Transaction", transactionCounter);
@@ -297,7 +397,7 @@ public final class HarConverter {
                 currentGapMs = (long) Math.max(entry.getStartMs() - previousEnd, 0);
             }
             currentEntries.add(entry);
-            previousEnd = entry.getEndMs();
+            previousEnd = previousEnd == null ? entry.getEndMs() : Math.max(previousEnd, entry.getEndMs());
         }
         if (currentName != null && !currentEntries.isEmpty()) {
             transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
@@ -320,9 +420,6 @@ public final class HarConverter {
         Double previousEnd = null;
 
         for (HarEntry entry : kept) {
-            if (shouldSkip(entry)) {
-                continue;
-            }
             String entryId = entry.getTransactionId().isBlank()
                     ? currentId
                     : entry.getTransactionId();
@@ -342,7 +439,7 @@ public final class HarConverter {
                         : (long) Math.max(entry.getStartMs() - previousEnd, 0);
             }
             currentEntries.add(entry);
-            previousEnd = entry.getEndMs();
+            previousEnd = previousEnd == null ? entry.getEndMs() : Math.max(previousEnd, entry.getEndMs());
         }
         if (!currentEntries.isEmpty()) {
             transactions.add(new Transaction(currentName, currentGapMs, currentEntries));
@@ -368,6 +465,10 @@ public final class HarConverter {
     // ---------------------------------------------------------------------
 
     private static List<List<HarEntry>> splitParallelGroups(List<HarEntry> transactionEntries) {
+        return splitParallelGroups(transactionEntries, false);
+    }
+
+    private static List<List<HarEntry>> splitParallelGroups(List<HarEntry> transactionEntries, boolean connectedOverlaps) {
         List<List<HarEntry>> groups = new ArrayList<>();
         if (transactionEntries.isEmpty()) {
             return groups;
@@ -377,26 +478,25 @@ public final class HarConverter {
 
         List<HarEntry> currentGroup = new ArrayList<>();
         Map<String, Integer> pendingRedirectTargets = new HashMap<>();
-        double earliestEndMs = Double.POSITIVE_INFINITY;
+        double boundaryMs = connectedOverlaps ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
         for (HarEntry entry : sorted) {
-            // A browser can only start every request in one parallel wave before
-            // the first request in that wave has completed. Once that boundary is
-            // crossed, later requests belong to a new wave even if slower requests
-            // from the previous wave are still in flight. Redirect targets always
-            // start a new wave because HAR timestamps can round their start to just
-            // before the redirect response's recorded end.
+            // HAR conversion retains conservative waves ending at the earliest completion.
+            // Redirect targets always start a new group, even if timestamp rounding puts
+            // their start just before the redirect response's recorded end.
             boolean followsRedirect = consumeRedirectTarget(pendingRedirectTargets, entry.getUrl());
             HarEntry connection = entry.getWebSocketConnection();
             boolean needsEarlierWebSocketStep = connection != null && currentGroup.stream()
                     .anyMatch(previous -> previous == connection || previous.getWebSocketConnection() == connection);
-            if (!currentGroup.isEmpty()
-                    && (entry.getStartMs() > earliestEndMs || followsRedirect || needsEarlierWebSocketStep)) {
+            // Recorder captures also retain overlap chains: A overlaps B, and B overlaps C.
+            // A strict end boundary keeps sequential requests and zero-duration captures separate.
+            boolean afterBoundary = connectedOverlaps ? entry.getStartMs() >= boundaryMs : entry.getStartMs() > boundaryMs;
+            if (!currentGroup.isEmpty() && (afterBoundary || followsRedirect || needsEarlierWebSocketStep)) {
                 groups.add(currentGroup);
                 currentGroup = new ArrayList<>();
-                earliestEndMs = Double.POSITIVE_INFINITY;
+                boundaryMs = connectedOverlaps ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
             }
             currentGroup.add(entry);
-            earliestEndMs = Math.min(earliestEndMs, entry.getEndMs());
+            boundaryMs = connectedOverlaps ? Math.max(boundaryMs, entry.getEndMs()) : Math.min(boundaryMs, entry.getEndMs());
             String redirectTarget = redirectTargetOf(entry);
             if (!redirectTarget.isEmpty()) {
                 pendingRedirectTargets.merge(redirectTarget, 1, Integer::sum);
@@ -495,7 +595,7 @@ public final class HarConverter {
             return false;
         }
         for (HarEntry entry : group) {
-            String protocol = entry.getProtocol();
+            String protocol = entry.getProtocol().toLowerCase(java.util.Locale.ROOT);
             if (!protocol.contains("h2") && !protocol.contains("http/2")
                     && !protocol.contains("h3") && !protocol.contains("http/3")) {
                 return false;

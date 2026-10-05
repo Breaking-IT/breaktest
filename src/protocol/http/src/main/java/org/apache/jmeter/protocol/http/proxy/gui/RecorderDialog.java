@@ -119,6 +119,7 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
         this.getContentPane().setLayout(new BorderLayout(10,10));
+        this.getContentPane().add(new RecordingStatusPanel(recorderGui::recordingDiagnostics), BorderLayout.NORTH);
 
         DefaultComboBoxModel<String> choice = new DefaultComboBoxModel<>();
         choice.addElement(JMeterUtils.getResString("sample_name_prefix")); // $NON-NLS-1$
@@ -130,7 +131,13 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         httpSampleNamingMode.addItemListener(this);
 
         prefixHTTPSampleName = new JTextField(20);
-        prefixHTTPSampleName.addKeyListener(this);
+        prefixHTTPSampleName.addActionListener(event -> recorderGui.setPrefixHTTPSampleName(prefixHTTPSampleName.getText()));
+        prefixHTTPSampleName.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                recorderGui.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
+            }
+        });
         prefixHTTPSampleName.setName(ProxyControlGui.PREFIX_HTTP_SAMPLER_NAME);
 
         proxyPauseHTTPSample = new JTextField(10);
@@ -226,9 +233,7 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
     @Override
     public void keyReleased(KeyEvent e) {
         String fieldName = e.getComponent().getName();
-        if (fieldName.equals(ProxyControlGui.PREFIX_HTTP_SAMPLER_NAME)) {
-            recorderGui.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
-        } else if (fieldName.equals(ProxyControlGui.HTTP_SAMPLER_NAME_FORMAT)) {
+        if (fieldName.equals(ProxyControlGui.HTTP_SAMPLER_NAME_FORMAT)) {
             recorderGui.setSampleNameFormat(sampleNameFormat.getText());
         } else if (fieldName.equals(ProxyControlGui.PROXY_PAUSE_HTTP_SAMPLER)) {
             try {

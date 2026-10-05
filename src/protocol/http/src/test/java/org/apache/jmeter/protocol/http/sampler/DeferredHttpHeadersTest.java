@@ -47,7 +47,6 @@ import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
-import org.apache.jmeter.protocol.http.proxy.Proxy;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.SampleSaveConfiguration;
@@ -225,27 +224,31 @@ class DeferredHttpHeadersTest extends JMeterTestCase {
     }
 
     @Test
-    void recordingResponsePreservesHeadersAndDecodedBodyLength() throws Exception {
+    void deferredResponseHeadersRemainEncodedAfterBodyDecoding() throws Exception {
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (java.util.zip.GZIPOutputStream gzip = new java.util.zip.GZIPOutputStream(compressed)) {
+            gzip.write("body".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        byte[] encodedBody = compressed.toByteArray();
         BasicHttpResponse response = new BasicHttpResponse(200, "OK");
         response.setVersion(HttpVersion.HTTP_1_1);
         response.addHeader("Content-Encoding", "gzip");
-        response.addHeader("Content-Length", "99");
-        response.addHeader("Transfer-Encoding", "chunked");
+        response.addHeader("Content-Length", Integer.toString(encodedBody.length));
         response.addHeader("Set-Cookie", "synthetic=abc; Path=/");
-        var rewrite = Proxy.class.getDeclaredMethod("messageResponseHeaders", SampleResult.class);
-        rewrite.setAccessible(true);
         HTTPSampleResult eager = new HTTPSampleResult();
         HTTPSampleResult lazy = new HTTPSampleResult();
-        eager.setResponseData(new byte[4]);
-        lazy.setResponseData(new byte[4]);
+        eager.setResponseData(encodedBody, "gzip");
+        lazy.setResponseData(encodedBody, "gzip");
         HTTPHC5Impl.captureResponseHeaders(eager, response, false);
         HTTPHC5Impl.captureResponseHeaders(lazy, response, true);
-        String recorded = (String) rewrite.invoke(null, lazy);
-        assertEquals(rewrite.invoke(null, eager), recorded);
-        assertTrue(recorded.contains("Content-Length: 4\r\n"));
-        assertTrue(recorded.contains("Set-Cookie: synthetic=abc; Path=/\r\n"));
-        assertFalse(recorded.contains("Transfer-Encoding"));
-        assertFalse(recorded.contains("Content-Encoding"));
+
+        assertEquals("body", eager.getResponseDataAsString());
+        assertEquals("body", lazy.getResponseDataAsString());
+        String recorded = lazy.getResponseHeaders();
+        assertEquals(eager.getResponseHeaders(), recorded);
+        assertTrue(recorded.contains("Content-Length: " + encodedBody.length + "\n"));
+        assertTrue(recorded.contains("Set-Cookie: synthetic=abc; Path=/\n"));
+        assertTrue(recorded.contains("Content-Encoding: gzip\n"));
     }
 
     @Test

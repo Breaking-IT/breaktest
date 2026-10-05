@@ -25,6 +25,9 @@ import java.net.SocketException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.jmeter.gui.Stoppable;
 import org.apache.jorphan.util.JOrphanUtils;
@@ -53,7 +56,9 @@ public class Daemon extends Thread implements Stoppable {
     private final ServerSocket mainSocket;
 
     /** True if the Daemon is currently running. */
-    private volatile boolean running;
+    private volatile boolean running = true;
+
+    private final Set<Proxy> connections = ConcurrentHashMap.newKeySet();
 
     /** The target which will receive the generated JMeter test components. */
     private final ProxyControl target;
@@ -112,7 +117,6 @@ public class Daemon extends Thread implements Stoppable {
      */
     @Override
     public void run() {
-        running = true;
         log.info("Test Script Recorder up and running!");
 
         // Maps to contain page and form encodings
@@ -125,11 +129,17 @@ public class Daemon extends Thread implements Stoppable {
                 try {
                     // Listen on main socket
                     Socket clientSocket = mainSocket.accept();
-                    if (running) {
-                        // Pass request to new proxy thread
-                        Proxy thd = proxyClass.getDeclaredConstructor().newInstance();
-                        thd.configure(clientSocket, target, pageEncodings, formEncodings);
-                        thd.start();
+                    synchronized (this) {
+                        if (running) {
+                            // Pass request to new proxy thread
+                            Proxy thd = proxyClass.getDeclaredConstructor().newInstance();
+                            thd.configure(clientSocket, target, pageEncodings, formEncodings);
+                            connections.removeIf(connection -> !connection.isAlive());
+                            connections.add(thd);
+                            thd.start();
+                        } else {
+                            clientSocket.close();
+                        }
                     }
                 } catch (InterruptedIOException ignored) {
                     // Timeout occurred. Ignore, and keep looping until we're
@@ -138,7 +148,9 @@ public class Daemon extends Thread implements Stoppable {
             }
             log.info("HTTP(S) Test Script Recorder stopped");
         } catch (Exception e) {
-            log.warn("HTTP(S) Test Script Recorder stopped", e);
+            if (running) {
+                log.warn("HTTP(S) Test Script Recorder stopped", e);
+            }
         } finally {
             JOrphanUtils.closeQuietly(mainSocket);
         }
@@ -150,7 +162,16 @@ public class Daemon extends Thread implements Stoppable {
      * see #ACCEPT_TIMEOUT
      */
     @Override
-    public void stopServer() {
+    public synchronized void stopServer() {
         running = false;
+        JOrphanUtils.closeQuietly(mainSocket);
+        connections.forEach(Proxy::stopRecording);
     }
+
+    void awaitConnections() throws InterruptedException {
+        for (Proxy connection : connections) {
+            connection.join(); // Sockets are closed; drain queued observations before the recorder worker stops.
+        }
+    }
+
 }
