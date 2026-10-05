@@ -18,13 +18,9 @@
 package org.apache.jmeter.protocol.http.proxy;
 
 import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URL;
-import java.net.UnknownHostException;
 import java.nio.charset.IllegalCharsetNameException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -51,14 +47,12 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.util.JMeterUtils;
-import org.apache.jorphan.util.ExceptionUtils;
-import org.apache.jorphan.util.JMeterException;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Thread to handle one client request. Gets the request from the client and
+ * Thread to handle a client connection. Gets each request from the client and
  * passes it on to the server, then sends the response back to the client.
  * Information about the request and response is stored so it can be used in a
  * JMeter test plan.
@@ -69,10 +63,6 @@ public class Proxy extends Thread {
 
     private static final Logger log = LoggerFactory.getLogger(Proxy.class);
 
-    private static final byte[] CRLF_BYTES = { 0x0d, 0x0a };
-    private static final String CRLF_STRING = "\r\n";
-
-    private static final String NEW_LINE = "\n"; // $NON-NLS-1$
 
     private static final String[] HEADERS_TO_REMOVE;
 
@@ -112,8 +102,6 @@ public class Proxy extends Thread {
     /** Target to receive the generated sampler. */
     private ProxyControl target;
 
-    /** Whether or not to capture the HTTP headers. */
-    private boolean captureHttpHeaders;
 
     /** Reference to Daemon's Map of url string to page character encoding of that page */
     private Map<String, String> pageEncodings;
@@ -150,8 +138,8 @@ public class Proxy extends Thread {
      */
     void configure(Socket clientSocket, ProxyControl target, Map<String, String> pageEncodings, Map<String, String> formEncodings) {
         this.target = target;
+        transport.setRecordingSettings(() -> RecordingRequestSettings.capture(target));
         this.clientSocket = clientSocket;
-        this.captureHttpHeaders = target.getCaptureHttpHeaders();
         this.pageEncodings = pageEncodings;
         this.formEncodings = formEncodings;
         this.port = "["+ clientSocket.getPort() + "] ";
@@ -162,159 +150,155 @@ public class Proxy extends Thread {
     /**
      * Main processing method for the Proxy object
      */
+    private final HttpProxyTransport transport = new HttpProxyTransport();
+    private volatile boolean stopRequested;
+    private boolean requestStarted;
+
     @Override
     public void run() {
-        // Check which HTTPSampler class we should use
-        String httpSamplerName = target.getSamplerTypeName();
-
-        HttpRequestHdr request = new HttpRequestHdr(target.getPrefixHTTPSampleName(), httpSamplerName,
-                target.getHTTPSampleNamingMode(), target.getHttpSampleNameFormat());
-        request.setDetectGraphQLRequest(target.getDetectGraphQLRequest());
-
-        SampleResult result = null;
-        HeaderManager headers = null;
-        HTTPSamplerBase sampler = null;
-        final boolean isDebug = log.isDebugEnabled();
-        log.debug("{} ====================================================================", port);
-        SamplerCreator samplerCreator = null;
+        boolean http2 = false;
+        String destination = "Unknown destination (request headers incomplete)";
+        String method = "Unknown";
         try {
             JMeterContextService.getContext().setRecording(true);
-            // Now, parse initial request (in case it is a CONNECT request)
-            byte[] ba = request.parse(new BufferedInputStream(clientSocket.getInputStream()));
-            if (ba.length == 0) {
-                log.debug("{} Empty request, ignored", port);
-                throw new JMeterException(); // hack to skip processing
-            }
-            if (isDebug) {
-                @SuppressWarnings("DefaultCharset")
-                final String reparsed = new String(ba); // NOSONAR False positive
-                log.debug("{} Initial request: {}", port, reparsed);
-            }
-            // Use with SSL connection
-            OutputStream outStreamClient = clientSocket.getOutputStream();
-
-            if (request.getMethod().startsWith(HTTPConstants.CONNECT) && (outStreamClient != null)) {
-                log.debug("{} Method CONNECT => SSL", port);
-                // write a OK response to browser, to engage SSL exchange
-                outStreamClient.write(
-                        "HTTP/1.0 200 OK\r\n\r\n".getBytes(SampleResult.DEFAULT_HTTP_ENCODING)); // $NON-NLS-1$
-                outStreamClient.flush();
-               // With ssl request, url is host:port (without https:// or path)
-                String[] param = request.getUrl().split(":");  // $NON-NLS-1$
-                if (param.length == 2) {
-                    log.debug("{} Start to negotiate SSL connection, host: {}", port ,param[0]);
-                    clientSocket = startSSL(clientSocket, param[0]);
-                } else {
-                    // Should not happen, but if it does we don't want to continue
-                    log.error("In SSL request, unable to find host and port in CONNECT request: {}", request.getUrl());
-                    throw new JMeterException(); // hack to skip processing
+            java.io.InputStream input = clientSocket.getInputStream();
+            String tunnelAuthority = null;
+            HttpProxyTransport.Head head = HttpProxyTransport.readHead(input, this::requestSettings);
+            if (head != null && "CONNECT".equals(head.method())) {
+                tunnelAuthority = head.target();
+                destination = "https://" + tunnelAuthority;
+                method = "CONNECT (TLS handshake)";
+                java.net.URI endpoint = java.net.URI.create("https://" + tunnelAuthority);
+                clientSocket.getOutputStream().write(
+                        "HTTP/1.1 200 Connection Established\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                clientSocket.getOutputStream().flush();
+                clientSocket = startSSL(clientSocket, endpoint.toURL());
+                requestStarted = false;
+                input = new BufferedInputStream(clientSocket.getInputStream());
+                if ("h2".equals(((SSLSocket) clientSocket).getApplicationProtocol())) {
+                    http2 = true;
+                    transport.relayHttp2(clientSocket, input, capture -> target.submitCapture(() -> record(capture)),
+                            () -> RecordingRequestSettings.capture(target), target.getRecordingDiagnostics());
+                    return;
                 }
-                // Re-parse (now it's the http request over SSL)
+                method = "Unknown (request headers incomplete)";
+                head = HttpProxyTransport.readHead(input, this::requestSettings);
+            } else {
+                input = new BufferedInputStream(input);
+            }
+            while (head != null) {
+                destination = head.url(tunnelAuthority).toString();
+                method = head.method();
+                HttpProxyTransport.Capture capture = transport.forward(head, head.url(tunnelAuthority), clientSocket, input);
+                if (capture.upgraded()) {
+                    requestStarted = false;
+                    try {
+                        transport.tunnel(clientSocket, input, capture);
+                    } finally {
+                        target.submitCapture(() -> record(capture));
+                    }
+                    break;
+                }
                 try {
-                    ba = request.parse(new BufferedInputStream(clientSocket.getInputStream()));
-                } catch (IOException ioe) { // most likely this is because of a certificate error
-                    // param.length is 2 here
-                    final String url = " for '"+ param[0] +"'";
-                    log.warn("{} Problem with SSL certificate for url {}? Ensure browser is set to accept the JMeter proxy cert: {}",
-                            port, url,ioe.getMessage());
-                    // Generate result (if nec.) and populate it
-                    result = generateErrorResult(result, request, ioe, "\n**ensure browser is set to accept the JMeter proxy certificate**");
-                    throw new JMeterException(); // hack to skip processing
+                    target.submitCapture(() -> record(capture));
+                } catch (RuntimeException e) {
+                    target.getRecordingDiagnostics().processingError("Unable to enqueue captured request: " + e);
+                    log.error("Unable to add captured request {} to the test plan", capture.getUrlAsString(), e);
                 }
-                if (isDebug) {
-                    @SuppressWarnings("DefaultCharset")
-                    final String reparsed = new String(ba); // NOSONAR False positive
-                    log.debug("{} Reparse: {}", port, reparsed);
+                requestStarted = false;
+                if (!capture.keepAlive()) {
+                    break;
                 }
-                if (ba.length == 0) {
-                    log.warn("{} Empty response to http over SSL. Probably waiting for user to authorize the certificate for {}",
-                                port, request.getUrl());
-                    throw new JMeterException(); // hack to skip processing
-                }
+                destination = tunnelAuthority == null ? "Unknown destination (request headers incomplete)" : "https://" + tunnelAuthority;
+                method = "Unknown (request headers incomplete)";
+                head = HttpProxyTransport.readHead(input, this::requestSettings);
             }
-
-            samplerCreator = SAMPLERFACTORY.getSamplerCreator(request, pageEncodings, formEncodings);
-            sampler = samplerCreator.createAndPopulateSampler(request, pageEncodings, formEncodings);
-            sampler.setUseKeepAlive(false);
-            /*
-             * Create a Header Manager to ensure that the browsers headers are
-             * captured and sent to the server
-             */
-            headers = request.getHeaderManager();
-            sampler.setHeaderManager(headers);
-
-            sampler.threadStarted(); // Needed for HTTPSampler2
-            if (isDebug) {
-                log.debug("{} Execute sample: {} and url {}",port, sampler.getMethod(), sampler.getUrl());
-            }
-
-            result = sampler.sample();
-
-            // Find the page encoding and possibly encodings for forms in the page
-            // in the response from the web server
-            String pageEncoding = addPageEncoding(result);
-            addFormEncodings(result, pageEncoding);
-
-            writeToClient(result, new BufferedOutputStream(clientSocket.getOutputStream()));
-            samplerCreator.postProcessSampler(sampler, result);
-        } catch (JMeterException jme) {
-            // ignored, already processed
-        } catch (UnknownHostException uhe) {
-            log.warn("{} Server Not Found.", port, uhe);
-            writeErrorToClient(HttpReplyHdr.formServerNotFound());
-            result = generateErrorResult(result, request, uhe); // Generate result (if nec.) and populate it
-        } catch (IllegalArgumentException e) {
-            log.error("{} Not implemented (probably used https)", port, e);
-            writeErrorToClient(HttpReplyHdr.formNotImplemented("Probably used https instead of http. "
-                    + "To record https requests, see "
-                    + "<a href=\"http://jmeter.apache.org/usermanual/component_reference.html#HTTP(S)_Test_Script_Recorder\">"
-                    + "HTTP(S) Test Script Recorder documentation</a>"));
-            result = generateErrorResult(result, request, e); // Generate result (if nec.) and populate it
         } catch (Exception e) {
-            log.error("{} Exception when processing sample", port, e);
-            writeErrorToClient(HttpReplyHdr.formInternalError());
-            result = generateErrorResult(result, request, e); // Generate result (if nec.) and populate it
+            if (!http2 && requestStarted) {
+                target.getRecordingDiagnostics().uncapturedFailure(destination, method, (stopRequested ? "Recorder stopped" : "Recording connection ended")
+                        + " before the request could be captured: " + e);
+            }
+            log.debug("{} Recording connection closed: {}", port, e.toString());
         } finally {
-            if(sampler != null && isDebug) {
-                log.debug("{} Will deliver sample {}", port, sampler.getName());
-            }
-            /*
-             * We don't want to store any cookies in the generated test plan
-             */
-            if (headers != null) {
-                headers.removeHeaderNamed(HTTPConstants.HEADER_COOKIE);// Always remove cookies
-                // See https://bz.apache.org/bugzilla/show_bug.cgi?id=25430
-                // HEADER_AUTHORIZATION won't be removed, it will be used
-                // for creating Authorization Manager
-                // Remove additional headers
-                for(String hdr : HEADERS_TO_REMOVE){
-                    headers.removeHeaderNamed(hdr);
-                }
-            }
-            if(result != null) // deliverSampler allows sampler to be null, but result must not be null
-            {
-                List<TestElement> children = new ArrayList<>();
-                if(captureHttpHeaders) {
-                    children.add(headers);
-                }
-                if(samplerCreator != null) {
-                    children.addAll(samplerCreator.createChildren(sampler, result));
-                }
-                target.deliverSampler(sampler,
-                         children
-                                .toArray(new TestElement[children.size()]),
-                        result);
-            }
-            try {
-                clientSocket.close();
-            } catch (Exception e) {
-                log.error("{} Failed to close client socket", port, e);
-            }
-            if(sampler != null) {
-                sampler.threadFinished(); // Needed for HTTPSampler2
-            }
+            stopRecording();
             JMeterContextService.getContext().setRecording(false);
         }
+    }
+
+    private RecordingRequestSettings requestSettings() {
+        requestStarted = true;
+        return RecordingRequestSettings.capture(target);
+    }
+
+    /** Interrupt persistent connections, streaming responses and upgraded tunnels on recorder stop. */
+    void stopRecording() {
+        stopRequested = true;
+        transport.stop();
+        try {
+            clientSocket.close();
+        } catch (IOException e) {
+            log.debug("{} Closing recorder client", port, e);
+        }
+    }
+
+    private void record(HttpProxyTransport.Capture result) {
+        RecordingRequestSettings settings = result.request().settings;
+        HttpRequestHdr request = new HttpRequestHdr(settings.prefix(), settings.samplerType(), settings.namingMode(), settings.format());
+        request.setDetectGraphQLRequest(settings.graphQL());
+        HTTPSamplerBase sampler;
+        List<TestElement> children = new ArrayList<>();
+        try {
+            request.parseCaptured(result.request(), result.getURL(), result.requestBody());
+            SamplerCreator creator = SAMPLERFACTORY.getSamplerCreator(request, pageEncodings, formEncodings);
+            sampler = creator.createAndPopulateSampler(request, pageEncodings, formEncodings);
+            creator.postProcessSampler(sampler, result);
+            children.addAll(creator.createChildren(sampler, result));
+            if (result.sse == null) {
+                String pageEncoding = addPageEncoding(result);
+                addFormEncodings(result, pageEncoding);
+            }
+        } catch (Exception e) {
+            // A replay conversion problem must never prevent the browser receiving its response.
+            target.getRecordingDiagnostics().processingError("Replay conversion failed: " + e);
+            log.warn("Unable to convert recorded request {}", result.getUrlAsString(), e);
+            sampler = fallbackSampler(result, e);
+        }
+        if (result.sse != null) {
+            var nativeSse = new org.apache.jmeter.protocol.sse.SseSampler();
+            var properties = sampler.propertyIterator();
+            while (properties.hasNext()) {
+                nativeSse.setProperty(properties.next().clone());
+            }
+            nativeSse.setProperty(TestElement.TEST_CLASS, org.apache.jmeter.protocol.sse.SseSampler.class.getName());
+            nativeSse.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.protocol.sse.SseSamplerGui.class.getName());
+            nativeSse.setSseSessionName("proxy-sse-" + java.util.UUID.randomUUID());
+            nativeSse.setResponseTimeout(org.apache.jmeter.protocol.sse.SseSampler.DEFAULT_RESPONSE_TIMEOUT);
+            sampler = nativeSse;
+        }
+        if ("HTTP/2".equals(result.getProtocolVersion())) {
+            sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        }
+        HeaderManager headers = request.getHeaderManager();
+        headers.removeHeaderNamed(HTTPConstants.HEADER_COOKIE);
+        for (String header : HEADERS_TO_REMOVE) {
+            headers.removeHeaderNamed(header);
+        }
+        children.add(headers);
+        target.deliverSampler(sampler, children.toArray(new TestElement[0]), result);
+    }
+
+    static HTTPSamplerBase fallbackSampler(HttpProxyTransport.Capture result, Exception e) {
+        HTTPSamplerBase sampler = new org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy();
+        sampler.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui.class.getName());
+        sampler.setProtocol(result.getURL().getProtocol());
+        sampler.setDomain(result.getURL().getHost());
+        sampler.setPort(result.getURL().getPort() < 0 ? HTTPSamplerBase.UNSPECIFIED_PORT : result.getURL().getPort());
+        sampler.setPath(result.getURL().getFile());
+        sampler.setMethod(result.getHTTPMethod());
+        sampler.setName(result.getHTTPMethod() + " " + result.getURL().getFile());
+        sampler.setEnabled(false);
+        sampler.setComment("Replay conversion failed: " + e);
+        return sampler;
     }
 
     /**
@@ -442,11 +426,12 @@ public class Proxy extends Thread {
      * Negotiate a SSL connection.
      *
      * @param sock socket in
-     * @param host
+     * @param endpoint
      * @return a new client socket over ssl
      * @throws IOException if negotiation failed
      */
-    private Socket startSSL(Socket sock, String host) throws IOException {
+    private Socket startSSL(Socket sock, URL endpoint) throws IOException {
+        String host = endpoint.getHost();
         SSLSocketFactory sslFactory = getSSLSocketFactory(host);
         SSLSocket secureSocket;
         if (sslFactory != null) {
@@ -454,6 +439,21 @@ public class Proxy extends Thread {
                 secureSocket = (SSLSocket) sslFactory.createSocket(sock,
                         sock.getInetAddress().getHostName(), sock.getPort(), true);
                 secureSocket.setUseClientMode(false);
+                javax.net.ssl.SSLParameters parameters = secureSocket.getSSLParameters();
+                parameters.setApplicationProtocols(new String[]{"h2", "http/1.1"});
+                secureSocket.setSSLParameters(parameters);
+                secureSocket.setHandshakeApplicationProtocolSelector((socket, offered) -> {
+                    try {
+                        String selected = transport.negotiate(endpoint, offered);
+                        return selected.isEmpty() ? null : selected;
+                    } catch (IOException e) {
+                        // Allow an HTTP/1.1 request to arrive so an upstream connection failure
+                        // can be retained as a disabled sampler with its diagnostic.
+                        log.debug("Unable to negotiate upstream TLS for {}", endpoint, e);
+                        transport.close();
+                        return offered.contains("http/1.1") ? "http/1.1" : null;
+                    }
+                });
                 if (SUPPORTED_CIPHER_ARRAY != null) {
                     secureSocket.setEnabledCipherSuites(SUPPORTED_CIPHER_ARRAY);
                 }
@@ -463,6 +463,7 @@ public class Proxy extends Thread {
                 if (log.isDebugEnabled()){
                     log.debug("{} SSL transaction ok with cipher: {}", port, secureSocket.getSession().getCipherSuite());
                 }
+                secureSocket.startHandshake();
                 return secureSocket;
             } catch (IOException e) {
                 log.error("{} Error in SSL socket negotiation: ", port, e);
@@ -474,128 +475,6 @@ public class Proxy extends Thread {
         }
     }
 
-    private static SampleResult generateErrorResult(SampleResult result, HttpRequestHdr request, Exception e) {
-        return generateErrorResult(result, request, e, "");
-    }
-
-    private static SampleResult generateErrorResult(SampleResult result, HttpRequestHdr request, Exception e, String msg) {
-        if (result == null) {
-            result = new SampleResult();
-            result.setResponseData(ExceptionUtils.getStackTraceAsBytes(e, StandardCharsets.UTF_8));
-            result.setDataEncoding(StandardCharsets.UTF_8.name());
-            result.setSamplerData(request.getFirstLine());
-            result.setSampleLabel(request.getUrl());
-        }
-        result.setSuccessful(false);
-        result.setResponseMessage(e.getMessage()+msg);
-        return result;
-    }
-
-    /**
-     * Write output to the output stream, then flush and close the stream.
-     *
-     * @param res
-     *            the SampleResult to write
-     * @param out
-     *            the output stream to write to
-     * @throws IOException
-     *             if an IOException occurs while writing
-     */
-    private void writeToClient(SampleResult res, OutputStream out) throws IOException {
-        try {
-            String responseHeaders = messageResponseHeaders(res);
-            out.write(responseHeaders.getBytes(SampleResult.DEFAULT_HTTP_ENCODING));
-            out.write(CRLF_BYTES);
-            out.write(res.getResponseData());
-            out.flush();
-            log.debug("{} Done writing to client", port);
-        } catch (IOException e) {
-            log.error("", e);
-            throw e;
-        } finally {
-            try {
-                out.close();
-            } catch (Exception ex) {
-                log.warn("{} Error while closing socket", port, ex);
-            }
-        }
-    }
-
-    /**
-     * In the event the content was gzipped and unpacked, the content-encoding
-     * header must be removed and the content-length header should be corrected.
-     *
-     * The Transfer-Encoding header is also removed.
-     * If the protocol was changed to HTTPS then change any Location header back to http
-     * @param res - response
-     *
-     * @return updated headers to be sent to client
-     */
-    private static String messageResponseHeaders(SampleResult res) {
-        String headers = res.getResponseHeaders();
-        String[] headerLines = headers.split(NEW_LINE, 0); // drop empty trailing content
-        int contentLengthIndex = -1;
-        boolean fixContentLength = false;
-        for (int i = 0; i < headerLines.length; i++) {
-            String line = headerLines[i];
-            String[] parts = line.split(":\\s+", 2); // $NON-NLS-1$
-            if (parts.length == 2) {
-                if (HTTPConstants.TRANSFER_ENCODING.equalsIgnoreCase(parts[0])) {
-                    headerLines[i] = null; // We don't want this passed on to browser
-                    continue;
-                }
-                if (HTTPConstants.HEADER_CONTENT_ENCODING.equalsIgnoreCase(parts[0])
-                    && (HTTPConstants.ENCODING_GZIP.equalsIgnoreCase(parts[1])
-                            || HTTPConstants.ENCODING_DEFLATE.equalsIgnoreCase(parts[1])
-                            || HTTPConstants.ENCODING_BROTLI.equalsIgnoreCase(parts[1])
-                            )
-                ){
-                    headerLines[i] = null; // We don't want this passed on to browser
-                    fixContentLength = true;
-                    continue;
-                }
-                if (HTTPConstants.HEADER_CONTENT_LENGTH.equalsIgnoreCase(parts[0])){
-                    contentLengthIndex = i;
-                }
-            }
-        }
-        if (fixContentLength && contentLengthIndex>=0){// Fix the content length
-            headerLines[contentLengthIndex] =
-                    HTTPConstants.HEADER_CONTENT_LENGTH + ": " + res.getResponseData().length;
-        }
-        StringBuilder sb = new StringBuilder(headers.length());
-        for (String line : headerLines) {
-            if (line != null) {
-                sb.append(line).append(CRLF_STRING);
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Write an error message to the client. The message should be the full HTTP
-     * response.
-     *
-     * @param message
-     *            the message to write
-     */
-    private void writeErrorToClient(String message) {
-        try {
-            OutputStream sockOut = clientSocket.getOutputStream();
-            DataOutputStream out = new DataOutputStream(sockOut);
-            out.writeBytes(message);
-            out.flush();
-        } catch (Exception e) {
-            log.warn("{} Exception while writing error", port, e);
-        }
-    }
-
-    /**
-     * Add the page encoding of the sample result to the Map with page encodings
-     *
-     * @param result the sample result to check
-     * @return the page encoding found for the sample result, or null
-     */
     private String addPageEncoding(SampleResult result) {
         String pageEncoding = null;
         try {

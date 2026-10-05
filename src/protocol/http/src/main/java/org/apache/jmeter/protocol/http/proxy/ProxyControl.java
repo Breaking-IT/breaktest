@@ -17,13 +17,13 @@
 
 package org.apache.jmeter.protocol.http.proxy;
 
-import java.awt.event.ActionEvent;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
@@ -37,19 +37,27 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.prefs.Preferences;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
+
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.ResponseAssertion;
@@ -76,13 +84,20 @@ import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.gui.AuthPanel;
+import org.apache.jmeter.protocol.http.har.FindPredefinedCorrelationsAction;
+import org.apache.jmeter.protocol.http.har.HarConverter;
+import org.apache.jmeter.protocol.http.har.HarEntry;
+import org.apache.jmeter.protocol.http.har.HarImportOptions;
+import org.apache.jmeter.protocol.http.proxy.gui.RecorderWizard;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerFactory;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
+import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.NonTestElement;
@@ -100,6 +115,8 @@ import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.Visualizer;
+import org.apache.jorphan.collections.HashTree;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.exec.KeyToolUtils;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -131,7 +148,9 @@ public class ProxyControl extends GenericController implements NonTestElement {
     private static final String DOMAINS = "ProxyControlGui.domains"; // $NON-NLS-1$
     private static final String EXCLUDE_LIST = "ProxyControlGui.exclude_list"; // $NON-NLS-1$
     private static final String INCLUDE_LIST = "ProxyControlGui.include_list"; // $NON-NLS-1$
-    private static final String CAPTURE_HTTP_HEADERS = "ProxyControlGui.capture_http_headers"; // $NON-NLS-1$
+    private static final String STORE_RECORDED_EXCHANGES = "ProxyControlGui.store_recorded_exchanges"; // $NON-NLS-1$
+    private static final String IGNORE_HTTP_ERRORS = "ProxyControl.ignore_http_errors";
+
     private static final String ADD_ASSERTIONS = "ProxyControlGui.add_assertion"; // $NON-NLS-1$
     private static final String GROUPING_MODE = "ProxyControlGui.grouping_mode"; // $NON-NLS-1$
     private static final String SAMPLER_TYPE_NAME = "ProxyControlGui.sampler_type_name"; // $NON-NLS-1$
@@ -165,8 +184,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     // Legacy numeric sampler type values from old JMX workbench files.
     private static final Set<String> LEGACY_NUMERIC_SAMPLER_TYPES = Set.of("0", "1", "2");
-
-    private long sampleGap;
 
     // for ssl connection
     private static final String KEYSTORE_TYPE =
@@ -252,25 +269,9 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     private transient Daemon server;
 
-    private long lastTime = 0;// When was the last sample seen?
-
     private transient KeyStore keyStore;
 
-    private volatile boolean addAssertions = false;
-
-    private volatile int groupingMode = 0;
-
-    private volatile boolean samplerRedirectAutomatically = false;
-
-    private volatile boolean samplerFollowRedirects = false;
-
-    private volatile boolean useKeepAlive = false;
-
-    private volatile boolean samplerDownloadImages = false;
-
     private volatile boolean notifyChildSamplerListenersOfFilteredSamples = true;
-
-    private volatile boolean regexMatch = false;
 
     private final Set<Class<?>> addableInterfaces = new HashSet<>(
             Arrays.asList(Visualizer.class, ConfigElement.class,
@@ -281,7 +282,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
      * Tree node where the samples should be stored.
      * This property is not persistent.
      */
-    private JMeterTreeNode target;
+    private volatile JMeterTreeNode target;
+    private transient volatile JMeterTreeNode recordingTarget;
 
     private String storePassword;
 
@@ -289,18 +291,23 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     private JMeterTreeModel nonGuiTreeModel;
 
-    private final ArrayDeque<SamplerInfo> sampleQueue = new ArrayDeque<>();
+    private final Queue<RecordedSampler> sampleQueue = new ConcurrentLinkedQueue<>();
 
     // accessed from Swing-Thread, only
-    private String oldPrefix = null;
 
-    private transient javax.swing.Timer sampleWorkerTimer;
+    private transient volatile ExecutorService captureWorker;
+    private transient volatile RecordingDiagnostics diagnostics = new RecordingDiagnostics();
+
+    public RecordingDiagnostics getRecordingDiagnostics() {
+        return diagnostics;
+    }
 
     public ProxyControl() {
         setPort(DEFAULT_PORT);
         setExcludeList(new HashSet<>());
         setIncludeList(new HashSet<>());
-        setCaptureHttpHeaders(true); // maintain original behaviour
+        // Preserve the legacy property position for JMX round-trips; headers are now unconditional.
+        setProperty("ProxyControlGui.capture_http_headers", true);
     }
 
     /**
@@ -331,17 +338,15 @@ public class ProxyControl extends GenericController implements NonTestElement {
         return getPropertyAsString(DOMAINS, "");
     }
 
-    public void setCaptureHttpHeaders(boolean capture) {
-        setProperty(new BooleanProperty(CAPTURE_HTTP_HEADERS, capture));
+    public void setStoreRecordedExchanges(boolean store) {
+        setProperty(new BooleanProperty(STORE_RECORDED_EXCHANGES, store));
     }
 
     public void setGroupingMode(int grouping) {
-        this.groupingMode = grouping;
         setProperty(new IntegerProperty(GROUPING_MODE, grouping));
     }
 
     public void setAssertions(boolean b) {
-        addAssertions = b;
         setProperty(new BooleanProperty(ADD_ASSERTIONS, b));
     }
 
@@ -350,17 +355,14 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void setSamplerRedirectAutomatically(boolean b) {
-        samplerRedirectAutomatically = b;
         setProperty(new BooleanProperty(SAMPLER_REDIRECT_AUTOMATICALLY, b));
     }
 
     public void setSamplerFollowRedirects(boolean b) {
-        samplerFollowRedirects = b;
         setProperty(new BooleanProperty(SAMPLER_FOLLOW_REDIRECTS, b));
     }
 
     public void setUseKeepAlive(boolean b) {
-        useKeepAlive = b;
         setProperty(new BooleanProperty(USE_KEEPALIVE, b));
     }
 
@@ -369,7 +371,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void setSamplerDownloadImages(boolean b) {
-        samplerDownloadImages = b;
         setProperty(new BooleanProperty(SAMPLER_DOWNLOAD_IMAGES, b));
     }
 
@@ -415,7 +416,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void setRegexMatch(boolean b) {
-        regexMatch = b;
         setProperty(new BooleanProperty(REGEX_MATCH, b));
     }
 
@@ -428,11 +428,11 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public boolean getAssertions() {
-        return getPropertyAsBoolean(ADD_ASSERTIONS);
+        return false; // Retain the legacy property for JMX round trips only.
     }
 
     public int getGroupingMode() {
-        return getPropertyAsInt(GROUPING_MODE);
+        return getPropertyAsInt(GROUPING_MODE, GROUPING_IN_TRANSACTION_CONTROLLERS);
     }
 
     public int getPort() {
@@ -447,8 +447,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
         return DEFAULT_PORT;
     }
 
-    public boolean getCaptureHttpHeaders() {
-        return getPropertyAsBoolean(CAPTURE_HTTP_HEADERS);
+    public boolean getStoreRecordedExchanges() {
+        return getPropertyAsBoolean(STORE_RECORDED_EXCHANGES, true);
     }
 
     public String getSamplerTypeName() {
@@ -464,7 +464,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public boolean getSamplerFollowRedirects() {
-        return getPropertyAsBoolean(SAMPLER_FOLLOW_REDIRECTS, true);
+        return getPropertyAsBoolean(SAMPLER_FOLLOW_REDIRECTS, false);
     }
 
     public boolean getUseKeepalive() {
@@ -496,7 +496,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public boolean getRegexMatch() {
-        return getPropertyAsBoolean(REGEX_MATCH, false);
+        return false; // Recorder variable substitution always uses literal values.
     }
 
     public String getContentTypeExclude() {
@@ -527,6 +527,9 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void startProxy() throws IOException {
+        if (hasPendingRecording()) {
+            throw new IOException("Review the previous recording before starting another one.");
+        }
         try {
             initKeyStore();
         } catch (GeneralSecurityException e) {
@@ -536,22 +539,21 @@ public class ProxyControl extends GenericController implements NonTestElement {
             log.error("Could not initialise key store", e);
             throw e;
         }
-        sampleWorkerTimer = new javax.swing.Timer(200, this::putSamplesIntoModel);
-        sampleWorkerTimer.start();
+        recordingTarget = findTargetControllerNode();
+        diagnostics = new RecordingDiagnostics();
+        captureWorker = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("proxy-recording-worker").factory());
         notifyTestListenersOfStart();
         try {
             server = new Daemon(getPort(), this);
-            if (getProxyPauseHTTPSample().isEmpty()) {
-                sampleGap = JMeterUtils.getPropDefault("proxy.pause", 5000);
-            } else {
-                sampleGap = Long.parseLong(getProxyPauseHTTPSample().trim());
-            }
             server.start();
             if (GuiPackage.getInstance() != null) {
                 GuiPackage.getInstance().register(server);
             }
         } catch (IOException e) {
             log.error("Could not create HTTP(S) Test Script Recorder Proxy daemon", e);
+            captureWorker.close();
+            captureWorker = null;
+            notifyTestListenersOfEnd();
             throw e;
         }
     }
@@ -592,6 +594,29 @@ public class ProxyControl extends GenericController implements NonTestElement {
      */
     public void setTarget(JMeterTreeNode target) {
         this.target = target;
+        if (server != null) {
+            recordingTarget = findTargetControllerNode();
+        }
+    }
+
+    JMeterTreeNode captureTarget() {
+        return server == null ? findTargetControllerNode() : recordingTarget;
+    }
+
+    public void setAddPreflightSuffix(boolean enabled) {
+        setProperty("ProxyControlGui.add_preflight_suffix", enabled, true);
+    }
+
+    public boolean getAddPreflightSuffix() {
+        return getPropertyAsBoolean("ProxyControlGui.add_preflight_suffix", true);
+    }
+
+    public void setIgnoreHttpErrors(boolean ignore) {
+        setProperty(IGNORE_HTTP_ERRORS, ignore, false);
+    }
+
+    public boolean getIgnoreHttpErrors() {
+        return getPropertyAsBoolean(IGNORE_HTTP_ERRORS, false);
     }
 
     /**
@@ -602,14 +627,17 @@ public class ProxyControl extends GenericController implements NonTestElement {
      * @param sampler      the sampler, may be null
      * @param testElements the test elements to be added (e.g. header manager) under the Sampler
      * @param result       the sample result, not null
-     *                     TODO param serverResponse to be added to allow saving of the
-     *                     server's response while recording.
      */
     public synchronized void deliverSampler(final HTTPSamplerBase sampler, final TestElement[] testElements, final SampleResult result) {
+        RecordingRequestSettings settings = result instanceof HttpProxyTransport.Capture capture && capture.request().settings != null
+                ? capture.request().settings : RecordingRequestSettings.capture(this);
         boolean notifySampleListeners = true;
         if (sampler != null) {
+            if (settings.preflightSuffix() && "OPTIONS".equals(sampler.getMethod())) {
+                sampler.setName(sampler.getName() + "_preflight");
+            }
             if (USE_REDIRECT_DISABLING
-                    && (samplerRedirectAutomatically || samplerFollowRedirects)
+                    && (settings.autoRedirects() || settings.followRedirects())
                     && result instanceof HTTPSampleResult httpSampleResult) {
                 final String urlAsString = httpSampleResult.getUrlAsString();
                 if (urlAsString.equals(LAST_REDIRECT)) { // the url matches the last redirect
@@ -627,8 +655,19 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     LAST_REDIRECT = null;
                 }
             }
-            if (filterContentType(result) && filterUrl(sampler)) {
-                JMeterTreeNode myTarget = findTargetControllerNode();
+            boolean transportFailure = !result.getResponseCode().matches("[1-5][0-9]{2}")
+                    || result instanceof HttpProxyTransport.Capture capture && !capture.transportError().isEmpty();
+            diagnostics.captured(transportFailure || sampler.getComment().startsWith("Replay conversion failed:"));
+            if (transportFailure) {
+                sampler.setEnabled(false);
+                String diagnostic = result instanceof HttpProxyTransport.Capture capture
+                        ? capture.transportError() : result.getResponseMessage();
+                diagnostics.incomplete(result.getUrlAsString() + " — " + diagnostic);
+                sampler.setComment(sampler.getComment() + "\nRecording transport failed: " + diagnostic);
+            }
+            if (transportFailure || sampler.getComment().startsWith("Replay conversion failed:")
+                    || filterContentType(result) && filterUrl(sampler)) {
+                JMeterTreeNode myTarget = settings.target();
                 @SuppressWarnings("unchecked") // OK, because find only returns correct element types
                 Collection<ConfigTestElement> defaultConfigurations = (Collection<ConfigTestElement>) findApplicableElements(
                         myTarget, ConfigTestElement.class, false);
@@ -638,22 +677,37 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
                 removeValuesFromSampler(sampler, defaultConfigurations);
                 replaceValues(sampler, testElements, userDefinedVariables);
-                sampler.setAutoRedirects(samplerRedirectAutomatically);
-                sampler.setFollowRedirects(samplerFollowRedirects);
-                sampler.setUseKeepAlive(useKeepAlive);
-                sampler.setImageParser(samplerDownloadImages);
+                sampler.setAutoRedirects(settings.autoRedirects());
+                sampler.setFollowRedirects(settings.followRedirects());
+                sampler.setUseKeepAlive(settings.keepAlive());
+                sampler.setImageParser(settings.images());
                 Authorization authorization = createAuthorization(testElements, result);
-                if (authorization != null) {
-                    setAuthorization(authorization, myTarget);
-                }
                 TestElement[] childElements = foldHeaderManagers(sampler, testElements);
-                sampleQueue.add(new SamplerInfo(sampler, childElements, myTarget, getPrefixHTTPSampleName(), groupingMode));
+                if (settings.ignoreErrors() && result.getResponseCode().matches("[45][0-9]{2}")) {
+                    ResponseAssertion assertion = new ResponseAssertion();
+                    assertion.setProperty(TestElement.GUI_CLASS, AssertionGui.class.getName());
+                    assertion.setName("Ignore HTTP-" + result.getResponseCode());
+                    assertion.setComment("Recorded HTTP-" + result.getResponseCode() + " response, ignoring it");
+                    assertion.setTestFieldResponseCode();
+                    assertion.setToSubstringType();
+                    assertion.setAssumeSuccess(true);
+                    childElements = Arrays.copyOf(childElements, childElements.length + 1);
+                    childElements[childElements.length - 1] = assertion;
+                }
+                if (settings.storeExchanges()) {
+                    storeRecordedExchange(sampler, result);
+                }
+                RecordedSampler recorded = new RecordedSampler(sampler, childElements, myTarget, settings.prefix(),
+                        settings.grouping(), result, transportFailure, authorization);
+                recorded.transactionGapMillis = settings.transactionGapMillis();
+                sampleQueue.add(recorded);
             } else {
                 if (log.isDebugEnabled()) {
                     log.debug(
                             "Sample excluded based on url or content-type: {} - {}",
                             result.getUrlAsString(), result.getContentType());
                 }
+                diagnostics.filtered();
                 notifySampleListeners = notifyChildSamplerListenersOfFilteredSamples;
                 result.setSampleLabel("[" + result.getSampleLabel() + "]");
             }
@@ -665,6 +719,28 @@ public class ProxyControl extends GenericController implements NonTestElement {
             log.debug(
                     "Sample not delivered to Child Sampler Listener based on url or content-type: {} - {}",
                     result.getUrlAsString(), result.getContentType());
+        }
+    }
+
+    private void storeRecordedExchange(HTTPSamplerBase sampler, SampleResult result) {
+        try {
+            RecordedExchangeStore.Archive recording = result instanceof HttpProxyTransport.Capture capture
+                    ? RecordedExchangeStore.fromProxy(result, capture.requestWire(), capture.responseWire(),
+                            capture.requestBody(), capture.transportError(),
+                            capture.webSocket == null ? List.of() : capture.webSocket.messages(),
+                            capture.webSocket == null ? null : capture.webSocket.wire(true),
+                            capture.webSocket == null ? null : capture.webSocket.wire(false),
+                            capture.sse == null ? null : capture.sse.events())
+                    : RecordedExchangeStore.fromProxy(result);
+            JmxArchiveEntryStore.registerBundle(
+                    recording.manifestEntryName(), recording.checksum(), recording.entries());
+            // Keep the source on the sampler so grouping and target changes cannot break its link.
+            sampler.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, recording.manifestEntryName());
+            sampler.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum());
+            sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, recording.exchangeIds().get(0));
+        } catch (IOException e) {
+            log.error("Unable to store the recorded request and response for {}", sampler.getName(), e);
+            diagnostics.processingError("Unable to store recorded request and response: " + e);
         }
     }
 
@@ -775,6 +851,153 @@ public class ProxyControl extends GenericController implements NonTestElement {
         return url;
     }
 
+    /** Enqueue conversion and archive work; forwarding threads never execute it. */
+    void submitCapture(Runnable capture) {
+        ExecutorService worker = captureWorker;
+        if (worker == null) {
+            throw new IllegalStateException("Recorder processing worker is not running");
+        }
+        worker.execute(() -> {
+            var context = org.apache.jmeter.threads.JMeterContextService.getContext();
+            context.setRecording(true);
+            try {
+                capture.run();
+            } catch (RuntimeException e) {
+                diagnostics.processingError("Unable to process recorded exchange: " + e);
+                log.error("Unable to process recorded exchange", e);
+            } finally {
+                context.setRecording(false);
+            }
+        });
+    }
+
+    public boolean hasPendingRecording() {
+        return !sampleQueue.isEmpty() || diagnostics.pending();
+    }
+
+    /** Reopen a postponed review. Must run on the Swing event thread. */
+    public void reviewRecording() {
+        if (server != null) {
+            return;
+        }
+        if (!hasPendingRecording()) {
+            return;
+        }
+        List<RecordedSampler> samples = new ArrayList<>(sampleQueue);
+        samples.sort(Comparator.comparingDouble((RecordedSampler sample) -> sample.entry.getStartMs()).thenComparingLong(RecordedSampler::sequence));
+        RecordingTransactions.assign(samples);
+        if (nonGuiTreeModel != null || GuiPackage.getInstance() == null) {
+            // Non-GUI callers have no selection dialog; retain failed captures disabled for inspection.
+            applyRecording(samples, RecorderSettings.options(this), getGroupingMode(), false);
+            sampleQueue.removeAll(samples);
+            diagnostics.reviewed();
+            return;
+        }
+        RecorderWizard wizard = new RecorderWizard(GuiPackage.getInstance().getMainFrame(), this, samples);
+        wizard.setVisible(true);
+        RecorderWizard.Result selection = wizard.getResult();
+        if (selection == null) {
+            return; // Review later keeps every pending capture available.
+        }
+        List<RecordedSampler> included = selectRecording(samples, selection.hosts(), selection.failed());
+        Set<JMeterTreeNode> previousRequests = new HashSet<>(FindPredefinedCorrelationsAction.correlationRequests(getJmeterTreeModel()));
+        applyRecording(included, selection.options(), selection.grouping(), true);
+        RecordingTreeExpansion.expand(included);
+        if (selection.processCorrelations()) {
+            FindPredefinedCorrelationsAction.reviewRecording(GuiPackage.getInstance(),
+                    FindPredefinedCorrelationsAction.correlationRequests(getJmeterTreeModel()).stream()
+                            .filter(node -> !previousRequests.contains(node)).toList());
+        }
+        sampleQueue.removeAll(samples);
+        diagnostics.reviewed();
+    }
+
+    public static List<RecordedSampler> selectRecording(List<RecordedSampler> samples, Set<String> hosts,
+            Set<RecordedSampler> failed) {
+        return samples.stream().filter(sample -> hosts.contains(HarConverter.hostnameOf(sample.entry.getUrl())))
+                .filter(sample -> !sample.failed || failed.contains(sample))
+                .sorted(Comparator.comparingDouble((RecordedSampler sample) -> sample.entry.getStartMs())
+                        .thenComparingLong(RecordedSampler::sequence)).toList();
+    }
+
+    void applyRecording(List<RecordedSampler> samples, HarImportOptions options, int grouping, boolean enableSelectedFailures) {
+        RecordingTransactions.assign(samples);
+        RecordingSessionNames sessionNames = new RecordingSessionNames(getJmeterTreeModel());
+        for (RecordedSampler sample : samples) {
+            if (sample.sampler instanceof org.apache.jmeter.protocol.sse.SseSampler sse) {
+                sse.setSseSessionName(sessionNames.next("sse-"));
+            }
+        }
+        if (enableSelectedFailures) {
+            samples.stream().filter(RecordedSampler::failed).forEach(sample -> sample.sampler.setEnabled(true));
+        }
+        if (grouping != GROUPING_IN_TRANSACTION_CONTROLLERS && grouping != 0
+                && samples.stream().noneMatch(sample -> sample.entry.isWebSocket())) {
+            // Preserve the explicit legacy separator/simple-controller/first-only choices.
+            Queue<RecordedSampler> pending = new ConcurrentLinkedQueue<>(sampleQueue);
+            sampleQueue.clear();
+            sampleQueue.addAll(samples);
+            putSamplesIntoModel();
+            sampleQueue.addAll(pending);
+            return;
+        }
+        Map<JMeterTreeNode, Map<HarEntry, HashTree>> targets = new LinkedHashMap<>();
+        for (RecordedSampler info : samples) {
+            if (info.authorization != null) {
+                setAuthorization(info.authorization, info.target);
+            }
+            if (enableSelectedFailures && info.failed) {
+                info.sampler.setEnabled(true);
+            }
+            HashTree tree = new ListedHashTree();
+            HashTree children = tree.add(info.sampler);
+            for (TestElement child : info.testElements) {
+                if (isAddableTestElement(child)) {
+                    children.add(child);
+                }
+            }
+            targets.computeIfAbsent(info.target, ignored -> new LinkedHashMap<>()).put(info.entry, tree);
+        }
+        for (var target : targets.entrySet()) {
+            HashTree tree = new HarConverter(List.of(), options, "Proxy recording", "")
+                    .layoutRecorded(target.getValue(), grouping);
+            sessionNames.renameWebSockets(tree);
+            if (getAssertions()) {
+                for (Object element : tree.list()) {
+                    HashTree first = firstRecordedSampler(tree.getTree(element));
+                    if (element instanceof HTTPSamplerBase) {
+                        first = tree.getTree(element);
+                    }
+                    if (first != null) {
+                        ResponseAssertion assertion = new ResponseAssertion();
+                        assertion.setProperty(TestElement.GUI_CLASS, ASSERTION_GUI);
+                        assertion.setName(JMeterUtils.getResString("assertion_title"));
+                        assertion.setTestFieldResponseData();
+                        first.add(assertion);
+                    }
+                }
+            }
+            try {
+                getJmeterTreeModel().addSubTree(tree, target.getKey());
+            } catch (IllegalUserActionException e) {
+                throw new IllegalStateException("Unable to insert recorded scenario", e);
+            }
+        }
+    }
+
+    private static HashTree firstRecordedSampler(HashTree tree) {
+        for (Object element : tree.list()) {
+            if (element instanceof HTTPSamplerBase) {
+                return tree.getTree(element);
+            }
+            HashTree nested = firstRecordedSampler(tree.getTree(element));
+            if (nested != null) {
+                return nested;
+            }
+        }
+        return null;
+    }
+
     public void stopProxy() {
         if (server != null) {
             server.stopServer();
@@ -783,16 +1006,29 @@ public class ProxyControl extends GenericController implements NonTestElement {
             }
             try {
                 server.join(1000); // wait for server to stop
+                server.awaitConnections();
             } catch (InterruptedException e) {
                 //NOOP
                 Thread.currentThread().interrupt();
             }
+            ExecutorService worker = captureWorker;
+            if (worker != null) {
+                worker.close();
+                captureWorker = null;
+            }
             notifyTestListenersOfEnd();
             server = null;
         }
-        if (sampleWorkerTimer != null) {
-            sampleWorkerTimer.stop();
-            sampleWorkerTimer = null;
+        if (SwingUtilities.isEventDispatchThread()) {
+            reviewRecording();
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(this::reviewRecording);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (InvocationTargetException e) {
+                log.error("Unable to flush recorded samples", e.getCause());
+            }
         }
     }
 
@@ -1215,28 +1451,32 @@ public class ProxyControl extends GenericController implements NonTestElement {
         return elements;
     }
 
-    private void putSamplesIntoModel(ActionEvent e) {
+    private void putSamplesIntoModel() {
         // return early, as JMeterTreeModel might not been initialized yet
         if (sampleQueue.isEmpty()) {
             return;
         }
         final JMeterTreeModel treeModel = getJmeterTreeModel();
+        Map<JMeterTreeNode, String> transactions = new LinkedHashMap<>();
+        Map<JMeterTreeNode, Double> previousEnds = new LinkedHashMap<>();
         while (!sampleQueue.isEmpty()) {
-            SamplerInfo info = sampleQueue.poll();
+            RecordedSampler info = sampleQueue.poll();
+            if (info.authorization != null) {
+                setAuthorization(info.authorization, info.target);
+            }
             try {
                 log.info("Add sample {} into controller {}", info.sampler.getName(), info.prefix);
                 try {
-                    long now = info.recordedAt;
-                    long deltaT = now - lastTime;
-                    boolean firstInBatch = prepareTree( treeModel, deltaT, info);
-                    if (lastTime == 0) {
-                        deltaT = 0; // Decent value for timers
-                    }
-                    lastTime = now;
+                    Double previousEnd = previousEnds.get(info.target);
+                    long deltaT = previousEnd == null ? 0 : (long) Math.max(0, info.entry.getStartMs() - previousEnd);
+                    previousEnds.merge(info.target, info.entry.getEndMs(), Math::max);
+                    boolean firstInBatch = !Objects.equals(transactions.put(info.target, info.entry.getTransactionId()),
+                            info.entry.getTransactionId());
+                    prepareTree(treeModel, firstInBatch, info);
 
                     if (info.groupingMode == GROUPING_STORE_FIRST_ONLY) {
-                        if (!firstInBatch) {
-                            return; // Huh! don't store this one!
+                        if (!firstInBatch && info.sampler.isEnabled()) {
+                            continue;
                         }
 
                         // If we're not storing subsequent samplers, we'll need the
@@ -1248,7 +1488,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     final JMeterTreeNode targetNode = getTargetNode(info.target, info.groupingMode);
                     final JMeterTreeNode newNode = treeModel.addComponent(info.sampler, targetNode);
                     if (firstInBatch) {
-                        if (addAssertions) {
+                        if (getAssertions()) {
                             addAssertion(treeModel, newNode);
                         }
                         addTimers(treeModel, newNode, deltaT);
@@ -1277,18 +1517,11 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
     }
 
-    private boolean prepareTree(final JMeterTreeModel treeModel,
-            long deltaT, SamplerInfo info) {
-        HTTPSamplerBase sampler = info.sampler;
+    private static void prepareTree(final JMeterTreeModel treeModel, boolean firstInBatch, RecordedSampler info) {
         JMeterTreeNode myTarget = info.target;
         int cachedGroupingMode = info.groupingMode;
-        boolean prefixChanged = false;
-        if (oldPrefix == null || !oldPrefix.equals(info.prefix)) {
-            oldPrefix = info.prefix;
-            prefixChanged = true;
-        }
-        if (deltaT > sampleGap || prefixChanged) {
-            String controllerName = Objects.toString(getPrefixHTTPSampleName(), sampler.getName());
+        if (firstInBatch) {
+            String controllerName = info.entry.getTransactionName();
             if (!myTarget.isLeaf() && cachedGroupingMode == GROUPING_ADD_SEPARATORS) {
                 addDivider(treeModel, myTarget);
             }
@@ -1298,9 +1531,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
             if (cachedGroupingMode == GROUPING_IN_TRANSACTION_CONTROLLERS) {
                 addTransactionController(treeModel, myTarget, controllerName);
             }
-            return true;// Remember this was first in its batch
         }
-        return false;
     }
 
     private static JMeterTreeNode getTargetNode(JMeterTreeNode origTarget, int cachedGroupingMode) {
@@ -1346,7 +1577,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
         return false;
     }
-
 
     /**
      * Remove from the sampler all values which match the one provided by the
@@ -1446,7 +1676,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
      * @param variables Collection of Arguments to use to do the replacement, ordered
      *                  by ascending priority.
      */
-    private void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
+    private static void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
         // Build the replacer from all the variables in the collection:
         ValueReplacer replacer = new ValueReplacer();
         for (Arguments variable : variables) {
@@ -1457,11 +1687,10 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
 
         try {
-            boolean cachedRegexpMatch = regexMatch;
-            replacer.reverseReplace(sampler, cachedRegexpMatch);
+            replacer.reverseReplace(sampler, false);
             for (TestElement config : configs) {
                 if (config != null) {
-                    replacer.reverseReplace(config, cachedRegexpMatch);
+                    replacer.reverseReplace(config, false);
                 }
             }
         } catch (InvalidVariableException e) {
@@ -1747,28 +1976,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     public static boolean isDynamicMode() {
         return KEYSTORE_MODE == KeystoreMode.DYNAMIC_KEYSTORE;
-    }
-
-    /**
-     * Holds information about a sampler at the time of recording by the HTTP proxy
-     */
-    private static class SamplerInfo implements Serializable {
-        private static final long serialVersionUID = 1L;
-        private final HTTPSamplerBase sampler;
-        private final transient TestElement[] testElements;
-        private final JMeterTreeNode target;
-        private final String prefix;
-        private final int groupingMode;
-        private final long recordedAt;
-
-        private SamplerInfo(HTTPSamplerBase sampler, TestElement[] testElements, JMeterTreeNode target, String prefix, int groupingMode) {
-            this.sampler = sampler;
-            this.testElements = testElements;
-            this.target = target;
-            this.prefix = prefix;
-            this.groupingMode = groupingMode;
-            this.recordedAt = System.currentTimeMillis();
-        }
     }
 
 }

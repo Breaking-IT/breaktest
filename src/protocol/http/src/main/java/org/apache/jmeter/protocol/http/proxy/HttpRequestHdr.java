@@ -25,7 +25,9 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
 
@@ -74,6 +76,8 @@ public class HttpRequestHdr {
     private byte[] rawPostData;
 
     private final Map<String, Header> headers = new HashMap<>();
+
+    private final List<Header> orderedHeaders = new ArrayList<>();
 
     private final String httpSamplerName;
 
@@ -195,6 +199,21 @@ public class HttpRequestHdr {
         return clientRequest.toByteArray();
     }
 
+    /** Populate replay metadata from an already forwarded exchange, without re-parsing its transfer framing. */
+    void parseCaptured(HttpProxyTransport.Head head, URL requestUrl, byte[] body) {
+        headers.clear();
+        orderedHeaders.clear();
+        headerManager = null;
+        parseFirstLine(head.method() + " " + requestUrl + " " + head.firstLine().split(" ", 3)[2]);
+        for (String line : head.headers().split("\r\n")) {
+            if (!line.regionMatches(true, 0, "Transfer-Encoding:", 0, 18)
+                    && !line.regionMatches(true, 0, "Content-Length:", 0, 15)) {
+                parseLine(line);
+            }
+        }
+        rawPostData = body;
+    }
+
     private void parseFirstLine(String firstLine) {
         this.firstLine = firstLine;
         if (log.isDebugEnabled()) {
@@ -255,7 +274,9 @@ public class HttpRequestHdr {
         }
         String name = nextLine.substring(0, colon).trim();
         String value = nextLine.substring(colon+1).trim();
-        headers.put(name.toLowerCase(java.util.Locale.ENGLISH), new Header(name, value));
+        Header header = new Header(name, value);
+        headers.put(name.toLowerCase(java.util.Locale.ENGLISH), header);
+        orderedHeaders.add(header);
         if (name.equalsIgnoreCase(CONTENT_LENGTH)) {
             return Integer.parseInt(value);
         }
@@ -264,12 +285,12 @@ public class HttpRequestHdr {
 
     private HeaderManager createHeaderManager() {
         HeaderManager manager = new HeaderManager();
-        for (Map.Entry<String, Header> entry : headers.entrySet()) {
-            final String key = entry.getKey();
+        for (Header header : orderedHeaders) {
+            final String key = header.getName().toLowerCase(java.util.Locale.ENGLISH);
             if (!key.equals(PROXY_CONNECTION)
              && !key.equals(CONTENT_LENGTH)
              && !key.equalsIgnoreCase(HTTPConstants.HEADER_CONNECTION)) {
-                manager.add(entry.getValue());
+                manager.add(header);
             }
         }
         manager.setName(JMeterUtils.getResString("header_manager_title")); // $NON-NLS-1$

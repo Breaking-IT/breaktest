@@ -30,7 +30,6 @@ public class WebSocketCloseSampler extends AbstractWebSocketSampler {
     protected void execute(SampleResult result) throws Exception {
         WebSocketSessions sessions = WebSocketSessions.current();
         WebSocketSession session = sessions.get(getSessionName());
-        waitForRecordedTime(session, result, getCloseOffset());
         active(session);
         try {
             await(session.close());
@@ -39,11 +38,4 @@ public class WebSocketCloseSampler extends AbstractWebSocketSampler {
         }
     }
 
-    public String getCloseOffset() {
-        return getPropertyAsString("closeOffset");
-    }
-
-    public void setCloseOffset(String value) {
-        setProperty("closeOffset", value);
-    }
 }

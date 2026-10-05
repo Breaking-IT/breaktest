@@ -182,8 +182,8 @@ A send waits only for the remaining time until that offset; if preceding work ru
 Observed client-initiated disconnects produce a WebSocket Close sampler at the recorded close initiation time
 (or the observed close time when initiation time is unavailable), including in later transactions.
 Server-initiated or unattributed disconnects and stopping a recording do not create a client Close step.
-Recorded close timing uses the same connection-relative pacing as sends. Handshake response headers and
-close attribution remain available in the recording archive.
+Close samplers close immediately when executed; recorded timestamps only determine their position in the script.
+Handshake response headers and close attribution remain available in the recording archive.
 Received messages remain reference data. Protocol control frames are handled by the WebSocket transport.
 </p>
 
@@ -470,6 +470,104 @@ validate it, repair it, and show changes in the GUI.
       that changed, disappeared, or became busy. Each replacement or removal (including controller cleanup)
       is a single undoable action; undo and redo refresh the open editor.</li>
 </ul>
+
+<h2>HTTP(S) Recorder Forwarding</h2>
+<p>
+The recorder forwards traffic independently of the sampler selected for replay.
+HTTPS recording negotiates the same protocol on both TLS connections: HTTP/2 when supported by the browser and origin,
+or HTTP/1.1 otherwise. HTTP/2 frames, including flow control and multiplexed streams, pass through unchanged.
+HTTP/3 is not supported.
+Compressed bodies, duplicate headers, multipart boundaries, chunk extensions and trailers are preserved.
+Responses stream to the browser as they arrive, and persistent connections can carry multiple requests.
+WebSocket upgrades are relayed bidirectionally and recorded as native WebSocket connections and messages.
+</p>
+<p>
+Native recordings in the JMX archive retain the original client-facing HTTP messages (before TLS encryption),
+including encoded bodies and transfer framing. HTTP/2 recordings retain original per-stream frames alongside decoded headers;
+HPACK frames refer to the shared connection compression context. The recorded-data views still show decoded content for inspection.
+A streaming exchange is finalized when it ends or the recorder stops. Transport failures retain available partial data
+and appear in the finish-recording wizard with diagnostic details. Failed requests are not automatically resent.
+Sampler conversion, archive storage, and HTTP/2 header inspection run on recording workers, independently of forwarding.
+</p>
+<p>
+Enable <b>Add Ignore HTTP-4xx/5xx assertion</b> in the recorder to attach the same ignore-error assertion used by HAR import
+when a captured response has a 4xx or 5xx status. HTTP error responses are kept as enabled samplers;
+connection and transport failures are reviewed separately. This option is off by default.
+</p>
+<p>
+Request headers are always included in generated samplers. <b>Store recorded requests/responses</b> (enabled by default)
+controls whether original request/response headers and bodies are retained as native recorded exchanges for later inspection.
+Disabling storage still creates samplers with request headers, grouping, and timing; it does not change forwarded traffic.
+The former Capture HTTP Headers setting is ignored when loading existing scripts or preferences.
+</p>
+<p>
+Responses with <code>Content-Type: text/event-stream</code> become native SSE Connect samplers, as in HAR import.
+The proxy records complete events with their names, IDs, multiline data, arrival times, and active recorder transaction names.
+HTTP, HTTPS, HTTP/2, chunked transfer, and supported content encodings retain their original forwarded bytes;
+SSE parsing and decompression run on a separate recording worker.
+With recording storage enabled, events and original HTTP bytes survive saving and reopening the JMX archive.
+Stopping the recorder or closing an SSE stream from the browser preserves complete events and discards an unfinished event, without marking the capture as failed.
+Browser HTTP/2 CANCEL/NO_ERROR resets are treated as normal SSE cancellation; server resets and protocol errors remain failures.
+Stream duration does not extend a transaction or force unrelated requests into one parallel group.
+Incoming events remain reference data; the recorder does not invent SSE Match actions or a Close step.
+</p>
+<p>
+WebSocket connections are recorded as native WebSocket Connect, Send, and Close samplers, using the same conversion as HAR import.
+Both plain and TLS connections are supported, including WebSocket streams carried by HTTP/2 extended CONNECT.
+Session names use <code>websocket-1</code>, <code>websocket-2</code>, or <code>sse-1</code>, <code>sse-2</code>,
+skipping names already present in the test plan.
+Outgoing text and binary messages become timed Send samplers; incoming messages and control frames remain available as recorded reference data.
+Fragmented messages are assembled and negotiated permessage-deflate payloads are decoded in the background, while forwarded bytes remain unchanged.
+With <b>Store recorded requests/responses</b> enabled, the native recording retains handshake headers, message directions, payloads,
+connection-relative times, and original frame bytes. Turning storage off still creates the replay samplers.
+</p>
+<p>
+Stopping the recorder opens a wizard: choose hostnames with the same grouped selector used by HAR import,
+review recording failures (skipped only when there are none), then configure transactions and think times.
+Failures remain visible even for excluded hosts. Select a row to read its full destination and error details.
+TLS negotiation failures before an HTTP request arrives are shown with the CONNECT destination and cannot be selected for replay.
+Failed captures are unchecked by default;
+selected failures are included as enabled samplers with their diagnostic comments. HTTP 4xx/5xx responses are included normally.
+Choose <b>Review later</b> to keep the pending recording, then use <b>Review recording...</b> to reopen it before starting another session.
+After adding the recording, the target thread groups expand automatically.
+<b>Process correlation rules</b> is enabled by default when the selected recording has stored requests/responses.
+It scans only newly added HTTP and WebSocket Connect requests using the plan's enabled correlation rules, then opens the existing match review before applying extractors and replacements.
+This includes SignalR negotiation tokens used in a subsequent native WebSocket URL, including URL-encoded tokens.
+Each thread group is processed separately; consumers that depend on an extractor in the same parallel group use the existing split confirmation.
+The choice is saved with recorder preferences. Without stored exchanges the option is unavailable; the wizard explains the storage requirement.
+Non-GUI recording has no wizard and retains failures as disabled samplers.
+The recorder and wizard show session counts for captured requests (before filtering), filtered requests, failed captures,
+incomplete captures, and processing errors. Incomplete and failed counts can overlap. HTTP/2 inspection failures leave a
+persistent warning even when no sampler could be created; forwarding continues, and observed streams without captures
+are counted when the connection ends. Diagnostics identify browser/server I/O failures and recorder shutdown where known.
+Warnings remain after review until the next recording starts.
+</p>
+<p>
+Requests are ordered by their recorded start time, with a capture sequence breaking ties. The recorder reuses HAR import's
+transaction layout and delay modes. Recorder parallel groups retain connected overlaps, including requests that start
+while an earlier slow request is still running. Redirect targets start a new group. A shared monotonic clock retains
+sub-millisecond start/end precision for grouping. Idle gaps are measured after the latest preceding response ends,
+so a slow overlapping request does not create false think time. The defaults are a new Transaction Controller per group,
+as-recorded think time, and no automatic or followed redirects; redirect requests are recorded individually.
+Transactions follow the names set during recording; elapsed idle time does not start a new transaction.
+Transaction-name edits take effect on Enter or when focus leaves the name field.
+Sampler names omit query strings by default, without changing the recorded URL or replay parameters.
+Use <code>#{path}#{querystring}</code> (or <code>#{path}#querystring</code>) in the name formatter to include the query;
+the query placeholder includes the leading question mark only when a query is present.
+The recorder defaults to appending <code>_preflight</code> to OPTIONS request names, as HAR import does.
+Disable <b>Append _preflight to OPTIONS request names</b> to keep those names unchanged; this preference is saved with recorder settings.
+Incomplete captures and event streams do not extend transaction activity; their native recordings retain the actual transfer timings.
+Transaction boundaries are resolved before filtering hosts or failed captures. Think-time choices only affect replay delays.
+The first transaction has no think time. Existing explicit legacy grouping choices remain available.
+Each request snapshots its target, naming format and prefix, grouping, exchange storage, GraphQL detection, replay redirect,
+keep-alive, image-download, and ignore-error settings when it arrives. Later edits do not change requests already in flight
+or waiting for background conversion. The wizard's final layout choices still apply to the reviewed recording.
+</p>
+<p>
+<b>Remember recorder settings for other scripts</b> saves recorder preferences, including the naming format, filters,
+grouping, redirects, and think-time settings, to <code>user.properties</code> under <code>proxy.recorder.*</code>.
+Existing script settings take precedence when that script is opened. Host and failure selections apply only to the current recording.
+</p>
 
 <h2>Visual Debugging And HAR Migration</h2>
 <ul>

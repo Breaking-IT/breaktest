@@ -49,6 +49,7 @@ import javax.swing.LookAndFeel;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.event.ChangeListener;
 
 import org.apache.jmeter.gui.util.ParameterCompletionCatalog.Suggestion;
 import org.junit.jupiter.api.AfterAll;
@@ -119,7 +120,8 @@ class ParameterCompletionTableTest {
                     type('u');
                 }
             });
-            // Drain the deferred document/caret refresh before checking the real popup and key routing.
+            // Native focus and deferred refresh events can take more than one EDT turn.
+            window.awaitCompletionPopup();
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("${u", window.editor.getText());
                 assertTrue(MenuSelectionManager.defaultManager().getSelectedPath().length > 0);
@@ -188,9 +190,16 @@ class ParameterCompletionTableTest {
         private WindowAdapter focusListener;
         private final CountDownLatch tableFocused = new CountDownLatch(1);
         private final CountDownLatch editorFocused = new CountDownLatch(1);
+        private final CountDownLatch completionShown = new CountDownLatch(1);
+        private final ChangeListener completionListener = event -> {
+            if (MenuSelectionManager.defaultManager().getSelectedPath().length > 0) {
+                completionShown.countDown();
+            }
+        };
 
         EditorWindow(String initialValue, boolean standalone) throws Exception {
             SwingUtilities.invokeAndWait(() -> {
+                MenuSelectionManager.defaultManager().addChangeListener(completionListener);
                 table = new JTable(new Object[][] {{initialValue}}, new String[] {"Value"});
                 editor = new JTextField(initialValue);
                 if (!standalone) {
@@ -244,9 +253,14 @@ class ParameterCompletionTableTest {
             assertTrue(editorFocused.await(5, TimeUnit.SECONDS), "Editor must receive real focus");
         }
 
+        void awaitCompletionPopup() throws InterruptedException {
+            assertTrue(completionShown.await(5, TimeUnit.SECONDS), "Completion popup must open after typing");
+        }
+
         @Override
         public void close() throws Exception {
             SwingUtilities.invokeAndWait(() -> {
+                MenuSelectionManager.defaultManager().removeChangeListener(completionListener);
                 MenuSelectionManager.defaultManager().clearSelectedPath();
                 frame.removeWindowFocusListener(focusListener);
                 frame.setContentPane(new JPanel());

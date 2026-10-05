@@ -83,6 +83,8 @@ import org.apache.jmeter.protocol.http.config.gui.RedirectHandlingSelector;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.proxy.Proxy;
 import org.apache.jmeter.protocol.http.proxy.ProxyControl;
+import org.apache.jmeter.protocol.http.proxy.RecorderSettings;
+import org.apache.jmeter.protocol.http.proxy.RecordingDiagnostics;
 import org.apache.jmeter.scenario.TestPlanSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -133,7 +135,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
      * default is to capture the HTTP request headers, which are specific to
      * particular browser settings.
      */
-    private JCheckBox httpHeaders;
+    private JCheckBox storeRecordedExchanges;
 
     /**
      * Whether to group requests together based on inactivity separation periods --
@@ -141,10 +143,9 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
      */
     private JComboBox<String> groupingMode;
 
-    /**
-     * Add an Assertion to the first sample of each set
-     */
-    private JCheckBox addAssertions;
+    private JCheckBox ignoreHttpErrors;
+
+    private JCheckBox addPreflightSuffix;
 
     /**
      * Set/clear the Use Keep-Alive box on the samplers (default is true)
@@ -157,14 +158,8 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     private JCheckBox detectGraphQLRequest;
 
     /**
-     * Use regexes to match the source data
-     */
-    private JCheckBox regexMatch;
-
-    /**
      * The list of sampler type names to choose from
      */
-    private JComboBox<String> samplerTypeName;
 
     /**
      * Redirect handling to configure on recorded samplers.
@@ -192,11 +187,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
      * Add a prefix/transaction name to HTTP sample name recorded
      */
     private JTextField prefixHTTPSampleName;
-
-    /**
-     * Delay between HTTP requests
-     */
-    private JTextField proxyPauseHTTPSample;
 
     /**
      * Regular expression to include results based on content type
@@ -235,6 +225,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     private JButton stop;
     private JButton start;
     private JButton restart;
+    private JButton review;
 
     private JTextField counterValue;
 
@@ -272,7 +263,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
     static final String PREFIX_HTTP_SAMPLER_NAME = "proxy_prefix_http_sampler_name"; // $NON-NLS-1$
 
-    static final String PROXY_PAUSE_HTTP_SAMPLER = "proxy_pause_http_sampler"; // $NON-NLS-1$
     //- action names
 
     // Resource names for column headers
@@ -285,7 +275,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
     static final String HTTP_SAMPLER_NAME_FORMAT = "proxy_http_sampler_name_format";
 
-
     public ProxyControlGui() {
         super();
         log.debug("Creating ProxyControlGui");
@@ -295,6 +284,20 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         } catch (HeadlessException ex) { // NOSONAR Needed for Headless tests
             // Ignore as due to Headless tests
         }
+        configureDefaults();
+    }
+
+    @Override
+    public void clearGui() {
+        super.clearGui();
+        configureDefaults();
+    }
+
+    private void configureDefaults() {
+        ProxyControl defaults = makeProxyControl();
+        RecorderSettings.applyDefaults(defaults);
+        defaults.setName(getStaticLabel());
+        configure(defaults);
     }
 
     /** {@inheritDoc} */
@@ -322,9 +325,10 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             model.setSslDomains(sslDomains.getText());
             setIncludeListInProxyControl(model);
             setExcludeListInProxyControl(model);
-            model.setCaptureHttpHeaders(httpHeaders.isSelected());
+            model.setStoreRecordedExchanges(storeRecordedExchanges.isSelected());
             model.setGroupingMode(groupingMode.getSelectedIndex());
-            model.setAssertions(addAssertions.isSelected());
+            model.setIgnoreHttpErrors(ignoreHttpErrors.isSelected());
+            model.setAddPreflightSuffix(addPreflightSuffix.isSelected());
             model.setSamplerTypeName(USE_DEFAULT_HTTP_IMPL);
             model.setSamplerRedirectAutomatically(samplerRedirectHandling.isAutomaticRedirects());
             model.setSamplerFollowRedirects(samplerRedirectHandling.isFollowRedirects());
@@ -334,9 +338,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             model.setHTTPSampleNamingMode(httpSampleNamingMode.getSelectedIndex());
             model.setDefaultEncoding(defaultEncoding.getText());
             model.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
-            model.setProxyPauseHTTPSample(proxyPauseHTTPSample.getText());
             model.setNotifyChildSamplerListenerOfFilteredSamplers(notifyChildSamplerListenerOfFilteredSamplersCB.isSelected());
-            model.setRegexMatch(regexMatch.isSelected());
             model.setContentTypeInclude(contentTypeInclude.getText());
             model.setContentTypeExclude(contentTypeExclude.getText());
             httpSampleNameFormat.setEnabled(httpSampleNamingMode.getSelectedIndex() == 3);
@@ -390,10 +392,10 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         model = (ProxyControl) element;
         portField.setText(model.getPortString());
         sslDomains.setText(model.getSslDomains());
-        httpHeaders.setSelected(model.getCaptureHttpHeaders());
+        storeRecordedExchanges.setSelected(model.getStoreRecordedExchanges());
         groupingMode.setSelectedIndex(model.getGroupingMode());
-        addAssertions.setSelected(model.getAssertions());
-        samplerTypeName.setSelectedItem(model.getSamplerTypeName());
+        ignoreHttpErrors.setSelected(model.getIgnoreHttpErrors());
+        addPreflightSuffix.setSelected(model.getAddPreflightSuffix());
         updatingRedirectHandling = true;
         try {
             samplerRedirectHandling.setRedirects(
@@ -407,9 +409,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         httpSampleNamingMode.setSelectedIndex(model.getHTTPSampleNamingMode());
         prefixHTTPSampleName.setText(model.getPrefixHTTPSampleName());
         defaultEncoding.setText(model.getDefaultEncoding());
-        proxyPauseHTTPSample.setText(model.getProxyPauseHTTPSample());
         notifyChildSamplerListenerOfFilteredSamplersCB.setSelected(model.getNotifyChildSamplerListenerOfFilteredSamplers());
-        regexMatch.setSelected(model.getRegexMatch());
         contentTypeInclude.setText(model.getContentTypeInclude());
         contentTypeExclude.setText(model.getContentTypeExclude());
         httpSampleNameFormat.setText(model.getHttpSampleNameFormat());
@@ -419,6 +419,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
         populateTable(includeModel, model.getIncludePatterns().iterator());
         populateTable(excludeModel, model.getExcludePatterns().iterator());
+        review.setEnabled(model.hasPendingRecording());
         repaint();
     }
 
@@ -433,7 +434,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     /**
      * Handles groupingMode. actionPerfomed is not suitable, as that seems to be
      * activated whenever the Proxy is selected in the Test Plan
-     * Also handles samplerTypeName
      * {@inheritDoc}
      */
     @Override
@@ -460,10 +460,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
                 recorderDialog.setVisible(true);
             }
         } else if (command.equals(ACTION_RESTART)) {
-            model.stopProxy();
-            if(startProxy()) {
-                recorderDialog.setVisible(true);
-            }
+            stopRecorder(true);
         } else if (command.equals(ENABLE_RESTART)){
             enableRestart();
         } else if (command.equals(ADD_EXCLUDE)) {
@@ -504,11 +501,39 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
      *
      */
     void stopRecorder() {
-        model.stopProxy();
+        stopRecorder(false);
+    }
+
+    private void stopRecorder(boolean restartAfterReview) {
+        ProxyControl recording = model;
         stop.setEnabled(false);
-        start.setEnabled(true);
+        start.setEnabled(false);
         restart.setEnabled(false);
+        review.setEnabled(false);
         recorderDialog.setVisible(false);
+        new javax.swing.SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() {
+                recording.stopProxy();
+                return null;
+            }
+            @Override protected void done() {
+                try {
+                    get();
+                    configure(recording);
+                    if (restartAfterReview && !recording.hasPendingRecording() && startProxy()) {
+                        recorderDialog.setVisible(true);
+                    }
+                } catch (Exception e) {
+                    log.error("Unable to finish proxy recording", e);
+                    JMeterUtils.reportErrorToUser("Unable to finish recording: " + e.getMessage());
+                } finally {
+                    if (!restartAfterReview || recording.hasPendingRecording()) {
+                        start.setEnabled(true);
+                    }
+                    review.setEnabled(recording.hasPendingRecording());
+                }
+            }
+        }.execute();
     }
 
     /**
@@ -620,6 +645,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             replacer.replaceValues(model);
             model.startProxy();
             start.setEnabled(false);
+            review.setEnabled(false);
             stop.setEnabled(true);
             restart.setEnabled(false);
             if (ProxyControl.isDynamicMode()) {
@@ -737,26 +763,13 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             enableRestart();
         } else if (fieldName.equals(ENABLE_RESTART)){
             enableRestart();
-        } else if(fieldName.equals(PREFIX_HTTP_SAMPLER_NAME)) {
-            model.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
         } else if (fieldName.equals(HTTP_SAMPLER_NAME_FORMAT)) {
             model.setHttpSampleNameFormat(httpSampleNameFormat.getText());
-        } else if(fieldName.equals(PROXY_PAUSE_HTTP_SAMPLER)) {
-            try {
-                Long.parseLong(proxyPauseHTTPSample.getText());
-            } catch (NumberFormatException nfe) {
-                int length = proxyPauseHTTPSample.getText().length();
-                if (length > 0) {
-                    JOptionPane.showMessageDialog(this, JMeterUtils.getResString("proxy_settings_pause_error_digits"), // $NON-NLS-1$
-                            JMeterUtils.getResString("proxy_settings_pause_error_invalid_data"), // $NON-NLS-1$
-                            JOptionPane.WARNING_MESSAGE);
-                    // Drop the last character:
-                    proxyPauseHTTPSample.setText(proxyPauseHTTPSample.getText().substring(0, length - 1));
-                }
-            }
-            model.setProxyPauseHTTPSample(proxyPauseHTTPSample.getText());
-            enableRestart();
         }
+    }
+
+    RecordingDiagnostics recordingDiagnostics() {
+        return model == null ? null : model.getRecordingDiagnostics();
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -767,6 +780,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
         JPanel mainPanel = new JPanel(new BorderLayout());
         mainPanel.add(createControls(), BorderLayout.NORTH);
+        mainPanel.add(new RecordingStatusPanel(() -> model == null ? null : model.getRecordingDiagnostics()), BorderLayout.SOUTH);
 
         JTabbedPane tabbedPane = new JTabbedPane();
 
@@ -825,6 +839,14 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         panel.add(stop);
         panel.add(Box.createHorizontalStrut(10));
         panel.add(restart);
+        review = new JButton("Review recording...");
+        review.addActionListener(e -> {
+            if (model != null) {
+                model.reviewRecording();
+                configure(model);
+            }
+        });
+        panel.add(review);
         return panel;
     }
 
@@ -885,45 +907,30 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     }
 
     private JPanel createTestPlanContentPanel() {
-        httpHeaders = new JCheckBox(JMeterUtils.getResString("proxy_headers")); // $NON-NLS-1$
-        httpHeaders.setSelected(true); // maintain original default
-        httpHeaders.addActionListener(this);
-        httpHeaders.setActionCommand(ENABLE_RESTART);
+        storeRecordedExchanges = new JCheckBox(JMeterUtils.getResString("proxy_store_recorded_exchanges")); // $NON-NLS-1$
+        storeRecordedExchanges.setSelected(true);
+        storeRecordedExchanges.setToolTipText(JMeterUtils.getResString("proxy_store_recorded_exchanges_tooltip"));
+        storeRecordedExchanges.addActionListener(this);
+        storeRecordedExchanges.setActionCommand(ENABLE_RESTART);
 
-        addAssertions = new JCheckBox(JMeterUtils.getResString("proxy_assertions")); // $NON-NLS-1$
-        addAssertions.setSelected(false);
-        addAssertions.addActionListener(this);
-        addAssertions.setActionCommand(ENABLE_RESTART);
-
-        regexMatch = new JCheckBox(JMeterUtils.getResString("proxy_regex")); // $NON-NLS-1$
-        regexMatch.setSelected(false);
-        regexMatch.addActionListener(this);
-        regexMatch.setActionCommand(ENABLE_RESTART);
+        ignoreHttpErrors = new JCheckBox(JMeterUtils.getResString("proxy_ignore_http_errors"));
+        ignoreHttpErrors.addActionListener(this);
+        ignoreHttpErrors.setActionCommand(ENABLE_RESTART);
 
         JPanel contentPanel = new JPanel(new MigLayout("fillx, wrap 3"));
         contentPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("proxy_test_plan_content"))); // $NON-NLS-1$
         addTargetToPanel(contentPanel);
         addGroupingToPanel(contentPanel);
-        contentPanel.add(httpHeaders);
-        contentPanel.add(addAssertions);
-        contentPanel.add(regexMatch);
+        contentPanel.add(storeRecordedExchanges);
+        contentPanel.add(ignoreHttpErrors, "span 3");
 
         return contentPanel;
     }
 
     private JPanel createHTTPSamplerPanel() {
-        DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
-        m.addElement(USE_DEFAULT_HTTP_IMPL);
-        samplerTypeName = new JComboBox<>(m);
-        samplerTypeName.setSelectedItem(USE_DEFAULT_HTTP_IMPL);
-        samplerTypeName.addItemListener(this);
-
-        JLabel labelSamplerType = new JLabel(JMeterUtils.getResString("proxy_sampler_type")); // $NON-NLS-1$
-        labelSamplerType.setLabelFor(samplerTypeName);
-
         samplerRedirectHandling = new RedirectHandlingSelector();
-        samplerRedirectHandling.setRedirects(true, false);
+        samplerRedirectHandling.setRedirects(false, false);
         samplerRedirectHandling.addActionListener(event -> {
             if (!updatingRedirectHandling) {
                 enableRestart();
@@ -952,19 +959,18 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         defaultEncoding = new JTextField(15);
 
         prefixHTTPSampleName = new JTextField(20);
-        prefixHTTPSampleName.addKeyListener(this);
+        prefixHTTPSampleName.addActionListener(event -> model.setPrefixHTTPSampleName(prefixHTTPSampleName.getText()));
+        prefixHTTPSampleName.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                model.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
+            }
+        });
         prefixHTTPSampleName.setName(PREFIX_HTTP_SAMPLER_NAME);
 
         httpSampleNameFormat = new JTextField(20);
         httpSampleNameFormat.addKeyListener(this);
         httpSampleNameFormat.setName(HTTP_SAMPLER_NAME_FORMAT);
-
-        proxyPauseHTTPSample = new JTextField(10);
-        proxyPauseHTTPSample.addKeyListener(this);
-        proxyPauseHTTPSample.setName(PROXY_PAUSE_HTTP_SAMPLER);
-        proxyPauseHTTPSample.setActionCommand(ENABLE_RESTART);
-        JLabel labelProxyPause = new JLabel(JMeterUtils.getResString("proxy_pause_http_sampler")); // $NON-NLS-1$
-        labelProxyPause.setLabelFor(proxyPauseHTTPSample);
 
         JLabel labelDefaultEncoding = new JLabel(JMeterUtils.getResString("proxy_default_encoding")); // $NON-NLS-1$
         labelDefaultEncoding.setLabelFor(defaultEncoding);
@@ -984,6 +990,11 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         panel.add(httpSampleNameFormat, "growx, span");
         httpSampleNameFormat.setToolTipText(JMeterUtils.getResString("sample_naming_format_help"));
 
+        addPreflightSuffix = new JCheckBox(JMeterUtils.getResString("proxy_add_preflight_suffix"));
+        addPreflightSuffix.addActionListener(this);
+        addPreflightSuffix.setActionCommand(ENABLE_RESTART);
+        panel.add(addPreflightSuffix, "span");
+
         JLabel labelSetCounter = new JLabel(JMeterUtils.getResString("sample_creator_counter_value"));
         counterValue = new JTextField(10);
         labelSetCounter.setLabelFor(counterValue);
@@ -993,9 +1004,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         panel.add(labelSetCounter);
         panel.add(counterValue);
         panel.add(buttonSetCounter);
-
-        panel.add(labelProxyPause);
-        panel.add(proxyPauseHTTPSample, "growx, span");
 
         panel.add(labelDefaultEncoding);
         panel.add(defaultEncoding, "growx, span");
@@ -1007,9 +1015,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
         panel.add(samplerDownloadImages);
         panel.add(useKeepAlive, "span");
-
-        panel.add(labelSamplerType);
-        panel.add(samplerTypeName, "growx, span");
 
         return panel;
     }
@@ -1067,7 +1072,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         m.addElement(JMeterUtils.getResString("grouping_store_first_only")); // $NON-NLS-1$
         m.addElement(JMeterUtils.getResString("grouping_in_transaction_controllers")); // $NON-NLS-1$
         groupingMode = new JComboBox<>(m);
-        groupingMode.setSelectedIndex(0);
+        groupingMode.setSelectedIndex(4);
         groupingMode.addItemListener(this);
 
         JLabel label2 = new JLabel(JMeterUtils.getResString("grouping_mode")); // $NON-NLS-1$
@@ -1264,10 +1269,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         return httpSampleNamingMode.getSelectedIndex();
     }
 
-    String getProxyPauseHTTPSample() {
-        return proxyPauseHTTPSample.getText();
-    }
-
     public String getPrefixHTTPSampleName() {
         return prefixHTTPSampleName.getText();
     }
@@ -1275,11 +1276,6 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
     void setHTTPSampleNamingMode(int selectedIndex) {
         httpSampleNamingMode.setSelectedIndex(selectedIndex);
         model.setHTTPSampleNamingMode(httpSampleNamingMode.getSelectedIndex());
-    }
-
-    void setProxyPauseHTTPSample(String text) {
-        proxyPauseHTTPSample.setText(text);
-        model.setProxyPauseHTTPSample(text);
     }
 
     void setPrefixHTTPSampleName(String text) {

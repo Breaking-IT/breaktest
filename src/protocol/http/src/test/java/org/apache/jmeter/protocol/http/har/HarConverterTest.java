@@ -130,7 +130,8 @@ public class HarConverterTest {
                     if (expectClose) {
                         var close = (org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler) samplers.get(3);
                         assertEquals("websocket-1", close.getSessionName());
-                        assertEquals(initiatedTime ? "400.125" : "500", close.getCloseOffset());
+                        assertEquals("WebSocket Close", close.getName());
+                        assertEquals("", close.getPropertyAsString("closeOffset"));
                         assertNotNull(subtreeOf(subtreeOf(converted, findByName(converted, "Next")), close));
                     }
                 }

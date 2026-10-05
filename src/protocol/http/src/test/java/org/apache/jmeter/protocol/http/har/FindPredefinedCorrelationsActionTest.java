@@ -52,6 +52,62 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
     @TempDir
     private Path tempDir;
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void matchesSignalRFromNativeProxyResponseToWebSocketUrl(boolean encoded) throws Exception {
+        String token = encoded ? "signalr-token+value/123" : "signalr-token-value-123";
+        var source = sampler("POST", "/client/negotiate");
+        var response = new org.apache.jmeter.protocol.http.sampler.HTTPSampleResult();
+        response.setURL(source.getUrl());
+        response.setHTTPMethod("POST");
+        response.setResponseCode("200");
+        response.setResponseHeaders("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n");
+        response.setContentType("application/json");
+        response.setResponseData("{\"connectionToken\":\"" + token + "\",\"connectionId\":\"unused-id-123\"}", "UTF-8");
+        var archive = org.apache.jmeter.recording.RecordedExchangeStore.fromProxy(response);
+        org.apache.jmeter.save.JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        source.setProperty(org.apache.jmeter.recording.RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        source.setProperty(org.apache.jmeter.recording.RecordedExchangeStore.CHECKSUM_PROPERTY, archive.checksum());
+        source.setProperty(org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY, archive.exchangeIds().get(0));
+        var socket = new org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler();
+        socket.setUrl("wss://example.test/client/?id=" + (encoded ? java.net.URLEncoder.encode(token, StandardCharsets.UTF_8) : token));
+        socket.setSessionName("websocket-1");
+        var group = new JMeterTreeNode(new ThreadGroup(), null);
+        var sourceNode = new JMeterTreeNode(source, null);
+        var socketNode = new JMeterTreeNode(socket, null);
+        group.add(sourceNode);
+        group.add(socketNode);
+        var scan = FindPredefinedCorrelationsAction.scan(group, null, HarCorrelationRuleCatalog.builtInRules());
+        assertEquals(List.of("signalr-connection-token"), scan.correlations().stream().map(match -> match.getRule().getId()).toList());
+        var correlation = scan.correlations().get(0);
+        assertEquals(socketNode, scan.nodesByEntryIndex().get(correlation.getReplacements().get(0).getTargetEntryIndex()));
+        for (var replacement : correlation.getReplacements()) {
+            FindPredefinedCorrelationsAction.applyReplacement(socket, correlation, replacement);
+        }
+        assertTrue(socket.getUrl().contains("${signalr_connection_token"));
+        assertTrue(!socket.getUrl().contains("signalr-token"));
+        assertEquals("websocket-1", socket.getSessionName());
+        assertTrue(RecordedHarExchangeResolver.resolveFor(sourceNode, null).exchange().orElseThrow().responseBody().contains(token));
+    }
+
+    @Test
+    void recorderScanOnlyIncludesNewRequests() throws Exception {
+        RecordedFlow flow = recordedFlow(2);
+        var source = new JMeterTreeNode(flow.source(), null);
+        var included = new JMeterTreeNode(flow.consumers().get(0), null);
+        var existing = new JMeterTreeNode(flow.consumers().get(1), null);
+        flow.group().add(source);
+        flow.group().add(existing);
+        flow.group().add(included);
+        var scan = FindPredefinedCorrelationsAction.scan(List.of(source, included), tempDir.resolve("plan.jmx"),
+                HarCorrelationRuleCatalog.builtInRules());
+        assertEquals(1, scan.correlations().size());
+        assertEquals(List.of(source, included), scan.nodesByEntryIndex().entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey()).map(java.util.Map.Entry::getValue).toList());
+        assertEquals(1, scan.unavailableCount(), "Warn about the selected consumer without stored response data");
+        assertTrue(scan.correlations().get(0).getReplacements().stream().allMatch(replacement -> replacement.getTargetEntryIndex() == 1));
+    }
+
     @Test
     void contributesPredefinedCorrelationsToToolsMenu() {
         FindPredefinedCorrelationsAction action = new FindPredefinedCorrelationsAction();
