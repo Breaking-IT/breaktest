@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
@@ -54,11 +55,11 @@ final class WebSocketSessions {
     }
 
     synchronized HttpClient client(String sessionName, WebSocketSession session, URI uri) throws GeneralSecurityException {
-        return client(sessionName, session, uri, org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route.DIRECT);
+        return client(sessionName, session, uri, HttpProxyConfiguration.Route.DIRECT);
     }
 
     synchronized HttpClient client(String sessionName, WebSocketSession session, URI uri,
-            org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route route) throws GeneralSecurityException {
+            HttpProxyConfiguration.Route route) throws GeneralSecurityException {
         if (sessions.get(sessionName) != session) {
             throw new IllegalStateException("WebSocket session was closed or replaced: " + sessionName);
         }

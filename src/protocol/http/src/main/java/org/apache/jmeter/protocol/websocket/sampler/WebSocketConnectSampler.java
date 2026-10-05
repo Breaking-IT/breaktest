@@ -39,6 +39,7 @@ import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
+import org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -142,7 +143,7 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
         active(session);
         try {
             handlers.start();
-            var route = org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.resolve(this, uri);
+            var route = HttpProxyConfiguration.resolve(this, uri);
             var client = sessions.client(getSessionName(), session, uri, route);
             WebSocket.Builder builder = client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(getTimeout()));
@@ -220,7 +221,7 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
             HeaderManager merged = existing instanceof HeaderManager manager ? manager.merge(incoming) : incoming;
             setProperty(new TestElementProperty(HEADER_MANAGER, merged));
         } else if (isHttpDefaults(element)) {
-            org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.merge(this, element);
+            HttpProxyConfiguration.merge(this, element);
         } else {
             super.addTestElement(element);
         }

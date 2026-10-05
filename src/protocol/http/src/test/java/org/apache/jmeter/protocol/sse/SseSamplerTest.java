@@ -306,34 +306,7 @@ class SseSamplerTest extends JMeterTestCase {
         // The async-to-classic adapter can return after body consumption but before
         // the reactor releases the endpoint. Socket identity is only deterministic
         // once the pool has an idle connection, not merely once sample() returns.
-        var cacheField = org.apache.jmeter.protocol.http.sampler.HTTPHC5H2Impl.class
-                .getDeclaredField("HTTPCLIENTS_CACHE_PER_JMETER_THREAD");
-        cacheField.setAccessible(true);
-        var cache = (java.util.Map<?, ?>) cacheField.get(null);
-        org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager pool = null;
-        org.apache.hc.client5.http.HttpRoute route = null;
-        for (Object clients : cache.values()) {
-            for (Object state : ((java.util.Map<?, ?>) clients).values()) {
-                var managerField = state.getClass().getDeclaredField("connectionManager");
-                managerField.setAccessible(true);
-                Object manager = managerField.get(state);
-                var delegateField = manager.getClass().getDeclaredField("delegate");
-                delegateField.setAccessible(true);
-                var candidate = (org.apache.hc.client5.http.impl.nio.PoolingAsyncClientConnectionManager) delegateField.get(manager);
-                for (var candidateRoute : candidate.getRoutes()) {
-                    if (candidateRoute.getTargetHost().getPort() == server.getAddress().getPort()) {
-                        pool = candidate;
-                        route = candidateRoute;
-                    }
-                }
-            }
-        }
-        org.junit.jupiter.api.Assertions.assertNotNull(pool, "Expected the test server's connection pool");
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (pool.getStats(route).getAvailable() != 1 && System.nanoTime() < deadline) {
-            Thread.sleep(5);
-        }
-        assertEquals(1, pool.getStats(route).getAvailable(), "HTTP connection must be idle before asserting socket reuse");
+        org.apache.jmeter.protocol.http.sampler.HttpClientPoolTestSupport.awaitIdleConnection(server.getAddress().getPort());
     }
 
     @Test
