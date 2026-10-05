@@ -54,12 +54,17 @@ final class WebSocketSessions {
     }
 
     synchronized HttpClient client(String sessionName, WebSocketSession session, URI uri) throws GeneralSecurityException {
+        return client(sessionName, session, uri, org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route.DIRECT);
+    }
+
+    synchronized HttpClient client(String sessionName, WebSocketSession session, URI uri,
+            org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route route) throws GeneralSecurityException {
         if (sessions.get(sessionName) != session) {
             throw new IllegalStateException("WebSocket session was closed or replaced: " + sessionName);
         }
         WebSocketTransportPool.Lease lease = clients.get(sessionName);
         if (lease == null) {
-            lease = WebSocketTransportPool.acquire(uri);
+            lease = WebSocketTransportPool.acquire(uri, route);
             clients.put(sessionName, lease);
         }
         return lease.client();

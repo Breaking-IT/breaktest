@@ -17,6 +17,13 @@
 
 package org.apache.jmeter.protocol.websocket.sampler;
 
+import java.io.IOException;
+import java.net.Authenticator;
+import java.net.InetSocketAddress;
+import java.net.PasswordAuthentication;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.security.GeneralSecurityException;
@@ -30,6 +37,7 @@ import java.util.concurrent.Executors;
 
 import javax.net.ssl.SSLParameters;
 
+import org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration.Route;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
 import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
@@ -40,6 +48,8 @@ final class WebSocketTransportPool {
     private static final Object PLAIN = new Object();
     private static final Map<Object, CompletableFuture<Entry>> CLIENTS = new ConcurrentHashMap<>();
 
+    private record ClientKey(Object tls, Route route) { }
+
     private record TlsKey(AsyncClientIdentity identity, List<String> protocols, List<String> ciphers) {
     }
 
@@ -47,6 +57,10 @@ final class WebSocketTransportPool {
     }
 
     static Lease acquire(URI uri) throws GeneralSecurityException {
+        return acquire(uri, Route.DIRECT);
+    }
+
+    static Lease acquire(URI uri, Route route) throws GeneralSecurityException {
         // Resolve aliases before entering transport callbacks, and exactly once
         // per connection (keystore rotation can advance on every getAlias call).
         AsyncClientIdentity identity = "wss".equalsIgnoreCase(uri.getScheme())
@@ -54,7 +68,8 @@ final class WebSocketTransportPool {
         String[] protocols = JMeterUtils.getArrayPropDefault("https.socket.protocols", new String[0]);
         String[] ciphers = JMeterUtils.getArrayPropDefault("https.cipherSuites",
                 JMeterUtils.getArrayPropDefault("https.socket.ciphers", new String[0]));
-        Object key = identity == null ? PLAIN : new TlsKey(identity, List.of(protocols), List.of(ciphers));
+        Object tls = identity == null ? PLAIN : new TlsKey(identity, List.of(protocols), List.of(ciphers));
+        Object key = new ClientKey(tls, route);
         while (true) {
             CompletableFuture<Entry> created = new CompletableFuture<>();
             CompletableFuture<Entry> future = CLIENTS.putIfAbsent(key, created);
@@ -65,7 +80,32 @@ final class WebSocketTransportPool {
                 try {
                     HttpClient.Builder builder = HttpClient.newBuilder()
                             .executor(WebSocketHandshakeCookies.ownerAwareExecutor(executor))
-                            .cookieHandler(new WebSocketHandshakeCookies());
+                            .cookieHandler(new WebSocketHandshakeCookies())
+                            .proxy(new ProxySelector() {
+                                @Override
+                                public List<Proxy> select(URI target) {
+                                    return List.of(route.direct() ? Proxy.NO_PROXY : new Proxy(Proxy.Type.HTTP,
+                                            new InetSocketAddress(route.host(), route.port())));
+                                }
+
+                                @Override
+                                public void connectFailed(URI target, SocketAddress address, IOException error) {
+                                    // A failed proxy connection must not fall back to a direct connection.
+                                }
+                            });
+                    if (!route.direct() && !route.username().isEmpty()) {
+                        builder.authenticator(new Authenticator() {
+                            @Override
+                            protected PasswordAuthentication getPasswordAuthentication() {
+                                if (getRequestorType() == RequestorType.PROXY
+                                        && route.host().equalsIgnoreCase(getRequestingHost())
+                                        && route.port() == getRequestingPort()) {
+                                    return new PasswordAuthentication(route.username(), route.password().toCharArray());
+                                }
+                                return null;
+                            }
+                        });
+                    }
                     if (identity != null) {
                         builder.sslContext(identity.createContext());
                         SSLParameters parameters = new SSLParameters();
