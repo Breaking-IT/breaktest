@@ -118,6 +118,7 @@ import org.apache.jmeter.gui.util.JMeterMenuBar;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.gui.util.ParameterCompletion;
+import org.apache.jmeter.gui.util.WindowRepaintRecovery;
 import org.apache.jmeter.samplers.Clearable;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
@@ -670,6 +671,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         tree.setSelectionRow(1);
         addWindowListener(new WindowHappenings());
+        WindowRepaintRecovery.install(this);
         // Building is complete, register as listener
         GuiPackage.getInstance().registerAsListener();
         setTitle(DEFAULT_TITLE);
