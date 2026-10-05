@@ -47,14 +47,13 @@ public final class WindowRepaintRecovery extends WindowAdapter
     }
 
     /**
-     * Installs wake and focus recovery for the lifetime of the frame.
+     * Installs wake and restore recovery for the lifetime of the frame.
      *
      * @param frame the frame to redraw
      */
     public static void install(JFrame frame) {
         WindowRepaintRecovery recovery = new WindowRepaintRecovery(frame);
         frame.addWindowListener(recovery);
-        frame.addWindowFocusListener(recovery);
         if (Desktop.isDesktopSupported()) {
             Desktop desktop = Desktop.getDesktop();
             if (desktop.isSupported(Desktop.Action.APP_EVENT_SYSTEM_SLEEP)
@@ -70,7 +69,7 @@ public final class WindowRepaintRecovery extends WindowAdapter
         SwingUtilities.invokeLater(() -> {
             if (!closed) {
                 repaint();
-                // Coalesce overlapping focus, display-wake and system-wake notifications.
+                // Coalesce overlapping restore, display-wake and system-wake notifications.
                 delayedRepaint.restart();
             }
         });
@@ -80,11 +79,6 @@ public final class WindowRepaintRecovery extends WindowAdapter
         if (!closed && frame.isShowing()) {
             frame.repaint();
         }
-    }
-
-    @Override
-    public void windowGainedFocus(WindowEvent event) {
-        requestRepaint();
     }
 
     @Override
@@ -120,6 +114,5 @@ public final class WindowRepaintRecovery extends WindowAdapter
             desktop.removeAppEventListener(this);
         }
         frame.removeWindowListener(this);
-        frame.removeWindowFocusListener(this);
     }
 }
