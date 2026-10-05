@@ -84,6 +84,7 @@ import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.control.RecordingController;
 import org.apache.jmeter.protocol.http.gui.AuthPanel;
+import org.apache.jmeter.protocol.http.har.FindPredefinedCorrelationsAction;
 import org.apache.jmeter.protocol.http.har.HarConverter;
 import org.apache.jmeter.protocol.http.har.HarEntry;
 import org.apache.jmeter.protocol.http.har.HarImportOptions;
@@ -899,12 +900,12 @@ public class ProxyControl extends GenericController implements NonTestElement {
             return; // Review later keeps every pending capture available.
         }
         List<RecordedSampler> included = selectRecording(samples, selection.hosts(), selection.failed());
-        Set<JMeterTreeNode> previousRequests = new HashSet<>(getJmeterTreeModel().getNodesOfType(HTTPSamplerBase.class));
+        Set<JMeterTreeNode> previousRequests = new HashSet<>(FindPredefinedCorrelationsAction.correlationRequests(getJmeterTreeModel()));
         applyRecording(included, selection.options(), selection.grouping(), true);
         RecordingTreeExpansion.expand(included);
         if (selection.processCorrelations()) {
-            org.apache.jmeter.protocol.http.har.FindPredefinedCorrelationsAction.reviewRecording(GuiPackage.getInstance(),
-                    getJmeterTreeModel().getNodesOfType(HTTPSamplerBase.class).stream()
+            FindPredefinedCorrelationsAction.reviewRecording(GuiPackage.getInstance(),
+                    FindPredefinedCorrelationsAction.correlationRequests(getJmeterTreeModel()).stream()
                             .filter(node -> !previousRequests.contains(node)).toList());
         }
         sampleQueue.removeAll(samples);

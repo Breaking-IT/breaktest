@@ -57,6 +57,7 @@ import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.action.AbstractActionWithNoRunningTest;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
@@ -72,6 +73,7 @@ import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
+import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.property.JMeterProperty;
@@ -221,6 +223,16 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         worker.execute();
     }
 
+    public static List<JMeterTreeNode> correlationRequests(JMeterTreeModel model) {
+        List<JMeterTreeNode> nodes = new ArrayList<>(model.getNodesOfType(HTTPSamplerBase.class));
+        nodes.addAll(model.getNodesOfType(WebSocketConnectSampler.class));
+        return nodes;
+    }
+
+    private static boolean supportsCorrelation(TestElement element) {
+        return element instanceof HTTPSamplerBase || element instanceof WebSocketConnectSampler;
+    }
+
     /** Review only the newly inserted recorder requests, independently for each thread group. */
     public static void reviewRecording(GuiPackage gui, List<JMeterTreeNode> recordedNodes) {
         Map<JMeterTreeNode, List<JMeterTreeNode>> groups = new LinkedHashMap<>();
@@ -239,7 +251,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             @Override
             protected Map<JMeterTreeNode, ScanResult> doInBackground() {
                 Map<JMeterTreeNode, ScanResult> scans = new LinkedHashMap<>();
-                groups.forEach((group, nodes) -> scans.put(group, scan(nodes, file, rules.get(group))));
+                groups.forEach((group, nodes) -> {
+                    Set<JMeterTreeNode> included = new LinkedHashSet<>(nodes);
+                    List<JMeterTreeNode> ordered = new ArrayList<>();
+                    Enumeration<TreeNode> descendants = group.preorderEnumeration();
+                    while (descendants.hasMoreElements()) {
+                        TreeNode node = descendants.nextElement();
+                        if (included.contains(node)) {
+                            ordered.add((JMeterTreeNode) node);
+                        }
+                    }
+                    scans.put(group, scan(ordered, file, rules.get(group)));
+                });
                 return scans;
             }
 
@@ -452,7 +475,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         Enumeration<TreeNode> nodes = threadGroupNode.preorderEnumeration();
         while (nodes.hasMoreElements()) {
             TreeNode candidate = nodes.nextElement();
-            if (candidate instanceof JMeterTreeNode node && node.getTestElement() instanceof HTTPSamplerBase) {
+            if (candidate instanceof JMeterTreeNode node && supportsCorrelation(node.getTestElement())) {
                 recordedNodes.add(node);
             }
         }
@@ -469,7 +492,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         int unavailableCount = 0;
         int entryIndex = 0;
         for (JMeterTreeNode node : recordedNodes) {
-            HTTPSamplerBase sampler = (HTTPSamplerBase) node.getTestElement();
+            TestElement sampler = node.getTestElement();
             RecordedHarExchangeResolver.Resolution resolution =
                     RecordedHarExchangeResolver.resolveFor(node, testPlanFile);
             if (resolution.exchange().isEmpty() && (reportMissingRecordings || hasRecordingMetadata(sampler))) {
@@ -683,6 +706,26 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     record SplitResult(int movedRequests, Set<JMeterTreeNode> unseparableTargets) {
     }
 
+    static HarEntry toHarEntry(TestElement sampler, String response, String responseBody, int index) {
+        if (sampler instanceof HTTPSamplerBase http) {
+            return toHarEntry(http, response, responseBody, index);
+        }
+        WebSocketConnectSampler socket = (WebSocketConnectSampler) sampler;
+        HarEntry entry = new HarEntry();
+        entry.setOriginalIndex(index);
+        entry.setStartMs(index);
+        entry.setEndMs(index);
+        entry.setMethod("GET");
+        entry.setUrl(socket.getUrl());
+        entry.setWebSocket(true);
+        entry.setServerIpAddress("recorded");
+        entry.setHasPositiveTiming(true);
+        entry.setResponseContentText(responseBody);
+        addResponseHeaders(entry, response);
+        socket.getHeaders().forEach(header -> entry.getRequestHeaders().add(new NameValue(header.getName(), header.getValue())));
+        return entry;
+    }
+
     static HarEntry toHarEntry(
             HTTPSamplerBase sampler, String recordedResponse, String recordedResponseBody, int entryIndex) {
         HarEntry entry = new HarEntry();
@@ -792,7 +835,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             for (HarPredefinedCorrelation correlation : correlations) {
                 for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
                     JMeterTreeNode targetNode = nodesByEntryIndex.get(replacement.getTargetEntryIndex());
-                    if (targetNode == null || !(targetNode.getTestElement() instanceof HTTPSamplerBase sampler)) {
+                    if (targetNode == null || !(targetNode.getTestElement() instanceof Replaceable sampler)) {
                         continue;
                     }
                     if (split.unseparableTargets().contains(targetNode)) {
@@ -815,7 +858,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount);
     }
 
-    static int applyReplacement(HTTPSamplerBase sampler, HarPredefinedCorrelation correlation,
+    static int applyReplacement(Replaceable sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
         int replacementCount = 0;
         String variableReference = HarPredefinedCorrelation.variableReference(correlation, replacement);
@@ -862,15 +905,15 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         while (nodes.hasMoreElements()) {
             TreeNode candidate = nodes.nextElement();
             if (candidate instanceof JMeterTreeNode node
-                    && node.getTestElement() instanceof HTTPSamplerBase sampler
-                    && hasRecordingMetadata(sampler)) {
+                    && supportsCorrelation(node.getTestElement())
+                    && hasRecordingMetadata(node.getTestElement())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean hasRecordingMetadata(HTTPSamplerBase sampler) {
+    private static boolean hasRecordingMetadata(TestElement sampler) {
         return StringUtilities.isNotEmpty(sampler.getPropertyAsString(
                 RecordedHarExchangeResolver.RECORDING_EXCHANGE_ID))
                 || StringUtilities.isNotEmpty(sampler.getPropertyAsString(

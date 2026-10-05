@@ -247,12 +247,12 @@ public final class RecorderWizard extends JDialog {
         long included = samples == null ? 0 : samples.stream().filter(sample ->
                 hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
                         && (!sample.failed() || failures.selected.contains(sample))).count();
-        boolean storedResponses = samples != null && samples.stream().anyMatch(sample -> sample.hasStoredExchange() && !sample.entry().isWebSocket()
+        boolean storedResponses = samples != null && samples.stream().anyMatch(sample -> sample.hasStoredExchange()
                 && hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
                 && (!sample.failed() || failures.selected.contains(sample)));
         processCorrelations.setEnabled(storedResponses);
         correlationHint.setText(storedResponses ? "Review matches after adding these requests; only selected matches are applied."
-                : "Requires stored HTTP requests/responses in the selected recording.");
+                : "Requires stored requests/responses in the selected recording.");
         finish.setEnabled(true);
         finish.setText(included == 0 ? "Finish without adding requests" : "Add " + included + " requests to test plan");
     }
