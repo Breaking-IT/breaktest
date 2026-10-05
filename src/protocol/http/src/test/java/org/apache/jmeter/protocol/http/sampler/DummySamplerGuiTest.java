@@ -34,6 +34,7 @@ import javax.swing.text.JTextComponent;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.gui.DummySamplerGui;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 
 class DummySamplerGuiTest extends JMeterTestCase {
@@ -45,23 +46,23 @@ class DummySamplerGuiTest extends JMeterTestCase {
                     .map(JComboBox.class::cast).findFirst().orElseThrow();
             JTabbedPane tabs = descendants(gui).filter(JTabbedPane.class::isInstance)
                     .map(JTabbedPane.class::cast).findFirst().orElseThrow();
-            assertTrue(tabs.indexOfTab("HTTP") >= 0);
-            assertEquals(-1, tabs.indexOfTab("Statistics"));
+            assertTrue(tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_http")) >= 0);
+            assertEquals(-1, tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_statistics")));
             JTextComponent method = descendants(gui).filter(JTextComponent.class::isInstance)
                     .map(JTextComponent.class::cast)
                     .filter(field -> DummySamplerField.HTTP_METHOD.propertyName().equals(field.getName()))
                     .findFirst().orElseThrow();
             method.setText("PATCH");
             type.setSelectedItem(DummySampler.ResultType.STATISTICAL);
-            assertEquals(-1, tabs.indexOfTab("HTTP"));
-            assertTrue(tabs.indexOfTab("Statistics") >= 0);
+            assertEquals(-1, tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_http")));
+            assertTrue(tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_statistics")) >= 0);
             DummySampler saved = (DummySampler) gui.createTestElement();
             assertEquals("PATCH", saved.value(DummySamplerField.HTTP_METHOD));
             assertEquals(DummySamplerGui.class.getName(), saved.getPropertyAsString(TestElement.GUI_CLASS));
             assertEquals(DummySampler.class.getName(), saved.getPropertyAsString(TestElement.TEST_CLASS));
             type.setSelectedItem(DummySampler.ResultType.STANDARD);
-            assertEquals(-1, tabs.indexOfTab("HTTP"));
-            assertEquals(-1, tabs.indexOfTab("Statistics"));
+            assertEquals(-1, tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_http")));
+            assertEquals(-1, tabs.indexOfTab(JMeterUtils.getResString("dummy_sampler_group_statistics")));
             gui.configure(saved);
             assertEquals(DummySampler.ResultType.STATISTICAL, type.getSelectedItem());
             type.setSelectedItem(DummySampler.ResultType.HTTP);
@@ -99,6 +100,28 @@ class DummySamplerGuiTest extends JMeterTestCase {
             assertEquals("true", success.getText());
             gui.configure(saved);
             assertEquals("${sampleSuccessful}", success.getText());
+        });
+    }
+
+    @Test
+    void unknownResultTypeCanBeOpenedPreservedAndRepaired() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            DummySamplerGui gui = new DummySamplerGui();
+            JComboBox<?> type = descendants(gui).filter(JComboBox.class::isInstance)
+                    .map(JComboBox.class::cast).findFirst().orElseThrow();
+            DummySampler sampler = new DummySampler();
+            sampler.setProperty(DummySampler.RESULT_TYPE, "future-type");
+            gui.configure(sampler);
+            assertEquals("future-type", type.getSelectedItem());
+            assertEquals("future-type", gui.createTestElement().getPropertyAsString(DummySampler.RESULT_TYPE));
+            type.setSelectedItem(DummySampler.ResultType.HTTP);
+            assertEquals(DummySampler.ResultType.HTTP, ((DummySampler) gui.createTestElement()).getResultType());
+            sampler.setProperty(DummySampler.RESULT_TYPE, "Statistical");
+            gui.configure(sampler);
+            assertEquals(DummySampler.ResultType.STATISTICAL, type.getSelectedItem());
+            assertEquals(3, type.getItemCount());
+            gui.clearGui();
+            assertEquals(DummySampler.ResultType.HTTP, type.getSelectedItem());
         });
     }
 

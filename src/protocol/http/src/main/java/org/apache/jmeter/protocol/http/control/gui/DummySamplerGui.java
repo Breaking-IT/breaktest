@@ -47,7 +47,7 @@ import net.miginfocom.swing.MigLayout;
 public class DummySamplerGui extends AbstractSamplerGui {
     private static final long serialVersionUID = 1L;
 
-    private final JComboBox<ResultType> resultType = new JComboBox<>(ResultType.values());
+    private final JComboBox<Object> resultType = new JComboBox<>(ResultType.values());
     private final Map<DummySamplerField, JTextComponent> fields = new LinkedHashMap<>();
     private final Map<DummySamplerField, JComboBox<String>> selectors = new LinkedHashMap<>();
     private final Map<String, JPanel> groups = new LinkedHashMap<>();
@@ -104,7 +104,10 @@ public class DummySamplerGui extends AbstractSamplerGui {
     private void updateTabs() {
         String selected = tabs.getSelectedIndex() < 0 ? null : tabs.getTitleAt(tabs.getSelectedIndex());
         tabs.removeAll();
-        ResultType type = (ResultType) resultType.getSelectedItem();
+        ResultType type = resultType.getSelectedItem() instanceof ResultType selectedType ? selectedType : null;
+        if (type != null) {
+            resultType.setToolTipText(null);
+        }
         groups.forEach((name, panel) -> {
             boolean relevant = fields.keySet().stream()
                     .anyMatch(field -> field.group().equals(name) && field.appliesTo(type));
@@ -138,7 +141,7 @@ public class DummySamplerGui extends AbstractSamplerGui {
     @Override
     public void modifyTestElement(TestElement element) {
         configureTestElement(element);
-        element.setProperty(DummySampler.RESULT_TYPE, ((ResultType) resultType.getSelectedItem()).name());
+        element.setProperty(DummySampler.RESULT_TYPE, resultType.getSelectedItem().toString());
         fields.forEach((field, editor) -> element.setProperty(field.propertyName(), editor.getText()));
     }
 
@@ -147,7 +150,15 @@ public class DummySamplerGui extends AbstractSamplerGui {
         super.configure(element);
         DummySampler sampler = (DummySampler) element;
         fields.keySet().forEach(field -> setValue(field, sampler.value(field)));
-        resultType.setSelectedItem(sampler.getResultType());
+        resetResultTypes();
+        try {
+            resultType.setSelectedItem(sampler.getResultType());
+        } catch (IllegalArgumentException ex) {
+            String unknown = sampler.getPropertyAsString(DummySampler.RESULT_TYPE);
+            resultType.addItem(unknown);
+            resultType.setSelectedItem(unknown);
+            resultType.setToolTipText(JMeterUtils.getResString("dummy_sampler_unknown_type"));
+        }
         updateTabs();
     }
 
@@ -160,10 +171,19 @@ public class DummySamplerGui extends AbstractSamplerGui {
         }
     }
 
+    private void resetResultTypes() {
+        resultType.removeAllItems();
+        for (ResultType type : ResultType.values()) {
+            resultType.addItem(type);
+        }
+        resultType.setToolTipText(null);
+    }
+
     @Override
     public void clearGui() {
         super.clearGui();
         fields.keySet().forEach(field -> setValue(field, field.defaultValue()));
+        resetResultTypes();
         resultType.setSelectedItem(ResultType.HTTP);
         updateTabs();
     }

@@ -53,8 +53,8 @@ No third-party dummy sampler or monitoring plugin is required.
 Common fields cover success, response code/message, request and response data/headers, URL,
 timestamp, response time, latency, connect/idle time, content type, character encoding, data type, byte sizes,
 and local/destination endpoints, protocol and TLS versions. The sampler name is the result label.
-Leave the timestamp blank for the current time; otherwise use epoch milliseconds (following the native
-start/end timestamp setting). Statistical timestamps report the end time. Thread identity/counts, source
+Leave the timestamp blank to anchor the sample interval at invocation time, including when simulating
+a response delay. An explicit epoch-millisecond timestamp follows the native start/end timestamp setting. Statistical timestamps report the end time. Thread identity/counts, source
 location, transactions and assertion results are supplied by the test engine.
 Received bytes follow the native result model: header bytes plus body bytes. A body size of zero uses
 the actual response bytes. Binary response bytes can be supplied as Base64 with decoding enabled;

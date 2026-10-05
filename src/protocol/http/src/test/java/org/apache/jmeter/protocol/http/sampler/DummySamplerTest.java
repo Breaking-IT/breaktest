@@ -173,6 +173,88 @@ class DummySamplerTest extends JMeterTestCase {
     }
 
     @Test
+    void timestampModesAreVerifiedInFreshJvms() throws Exception {
+        // SampleResult captures the timestamp setting in a static final field.
+        var entries = new java.util.LinkedHashSet<String>();
+        entries.add(System.getProperty("java.class.path"));
+        for (ClassLoader loader = getClass().getClassLoader(); loader != null; loader = loader.getParent()) {
+            if (loader instanceof java.net.URLClassLoader urls) {
+                for (var url : urls.getURLs()) {
+                    entries.add(Path.of(url.toURI()).toString());
+                }
+            }
+        }
+        for (String mode : new String[] {"true", "false"}) {
+            var process = new ProcessBuilder(
+                    Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-cp", String.join(java.io.File.pathSeparator, entries),
+                    TimestampProbe.class.getName(), mode).inheritIO().start();
+            try {
+                assertTrue(process.waitFor(30, TimeUnit.SECONDS), "Timestamp probe timed out");
+                assertEquals(0, process.exitValue(), "Timestamp mode: " + mode);
+            } finally {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    public static class TimestampProbe {
+        public static void main(String[] args) {
+            org.apache.jmeter.util.JMeterUtils.loadJMeterProperties("../../../bin/jmeter.properties");
+            org.apache.jmeter.util.JMeterUtils.setProperty("sampleresult.timestamp.start", args[0]);
+            assertEquals(Boolean.parseBoolean(args[0]), new SampleResult().isStampedAtStart());
+            DummySamplerTest test = new DummySamplerTest();
+            test.simulatedIntervalsStartWhenInvokedForEveryResultType();
+            test.explicitTimestampIsPreserved();
+        }
+    }
+
+    @Test
+    void simulatedIntervalsStartWhenInvokedForEveryResultType() {
+        for (DummySampler.ResultType type : DummySampler.ResultType.values()) {
+            DummySampler sampler = new DummySampler();
+            sampler.setProperty(DummySampler.RESULT_TYPE, type.name());
+            set(sampler, RESPONSE_TIME, "40");
+            set(sampler, SIMULATE_TIME, "true");
+            long before = System.currentTimeMillis();
+            SampleResult result = sampler.sample(null);
+            long after = System.currentTimeMillis();
+            assertTrue(result.isSuccessful());
+            assertTrue(result.getStartTime() >= before, type.name());
+            assertTrue(result.getEndTime() <= after, type.name());
+            assertEquals(40, result.getTime());
+            assertEquals(40, result.getEndTime() - result.getStartTime());
+        }
+    }
+
+    @Test
+    void httpRequestDetailsRemainVisibleWithoutUrl() {
+        DummySampler sampler = new DummySampler();
+        set(sampler, HTTP_METHOD, "POST");
+        set(sampler, QUERY_STRING, "body=value");
+        set(sampler, COOKIES, "session=test");
+        set(sampler, REQUEST_DATA, "extra details");
+        HTTPSampleResult result = assertInstanceOf(HTTPSampleResult.class, sampler.sample(null));
+        assertNull(result.getURL());
+        assertEquals("body=value", result.getQueryString());
+        assertEquals("session=test", result.getCookies());
+        assertTrue(result.getSamplerData().contains("POST data:\nbody=value"));
+        assertTrue(result.getSamplerData().contains("Cookie Data:\nsession=test"));
+        assertTrue(result.getSamplerData().endsWith("extra details"));
+    }
+
+    @Test
+    void resultTypesAcceptCaseVariantsButRejectUnknownTypes() {
+        DummySampler sampler = new DummySampler();
+        sampler.setProperty(DummySampler.RESULT_TYPE, "http");
+        assertInstanceOf(HTTPSampleResult.class, sampler.sample(null));
+        sampler.setProperty(DummySampler.RESULT_TYPE, "Statistical");
+        assertInstanceOf(StatisticalSampleResult.class, sampler.sample(null));
+        sampler.setProperty(DummySampler.RESULT_TYPE, "future-type");
+        assertEquals("DUMMY_ERROR", sampler.sample(null).getResponseCode());
+    }
+
+    @Test
     void explicitTimestampIsPreserved() {
         DummySampler sampler = new DummySampler();
         set(sampler, TIMESTAMP, "1700000000000");

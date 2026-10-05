@@ -53,6 +53,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.nio.charset.Charset;
 import java.util.Base64;
+import java.util.Locale;
 
 import org.apache.jmeter.samplers.AbstractSampler;
 import org.apache.jmeter.samplers.Entry;
@@ -74,7 +75,12 @@ public class DummySampler extends AbstractSampler implements Interruptible {
     private record ParsedUrl(String text, java.net.URL url) { }
 
     public ResultType getResultType() {
-        return ResultType.valueOf(getPropertyAsString(RESULT_TYPE, ResultType.HTTP.name()));
+        String type = getPropertyAsString(RESULT_TYPE, ResultType.HTTP.name());
+        try {
+            return ResultType.valueOf(type);
+        } catch (IllegalArgumentException ex) {
+            return ResultType.valueOf(type.trim().toUpperCase(Locale.ROOT));
+        }
     }
 
     public String value(DummySamplerField field) {
@@ -89,7 +95,7 @@ public class DummySampler extends AbstractSampler implements Interruptible {
             long elapsed = number(RESPONSE_TIME);
             String timestamp = value(TIMESTAMP).trim();
             long stamp = timestamp.isEmpty() ? started : number(TIMESTAMP, timestamp);
-            SampleResult result = createResult(type, stamp, elapsed);
+            SampleResult result = createResult(type, stamp, elapsed, timestamp.isEmpty());
             result.setSampleLabel(getName());
             result.setSuccessful(flag(SUCCESSFUL));
             result.setResponseCode(value(RESPONSE_CODE));
@@ -152,7 +158,7 @@ public class DummySampler extends AbstractSampler implements Interruptible {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             return failure(started, "Dummy sampler interrupted");
-        } catch (IllegalArgumentException | MalformedURLException ex) {
+        } catch (IllegalArgumentException | ArithmeticException | MalformedURLException ex) {
             return failure(started, "Invalid dummy sampler configuration: " + ex.getMessage());
         }
     }
@@ -166,9 +172,11 @@ public class DummySampler extends AbstractSampler implements Interruptible {
         return cached.url();
     }
 
-    private static SampleResult createResult(ResultType type, long stamp, long elapsed) {
+    private static SampleResult createResult(ResultType type, long stamp, long elapsed, boolean automaticTimestamp) {
         SampleResult result = type == ResultType.HTTP ? new HTTPSampleResult() : new SampleResult();
-        result.setStampAndTime(stamp, elapsed);
+        // An automatic timestamp anchors the interval at invocation, regardless of timestamp mode.
+        result.setStampAndTime(automaticTimestamp && !result.isStampedAtStart()
+                ? Math.addExact(stamp, elapsed) : stamp, elapsed);
         if (type == ResultType.STATISTICAL) {
             StatisticalSampleResult statistical = new StatisticalSampleResult();
             statistical.setSampleCount(0);
@@ -179,7 +187,8 @@ public class DummySampler extends AbstractSampler implements Interruptible {
     }
 
     private SampleResult failure(long started, String message) {
-        SampleResult result = new SampleResult(started, Math.max(0, System.currentTimeMillis() - started));
+        SampleResult result = createResult(ResultType.STANDARD, started,
+                Math.max(0, System.currentTimeMillis() - started), true);
         result.setSampleLabel(getName());
         result.setSuccessful(false);
         result.setResponseCode("DUMMY_ERROR");

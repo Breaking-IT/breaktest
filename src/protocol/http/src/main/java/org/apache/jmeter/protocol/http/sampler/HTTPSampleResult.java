@@ -188,9 +188,11 @@ public class HTTPSampleResult extends SampleResult {
         StringBuilder sb = new StringBuilder();
         sb.append(method);
         URL u = super.getURL();
-        if (u != null) {
-            sb.append(' ');
-            sb.append(u.toString());
+        if (u != null || !queryString.isEmpty() || !cookies.isEmpty()) {
+            if (u != null) {
+                sb.append(' ');
+                sb.append(u.toString());
+            }
             sb.append('\n');
             // Include request body if it can have one
             if (!METHODS_WITHOUT_BODY.contains(method)) {
