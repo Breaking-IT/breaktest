@@ -117,6 +117,19 @@ class WebSocketTlsTest extends JMeterTestCase {
     }
 
     @Test
+    void secureWebSocketUsesProxyTunnelAndKeepsClientCertificate() throws Exception {
+        try (WebSocketSamplerTest.Peer peer = peer(true);
+                var proxy = new WebSocketProxyTest.Tunnel(URI.create(peer.url()))) {
+            var sampler = connect("proxied-tls", peer.url());
+            sampler.addTestElement(WebSocketProxyTest.defaults(proxy.port()));
+            var result = sampler.sample(null);
+            assertTrue(result.isSuccessful(), result::getResponseMessage);
+            assertTrue(proxy.request.get(3, TimeUnit.SECONDS).startsWith("CONNECT "));
+            assertEquals("CN=Alice", peer.clientPrincipal.get(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void usesHttpCertificatePolicyForSelfSignedAndMismatchedServerCertificate() throws Exception {
         try (WebSocketSamplerTest.Peer peer = peer(false)) {
             peer.responseCookies = "Set-Cookie: tls_cookie=yes; Path=/; Secure; HttpOnly\r\n";

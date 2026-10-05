@@ -276,6 +276,7 @@ class SseSamplerTest extends JMeterTestCase {
         ordinary.setUseKeepAlive(true);
         try {
             assertTrue(ordinary.sample().isSuccessful());
+            awaitIdleConnection(protocol, server);
             HTTPSamplerProxy events = request(server, "/events", true);
             events.setHttpProtocol(protocol);
             events.setUseKeepAlive(true);
@@ -286,6 +287,7 @@ class SseSamplerTest extends JMeterTestCase {
             assertTrue(ordinary.sample().isSuccessful());
             new SseCloseSampler().sample(null);
             assertTrue(disconnected.await(3, TimeUnit.SECONDS));
+            awaitIdleConnection(protocol, server);
             ordinary.setPath("/after-close");
             assertTrue(ordinary.sample().isSuccessful());
             assertEquals(peers.get("/parallel"), peers.get("/after-close"), "Closing SSE must leave the other pooled connection open");
@@ -295,6 +297,16 @@ class SseSamplerTest extends JMeterTestCase {
             server.stop(0);
             executor.shutdownNow();
         }
+    }
+
+    private static void awaitIdleConnection(String protocol, HttpServer server) throws Exception {
+        if (!protocol.isEmpty()) {
+            return; // The classic HTTP/1.1 client releases its lease synchronously.
+        }
+        // The async-to-classic adapter can return after body consumption but before
+        // the reactor releases the endpoint. Socket identity is only deterministic
+        // once the pool has an idle connection, not merely once sample() returns.
+        org.apache.jmeter.protocol.http.sampler.HttpClientPoolTestSupport.awaitIdleConnection(server.getAddress().getPort());
     }
 
     @Test

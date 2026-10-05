@@ -72,7 +72,17 @@ Filtered-out destinations connect directly, without falling back to another prox
 authentication failure never triggers direct fallback. Filters apply to HTTP/1.1, HTTP/2, SSE connections,
 redirect destinations (including automatic redirects), and embedded resources. HTTP/3 can use a destination
 that the policy routes directly; destinations requiring a proxy still fail because the HTTP/3 transport
-does not support proxies. WebSocket Connect does not currently inherit these settings.
+does not support proxies. WebSocket Connect inherits the proxy fields, host filters, and bypass setting
+from HTTP Request Defaults, falling back to the shared HTTP proxy settings (<code>http.proxyHost</code>,
+<code>http.proxyPort</code>, and <code>http.nonProxyHosts</code>) for both ws and wss. This replaces the
+JDK default proxy selector: plans previously relying on <code>https.proxyHost</code> or SOCKS properties
+must configure an HTTP proxy through these shared settings or HTTP Request Defaults instead.
+Other HTTP Request Defaults fields
+are not applied to WebSocket samplers. Both <code>ws://</code> and <code>wss://</code> connections use
+HTTP CONNECT tunnels through an HTTP proxy. HTTPS proxy endpoints are not supported by the JDK WebSocket
+transport. Proxy authentication follows the JDK HTTP client's authentication policy (including
+<code>jdk.http.auth.tunneling.disabledSchemes</code>). Credentials are scoped to the selected proxy.
+Routing is resolved once when opening the connection; reconnect an existing session to apply changed settings.
 Enable debug logging for <code>org.apache.jmeter.protocol.http.sampler.HTTPHCAbstractImpl</code> to inspect
 routing decisions. Proxy credentials are omitted from these diagnostics.
 </p>

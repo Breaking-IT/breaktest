@@ -201,6 +201,23 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
+    // Package-private snapshot for connection lifecycle tests; no timing changes to sampling.
+    static org.apache.hc.core5.pool.PoolStats connectionPoolStats(int targetPort) {
+        for (var clients : HTTPCLIENTS_CACHE_PER_JMETER_THREAD.values()) {
+            synchronized (clients) {
+                for (var state : clients.values()) {
+                    var pool = state.connectionManager.delegate;
+                    for (var route : pool.getRoutes()) {
+                        if (route.getTargetHost().getPort() == targetPort) {
+                            return pool.getStats(route);
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     // Keep the key used while sampling. JMeterContext.clear() runs before ThreadListener callbacks,
     // so recalculating the key in threadFinished() would fall back to the carrier Java thread and
     // miss the clients cached under the owning JMeterThread. Official parallel, foreach, fork and

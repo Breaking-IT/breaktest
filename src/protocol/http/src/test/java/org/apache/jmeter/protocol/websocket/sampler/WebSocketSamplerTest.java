@@ -683,6 +683,13 @@ class WebSocketSamplerTest extends JMeterTestCase {
         var script = new org.apache.jmeter.visualizers.JSR223Listener();
         script.setProperty("scriptLanguage", "groovy");
         script.setProperty("script", "vars.put('callbackObserved', vars.get('callbackMarker'))");
+        // Groovy's first compilation can exceed the callback deadline on stressed CI
+        // workers. Warm up synchronously, then discard its result so only the real
+        // WebSocket callback can satisfy the originating-user assertion below.
+        TestBeanHelper.prepare(script);
+        script.sampleOccurred(new SampleEvent(new SampleResult(), "warmup"));
+        assertEquals("origin-user", variables.get("callbackObserved"));
+        variables.remove("callbackObserved");
         variables.putObject(JMeterThread.PACKAGE_OBJECT,
                 new SamplePackage(List.of(), List.of(script, collector), List.of(), List.of(), List.of(), List.of(), List.of()));
         try (Peer peer = new Peer(false)) {

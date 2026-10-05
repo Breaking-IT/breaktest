@@ -39,6 +39,7 @@ import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
+import org.apache.jmeter.protocol.http.sampler.HttpProxyConfiguration;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
@@ -142,7 +143,8 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
         active(session);
         try {
             handlers.start();
-            var client = sessions.client(getSessionName(), session, uri);
+            var route = HttpProxyConfiguration.resolve(this, uri);
+            var client = sessions.client(getSessionName(), session, uri, route);
             WebSocket.Builder builder = client.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(getTimeout()));
             // Resolve variable-backed cookies on the virtual user's thread, before
@@ -201,7 +203,13 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
 
     @Override
     public boolean applies(ConfigTestElement configElement) {
-        return configElement instanceof CookieManager || configElement instanceof HeaderManager;
+        return configElement instanceof CookieManager || configElement instanceof HeaderManager
+                || isHttpDefaults(configElement);
+    }
+
+    private static boolean isHttpDefaults(TestElement element) {
+        return "org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui"
+                .equals(element.getPropertyAsString(TestElement.GUI_CLASS));
     }
 
     @Override
@@ -212,6 +220,8 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
             Object existing = getProperty(HEADER_MANAGER).getObjectValue();
             HeaderManager merged = existing instanceof HeaderManager manager ? manager.merge(incoming) : incoming;
             setProperty(new TestElementProperty(HEADER_MANAGER, merged));
+        } else if (isHttpDefaults(element)) {
+            HttpProxyConfiguration.merge(this, element);
         } else {
             super.addTestElement(element);
         }
