@@ -63,12 +63,12 @@ preserved unless a closer configuration overrides that name.
 
 <h2>Server-Sent Events (SSE)</h2>
 <p>
-Add an <code>SSE Request</code> sampler. It provides the same URL, parameters, headers, body, files, and advanced
+Add an <code>SSE Connect</code> sampler. It provides the same URL, parameters, headers, body, files, and advanced
 settings as HTTP Request, with an <code>SSE</code> tab for session settings and a <code>Recorded Events</code> tab.
 The request returns after HTTP 200 event-stream headers arrive; events continue arriving in the background.
 The regular HTTP/1.1 or HTTP/2 transport retains HTTP headers, cookies, authentication, proxy and TLS settings.
 HTTP/3 is not supported for SSE. Set a unique session name for each concurrent stream.
-SSE Request reuses compatible existing HTTP connections: an idle connection for HTTP/1.1,
+SSE Connect reuses compatible existing HTTP connections: an idle connection for HTTP/1.1,
 or a shared connection with concurrent streams for HTTP/2. An occupied HTTP/1.1 connection requires another connection.
 In the SSE tab, <b>When session already exists</b> controls repeated execution, including later iterations:
 <b>Close and reconnect</b> (default) replaces only that named stream;
@@ -76,7 +76,7 @@ In the SSE tab, <b>When session already exists</b> controls repeated execution, 
 <b>Fail if exists</b> fails when the name is still registered, without disturbing its stream. Use SSE Close to remove it.
 </p>
 <p>
-Add an <code>SSE Message Match</code> child through SSE Request's Add menu and place actions beneath it.
+Add an <code>SSE Message Match</code> child through SSE Connect's Add menu and place actions beneath it.
 Match the event data using exact text or a regular expression, optionally restricted to an event name.
 The matching data can be saved in a variable; the previous result contains the data, with the event name
 in the response message and event name/ID in the response headers. Child actions run asynchronously
@@ -101,7 +101,7 @@ Response timeout defaults to <code>0</code> (no read timeout) for new and import
 so quiet streams remain open. Configure a finite read timeout in Advanced when inactivity should fail the request.
 Existing requests retain their configured timeout.
 The sampler makes one connection attempt: it does not automatically reconnect or act on <code>retry</code> fields.
-Use another SSE Request execution to reconnect. Streams close automatically when the virtual user ends;
+Use another SSE Connect execution to reconnect. Streams close automatically when the virtual user ends;
 use <code>SSE Close</code> with the session name to stop receiving earlier. It cancels only that request/stream;
 HTTP/2 connections remain available for other requests and streams. Receiving stops immediately;
 the HTTP/2 transport sends the stream reset when the peer next sends data. Closing an already closed session is harmless.
@@ -113,7 +113,7 @@ An explicit HTTP/2 connection reset also ends streams using that connection.
 </p>
 <p>
 HAR import recognizes <code>EventSource</code>, <code>text/event-stream</code>,
-<code>_breaktest.sse</code> and <code>_serverSentEvents</code>. It creates an SSE Request sampler.
+<code>_breaktest.sse</code> and <code>_serverSentEvents</code>. It creates an SSE Connect sampler.
 The recording archive retains event timestamps, names, IDs, multiline data, transaction IDs/names and capture metadata.
 The Recorded Events tab shows the captured events, with payload previews limited to 64 Ki characters. The archive retains the full data. Incoming recordings are reference data; add match handlers for the live behavior
 needed by the test. A recording ending does not imply a client close, so import does not invent an SSE Close step.

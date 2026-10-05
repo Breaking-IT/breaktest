@@ -77,7 +77,7 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
     @SuppressWarnings("ReferenceEquality")
     public void addChildController(org.apache.jmeter.control.Controller controller) {
         if (!isSseEnabled() || !(controller instanceof org.apache.jmeter.protocol.sse.SseMatchController match)) {
-            throw new IllegalArgumentException("SSE Request only accepts SSE Message Match controllers");
+            throw new IllegalArgumentException("SSE Connect only accepts SSE Message Match controllers");
         }
         if (sseMatches.stream().noneMatch(existing -> existing == match)) {
             sseMatches.add(match);

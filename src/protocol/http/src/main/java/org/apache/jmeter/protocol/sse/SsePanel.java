@@ -48,7 +48,7 @@ public class SsePanel extends JPanel {
     private final JTextField sampleName = new JTextField(24);
     private final JLabel sampleNameLabel = new JLabel();
     private final JLabel nameExample = new JLabel();
-    private String requestName = "SSE Request";
+    private String requestName = "SSE Connect";
     private final JTextField max = new JTextField("1048576", 9);
     private final JPanel settings = new JPanel(new net.miginfocom.swing.MigLayout(
             "insets 12, wrap 2, aligny top", "[][grow,fill]"));

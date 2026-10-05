@@ -114,7 +114,7 @@ class SseEditorTest extends JMeterTestCase {
             var http = new HttpTestSampleGui();
             var sse = new SseSamplerGui();
             assertEquals("HTTP Request", http.getStaticLabel());
-            assertEquals("SSE Request", sse.getStaticLabel());
+            assertEquals("SSE Connect", sse.getStaticLabel());
             assertFalse(tabs(http).stream().anyMatch(title -> title.contains("SSE") || title.contains("Events")));
             assertTrue(tabs(sse).contains("Recorded Events"));
             assertTrue(tabs(sse).contains("SSE"));
@@ -126,7 +126,7 @@ class SseEditorTest extends JMeterTestCase {
             assertTrue(java.util.stream.IntStream.range(0, samplers.getItemCount())
                     .mapToObj(samplers::getItem).filter(java.util.Objects::nonNull)
                     .anyMatch(item -> SseSamplerGui.class.getName().equals(item.getName())),
-                    "SSE Request must be discoverable in the Add > Sampler menu");
+                    "SSE Connect must be discoverable in the Add > Sampler menu");
         });
     }
 
