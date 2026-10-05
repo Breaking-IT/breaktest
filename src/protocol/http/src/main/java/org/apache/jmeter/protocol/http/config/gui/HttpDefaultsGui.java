@@ -39,6 +39,7 @@ import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.gui.util.InfoButton;
 import org.apache.jmeter.gui.util.VerticalPanel;
+import org.apache.jmeter.protocol.http.control.gui.ProxyDestinationPanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.testelement.AbstractTestElement;
@@ -85,6 +86,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     private JTextField embeddedExcludeRE; // regular expression used to match against embedded resource URLs to discard
     private JTextField sourceIpAddr;
     private final JComboBox<String> sourceIpType = new JComboBox<>(HTTPSamplerBase.getSourceTypeList());
+    private final ProxyDestinationPanel proxyDestinations = new ProxyDestinationPanel();
     private JTextField proxyScheme;
     private JTextField proxyHost;
     private JTextField proxyPort;
@@ -114,6 +116,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                         new JTextComponentBinding(proxyPort, schema.getProxy().getPort()),
                         new JTextComponentBinding(proxyUser, schema.getProxy().getUsername()),
                         new JTextComponentBinding(proxyPass, schema.getProxy().getPassword()),
+                        proxyDestinations,
                         new JTextComponentBinding(connectTimeOut, schema.getConnectTimeout()),
                         new JTextComponentBinding(responseTimeOut, schema.getResponseTimeout())
                 )
@@ -175,6 +178,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     @Override
     public void clearGui() {
         super.clearGui();
+        proxyDestinations.updateUi(new org.apache.jmeter.config.ConfigTestElement());
         urlConfigGui.clear();
         legacyHttpProtocol = null;
     }
@@ -380,17 +384,24 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         proxyLogin.add(getProxyUserPanel());
         proxyLogin.add(getProxyPassPanel());
 
-        JPanel proxyServerPanel = new HorizontalPanel();
+        JPanel proxyServerPanel = new JPanel(new BorderLayout(0, 5));
         proxyServerPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("web_proxy_server_title"))); // $NON-NLS-1$
-        proxyServerPanel.add(proxyServer);
-        proxyServerPanel.add(proxyLogin);
+        JPanel endpoint = new HorizontalPanel();
+        endpoint.add(proxyServer);
+        endpoint.add(proxyLogin);
+        proxyServerPanel.add(endpoint, BorderLayout.NORTH);
+        proxyDestinations.setEndpointFields(proxyScheme, proxyHost, proxyPort, proxyUser, proxyPass);
+        proxyServerPanel.add(proxyDestinations, BorderLayout.CENTER);
 
         return proxyServerPanel;
     }
 
     private JPanel getProxySchemePanel() {
-        proxyScheme = new JTextField(5);
+        JComboBox<String> schemeSelector = new JComboBox<>(new String[] {"", "http", "https"});
+        schemeSelector.setEditable(true);
+        proxyScheme = (JTextField) schemeSelector.getEditor().getEditorComponent();
+        proxyScheme.setColumns(5);
 
         JLabel label = new JLabel(JMeterUtils.getResString("web_proxy_scheme")); // $NON-NLS-1$
         label.setLabelFor(proxyScheme);
@@ -398,7 +409,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
 
         JPanel panel = new JPanel(new BorderLayout(5, 0));
         panel.add(label, BorderLayout.WEST);
-        panel.add(proxyScheme, BorderLayout.CENTER);
+        panel.add(schemeSelector, BorderLayout.CENTER);
         return panel;
     }
 

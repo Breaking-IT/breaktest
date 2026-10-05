@@ -141,9 +141,7 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.hc.core5.http.message.BasicNameValuePair;
 import org.apache.hc.core5.http.message.BufferedHeader;
 import org.apache.hc.core5.http.message.StatusLine;
-import org.apache.hc.core5.http.protocol.BasicHttpContext;
 import org.apache.hc.core5.http.protocol.HttpContext;
-import org.apache.hc.core5.http.protocol.HttpCoreContext;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
@@ -251,6 +249,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             // The scope of a challenge carries the protocol and the scheme name, so it never equals
             // the host/port only scope built from the client key: match it the way AuthScope does
             if (this.proxyAuthScope != null && authScope.match(proxyAuthScope) >= 0) {
+                // Basic/Digest require ordinary credentials; NTLM also supports an empty domain.
+                if (StandardAuthScheme.NTLM.equalsIgnoreCase(authScope.getSchemeName())
+                        && proxyCredentials instanceof UsernamePasswordCredentials credentials) {
+                    return new NTCredentials(credentials.getUserName(), credentials.getPassword(), LOCALHOST, PROXY_DOMAIN);
+                }
                 return proxyCredentials;
             }
             Credentials credentials = requestScopedCredentials.getCredentials(authScope, context);
@@ -569,7 +572,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) {
-            return proxy;
+            return selectProxy(proxy, target, context);
         }
 
         @Override
@@ -814,13 +817,13 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         CloseableHttpClient httpClient = null;
         HttpUriRequestBase httpRequest = null;
-        HttpContext localContext = new BasicHttpContext();
-        HttpClientContext clientContext = HttpClientContext.adapt(localContext);
+        HttpClientContext clientContext = HttpClientContext.create();
+        HttpContext localContext = clientContext;
         clientContext.setAttribute(CONTEXT_ATTRIBUTE_SSE, testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled());
         clientContext.setAttribute(CONTEXT_ATTRIBUTE_AUTH_MANAGER, getAuthManager());
-        HttpClientKey key = createHttpClientKey(url);
         HttpClientState clientState;
         try {
+            HttpClientKey key = createHttpClientKey(url, localContext);
             clientState = setupClient(key, jMeterVariables, clientContext);
             httpClient = clientState.getClient();
             URI uri = url.toURI();
@@ -857,7 +860,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 log.debug("Headers in request before:{}", Arrays.asList(httpRequest.getHeaders()));
             }
             // Needs to be done after execute to pick up all the headers
-            final HttpRequest request = (HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST);
+            final HttpRequest request = clientContext.getRequest();
             if (log.isDebugEnabled()) {
                 log.debug("Headers in request after:{}, in localContext#request:{}",
                         Arrays.asList(httpRequest.getHeaders()),
@@ -891,7 +894,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
             // If we redirected automatically, the URL may have changed
             if (getAutoRedirects()) {
-                HttpRequest req = (HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST);
+                HttpRequest req = clientContext.getRequest();
                 URI redirectURI;
                 try {
                     redirectURI = req.getUri();
@@ -990,7 +993,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (res.getRequestHeaders() != null) {
                 log.debug("Overwriting request old headers: {}", res.getRequestHeaders());
             }
-            res.setRequestHeaders(getAllHeadersExceptCookie((HttpRequest) localContext.getAttribute(HttpCoreContext.HTTP_REQUEST)));
+            res.setRequestHeaders(getAllHeadersExceptCookie(clientContext.getRequest()));
             recordNetworkEndpointsIfNeeded(localContext, false);
             errorResult(e, res);
             return res;
@@ -1100,7 +1103,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      * @param localContext {@link HttpContext}
      */
     private static void extractClientContextAfterSample(JMeterVariables jMeterVariables, HttpContext localContext) {
-        Object userToken = localContext.getAttribute(HttpClientContext.USER_TOKEN);
+        Object userToken = HttpClientContext.adapt(localContext).getUserToken();
         if(userToken != null) {
             log.debug("Extracted from HttpContext user token:{} storing it as JMeter variable:{}", userToken, JMETER_VARIABLE_USER_TOKEN);
             // During recording JMeterContextService.getContext().getVariables() is null
@@ -1124,14 +1127,14 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
         if(userToken != null) {
             log.debug("Found user token:{} as JMeter variable:{}, storing it in HttpContext", userToken, JMETER_VARIABLE_USER_TOKEN);
-            localContext.setAttribute(HttpClientContext.USER_TOKEN, userToken);
+            HttpClientContext.adapt(localContext).setUserToken(userToken);
         } else {
             // It would be better to create a ClientSessionManager that would compute this value
             // for now it can be Thread.currentThread().getName() but must be changed when we would change
             // the Thread per User model
             String userId = Thread.currentThread().getName();
             log.debug("Storing in HttpContext the user token: {}", userId);
-            localContext.setAttribute(HttpClientContext.USER_TOKEN, userId);
+            HttpClientContext.adapt(localContext).setUserToken(userId);
         }
     }
 
@@ -1458,14 +1461,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
             // Set up proxy details
             AuthScope proxyAuthScope = null;
-            NTCredentials proxyCredentials = null;
+            Credentials proxyCredentials = null;
             HttpHost proxy = null;
             if (key.hasProxy) {
                 proxy = new HttpHost(key.proxyScheme, key.proxyHost, key.proxyPort);
 
                 if (!key.proxyUser.isEmpty()) {
                     proxyAuthScope = new AuthScope(key.proxyHost, key.proxyPort);
-                    proxyCredentials = new NTCredentials(key.proxyUser, key.proxyPass.toCharArray(), LOCALHOST, PROXY_DOMAIN);
+                    proxyCredentials = PROXY_DOMAIN.isEmpty()
+                            ? new UsernamePasswordCredentials(key.proxyUser, key.proxyPass.toCharArray())
+                            : new NTCredentials(key.proxyUser, key.proxyPass.toCharArray(), LOCALHOST, PROXY_DOMAIN);
                 }
             }
             builder.setRoutePlanner(new JMeterDefaultRoutePlanner(proxy));
@@ -1498,31 +1503,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         return DefaultAuthenticationStrategy.INSTANCE;
     }
 
-    private HttpClientKey createHttpClientKey(URL url) {
-        final String host = url.getHost();
-        String proxyScheme = getProxyScheme();
-        String proxyHost = getProxyHost();
-        int proxyPort = getProxyPortInt();
-        String proxyPass = getProxyPass();
-        String proxyUser = getProxyUser();
-
-        // static proxy is the globally define proxy eg command line or properties
-        boolean useStaticProxy = isStaticProxy(host);
-        // dynamic proxy is the proxy defined for this sampler
-        boolean useDynamicProxy = isDynamicProxy(proxyHost, proxyPort);
-        boolean useProxy = useStaticProxy || useDynamicProxy;
-
-        // if both dynamic and static are used, the dynamic proxy has priority over static
-        if(!useDynamicProxy) {
-            proxyScheme = PROXY_SCHEME;
-            proxyHost = PROXY_HOST;
-            proxyPort = PROXY_PORT;
-            proxyUser = PROXY_USER;
-            proxyPass = PROXY_PASS;
-        }
-
-        // Lookup key - must agree with all the values used to create the HttpClient.
-        return new HttpClientKey(url, useProxy, proxyScheme, proxyHost, proxyPort, proxyUser, proxyPass);
+    private HttpClientKey createHttpClientKey(URL url, HttpContext context) {
+        ProxySettings proxy = resolveProxy(url, context);
+        return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
+                proxy.username(), proxy.password());
     }
 
     /**
@@ -1544,7 +1528,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             Map<HttpClientKey, ? extends HttpClientState> mapHttpClientPerHttpClientKey) {
         if (resetStateOnThreadGroupIteration.get()) {
             closeCurrentConnections(mapHttpClientPerHttpClientKey);
-            clientContext.removeAttribute(HttpClientContext.USER_TOKEN);
+            clientContext.setUserToken(null);
             clientContext.getAuthExchanges().clear();
             if (clientState != null) {
                 clientState.setProxyAuthExchange(null);

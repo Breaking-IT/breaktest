@@ -141,6 +141,20 @@ class HTTPHC5H2ConnectionCloseTest {
     }
 
     @Test
+    void excludedDestinationRetainsHttp2OverTls() {
+        HTTPSamplerProxy sampler = createSampler();
+        sampler.setProxyHost("unreachable-proxy.invalid");
+        sampler.setProxyPortInt("8888");
+        sampler.setProperty("HTTPSampler.proxyDestinationMode", "proxy_filter_exclude");
+        sampler.setProperty("HTTPSampler.proxyDestinationPatterns", "localhost");
+        try {
+            assertSuccessful(sampler.sample());
+        } finally {
+            sampler.threadFinished();
+        }
+    }
+
+    @Test
     void threadEndClosesConnectionWithoutWaitingForServer() throws Exception {
         HTTPSamplerProxy sampler = createSampler();
         try {

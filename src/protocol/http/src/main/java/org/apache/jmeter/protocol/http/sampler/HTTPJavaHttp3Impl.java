@@ -367,7 +367,9 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
      * silently ignoring them.
      */
     private void checkUnsupportedConfiguration(URL url) {
-        if (isStaticProxy(url.getHost()) || isDynamicProxy(getProxyHost(), getProxyPortInt())) {
+        ProxySettings proxy = resolveProxy(url, null);
+        if (proxy.enabled() && proxy.policy().allowsProxy(url.getHost())
+                && (!proxy.global() || !isNonProxy(url.getHost()))) {
             throw new IllegalStateException(
                     "The HTTP/3 implementation does not support proxies. "
                     + "Remove the proxy configuration or use HTTP/2 for this sampler.");
