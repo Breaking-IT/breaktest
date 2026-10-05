@@ -28,6 +28,39 @@ class DefaultSamplerCreatorTest {
 
     @ParameterizedTest
     @CsvSource({
+            "GET,4,,/some/path",
+            "POST,4,,/some/path",
+            "OPTIONS,4,,/some/path",
+            "GET,3,#{path}#{querystring},/some/path?q=a%3Fb&n=1",
+            "POST,3,#{path}#querystring,/some/path?q=a%3Fb&n=1",
+            "OPTIONS,3,#{path}#{querystring},/some/path?q=a%3Fb&n=1",
+            "GET,3,#{path},/some/path",
+            "POST,3,#{url},https://example.test/some/path?q=a%3Fb&n=1"
+    })
+    void omitsQueryFromNamesUnlessRequestedWithoutChangingRequest(String method, int mode, String format, String expected) throws Exception {
+        var sampler = new HTTPSamplerProxy();
+        sampler.setDomain("example.test");
+        sampler.setProtocol("https");
+        sampler.setMethod(method);
+        sampler.setPath("/some/path?q=a%3Fb&n=1");
+        String originalUrl = sampler.getUrl().toString();
+        DefaultSamplerCreator.computeSamplerName(sampler, new HttpRequestHdr("", "", mode, format));
+        assertEquals(expected, sampler.getName());
+        assertEquals(originalUrl, sampler.getUrl().toString());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"#{path}#{querystring}", "#{path}#querystring"})
+    void queryFormatterDoesNotAddQuestionMarkWhenQueryIsAbsent(String format) {
+        var sampler = new HTTPSamplerProxy();
+        sampler.setDomain("example.test");
+        sampler.setPath("/some/path");
+        DefaultSamplerCreator.computeSamplerName(sampler, new HttpRequestHdr("", "", 3, format));
+        assertEquals("/some/path", sampler.getName());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
             "3,#{name} - #{counter} - #{scheme}://#{host}:#{port}#{path},prefix| - 42 - https://jmeter.invalid:443/some/path",
             "3,#{counter} - #{path},42 - /some/path",
             "3,#{url},https://jmeter.invalid/some/path",

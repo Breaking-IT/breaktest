@@ -602,6 +602,14 @@ public class ProxyControl extends GenericController implements NonTestElement {
         return server == null ? findTargetControllerNode() : recordingTarget;
     }
 
+    public void setAddPreflightSuffix(boolean enabled) {
+        setProperty("ProxyControlGui.add_preflight_suffix", enabled, true);
+    }
+
+    public boolean getAddPreflightSuffix() {
+        return getPropertyAsBoolean("ProxyControlGui.add_preflight_suffix", true);
+    }
+
     public void setIgnoreHttpErrors(boolean ignore) {
         setProperty(IGNORE_HTTP_ERRORS, ignore, false);
     }
@@ -624,6 +632,9 @@ public class ProxyControl extends GenericController implements NonTestElement {
                 ? capture.request().settings : RecordingRequestSettings.capture(this);
         boolean notifySampleListeners = true;
         if (sampler != null) {
+            if (settings.preflightSuffix() && "OPTIONS".equals(sampler.getMethod())) {
+                sampler.setName(sampler.getName() + "_preflight");
+            }
             if (USE_REDIRECT_DISABLING
                     && (settings.autoRedirects() || settings.followRedirects())
                     && result instanceof HTTPSampleResult httpSampleResult) {

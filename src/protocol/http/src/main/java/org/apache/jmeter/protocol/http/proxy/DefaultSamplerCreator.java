@@ -24,8 +24,6 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.text.MessageFormat;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -353,21 +351,26 @@ public class DefaultSamplerCreator extends AbstractSamplerCreator {
             url = sampler.getPath();
             log.warn("Could not get URL to name sample", e);
         }
-        List<Object> values = Arrays.asList(
+        String path = sampler.getPath();
+        int queryStart = path.indexOf('?');
+        if (queryStart >= 0) {
+            path = path.substring(0, queryStart);
+        }
+        int urlQueryStart = url.indexOf('?');
+        String queryString = urlQueryStart < 0 ? "" : url.substring(urlQueryStart);
+        Object[] valuesArray = {
                 prefix,
-                sampler.getPath(),
+                path,
                 sampler.getMethod(),
                 sampler.getDomain(),
                 sampler.getProtocol(),
                 sampler.getPort(),
-                url
-        );
-        Object[] valuesArray;
+                url,
+                "",
+                queryString
+        };
         if (!HTTPConstants.CONNECT.equals(request.getMethod()) && isNumberRequests()) {
-            valuesArray = values.toArray(new Object[values.size() + 1]);
-            valuesArray[values.size()] = incrementRequestNumberAndGet();
-        } else {
-            valuesArray = values.toArray();
+            valuesArray[7] = incrementRequestNumberAndGet();
         }
         sampler.setName(MessageFormat.format(format,valuesArray));
     }
@@ -382,7 +385,9 @@ public class DefaultSamplerCreator extends AbstractSamplerCreator {
                     .replaceAll("#\\{scheme([,}])", "{4$1")
                     .replaceAll("#\\{port([,}])", "{5$1")
                     .replaceAll("#\\{url([,}])", "{6$1")
-                    .replaceAll("#\\{counter([,}])", "{7$1");
+                    .replaceAll("#\\{counter([,}])", "{7$1")
+                    .replaceAll("#\\{querystring([,}])", "{8$1")
+                    .replace("#querystring", "{8}");
         }
         if (isNumberRequests()) {
             return getNumberedFormat(httpSampleNameMode);

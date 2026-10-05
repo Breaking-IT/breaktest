@@ -145,6 +145,8 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
 
     private JCheckBox ignoreHttpErrors;
 
+    private JCheckBox addPreflightSuffix;
+
     /**
      * Set/clear the Use Keep-Alive box on the samplers (default is true)
      */
@@ -326,6 +328,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
             model.setStoreRecordedExchanges(storeRecordedExchanges.isSelected());
             model.setGroupingMode(groupingMode.getSelectedIndex());
             model.setIgnoreHttpErrors(ignoreHttpErrors.isSelected());
+            model.setAddPreflightSuffix(addPreflightSuffix.isSelected());
             model.setSamplerTypeName(USE_DEFAULT_HTTP_IMPL);
             model.setSamplerRedirectAutomatically(samplerRedirectHandling.isAutomaticRedirects());
             model.setSamplerFollowRedirects(samplerRedirectHandling.isFollowRedirects());
@@ -392,6 +395,7 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         storeRecordedExchanges.setSelected(model.getStoreRecordedExchanges());
         groupingMode.setSelectedIndex(model.getGroupingMode());
         ignoreHttpErrors.setSelected(model.getIgnoreHttpErrors());
+        addPreflightSuffix.setSelected(model.getAddPreflightSuffix());
         updatingRedirectHandling = true;
         try {
             samplerRedirectHandling.setRedirects(
@@ -985,6 +989,11 @@ public class ProxyControlGui extends LogicControllerGui implements JMeterGUIComp
         panel.add(httpSampleNamingMode);
         panel.add(httpSampleNameFormat, "growx, span");
         httpSampleNameFormat.setToolTipText(JMeterUtils.getResString("sample_naming_format_help"));
+
+        addPreflightSuffix = new JCheckBox(JMeterUtils.getResString("proxy_add_preflight_suffix"));
+        addPreflightSuffix.addActionListener(this);
+        addPreflightSuffix.setActionCommand(ENABLE_RESTART);
+        panel.add(addPreflightSuffix, "span");
 
         JLabel labelSetCounter = new JLabel(JMeterUtils.getResString("sample_creator_counter_value"));
         counterValue = new JTextField(10);

@@ -502,6 +502,11 @@ so a slow overlapping request does not create false think time. The defaults are
 as-recorded think time, and no automatic or followed redirects; redirect requests are recorded individually.
 Transactions follow the names set during recording; elapsed idle time does not start a new transaction.
 Transaction-name edits take effect on Enter or when focus leaves the name field.
+Sampler names omit query strings by default, without changing the recorded URL or replay parameters.
+Use <code>#{path}#{querystring}</code> (or <code>#{path}#querystring</code>) in the name formatter to include the query;
+the query placeholder includes the leading question mark only when a query is present.
+The recorder defaults to appending <code>_preflight</code> to OPTIONS request names, as HAR import does.
+Disable <b>Append _preflight to OPTIONS request names</b> to keep those names unchanged; this preference is saved with recorder settings.
 Incomplete captures and event streams do not extend transaction activity; their native recordings retain the actual transfer timings.
 Transaction boundaries are resolved before filtering hosts or failed captures. Think-time choices only affect replay delays.
 The first transaction has no think time. Existing explicit legacy grouping choices remain available.

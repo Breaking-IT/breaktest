@@ -22,13 +22,14 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 /** Settings belonging to the request, independent of subsequent recorder edits. */
 record RecordingRequestSettings(JMeterTreeNode target, String prefix, String samplerType, int namingMode,
         String format, boolean graphQL, boolean storeExchanges, int grouping, boolean autoRedirects,
-        boolean followRedirects, boolean keepAlive, boolean images, boolean ignoreErrors, long transactionGapMillis) {
+        boolean followRedirects, boolean keepAlive, boolean images, boolean ignoreErrors, long transactionGapMillis, boolean preflightSuffix) {
     static RecordingRequestSettings capture(ProxyControl recorder) {
         return new RecordingRequestSettings(recorder.captureTarget(), recorder.getPrefixHTTPSampleName(),
                 recorder.getSamplerTypeName(), recorder.getHTTPSampleNamingMode(), recorder.getHttpSampleNameFormat(),
                 recorder.getDetectGraphQLRequest(), recorder.getStoreRecordedExchanges(), recorder.getGroupingMode(),
                 recorder.getSamplerRedirectAutomatically(), recorder.getSamplerFollowRedirects(), recorder.getUseKeepalive(),
-                recorder.getSamplerDownloadImages(), recorder.getIgnoreHttpErrors(), transactionGapMillis(recorder));
+                recorder.getSamplerDownloadImages(), recorder.getIgnoreHttpErrors(), transactionGapMillis(recorder),
+                recorder.getAddPreflightSuffix());
     }
     static long transactionGapMillis(ProxyControl recorder) {
         // Legacy JMX pause values are retained for compatibility but no longer split transactions.

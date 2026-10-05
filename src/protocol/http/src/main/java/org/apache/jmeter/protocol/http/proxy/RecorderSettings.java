@@ -50,6 +50,7 @@ public final class RecorderSettings {
                 recorder.setProperty("ProxyControlGui." + key, value);
             }
         }
+        recorder.setAddPreflightSuffix(JMeterUtils.getPropDefault(PREFIX + "add_preflight_suffix", true));
         recorder.setIgnoreHttpErrors(JMeterUtils.getPropDefault(PREFIX + "ignore_http_errors", false));
         recorder.setIncludeList(patterns("include_patterns"));
         recorder.setExcludeList(patterns("exclude_patterns"));
@@ -69,6 +70,7 @@ public final class RecorderSettings {
         values.put(PREFIX + "use_keepalive", Boolean.toString(recorder.getUseKeepalive()));
         values.put(PREFIX + "detect_graphql_request", Boolean.toString(recorder.getDetectGraphQLRequest()));
         values.put(PREFIX + "proxy_http_sampler_format", recorder.getHttpSampleNameFormat());
+        values.put(PREFIX + "add_preflight_suffix", Boolean.toString(recorder.getAddPreflightSuffix()));
         values.put(PREFIX + "ignore_http_errors", Boolean.toString(recorder.getIgnoreHttpErrors()));
         values.put(PREFIX + "store_recorded_exchanges", Boolean.toString(recorder.getStoreRecordedExchanges()));
         if (options != null) {

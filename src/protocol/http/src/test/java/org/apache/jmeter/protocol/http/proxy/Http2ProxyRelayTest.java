@@ -177,8 +177,8 @@ class Http2ProxyRelayTest extends JMeterTestCase {
 
     @Test
     void snapshotsHttp2SettingsBeforeAsynchronousInspection() throws Exception {
-        var original = new RecordingRequestSettings(null, "before", "", 0, "", false, true, 4, false, false, true, false, false, 5000);
-        var changed = new RecordingRequestSettings(null, "after", "", 0, "", false, false, 0, false, true, true, false, false, 5000);
+        var original = new RecordingRequestSettings(null, "before", "", 0, "", false, true, 4, false, false, true, false, false, 5000, true);
+        var changed = new RecordingRequestSettings(null, "after", "", 0, "", false, false, 0, false, true, true, false, false, 5000, true);
         var settings = new java.util.concurrent.atomic.AtomicReference<>(original);
         var requestEncoder = new HPackEncoder(4096, StandardCharsets.ISO_8859_1);
         var responseEncoder = new HPackEncoder(4096, StandardCharsets.ISO_8859_1);

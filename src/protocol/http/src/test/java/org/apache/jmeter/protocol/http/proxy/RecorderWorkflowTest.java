@@ -77,6 +77,28 @@ class RecorderWorkflowTest extends JMeterTestCase {
     }
 
     @Test
+    void preflightSuffixAppliesOnlyToOptionsAndCanBeDisabled() throws Exception {
+        var recorder = new ProxyControl();
+        recorder.setNonGuiTreeModel(model);
+        recorder.setTarget(target());
+        assertTrue(recorder.getAddPreflightSuffix());
+        var preflight = sampler("example.test", "/settings");
+        preflight.setMethod("OPTIONS");
+        recorder.deliverSampler(preflight, new TestElement[0], result(preflight, 1000, 1100, "204"));
+        var get = sampler("example.test", "/settings");
+        recorder.deliverSampler(get, new TestElement[0], result(get, 1100, 1200, "200"));
+        recorder.setAddPreflightSuffix(false);
+        var unchanged = sampler("example.test", "/settings");
+        unchanged.setMethod("OPTIONS");
+        recorder.deliverSampler(unchanged, new TestElement[0], result(unchanged, 1200, 1300, "204"));
+        assertEquals("/settings_preflight", preflight.getName());
+        assertEquals("/settings", get.getName());
+        assertEquals("/settings", unchanged.getName());
+        assertEquals("/settings", preflight.getUrl().getPath());
+        recorder.stopProxy();
+    }
+
+    @Test
     void retainsFailuresDespiteRecorderUrlFilters() throws Exception {
         var recorder = new ProxyControl();
         recorder.setNonGuiTreeModel(model);
@@ -333,6 +355,7 @@ class RecorderWorkflowTest extends JMeterTestCase {
             JMeterUtils.setProperty("user.properties", file.toString());
             ProxyControl recorder = new ProxyControl();
             recorder.setStoreRecordedExchanges(false);
+            recorder.setAddPreflightSuffix(false);
             recorder.setHTTPSampleNamingMode(3);
             recorder.setHttpSampleNameFormat("#{counter} / Unicode café ${path}");
             recorder.setProxyPauseHTTPSample("7000");
@@ -347,6 +370,7 @@ class RecorderWorkflowTest extends JMeterTestCase {
             assertEquals(recorder.getHttpSampleNameFormat(), anotherPlan.getHttpSampleNameFormat());
             assertEquals(3, anotherPlan.getHTTPSampleNamingMode());
             assertFalse(anotherPlan.getStoreRecordedExchanges());
+            assertFalse(anotherPlan.getAddPreflightSuffix());
             assertEquals(4, anotherPlan.getGroupingMode());
             assertFalse(anotherPlan.getSamplerFollowRedirects());
             assertTrue(anotherPlan.getUseKeepalive());
