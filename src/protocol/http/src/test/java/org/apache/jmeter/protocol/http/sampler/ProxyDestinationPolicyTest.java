@@ -52,6 +52,20 @@ class ProxyDestinationPolicyTest {
     }
 
     @Test
+    void requestHostnamesAreMatchedWithoutPatternValidation() {
+        var include = ProxyDestinationPolicy.compile("proxy_filter_include", "*.example.com");
+        var exclude = ProxyDestinationPolicy.compile("proxy_filter_exclude", "*.example.com");
+        assertFalse(include.allowsProxy("my_service"));
+        assertTrue(exclude.allowsProxy("my_service"));
+        assertTrue(include.allowsProxy("MY_SERVICE.EXAMPLE.COM."));
+        assertFalse(exclude.allowsProxy("MY_SERVICE.EXAMPLE.COM."));
+        org.junit.jupiter.api.Assertions.assertEquals("", include.matchingPattern("my_service"));
+        org.junit.jupiter.api.Assertions.assertEquals("*.example.com", include.matchingPattern("my_service.example.com"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProxyDestinationPolicy.compile("proxy_filter_include", "my_service"));
+    }
+
+    @Test
     void mixedSeparatorsAndWhitespace() {
         String patterns = " api.example.com, *.internal; localhost\r\n[::1];,127.0.0.1\n; ";
         for (String mode : new String[] {"proxy_filter_include", "proxy_filter_exclude"}) {

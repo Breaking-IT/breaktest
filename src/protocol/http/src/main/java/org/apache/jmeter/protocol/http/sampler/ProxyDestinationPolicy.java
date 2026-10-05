@@ -127,7 +127,7 @@ public final class ProxyDestinationPolicy {
         if (mode == Mode.DIRECT) {
             return false;
         }
-        String normalized = normalize(host);
+        String normalized = normalizeRequestHost(host);
         boolean matched = exact.contains(normalized);
         if (!matched) {
             for (String suffix : suffixes) {
@@ -140,12 +140,12 @@ public final class ProxyDestinationPolicy {
         return mode == Mode.INCLUDE ? matched : !matched;
     }
 
-    /** Optional diagnostics, evaluated only by the editor or with debug logging enabled. */
+    /** Optional diagnostics, evaluated only with debug logging enabled. */
     public String matchingPattern(String host) {
         if (mode == Mode.ALL || mode == Mode.DIRECT) {
             return "";
         }
-        String normalized = normalize(host);
+        String normalized = normalizeRequestHost(host);
         if (exact.contains(normalized)) {
             return normalized;
         }
@@ -159,6 +159,35 @@ public final class ProxyDestinationPolicy {
 
     public Mode mode() {
         return mode;
+    }
+
+    private static String normalizeRequestHost(String value) {
+        String host = value;
+        if (host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
+        if (host.endsWith(".")) {
+            host = host.substring(0, host.length() - 1);
+        }
+        // Transports accept names (for example Docker service names with underscores)
+        // that are not valid configured patterns. Matching must not reject their requests.
+        if (host.indexOf(':') >= 0) {
+            try {
+                return normalize(host);
+            } catch (IllegalArgumentException ignored) {
+                return host.toLowerCase(Locale.ROOT);
+            }
+        }
+        for (int i = 0; i < host.length(); i++) {
+            if (host.charAt(i) > 127) {
+                try {
+                    return IDN.toASCII(host).toLowerCase(Locale.ROOT);
+                } catch (IllegalArgumentException ignored) {
+                    break;
+                }
+            }
+        }
+        return host.toLowerCase(Locale.ROOT);
     }
 
     private static String normalize(String value) {

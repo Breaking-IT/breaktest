@@ -43,8 +43,10 @@ Proxy settings apply in order: global properties, HTTP Request Defaults, then th
 An empty proxy section leaves the broader settings in effect. Setting any proxy field makes that scope's
 routing policy authoritative: with no filter, the proxy is used for all hosts. A host filter replaces
 broader filters, including global <code>http.nonProxyHosts</code> rules. Unspecified endpoint fields
-(host, port, scheme, and credentials) are filled from broader settings, so a filter-only override can use
-the proxy host from <code>system.properties</code> or command-line options.
+(host, port, and scheme) are filled from broader settings, so a filter-only override can use
+the proxy host from <code>system.properties</code> or command-line options. Global proxy credentials
+are used only when the proxy host comes from global settings; a locally configured proxy host does not
+receive global credentials.
 </p>
 <p>
 Choose <code>Only matching hosts</code> to proxy only included destinations, or <code>Exclude matching
@@ -59,8 +61,10 @@ Separate hostnames or IP literals with newlines, commas, or semicolons. Exact ho
 <code>example.com</code> itself. Include both patterns to cover both. Trailing dots and internationalized
 hostnames are normalized; bracketed and expanded IPv6 literals are supported. Matching performs no DNS
 lookups. Ports, URL paths, CIDR ranges, general globs, and regular expressions are not supported.
-Inclusion and exclusion modes require at least one pattern. Invalid resolved settings fail the sample
-before it sends a request. Expressions are resolved at runtime, and parsed policies are reused until
+Inclusion and exclusion modes require at least one pattern. Invalid patterns or incomplete endpoints with
+an explicit proxy policy fail the sample before it sends a request. Older plans without an explicit policy
+retain direct connections when the proxy endpoint is incomplete. Request hostnames are matched leniently;
+strict hostname validation applies only to configured patterns. Expressions are resolved at runtime, and parsed policies are reused until
 the resolved configuration changes.
 </p>
 <p>

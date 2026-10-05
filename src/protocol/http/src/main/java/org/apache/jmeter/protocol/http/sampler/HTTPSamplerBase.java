@@ -974,9 +974,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         TestElement policySource = localProxy ? this : element;
         String mode = policySource.getPropertyAsString(ProxyDestinationPolicy.MODE_PROPERTY);
         String patterns = policySource.getPropertyAsString(ProxyDestinationPolicy.PATTERNS_PROPERTY);
-        if (mode.isBlank()) {
-            mode = patterns.isBlank() ? ProxyDestinationPolicy.Mode.ALL.getResourceKey()
-                    : ProxyDestinationPolicy.Mode.EXCLUDE.getResourceKey();
+        // Preserve an absent policy so older plans keep their endpoint validation behavior.
+        if (mode.isBlank() && !patterns.isBlank()) {
+            mode = ProxyDestinationPolicy.Mode.EXCLUDE.getResourceKey();
         }
         setProperty(ProxyDestinationPolicy.MODE_PROPERTY, mode);
         setProperty(ProxyDestinationPolicy.PATTERNS_PROPERTY, patterns);

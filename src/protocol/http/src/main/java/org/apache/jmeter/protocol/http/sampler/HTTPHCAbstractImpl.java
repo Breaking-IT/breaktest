@@ -144,6 +144,7 @@ public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
         var schema = HTTPSamplerBaseSchema.INSTANCE.getProxy();
         String mode = testElement.get(schema.getDestinationMode());
         String patterns = testElement.get(schema.getDestinationPatterns());
+        boolean explicitPolicy = !mode.isBlank() || !patterns.isBlank();
         if (mode.isBlank() && ProxyDestinationPolicy.hasSettings(testElement)) {
             mode = patterns.isBlank() ? ProxyDestinationPolicy.Mode.ALL.getResourceKey()
                     : ProxyDestinationPolicy.Mode.EXCLUDE.getResourceKey();
@@ -153,11 +154,12 @@ public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
             cached = new CachedPolicy(mode, patterns, ProxyDestinationPolicy.compile(mode, patterns));
             cachedPolicy = cached;
         }
-        String host = getProxyHost().isBlank() ? PROXY_HOST : getProxyHost();
+        boolean globalEndpoint = getProxyHost().isBlank();
+        String host = globalEndpoint ? PROXY_HOST : getProxyHost();
         int port = getProxyPortInt() == 0 ? PROXY_PORT : getProxyPortInt();
         String scheme = getProxyScheme().isBlank() ? PROXY_SCHEME : getProxyScheme();
         boolean direct = cached.policy.mode() == ProxyDestinationPolicy.Mode.DIRECT;
-        if (!direct && (!host.isBlank() || port != 0)) {
+        if (explicitPolicy && !direct && (!host.isBlank() || port != 0)) {
             if (host.isBlank() || port < 1 || port > 65535) {
                 throw new IllegalArgumentException("Proxy requires a hostname and a port between 1 and 65535");
             }
@@ -168,8 +170,8 @@ public abstract class HTTPHCAbstractImpl extends HTTPAbstractImpl {
         boolean enabled = !direct && !host.isBlank() && port > 0;
         boolean globalPolicy = mode.isEmpty();
         ProxySettings settings = new ProxySettings(enabled, scheme, host, port,
-                getProxyUser().isBlank() ? PROXY_USER : getProxyUser(),
-                getProxyPass().isEmpty() ? PROXY_PASS : getProxyPass(),
+                globalEndpoint && getProxyUser().isBlank() ? PROXY_USER : getProxyUser(),
+                globalEndpoint && getProxyPass().isEmpty() ? PROXY_PASS : getProxyPass(),
                 cached.policy, globalPolicy, false);
         if (context != null) {
             context.setAttribute(PROXY_POLICY, settings);

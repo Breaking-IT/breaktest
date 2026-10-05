@@ -91,7 +91,7 @@ class ProxyDestinationPersistenceTest extends JMeterTestCase implements JMeterSe
         var sampler = new HTTPSamplerProxy();
         sampler.setProxyHost("custom.proxy");
         sampler.addTestElement(defaults);
-        assertEquals("proxy_filter_all", sampler.getPropertyAsString(MODE));
+        assertEquals("", sampler.getPropertyAsString(MODE));
         assertEquals("", sampler.getPropertyAsString(PATTERNS));
         assertEquals(8888, sampler.getProxyPortInt());
     }

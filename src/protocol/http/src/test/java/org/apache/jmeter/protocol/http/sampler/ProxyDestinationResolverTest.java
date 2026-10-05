@@ -85,6 +85,97 @@ class ProxyDestinationResolverTest implements JMeterSerialTest {
     }
 
     @Test
+    void legacySamplerAndDefaultsWithMissingPortRemainDirect() throws Exception {
+        var url = URI.create("http://example.com").toURL();
+        var sampler = new HTTPSamplerProxy();
+        sampler.setProxyHost("proxy.invalid");
+        assertFalse(new HTTPHC5Impl(sampler).resolveProxy(url, null).enabled());
+        var defaults = new org.apache.jmeter.config.ConfigTestElement();
+        defaults.setProperty("HTTPSampler.proxyHost", "proxy.invalid");
+        var inherited = new HTTPSamplerProxy();
+        inherited.addTestElement(defaults);
+        assertFalse(new HTTPHC5Impl(inherited).resolveProxy(url, null).enabled());
+        sampler.addTestElement(new org.apache.jmeter.config.ConfigTestElement());
+        assertFalse(new HTTPHC5Impl(sampler).resolveProxy(url, null).enabled());
+    }
+
+    @Test
+    void globalEndpointAndCredentialRegressionsInFreshJvm() throws Exception {
+        // Proxy globals are static finals, so each scenario needs a fresh JVM.
+        var entries = new java.util.LinkedHashSet<String>();
+        entries.add(System.getProperty("java.class.path"));
+        for (ClassLoader loader = getClass().getClassLoader(); loader != null; loader = loader.getParent()) {
+            if (loader instanceof java.net.URLClassLoader urls) {
+                for (var url : urls.getURLs()) {
+                    entries.add(java.nio.file.Path.of(url.toURI()).toString());
+                }
+            }
+        }
+        for (String scenario : new String[] {"missing-port", "credentials"}) {
+            var process = new ProcessBuilder(
+                    java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "-cp", String.join(java.io.File.pathSeparator, entries),
+                    getClass().getName(), scenario).inheritIO().start();
+            try {
+                assertTrue(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS), "Child JVM timed out");
+                assertEquals(0, process.exitValue(), scenario);
+            } finally {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        System.setProperty("http.proxyHost", "corporate.invalid");
+        if (args[0].equals("missing-port")) {
+            System.clearProperty("http.proxyPort");
+        } else {
+            System.setProperty("http.proxyPort", "8080");
+        }
+        org.apache.jmeter.util.JMeterUtils.loadJMeterProperties("../../../bin/jmeter.properties");
+        org.apache.jmeter.util.JMeterUtils.setProperty(org.apache.jmeter.JMeter.HTTP_PROXY_USER, "corporate-user");
+        org.apache.jmeter.util.JMeterUtils.setProperty(org.apache.jmeter.JMeter.HTTP_PROXY_PASS, "corporate-secret");
+        var sampler = new HTTPSamplerProxy();
+        var url = URI.create("http://my_service:8080/").toURL();
+        if (args[0].equals("missing-port")) {
+            assertFalse(new HTTPHC5Impl(sampler).resolveProxy(url, null).enabled());
+            return;
+        }
+        sampler.setProperty(ProxyDestinationPolicy.MODE_PROPERTY, "proxy_filter_exclude");
+        sampler.setProperty(ProxyDestinationPolicy.PATTERNS_PROPERTY, "*.example.com");
+        var global = new HTTPHC5Impl(sampler).resolveProxy(url, null);
+        assertEquals("corporate-user", global.username());
+        assertEquals("corporate-secret", global.password());
+        assertTrue(global.policy().allowsProxy(url.getHost()));
+        var context = HttpClientContext.create();
+        context.setAttribute(HTTPHCAbstractImpl.PROXY_POLICY, global);
+        var endpoint = new HttpHost("http", global.host(), global.port());
+        assertEquals(endpoint, HTTPHCAbstractImpl.selectProxy(endpoint,
+                new HttpHost("http", "my_service", 8080), context));
+        sampler.setProxyHost("capture.invalid");
+        sampler.setProxyPortInt("8888");
+        var local = new HTTPHC5Impl(sampler).resolveProxy(url, null);
+        assertEquals("", local.username());
+        assertEquals("", local.password());
+        sampler.setProxyUser("local-user");
+        local = new HTTPHC5Impl(sampler).resolveProxy(url, null);
+        assertEquals("local-user", local.username());
+        assertEquals("", local.password());
+        sampler.setProxyPass("local-secret");
+        local = new HTTPHC5Impl(sampler).resolveProxy(url, null);
+        assertEquals("local-user", local.username());
+        assertEquals("local-secret", local.password());
+        var defaults = new org.apache.jmeter.config.ConfigTestElement();
+        defaults.setProperty("HTTPSampler.proxyHost", "capture.invalid");
+        defaults.setProperty("HTTPSampler.proxyPort", "8888");
+        var inherited = new HTTPSamplerProxy();
+        inherited.addTestElement(defaults);
+        local = new HTTPHC5Impl(inherited).resolveProxy(url, null);
+        assertEquals("", local.username());
+        assertEquals("", local.password());
+    }
+
+    @Test
     void incompleteProxyFailsForNewPolicyButDirectCanOverrideIt() throws Exception {
         var sampler = new HTTPSamplerProxy();
         sampler.setProxyHost("proxy.invalid");
