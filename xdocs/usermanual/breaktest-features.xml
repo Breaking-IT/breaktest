@@ -496,7 +496,7 @@ while an earlier slow request is still running. Redirect targets start a new gro
 sub-millisecond start/end precision for grouping. Idle gaps are measured after the latest preceding response ends,
 so a slow overlapping request does not create false think time. The defaults are a new Transaction Controller per group,
 as-recorded think time, and no automatic or followed redirects; redirect requests are recorded individually.
-The finish wizard preserves the transaction names and pause thresholds captured during recording; it does not ask for a second idle-gap threshold.
+Transactions follow the names set during recording; elapsed idle time does not start a new transaction.
 Transaction-name edits take effect on Enter or when focus leaves the name field.
 Incomplete captures and event streams do not extend transaction activity; their native recordings retain the actual transfer timings.
 Transaction boundaries are resolved before filtering hosts or failed captures. Think-time choices only affect replay delays.

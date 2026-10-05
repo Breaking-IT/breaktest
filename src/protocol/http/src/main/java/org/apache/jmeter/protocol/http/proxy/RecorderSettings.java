@@ -35,10 +35,10 @@ public final class RecorderSettings {
     private static final String PREFIX = "proxy.recorder.";
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String[] KEYS = {
-        "port", "domains", "notify_child_sl_filtered", "store_recorded_exchanges", "add_assertion", "grouping_mode", "sampler_redirect_automatically",
+        "port", "domains", "notify_child_sl_filtered", "store_recorded_exchanges", "grouping_mode", "sampler_redirect_automatically",
         "sampler_follow_redirects", "use_keepalive", "detect_graphql_request", "sampler_download_images",
         "proxy_http_sampler_naming_mode", "proxy_http_sampler_format", "proxy_prefix_http_sampler_name",
-        "proxy_pause_http_sampler", "default_encoding", "regex_match", "content_type_include", "content_type_exclude"
+        "default_encoding", "content_type_include", "content_type_exclude"
     };
 
     private RecorderSettings() { }

@@ -56,7 +56,6 @@ import net.miginfocom.swing.MigLayout;
  */
 public class RecorderDialog extends JDialog implements ItemListener, KeyListener, ActionListener { // NOSONAR
 
-
     /**
      *
      */
@@ -68,8 +67,6 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
     private JTextField prefixHTTPSampleName;
 
     private JTextField sampleNameFormat;
-
-    private JTextField proxyPauseHTTPSample;
 
     /**
      * To choose between a prefix or a transaction name
@@ -140,14 +137,6 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         });
         prefixHTTPSampleName.setName(ProxyControlGui.PREFIX_HTTP_SAMPLER_NAME);
 
-        proxyPauseHTTPSample = new JTextField(10);
-        proxyPauseHTTPSample.addKeyListener(this);
-        proxyPauseHTTPSample.setName(ProxyControlGui.PROXY_PAUSE_HTTP_SAMPLER);
-
-        proxyPauseHTTPSample.setActionCommand(ProxyControlGui.ENABLE_RESTART);
-        JLabel labelProxyPause = new JLabel(JMeterUtils.getResString("proxy_pause_http_sampler")); // $NON-NLS-1$
-        labelProxyPause.setLabelFor(proxyPauseHTTPSample);
-
         JPanel panel = new JPanel(new MigLayout("fillx, wrap 3"));
         panel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("proxy_sampler_settings"))); // $NON-NLS-1$
@@ -175,8 +164,6 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         panel.add(labelSetCounter);
         panel.add(counterValue);
         panel.add(buttonSetCounter);
-        panel.add(labelProxyPause);
-        panel.add(proxyPauseHTTPSample, "span");
 
         this.getContentPane().add(panel, BorderLayout.CENTER);
 
@@ -200,7 +187,6 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         prefixHTTPSampleName.requestFocusInWindow();
         prefixHTTPSampleName.setText(recorderGui.getPrefixHTTPSampleName());
         httpSampleNamingMode.setSelectedIndex(recorderGui.getHTTPSampleNamingMode());
-        proxyPauseHTTPSample.setText(recorderGui.getProxyPauseHTTPSample());
         setAlwaysOnTop(b);
     }
 
@@ -235,21 +221,6 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         String fieldName = e.getComponent().getName();
         if (fieldName.equals(ProxyControlGui.HTTP_SAMPLER_NAME_FORMAT)) {
             recorderGui.setSampleNameFormat(sampleNameFormat.getText());
-        } else if (fieldName.equals(ProxyControlGui.PROXY_PAUSE_HTTP_SAMPLER)) {
-            try {
-                Long.parseLong(proxyPauseHTTPSample.getText());
-            } catch (NumberFormatException nfe) {
-                int length = proxyPauseHTTPSample.getText().length();
-                if (length > 0) {
-                    JOptionPane.showMessageDialog(this, JMeterUtils.getResString("proxy_settings_pause_error_digits"), // $NON-NLS-1$
-                            JMeterUtils.getResString("proxy_settings_pause_error_invalid_data"), // $NON-NLS-1$
-                            JOptionPane.WARNING_MESSAGE);
-                    // Drop the last character:
-                    proxyPauseHTTPSample.setText(proxyPauseHTTPSample.getText().substring(0, length - 1));
-                }
-            }
-            recorderGui.setProxyPauseHTTPSample(proxyPauseHTTPSample.getText());
-            recorderGui.enableRestart();
         }
     }
     @Override

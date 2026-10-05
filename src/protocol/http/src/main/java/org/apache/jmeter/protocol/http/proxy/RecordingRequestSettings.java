@@ -31,14 +31,7 @@ record RecordingRequestSettings(JMeterTreeNode target, String prefix, String sam
                 recorder.getSamplerDownloadImages(), recorder.getIgnoreHttpErrors(), transactionGapMillis(recorder));
     }
     static long transactionGapMillis(ProxyControl recorder) {
-        String pause = recorder.getProxyPauseHTTPSample().trim();
-        if (!pause.isEmpty()) {
-            try {
-                return Math.max(0, Long.parseLong(pause));
-            } catch (NumberFormatException ignored) {
-                // Use the recorder's default if a saved setting is invalid.
-            }
-        }
-        return Math.max(0, org.apache.jmeter.util.JMeterUtils.getPropDefault("proxy.pause", 5000));
+        // Legacy JMX pause values are retained for compatibility but no longer split transactions.
+        return Long.MAX_VALUE;
     }
 }

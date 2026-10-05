@@ -90,6 +90,9 @@ class RecorderWorkflowTest extends JMeterTestCase {
         long[] starts = {1100, 7000, 1000, 16000};
         long[] ends = {1200, 7100, 10000, 16100};
         for (int i = 0; i < names.length; i++) {
+            if (names[i].equals("D")) {
+                recorder.setPrefixHTTPSampleName("Next action");
+            }
             var sampler = sampler("example.test", names[i]);
             recorder.deliverSampler(sampler, new TestElement[0], result(sampler, starts[i], ends[i], "200"));
         }
@@ -206,18 +209,18 @@ class RecorderWorkflowTest extends JMeterTestCase {
     }
 
     @Test
-    void preservesCapturedPauseInsteadOfRegroupingWithLaterSettings() throws Exception {
+    void ignoresLegacyPauseValuesWhenGroupingNamedTransactions() throws Exception {
         var recorder = new ProxyControl();
         recorder.setNonGuiTreeModel(model);
         recorder.setTarget(target());
-        recorder.setProxyPauseHTTPSample("40000");
+        recorder.setProxyPauseHTTPSample("1");
         for (long start : new long[]{1000, 12000}) {
             var sampler = sampler("example.test", "/" + start);
             recorder.deliverSampler(sampler, new TestElement[0], result(sampler, start, start + 100, "200"));
         }
         recorder.setProxyPauseHTTPSample("500");
         recorder.stopProxy();
-        assertEquals(1, model.getNodesOfType(TransactionController.class).size(), "Recorded 40-second threshold must win");
+        assertEquals(1, model.getNodesOfType(TransactionController.class).size(), "Elapsed time and legacy pause values must not split a transaction");
         assertEquals(2, model.getNodesOfType(HTTPSamplerBase.class).size());
     }
 

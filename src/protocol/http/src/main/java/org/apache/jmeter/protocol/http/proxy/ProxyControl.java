@@ -270,11 +270,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     private transient KeyStore keyStore;
 
-    private volatile boolean addAssertions = false;
-
     private volatile boolean notifyChildSamplerListenersOfFilteredSamples = true;
-
-    private volatile boolean regexMatch = false;
 
     private final Set<Class<?>> addableInterfaces = new HashSet<>(
             Arrays.asList(Visualizer.class, ConfigElement.class,
@@ -311,7 +307,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
         setIncludeList(new HashSet<>());
         // Preserve the legacy property position for JMX round-trips; headers are now unconditional.
         setProperty("ProxyControlGui.capture_http_headers", true);
-        addAssertions = getAssertions();
     }
 
     /**
@@ -351,7 +346,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void setAssertions(boolean b) {
-        addAssertions = b;
         setProperty(new BooleanProperty(ADD_ASSERTIONS, b));
     }
 
@@ -421,7 +415,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public void setRegexMatch(boolean b) {
-        regexMatch = b;
         setProperty(new BooleanProperty(REGEX_MATCH, b));
     }
 
@@ -434,7 +427,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public boolean getAssertions() {
-        return getPropertyAsBoolean(ADD_ASSERTIONS);
+        return false; // Retain the legacy property for JMX round trips only.
     }
 
     public int getGroupingMode() {
@@ -502,7 +495,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
     }
 
     public boolean getRegexMatch() {
-        return getPropertyAsBoolean(REGEX_MATCH, false);
+        return false; // Recorder variable substitution always uses literal values.
     }
 
     public String getContentTypeExclude() {
@@ -548,7 +541,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
         recordingTarget = findTargetControllerNode();
         diagnostics = new RecordingDiagnostics();
         captureWorker = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("proxy-recording-worker").factory());
-        addAssertions = getAssertions();
         notifyTestListenersOfStart();
         try {
             server = new Daemon(getPort(), this);
@@ -1471,7 +1463,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     final JMeterTreeNode targetNode = getTargetNode(info.target, info.groupingMode);
                     final JMeterTreeNode newNode = treeModel.addComponent(info.sampler, targetNode);
                     if (firstInBatch) {
-                        if (addAssertions) {
+                        if (getAssertions()) {
                             addAssertion(treeModel, newNode);
                         }
                         addTimers(treeModel, newNode, deltaT);
@@ -1659,7 +1651,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
      * @param variables Collection of Arguments to use to do the replacement, ordered
      *                  by ascending priority.
      */
-    private void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
+    private static void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
         // Build the replacer from all the variables in the collection:
         ValueReplacer replacer = new ValueReplacer();
         for (Arguments variable : variables) {
@@ -1670,11 +1662,10 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
 
         try {
-            boolean cachedRegexpMatch = regexMatch;
-            replacer.reverseReplace(sampler, cachedRegexpMatch);
+            replacer.reverseReplace(sampler, false);
             for (TestElement config : configs) {
                 if (config != null) {
-                    replacer.reverseReplace(config, cachedRegexpMatch);
+                    replacer.reverseReplace(config, false);
                 }
             }
         } catch (InvalidVariableException e) {

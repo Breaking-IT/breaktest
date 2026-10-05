@@ -166,7 +166,7 @@ public final class RecorderWizard extends JDialog {
         maximum.setText(options.getDelayMax());
         JPanel panel = new JPanel(new MigLayout("wrap 2, insets 16, fillx", "[][grow]"));
         panel.add(transactions, "span 2");
-        panel.add(new JLabel("Transaction boundaries use the names and pause settings captured during recording."), "span 2");
+        panel.add(new JLabel("Transactions follow the names set during recording."), "span 2");
         panel.add(new JLabel("Transaction think time"));
         panel.add(delay);
         panel.add(new JLabel("Recorded delay random spread (%)"));
