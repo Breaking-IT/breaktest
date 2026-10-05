@@ -95,8 +95,12 @@ class SseSamplerTest extends JMeterTestCase {
             exchange.getResponseHeaders().add("Set-Cookie", "token=received; Path=/");
             exchange.sendResponseHeaders(200, 0);
             try {
-                assertTrue(mainContinued.await(5, TimeUnit.SECONDS), "Main flow must continue before any event arrives");
                 var out = exchange.getResponseBody();
+                // Newer JDK HTTP servers buffer headers until the response body is flushed.
+                // A comment flushes the headers without delivering an SSE event.
+                out.write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                assertTrue(mainContinued.await(5, TimeUnit.SECONDS), "Main flow must continue before any event arrives");
                 for (String chunk : List.of(": keepalive\r\n\r\n", "event: ready\nid: evt-1\ndata: page/", "42\n\n")) {
                     out.write(chunk.getBytes(StandardCharsets.UTF_8));
                     out.flush();

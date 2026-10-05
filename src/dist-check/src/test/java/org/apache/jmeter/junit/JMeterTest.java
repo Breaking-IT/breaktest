@@ -485,7 +485,7 @@ public class JMeterTest extends JMeterTestCase {
                     property.equals(RegexExtractorSchema.INSTANCE.getFailOnNoMatch())) {
                 continue;
             }
-            if ((guiItem.getClass() == HttpTestSampleGui.class || guiItem.getClass() == GraphQLHTTPSamplerGui.class) &&
+            if (guiItem instanceof HttpTestSampleGui &&
                     property.equals(HTTPSamplerBaseSchema.INSTANCE.getHttpProtocol())) {
                 continue;
             }

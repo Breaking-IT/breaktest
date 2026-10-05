@@ -43,7 +43,7 @@ public class SseSamplerGui extends HttpTestSampleGui {
         super.assignDefaultValues(element);
         SseSampler sampler = (SseSampler) element;
         sampler.setNativeHeaders(List.of(new Header("Accept", "text/event-stream")));
-        sampler.setResponseTimeout(SseSampler.DEFAULT_RESPONSE_TIMEOUT);
+        sampler.set(sampler.getSchema().getResponseTimeout(), Integer.parseInt(SseSampler.DEFAULT_RESPONSE_TIMEOUT));
     }
 
     @Override
