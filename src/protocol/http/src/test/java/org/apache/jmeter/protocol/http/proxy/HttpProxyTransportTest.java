@@ -39,6 +39,84 @@ import org.apache.jmeter.recording.RecordedExchangeStore;
 import org.junit.jupiter.api.Test;
 
 class HttpProxyTransportTest extends JMeterTestCase {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"http://example.test/path", "https://example.test/path", "https://example.test:8443/path"})
+    void fallbackSamplerUsesValidReplayPort(String address) throws Exception {
+        var head = new HttpProxyTransport.Head(("GET " + address + " HTTP/1.1\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+        var result = new HttpProxyTransport.Capture(head, head.url(null));
+        var sampler = Proxy.fallbackSampler(result, new IllegalArgumentException("conversion failed"));
+        sampler.setEnabled(true);
+        assertEquals(address, sampler.getUrl().toString());
+    }
+
+    @Test
+    void malformedRequestLineProduces502AndFailedCapture() throws Exception {
+        try (ServerSocket origin = new ServerSocket(0); var transport = new HttpProxyTransport()) {
+            var output = new ByteArrayOutputStream();
+            var client = new Socket() {
+                @Override public java.io.OutputStream getOutputStream() { return output; }
+            };
+            String address = "http://localhost:" + origin.getLocalPort() + "/";
+            var head = new HttpProxyTransport.Head(("GET " + address + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            var capture = transport.forward(head, head.url(null), client, java.io.InputStream.nullInputStream());
+            assertTrue(output.toString(StandardCharsets.US_ASCII).startsWith("HTTP/1.1 502 Bad Gateway"));
+            assertTrue(capture.transportError().contains("Invalid HTTP request line"));
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,true", "true,true", "false,false", "true,false"})
+    void browserCancellationIsCleanButServerTruncationFailsSse(boolean gzip, boolean browserDisconnect) throws Exception {
+        try (ServerSocket origin = new ServerSocket(0); var workers = Executors.newVirtualThreadPerTaskExecutor();
+                var transport = new HttpProxyTransport()) {
+            byte[] event = "data: complete\n\ndata: unfinished".getBytes(StandardCharsets.UTF_8);
+            var compressed = new ByteArrayOutputStream();
+            if (gzip) {
+                var encoder = new GZIPOutputStream(compressed, true);
+                encoder.write(event);
+                encoder.flush();
+                event = compressed.toByteArray(); // Intentionally no gzip trailer: browser cancels an open stream.
+                encoder.close();
+            }
+            byte[] payload = event;
+            var server = workers.submit(() -> {
+                try (Socket socket = origin.accept()) {
+                    socket.setSoTimeout(5000);
+                    HttpProxyTransport.readHead(socket.getInputStream());
+                    socket.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                            + (gzip ? "Content-Encoding: gzip\r\n" : "")
+                            + "Content-Length: " + (payload.length + 10) + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+                    socket.getOutputStream().write(payload);
+                    if (browserDisconnect) {
+                        assertEquals(-1, socket.getInputStream().read());
+                    }
+                }
+                return null;
+            });
+            var client = new Socket() {
+                @Override public java.io.OutputStream getOutputStream() {
+                    return new java.io.OutputStream() {
+                        private int writes;
+                        @Override public void write(int value) { }
+                        @Override public void write(byte[] data, int offset, int length) throws java.io.IOException {
+                            if (++writes > 1 && browserDisconnect) {
+                                throw new java.net.SocketException("Browser closed connection");
+                            }
+                        }
+                    };
+                }
+            };
+            String address = "http://localhost:" + origin.getLocalPort() + "/events";
+            var head = new HttpProxyTransport.Head(("GET " + address + " HTTP/1.1\r\n\r\n").getBytes(StandardCharsets.US_ASCII));
+            var capture = transport.forward(head, head.url(null), client, java.io.InputStream.nullInputStream());
+            server.get(5, TimeUnit.SECONDS);
+            assertEquals(browserDisconnect, capture.transportError().isEmpty(), capture.transportError());
+            assertEquals(browserDisconnect, capture.isSuccessful());
+            assertEquals(1, capture.sse.events().size());
+            assertEquals("complete", capture.sse.events().get(0).data());
+        }
+    }
+
     @Test
     void rawTargetsSurviveMetadataEscaping() throws Exception {
         String raw = "http://example.test/fonts?family=Roboto|Open+Sans&value=%2F{a}";

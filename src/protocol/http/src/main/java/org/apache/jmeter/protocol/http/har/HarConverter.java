@@ -298,6 +298,12 @@ public final class HarConverter {
                         org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY)) {
                     connect.setProperty(property, source.getPropertyAsString(property));
                 }
+                // These entries came from the proxy, not from the target's inherited HAR file.
+                for (String property : List.of(RecordedHarExchangeResolver.HAR_ENTRY_INDEX,
+                        RecordedHarExchangeResolver.HAR_STARTED_DATE_TIME, RecordedHarExchangeResolver.HAR_REQUEST_METHOD,
+                        RecordedHarExchangeResolver.HAR_REQUEST_URL)) {
+                    connect.removeProperty(property);
+                }
                 connect.setEnabled(source.isEnabled());
                 connect.setComment(source.getComment());
                 replacement.getTree(connect).add(original.getTree(source));

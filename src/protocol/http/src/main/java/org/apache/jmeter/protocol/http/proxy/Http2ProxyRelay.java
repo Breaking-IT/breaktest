@@ -58,6 +58,7 @@ final class Http2ProxyRelay {
     private final java.util.Set<Integer> completedStreams = new java.util.HashSet<>();
     private final java.util.Set<Integer> recordedRequests = new java.util.HashSet<>();
     private final java.util.concurrent.atomic.AtomicReference<String> closure = new java.util.concurrent.atomic.AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicBoolean browserConnectionClosed = new java.util.concurrent.atomic.AtomicBoolean();
     private final Direction requests = new Direction();
     private final Direction responses = new Direction();
 
@@ -92,20 +93,26 @@ final class Http2ProxyRelay {
                 }
                 copyFrames(RecordingIo.input(browserInput, "Browser"), RecordingIo.output(server.getOutputStream(), "Server"), true);
             } catch (IOException e) {
-                closure.compareAndSet(null, e.getMessage());
+                if (closure.compareAndSet(null, e.getMessage()) && e instanceof RecordingIo.PeerException peer && peer.browser()) {
+                    browserConnectionClosed.set(true);
+                }
                 if (!stopped.getAsBoolean() && (e instanceof EOFException || e.getMessage().equals("Invalid HTTP/2 client preface"))) {
                     diagnostics.issue(e.toString());
                 }
                 LOG.debug("HTTP/2 request connection ended", e);
             } finally {
-                closure.compareAndSet(null, "Browser connection closed/reset");
+                if (closure.compareAndSet(null, "Browser connection closed/reset")) {
+                    browserConnectionClosed.set(true);
+                }
                 close(server);
             }
         });
         try {
             copyFrames(RecordingIo.input(serverInput, "Server"), RecordingIo.output(browser.getOutputStream(), "Browser"), false);
         } catch (IOException e) {
-            closure.compareAndSet(null, e.getMessage());
+            if (closure.compareAndSet(null, e.getMessage()) && e instanceof RecordingIo.PeerException peer && peer.browser()) {
+                browserConnectionClosed.set(true);
+            }
             if (!stopped.getAsBoolean() && e instanceof EOFException) {
                 diagnostics.issue(e.toString());
             }
@@ -292,6 +299,7 @@ final class Http2ProxyRelay {
             }
         } else if (type == 3 && stream != null) { // RST_STREAM
             int code = payload.length == 4 ? ByteBuffer.wrap(payload).getInt() : -1;
+            stream.browserEndedSse = request && (code == 0 || code == 8) && stream.capture != null && stream.capture.sse != null;
             String peer = request ? "Browser cancelled/reset stream: " : "Server reset stream: ";
             complete(stream, stream.responseEnded && code == 0 ? "" : peer + "HTTP/2 RST_STREAM error " + code);
         } else if (type == 7 && !request && payload.length >= 8) { // GOAWAY
@@ -387,10 +395,10 @@ final class Http2ProxyRelay {
                 }
             }
             if (stream.capture.sse != null) {
-                stream.capture.sse.finish(stopped.getAsBoolean());
+                stream.capture.sse.finish(stopped.getAsBoolean() || stream.browserEndedSse);
                 if (!stream.capture.sse.failure().isEmpty()) {
                     failure = stream.capture.sse.failure();
-                } else if (stopped.getAsBoolean()) {
+                } else if (stopped.getAsBoolean() || stream.browserEndedSse) {
                     failure = "";
                 }
             }
@@ -410,6 +418,9 @@ final class Http2ProxyRelay {
     private synchronized void finishIncomplete(double closedAt) throws IOException {
         for (Stream stream : new ArrayList<>(streams.values())) {
             stream.lastFrameAt = closedAt;
+            if (browserConnectionClosed.get() && !observationFailed && stream.capture != null && stream.capture.sse != null) {
+                stream.browserEndedSse = true;
+            }
             complete(stream, stream.capture != null && stream.capture.webSocket != null && stopped.getAsBoolean()
                     ? "" : endReason() + ": HTTP/2 stream incomplete");
         }
@@ -447,6 +458,7 @@ final class Http2ProxyRelay {
         private String contentEncoding = "";
         private boolean requestEnded;
         private boolean responseEnded;
+        private boolean browserEndedSse;
 
         Stream(int id, double startedAt, long sequence) {
             this.id = id;

@@ -28,6 +28,25 @@ final class RecordingIo {
     private RecordingIo() {
     }
 
+    static final class PeerException extends IOException {
+        private final String peer;
+        private final String operation;
+
+        PeerException(String peer, String operation, IOException cause) {
+            super(peer + " " + operation + " failed: " + cause, cause);
+            this.peer = peer;
+            this.operation = operation;
+        }
+
+        boolean browser() {
+            return "Browser".equals(peer);
+        }
+
+        boolean browserWrite() {
+            return browser() && !"read".equals(operation);
+        }
+    }
+
     static InputStream input(InputStream input, String peer) {
         return new FilterInputStream(input) {
             @Override
@@ -35,7 +54,7 @@ final class RecordingIo {
                 try {
                     return in.read();
                 } catch (IOException e) {
-                    throw new IOException(peer + " read failed: " + e, e);
+                    throw new PeerException(peer, "read", e);
                 }
             }
 
@@ -44,7 +63,7 @@ final class RecordingIo {
                 try {
                     return in.read(bytes, offset, length);
                 } catch (IOException e) {
-                    throw new IOException(peer + " read failed: " + e, e);
+                    throw new PeerException(peer, "read", e);
                 }
             }
         };
@@ -57,7 +76,7 @@ final class RecordingIo {
                 try {
                     out.write(value);
                 } catch (IOException e) {
-                    throw new IOException(peer + " write failed: " + e, e);
+                    throw new PeerException(peer, "write", e);
                 }
             }
 
@@ -66,7 +85,7 @@ final class RecordingIo {
                 try {
                     out.write(bytes, offset, length);
                 } catch (IOException e) {
-                    throw new IOException(peer + " write failed: " + e, e);
+                    throw new PeerException(peer, "write", e);
                 }
             }
 
@@ -75,7 +94,7 @@ final class RecordingIo {
                 try {
                     out.flush();
                 } catch (IOException e) {
-                    throw new IOException(peer + " flush failed: " + e, e);
+                    throw new PeerException(peer, "flush", e);
                 }
             }
         };

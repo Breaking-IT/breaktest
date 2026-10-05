@@ -261,16 +261,7 @@ public class Proxy extends Thread {
             // A replay conversion problem must never prevent the browser receiving its response.
             target.getRecordingDiagnostics().processingError("Replay conversion failed: " + e);
             log.warn("Unable to convert recorded request {}", result.getUrlAsString(), e);
-            sampler = new org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy();
-            sampler.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui.class.getName());
-            sampler.setProtocol(result.getURL().getProtocol());
-            sampler.setDomain(result.getURL().getHost());
-            sampler.setPort(result.getURL().getPort());
-            sampler.setPath(result.getURL().getFile());
-            sampler.setMethod(result.getHTTPMethod());
-            sampler.setName(result.getHTTPMethod() + " " + result.getURL().getFile());
-            sampler.setEnabled(false);
-            sampler.setComment("Replay conversion failed: " + e);
+            sampler = fallbackSampler(result, e);
         }
         if (result.sse != null) {
             var nativeSse = new org.apache.jmeter.protocol.sse.SseSampler();
@@ -294,6 +285,20 @@ public class Proxy extends Thread {
         }
         children.add(headers);
         target.deliverSampler(sampler, children.toArray(new TestElement[0]), result);
+    }
+
+    static HTTPSamplerBase fallbackSampler(HttpProxyTransport.Capture result, Exception e) {
+        HTTPSamplerBase sampler = new org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy();
+        sampler.setProperty(TestElement.GUI_CLASS, org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui.class.getName());
+        sampler.setProtocol(result.getURL().getProtocol());
+        sampler.setDomain(result.getURL().getHost());
+        sampler.setPort(result.getURL().getPort() < 0 ? HTTPSamplerBase.UNSPECIFIED_PORT : result.getURL().getPort());
+        sampler.setPath(result.getURL().getFile());
+        sampler.setMethod(result.getHTTPMethod());
+        sampler.setName(result.getHTTPMethod() + " " + result.getURL().getFile());
+        sampler.setEnabled(false);
+        sampler.setComment("Replay conversion failed: " + e);
+        return sampler;
     }
 
     /**

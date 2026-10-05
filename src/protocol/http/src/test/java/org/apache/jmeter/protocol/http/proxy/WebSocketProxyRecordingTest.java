@@ -57,6 +57,8 @@ class WebSocketProxyRecordingTest extends JMeterTestCase {
         proxy.setNonGuiTreeModel(model);
         proxy.setTarget(group);
         proxy.setStoreRecordedExchanges(store);
+        group.getTestElement().setProperty(RecordedHarExchangeResolver.HAR_FILENAME, "unrelated.har");
+        group.getTestElement().setProperty(RecordedHarExchangeResolver.HAR_MD5, "unrelated-checksum");
         proxy.setGroupingMode(grouping);
         proxy.setPort(0);
         try (ServerSocket available = new ServerSocket(0)) {
@@ -125,6 +127,11 @@ class WebSocketProxyRecordingTest extends JMeterTestCase {
         assertTrue(connect.getHeaders().stream().noneMatch(header -> header.getName().equalsIgnoreCase("Sec-WebSocket-Key")));
         var recording = RecordedHarExchangeResolver.findFor(connects.get(0), null);
         assertEquals(store, recording.isPresent());
+        assertEquals("", connect.getPropertyAsString(RecordedHarExchangeResolver.HAR_ENTRY_INDEX));
+        if (!store) {
+            assertEquals(RecordedHarExchangeResolver.Status.NOT_LINKED,
+                    RecordedHarExchangeResolver.resolveFor(connects.get(0), null).status());
+        }
         if (store) {
             var messages = recording.orElseThrow().webSocketMessages();
             assertEquals(stopEarly ? 2 : 4, messages.size());

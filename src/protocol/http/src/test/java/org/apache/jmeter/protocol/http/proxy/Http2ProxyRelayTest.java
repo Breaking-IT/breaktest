@@ -40,6 +40,59 @@ import org.apache.jmeter.junit.JMeterTestCase;
 import org.junit.jupiter.api.Test;
 
 class Http2ProxyRelayTest extends JMeterTestCase {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"true,8,true", "true,0,true", "true,2,false", "false,8,false", "false,2,false"})
+    void distinguishesBrowserSseCancellationFromProtocolOrServerErrors(boolean browserReset, int code, boolean clean) throws Exception {
+        byte[] requests = concat(Http2ProxyRelay.PREFACE, frame(1, 5, 1, headers(
+                new HPackEncoder(4096, StandardCharsets.ISO_8859_1), ":method", "GET", ":scheme", "https",
+                ":authority", "example.test", ":path", "/events")));
+        byte[] reset = frame(3, 0, 1, ByteBuffer.allocate(4).putInt(code).array());
+        byte[] responses = concat(frame(1, 4, 1, headers(new HPackEncoder(4096, StandardCharsets.ISO_8859_1),
+                ":status", "200", "content-type", "text/event-stream")),
+                frame(0, 0, 1, "data: complete\n\ndata: unfinished".getBytes(StandardCharsets.UTF_8)),
+                browserReset ? new byte[0] : reset);
+        var captures = exchange(requests, responses, new RecordingDiagnostics(), () -> null, () -> { }, true, false,
+                browserReset ? reset : new byte[0]);
+        assertEquals(1, captures.size());
+        assertEquals(clean, captures.get(0).transportError().isEmpty(), captures.get(0).transportError());
+        assertEquals(1, captures.get(0).sse.events().size());
+        assertEquals("complete", captures.get(0).sse.events().get(0).data());
+    }
+
+    @Test
+    void browserConnectionCloseRetainsOpenSseWithoutFailure() throws Exception {
+        try (ServerSocket origin = new ServerSocket(0); ServerSocket listener = new ServerSocket(0);
+                var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+            var relay = workers.submit(() -> {
+                List<HttpProxyTransport.Capture> captures = new ArrayList<>();
+                try (Socket browser = listener.accept(); Socket server = new Socket("localhost", origin.getLocalPort())) {
+                    new Http2ProxyRelay(captures::add).relay(browser, browser.getInputStream(), server, server.getInputStream());
+                }
+                return captures;
+            });
+            try (Socket browser = new Socket("localhost", listener.getLocalPort()); Socket server = origin.accept()) {
+                browser.setSoTimeout(5000);
+                server.setSoTimeout(5000);
+                byte[] request = concat(Http2ProxyRelay.PREFACE, frame(1, 5, 1, headers(
+                        new HPackEncoder(4096, StandardCharsets.ISO_8859_1), ":method", "GET", ":scheme", "https",
+                        ":authority", "example.test", ":path", "/events")));
+                browser.getOutputStream().write(request);
+                assertArrayEquals(request, server.getInputStream().readNBytes(request.length));
+                byte[] response = concat(frame(1, 4, 1, headers(new HPackEncoder(4096, StandardCharsets.ISO_8859_1),
+                        ":status", "200", "content-type", "text/event-stream")),
+                        frame(0, 0, 1, "data: complete\n\ndata: unfinished".getBytes(StandardCharsets.UTF_8)));
+                server.getOutputStream().write(response);
+                assertArrayEquals(response, browser.getInputStream().readNBytes(response.length));
+                browser.shutdownOutput();
+                assertEquals(-1, server.getInputStream().read());
+                var captures = relay.get(5, TimeUnit.SECONDS);
+                assertEquals(1, captures.size());
+                assertEquals("", captures.get(0).transportError());
+                assertEquals(1, captures.get(0).sse.events().size());
+            }
+        }
+    }
+
     @Test
     void stoppingAnOpenHttp2SseStreamRetainsCompleteEventsWithoutFailingCapture() throws Exception {
         byte[] requests = concat(Http2ProxyRelay.PREFACE, frame(1, 5, 1, headers(
@@ -205,6 +258,12 @@ class Http2ProxyRelayTest extends JMeterTestCase {
 
     private static List<HttpProxyTransport.Capture> exchange(byte[] requests, byte[] responses, RecordingDiagnostics diagnostics,
             java.util.function.Supplier<RecordingRequestSettings> settings, Runnable forwarded, boolean expectCapture, boolean stopped) throws Exception {
+        return exchange(requests, responses, diagnostics, settings, forwarded, expectCapture, stopped, new byte[0]);
+    }
+
+    private static List<HttpProxyTransport.Capture> exchange(byte[] requests, byte[] responses, RecordingDiagnostics diagnostics,
+            java.util.function.Supplier<RecordingRequestSettings> settings, Runnable forwarded, boolean expectCapture, boolean stopped,
+            byte[] afterResponse) throws Exception {
         try (ServerSocket origin = new ServerSocket(0); ServerSocket listener = new ServerSocket(0);
                 var workers = Executors.newVirtualThreadPerTaskExecutor()) {
             var releaseRecorder = new java.util.concurrent.CountDownLatch(1);
@@ -236,6 +295,8 @@ class Http2ProxyRelayTest extends JMeterTestCase {
                 assertArrayEquals(requests, server.getInputStream().readNBytes(requests.length));
                 server.getOutputStream().write(responses);
                 assertArrayEquals(responses, browser.getInputStream().readNBytes(responses.length));
+                browser.getOutputStream().write(afterResponse);
+                assertArrayEquals(afterResponse, server.getInputStream().readNBytes(afterResponse.length));
                 forwarded.run();
                 if (expectCapture) {
                     assertTrue(enteredRecorder.await(5, TimeUnit.SECONDS));

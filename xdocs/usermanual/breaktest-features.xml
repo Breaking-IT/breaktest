@@ -506,7 +506,8 @@ The proxy records complete events with their names, IDs, multiline data, arrival
 HTTP, HTTPS, HTTP/2, chunked transfer, and supported content encodings retain their original forwarded bytes;
 SSE parsing and decompression run on a separate recording worker.
 With recording storage enabled, events and original HTTP bytes survive saving and reopening the JMX archive.
-Stopping an open SSE stream preserves complete events and discards an unfinished event, without treating the stop itself as a failed capture.
+Stopping the recorder or closing an SSE stream from the browser preserves complete events and discards an unfinished event, without marking the capture as failed.
+Browser HTTP/2 CANCEL/NO_ERROR resets are treated as normal SSE cancellation; server resets and protocol errors remain failures.
 Stream duration does not extend a transaction or force unrelated requests into one parallel group.
 Incoming events remain reference data; the recorder does not invent SSE Match actions or a Close step.
 </p>

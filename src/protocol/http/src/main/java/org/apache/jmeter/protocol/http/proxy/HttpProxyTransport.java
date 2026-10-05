@@ -140,7 +140,11 @@ final class HttpProxyTransport implements AutoCloseable {
             }
         }
 
-        byte[] forOrigin(URL url, boolean absoluteForm, String proxyAuthorization) {
+        byte[] forOrigin(URL url, boolean absoluteForm, String proxyAuthorization) throws IOException {
+            String[] parts = firstLine().split(" ", 3);
+            if (parts.length != 3 || !parts[2].startsWith("HTTP/")) {
+                throw new IOException("Invalid HTTP request line: missing or invalid version");
+            }
             String path = target();
             if (path.startsWith("http://") || path.startsWith("https://")) {
                 if (!absoluteForm) {
@@ -351,6 +355,7 @@ final class HttpProxyTransport implements AutoCloseable {
         AtomicReference<IOException> uploadFailure = new AtomicReference<>();
         java.util.concurrent.atomic.AtomicBoolean uploaded = new java.util.concurrent.atomic.AtomicBoolean();
         boolean sentFinalHeaders = false;
+        boolean browserEndedSse = false;
         try {
             connect(url);
             OutputStream serverOutput = RecordingIo.output(upstream.getOutputStream(), "Server");
@@ -425,6 +430,11 @@ final class HttpProxyTransport implements AutoCloseable {
                 copyBody(response, responseInput, browserOutput, capture.responseWire, responseBody, true);
             }
             browserOutput.flush();
+            // Let an upload that just wrote its final bytes publish completion before deciding to close.
+            // Bound this grace period: an early rejection must not wait for an unfinished browser upload.
+            if (upload != null && !uploaded.get()) {
+                upload.join(10);
+            }
             // A final response may arrive while the browser is still waiting for 100 Continue.
             if (upload != null && !uploaded.get()) {
                 closeClient(client);
@@ -442,6 +452,8 @@ final class HttpProxyTransport implements AutoCloseable {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
+            browserEndedSse = capture.sse != null && uploadFailure.get() == null
+                    && e instanceof RecordingIo.PeerException peer && peer.browserWrite();
             capture.transportError = (stopped ? "Recorder stopped: " : uploadFailure.get() != null
                     ? "Request upload failed: " : "Response transfer or server connection failed: ")
                     + (uploadFailure.get() == null ? e.toString() : uploadFailure.get().toString());
@@ -477,10 +489,10 @@ final class HttpProxyTransport implements AutoCloseable {
             capture.setResponseData(capture.responseBody.toByteArray(),
                     response == null ? null : response.value("Content-Encoding"));
             if (capture.sse != null) {
-                capture.sse.finish(stopped);
+                capture.sse.finish(stopped || browserEndedSse);
                 if (!capture.sse.failure().isEmpty()) {
                     capture.transportError = capture.sse.failure();
-                } else if (stopped) {
+                } else if (stopped || browserEndedSse) {
                     capture.transportError = "";
                     capture.setSuccessful(true);
                 }
