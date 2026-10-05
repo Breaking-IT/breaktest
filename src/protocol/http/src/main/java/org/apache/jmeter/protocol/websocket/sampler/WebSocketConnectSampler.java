@@ -30,6 +30,9 @@ import java.util.function.Consumer;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.engine.util.NoThreadClone;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
+import org.apache.jmeter.gui.Replaceable;
+import org.apache.jmeter.gui.ReplaceableField;
+import org.apache.jmeter.gui.RowField;
 import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.protocol.http.control.CookieManager;
@@ -50,10 +53,11 @@ import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.SamplePackage;
+import org.apache.jorphan.util.JOrphanUtils;
 
 @GUIMenuSortOrder(101)
 @TestElementMetadata(labelResource = "displayName")
-public class WebSocketConnectSampler extends AbstractWebSocketSampler implements org.apache.jmeter.samplers.ChildControllerSampler {
+public class WebSocketConnectSampler extends AbstractWebSocketSampler implements org.apache.jmeter.samplers.ChildControllerSampler, Replaceable {
     private static final long serialVersionUID = 1L;
     public static final String RECONNECT = "Close and reconnect";
     public static final String REUSE = "Reuse if connected";
@@ -211,6 +215,38 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
         } else {
             super.addTestElement(element);
         }
+    }
+
+    @Override
+    public List<ReplaceableField> getReplaceableFields() {
+        List<ReplaceableField> fields = new ArrayList<>();
+        fields.add(new ReplaceableField("URL", this::getUrl, this::setUrl, SearchArea.PATH));
+        for (Header header : getHeaders()) {
+            fields.add(new ReplaceableField("Header name", header::getName, header::setName, SearchArea.HEADERS, RowField.NAME));
+            fields.add(new ReplaceableField("Header value", header::getValue, header::setValue, SearchArea.HEADERS, RowField.VALUE));
+        }
+        return fields;
+    }
+
+    @Override
+    public int replace(String regex, String replaceBy, boolean caseSensitive) throws Exception {
+        int totalReplaced = 0;
+        for (ReplaceableField field : getReplaceableFields()) {
+            totalReplaced += JOrphanUtils.replaceValue(
+                    regex, replaceBy, caseSensitive, field.value(), field::setValue);
+        }
+        return totalReplaced;
+    }
+
+    @Override
+    public int replaceLiteral(String literal, String replaceBy) {
+        int totalReplaced = JOrphanUtils.replaceLiteralValue(literal, replaceBy, true, getUrl(), this::setUrl);
+        // Correlation replaces request values, preserving header names and existing variables.
+        for (Header header : getHeaders()) {
+            totalReplaced += JOrphanUtils.replaceLiteralValue(
+                    literal, replaceBy, true, header.getValue(), header::setValue);
+        }
+        return totalReplaced;
     }
 
     @Override
