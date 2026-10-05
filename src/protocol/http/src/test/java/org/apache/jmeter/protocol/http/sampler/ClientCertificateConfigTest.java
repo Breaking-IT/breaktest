@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -31,15 +32,19 @@ import java.security.KeyStore;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
+import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.EntityDetails;
 import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpRequest;
@@ -57,6 +62,8 @@ import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.http2.impl.nio.bootstrap.H2ServerBootstrap;
 import org.apache.hc.core5.http2.ssl.H2ServerTlsStrategy;
 import org.apache.hc.core5.io.CloseMode;
+import org.apache.hc.core5.reactor.IOSession;
+import org.apache.hc.core5.reactor.IOSessionListener;
 import org.apache.jmeter.config.CSVDataSet;
 import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.config.gui.ClientCertificateConfigGui;
@@ -99,6 +106,8 @@ class ClientCertificateConfigTest {
     private static SSLContext serverContext;
     private HttpAsyncServer server;
     private int port;
+    private final Set<String> connections = ConcurrentHashMap.newKeySet();
+    private final AtomicInteger resources = new AtomicInteger();
     private javax.net.ssl.SSLSocketFactory previousFactory;
     private javax.net.ssl.HostnameVerifier previousVerifier;
 
@@ -159,6 +168,31 @@ class ClientCertificateConfigTest {
                 .setVersionPolicy(HttpVersionPolicy.NEGOTIATE)
                 .setTlsStrategy(new H2ServerTlsStrategy(serverContext,
                         (endpoint, engine) -> engine.setNeedClientAuth(true), null))
+                .setIOSessionListener(new IOSessionListener() {
+                    @Override
+                    public void connected(IOSession session) {
+                        connections.add(session.getId());
+                    }
+                    @Override
+                    public void disconnected(IOSession session) {
+                        connections.remove(session.getId());
+                    }
+                    @Override
+                    public void startTls(IOSession session) {
+                    }
+                    @Override
+                    public void inputReady(IOSession session) {
+                    }
+                    @Override
+                    public void outputReady(IOSession session) {
+                    }
+                    @Override
+                    public void timeout(IOSession session) {
+                    }
+                    @Override
+                    public void exception(IOSession session, Exception error) {
+                    }
+                })
                 .register("*", new PeerHandler()).create();
         server.start();
         port = ((InetSocketAddress) server.listen(new InetSocketAddress("localhost", 0), URIScheme.HTTPS)
@@ -240,7 +274,7 @@ class ClientCertificateConfigTest {
     void csvAliasesSelectPerUserCertificates(String protocol) throws Exception {
         Results results = runCsv(protocol, 2, 1);
         assertEquals(2, results.events.size());
-        assertEquals(java.util.Set.of("CN=alice", "CN=bob"), results.events.stream()
+        assertEquals(Set.of("CN=alice", "CN=bob"), results.events.stream()
                 .map(event -> event.getResult().getResponseDataAsString()).collect(Collectors.toSet()));
         results.events.forEach(event -> assertSuccessful(event.getResult(), protocol));
     }
@@ -314,6 +348,79 @@ class ClientCertificateConfigTest {
                 global.threadFinished();
             }
         } finally {
+            saved.forEach((property, value) -> {
+                if (value == null) {
+                    System.clearProperty(property);
+                } else {
+                    System.setProperty(property, value);
+                }
+            });
+            SSLManager.reset();
+        }
+    }
+
+    @Test
+    void parallelEmbeddedDownloadsReuseOwnerPoolAndCloseAllSockets() throws Exception {
+        HTTPSamplerBase.registerParser("text/html", "org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser");
+        HTTPSamplerProxy sampler = sampler("HTTP/1.1");
+        sampler.setPath("/page");
+        sampler.setImageParser(true);
+        sampler.setConcurrentDwn(true);
+        sampler.setConcurrentPool("3");
+        sampler.addTestElement(config("alice.p12", ""));
+        try {
+            for (int iteration = 0; iteration < 4; iteration++) {
+                SampleResult page = sampler.sample();
+                assertTrue(page.isSuccessful(), page::getResponseDataAsString);
+                assertEquals(3 * (iteration + 1), resources.get(), "All embedded images must be downloaded");
+                assertEquals(1, http11Clients().size(), "Embedded downloads must share the owner's pool");
+            }
+        } finally {
+            sampler.threadFinished();
+        }
+        for (int attempt = 0; attempt < 100 && !connections.isEmpty(); attempt++) {
+            Thread.sleep(25);
+        }
+        assertTrue(connections.isEmpty(), "Finishing the virtual user must close every embedded-resource connection");
+    }
+
+    private static Map<?, ?> http11Clients() throws Exception {
+        var field = HTTPHC5Impl.class.getDeclaredField("HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY");
+        field.setAccessible(true);
+        return (Map<?, ?>) ((ThreadLocal<?>) field.get(null)).get();
+    }
+
+    @Test
+    void rotatingGlobalAliasesAreSelectedOnlyWhenCreatingAnHttp2Client() throws Exception {
+        Map<String, String> saved = new java.util.HashMap<>();
+        for (String property : List.of("javax.net.ssl.keyStore", "javax.net.ssl.keyStoreType", "javax.net.ssl.keyStorePassword")) {
+            saved.put(property, System.getProperty(property));
+        }
+        HTTPSamplerProxy sampler = sampler("HTTP/2");
+        try {
+            System.setProperty("javax.net.ssl.keyStore", directory.resolve("users.p12").toString());
+            System.setProperty("javax.net.ssl.keyStoreType", "PKCS12");
+            System.setProperty("javax.net.ssl.keyStorePassword", "password");
+            SSLManager.reset();
+            SSLManager.getInstance().configureKeystore(true, 0, -1, "");
+            SampleResult first = sampler.sample();
+            assertSuccessful(first, "HTTP/2");
+            String identity = first.getResponseDataAsString();
+            for (int request = 0; request < 12; request++) {
+                SampleResult result = sampler.sample();
+                assertSuccessful(result, "HTTP/2");
+                assertEquals(identity, result.getResponseDataAsString(), "A reused client must not advance global aliases");
+            }
+            var field = HTTPHC5H2Impl.class.getDeclaredField("HTTPCLIENTS_CACHE_PER_JMETER_THREAD");
+            field.setAccessible(true);
+            Map<?, ?> clients = (Map<?, ?>) ((Map<?, ?>) field.get(null)).get(Thread.currentThread());
+            assertEquals(1, clients.size(), "Global rotation must not create one client per alias");
+            sampler.threadFinished();
+            SampleResult nextUser = sampler.sample();
+            assertSuccessful(nextUser, "HTTP/2");
+            assertNotEquals(identity, nextUser.getResponseDataAsString(), "A new client still advances rotation");
+        } finally {
+            sampler.threadFinished();
             saved.forEach((property, value) -> {
                 if (value == null) {
                     System.clearProperty(property);
@@ -463,7 +570,7 @@ class ClientCertificateConfigTest {
         }
     }
 
-    private static final class PeerHandler implements AsyncServerRequestHandler<Message<HttpRequest, Void>> {
+    private final class PeerHandler implements AsyncServerRequestHandler<Message<HttpRequest, Void>> {
         @Override
         public AsyncRequestConsumer<Message<HttpRequest, Void>> prepare(
                 HttpRequest request, EntityDetails entityDetails, HttpContext context) {
@@ -474,7 +581,16 @@ class ClientCertificateConfigTest {
         public void handle(Message<HttpRequest, Void> request, ResponseTrigger trigger, HttpContext context)
                 throws IOException, HttpException {
             String peer = HttpCoreContext.cast(context).getSSLSession().getPeerPrincipal().getName();
-            trigger.submitResponse(AsyncResponseBuilder.create(200).setEntity(peer).build(), context);
+            if (request.getHead().getPath().equals("/page")) {
+                trigger.submitResponse(AsyncResponseBuilder.create(200)
+                        .setEntity("<html><img src='/resource/a'><img src='/resource/b'><img src='/resource/c'></html>",
+                                ContentType.TEXT_HTML).build(), context);
+            } else {
+                if (request.getHead().getPath().startsWith("/resource/")) {
+                    resources.incrementAndGet();
+                }
+                trigger.submitResponse(AsyncResponseBuilder.create(200).setEntity(peer).build(), context);
+            }
         }
     }
 }

@@ -123,6 +123,9 @@ changed alias selects a separate HTTP client instead of reusing a connection
 authenticated with the previous certificate. WebSocket connections keep their
 identity until they are closed or reconnected. The legacy Keystore Configuration
 element retains its global behavior; use Client Certificate Config for scoped overrides.
+Without a scoped configuration, HTTP/2 and HTTP/3 select a global keystore alias
+when creating a cached client and reuse that identity for its lifetime. Global
+alias rotation does not create a new client on each request.
 </p>
 
 <h2>Modern HTTP And HTTP/2</h2>

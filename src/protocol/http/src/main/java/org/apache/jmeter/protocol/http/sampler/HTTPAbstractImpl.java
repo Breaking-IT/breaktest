@@ -104,21 +104,13 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
         this.testElement = testElement;
     }
 
+    /** Explicit scoped identities participate in cache keys; legacy global aliases are selected on cache misses. */
     protected AsyncClientIdentity clientCertificateIdentity(URL url) throws GeneralSecurityException {
-        return clientCertificateIdentity(url, false);
-    }
-
-    protected AsyncClientIdentity clientCertificateIdentity(URL url, boolean bindGlobalIdentity)
-            throws GeneralSecurityException {
-        if (!"https".equalsIgnoreCase(url.getProtocol())) {
-            return null;
-        }
         ClientCertificateConfig config = testElement.getClientCertificateConfig();
-        if (config == null && !bindGlobalIdentity) {
+        if (config == null || !"https".equalsIgnoreCase(url.getProtocol())) {
             return null;
         }
-        JsseSSLManager manager = (JsseSSLManager) SSLManager.getInstance();
-        return config == null ? manager.getAsyncClientIdentity() : manager.getClientIdentity(config);
+        return ((JsseSSLManager) SSLManager.getInstance()).getClientIdentity(config);
     }
 
     protected abstract HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth);

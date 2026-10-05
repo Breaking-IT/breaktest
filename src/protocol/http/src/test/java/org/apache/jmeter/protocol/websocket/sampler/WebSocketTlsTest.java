@@ -45,11 +45,16 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 import org.apache.jmeter.config.ClientCertificateConfig;
+import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.TestCompiler;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.SSLManager;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -149,7 +154,7 @@ class WebSocketTlsTest extends JMeterTestCase {
     }
 
     @Test
-    void scopedCertificateOverridesGlobalAliasWithoutChangingIt() throws Exception {
+    void compilerAppliesScopedCertificateWithoutChangingGlobalAlias() throws Exception {
         try (WebSocketSamplerTest.Peer bob = peer(true); WebSocketSamplerTest.Peer alice = peer(true)) {
             var certificate = new ClientCertificateConfig();
             certificate.setProperty(ClientCertificateConfig.MODE, "certificate");
@@ -157,11 +162,24 @@ class WebSocketTlsTest extends JMeterTestCase {
             certificate.setProperty(ClientCertificateConfig.PASSWORD, "password");
             certificate.setProperty(ClientCertificateConfig.ALIAS, "bob");
             var scoped = connect("scoped", bob.url());
-            scoped.addTestElement(certificate);
-            SampleResult result = scoped.sample(null);
-            assertTrue(result.isSuccessful(), result::getResponseMessage);
-            assertEquals("CN=Bob", bob.clientPrincipal.get(3, TimeUnit.SECONDS));
-            result = connect("global", alice.url()).sample(null);
+            ListedHashTree tree = new ListedHashTree();
+            var plan = tree.add(new TestPlan());
+            ThreadGroup group = new ThreadGroup();
+            group.setSamplerController(new LoopController());
+            var children = plan.add(group);
+            children.add(certificate);
+            children.add(scoped);
+            TestCompiler compiler = new TestCompiler(tree);
+            tree.traverse(compiler);
+            var pack = compiler.configureSampler(scoped);
+            try {
+                SampleResult result = scoped.sample(null);
+                assertTrue(result.isSuccessful(), result::getResponseMessage);
+                assertEquals("CN=Bob", bob.clientPrincipal.get(3, TimeUnit.SECONDS));
+            } finally {
+                compiler.done(pack);
+            }
+            SampleResult result = connect("global", alice.url()).sample(null);
             assertTrue(result.isSuccessful(), result::getResponseMessage);
             assertEquals("CN=Alice", alice.clientPrincipal.get(3, TimeUnit.SECONDS));
         }

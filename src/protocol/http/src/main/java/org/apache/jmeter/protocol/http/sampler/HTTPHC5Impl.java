@@ -727,13 +727,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private static final class HttpClientState {
         private final CloseableHttpClient client;
+        private final AsyncClientIdentity clientIdentity;
+        private final Map<HttpClientKey, HttpClientState> ownerClients;
         private final PoolingHttpClientConnectionManager connectionManager;
         private final HttpHost proxyHost;
         private AuthExchange proxyAuthExchange;
 
         private HttpClientState(CloseableHttpClient client, PoolingHttpClientConnectionManager connectionManager,
-                HttpHost proxyHost) {
+                HttpHost proxyHost, AsyncClientIdentity clientIdentity, Map<HttpClientKey, HttpClientState> ownerClients) {
             this.client = client;
+            this.clientIdentity = clientIdentity;
+            this.ownerClients = ownerClients;
             this.connectionManager = connectionManager;
             this.proxyHost = proxyHost;
         }
@@ -1013,7 +1017,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         } finally {
             JOrphanUtils.closeQuietly(httpResponse);
             currentRequest = null;
-            JMeterContextService.getContext().getSamplerContext().remove(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            // Embedded workers share this context. Only the page request may remove
+            // the owner after all descendants finish; an early worker must not clear it.
+            if (frameDepth == 0) {
+                JMeterContextService.getContext().getSamplerContext().remove(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            }
         }
         return res;
     }
@@ -1347,8 +1355,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private HttpClientState setupClient(HttpClientKey key, JMeterVariables jMeterVariables,
             HttpClientContext clientContext) throws GeneralSecurityException {
-        Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey =
-                HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        HttpClientState parent = testElement.isConcurrentDwn() ? (HttpClientState) JMeterContextService.getContext()
+                .getSamplerContext().get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE) : null;
+        // Download workers borrow the owning user's cache. Any additional identity/route
+        // pools they need are therefore also closed when that user finishes.
+        Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey = parent == null
+                ? HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get() : parent.ownerClients;
         synchronized (mapHttpClientPerHttpClientKey) {
             return setupClient(key, jMeterVariables, clientContext, mapHttpClientPerHttpClientKey);
         }
@@ -1362,9 +1374,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         HttpClientState clientState = null;
         boolean concurrentDwn = this.testElement.isConcurrentDwn();
         Map<String, Object> samplerContext = JMeterContextService.getContext().getSamplerContext();
-        if(concurrentDwn && key.clientIdentity == null) {
-            clientState = (HttpClientState)
-                    samplerContext.get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+        if(concurrentDwn) {
+            HttpClientState parent = (HttpClientState) samplerContext.get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            if (parent != null && Objects.equals(parent.clientIdentity, key.clientIdentity)) {
+                clientState = parent;
+            }
         }
         if (clientState == null) {
             clientState = mapHttpClientPerHttpClientKey.get(key);
@@ -1489,7 +1503,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (log.isDebugEnabled()) {
                 log.debug("Created new HttpClient: @{} {}", System.identityHashCode(httpClient), key);
             }
-            clientState = new HttpClientState(httpClient, pHCCM, proxy);
+            clientState = new HttpClientState(httpClient, pHCCM, proxy, key.clientIdentity, mapHttpClientPerHttpClientKey);
             mapHttpClientPerHttpClientKey.put(key, clientState); // save the agent for next time round
         } else {
             if (log.isDebugEnabled()) {

@@ -205,7 +205,8 @@ public class WebSocketConnectSampler extends AbstractWebSocketSampler implements
 
     @Override
     public boolean applies(ConfigTestElement configElement) {
-        return configElement instanceof CookieManager || configElement instanceof HeaderManager
+        return configElement instanceof ClientCertificateConfig
+                || configElement instanceof CookieManager || configElement instanceof HeaderManager
                 || isHttpDefaults(configElement);
     }
 

@@ -1332,7 +1332,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static TlsStrategy createTlsStrategy(AsyncClientIdentity identity) throws GeneralSecurityException {
-        SSLContext sslContext = identity == null ? ((JsseSSLManager) SSLManager.getInstance()).getContext()
+        SSLContext sslContext = identity == null ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity().createContext()
                 : identity.createContext();
         ClientTlsStrategyBuilder builder = ClientTlsStrategyBuilder.create()
                 .setSslContext(sslContext)
@@ -1420,7 +1420,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             throws GeneralSecurityException {
         ProxySettings proxy = resolveProxy(url, context);
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password(), versionPolicy, clientCertificateIdentity(url, true));
+                proxy.username(), proxy.password(), versionPolicy, clientCertificateIdentity(url));
     }
 
     private HttpUriRequestBase createHttpRequest(URI uri, String method, boolean areFollowingRedirect) {

@@ -71,4 +71,6 @@ changing client identity. Sending no certificate must fail the mTLS handshake.
 Run that suite separately in both modes. With retries disabled it trusts the
 fixture CA; with retries enabled it deliberately leaves that CA untrusted, testing
 that the TLS probe and certificate-retry client preserve the scoped identity.
-The Java 26 sampler TLS CI job runs both modes.
+Both modes also verify that global alias rotation keeps a bounded client cache,
+selects the next alias only when creating a new client, and preserves that alias
+through certificate retries. The Java 26 sampler TLS CI job runs both modes.

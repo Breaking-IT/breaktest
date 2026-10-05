@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -221,6 +222,41 @@ class HTTP3ScopedClientCertificateTest {
         run(tree);
         assertEquals(1, results.events.size());
         assertFalse(results.events.element().getResult().isSuccessful(), "Fixture must require a client certificate");
+    }
+
+    @Test
+    void rotatingGlobalAliasesRemainBoundToCachedClientIncludingCertificateRetry() throws Exception {
+        HTTPSamplerProxy sampler = sampler(false);
+        try {
+            System.setProperty("javax.net.ssl.keyStore", fixture.resolve("users.p12").toString());
+            System.setProperty("javax.net.ssl.keyStorePassword", "password");
+            SSLManager.reset();
+            SSLManager.getInstance().configureKeystore(true, 0, -1, "");
+            var first = sampler.sample();
+            assertTrue(first.isSuccessful(), first::getResponseDataAsString);
+            String identity = first.getResponseDataAsString();
+            for (int request = 0; request < 12; request++) {
+                var result = sampler.sample();
+                assertTrue(result.isSuccessful(), result::getResponseDataAsString);
+                assertTrue(result.getResponseHeaders().startsWith("HTTP/3"), result.getResponseHeaders());
+                assertEquals(identity, result.getResponseDataAsString(), "Reusing a QUIC client must not rotate aliases");
+            }
+            var field = HTTPJavaHttp3Impl.class.getDeclaredField("HTTPCLIENTS_CACHE_PER_JMETER_THREAD");
+            field.setAccessible(true);
+            Map<?, ?> clients = (Map<?, ?>) ((Map<?, ?>) field.get(null)).get(Thread.currentThread());
+            assertEquals(Boolean.getBoolean("httpsampler.http3.ignore_certificate_errors") ? 2 : 1, clients.size(),
+                    "Only the original client and optional certificate-retry client may be cached");
+            sampler.threadFinished();
+            var nextUser = sampler.sample();
+            assertTrue(nextUser.isSuccessful(), nextUser::getResponseDataAsString);
+            assertNotEquals(identity, nextUser.getResponseDataAsString(),
+                    "A new client advances rotation once; a certificate retry must not advance it again");
+        } finally {
+            sampler.threadFinished();
+            System.clearProperty("javax.net.ssl.keyStore");
+            System.clearProperty("javax.net.ssl.keyStorePassword");
+            SSLManager.reset();
+        }
     }
 
     private Results runCsv(int users, int loops) throws Exception {
