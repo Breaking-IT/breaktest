@@ -203,6 +203,22 @@ public final class HarParser {
         entry.setPostData(parsePostData(request));
 
         JsonNode response = entryNode.path("response");
+        entry.setServerSentEvents("eventsource".equalsIgnoreCase(entryNode.path("_resourceType").asText())
+                || entryNode.has("_serverSentEvents") || breakTest.has("sse")
+                || "text/event-stream".equalsIgnoreCase(response.path("content").path("mimeType").asText().split(";", 2)[0].trim()));
+        if (!entry.isServerSentEvents()) {
+            for (JsonNode header : response.path("headers")) {
+                if ("content-type".equalsIgnoreCase(header.path("name").asText())
+                        && "text/event-stream".equalsIgnoreCase(header.path("value").asText().split(";", 2)[0].trim())) {
+                    entry.setServerSentEvents(true);
+                }
+            }
+        }
+        if (entry.isServerSentEvents()) {
+            // A long-lived stream must not turn every later request into a parallel connection request.
+            entry.setEndMs(startMs + Math.max(0, timings.path("send").asDouble(0))
+                    + Math.max(0, timings.path("wait").asDouble(0)));
+        }
         entry.setResponseStatus(response.path("status").asInt(0));
         entry.setResponseRedirectUrl(response.path("redirectURL").asText(""));
         readNameValues(response.path("headers"), entry.getResponseHeaders());

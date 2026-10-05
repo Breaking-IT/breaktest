@@ -47,6 +47,10 @@ public class AccessLogSamplerBeanInfo extends BeanInfoSupport {
     public AccessLogSamplerBeanInfo() {
         super(AccessLogSampler.class);
         log.debug("Entered access log sampler bean info");
+        // SSE is configured by its dedicated sampler, not the Access Log editor.
+        property("sseEnabled").setHidden(true);
+        property("sseSessionName").setHidden(true);
+        property("sseExistingSessionAction").setHidden(true);
         createPropertyGroup("defaults",  // $NON-NLS-1$
                 new String[] { "protocol", "domain", "portString", "imageParsing" });// $NON-NLS-1$ $NON-NLS-2$ $NON-NLS-3$ $NON-NLS-4$
 

@@ -126,6 +126,9 @@ public final class MenuFactory {
         try {
             initializeMenus(menuMap, classesToSkip());
             sortMenus(menuMap.values());
+            // Keep the SSE lifecycle actions together in the alphabetical sampler section.
+            placeBefore(menuMap.get(SAMPLERS), "org.apache.jmeter.protocol.sse.SseSamplerGui",
+                    "org.apache.jmeter.protocol.sse.SseCloseSampler");
             separateItemsWithExplicitOrder(menuMap.values());
         } catch (Error | RuntimeException ex) { // NOSONAR We want to log Errors in the BreakTest log
             log.error("Error initializing menus, check configuration if using 3rd party libraries", ex);
@@ -254,6 +257,15 @@ public final class MenuFactory {
         for (List<MenuInfo> menu : menus) {
             menu.sort(Comparator.comparing(MenuInfo::getLabel));
             menu.sort(Comparator.comparingInt(MenuInfo::getSortOrder));
+        }
+    }
+
+    private static void placeBefore(List<MenuInfo> menu, String itemClass, String followingClass) {
+        MenuInfo item = menu.stream().filter(info -> itemClass.equals(info.getClassName())).findFirst().orElse(null);
+        MenuInfo following = menu.stream().filter(info -> followingClass.equals(info.getClassName())).findFirst().orElse(null);
+        if (item != null && following != null) {
+            menu.remove(item);
+            menu.add(menu.indexOf(following), item);
         }
     }
 

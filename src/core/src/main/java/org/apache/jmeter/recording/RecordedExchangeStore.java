@@ -107,6 +107,13 @@ public final class RecordedExchangeStore {
             if (harEntry.path("_breaktest").has("webSocket")) {
                 exchange.set("webSocket", harEntry.path("_breaktest").path("webSocket").deepCopy());
             }
+            if (harEntry.has("_serverSentEvents")) {
+                RecordedSseEvent.copyToArchive(harEntry, exchange.putArray("serverSentEvents"),
+                        parsed.path("log").path("_breaktest").path("transactions"));
+            }
+            if (harEntry.path("_breaktest").has("sse")) {
+                exchange.set("sse", harEntry.path("_breaktest").path("sse").deepCopy());
+            }
             exchanges.add(exchange);
             exchangeIds.add(exchangeId);
         }

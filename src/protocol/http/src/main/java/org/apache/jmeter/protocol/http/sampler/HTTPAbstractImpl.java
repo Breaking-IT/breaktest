@@ -101,6 +101,11 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
 
     protected abstract HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth);
 
+    /** A streaming reader has finished; ordinary transports own reader-local resources. */
+    protected void streamFinished() {
+        threadFinished();
+    }
+
     // Allows HTTPSamplerProxy to call threadFinished; subclasses can override if necessary
     protected void threadFinished() {
     }

@@ -208,6 +208,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private volatile Object jMeterThreadCacheKey;
 
     private volatile HttpUriRequest currentRequest;
+    private volatile org.apache.hc.core5.concurrent.ComplexFuture<Void> sseCancellation;
 
     private HTTPHC5Impl kerberosClient;
     private volatile HTTPHC5Impl activeKerberosClient;
@@ -276,11 +277,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
             try {
                 currentRequest = httpRequest;
+                if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+                    sseCancellation = new org.apache.hc.core5.concurrent.ComplexFuture<>(null);
+                    clientContext.setAttribute(SseHttpClient.CANCELLATION, sseCancellation);
+                    clientContext.setAttribute(CONTEXT_ATTRIBUTE_SSE, true);
+                }
                 handleMethod(method, res, httpRequest, clientContext);
                 removeHeadersUnsupportedByHttp2(httpRequest);
                 clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
                 clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
-                clientState.getClient().execute(httpRequest, clientContext, httpResponse -> {
+                CloseableHttpClient client = testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()
+                        ? new SseHttpClient(clientState.asyncClient, responseTimeout()) : clientState.getClient();
+                client.execute(httpRequest, clientContext, httpResponse -> {
                     fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
                     return null;
                 });
@@ -299,7 +307,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 if (res.getEndTime() == 0) {
                     res.sampleEnd();
                 }
-                if (shouldRetryClosedSessionFailure(e, method, attempt)) {
+                if (!(testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled())
+                        && shouldRetryClosedSessionFailure(e, method, attempt)) {
                     attempt++;
                     currentRequest = null;
                     // Other requests of this virtual user may still use the manager's connections
@@ -315,6 +324,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 return res;
             } finally {
                 currentRequest = null;
+                sseCancellation = null;
             }
         }
     }
@@ -381,6 +391,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         res.setSentBytes(HTTPHC5Metrics.estimateSentBytes(request, statusLine.getProtocolVersion().getMajor() >= 2
                 ? "HTTP/2"
                 : "HTTP/1.1"));
+        if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+            captureResponseHeaders(res, httpResponse, deferDiagnosticHeaders());
+            updateUrlAfterRedirect(clientContext, res);
+            saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
+        }
         HttpEntity entity = httpResponse.getEntity();
         long bodyBytes = 0;
         if (entity == null) {
@@ -411,7 +426,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             res.setRedirectLocation(location.getValue());
         }
         res.setBodySize(bodyBytes);
-        saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
+        if (!(testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled())) {
+            saveConnectionCookies(httpResponse, res.getURL(), getCookieManager());
+        }
     }
 
     private HttpClientState setupClient(HttpClientKey key) throws GeneralSecurityException {
@@ -449,16 +466,22 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         asyncClient.start();
         CloseableHttpClient client = HttpAsyncClients.classic(asyncClient, responseTimeout());
         log.debug("Created new HTTP/2 HttpClient: @{} {}", System.identityHashCode(client), key);
-        return new HttpClientState(client, connectionManager);
+        HttpClientState state = new HttpClientState(client, connectionManager);
+        state.asyncClient = asyncClient;
+        return state;
     }
 
     private Map<HttpClientKey, HttpClientState> getThreadLocalClients() {
-        Object cacheKey = getJMeterThreadCacheKey();
+        Object cacheKey = testElement instanceof HTTPSamplerProxy proxy && proxy.getSseTransportKey() != null
+                ? proxy.getSseTransportKey() : getJMeterThreadCacheKey();
         jMeterThreadCacheKey = cacheKey;
         if (cacheKey instanceof JMeterThread jMeterThread) {
             jMeterThread.registerThreadCleanup(
                     HTTPHC5H2Impl.class,
                     () -> closeThreadLocalConnections(cacheKey));
+        } else if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
+            org.apache.jmeter.protocol.sse.SseSessions.current().registerTransportCleanup(
+                    cacheKey, () -> closeThreadLocalConnections(cacheKey));
         }
         return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(
                 cacheKey,
@@ -592,6 +615,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final class H2RouteReuseConnectionManager implements AsyncClientConnectionManager {
         private final PoolingAsyncClientConnectionManager delegate;
         private final String authority;
+        private final Map<HttpRoute, EndpointLease> activeLeases = new HashMap<>();
         private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
         private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
@@ -606,6 +630,17 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         @Override
         public Future<AsyncConnectionEndpoint> lease(String id, HttpRoute route, Object state,
                 Timeout requestTimeout, FutureCallback<AsyncConnectionEndpoint> callback) {
+            synchronized (activeLeases) {
+                EndpointLease active = activeLeases.get(route);
+                if (active != null && active.isConnected() && active.getInfo() != null
+                        && HttpVersion.HTTP_2_0.equals(active.getInfo().getProtocol())) {
+                    EndpointLease shared = active.share();
+                    endpointRoutes.put(shared, route);
+                    BasicFuture<AsyncConnectionEndpoint> future = new BasicFuture<>(callback);
+                    future.completed(shared);
+                    return future;
+                }
+            }
             RouteLeaseState routeState = routeStates.computeIfAbsent(route, ignored -> new RouteLeaseState());
             delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
             logConnectionClosureDebug(
@@ -632,14 +667,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             return delegate.lease(id, route, state, requestTimeout, new FutureCallback<>() {
                 @Override
                 public void completed(AsyncConnectionEndpoint endpoint) {
-                    endpointRoutes.put(endpoint, route);
-                    routeState.leaseCompleted(endpoint);
+                    EndpointLease lease = new EndpointLease(endpoint);
+                    synchronized (activeLeases) {
+                        activeLeases.put(route, lease);
+                    }
+                    endpointRoutes.put(lease, route);
+                    routeState.leaseCompleted(lease);
                     logConnectionClosureDebug(
                             "manager lease-completed authority={} id={} route={} endpoint={} protocol={} thread={}",
                             authority, id, route, endpointIdentity(endpoint), routeState.protocol(),
                             Thread.currentThread().getName());
                     if (callback != null) {
-                        callback.completed(endpoint);
+                        callback.completed(lease);
                     }
                 }
 
@@ -673,7 +712,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager release authority={} route={} endpoint={} state={} keepAlive={} thread={}",
                     authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), state, keepAlive,
                     Thread.currentThread().getName());
-            delegate.release(endpoint, state, keepAlive);
+            HttpRoute route = endpointRoutes.remove(endpoint);
+            if (endpoint instanceof EndpointLease lease) {
+                synchronized (activeLeases) {
+                    if (!lease.release()) {
+                        return;
+                    }
+                    activeLeases.computeIfPresent(route, (key, active) -> active.root == lease.root ? null : active);
+                    delegate.release(lease.root.endpoint, state, keepAlive);
+                }
+            } else {
+                delegate.release(endpoint, state, keepAlive);
+            }
         }
 
         @Override
@@ -686,13 +736,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager connect-start authority={} route={} endpoint={} connectTimeout={} attachment={} thread={}",
                     authority, route, endpointIdentity(endpoint), connectTimeout, attachment,
                     Thread.currentThread().getName());
-            return delegate.connect(endpoint, connectionInitiator, connectTimeout, attachment, context,
+            return delegate.connect(unwrap(endpoint), connectionInitiator, connectTimeout, attachment, context,
                     new FutureCallback<>() {
                         @Override
                         public void completed(AsyncConnectionEndpoint connectedEndpoint) {
-                            connectCompleted(route, routeState, connectedEndpoint);
+                            connectCompleted(route, routeState, endpoint);
                             if (callback != null) {
-                                callback.completed(connectedEndpoint);
+                                callback.completed(endpoint);
                             }
                         }
 
@@ -764,7 +814,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager upgrade authority={} route={} endpoint={} attachment={} thread={}",
                     authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), attachment,
                     Thread.currentThread().getName());
-            delegate.upgrade(endpoint, attachment, context);
+            delegate.upgrade(unwrap(endpoint), attachment, context);
         }
 
         @Override
@@ -774,7 +824,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager upgrade-async authority={} route={} endpoint={} attachment={} thread={}",
                     authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), attachment,
                     Thread.currentThread().getName());
-            delegate.upgrade(endpoint, attachment, context, callback);
+            delegate.upgrade(unwrap(endpoint), attachment, context, new FutureCallback<>() {
+                @Override public void completed(AsyncConnectionEndpoint upgraded) { callback.completed(endpoint); }
+                @Override public void failed(Exception failure) { callback.failed(failure); }
+                @Override public void cancelled() { callback.cancelled(); }
+            });
         }
 
         @Override
@@ -816,8 +870,83 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     authority, endpointRoutes.size(), routeStates.size(), Thread.currentThread().getName());
             delegate.closeIdle(TimeValue.ZERO_MILLISECONDS);
             routeStates.clear();
+            synchronized (activeLeases) {
+                activeLeases.clear();
+            }
             endpointRoutes.clear();
             networkEndpointsByFirstHop.clear();
+        }
+
+        private static AsyncConnectionEndpoint unwrap(AsyncConnectionEndpoint endpoint) {
+            return endpoint instanceof EndpointLease lease ? lease.root.endpoint : endpoint;
+        }
+
+        /** HttpClient 5.6 only shares a new H2 pool entry after its first exchange returns.
+         * Keep that first lease available to concurrent streams even when it is long-lived. */
+        private static final class EndpointLease extends AsyncConnectionEndpoint {
+            private final EndpointLease root;
+            private final AsyncConnectionEndpoint endpoint;
+            private int references = 1;
+            private boolean released;
+            private volatile boolean streamOnly;
+
+            EndpointLease(AsyncConnectionEndpoint endpoint) {
+                this.endpoint = endpoint;
+                root = this;
+            }
+
+            EndpointLease(EndpointLease root) {
+                this.root = root;
+                endpoint = root.endpoint;
+            }
+
+            EndpointLease share() {
+                root.references++;
+                return new EndpointLease(root);
+            }
+
+            boolean release() {
+                if (released) {
+                    return false;
+                }
+                released = true;
+                return --root.references == 0;
+            }
+
+            @Override public boolean isConnected() { return endpoint.isConnected(); }
+            @Override public EndpointInfo getInfo() { return endpoint.getInfo(); }
+            @Override public void setSocketTimeout(Timeout timeout) { endpoint.setSocketTimeout(timeout); }
+            @Override public void close(CloseMode mode) {
+                // Discarding a cancelled SSE exchange must not discard its H2 connection.
+                if (!streamOnly || getInfo() == null || !HttpVersion.HTTP_2_0.equals(getInfo().getProtocol())) {
+                    endpoint.close(mode);
+                }
+            }
+            @Override public void execute(String id, org.apache.hc.core5.http.nio.AsyncClientExchangeHandler handler,
+                    org.apache.hc.core5.http.nio.HandlerFactory<org.apache.hc.core5.http.nio.AsyncPushConsumer> pushes,
+                    HttpContext context) {
+                Object cancellation = context.getAttribute(SseHttpClient.CANCELLATION);
+                if (cancellation instanceof org.apache.hc.core5.concurrent.CancellableDependency dependency
+                        && endpoint instanceof org.apache.hc.client5.http.impl.ConnectionHolder supplier
+                        && supplier.get() instanceof ManagedAsyncClientConnection connection) {
+                    streamOnly = true;
+                    context.setProtocolVersion(connection.getProtocolVersion());
+                    var streamCancellation = new org.apache.hc.core5.concurrent.ComplexFuture<Void>(null);
+                    dependency.setDependency(() -> {
+                        // Check the negotiated protocol at cancellation time. HTTP/1 has no
+                        // independent stream reset, and its request command ignores cancellation.
+                        if (HttpVersion.HTTP_2_0.equals(connection.getProtocolVersion())) {
+                            return streamCancellation.cancel();
+                        }
+                        connection.close(CloseMode.IMMEDIATE);
+                        return true;
+                    });
+                    connection.submitCommand(new org.apache.hc.core5.http.nio.command.RequestExecutionCommand(
+                            handler, pushes, streamCancellation, context), org.apache.hc.core5.reactor.Command.Priority.NORMAL);
+                } else {
+                    endpoint.execute(id, handler, pushes, context);
+                }
+            }
         }
 
         void trackConnection(ManagedAsyncClientConnection connection) {
@@ -1212,6 +1341,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static HttpRequestRetryStrategy createRetryStrategy() {
         return new DefaultHttpRequestRetryStrategy(RETRY_COUNT, TimeValue.ZERO_MILLISECONDS) {
             @Override
+            public boolean retryRequest(HttpRequest request, IOException failure, int count, HttpContext context) {
+                return !Boolean.TRUE.equals(context.getAttribute(CONTEXT_ATTRIBUTE_SSE))
+                        && super.retryRequest(request, failure, count, context);
+            }
+            @Override
+            public boolean retryRequest(HttpResponse response, int count, HttpContext context) {
+                return !Boolean.TRUE.equals(context.getAttribute(CONTEXT_ATTRIBUTE_SSE))
+                        && super.retryRequest(response, count, context);
+            }
+            @Override
             protected boolean handleAsIdempotent(HttpRequest request) {
                 return REQUEST_SENT_RETRY_ENABLED || super.handleAsIdempotent(request);
             }
@@ -1480,6 +1619,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     @Override
+    protected void streamFinished() {
+        // The HTTP/2 client belongs to the virtual user, not to an individual stream.
+        // Aborting currentRequest resets only that stream; thread cleanup owns the pool.
+        super.streamFinished();
+    }
+
+    @Override
     protected void threadFinished() {
         if (kerberosClient != null) {
             kerberosClient.threadFinished();
@@ -1501,7 +1647,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
         synchronized (clients) {
             for (HttpClientState clientState : clients.values()) {
-                // A new visitor starts: the previous visitor's requests have all completed
+                // A new visitor starts: release all of the previous visitor's connections,
+                // including any still-open SSE streams.
                 clientState.getConnectionManager().closeConnections(CloseMode.IMMEDIATE);
             }
         }
@@ -1533,6 +1680,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         HTTPHC5Impl active = activeKerberosClient;
         if (active != null) {
             return active.interrupt();
+        }
+        var cancellation = sseCancellation;
+        if (cancellation != null) {
+            cancellation.cancel();
         }
         HttpUriRequest request = currentRequest;
         if (request != null) {
@@ -1567,6 +1718,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
     private static final class HttpClientState {
         private final CloseableHttpClient client;
+        private CloseableHttpAsyncClient asyncClient;
         private final H2RouteReuseConnectionManager connectionManager;
 
         private HttpClientState(

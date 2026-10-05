@@ -163,6 +163,10 @@ public class HarEntry {
 
     /** Original 0-based position of this entry in the HAR, before filter/sort. */
     private int originalIndex;
+    private boolean serverSentEvents;
+    public boolean isServerSentEvents() { return serverSentEvents; }
+    public void setServerSentEvents(boolean value) { serverSentEvents = value; }
+
     private boolean webSocket;
     private List<RecordedWebSocketMessage> webSocketMessages = List.of();
     private HarEntry webSocketConnection;
