@@ -159,6 +159,21 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
+    void codexRetryErrorIsLoggedWithoutFailingSuccessfulCompletion() {
+        AiRunOutput output = new AiRunOutput();
+        assertEquals("Codex error: Reconnecting...", CodexRunEvents.display(
+                "{\"type\":\"error\",\"message\":\"Reconnecting...\"}", output));
+        assertFalse(output.hasCompletionStatus());
+        CodexRunEvents.display(
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Status: completed\"}}", output);
+        CodexRunEvents.display("{\"type\":\"turn.completed\"}", output);
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasCompletionStatus());
+        assertFalse(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().isEmpty());
+    }
+
+    @Test
     void codexStructuredErrorsRemainActionable() throws Exception {
         AiRunOutput output = parseCodexOutput(
                 "{\"type\":\"turn.failed\",\"error\":{\"message\":\"Usage limit reached\"}}");
