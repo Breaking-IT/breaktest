@@ -377,7 +377,8 @@ class RecorderWorkflowTest extends JMeterTestCase {
             assertTrue(anotherPlan.getUseKeepalive());
             assertEquals(1, anotherPlan.getExcludePatterns().size());
             assertEquals("${ThinkTime}", RecorderSettings.options(anotherPlan).getFixedDelay());
-            assertTrue(Files.readString(file, StandardCharsets.ISO_8859_1).startsWith("# Keep my settings\ncustom.property=unchanged\n"));
+            assertEquals(List.of("# Keep my settings", "custom.property=unchanged"),
+                    Files.readAllLines(file, StandardCharsets.ISO_8859_1).subList(0, 2));
         } finally {
             properties.clear();
             properties.putAll(previous);
