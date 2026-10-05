@@ -72,7 +72,7 @@ SSE Connect reuses compatible existing HTTP connections: an idle connection for 
 or a shared connection with concurrent streams for HTTP/2. An occupied HTTP/1.1 connection requires another connection.
 In the SSE tab, <b>When session already exists</b> controls repeated execution, including later iterations:
 <b>Close and reconnect</b> (default) replaces only that named stream;
-<b>Reuse if connected</b> keeps the live stream's original URL, settings and Message Match actions, or reconnects if it ended;
+<b>Reuse if connected</b> keeps the live stream's original URL, settings and SSE Match actions, or reconnects if it ended;
 <b>Fail if exists</b> fails when the name is still registered, without disturbing its stream. Use SSE Close to remove it.
 </p>
 <p>
@@ -84,13 +84,13 @@ in the virtual user's context, with their normal assertions, extractors and list
 Each handler has a bounded queue of 64 messages or 4 MiB, allowing one larger event within the configured event limit;
 overflow reports a failed sample and stops that handler. Each handler receives its own event result.
 <b>Count incoming messages as samples</b> in the SSE tab defaults to enabled. Disable it to exclude incoming events
-from sample counts and results. Message Match actions still execute and report their own samples;
+from sample counts and results. SSE Match actions still execute and report their own samples;
 stream failures remain visible. <b>Incoming sample naming</b> offers <b>Prefix + event name</b>
 (for example, prefix <code>Notifications / </code> produces <code>Notifications / ready</code>)
 or <b>Fixed name</b> to group every event under one sample name. A blank prefix preserves
 <code>request name / event name</code>; a blank fixed name uses the request name. Unnamed events use
 <code>message</code>. The inline example updates while editing. Naming only changes reported incoming
-samples; Message Match still receives the original event name and data.
+samples; SSE Match still receives the original event name and data.
 </p>
 <p>
 The parser handles UTF-8, multiline data, named events, persistent IDs, comments and CR/LF line endings.
