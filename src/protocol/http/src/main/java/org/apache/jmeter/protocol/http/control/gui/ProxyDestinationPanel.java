@@ -68,9 +68,11 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         JLabel modeLabel = new JLabel(text("proxy_filter_mode"));
         modeLabel.setLabelFor(mode);
         mode.getAccessibleContext().setAccessibleName(text("proxy_filter_mode"));
-        fields.add(bypass, "skip 1, growx");
         fields.add(modeLabel);
-        fields.add(mode, "growx");
+        JPanel filterControls = new JPanel(new net.miginfocom.swing.MigLayout("insets 0", "[]12[]"));
+        filterControls.add(mode);
+        filterControls.add(bypass);
+        fields.add(filterControls, "growx");
         fields.add(description, "skip 1, growx");
         patternLabel.setLabelFor(patterns);
         fields.add(patternLabel, "aligny top");
