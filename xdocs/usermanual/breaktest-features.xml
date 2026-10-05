@@ -49,20 +49,19 @@ the proxy host from <code>system.properties</code> or command-line options.
 <p>
 Choose <code>Only matching hosts</code> to proxy only included destinations, or <code>Exclude matching
 hosts</code> to connect directly for excluded destinations. <code>None</code> is the default host filter.
-The separate <code>Bypass proxy for this scope</code> checkbox forces direct connections and disables the
+The separate <code>Bypass proxy (connect directly)</code> checkbox forces direct connections and disables the
 proxy endpoint and filter controls. A sampler-level bypass overrides a filter on HTTP Request Defaults.
 A section with no endpoint fields, no filter, and bypass unchecked does not save a local override.
 </p>
 <p>
-Enter one hostname or IP literal per line. Exact hosts match case-insensitively;
+Separate hostnames or IP literals with newlines, commas, or semicolons. Exact hosts match case-insensitively;
 <code>*.example.com</code> matches subdomains (including nested subdomains), but not
-<code>example.com</code> itself. Include both lines to cover both. Trailing dots and internationalized
+<code>example.com</code> itself. Include both patterns to cover both. Trailing dots and internationalized
 hostnames are normalized; bracketed and expanded IPv6 literals are supported. Matching performs no DNS
 lookups. Ports, URL paths, CIDR ranges, general globs, and regular expressions are not supported.
 Inclusion and exclusion modes require at least one pattern. Invalid resolved settings fail the sample
 before it sends a request. Expressions are resolved at runtime, and parsed policies are reused until
-the resolved configuration changes. The optional Check destination field accepts a hostname or URL
-and evaluates the local filter without sending traffic; it does not resolve expressions.
+the resolved configuration changes.
 </p>
 <p>
 Filtered-out destinations connect directly, without falling back to another proxy. A proxy connection or

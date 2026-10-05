@@ -18,14 +18,12 @@
 package org.apache.jmeter.protocol.http.control.gui;
 
 import java.awt.BorderLayout;
-import java.net.URI;
 
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
-import javax.swing.JTextField;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
@@ -40,7 +38,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.locale.ResourceKeyed;
 
-/** Shared filter editor for HTTP requests and defaults. Preview never sends traffic. */
+/** Shared filter editor for HTTP requests and defaults. */
 public class ProxyDestinationPanel extends JPanel implements Binding {
     private enum Filter implements ResourceKeyed {
         NONE("proxy_filter_all"), INCLUDE("proxy_filter_include"), EXCLUDE("proxy_filter_exclude");
@@ -59,11 +57,9 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
     private final JTextArea patterns = new JTextArea(3, 36);
     private final JTextComponentBinding patternsBinding = new JTextComponentBinding(
             patterns, HTTPSamplerBaseSchema.INSTANCE.getProxy().getDestinationPatterns());
-    private final JTextField preview = new JTextField(30);
     private final JTextArea description = helpText();
     private final JTextArea status = helpText();
     private final JLabel patternLabel = new JLabel(text("proxy_filter_patterns"));
-    private final JLabel previewLabel = new JLabel(text("proxy_filter_preview"));
 
     public ProxyDestinationPanel() {
         super(new BorderLayout(0, 5));
@@ -88,14 +84,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         JTextArea hint = helpText();
         hint.setText(text("proxy_filter_hint"));
         fields.add(hint, "skip 1, growx");
-        previewLabel.setLabelFor(preview);
-        fields.add(previewLabel);
-        fields.add(preview, "growx");
-        preview.putClientProperty("JTextField.placeholderText", "api.example.com");
-        preview.setToolTipText(text("proxy_filter_preview_hint"));
-        JTextArea previewHelp = helpText();
-        previewHelp.setText(text("proxy_filter_preview_hint"));
-        fields.add(previewHelp, "skip 1, growx");
         fields.add(status, "skip 1, growx");
         add(fields);
         DocumentListener listener = new DocumentListener() {
@@ -104,7 +92,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
             @Override public void changedUpdate(DocumentEvent event) { validatePolicy(); }
         };
         patterns.getDocument().addDocumentListener(listener);
-        preview.getDocument().addDocumentListener(listener);
         mode.addPropertyChangeListener("value", event -> {
             if (!updating) {
                 validatePolicy();
@@ -160,9 +147,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         boolean usesPatterns = !direct && (expression || value.equals("proxy_filter_include") || value.equals("proxy_filter_exclude"));
         patterns.setEnabled(usesPatterns);
         patternLabel.setEnabled(usesPatterns);
-        boolean canPreview = usesPatterns && !expression && !rules.contains("${");
-        preview.setEnabled(canPreview);
-        previewLabel.setEnabled(canPreview);
         description.setText(text(direct ? "proxy_filter_direct_help"
                 : expression ? "proxy_filter_runtime" : value + "_help"));
         if (expression || (usesPatterns && rules.contains("${"))) {
@@ -174,24 +158,9 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
             return;
         }
         try {
-            ProxyDestinationPolicy policy = ProxyDestinationPolicy.compile(value, rules);
-            if (preview.getText().isBlank()) {
-                status.setText("");
-                return;
-            }
-            String host = preview.getText().trim();
-            if (host.contains("://")) {
-                URI uri = URI.create(host);
-                if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
-                    status.setText(text("proxy_filter_preview_invalid"));
-                    return;
-                }
-                host = uri.toURL().getHost();
-            }
-            String matched = policy.matchingPattern(host);
-            status.setText(text(policy.allowsProxy(host) ? "proxy_filter_preview_proxy" : "proxy_filter_preview_direct")
-                    + (matched.isEmpty() ? "" : " " + text("proxy_filter_matched") + " " + matched));
-        } catch (IllegalArgumentException | java.net.MalformedURLException e) {
+            ProxyDestinationPolicy.compile(value, rules);
+            status.setText("");
+        } catch (IllegalArgumentException e) {
             status.setText(e.getMessage());
         }
     }
@@ -222,7 +191,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
             bypass.setSelected("proxy_filter_direct".equals(value));
             showMode(value.isEmpty() || bypass.isSelected() ? "proxy_filter_all" : value);
             patternsBinding.updateUi(element);
-            preview.setText("");
         } finally {
             updating = false;
         }

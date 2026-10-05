@@ -52,6 +52,24 @@ class ProxyDestinationPolicyTest {
     }
 
     @Test
+    void mixedSeparatorsAndWhitespace() {
+        String patterns = " api.example.com, *.internal; localhost\r\n[::1];,127.0.0.1\n; ";
+        for (String mode : new String[] {"proxy_filter_include", "proxy_filter_exclude"}) {
+            var policy = ProxyDestinationPolicy.compile(mode, patterns);
+            boolean included = mode.equals("proxy_filter_include");
+            for (String host : new String[] {"api.example.com", "a.internal", "localhost", "::1", "127.0.0.1"}) {
+                org.junit.jupiter.api.Assertions.assertEquals(included, policy.allowsProxy(host), host);
+            }
+            org.junit.jupiter.api.Assertions.assertEquals(!included, policy.allowsProxy("other.example"));
+        }
+        var error = assertThrows(IllegalArgumentException.class,
+                () -> ProxyDestinationPolicy.compile("proxy_filter_include", "localhost,example.com\nvalid.example;https://invalid.example"));
+        assertTrue(error.getMessage().contains("line 2"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ProxyDestinationPolicy.compile("proxy_filter_include", ",;\n ;"));
+    }
+
+    @Test
     void invalidRulesFailInsteadOfSilentlyBypassingProxy() {
         for (String rule : new String[] {"", " ", "*", "foo.*", "a*b.example", "https://example.com",
                 "example.com:443", "example.com/path", "*.127.0.0.1", "*.::1", "example.com|localhost"}) {

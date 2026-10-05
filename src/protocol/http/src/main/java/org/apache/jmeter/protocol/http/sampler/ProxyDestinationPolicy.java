@@ -93,22 +93,24 @@ public final class ProxyDestinationPolicy {
             int lineNumber = 0;
             for (String line : patterns.split("\\R")) {
                 lineNumber++;
-                String value = line.trim();
-                if (value.isEmpty()) {
-                    continue;
-                }
-                try {
-                    if (value.startsWith("*.")) {
-                        String host = normalize(value.substring(2));
-                        if (host.indexOf(':') >= 0 || InetAddressUtils.isIPv4(host)) {
-                            throw new IllegalArgumentException("Wildcards require a DNS hostname");
-                        }
-                        suffixes.add("." + host);
-                    } else {
-                        exact.add(normalize(value));
+                for (String entry : line.split("[,;]")) {
+                    String value = entry.trim();
+                    if (value.isEmpty()) {
+                        continue;
                     }
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException("Proxy pattern on line " + lineNumber + ": " + e.getMessage(), e);
+                    try {
+                        if (value.startsWith("*.")) {
+                            String host = normalize(value.substring(2));
+                            if (host.indexOf(':') >= 0 || InetAddressUtils.isIPv4(host)) {
+                                throw new IllegalArgumentException("Wildcards require a DNS hostname");
+                            }
+                            suffixes.add("." + host);
+                        } else {
+                            exact.add(normalize(value));
+                        }
+                    } catch (IllegalArgumentException e) {
+                        throw new IllegalArgumentException("Proxy pattern on line " + lineNumber + ": " + e.getMessage(), e);
+                    }
                 }
             }
             if (exact.isEmpty() && suffixes.isEmpty()) {
