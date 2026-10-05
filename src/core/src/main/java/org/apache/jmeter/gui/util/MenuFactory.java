@@ -143,6 +143,13 @@ public final class MenuFactory {
         return menuMap;
     }
 
+    /** Snapshot of installed elements offered by the GUI, for element discovery tools. */
+    public static Map<String, List<MenuInfo>> availableElements() {
+        return menuMap.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+                Map.Entry::getKey,
+                entry -> entry.getValue().stream().filter(item -> !(item instanceof MenuSeparatorInfo)).toList()));
+    }
+
     private static Set<String> classesToSkip() {
         return Arrays.stream(JMeterUtils.getPropDefault("not_in_menu", "").split(","))
                 .map(String::trim)

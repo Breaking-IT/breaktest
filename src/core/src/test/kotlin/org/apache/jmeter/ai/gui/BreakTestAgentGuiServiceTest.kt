@@ -54,6 +54,74 @@ class BreakTestAgentGuiServiceTest {
         field.set(null, null)
     }
 
+    class RecordingSampler : org.apache.jmeter.samplers.AbstractSampler() {
+        override fun sample(entry: org.apache.jmeter.samplers.Entry?): org.apache.jmeter.samplers.SampleResult =
+            org.apache.jmeter.samplers.SampleResult()
+    }
+
+    @Test
+    fun `recording tools expose and search timed websocket messages`(@TempDir directory: Path) {
+        val recording = org.apache.jmeter.recording.RecordedExchangeStore.fromHar(
+            """
+            {"log":{"entries":[{"startedDateTime":"2021-01-01T00:00:00Z",
+              "request":{"method":"GET","url":"wss://example.test/chat"},"response":{"status":101},
+              "_webSocketMessages":[
+                {"type":"receive","time":1609459200.125,"opcode":1,"data":"server-issued-token"},
+                {"type":"send","time":1609459200.250,"opcode":2,"data":"AP9BQkM="}]}]}}
+            """.trimIndent().toByteArray(),
+            "socket.har"
+        )
+        org.apache.jmeter.save.JmxArchiveEntryStore.registerBundle(
+            recording.manifestEntryName(), recording.checksum(), recording.entries(),
+        )
+        val model = JMeterTreeModel(TestPlan("Plan"))
+        GuiPackage.initInstance(JMeterTreeListener(model).apply { setJTree(JTree(model)) }, model)
+        GuiPackage::class.java.getDeclaredField("testPlanFile").apply { isAccessible = true }
+            .set(GuiPackage.getInstance(), directory.resolve("plan.jmx").toString())
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        val group = JMeterTreeNode(
+            ThreadGroup().apply {
+                setProperty(org.apache.jmeter.recording.RecordedExchangeStore.MANIFEST_PROPERTY, recording.manifestEntryName())
+                setProperty(org.apache.jmeter.recording.RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum())
+            },
+            model
+        )
+        model.insertNodeInto(group, plan, 0)
+        val sampler = RecordingSampler().apply {
+            name = "Socket"
+            setProperty(org.apache.jmeter.recording.RecordedExchangeStore.EXCHANGE_ID_PROPERTY, recording.exchangeIds()[0])
+            setProperty("sessionName", "websocket-1")
+        }
+        model.insertNodeInto(JMeterTreeNode(sampler, model), group, 0)
+        val json = ObjectMapper()
+        val details = invokePrivateResult(
+            "getRecordedHarExchangeOpenPlan",
+            json.readTree(
+                """{"targetSamplerIndex":0,"messageOffset":1,"messageLimit":1,"messageByteLimit":10}""",
+            )
+        ) as Map<*, *>
+        assertEquals(true, details["hasExchange"])
+        val recordingDetails = details["recordedWebSocket"] as Map<*, *>
+        assertEquals(2, recordingDetails["messageCount"])
+        val message = (recordingDetails["messages"] as List<*>).single() as Map<*, *>
+        assertEquals("send", message["direction"])
+        assertEquals("00 ff 41 42 43", (message["payload"] as Map<*, *>)["hex"])
+        for (
+            (query, surface, index) in listOf(
+                Triple("server-issued-token", "recorded_websocket_text", 0),
+                Triple("00 ff", "recorded_websocket_hex", 1),
+                Triple("ABC", "recorded_websocket_ascii", 1),
+            )
+        ) {
+            val result = invokePrivateResult("searchRecordedHarOpenPlan", json.createObjectNode().put("query", query)) as Map<*, *>
+            val match = (result["matches"] as List<*>).single() as Map<*, *>
+            assertEquals(surface, match["surface"])
+            assertEquals(index, match["messageIndex"])
+            assertEquals("websocket-1", match["sessionName"])
+            assertTrue(match.containsKey("relativeTimeMs"))
+        }
+    }
+
     @Test
     fun `repair paths omit hidden root and resolve both visible and legacy paths`() {
         val model = JMeterTreeModel(TestPlan("Example Plan"))
@@ -128,11 +196,16 @@ class BreakTestAgentGuiServiceTest {
         try {
             BreakTestAgentGuiService.start()
             val firstDetails = ObjectMapper().readTree(descriptor.toFile())
+            val pinnedDescriptor = BreakTestAgentGuiService.createRunDescriptor()
 
             Files.writeString(
                 descriptor,
                 """{"host":"127.0.0.1","port":9,"socketPath":"/stale.sock","token":"stale"}""",
             )
+            // A second GUI can replace discovery, but an active run retains its exact connection.
+            assertEquals(firstDetails, ObjectMapper().readTree(pinnedDescriptor))
+            assertNotEquals(descriptor.toFile(), pinnedDescriptor)
+            Files.delete(pinnedDescriptor.toPath())
             BreakTestAgentGuiService.start()
             val reclaimedDetails = ObjectMapper().readTree(descriptor.toFile())
 

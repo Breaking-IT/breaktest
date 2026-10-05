@@ -48,6 +48,165 @@ import org.junit.jupiter.params.provider.CsvSource;
 class AiAutoScriptingActionTest {
 
     @Test
+    void successfulTemplateStillReportsUnverifiedEndpointAndLimitations() {
+        AiRunOutput output = new AiRunOutput();
+        output.captureFinalResponse("Status: completed");
+        output.captureFinalResponse("Set the endpoint; your actual stream remains unverified.");
+        output.captureFinalResponse("Limitations: fixed representation selection; DRM is unsupported.");
+        assertFalse(output.hasRepairBlocker());
+        assertEquals(2, output.followUpLines().size());
+    }
+
+    @Test
+    void cachedUsageIsIncludedInInputRatherThanAddedAgain() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":2169064,\"cached_input_tokens\":2086016,\"output_tokens\":22220}}");
+        assertEquals("2191284", output.totalTokensText());
+        assertTrue(output.inputCacheSummary().contains("cached=2086016, uncached=83048"));
+        assertEquals("", new AiRunOutput().inputCacheSummary());
+    }
+
+    @Test
+    void specificRequestSupportsGenerationAndFocusedEdits() throws Exception {
+        withDefaultPrompt(() -> {
+            Object request = newRunRequest("CODEX");
+            var mode = request.getClass().getDeclaredField("mode");
+            mode.setAccessible(true);
+            mode.set(request, enumConstant(mode.getType(), "SPECIFIC_REQUEST"));
+            Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+            method.setAccessible(true);
+            String prompt = (String) method.invoke(null, request);
+            assertTrue(prompt.contains("Complete the user's specific request"));
+            assertTrue(prompt.contains("a focused edit does not trigger synthetic replay"));
+            assertTrue(prompt.contains("not an unrelated rename or configuration edit"));
+            assertTrue(prompt.contains("one bounded synthetic integration replay"));
+            assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
+            assertTrue(prompt.contains("ignoreTimers=false"));
+            assertTrue(prompt.contains("Restore every temporary endpoint/configuration override"));
+            assertTrue(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Always pass threadGroupName or scopeNodePath"));
+            assertTrue(prompt.contains("only when the user explicitly requests a global edit"));
+            assertTrue(prompt.contains("plain final reply ends it permanently"));
+            assertTrue(prompt.contains("no markdown tables"));
+            assertTrue(prompt.contains("Do not read, use, update or create legacy BreakTest AI Knowledge"));
+            assertFalse(prompt.contains("{{"));
+            assertTrue(prompt.length() < renderedPrompt("CODEX").length());
+        });
+    }
+
+    @Test
+    void emptyControllerDefaultsToSpecificRequestButNestedSamplerDoesNot() {
+        var model = new org.apache.jmeter.gui.tree.JMeterTreeModel();
+        var group = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        var controller = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.control.LoopController(), model);
+        group.add(controller);
+        assertTrue(AiTaskWorkspace.hasNoSamplers(group));
+        var sampler = new org.apache.jmeter.samplers.AbstractSampler() {
+            @Override
+            public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+                return null;
+            }
+        };
+        controller.add(new org.apache.jmeter.gui.tree.JMeterTreeNode(sampler, model));
+        assertFalse(AiTaskWorkspace.hasNoSamplers(group));
+    }
+
+    @Test
+    void disabledGroupsAreNotAnEmptyPlan() {
+        var model = new org.apache.jmeter.gui.tree.JMeterTreeModel();
+        assertFalse(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        var root = (org.apache.jmeter.gui.tree.JMeterTreeNode) model.getRoot();
+        var group = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        root.add(group);
+        group.setEnabled(false);
+        assertTrue(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        var enabled = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
+        root.add(enabled);
+        enabled.setEnabled(true);
+        assertFalse(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+        enabled.setEnabled(false);
+        assertTrue(AiTaskWorkspace.hasOnlyDisabledGroups(model));
+    }
+
+    @Test
+    void unsavedWorkspaceDoesNotInheritInstallationOrOtherRuns() throws IOException {
+        File first = AiTaskWorkspace.unsavedPlanDirectory();
+        File second = AiTaskWorkspace.unsavedPlanDirectory();
+        try {
+            assertTrue(first.isDirectory());
+            assertFalse(first.equals(second));
+            assertFalse(first.toString().equals(JMeterUtils.getJMeterHome()));
+        } finally {
+            Files.delete(first.toPath());
+            Files.delete(second.toPath());
+        }
+    }
+
+    @Test
+    void codexStructuredOutputPreservesBlockerExplanationAfterToolOutput() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\",\"aggregated_output\":\"diff --git a/x b/x\"}}",
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Status: blocked\\nCreated the DASH client.\\n"
+                        + "Real-stream validation remains pending because localhost is a placeholder. "
+                        + "Native transaction creation was unavailable.\"}}",
+                "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":120,\"output_tokens\":30}}");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().stream().anyMatch(line -> line.contains("localhost is a placeholder")));
+        assertFalse(output.followUpLines().stream().anyMatch(line -> line.contains("without a repair completion")));
+        assertEquals("120", output.inputTokensText());
+        assertEquals("30", output.outputTokensText());
+    }
+
+    @Test
+    void codexRetryErrorIsLoggedWithoutFailingSuccessfulCompletion() {
+        AiRunOutput output = new AiRunOutput();
+        assertEquals("Codex error: Reconnecting...", CodexRunEvents.display(
+                "{\"type\":\"error\",\"message\":\"Reconnecting...\"}", output));
+        assertFalse(output.hasCompletionStatus());
+        CodexRunEvents.display(
+                "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Status: completed\"}}", output);
+        CodexRunEvents.display("{\"type\":\"turn.completed\"}", output);
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasCompletionStatus());
+        assertFalse(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().isEmpty());
+    }
+
+    @Test
+    void codexStructuredErrorsRemainActionable() throws Exception {
+        AiRunOutput output = parseCodexOutput(
+                "{\"type\":\"turn.failed\",\"error\":{\"message\":\"Usage limit reached\"}}");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.hasRepairBlocker());
+        assertTrue(output.followUpLines().get(0).contains("Usage limit reached"));
+    }
+
+    @Test
+    void codexLegacyFinalSentinelEndsDiffSuppression() throws Exception {
+        AiRunOutput output = parseCodexOutput("exec", "diff --git a/x b/x", "codex",
+                "Status: blocked", "Endpoint validation remains pending because localhost is a placeholder.");
+        output.requireRepairCompletionStatus();
+        assertTrue(output.followUpLines().stream().anyMatch(line -> line.contains("localhost is a placeholder")));
+        assertFalse(output.followUpLines().stream().anyMatch(line -> line.contains("without a repair completion")));
+    }
+
+    private static AiRunOutput parseCodexOutput(String... lines) throws Exception {
+        Class<?> type = Class.forName(AiAutoScriptingAction.class.getName() + "$AiOutputFilter");
+        var constructor = type.getDeclaredConstructor(AiAutoScriptingAction.AiTool.class);
+        constructor.setAccessible(true);
+        Object filter = constructor.newInstance(AiAutoScriptingAction.AiTool.CODEX);
+        Method display = type.getDeclaredMethod("displayLine", String.class);
+        display.setAccessible(true);
+        for (String line : lines) {
+            display.invoke(filter, line);
+        }
+        Method output = type.getDeclaredMethod("output");
+        output.setAccessible(true);
+        return (AiRunOutput) output.invoke(filter);
+    }
+
+    @Test
     void tokenMetricsIgnoreToolDataAndAcceptExplicitUsage() throws Exception {
         Class<?> type = AiRunOutput.class;
         var constructor = type.getDeclaredConstructor();
@@ -242,26 +401,24 @@ class AiAutoScriptingActionTest {
         return (String) method.invoke(filter, rawLine);
     }
 
-    @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = { "PI", "CLAUDE", "CODEX", "GEMINI", "CURSOR", "OPENCODE", "COPILOT" })
-    void everyFullRepairToolRequiresAnExplicitStatus(String tool) throws Exception {
-        Object request = newRunRequest(tool);
+    @Test
+    void everyRunRequiresAnExplicitStatus() throws Exception {
         Method enforce = AiAutoScriptingAction.class.getDeclaredMethod(
-                "enforceRepairCompletionStatus", request.getClass(), AiRunOutput.class);
+                "enforceRepairCompletionStatus", AiRunOutput.class);
         enforce.setAccessible(true);
         AiRunOutput output = new AiRunOutput();
         output.captureFinalResponse("Final validation is green.");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertTrue(output.hasRepairBlocker());
         output.startFinalResponseBlock();
         output.captureFinalResponse("Status: completedness");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertTrue(output.hasRepairBlocker());
         output.startFinalResponseBlock();
         output.captureFinalResponse("Status: completed");
         output.captureFinalResponse("Could not validate the legacy flow.");
         output.captureFinalResponse("| transaction | x | x | x | remaining blocker |");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertFalse(output.hasRepairBlocker());
         assertFalse(output.followUpLines().isEmpty());
         output.captureFinalResponse("Status: blocked");
@@ -677,11 +834,19 @@ class AiAutoScriptingActionTest {
     void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
         withDefaultPrompt(() -> {
             for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
-                String prompt = renderedPrompt(tool);
-                assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
-                assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
-                assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
-                assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+                for (String mode : new String[] {"FULL_SCRIPT_REPAIR", "SPECIFIC_REQUEST"}) {
+                    Object request = newRunRequest(tool);
+                    var field = request.getClass().getDeclaredField("mode");
+                    field.setAccessible(true);
+                    field.set(request, enumConstant(field.getType(), mode));
+                    Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
+                    method.setAccessible(true);
+                    String prompt = (String) method.invoke(null, request);
+                    assertFalse(prompt.contains("$breaktest-jmeter-repair"), tool);
+                    assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"), tool);
+                    assertTrue(prompt.contains("do not require a registered BreakTest MCP server"), tool);
+                    assertTrue(prompt.contains("authoritative BreakTest tool interface"), tool);
+                }
             }
         });
     }

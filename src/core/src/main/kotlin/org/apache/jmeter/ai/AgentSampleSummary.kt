@@ -40,6 +40,12 @@ public data class AgentSampleSummary(
     val responseBody: String,
     val assertions: List<AgentAssertionSummary>,
     val subResults: List<AgentSampleSummary> = emptyList(),
+    val responseDataType: String = SampleResult.TEXT,
+    val responseBodyEncoding: String = "text",
+    val responseByteLength: Int = 0,
+    val responseBodyTruncated: Boolean = false,
+    val startTimeMillis: Long = 0,
+
 ) {
     public val hasAssertionFailure: Boolean
         get() = assertions.any { it.failure || it.error }
@@ -59,7 +65,18 @@ public data class AgentSampleSummary(
                 requestHeaders = result.requestHeaders.orEmpty().limit(options.requestBodyLimit),
                 requestBody = result.samplerData.orEmpty().limit(options.requestBodyLimit),
                 responseHeaders = result.responseHeaders.orEmpty().limit(options.responseBodyLimit),
-                responseBody = result.responseDataAsString.orEmpty().limit(options.responseBodyLimit),
+                responseBody = if (result.dataType == SampleResult.BINARY) {
+                    val bytes = result.responseData
+                    val limit = if (options.responseBodyLimit < 0) bytes.size else options.responseBodyLimit / 3
+                    java.util.HexFormat.ofDelimiter(" ").formatHex(bytes, 0, minOf(bytes.size, limit))
+                } else result.responseDataAsString.orEmpty().limit(options.responseBodyLimit),
+                responseDataType = result.dataType,
+                responseBodyEncoding = if (result.dataType == SampleResult.BINARY) "hex" else "text",
+                responseByteLength = result.responseData.size,
+                responseBodyTruncated = if (result.dataType == SampleResult.BINARY) {
+                    options.responseBodyLimit >= 0 && result.responseData.size > options.responseBodyLimit / 3
+                } else options.responseBodyLimit >= 0 && result.responseDataAsString.length > options.responseBodyLimit,
+                startTimeMillis = result.startTime,
                 assertions = result.assertionResults.map(AssertionResult::toSummary),
                 subResults = result.subResults.mapIndexed { subIndex, subResult ->
                     from(subIndex, subResult, options)

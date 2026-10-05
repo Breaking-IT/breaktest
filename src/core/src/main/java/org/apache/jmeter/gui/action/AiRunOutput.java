@@ -28,11 +28,13 @@ final class AiRunOutput {
     private static final int MAX_SUMMARY_LINES = 5;
     private Long inputTokens;
     private Long outputTokens;
+    private Long cachedInputTokens;
     private Long totalTokens;
     private long piCachedInputTokens;
     private long piReasoningTokens;
     private int piUsageMessages;
     private boolean nextLineIsTotalTokens;
+    private final List<String> runErrors = new ArrayList<>();
     private final List<String> finalResponseLines = new ArrayList<>();
 
     int piUsageMessages() {
@@ -106,6 +108,10 @@ final class AiRunOutput {
         return java.util.Optional.ofNullable(found);
     }
 
+    void captureRunError(String message) {
+        addDistinct(runErrors, "Status: failed - " + message);
+    }
+
     void startFinalResponseBlock() {
         finalResponseLines.clear();
     }
@@ -116,11 +122,19 @@ final class AiRunOutput {
 
     void requireRepairCompletionStatus() {
         if (completionStatus() == null) {
-            finalResponseLines.add("Status: blocked - Agent ended without a repair completion status; validation is unconfirmed.");
+            finalResponseLines.add("Status: failed - Agent exited without a completion report. "
+                    + "No specific blocker was reported; completion and validation are unknown.");
         }
     }
 
+    boolean hasCompletionStatus() {
+        return completionStatus() != null;
+    }
+
     private String completionStatus() {
+        if (!runErrors.isEmpty()) {
+            return "failed";
+        }
         // Only a standalone status declaration controls the outcome. Later declarations
         // supersede earlier ones in the final response; prose remains display-only.
         String status = null;
@@ -135,6 +149,19 @@ final class AiRunOutput {
         return status;
     }
 
+    void captureCachedInputTokens(long value) {
+        cachedInputTokens = value;
+    }
+
+    String inputCacheSummary() {
+        if (cachedInputTokens == null || inputTokens == null) {
+            return "";
+        }
+        return "Input breakdown: cached=" + cachedInputTokens
+                + ", uncached=" + Math.max(0, inputTokens - cachedInputTokens)
+                + " (cumulative across model requests; cached input is included in total input).";
+    }
+
     String inputTokensText() {
         return inputTokens == null ? "not reported" : String.valueOf(inputTokens);
     }
@@ -144,6 +171,9 @@ final class AiRunOutput {
     }
 
     String totalTokensText() {
+        if (totalTokens == null && inputTokens != null && outputTokens != null) {
+            return String.valueOf(inputTokens + outputTokens);
+        }
         return totalTokens == null ? "not reported" : String.valueOf(totalTokens);
     }
 
@@ -191,7 +221,7 @@ final class AiRunOutput {
     }
 
     List<String> followUpLines() {
-        List<String> followUpLines = new ArrayList<>();
+        List<String> followUpLines = new ArrayList<>(runErrors);
         for (String line : finalResponseLines) {
             if (followUpLines.size() >= MAX_FOLLOW_UP_LINES) {
                 break;
@@ -212,7 +242,13 @@ final class AiRunOutput {
             if (reportsRepairBlocker(lower)
                     || lower.contains("manual")
                     || lower.contains("could not")
-                    || lower.contains("unresolved")) {
+                    || lower.contains("unresolved")
+                    || lower.contains("pending")
+                    || lower.contains("unavailable")
+                    || lower.contains("placeholder")
+                    || lower.contains("unverified")
+                    || lower.startsWith("limitations:")
+                    || lower.contains("unsupported")) {
                 addDistinct(followUpLines, plain);
             }
         }
