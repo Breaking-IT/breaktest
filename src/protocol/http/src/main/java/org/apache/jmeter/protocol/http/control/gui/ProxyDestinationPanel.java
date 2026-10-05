@@ -24,8 +24,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
 
 import org.apache.jmeter.config.ConfigTestElement;
@@ -58,7 +56,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
     private final JTextComponentBinding patternsBinding = new JTextComponentBinding(
             patterns, HTTPSamplerBaseSchema.INSTANCE.getProxy().getDestinationPatterns());
     private final JTextArea description = helpText();
-    private final JTextArea status = helpText();
     private final JLabel patternLabel = new JLabel(text("proxy_filter_patterns"));
 
     public ProxyDestinationPanel() {
@@ -86,24 +83,17 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         JTextArea hint = helpText();
         hint.setText(text("proxy_filter_hint"));
         fields.add(hint, "skip 1, growx");
-        fields.add(status, "skip 1, growx");
         add(fields);
-        DocumentListener listener = new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent event) { validatePolicy(); }
-            @Override public void removeUpdate(DocumentEvent event) { validatePolicy(); }
-            @Override public void changedUpdate(DocumentEvent event) { validatePolicy(); }
-        };
-        patterns.getDocument().addDocumentListener(listener);
         mode.addPropertyChangeListener("value", event -> {
             if (!updating) {
-                validatePolicy();
+                updateControls();
             }
         });
-        bypass.addActionListener(event -> validatePolicy());
+        bypass.addActionListener(event -> updateControls());
         updating = true;
         showMode("proxy_filter_all");
         updating = false;
-        validatePolicy();
+        updateControls();
     }
 
     private void showMode(String value) {
@@ -114,7 +104,7 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
 
     public void setEndpointFields(JTextComponent... fields) {
         endpointFields = fields;
-        validatePolicy();
+        updateControls();
     }
 
     private static JTextArea helpText() {
@@ -132,11 +122,10 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         return JMeterUtils.getResString(key);
     }
 
-    private void validatePolicy() {
+    private void updateControls() {
         ConfigTestElement element = new ConfigTestElement();
         mode.updateElement(element);
         String value = element.get(HTTPSamplerBaseSchema.INSTANCE.getProxy().getDestinationMode());
-        String rules = patterns.getText();
         boolean direct = bypass.isSelected();
         mode.setEnabled(!direct);
         for (JTextComponent field : endpointFields) {
@@ -151,20 +140,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         patternLabel.setEnabled(usesPatterns);
         description.setText(text(direct ? "proxy_filter_direct_help"
                 : expression ? "proxy_filter_runtime" : value + "_help"));
-        if (expression || (usesPatterns && rules.contains("${"))) {
-            status.setText(text("proxy_filter_runtime"));
-            return;
-        }
-        if (!usesPatterns) {
-            status.setText("");
-            return;
-        }
-        try {
-            ProxyDestinationPolicy.compile(value, rules);
-            status.setText("");
-        } catch (IllegalArgumentException e) {
-            status.setText(e.getMessage());
-        }
     }
 
     @Override
@@ -196,6 +171,6 @@ public class ProxyDestinationPanel extends JPanel implements Binding {
         } finally {
             updating = false;
         }
-        validatePolicy();
+        updateControls();
     }
 }
