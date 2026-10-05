@@ -67,16 +67,18 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
-    void generationUsesFocusedPromptAndRequiresCompletionReport() throws Exception {
+    void specificRequestSupportsGenerationAndFocusedEdits() throws Exception {
         withDefaultPrompt(() -> {
             Object request = newRunRequest("CODEX");
             var mode = request.getClass().getDeclaredField("mode");
             mode.setAccessible(true);
-            mode.set(request, enumConstant(mode.getType(), "GENERATE_SCRIPT"));
+            mode.set(request, enumConstant(mode.getType(), "SPECIFIC_REQUEST"));
             Method method = AiAutoScriptingAction.class.getDeclaredMethod("prompt", request.getClass());
             method.setAccessible(true);
             String prompt = (String) method.invoke(null, request);
-            assertTrue(prompt.contains("Build the user's requested native BreakTest script"));
+            assertTrue(prompt.contains("Complete the user's specific request"));
+            assertTrue(prompt.contains("a focused edit does not trigger synthetic replay"));
+            assertTrue(prompt.contains("not an unrelated rename or configuration edit"));
             assertTrue(prompt.contains("one bounded synthetic integration replay"));
             assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
             assertTrue(prompt.contains("ignoreTimers=false"));
@@ -88,7 +90,7 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
-    void emptyControllerDefaultsToGenerationButNestedSamplerDoesNot() {
+    void emptyControllerDefaultsToSpecificRequestButNestedSamplerDoesNot() {
         var model = new org.apache.jmeter.gui.tree.JMeterTreeModel();
         var group = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.threads.ThreadGroup(), model);
         var controller = new org.apache.jmeter.gui.tree.JMeterTreeNode(new org.apache.jmeter.control.LoopController(), model);
@@ -362,26 +364,24 @@ class AiAutoScriptingActionTest {
         return (String) method.invoke(filter, rawLine);
     }
 
-    @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = { "PI", "CLAUDE", "CODEX", "GEMINI", "CURSOR", "OPENCODE", "COPILOT" })
-    void everyFullRepairToolRequiresAnExplicitStatus(String tool) throws Exception {
-        Object request = newRunRequest(tool);
+    @Test
+    void everyRunRequiresAnExplicitStatus() throws Exception {
         Method enforce = AiAutoScriptingAction.class.getDeclaredMethod(
-                "enforceRepairCompletionStatus", request.getClass(), AiRunOutput.class);
+                "enforceRepairCompletionStatus", AiRunOutput.class);
         enforce.setAccessible(true);
         AiRunOutput output = new AiRunOutput();
         output.captureFinalResponse("Final validation is green.");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertTrue(output.hasRepairBlocker());
         output.startFinalResponseBlock();
         output.captureFinalResponse("Status: completedness");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertTrue(output.hasRepairBlocker());
         output.startFinalResponseBlock();
         output.captureFinalResponse("Status: completed");
         output.captureFinalResponse("Could not validate the legacy flow.");
         output.captureFinalResponse("| transaction | x | x | x | remaining blocker |");
-        enforce.invoke(null, request, output);
+        enforce.invoke(null, output);
         assertFalse(output.hasRepairBlocker());
         assertFalse(output.followUpLines().isEmpty());
         output.captureFinalResponse("Status: blocked");

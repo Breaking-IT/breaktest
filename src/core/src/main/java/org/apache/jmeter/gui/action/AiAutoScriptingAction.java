@@ -296,7 +296,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 processCommand.writePrompt(process);
             }
             output = streamOutput(process.getInputStream(), request.tool());
-            enforceRepairCompletionStatus(request, output);
+            enforceRepairCompletionStatus(output);
             int exitCode = process.waitFor();
             boolean stopped = STOP_REQUESTED.get();
             if (timedOut.get()) {
@@ -720,8 +720,7 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
         AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
-        return AiPrompts.render(request.mode() == AiRunMode.GENERATE_SCRIPT
-                ? AiPrompts.GENERATE_SCRIPT : AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
+        return AiPrompts.render(AiPrompts.SPECIFIC_REQUEST, Map.ofEntries(
                 Map.entry("BRIDGE", bridge.command()),
                 Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
                 Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
@@ -812,21 +811,18 @@ public class AiAutoScriptingAction extends AbstractAction {
         ThreadGroupChoice defaultThreadGroup = defaultThreadGroup(threadGroups, currentThreadGroupNode(gui));
         threadGroup.setSelectedItem(defaultThreadGroup);
 
-        boolean generationDefault = emptyPlan || AiTaskWorkspace.hasNoSamplers(defaultThreadGroup.node());
-        JRadioButton fullRepair = new JRadioButton("Full script repair", !generationDefault);
-        JRadioButton specificRequest = new JRadioButton("Specific request");
-        JRadioButton generateScript = new JRadioButton("Generate script", generationDefault);
+        boolean specificRequestDefault = emptyPlan || AiTaskWorkspace.hasNoSamplers(defaultThreadGroup.node());
+        JRadioButton fullRepair = new JRadioButton("Full script repair", !specificRequestDefault);
+        JRadioButton specificRequest = new JRadioButton("Specific request", specificRequestDefault);
         fullRepair.setEnabled(!emptyPlan);
         ButtonGroup modeGroup = new ButtonGroup();
         modeGroup.add(fullRepair);
         modeGroup.add(specificRequest);
-        modeGroup.add(generateScript);
         JPanel modePanel = new JPanel(new BorderLayout(0, 4));
         modePanel.add(new JLabel("Mode"), BorderLayout.NORTH);
         JPanel modeChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         modeChoices.add(fullRepair);
         modeChoices.add(specificRequest);
-        modeChoices.add(generateScript);
         modePanel.add(modeChoices, BorderLayout.CENTER);
 
         JRadioButton liveGui = new JRadioButton("GUI mode", defaultEditSurface() == AiEditSurface.LIVE_GUI);
@@ -842,7 +838,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         surfacePanel.add(surfaceChoices, BorderLayout.CENTER);
 
         JCheckBox addAssertions = new JCheckBox("Add assertions", true);
-        addAssertions.setToolTipText("Add response assertions after the repaired script passes validation.");
+        addAssertions.setToolTipText("Add outcome assertions for generated flows or requested repair/test work.");
         JTextField maxRuntimeSeconds = integerTextField("1800", 6);
         maxRuntimeSeconds.setToolTipText("Maximum total agent runtime in seconds (60–14400).");
         JTextField maxSimilarRetries = integerTextField("5", 3);
@@ -856,12 +852,10 @@ public class AiAutoScriptingAction extends AbstractAction {
         JLabel instructionsLabel = new JLabel("Instructions (optional)");
 
         Runnable updateModeOptions = () -> {
-            addAssertions.setEnabled(fullRepair.isSelected() || generateScript.isSelected());
             instructionsLabel.setText(fullRepair.isSelected() ? "Instructions (optional)" : "Instructions (required)");
         };
         fullRepair.addActionListener(event -> updateModeOptions.run());
         specificRequest.addActionListener(event -> updateModeOptions.run());
-        generateScript.addActionListener(event -> updateModeOptions.run());
         updateModeOptions.run();
 
         JTextArea instructions = new JTextArea(6, 56);
@@ -973,8 +967,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
         AiTool selectedTool = (AiTool) aiTool.getSelectedItem();
         ThreadGroupChoice selectedThreadGroup = (ThreadGroupChoice) threadGroup.getSelectedItem();
-        AiRunMode mode = generateScript.isSelected() ? AiRunMode.GENERATE_SCRIPT
-                : specificRequest.isSelected() ? AiRunMode.SPECIFIC_REQUEST : AiRunMode.FULL_SCRIPT_REPAIR;
+        AiRunMode mode = specificRequest.isSelected() ? AiRunMode.SPECIFIC_REQUEST : AiRunMode.FULL_SCRIPT_REPAIR;
         AiEditSurface editSurface = liveGui.isSelected() ? AiEditSurface.LIVE_GUI : AiEditSurface.NON_GUI;
         String instructionText = instructions.getText().trim();
         if (mode != AiRunMode.FULL_SCRIPT_REPAIR && instructionText.isBlank()) {
@@ -991,7 +984,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 selectedThreadGroup,
                 mode,
                 editSurface,
-                mode != AiRunMode.SPECIFIC_REQUEST && addAssertions.isSelected(),
+                addAssertions.isSelected(),
                 parseIntegerField(maxRuntimeSeconds, "Maximum runtime", 60, 14400),
                 parseIntegerField(maxSimilarRetries, "Similar retry limit", 0, 50),
                 instructionText
@@ -1280,10 +1273,8 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
     }
 
-    private static void enforceRepairCompletionStatus(AiRunRequest request, AiRunOutput output) {
-        if (request.mode() != AiRunMode.SPECIFIC_REQUEST) {
-            output.requireRepairCompletionStatus();
-        }
+    private static void enforceRepairCompletionStatus(AiRunOutput output) {
+        output.requireRepairCompletionStatus();
     }
 
     private static String completionStatus(int exitCode, AiRunOutput output) {
@@ -1397,8 +1388,7 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private enum AiRunMode {
         FULL_SCRIPT_REPAIR("Full script repair"),
-        SPECIFIC_REQUEST("Specific request"),
-        GENERATE_SCRIPT("Generate script");
+        SPECIFIC_REQUEST("Specific request");
 
         private final String displayName;
 

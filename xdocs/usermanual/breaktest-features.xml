@@ -63,9 +63,10 @@ preserved unless a closer configuration overrides that name.
 
 <h2>Generating scripts with AI Repair</h2>
 <p>
-Choose <code>Generate script</code> to build a new flow. It is selected by default when the selected Thread Group
-has no samplers, including an empty Test Plan. This mode uses a focused generation workflow instead of the full
-recording-repair and correlation workflow.
+Choose <code>Specific request</code> to build a new flow or make a focused change. It is selected by default when
+the selected Thread Group has no samplers, including an empty Test Plan. The agent interprets the requested outcome
+from your instructions and the current plan; no separate generation mode or keyword-based routing is needed.
+Focused edits do not trigger the generation replay or a full recording-repair workflow.
 AI Repair discovers installed samplers, controllers, timers and processors from the same catalog as the Add menu,
 then reads native defaults, property types, choices and supported table schemas before creating elements.
 It can configure HTTP arguments and request bodies, Header Managers and WebSocket handshake headers,
@@ -74,7 +75,7 @@ including <code>Sec-WebSocket-Protocol</code>. New elements participate in backu
 <p>
 For example, request a charger simulation and specify the OCPP version, endpoint, authentication and desired messages.
 The agent can assemble Connect, Send/Wait, Match handlers, paced loops and background Fork branches using native elements.
-Missing configuration remains a labelled placeholder. Generate script mode requests one bounded synthetic integration
+Missing configuration remains a labelled placeholder. For newly generated flows, Specific request requests one bounded synthetic integration
 replay by default, using a loopback fixture and native timers, unless the user explicitly opts out. Requested assertions
 are added before replay. Temporary endpoint overrides are restored and fixtures stopped afterward. Offline checks alone
 are not an integration pass; missing coverage or an infeasible fixture must be reported explicitly. Synthetic validation
