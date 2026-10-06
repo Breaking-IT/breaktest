@@ -70,6 +70,10 @@ are generated immediately with the configured elapsed time. Simulated waits can 
 stopping the test. Timings and success are independently configurable to support synthetic edge cases.
 </p>
 
+<h2>Native Utility Functions</h2>
+<p>BreakTest includes additional <a href="functions.html">native utility functions</a> for hashing,
+encoding, string manipulation, conditional values, environment variables and epoch timestamps.</p>
+
 <h2>Proxy Destination Filters</h2>
 <p>
 Proxy settings apply in order: global properties, HTTP Request Defaults, then the HTTP request sampler.
