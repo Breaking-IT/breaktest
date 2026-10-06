@@ -173,8 +173,11 @@ class WaitForValueTest {
                 return "value-" + executions.incrementAndGet();
             }
         }));
-        String message = action.sample(null).getResponseMessage();
-        assertTrue(executions.get() >= 2);
+        SampleResult result = action.sample(null);
+        assertEquals("408", result.getResponseCode());
+        String message = result.getResponseMessage();
+        // Preparation or scheduling may consume the timeout before the first evaluation.
+        assertTrue(executions.get() >= 1);
         assertTrue(message.contains("-> \"value-" + executions.get() + "\" equals \"yes\": false"), message);
     }
 
