@@ -138,7 +138,7 @@ public class WaitForValue extends AbstractSampler implements Interruptible {
                 match = IfController.Operator.EXISTS.getId().equals(operator)
                         ? variableValue != null : variableValue == null;
             } else {
-                match = IfController.evaluateStructuredCondition(resolved);
+                match = IfController.evaluateStructuredConditionStrict(resolved);
             }
             if (diagnostics != null) {
                 diagnostics.append("\n").append(++row).append(". ")
@@ -237,6 +237,14 @@ public class WaitForValue extends AbstractSampler implements Interruptible {
                 variableName = null;
                 left = compile(source.getProperty(IfControllerCondition.OPERAND1));
                 right = compile(source.getProperty(IfControllerCondition.OPERAND2));
+                Set<String> rightDependencies = right.getVariableDependencies();
+                if ((IfController.Operator.MATCHES_REGEX.getId().equals(operator)
+                        || IfController.Operator.NOT_MATCHES_REGEX.getId().equals(operator))
+                        && rightDependencies != null && rightDependencies.isEmpty()) {
+                    // Validate and cache literal patterns once, even in short-circuited rows.
+                    resolved.right = right.execute();
+                    resolved.matchesRegex("");
+                }
             }
         }
     }

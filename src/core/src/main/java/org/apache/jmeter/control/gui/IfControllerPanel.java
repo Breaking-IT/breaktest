@@ -322,7 +322,7 @@ public class IfControllerPanel extends AbstractControllerGui
         conditionPanel.add(evaluateAll);
 
         if (!structuredOnly) {
-            structuredPanel.add(conditionPanel, "growx, wmin 0");
+            structuredPanel.add(conditionPanel, "push, grow, wmin 0");
         }
         return structuredPanel;
     }

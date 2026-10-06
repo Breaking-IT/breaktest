@@ -76,6 +76,59 @@ class WaitForValueTest {
     }
 
     @Test
+    void invalidNumericFunctionFailsWithoutWaiting() {
+        SignallingVariables vars = new SignallingVariables();
+        JMeterContextService.getContext().setVariables(vars);
+        AtomicInteger executions = new AtomicInteger();
+        WaitForValue action = action("greater_than", "5");
+        IfControllerCondition condition = (IfControllerCondition) action.getConditions().getConditions().get(0).getObjectValue();
+        condition.setProperty(new FunctionProperty(IfControllerCondition.OPERAND1, new CompoundVariable("dynamic lookup") {
+            @Override
+            public String execute() {
+                executions.incrementAndGet();
+                return "not a number";
+            }
+        }));
+        SampleResult result = action.sample(null);
+        assertEquals("400", result.getResponseCode());
+        assertFalse(result.isSuccessful());
+        assertTrue(result.getResponseMessage().startsWith("Invalid wait configuration:"));
+        assertEquals(1, executions.get());
+        assertEquals(0, vars.waits.get());
+    }
+
+    @Test
+    void invalidOperandsAfterWakeFailInsteadOfTimingOut() throws Exception {
+        for (String operator : List.of("greater_than", "matches_regex", "not_matches_regex")) {
+            SignallingVariables vars = new SignallingVariables();
+            vars.put("ready", "1");
+            vars.put("target", operator.equals("greater_than") ? "5"
+                    : operator.equals("matches_regex") ? "2" : "1");
+            FutureTask<SampleResult> task = run(action(operator, "${target}"), vars);
+            assertTrue(vars.sleeping.await(1, TimeUnit.SECONDS));
+            vars.put("target", "[");
+            SampleResult result = task.get(1, TimeUnit.SECONDS);
+            assertEquals("400", result.getResponseCode());
+            assertFalse(result.isSuccessful());
+            assertEquals(1, vars.waits.get());
+        }
+    }
+
+    @Test
+    void invalidLiteralRegexIsRejectedBeforeShortCircuiting() {
+        SignallingVariables vars = new SignallingVariables();
+        JMeterContextService.getContext().setVariables(vars);
+        for (String operator : List.of("matches_regex", "not_matches_regex")) {
+            WaitForValue action = action("equals", "yes");
+            action.getConditions().addCondition(new IfControllerCondition("text", operator, "["));
+            SampleResult result = action.sample(null);
+            assertEquals("400", result.getResponseCode());
+            assertFalse(result.isSuccessful());
+            assertEquals(0, vars.waits.get());
+        }
+    }
+
+    @Test
     void timeoutReportsAllRowsAndResolvedOperands() {
         JMeterVariables vars = new JMeterVariables();
         vars.put("ready", "no");

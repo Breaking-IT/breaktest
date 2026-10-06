@@ -254,29 +254,46 @@ public class IfController extends GenericController implements Serializable, Thr
         String operand2 = condition.getOperand2();
         Operator operator = Operator.fromId(condition.getOperator());
         try {
-            return switch (operator) {
-                case EQUALS -> operand1.equals(operand2);
-                case NOT_EQUALS -> !operand1.equals(operand2);
-                case CONTAINS -> operand1.contains(operand2);
-                case NOT_CONTAINS -> !operand1.contains(operand2);
-                case STARTS_WITH -> operand1.startsWith(operand2);
-                case NOT_STARTS_WITH -> !operand1.startsWith(operand2);
-                case ENDS_WITH -> operand1.endsWith(operand2);
-                case NOT_ENDS_WITH -> !operand1.endsWith(operand2);
-                case MATCHES_REGEX -> condition.matchesRegex(operand1);
-                case NOT_MATCHES_REGEX -> !condition.matchesRegex(operand1);
-                case GREATER_THAN -> compareNumbers(operand1, operand2) > 0;
-                case GREATER_THAN_OR_EQUAL -> compareNumbers(operand1, operand2) >= 0;
-                case LESS_THAN -> compareNumbers(operand1, operand2) < 0;
-                case LESS_THAN_OR_EQUAL -> compareNumbers(operand1, operand2) <= 0;
-                case EXISTS -> variableExists(condition.getRawOperand1());
-                case NOT_EXISTS -> !variableExists(condition.getRawOperand1());
-            };
+            return evaluateStructuredConditionStrict(condition, operand1, operand2, operator);
         } catch (NumberFormatException | PatternSyntaxException ex) {
             log.error("Error while processing structured condition [{} {} {}]",
                     operand1, operator.getId(), operand2, ex);
             return false;
         }
+    }
+
+    /**
+     * Evaluates a resolved condition without logging or suppressing invalid operands.
+     * @param condition condition with resolved operands (raw variable names for existence checks)
+     * @return whether the condition matches
+     * @throws NumberFormatException if a numeric operand is invalid
+     * @throws PatternSyntaxException if a regular expression is invalid
+     */
+    public static boolean evaluateStructuredConditionStrict(IfControllerCondition condition) {
+        return evaluateStructuredConditionStrict(condition, condition.getOperand1(), condition.getOperand2(),
+                Operator.fromId(condition.getOperator()));
+    }
+
+    private static boolean evaluateStructuredConditionStrict(IfControllerCondition condition,
+            String operand1, String operand2, Operator operator) {
+        return switch (operator) {
+            case EQUALS -> operand1.equals(operand2);
+            case NOT_EQUALS -> !operand1.equals(operand2);
+            case CONTAINS -> operand1.contains(operand2);
+            case NOT_CONTAINS -> !operand1.contains(operand2);
+            case STARTS_WITH -> operand1.startsWith(operand2);
+            case NOT_STARTS_WITH -> !operand1.startsWith(operand2);
+            case ENDS_WITH -> operand1.endsWith(operand2);
+            case NOT_ENDS_WITH -> !operand1.endsWith(operand2);
+            case MATCHES_REGEX -> condition.matchesRegex(operand1);
+            case NOT_MATCHES_REGEX -> !condition.matchesRegex(operand1);
+            case GREATER_THAN -> compareNumbers(operand1, operand2) > 0;
+            case GREATER_THAN_OR_EQUAL -> compareNumbers(operand1, operand2) >= 0;
+            case LESS_THAN -> compareNumbers(operand1, operand2) < 0;
+            case LESS_THAN_OR_EQUAL -> compareNumbers(operand1, operand2) <= 0;
+            case EXISTS -> variableExists(condition.getRawOperand1());
+            case NOT_EXISTS -> !variableExists(condition.getRawOperand1());
+        };
     }
 
     private static int compareNumbers(String operand1, String operand2) {
