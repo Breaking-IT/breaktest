@@ -245,8 +245,7 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         commentsExpanded = false;
         setComment(element.getComment());
         ignoreButton.setVisible(element instanceof Sampler);
-        ignorePolicy = element instanceof Sampler sampler ? SampleIgnorePolicy.from(sampler) : SampleIgnorePolicy.NEVER;
-        updateIgnoreButton();
+        setSampleIgnorePolicy(element instanceof Sampler sampler ? SampleIgnorePolicy.from(sampler) : SampleIgnorePolicy.NEVER);
         bindingGroup.updateUi(element);
     }
 
@@ -266,8 +265,7 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         setName(getStaticLabel());
         commentsExpanded = false;
         setComment("");
-        ignorePolicy = SampleIgnorePolicy.NEVER;
-        updateIgnoreButton();
+        setSampleIgnorePolicy(SampleIgnorePolicy.NEVER);
     }
 
     private void init() {
@@ -369,6 +367,14 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         return false;
     }
 
+    /** Updates the shared result policy and any additional controls bound to it. */
+    protected final void setSampleIgnorePolicy(SampleIgnorePolicy policy) {
+        SampleIgnorePolicy previous = ignorePolicy;
+        ignorePolicy = policy;
+        updateIgnoreButton();
+        firePropertyChange("sampleIgnorePolicy", previous, policy);
+    }
+
     private void updateIgnoreButton() {
         ignoreButton.setText(JMeterUtils.getResString(ignorePolicy.getLabelResource()));
     }
@@ -379,10 +385,7 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         for (SampleIgnorePolicy policy : SampleIgnorePolicy.values()) {
             JRadioButtonMenuItem item = new JRadioButtonMenuItem(
                     JMeterUtils.getResString(policy.getLabelResource()), policy == ignorePolicy);
-            item.addActionListener(e -> {
-                ignorePolicy = policy;
-                updateIgnoreButton();
-            });
+            item.addActionListener(e -> setSampleIgnorePolicy(policy));
             group.add(item);
             menu.add(item);
         }

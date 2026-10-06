@@ -86,8 +86,8 @@ public class IfControllerCondition extends AbstractTestElement implements Serial
     public boolean matchesRegex(String value) {
         String regex = getOperand2();
         if (!regex.equals(cachedRegex)) {
-            cachedRegex = regex;
             cachedPattern = Pattern.compile(regex);
+            cachedRegex = regex;
         }
         return cachedPattern.matcher(value).matches();
     }

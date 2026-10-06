@@ -49,6 +49,16 @@ class ParallelWorkerVariables extends JMeterVariables {
         this.parent = parent;
     }
 
+    @Override
+    public ChangeSubscription watchChanges(Set<String> keys) {
+        return parent.watchChanges(keys);
+    }
+
+    @Override
+    public void signalChange(String key) {
+        parent.signalChange(key);
+    }
+
     private static boolean isWorkerLocal(String key) {
         return JMeterThread.LAST_SAMPLE_OK.equals(key) || JMeterThread.PACKAGE_OBJECT.equals(key);
     }
@@ -63,6 +73,7 @@ class ParallelWorkerVariables extends JMeterVariables {
         } else {
             samplePackage = value;
         }
+        parent.signalChange(key);
     }
 
     @Override
