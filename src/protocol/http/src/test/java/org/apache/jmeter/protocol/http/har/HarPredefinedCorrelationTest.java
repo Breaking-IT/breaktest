@@ -557,6 +557,70 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
         assertEquals("Bearer ${oauth_access_token}", authorization.getValue());
     }
 
+    @Test
+    void preservesEncodedCorrelationInRawBodiesAndDecodedParameters() {
+        String token = "csrf +/é=123";
+        String encoded = java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
+        HarEntry source = entry(0, 0, "GET", "https://example.test/form");
+        source.setResponseContentText("<input name=\"_csrf\" value=\"" + token + "\">");
+        HarEntry raw = entry(1, 100, "POST", "https://example.test/raw");
+        raw.setPostData(new PostData("text/plain", "token=" + encoded, List.of()));
+        HarEntry form = entry(2, 200, "POST", "https://example.test/form");
+        form.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                new NameValue("token", encoded))));
+        HarEntry path = entry(3, 300, "POST", "https://example.test/path?token=" + encoded);
+        List<HarEntry> entries = List.of(source, raw, form, path);
+        HarImportOptions options = new HarImportOptions();
+        options.setPredefinedCorrelations(HarPredefinedCorrelation.find(entries, Set.of("example.test")));
+        HashTree tree = new HarConverter(entries, options, "encoded.har", "md5").convert(Set.of("example.test"));
+        List<HTTPSamplerProxy> samplers = collect(tree, HTTPSamplerProxy.class);
+        HTTPSamplerProxy rawSampler = samplers.stream().filter(it -> it.getPath().equals("/raw")).findFirst().orElseThrow();
+        assertEquals("token=${__urlencode(${spring_csrf_token})}", rawSampler.getArguments().getArgument(0).getValue());
+        HTTPSamplerProxy formSampler = samplers.stream().filter(it -> it.getMethod().equals("POST")
+                && it.getPath().equals("/form")).findFirst().orElseThrow();
+        var argument = (org.apache.jmeter.protocol.http.util.HTTPArgument) formSampler.getArguments().getArgument(0);
+        assertEquals("${spring_csrf_token}", argument.getValue());
+        assertTrue(argument.isAlwaysEncoded());
+        assertTrue(samplers.stream().anyMatch(it -> it.getPath().equals("/path?token=${__urlencode(${spring_csrf_token})}")));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+        "GET,abc%2Fdef", "GET,abc/def", "POST,abc%2Fdef", "POST,abc/def"
+    })
+    void decodesAlreadyEncodedExtractionForImportedAndExistingParameters(String method, String recordedValue) {
+        HarEntry source = entry(0, 0, "GET", "https://example.test/source");
+        source.setResponseContentText("<input name=\"_csrf\" value=\"abc%2Fdef\">");
+        HarEntry target = entry(1, 100, method, "https://example.test/next");
+        if ("GET".equals(method)) {
+            target.getQueryString().add(new NameValue("state", recordedValue));
+        } else {
+            target.setPostData(new PostData("application/x-www-form-urlencoded", "",
+                    List.of(new NameValue("state", recordedValue))));
+        }
+        var correlations = HarPredefinedCorrelation.find(List.of(source, target), Set.of("example.test"));
+        assertEquals(1, correlations.size());
+        HarImportOptions options = new HarImportOptions();
+        options.setPredefinedCorrelations(correlations);
+        HashTree tree = new HarConverter(List.of(source, target), options, "encoded.har", "md5")
+                .convert(Set.of("example.test"));
+        String expected = "${__urldecode(${__strReplace(${spring_csrf_token},+,%2B)})}";
+        var imported = collect(tree, HTTPSamplerProxy.class).stream()
+                .filter(it -> it.getPath().equals("/next")).findFirst().orElseThrow();
+        assertEquals(expected, imported.getArguments().getArgument(0).getValue());
+        assertTrue(((org.apache.jmeter.protocol.http.util.HTTPArgument)
+                imported.getArguments().getArgument(0)).isAlwaysEncoded());
+
+        HTTPSamplerProxy existing = new HTTPSamplerProxy();
+        existing.setMethod(method);
+        existing.setPath("/next");
+        existing.addArgument("state", "abc/def");
+        var correlation = correlations.get(0);
+        assertEquals(1, FindPredefinedCorrelationsAction.applyReplacement(existing, correlation,
+                correlation.getReplacements().get(0)));
+        assertEquals(expected, existing.getArguments().getArgument(0).getValue());
+    }
+
     private static HarEntry entry(int index, double startMs, String method, String url) {
         HarEntry entry = new HarEntry();
         entry.setOriginalIndex(index);

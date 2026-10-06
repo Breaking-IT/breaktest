@@ -68,6 +68,32 @@ public class TestUrlEncodeDecode extends JMeterTestCase {
     }
 
     @Test
+    void evaluatesRecordedEncodingExpressionsWithChangingRuntimeValues() throws Exception {
+        CompoundVariable form = new CompoundVariable("${__urlencode(${token})}");
+        CompoundVariable percent = new CompoundVariable("${__strReplace(${__urlencode(${token})},+,%20)}");
+        for (String value : java.util.List.of("csrf +/é=123", "another ,+/% value")) {
+            vars.put("token", value);
+            String encoded = java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
+            Assertions.assertEquals(encoded, form.execute());
+            Assertions.assertEquals(encoded.replace("+", "%20"), percent.execute());
+        }
+    }
+
+    @Test
+    void decodesEncodedExtractionBeforeParameterEncodingAtReplay() throws Exception {
+        CompoundVariable decoded = new CompoundVariable("${__urldecode(${__strReplace(${state},+,%2B)})}");
+        for (String value : java.util.List.of("abc%2Fdef", "next+token%2F%C3%A9", "literal%252Ftoken")) {
+            vars.put("state", value);
+            String decodedValue = java.net.URLDecoder.decode(value.replace("+", "%2B"),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            Assertions.assertEquals(decodedValue, decoded.execute());
+            String expected = value.replace("+", "%2B");
+            Assertions.assertEquals(expected, java.net.URLEncoder.encode(decoded.execute(),
+                    java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    @Test
     void testUrlDecode() throws Exception {
         AbstractFunction function = new UrlDecode();
         params.add(new CompoundVariable("Veni%2C+vidi%2C+vici+%3F"));

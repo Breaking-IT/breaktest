@@ -19,7 +19,6 @@ package org.apache.jmeter.protocol.http.har;
 
 import java.net.URI;
 import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.ArrayList;
@@ -41,6 +40,7 @@ import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.extractor.json.jsonpath.gui.JSONPostProcessorGui;
 import org.apache.jmeter.protocol.http.har.HarEntry.NameValue;
 import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
+import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.oro.text.regex.MatchResult;
@@ -568,6 +568,10 @@ final class HarPredefinedCorrelation {
     private static void addReplacement(List<Replacement> result, HarEntry entry,
             RequestLocation location, String locationName, String text, String extractedValue) {
         String matchedLiteral = matchedLiteral(text, extractedValue);
+        if (matchedLiteral == null && (location == RequestLocation.QUERY_PARAMETER
+                || location == RequestLocation.POST_PARAMETER)) {
+            matchedLiteral = RecordedValueReplacer.matchedDecodedLiteral(text, extractedValue);
+        }
         if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
             String decoded = decodedHeaderValue(extractedValue);
             if (!decoded.equals(extractedValue) && decoded.strip().length() >= MIN_CORRELATED_VALUE_LENGTH
@@ -582,20 +586,7 @@ final class HarPredefinedCorrelation {
     }
 
     private static String matchedLiteral(String text, String extractedValue) {
-        if (text == null || text.isEmpty()) {
-            return null;
-        }
-        Set<String> variants = new LinkedHashSet<>();
-        variants.add(extractedValue);
-        String formEncoded = URLEncoder.encode(extractedValue, StandardCharsets.UTF_8);
-        variants.add(formEncoded);
-        variants.add(formEncoded.replace("+", "%20"));
-        for (String variant : variants) {
-            if (!variant.isEmpty() && text.contains(variant)) {
-                return variant;
-            }
-        }
-        return null;
+        return RecordedValueReplacer.matchedLiteral(text, extractedValue);
     }
 
     private static String urlPath(String url) {
@@ -636,29 +627,6 @@ final class HarPredefinedCorrelation {
     static String variableReference(HarPredefinedCorrelation correlation, Replacement replacement) {
         String reference = "${" + correlation.getVariableName() + "}";
         return usesDecodedHeader(correlation, replacement) ? "${__urldecode(" + reference + ")}" : reference;
-    }
-
-    static List<String> replacementVariants(HarPredefinedCorrelation correlation, Replacement replacement) {
-        if (usesDecodedHeader(correlation, replacement)) {
-            return List.of(replacement.getMatchedLiteral());
-        }
-        Set<String> variants = new LinkedHashSet<>();
-        variants.add(replacement.getMatchedLiteral());
-        variants.add(percentDecode(replacement.getMatchedLiteral()));
-        variants.add(correlation.getExtractedValue());
-        variants.remove("");
-        return List.copyOf(variants);
-    }
-
-    private static String percentDecode(String value) {
-        if (value.indexOf('%') < 0) {
-            return value;
-        }
-        try {
-            return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException ignored) {
-            return value;
-        }
     }
 
     static TestElement buildExtractor(HarPredefinedCorrelation correlation) {

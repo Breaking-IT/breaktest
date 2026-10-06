@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.regex.Pattern;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
@@ -73,6 +72,7 @@ import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
+import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -872,16 +872,22 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
 
     static int applyReplacement(Replaceable sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
-        int replacementCount = 0;
-        String variableReference = HarPredefinedCorrelation.variableReference(correlation, replacement);
-        for (String variant : HarPredefinedCorrelation.replacementVariants(correlation, replacement)) {
-            try {
-                replacementCount += sampler.replace(Pattern.quote(variant), variableReference, true);
-            } catch (Exception ex) {
-                throw new IllegalStateException("Unable to replace predefined correlation value", ex);
+        String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
+        String value = reference.startsWith("${__urldecode(")
+                ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
+        if (sampler instanceof HTTPSamplerBase httpSampler) {
+            return RecordedValueReplacer.replaceSampler(httpSampler, value, reference);
+        }
+        // Non-HTTP samplers (including WebSocket URLs) expose raw text fields.
+        int count = 0;
+        for (var field : sampler.getReplaceableFields()) {
+            String replaced = RecordedValueReplacer.replace(field.value(), value, reference, false);
+            if (!replaced.equals(field.value())) {
+                field.setValue(replaced);
+                count++;
             }
         }
-        return replacementCount;
+        return count;
     }
 
     private static boolean hasExtractor(JMeterTreeNode samplerNode, String variableName) {

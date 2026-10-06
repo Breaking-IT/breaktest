@@ -85,6 +85,9 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
             FindPredefinedCorrelationsAction.applyReplacement(socket, correlation, replacement);
         }
         assertTrue(socket.getUrl().contains("${signalr_connection_token"));
+        assertEquals("wss://example.test/client/?id=" + (encoded
+                        ? "${__urlencode(${signalr_connection_token})}" : "${signalr_connection_token}"),
+                socket.getUrl());
         assertTrue(!socket.getUrl().contains("signalr-token"));
         assertEquals("websocket-1", socket.getSessionName());
         assertTrue(RecordedHarExchangeResolver.resolveFor(sourceNode, null).exchange().orElseThrow().responseBody().contains(token));

@@ -1677,25 +1677,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
      *                  by ascending priority.
      */
     private static void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
-        // Build the replacer from all the variables in the collection:
-        ValueReplacer replacer = new ValueReplacer();
-        for (Arguments variable : variables) {
-            final Map<String, String> map = variable.getArgumentsAsMap();
-            // Drop any empty values (Bug 45199)
-            map.values().removeIf(""::equals);
-            replacer.addVariables(map);
-        }
-
-        try {
-            replacer.reverseReplace(sampler, false);
-            for (TestElement config : configs) {
-                if (config != null) {
-                    replacer.reverseReplace(config, false);
-                }
-            }
-        } catch (InvalidVariableException e) {
-            log.warn("Invalid variables included for replacement into recorded sample", e);
-        }
+        RecordedVariableReplacer.replaceValues(sampler, configs, variables);
     }
 
     /**
