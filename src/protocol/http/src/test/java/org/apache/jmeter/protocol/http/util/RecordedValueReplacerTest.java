@@ -30,6 +30,18 @@ import org.junit.jupiter.api.Test;
 
 class RecordedValueReplacerTest extends JMeterTestCase {
     @Test
+    void decodedParametersRetainTheEncodingLevelOfTheExtractedValue() {
+        String decode = "${__urldecode(${__strReplace(${state},+,%2B)})}";
+        assertEquals(decode, RecordedValueReplacer.replace("abc/def", "abc%2Fdef", "${state}", true));
+        assertEquals("${state}", RecordedValueReplacer.replace("abc%2Fdef", "abc%2Fdef", "${state}", true));
+        assertEquals("${state}", RecordedValueReplacer.replace("abc/def", "abc/def", "${state}", true));
+        assertEquals(decode + "|${state}", RecordedValueReplacer.replace(
+                "abc/def|abc%2Fdef", "abc%2Fdef", "${state}", true));
+        assertEquals("${state}", RecordedValueReplacer.replace("abc%ZZdef", "abc%ZZdef", "${state}", true));
+        assertEquals(decode, RecordedValueReplacer.replace("abc+def/ghi", "abc+def%2Fghi", "${state}", true));
+    }
+
+    @Test
     void retainsEncodingInRawFieldsAndLeavesExistingReferencesAlone() {
         String value = "token +/é=%";
         String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8);

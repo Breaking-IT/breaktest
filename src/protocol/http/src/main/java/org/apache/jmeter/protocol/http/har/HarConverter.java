@@ -937,10 +937,6 @@ public final class HarConverter {
                     String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
                     String value = reference.startsWith("${__urldecode(")
                             ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
-                    if (decoded) {
-                        replaced = RecordedValueReplacer.replace(replaced,
-                                percentDecode(replacement.getMatchedLiteral()), reference, true);
-                    }
                     replaced = RecordedValueReplacer.replace(replaced, value, reference, decoded);
                 }
             }

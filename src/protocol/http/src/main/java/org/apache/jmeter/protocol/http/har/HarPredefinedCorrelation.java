@@ -568,6 +568,10 @@ final class HarPredefinedCorrelation {
     private static void addReplacement(List<Replacement> result, HarEntry entry,
             RequestLocation location, String locationName, String text, String extractedValue) {
         String matchedLiteral = matchedLiteral(text, extractedValue);
+        if (matchedLiteral == null && (location == RequestLocation.QUERY_PARAMETER
+                || location == RequestLocation.POST_PARAMETER)) {
+            matchedLiteral = RecordedValueReplacer.matchedDecodedLiteral(text, extractedValue);
+        }
         if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
             String decoded = decodedHeaderValue(extractedValue);
             if (!decoded.equals(extractedValue) && decoded.strip().length() >= MIN_CORRELATED_VALUE_LENGTH

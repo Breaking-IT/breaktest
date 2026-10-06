@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.util;
 
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -42,6 +43,37 @@ public final class RecordedValueReplacer {
         variants.put(value, reference);
         variants.remove("");
         return variants;
+    }
+
+    private static String percentDecode(String value) {
+        try {
+            return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            return value;
+        }
+    }
+
+    private static Map<String, String> decodedVariants(String value, String reference) {
+        Map<String, String> variants = new LinkedHashMap<>();
+        String decoded = percentDecode(value);
+        if (!decoded.equals(value)) {
+            // Match the converter's percent decoding, preserving literal plus signs even
+            // when a later runtime value contains a plus absent from the recording.
+            variants.put(decoded, "${__urldecode(${__strReplace(" + reference + ",+,%2B)})}");
+        }
+        String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8);
+        variants.put(percentDecode(encoded), reference);
+        variants.put(percentDecode(encoded.replace("+", "%20")), reference);
+        variants.put(value, reference);
+        variants.remove("");
+        return orderByLength(variants);
+    }
+
+    public static String matchedDecodedLiteral(String text, String value) {
+        if (text == null || value.isEmpty()) {
+            return null;
+        }
+        return decodedVariants(value, "").keySet().stream().filter(text::contains).findFirst().orElse(null);
     }
 
     private static Pattern literalPattern(String literal) {
@@ -76,7 +108,10 @@ public final class RecordedValueReplacer {
     }
 
     private static Map<String, String> orderedVariants(String value, String reference) {
-        Map<String, String> variants = variants(value, reference);
+        return orderByLength(variants(value, reference));
+    }
+
+    private static Map<String, String> orderByLength(Map<String, String> variants) {
         List<String> literals = new ArrayList<>(variants.keySet());
         literals.sort(Comparator.comparingInt(String::length).reversed());
         Map<String, String> ordered = new LinkedHashMap<>();
@@ -90,7 +125,7 @@ public final class RecordedValueReplacer {
         if (text == null || value.isEmpty()) {
             return text;
         }
-        Map<String, String> variants = decoded ? Map.of(value, reference) : orderedVariants(value, reference);
+        Map<String, String> variants = decoded ? decodedVariants(value, reference) : orderedVariants(value, reference);
         StringBuilder regex = new StringBuilder("(\\$\\{)");
         List<String> references = new ArrayList<>();
         variants.forEach((literal, replacement) -> {
