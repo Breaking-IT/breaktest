@@ -244,7 +244,12 @@ public class IfController extends GenericController implements Serializable, Thr
                 evaluateCondition(getCondition());
     }
 
-    private boolean evaluateStructuredCondition(IfControllerCondition condition) {
+    /**
+     * Evaluates one condition using the current virtual user's variables.
+     * @param condition condition with resolved operands (raw variable names for existence checks)
+     * @return whether the condition matches
+     */
+    public static boolean evaluateStructuredCondition(IfControllerCondition condition) {
         String operand1 = condition.getOperand1();
         String operand2 = condition.getOperand2();
         Operator operator = Operator.fromId(condition.getOperator());
@@ -268,8 +273,8 @@ public class IfController extends GenericController implements Serializable, Thr
                 case NOT_EXISTS -> !variableExists(condition.getRawOperand1());
             };
         } catch (NumberFormatException | PatternSyntaxException ex) {
-            log.error("{}: error while processing structured condition [{} {} {}]",
-                    getName(), operand1, operator.getId(), operand2, ex);
+            log.error("Error while processing structured condition [{} {} {}]",
+                    operand1, operator.getId(), operand2, ex);
             return false;
         }
     }

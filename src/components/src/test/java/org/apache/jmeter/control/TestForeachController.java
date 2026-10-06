@@ -300,6 +300,35 @@ class TestForeachController extends JMeterTestCase {
         assertSame(transaction, secondClone.getSourceController());
     }
 
+    @Test
+    void parallelForEachSubscriptionsFollowSharedAndBranchLocalWrites() {
+        ForeachController controller = parallelForEachController();
+        controller.addTestElement(new RecordingSampler("child"));
+        JMeterVariables parent = new JMeterVariables();
+        parent.put("input_1", "one");
+        setVariables(controller, parent);
+        controller.initialize();
+        ParallelControllerSampler sampler = assertInstanceOf(ParallelControllerSampler.class, controller.next());
+        JMeterContext context = JMeterContextService.getContext();
+        try {
+            assertInstanceOf(ParallelContextModifier.class, sampler.getParallelBranch(0).getController())
+                    .prepareParallelContext(context);
+            JMeterVariables view = context.getVariables();
+            try (JMeterVariables.ChangeSubscription subscription = view.watchChanges(Set.of("ready", "item"))) {
+                long version = subscription.getVersion();
+                parent.put("ready", "yes");
+                assertTrue(subscription.getVersion() > version);
+                version = subscription.getVersion();
+                view.put("item", "changed");
+                assertTrue(subscription.getVersion() > version);
+                assertEquals("changed", view.get("item"));
+                assertNull(parent.get("item"), "Notifications must not overwrite the parent value");
+            }
+        } finally {
+            context.setVariables(parent);
+        }
+    }
+
     private static TransactionController firstTransactionController(Controller branch) {
         for (org.apache.jmeter.testelement.TestElement child
                 : ((GenericController) branch).getSubControllers()) {

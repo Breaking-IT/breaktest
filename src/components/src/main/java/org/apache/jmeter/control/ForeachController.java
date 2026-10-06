@@ -468,7 +468,7 @@ public class ForeachController extends GenericController implements Serializable
     private static final class ForEachParallelVariables extends JMeterVariables {
         private final JMeterVariables parent;
         private final String output;
-        private Object value;
+        private volatile Object value;
 
         private ForEachParallelVariables(JMeterVariables parent, String output, Object value) {
             this.parent = parent;
@@ -477,9 +477,20 @@ public class ForeachController extends GenericController implements Serializable
         }
 
         @Override
+        public ChangeSubscription watchChanges(Set<String> keys) {
+            return parent.watchChanges(keys);
+        }
+
+        @Override
+        public void signalChange(String key) {
+            parent.signalChange(key);
+        }
+
+        @Override
         public void put(String key, String value) {
             if (output.equals(key)) {
                 this.value = value;
+                parent.signalChange(key);
             } else {
                 parent.put(key, value);
             }
@@ -489,6 +500,7 @@ public class ForeachController extends GenericController implements Serializable
         public void putObject(String key, Object value) {
             if (output.equals(key)) {
                 this.value = value;
+                parent.signalChange(key);
             } else {
                 parent.putObject(key, value);
             }
@@ -529,6 +541,7 @@ public class ForeachController extends GenericController implements Serializable
             if (output.equals(key)) {
                 Object previous = value;
                 value = null;
+                parent.signalChange(key);
                 return previous;
             }
             return parent.remove(key);

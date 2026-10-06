@@ -784,5 +784,37 @@ custom headers may need to adopt the shared title panel to display it. Plugin ed
 <code>super.configure(element)</code> when loading a sampler; otherwise, saving through
 <code>configureTestElement</code> can write an Ignore setting left over from another sampler.</p>
 </section>
+<section name="Wait for value">
+<p>Add the <code>Wait for value</code> action from the sampler menu to coordinate a
+main branch and its asynchronous forks. It uses the If condition table, including
+Match all / Match any and the same comparison operators, without a script editor.
+For example, wait for <code>${ready}</code> to equal <code>true</code> after a fork
+sets the <code>ready</code> parameter.</p>
+<p>The timeout is a positive number of milliseconds (default 30000) and supports
+parameter expressions. An already matching condition completes immediately.
+Timeout produces a failed sample and follows the thread group's error policy.
+Its response message includes the match mode, conditions, resolved operand values,
+and results from the final evaluation. Individual values longer than 512 characters
+are abbreviated.
+Stopping the action interrupts the wait.</p>
+<p>New actions default to <code>Ignore on success</code>, so successful waits do
+not contribute reported samples while failures remain visible. The Results options
+below the timeout select <code>Included</code>, <code>Ignore on success</code>, or
+<code>Ignore always</code>. These options change the same sampler result setting
+as the title menu. Existing saved actions retain their result setting.</p>
+<p>The action registers a temporary subscription before checking its conditions
+and sleeps without periodic polling. Plain parameter expressions subscribe only
+to their referenced keys, including parameters on the right-hand side. Compiled
+operands are reused during the wait. Function-based or custom expressions have
+unknown dependencies and conservatively wake on any parameter write in the same
+virtual user. Use side-effect-free expressions: functions that write parameters
+can themselves trigger further evaluations. Subscriptions are removed when the
+action succeeds, times out, fails, or is interrupted. Fork and parallel parameter
+views forward subscriptions to the shared store. Conditions must remain
+true long enough to be observed. Global properties, external state, and objects
+mutated in place do not trigger notifications; write with <code>vars.put</code> or
+<code>vars.putObject</code>. Independent virtual users do not share notifications.
+Start the producer in an asynchronous Fork before reaching the wait.</p>
+</section>
 </body>
 </document>

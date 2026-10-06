@@ -137,6 +137,8 @@ public class IfControllerPanel extends AbstractControllerGui
      */
     private boolean displayName = true;
 
+    private final boolean structuredOnly;
+
     private JButton useLastSampleStatusButton;
 
     /**
@@ -157,6 +159,16 @@ public class IfControllerPanel extends AbstractControllerGui
      *            component.
      */
     public IfControllerPanel(boolean displayName) {
+        this(displayName, false);
+    }
+
+    /**
+     * Creates a reusable condition editor.
+     * @param displayName whether to display the element title
+     * @param structuredOnly whether to omit legacy expression and script controls
+     */
+    public IfControllerPanel(boolean displayName, boolean structuredOnly) {
+        this.structuredOnly = structuredOnly;
         this.displayName = displayName;
         init();
     }
@@ -272,6 +284,9 @@ public class IfControllerPanel extends AbstractControllerGui
         conditionPanel.add(structuredConditionLabel);
         conditionPanel.add(createStructuredConditionPanel(), "pushx, growx, wmin 0"); // $NON-NLS-1$
 
+        JPanel structuredPanel = conditionPanel;
+        conditionPanel = new JPanel(new MigLayout("fill, wrap 1, insets 0", "[fill,grow]"));
+
         ImageIcon image = JMeterUtils.getImage("warning.png"); // $NON-NLS-1$
         warningLabel = new JLabel(JMeterUtils.getResString("if_controller_warning"), image, SwingConstants.LEFT); // $NON-NLS-1$
         JFactory.warning(warningLabel);
@@ -306,7 +321,10 @@ public class IfControllerPanel extends AbstractControllerGui
         evaluateAll = new JCheckBox(JMeterUtils.getResString("if_controller_evaluate_all")); // $NON-NLS-1$
         conditionPanel.add(evaluateAll);
 
-        return conditionPanel;
+        if (!structuredOnly) {
+            structuredPanel.add(conditionPanel, "growx, wmin 0");
+        }
+        return structuredPanel;
     }
 
     private JPanel createStructuredConditionPanel() {

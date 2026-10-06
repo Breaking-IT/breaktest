@@ -20,9 +20,11 @@ package org.apache.jmeter.engine.util;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 import org.apache.jmeter.functions.Function;
 import org.apache.jmeter.functions.InvalidVariableException;
@@ -152,6 +154,27 @@ public class CompoundVariable implements Function {
             permanentResults = results.toString();
         }
         return results.toString();
+    }
+
+    /**
+     * Returns the exact variable names used by a plain parameter expression.
+     * Functions (including dynamic lookups) and subclasses may access arbitrary
+     * variables, so null means callers must conservatively watch all writes.
+     * @return known dependencies, or null when they cannot be determined statically
+     */
+    public Set<String> getVariableDependencies() {
+        if (getClass() != CompoundVariable.class) {
+            return null;
+        }
+        Set<String> dependencies = new HashSet<>();
+        for (Object component : compiledComponents) {
+            if (component instanceof SimpleVariable variable) {
+                dependencies.add(variable.getName());
+            } else if (!(component instanceof String)) {
+                return null;
+            }
+        }
+        return dependencies;
     }
 
     @SuppressWarnings("unchecked") // clone will produce correct type
