@@ -49,6 +49,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest {
+    private boolean longButtonLabels;
     @ParameterizedTest
     @CsvSource({
         "false, 500, 320, 0", "false, 700, 320, 100",
@@ -68,6 +69,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             sampler.setNativeHeaders(headers);
             editor.configure(sampler);
             HeaderTablePanel headerPanel = descendants(editor, HeaderTablePanel.class).get(0);
+            applyLongButtonLabels(headerPanel);
             JTabbedPane tabs = (JTabbedPane) headerPanel.getParent();
             tabs.setSelectedComponent(headerPanel);
             MainFrame.ScrollableMainPanel main = new MainFrame.ScrollableMainPanel();
@@ -143,6 +145,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
         SwingUtilities.invokeAndWait(() -> {
             HttpTestSampleGui editor = sse ? new SseSamplerGui() : new HttpTestSampleGui();
             HeaderTablePanel headers = descendants(editor, HeaderTablePanel.class).get(0);
+            applyLongButtonLabels(headers);
             ((JTabbedPane) headers.getParent()).setSelectedComponent(headers);
             MainFrame.ScrollableMainPanel main = new MainFrame.ScrollableMainPanel();
             main.setMainPanel(editor);
@@ -191,6 +194,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
     void minimumHeightWorksWithDifferentTabAndTableMetrics(String lookAndFeel) throws Exception {
         LookAndFeel previous = UIManager.getLookAndFeel();
         try {
+            longButtonLabels = true;
             SwingUtilities.invokeAndWait(() -> setLookAndFeel(lookAndFeel));
             for (boolean sse : new boolean[]{false, true}) {
                 headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 0);
@@ -201,10 +205,28 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             SwingUtilities.invokeAndWait(() -> {
                 try {
                     UIManager.setLookAndFeel(previous);
+                    longButtonLabels = false;
                 } catch (javax.swing.UnsupportedLookAndFeelException e) {
                     throw new IllegalStateException(e);
                 }
             });
+        }
+    }
+
+    private void applyLongButtonLabels(HeaderTablePanel panel) {
+        if (longButtonLabels) {
+            // Match the wider fallback labels seen in CI without depending on global resource state.
+            for (JButton button : descendants(panel, JButton.class)) {
+                String key = switch (button.getActionCommand()) {
+                case "Add" -> "add";
+                case "addFromClipboard" -> "add_from_clipboard";
+                case "Delete" -> "delete";
+                default -> null;
+                };
+                if (key != null) {
+                    button.setText("[res_key=" + key + "]");
+                }
+            }
         }
     }
 

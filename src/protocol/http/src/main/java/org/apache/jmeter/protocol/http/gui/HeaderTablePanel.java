@@ -18,7 +18,10 @@
 package org.apache.jmeter.protocol.http.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Insets;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
@@ -340,7 +343,7 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
         JButton addFromClipboard = createButton("add_from_clipboard", 'C', ADD_FROM_CLIPBOARD, true); // $NON-NLS-1$
         deleteButton = createButton("delete", 'D', DELETE_COMMAND, !tableEmpty); // $NON-NLS-1$
 
-        JPanel buttonPanel = new JPanel();
+        JPanel buttonPanel = new WrappingButtonPanel();
         buttonPanel.add(addButton);
         buttonPanel.add(addFromClipboard);
         buttonPanel.add(deleteButton);
@@ -351,6 +354,49 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
             buttonPanel.add(saveButton);
         }
         return buttonPanel;
+    }
+
+    /** FlowLayout wraps buttons, but its default size calculation only reserves one row. */
+    private static class WrappingButtonPanel extends JPanel {
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension preferred = super.getPreferredSize();
+            int width = getParent() == null ? getWidth() : getParent().getWidth()
+                    - getParent().getInsets().left - getParent().getInsets().right;
+            if (width <= 0) {
+                return preferred;
+            }
+            FlowLayout layout = (FlowLayout) getLayout();
+            Insets insets = getInsets();
+            int available = width - insets.left - insets.right - 2 * layout.getHgap();
+            int rowWidth = 0;
+            int rowHeight = 0;
+            int height = insets.top + insets.bottom + 2 * layout.getVgap();
+            for (Component button : getComponents()) {
+                if (!button.isVisible()) {
+                    continue;
+                }
+                Dimension size = button.getPreferredSize();
+                int gap = rowWidth == 0 ? 0 : layout.getHgap();
+                if (rowWidth > 0 && rowWidth + gap + size.width > available) {
+                    height += rowHeight + layout.getVgap();
+                    rowWidth = 0;
+                    rowHeight = 0;
+                    gap = 0;
+                }
+                rowWidth += gap + size.width;
+                rowHeight = Math.max(rowHeight, size.height);
+            }
+            preferred.height = height + rowHeight;
+            return preferred;
+        }
+
+        @Override
+        public Dimension getMinimumSize() {
+            Dimension minimum = super.getMinimumSize();
+            minimum.height = getPreferredSize().height;
+            return minimum;
+        }
     }
 
     private static class InnerTableModel extends AbstractTableModel {
