@@ -76,7 +76,7 @@ class WaitForValueTest {
     }
 
     @Test
-    void invalidNumericFunctionFailsWithoutWaiting() {
+    void invalidNumericFunctionWaitsUntilTimeout() {
         SignallingVariables vars = new SignallingVariables();
         JMeterContextService.getContext().setVariables(vars);
         AtomicInteger executions = new AtomicInteger();
@@ -89,28 +89,72 @@ class WaitForValueTest {
                 return "not a number";
             }
         }));
+        action.setTimeout("10");
         SampleResult result = action.sample(null);
-        assertEquals("400", result.getResponseCode());
+        assertEquals("408", result.getResponseCode());
         assertFalse(result.isSuccessful());
-        assertTrue(result.getResponseMessage().startsWith("Invalid wait configuration:"));
-        assertEquals(1, executions.get());
-        assertEquals(0, vars.waits.get());
+        assertTrue(executions.get() >= 1);
     }
 
     @Test
-    void invalidOperandsAfterWakeFailInsteadOfTimingOut() throws Exception {
-        for (String operator : List.of("greater_than", "matches_regex", "not_matches_regex")) {
+    void unsetEmptyAndNonNumericVariablesCanBecomeNumbers() throws Exception {
+        for (String initial : new String[] {null, "", "not a number"}) {
+            for (boolean variableOnLeft : List.of(true, false)) {
+                SignallingVariables vars = new SignallingVariables();
+                if (initial != null) {
+                    vars.put("ready", initial);
+                }
+                WaitForValue action = action("greater_than_or_equal", "10");
+                if (!variableOnLeft) {
+                    action.getConditions().setConditions(List.of(
+                            new IfControllerCondition("10", "less_than_or_equal", "${ready}")));
+                }
+                FutureTask<SampleResult> task = run(action, vars);
+                assertTrue(vars.sleeping.await(1, TimeUnit.SECONDS));
+                vars.put("ready", "10");
+                assertTrue(task.get(1, TimeUnit.SECONDS).isSuccessful());
+            }
+        }
+    }
+
+    @Test
+    void invalidLiteralNumbersFailEvenWhenVariableIsUnset() {
+        JMeterContextService.getContext().setVariables(new JMeterVariables());
+        for (boolean literalOnLeft : List.of(true, false)) {
+            WaitForValue action = action("greater_than", "invalid");
+            if (literalOnLeft) {
+                action.getConditions().setConditions(List.of(
+                        new IfControllerCondition("invalid", "greater_than", "${ready}")));
+            }
+            assertEquals("400", action.sample(null).getResponseCode());
+        }
+    }
+
+    @Test
+    void failedRegexCompilationDoesNotCorruptCachedPattern() {
+        IfControllerCondition condition = new IfControllerCondition("text", "matches_regex", "text");
+        assertTrue(condition.matchesRegex("text"));
+        condition.setOperand2("[");
+        for (int i = 0; i < 2; i++) {
+            assertThrows(java.util.regex.PatternSyntaxException.class, () -> condition.matchesRegex("text"));
+        }
+        condition.setOperand2("other");
+        assertFalse(condition.matchesRegex("text"));
+        assertTrue(condition.matchesRegex("other"));
+    }
+
+    @Test
+    void invalidDynamicRegexCanBecomeValid() throws Exception {
+        for (String operator : List.of("matches_regex", "not_matches_regex")) {
             SignallingVariables vars = new SignallingVariables();
-            vars.put("ready", "1");
-            vars.put("target", operator.equals("greater_than") ? "5"
-                    : operator.equals("matches_regex") ? "2" : "1");
+            vars.put("ready", "text");
+            vars.put("target", "[");
             FutureTask<SampleResult> task = run(action(operator, "${target}"), vars);
             assertTrue(vars.sleeping.await(1, TimeUnit.SECONDS));
-            vars.put("target", "[");
-            SampleResult result = task.get(1, TimeUnit.SECONDS);
-            assertEquals("400", result.getResponseCode());
-            assertFalse(result.isSuccessful());
-            assertEquals(1, vars.waits.get());
+            // Wake with the same malformed pattern to exercise the regex cache failure path.
+            vars.put("ready", "text");
+            vars.put("target", operator.equals("matches_regex") ? "text" : "different");
+            assertTrue(task.get(1, TimeUnit.SECONDS).isSuccessful());
         }
     }
 

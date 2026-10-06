@@ -22,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.PatternSyntaxException;
 
 import org.apache.jmeter.control.IfController;
 import org.apache.jmeter.control.IfControllerCondition;
@@ -138,7 +139,13 @@ public class WaitForValue extends AbstractSampler implements Interruptible {
                 match = IfController.Operator.EXISTS.getId().equals(operator)
                         ? variableValue != null : variableValue == null;
             } else {
-                match = IfController.evaluateStructuredConditionStrict(resolved);
+                try {
+                    match = IfController.evaluateStructuredConditionStrict(resolved);
+                } catch (NumberFormatException | PatternSyntaxException e) {
+                    // Literal operands were validated during preparation. Dynamic values may
+                    // be unset, empty, or temporarily invalid until another branch updates them.
+                    match = false;
+                }
             }
             if (diagnostics != null) {
                 diagnostics.append("\n").append(++row).append(". ")
@@ -237,6 +244,15 @@ public class WaitForValue extends AbstractSampler implements Interruptible {
                 variableName = null;
                 left = compile(source.getProperty(IfControllerCondition.OPERAND1));
                 right = compile(source.getProperty(IfControllerCondition.OPERAND2));
+                switch (IfController.Operator.fromId(operator)) {
+                    case GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL -> {
+                        validateLiteralNumber(left);
+                        validateLiteralNumber(right);
+                    }
+                    default -> {
+                        // Other operators do not require numeric operands.
+                    }
+                }
                 Set<String> rightDependencies = right.getVariableDependencies();
                 if ((IfController.Operator.MATCHES_REGEX.getId().equals(operator)
                         || IfController.Operator.NOT_MATCHES_REGEX.getId().equals(operator))
@@ -246,6 +262,13 @@ public class WaitForValue extends AbstractSampler implements Interruptible {
                     resolved.matchesRegex("");
                 }
             }
+        }
+    }
+
+    private static void validateLiteralNumber(CompoundVariable operand) {
+        Set<String> dependencies = operand.getVariableDependencies();
+        if (dependencies != null && dependencies.isEmpty()) {
+            Double.parseDouble(operand.execute().trim());
         }
     }
 

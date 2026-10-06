@@ -796,9 +796,10 @@ Timeout produces a failed sample and follows the thread group's error policy.
 Its response message includes the match mode, conditions, resolved operand values,
 and results from the final evaluation. Individual values longer than 512 characters
 are abbreviated.
-Invalid numeric operands or regular expressions fail immediately with a 400
-response instead of waiting for the timeout. Literal regular expressions are
-validated before waiting; parameter-based expressions are checked when evaluated.
+Invalid literal numeric operands or regular expressions fail immediately with a 400
+response. Unset, empty, or invalid values from parameters or functions count as not
+matched yet, without logging errors, so another branch can supply a valid value.
+If they never become valid and match, the action times out normally.
 Stopping the action interrupts the wait.</p>
 <p>New actions default to <code>Ignore on success</code>, so successful waits do
 not contribute reported samples while failures remain visible. The Results options
