@@ -923,7 +923,8 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
             if (getComponentCount() == 1
                     && getComponent(0) instanceof AbstractJMeterGuiComponent editor
                     && editor.isViewportHeightConstrained()) {
-                return true;
+                // Keep controls reachable when the window cannot fit even the minimum layout.
+                return getParent() != null && getMinimumSize().height <= getParent().getHeight();
             }
             return getParent() != null && getPreferredSize().height <= getParent().getHeight();
         }

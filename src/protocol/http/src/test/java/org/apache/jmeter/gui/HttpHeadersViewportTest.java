@@ -124,6 +124,51 @@ class HttpHeadersViewportTest extends JMeterTestCase {
         });
     }
 
+    @ParameterizedTest
+    @CsvSource({"false, 500", "false, 700", "true, 500", "true, 700"})
+    void veryShortEditorsCanScrollToHeaderActionsAndRecoverWhenEnlarged(boolean sse, int width) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HttpTestSampleGui editor = sse ? new SseSamplerGui() : new HttpTestSampleGui();
+            HeaderTablePanel headers = descendants(editor, HeaderTablePanel.class).get(0);
+            ((JTabbedPane) headers.getParent()).setSelectedComponent(headers);
+            MainFrame.ScrollableMainPanel main = new MainFrame.ScrollableMainPanel();
+            main.setMainPanel(editor);
+            JScrollPane outer = new JScrollPane(main);
+            outer.setSize(width, 450);
+            layoutTree(outer);
+            layoutTree(outer);
+            assertFalse(outer.getVerticalScrollBar().isVisible());
+
+            outer.setSize(width, 120);
+            layoutTree(outer);
+            layoutTree(outer);
+            assertTrue(outer.getVerticalScrollBar().isVisible(), "short editors must remain scrollable");
+            JButton clipboard = descendants(headers, JButton.class).stream()
+                    .filter(button -> "addFromClipboard".equals(button.getActionCommand())).findFirst().orElseThrow();
+            Rectangle bounds = SwingUtilities.convertRectangle(clipboard.getParent(), clipboard.getBounds(), main);
+            main.scrollRectToVisible(bounds);
+            assertTrue(outer.getViewport().getViewRect().contains(bounds), "clipboard action must be reachable");
+
+            int minimumHeight = main.getMinimumSize().height + outer.getInsets().top + outer.getInsets().bottom;
+            outer.setSize(width, minimumHeight - 1);
+            layoutTree(outer);
+            layoutTree(outer);
+            assertTrue(outer.getVerticalScrollBar().isVisible(), "one pixel below the minimum must scroll");
+            outer.setSize(width, minimumHeight);
+            layoutTree(outer);
+            layoutTree(outer);
+            assertFalse(outer.getVerticalScrollBar().isVisible(), "the minimum itself must fit");
+
+            outer.setSize(width, 450);
+            layoutTree(outer);
+            layoutTree(outer);
+            assertFalse(outer.getVerticalScrollBar().isVisible());
+            assertEquals(0, outer.getViewport().getViewPosition().y);
+            bounds = SwingUtilities.convertRectangle(clipboard.getParent(), clipboard.getBounds(), main);
+            assertTrue(outer.getViewport().getViewRect().contains(bounds));
+        });
+    }
+
     private static void layoutTree(Container container) {
         container.doLayout();
         for (Component child : container.getComponents()) {

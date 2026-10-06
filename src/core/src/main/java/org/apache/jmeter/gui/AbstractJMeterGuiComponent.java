@@ -74,6 +74,7 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
 
     /**
      * Whether the editor should fit the available height and scroll its content internally.
+     * The main viewport falls back to outer scrolling below the editor's minimum height.
      * Editors may change this with the selected tab and must revalidate after doing so.
      *
      * @return true to keep the editor within the main viewport
