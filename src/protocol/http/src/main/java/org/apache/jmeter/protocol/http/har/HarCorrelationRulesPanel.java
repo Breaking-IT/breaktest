@@ -101,6 +101,8 @@ final class HarCorrelationRulesPanel extends JPanel {
             JMeterUtils.getResString("try_predefined_correlations_edit_custom"));
     private final JButton exportButton = new JButton(
             JMeterUtils.getResString("try_predefined_correlations_export_custom"));
+    private final JButton exportGroupButton = new JButton(
+            JMeterUtils.getResString("try_predefined_correlations_export_group"));
     private final JCheckBox customOnly = new JCheckBox(
             JMeterUtils.getResString("try_predefined_correlations_custom_only"));
     private final JButton deleteButton = new JButton(JMeterUtils.getResString("correlation_rules_delete"));
@@ -198,16 +200,18 @@ final class HarCorrelationRulesPanel extends JPanel {
         importButton.addActionListener(event -> importCustomRules());
         exportButton.setEnabled(ruleTransfer != null && !getCustomRules().isEmpty());
         exportButton.addActionListener(event -> ruleTransfer.exportRules(getCustomRules()));
+        exportGroupButton.setEnabled(false);
+        exportGroupButton.addActionListener(event -> ruleTransfer.exportRules(getSelectedGroupCustomRules()));
         groupButtons.add(selectAll);
         groupButtons.add(selectNone);
         JPanel filter = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
         filter.add(customOnly);
-        JPanel transferButtons = new JPanel(new FlowLayout(FlowLayout.LEADING, 6, 0));
+        JPanel transferButtons = new JPanel(new GridLayout(1, 0, 6, 0));
         transferButtons.add(importButton);
+        transferButtons.add(exportGroupButton);
         transferButtons.add(exportButton);
         controls.add(groupButtons);
         controls.add(filter);
-        controls.add(transferButtons);
         treePanel.add(controls, BorderLayout.NORTH);
         configureTree();
         treePanel.add(new JScrollPane(ruleTree), BorderLayout.CENTER);
@@ -246,7 +250,10 @@ final class HarCorrelationRulesPanel extends JPanel {
         split.setBorder(null);
         split.setResizeWeight(0.38);
         split.setDividerLocation(320);
-        return split;
+        JPanel browser = new JPanel(new BorderLayout(0, 6));
+        browser.add(transferButtons, BorderLayout.NORTH);
+        browser.add(split, BorderLayout.CENTER);
+        return browser;
     }
 
     private void setAllGroupsSelected(boolean selected) {
@@ -306,8 +313,16 @@ final class HarCorrelationRulesPanel extends JPanel {
                 ruleTree.scrollPathToVisible(selectedPath);
             }
         } else {
-            showRule(null);
+            showNode(null);
         }
+    }
+
+    private List<Rule> getSelectedGroupCustomRules() {
+        if (!(ruleTree.getLastSelectedPathComponent() instanceof CatalogNode node)) {
+            return List.of();
+        }
+        String group = node.isGroup() ? node.group() : node.rule().getGroup();
+        return getCustomRules().stream().filter(rule -> group.equals(rule.getGroup())).toList();
     }
 
     private List<Rule> displayedRules() {
@@ -391,6 +406,7 @@ final class HarCorrelationRulesPanel extends JPanel {
     }
 
     private void showNode(CatalogNode node) {
+        exportGroupButton.setEnabled(ruleTransfer != null && !getSelectedGroupCustomRules().isEmpty());
         if (node == null) {
             showRule(null);
         } else if (node.isGroup()) {

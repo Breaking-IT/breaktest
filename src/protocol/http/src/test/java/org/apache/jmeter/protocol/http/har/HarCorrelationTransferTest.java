@@ -33,7 +33,10 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.swing.JButton;
+import javax.swing.JTree;
 import javax.swing.SwingUtilities;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
@@ -221,6 +224,88 @@ class HarCorrelationTransferTest extends JMeterTestCase {
         });
         assertEquals(2, exports.get());
         assertEquals(List.of("custom"), HarCorrelationRuleCatalog.readRulesFile(transfer).stream().map(Rule::getId).toList());
+    }
+
+    @Test
+    void exportsSelectedGroupIncludingDisabledCustomRulesOnly() throws Exception {
+        Path transfer = directory.resolve("group-export.json");
+        Rule builtIn = rule("built-in", "built=(.+)");
+        Rule custom = rule("custom", "custom=(.+)");
+        Rule other = new Rule("other", "Other", "Other rule", "other_value",
+                ExtractorType.REGEX, ResponseField.BODY, "other=(.+)", "$1$", 1,
+                "", false, false, true);
+        SwingUtilities.invokeAndWait(() -> {
+            HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                    List.of(builtIn, custom, other), Set.of("custom", "other"), null,
+                    new HarCorrelationRulesPanel.RuleTransfer() {
+                        @Override
+                        public List<Rule> importRules() {
+                            return List.of();
+                        }
+
+                        @Override
+                        public void exportRules(List<Rule> rules) {
+                            try {
+                                HarCorrelationRuleCatalog.writeRulesFile(transfer, rules);
+                            } catch (IOException e) {
+                                throw new AssertionError(e);
+                            }
+                        }
+                    });
+            panel.setGroupSelected("Company", false);
+            JButton export = button(panel, "try_predefined_correlations_export_group");
+            assertTrue(export.isEnabled());
+            export.doClick();
+            try {
+                assertEquals(List.of("custom"), HarCorrelationRuleCatalog.readRulesFile(transfer)
+                        .stream().map(Rule::getId).toList());
+            } catch (IOException e) {
+                throw new AssertionError(e);
+            }
+            JTree tree = tree(panel);
+            DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+            DefaultMutableTreeNode otherGroup = (DefaultMutableTreeNode) root.getChildAt(1);
+            tree.setSelectionPath(new TreePath(otherGroup.getPath()));
+            export.doClick();
+            tree.clearSelection();
+            assertFalse(export.isEnabled());
+            HarCorrelationRulesPanel builtInOnly = new HarCorrelationRulesPanel(
+                    List.of(builtIn), Set.of(), null, null);
+            assertFalse(button(builtInOnly, "try_predefined_correlations_export_group").isEnabled());
+        });
+        assertEquals(List.of("other"), HarCorrelationRuleCatalog.readRulesFile(transfer)
+                .stream().map(Rule::getId).toList());
+    }
+
+    @Test
+    void suggestsGroupNameInExportFilename() {
+        Rule company = rule("custom", "value=(.+)");
+        Rule unsafe = new Rule("other", "../Group / Two: rules", "Other rule", "other_value",
+                ExtractorType.REGEX, ResponseField.BODY, "other=(.+)", "$1$", 1,
+                "", false, false, true);
+        assertEquals("Company-correlations.json",
+                FindPredefinedCorrelationsAction.suggestedExportFilename(List.of(company)));
+        assertEquals("Group-Two-rules-correlations.json",
+                FindPredefinedCorrelationsAction.suggestedExportFilename(List.of(unsafe)));
+        assertEquals("custom-predefined-correlations.json",
+                FindPredefinedCorrelationsAction.suggestedExportFilename(List.of(company, unsafe)));
+        assertEquals("custom-predefined-correlations.json",
+                FindPredefinedCorrelationsAction.suggestedExportFilename(List.of()));
+    }
+
+    private static JTree tree(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTree tree) {
+                return tree;
+            }
+            if (component instanceof Container child) {
+                JTree found = tree(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static JButton button(Container container, String key) {
