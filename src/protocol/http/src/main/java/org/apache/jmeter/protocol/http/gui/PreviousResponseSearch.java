@@ -23,7 +23,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
@@ -38,6 +40,8 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.TreePath;
 
+import org.apache.jmeter.control.ModuleController;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
@@ -46,6 +50,7 @@ import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 
 /** Literal parameter-value lookup in earlier recorded HTTP responses. */
@@ -60,15 +65,13 @@ final class PreviousResponseSearch {
     // Take detached copies on the EDT so recording I/O can run without reading a changing GUI tree.
     static List<Candidate> previousSamplers(JMeterTreeNode current) {
         List<Candidate> candidates = new ArrayList<>();
-        var nodes = ((JMeterTreeNode) current.getRoot()).preorderEnumeration();
-        while (nodes.hasMoreElements()) {
-            JMeterTreeNode node = (JMeterTreeNode) nodes.nextElement();
-            if (node == current) {
-                break;
-            }
-            if (!(node.getTestElement() instanceof HTTPSamplerBase)) {
-                continue;
-            }
+        JMeterTreeNode scope = searchScope(current);
+        if (scope == null) {
+            return candidates;
+        }
+        List<JMeterTreeNode> samplers = new ArrayList<>();
+        collectPreviousSamplers(scope, current, new HashSet<>(), samplers);
+        for (JMeterTreeNode node : samplers) {
             JMeterTreeNode snapshot = null;
             List<String> names = new ArrayList<>();
             for (var ancestor : node.getPath()) {
@@ -86,6 +89,43 @@ final class PreviousResponseSearch {
             candidates.add(new Candidate(node, snapshot, String.join(" / ", names)));
         }
         return candidates;
+    }
+
+    private static JMeterTreeNode searchScope(JMeterTreeNode node) {
+        while (node != null && !(node.getTestElement() instanceof AbstractThreadGroup)
+                && !(node.getTestElement() instanceof TestFragmentController)) {
+            node = (JMeterTreeNode) node.getParent();
+        }
+        return node;
+    }
+
+    // Follow module references at their position in the flow, retaining original nodes for navigation.
+    // A visited set prevents cycles and duplicate results from repeated module references.
+    private static boolean collectPreviousSamplers(JMeterTreeNode node, JMeterTreeNode current,
+            Set<JMeterTreeNode> visited, List<JMeterTreeNode> samplers) {
+        if (node == current) {
+            return true;
+        }
+        if (!visited.add(node)) {
+            return false;
+        }
+        if (node.getTestElement() instanceof HTTPSamplerBase) {
+            samplers.add(node);
+        }
+        if (node.getTestElement() instanceof ModuleController module) {
+            JMeterTreeNode target = module.getSelectedNode();
+            // The referenced subtree runs in this thread, wherever it lives in the plan.
+            if (target != null && target.getRoot() == current.getRoot()) {
+                return collectPreviousSamplers(target, current, visited, samplers);
+            }
+            return false;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (collectPreviousSamplers((JMeterTreeNode) node.getChildAt(i), current, visited, samplers)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static List<Hit> findHits(Candidate candidate, String response, String value) {
