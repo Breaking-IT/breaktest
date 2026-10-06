@@ -881,7 +881,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         });
     }
 
-    private static class ScrollableMainPanel extends JPanel implements Scrollable {
+    static class ScrollableMainPanel extends JPanel implements Scrollable {
         private static final long serialVersionUID = 240L;
 
         ScrollableMainPanel() {
@@ -920,6 +920,11 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         @Override
         public boolean getScrollableTracksViewportHeight() {
+            if (getComponentCount() == 1
+                    && getComponent(0) instanceof AbstractJMeterGuiComponent editor
+                    && editor.isViewportHeightConstrained()) {
+                return true;
+            }
             return getParent() != null && getPreferredSize().height <= getParent().getHeight();
         }
     }

@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.net.URL;
 import java.util.Objects;
 
@@ -44,6 +46,13 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
     private transient java.util.List<org.apache.jmeter.protocol.sse.SseMatchController> sseMatches = new java.util.ArrayList<>();
     private transient org.apache.jmeter.protocol.sse.SseSession sseReader;
     private transient volatile org.apache.jmeter.protocol.sse.SseSession activeSse;
+
+    private void readObject(ObjectInputStream input) throws IOException, ClassNotFoundException {
+        input.defaultReadObject();
+        // Clipboard transfers use Java serialization, which skips transient field initializers.
+        // Runtime child-controller bindings are rebuilt when the transferred tree is compiled.
+        sseMatches = new java.util.ArrayList<>();
+    }
 
     public boolean isSseEnabled() { return getPropertyAsBoolean(SSE_ENABLED, false); }
     public void setSseEnabled(boolean value) { setProperty(SSE_ENABLED, value, false); }
