@@ -307,8 +307,8 @@ public class JsseSSLManager extends SSLManager {
             synchronized (scopedKeyStores) {
                 keys = scopedKeyStores.get(key);
                 if (keys == null) {
-                    keys = JmeterKeyStore.getInstance(type, 0, -1, "");
                     try {
+                        keys = JmeterKeyStore.getInstance(type, 0, -1, "");
                         if (file == null) {
                             keys.load(null, password);
                         } else {
@@ -316,8 +316,9 @@ public class JsseSSLManager extends SSLManager {
                                 keys.load(input, password);
                             }
                         }
-                    } catch (IOException e) {
-                        throw new GeneralSecurityException("Cannot load Client Certificate Config keystore", e);
+                    } catch (IOException | GeneralSecurityException e) {
+                        throw new GeneralSecurityException("Cannot load Client Certificate Config keystore as " + type
+                                + ". Check the file format and password; private-key entries must use the same password as the store.", e);
                     }
                     scopedKeyStores.put(key, keys);
                 }

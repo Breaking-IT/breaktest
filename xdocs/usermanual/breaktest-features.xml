@@ -99,8 +99,12 @@ fields from different certificate configs are not combined.
 <p>
 Choose <code>Inherit</code>, <code>Use certificate</code>, or <code>Send no client certificate</code>.
 Inherit uses the outer scope, ultimately falling back to the existing global SSL
-Manager settings. Use certificate accepts a keystore path, type (PKCS12 by default),
+Manager settings. Use certificate accepts a keystore path, type (PKCS12, JKS or JCEKS; PKCS12 by default),
 password and alias. Relative paths resolve against the test plan directory.
+The store must contain a private key and its certificate chain; certificate-only
+files and separate PEM certificate/key files must first be packaged into a keystore.
+The same password is used to unlock the store and its private-key entries.
+Hardware tokens and operating-system certificate stores are not supported by this file-based configuration.
 A blank path uses the global keystore and its type; a blank password in that case
 uses the global password. An alias may be omitted only if the store contains
 exactly one private-key entry. Missing files, incorrect passwords, unknown aliases

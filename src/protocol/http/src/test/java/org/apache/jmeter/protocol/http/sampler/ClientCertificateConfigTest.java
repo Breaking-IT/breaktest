@@ -455,6 +455,23 @@ class ClientCertificateConfigTest {
         }
     }
 
+    @Test
+    void mismatchedKeystoreTypeReportsFormatAndPasswordGuidance() {
+        ClientCertificateConfig certificate = config("alice.p12", "");
+        certificate.setProperty(ClientCertificateConfig.TYPE, "JCEKS");
+        HTTPSamplerProxy sampler = sampler("HTTP/1.1");
+        sampler.addTestElement(certificate);
+        try {
+            SampleResult result = sampler.sample();
+            assertFalse(result.isSuccessful());
+            assertTrue(result.getResponseMessage().contains("Cannot load Client Certificate Config keystore as JCEKS"),
+                    result::getResponseMessage);
+            assertTrue(result.getResponseMessage().contains("Check the file format and password"), result::getResponseMessage);
+        } finally {
+            sampler.threadFinished();
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"HTTP/1.1", "HTTP/2"})
     void noCertificateOverridesAnOuterCertificate(String protocol) throws Exception {

@@ -19,6 +19,7 @@ package org.apache.jmeter.config.gui;
 
 import java.awt.BorderLayout;
 import java.util.Arrays;
+import java.util.Locale;
 
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -42,7 +43,7 @@ public class ClientCertificateConfigGui extends AbstractConfigGui {
     private final JComboBox<String> mode = new JComboBox<>(Arrays.stream(MODES)
             .map(value -> JMeterUtils.getResString("client_certificate_" + value)).toArray(String[]::new));
     private final JTextField store = new JTextField(35);
-    private final JTextField type = new JTextField("PKCS12", 15);
+    private final JComboBox<String> type = new JComboBox<>(new String[] {"PKCS12", "JKS", "JCEKS"});
     private final JPasswordField password = new JPasswordField(25);
     private final JTextField alias = new JTextField(25);
 
@@ -90,10 +91,13 @@ public class ClientCertificateConfigGui extends AbstractConfigGui {
 
     @Override
     public void modifyTestElement(TestElement element) {
+        if (type.getSelectedItem() == null) {
+            throw new IllegalArgumentException("Select a keystore type: PKCS12, JKS or JCEKS");
+        }
         configureTestElement(element);
         element.setProperty(ClientCertificateConfig.MODE, MODES[mode.getSelectedIndex()]);
         element.setProperty(ClientCertificateConfig.STORE, store.getText());
-        element.setProperty(ClientCertificateConfig.TYPE, type.getText());
+        element.setProperty(ClientCertificateConfig.TYPE, (String) type.getSelectedItem());
         char[] secret = password.getPassword();
         element.setProperty(ClientCertificateConfig.PASSWORD, new String(secret));
         Arrays.fill(secret, '\0');
@@ -106,7 +110,8 @@ public class ClientCertificateConfigGui extends AbstractConfigGui {
         String selected = ((ClientCertificateConfig) element).getMode();
         mode.setSelectedIndex(Math.max(0, Arrays.asList(MODES).indexOf(selected)));
         store.setText(element.getPropertyAsString(ClientCertificateConfig.STORE));
-        type.setText(element.getPropertyAsString(ClientCertificateConfig.TYPE, "PKCS12"));
+        type.setSelectedIndex(-1);
+        type.setSelectedItem(element.getPropertyAsString(ClientCertificateConfig.TYPE, "PKCS12").toUpperCase(Locale.ROOT));
         password.setText(element.getPropertyAsString(ClientCertificateConfig.PASSWORD));
         alias.setText(element.getPropertyAsString(ClientCertificateConfig.ALIAS));
         updateFields();
@@ -117,7 +122,7 @@ public class ClientCertificateConfigGui extends AbstractConfigGui {
         super.clearGui();
         mode.setSelectedIndex(0);
         store.setText("");
-        type.setText("PKCS12");
+        type.setSelectedItem("PKCS12");
         password.setText("");
         alias.setText("");
         updateFields();

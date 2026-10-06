@@ -30,11 +30,13 @@ import org.apache.jmeter.config.gui.ClientCertificateConfigGui;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ClientCertificateConfigGuiTest extends JMeterTestCase {
-    @Test
-    void editorPreservesVariableExpressionsAndAllModesInJmx() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"PKCS12", "JKS", "JCEKS"})
+    void editorPreservesVariableExpressionsAndAllModesInJmx(String type) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             ClientCertificateConfigGui gui = new ClientCertificateConfigGui();
             for (String mode : List.of(ClientCertificateConfig.INHERIT, ClientCertificateConfig.CERTIFICATE,
@@ -42,7 +44,7 @@ class ClientCertificateConfigGuiTest extends JMeterTestCase {
                 ClientCertificateConfig config = new ClientCertificateConfig();
                 config.setProperty(ClientCertificateConfig.MODE, mode);
                 config.setProperty(ClientCertificateConfig.STORE, "${certFile}");
-                config.setProperty(ClientCertificateConfig.TYPE, "PKCS12");
+                config.setProperty(ClientCertificateConfig.TYPE, type);
                 config.setProperty(ClientCertificateConfig.PASSWORD, "${certPassword}");
                 config.setProperty(ClientCertificateConfig.ALIAS, "${clientCertAlias}");
                 gui.configure(config);
@@ -66,6 +68,7 @@ class ClientCertificateConfigGuiTest extends JMeterTestCase {
             gui.clearGui();
             ClientCertificateConfig reset = (ClientCertificateConfig) gui.createTestElement();
             assertTrue(reset.isInherit());
+            assertEquals("PKCS12", reset.getPropertyAsString(ClientCertificateConfig.TYPE));
             assertEquals("", reset.getPropertyAsString(ClientCertificateConfig.PASSWORD));
         });
     }
