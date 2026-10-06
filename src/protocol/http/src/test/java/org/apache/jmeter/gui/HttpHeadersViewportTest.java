@@ -52,6 +52,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest {
     private boolean longButtonLabels;
+    private int extraTitleHeight = 32;
     @ParameterizedTest
     @CsvSource({
         "false, 500, 320, 0", "false, 700, 320, 100",
@@ -208,6 +209,9 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
                 headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 0);
                 headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 100);
                 veryShortEditorsCanScrollToHeaderActionsAndRecoverWhenEnlarged(sse, 500);
+                extraTitleHeight = 180;
+                headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 100);
+                extraTitleHeight = 32;
             }
         } finally {
             SwingUtilities.invokeAndWait(() -> {
@@ -227,7 +231,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             Container wrapper = (Container) editor.getComponent(0);
             Component title = ((BorderLayout) wrapper.getLayout()).getLayoutComponent(BorderLayout.NORTH);
             Dimension preferred = title.getPreferredSize();
-            title.setPreferredSize(new Dimension(preferred.width, preferred.height + 32));
+            title.setPreferredSize(new Dimension(preferred.width, preferred.height + extraTitleHeight));
         }
     }
 
@@ -261,10 +265,23 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
     }
 
     private static void layoutTree(Container container) {
+        List<Rectangle> previous = List.of();
+        for (int pass = 0; pass < 10; pass++) {
+            layoutOnce(container);
+            List<Rectangle> bounds = descendants(container, Component.class).stream().map(Component::getBounds).toList();
+            if (bounds.equals(previous)) {
+                return;
+            }
+            previous = bounds;
+        }
+        throw new AssertionError("Editor layout did not converge after 10 passes");
+    }
+
+    private static void layoutOnce(Container container) {
         container.doLayout();
         for (Component child : container.getComponents()) {
             if (child instanceof Container nested) {
-                layoutTree(nested);
+                layoutOnce(nested);
             }
         }
     }

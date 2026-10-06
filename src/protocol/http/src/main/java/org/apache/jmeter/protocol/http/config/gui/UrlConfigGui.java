@@ -733,7 +733,7 @@ public class UrlConfigGui extends JPanel {
                     largestContentHeight = Math.max(largestContentHeight, getComponentAt(i).getMinimumSize().height);
                 }
                 minimum.height += headersPanel.getMinimumSize().height - largestContentHeight;
-                if (headersPanel.getWidth() > 0 && headersPanel.getHeight() > 0) {
+                if (headersPanel.getWidth() > 0) {
                     // The minimum-size calculation can assume fewer tab rows than the current
                     // narrow layout. Include the actual tab strip and content-border height.
                     minimum.height = Math.max(minimum.height,

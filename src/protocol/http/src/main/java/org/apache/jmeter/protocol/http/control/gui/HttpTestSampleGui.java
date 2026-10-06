@@ -294,7 +294,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         Dimension minimum = super.getMinimumSize();
         if (isViewportHeightConstrained()) {
             Component headers = configTabbedPane.getSelectedComponent();
-            if (headers.getWidth() > 0 && headers.getHeight() > 0) {
+            if (headers.getWidth() > 0) {
                 // BorderLayout gives the title and URL bar their preferred heights, which
                 // can exceed their minimum heights with different fonts and look-and-feels.
                 minimum.height = Math.max(minimum.height,

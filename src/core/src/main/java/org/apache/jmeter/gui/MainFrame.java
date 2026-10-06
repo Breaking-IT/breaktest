@@ -904,6 +904,17 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         }
 
         @Override
+        public Dimension getPreferredSize() {
+            Dimension preferred = super.getPreferredSize();
+            if (getComponentCount() == 1
+                    && getComponent(0) instanceof AbstractJMeterGuiComponent editor
+                    && editor.isViewportHeightConstrained()) {
+                preferred.height = Math.max(preferred.height, getMinimumSize().height);
+            }
+            return preferred;
+        }
+
+        @Override
         public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
             return 16;
         }
