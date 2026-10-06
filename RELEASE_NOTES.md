@@ -13,10 +13,50 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
-# Unreleased
+# BreakTest 2026.10.06 — Native Test Utilities, Scoped Certificates, and Better Correlation
 
-- HTTP/3 now requires Java 27 or later. On older runtimes, explicit HTTP/3 samplers log a warning and fall back to HTTP/2 negotiation. Java 21 remains the minimum for other protocols.
-- CI now covers Java 21, 25, and 27, replacing Java 26 coverage.
+This release adds native tools for synthetic results, asynchronous coordination, and weighted traffic flows. Client certificates can be scoped to profiles and virtual users, while correlation and HTTP editing handle more recorded plans correctly.
+
+## Native Test Utilities
+
+- **Dummy Sampler:** generate HTTP, standard, or statistical results without network activity or a third-party plugin. Configure request and response content, status, timings, byte sizes, and binary payloads. Optional response-time simulation supports interruptible waits; invalid settings produce a failed result with diagnostics.
+- **Wait for value:** coordinate a main branch with asynchronous forks using Match all / Match any conditions and a configurable timeout. The sampler wakes on parameter changes without periodic polling. Successful waits are ignored in results by default, while timeouts remain visible. Dynamic values can remain unset or invalid until another branch supplies them; invalid literal conditions fail immediately.
+- **Weighted Switch Controller:** choose one direct child per entry using relative, non-negative weights. Weights follow children through renaming, reordering, copying, and saving. Disabled and zero-weight children are excluded. Selection is probabilistic, so weights do not enforce exact quotas.
+- **Native utility functions:** hashing, Base64 and hexadecimal encoding, string manipulation, conditional values, environment variables, iteration numbers, and epoch timestamps are available without a function plugin. Invalid arguments report warnings and clear the configured result variable rather than retaining an earlier value.
+
+Wait for value observes parameter writes within the same virtual user, including shared fork and parallel views. Global properties, external state, and objects changed in place do not trigger it; start the producer in an asynchronous fork before waiting.
+
+Sources: [#223](https://github.com/Breaking-IT/breaktest/pull/223), [#224](https://github.com/Breaking-IT/breaktest/pull/224), [#226](https://github.com/Breaking-IT/breaktest/pull/226), [#231](https://github.com/Breaking-IT/breaktest/pull/231).
+
+## Scoped Client Certificates
+
+- **Choose identities where they belong.** Client Certificate Config supports shared profiles, named profiles, thread groups, and closer controller or request scopes for HTTPS and secure WebSocket handshakes. Choose Inherit, Use certificate, or Send no client certificate; the selected configuration is applied as a whole.
+- **Select a certificate per virtual user.** Keystore paths, passwords, and aliases accept variables. PKCS12, JKS, and JCEKS files are supported; stores must contain a private key and certificate chain. Invalid settings fail the request rather than falling back to another identity.
+- **Keep authenticated connections isolated.** HTTP clients and TLS contexts are separated by resolved certificate identity. Existing WebSocket sessions retain their identity until closed or reconnected. Each distributed worker needs its own accessible keystore files and password values.
+
+Source: [#225](https://github.com/Breaking-IT/breaktest/pull/225).
+
+## More Reliable Correlation
+
+- **Preserve recorded URL encoding.** Correlation replacement accounts for raw and URL-encoded values, including values already encoded in the extracted response, so recorded parameters retain the encoding they need.
+- **Search the relevant earlier responses.** Previous-response search stays within the current thread group and follows earlier same-plan module references, including references across thread groups, while preserving fragment searches.
+- **Export individual custom correlation groups.** Share a selected group without exporting the entire custom rules collection.
+
+Sources: [#227](https://github.com/Breaking-IT/breaktest/pull/227), [#228](https://github.com/Breaking-IT/breaktest/pull/228), [#230](https://github.com/Breaking-IT/breaktest/pull/230).
+
+## HTTP Editor Fixes
+
+HTTP request copying now clones request state correctly. The Headers editor keeps its actions and rows accessible with wrapped tabs, narrow windows, and limited vertical space, and recovers its minimum size when content collapses. Script editors can grow again after the Wait for value editor changes.
+
+Sources: [#231](https://github.com/Breaking-IT/breaktest/pull/231), [#232](https://github.com/Breaking-IT/breaktest/pull/232).
+
+## Runtime Compatibility
+
+Java 21 remains the minimum runtime for other protocols, but **HTTP/3 now requires Java 27 or later**. On older runtimes, explicit HTTP/3 samplers log a warning and fall back to HTTP/2 negotiation. CI now covers Java 21, 25, and 27, replacing Java 26 coverage.
+
+Source: [#229](https://github.com/Breaking-IT/breaktest/pull/229).
+
+[Full changelog since 2026.10.05](https://github.com/Breaking-IT/breaktest/compare/2026.10.05...2026.10.06)
 
 # BreakTest 2026.10.05 — Native WebSocket & SSE, Better Recording, and AI Scripting
 

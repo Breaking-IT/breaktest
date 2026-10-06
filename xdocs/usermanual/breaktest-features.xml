@@ -25,13 +25,13 @@
 <section name="BreakTest Features And Differences">
 <p>
 This is the BreakTest manual. It documents the features and behavioral changes
-that are specific to BreakTest 2026.07.11. For the inherited JMeter-compatible
+that are specific to BreakTest 2026.10.06. For the inherited JMeter-compatible
 test-plan model, use the official Apache JMeter documentation.
 </p>
 
 <h2>Runtime Baseline</h2>
 <ul>
-  <li>Java 21 or later is required.</li>
+  <li>Java 21 or later is required. HTTP/3 requires Java 27 or later; on older runtimes, explicit HTTP/3 requests fall back to HTTP/2 negotiation with a warning.</li>
   <li>Virtual threads are used where they reduce thread overhead.</li>
   <li>Legacy BeanShell, BSF/JEXL2, Rhino JavaScript, and LogKit paths were removed from the modern scripting/runtime surface.</li>
   <li>JMeter-compatible names are retained where they are part of file formats, APIs, plugins, scripts, or automation.</li>
