@@ -881,7 +881,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         });
     }
 
-    private static class ScrollableMainPanel extends JPanel implements Scrollable {
+    static class ScrollableMainPanel extends JPanel implements Scrollable {
         private static final long serialVersionUID = 240L;
 
         ScrollableMainPanel() {
@@ -904,6 +904,17 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
         }
 
         @Override
+        public Dimension getPreferredSize() {
+            Dimension preferred = super.getPreferredSize();
+            if (getComponentCount() == 1
+                    && getComponent(0) instanceof AbstractJMeterGuiComponent editor
+                    && editor.isViewportHeightConstrained()) {
+                preferred.height = Math.max(preferred.height, getMinimumSize().height);
+            }
+            return preferred;
+        }
+
+        @Override
         public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
             return 16;
         }
@@ -920,6 +931,12 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
 
         @Override
         public boolean getScrollableTracksViewportHeight() {
+            if (getComponentCount() == 1
+                    && getComponent(0) instanceof AbstractJMeterGuiComponent editor
+                    && editor.isViewportHeightConstrained()) {
+                // Keep controls reachable when the window cannot fit even the minimum layout.
+                return getParent() != null && getMinimumSize().height <= getParent().getHeight();
+            }
             return getParent() != null && getPreferredSize().height <= getParent().getHeight();
         }
     }

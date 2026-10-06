@@ -72,6 +72,17 @@ import net.miginfocom.swing.MigLayout;
 public abstract class AbstractJMeterGuiComponent extends JPanel implements JMeterGUIComponent, Printable {
     private static final long serialVersionUID = 241L;
 
+    /**
+     * Whether the editor should fit the available height and scroll its content internally.
+     * The main viewport falls back to outer scrolling below the editor's minimum height.
+     * Editors may change this with the selected tab and must revalidate after doing so.
+     *
+     * @return true to keep the editor within the main viewport
+     */
+    public boolean isViewportHeightConstrained() {
+        return false;
+    }
+
     /** Logging */
     private static final Logger log = LoggerFactory.getLogger(AbstractJMeterGuiComponent.class);
 

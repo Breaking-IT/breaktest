@@ -53,6 +53,7 @@ import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.ResponseSelectionActions;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
+import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
@@ -282,6 +283,27 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         return menu; // $NON-NLS-1$
     }
 
+    @Override
+    public boolean isViewportHeightConstrained() {
+        return configTabbedPane != null
+                && configTabbedPane.getSelectedComponent() instanceof HeaderTablePanel;
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+        Dimension minimum = super.getMinimumSize();
+        if (isViewportHeightConstrained()) {
+            Component headers = configTabbedPane.getSelectedComponent();
+            if (headers.getWidth() > 0) {
+                // BorderLayout gives the title and URL bar their preferred heights, which
+                // can exceed their minimum heights with different fonts and look-and-feels.
+                minimum.height = Math.max(minimum.height,
+                        getHeight() - headers.getHeight() + headers.getMinimumSize().height);
+            }
+        }
+        return minimum;
+    }
+
     private void init() {// called from ctor, so must not be overridable
         setLayout(new BorderLayout(0, 5));
         setBorder(BorderFactory.createEmptyBorder());
@@ -299,7 +321,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
                 configTabbedPane.add(JMeterUtils.getResString("sse_settings"), ssePanel.getSettingsPanel());
                 configTabbedPane.add(JMeterUtils.getResString("sse_recorded_events"), ssePanel);
             }
-            configTabbedPane.addChangeListener(e -> populateSelectedRecordedHarTab());
+            configTabbedPane.addChangeListener(e -> {
+                populateSelectedRecordedHarTab();
+                revalidate();
+            });
 
             JPanel wrapper = new JPanel(new BorderLayout(0, 5));
             wrapper.setBorder(makeBorder());

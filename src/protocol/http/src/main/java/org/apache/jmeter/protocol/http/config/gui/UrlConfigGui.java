@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.config.gui;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -720,6 +721,27 @@ public class UrlConfigGui extends JPanel {
     class ValidationTabbedPane extends AbstractValidationTabbedPane {
 
         private static final long serialVersionUID = 7014311238367882881L;
+
+        @Override
+        public Dimension getMinimumSize() {
+            Dimension minimum = super.getMinimumSize();
+            if (headersPanel != null && getSelectedComponent() == headersPanel) {
+                // Swing reserves room for the largest hidden tab. Only the visible headers
+                // table and its action bar determine when this editor needs outer scrolling.
+                int largestContentHeight = 0;
+                for (int i = 0; i < getTabCount(); i++) {
+                    largestContentHeight = Math.max(largestContentHeight, getComponentAt(i).getMinimumSize().height);
+                }
+                minimum.height += headersPanel.getMinimumSize().height - largestContentHeight;
+                if (headersPanel.getWidth() > 0) {
+                    // The minimum-size calculation can assume fewer tab rows than the current
+                    // narrow layout. Include the actual tab strip and content-border height.
+                    minimum.height = Math.max(minimum.height,
+                            headersPanel.getMinimumSize().height + getHeight() - headersPanel.getHeight());
+                }
+            }
+            return minimum;
+        }
 
         @Override
         protected int getValidatedTabIndex(int currentTabIndex, int newTabIndex) {
