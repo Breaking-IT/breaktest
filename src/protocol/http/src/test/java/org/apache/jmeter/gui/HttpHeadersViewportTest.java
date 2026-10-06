@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -28,6 +29,7 @@ import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
@@ -61,6 +63,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             boolean sse, int width, int height, int headerCount) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HttpTestSampleGui editor = sse ? new SseSamplerGui() : new HttpTestSampleGui();
+            expandTitlePreferredHeight(editor);
             HTTPSamplerProxy sampler = sse ? new SseSampler() : new HTTPSamplerProxy();
             List<Header> headers = new ArrayList<>();
             for (int i = 0; i < headerCount; i++) {
@@ -105,7 +108,10 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
                     actions.stream().map(JButton::getActionCommand).toList());
             JTable table = descendants(headerPanel, JTable.class).get(0);
             JScrollPane tableScroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
-            assertTrue(tableScroll.getViewport().getHeight() >= table.getRowHeight(), "at least one header row must fit");
+            assertTrue(tableScroll.getViewport().getHeight() >= table.getRowHeight(),
+                    "at least one header row must fit: viewport=" + tableScroll.getViewport().getHeight()
+                    + ", row=" + table.getRowHeight() + ", minimum=" + main.getMinimumSize().height
+                    + ", available=" + outer.getViewport().getHeight());
             assertEquals(headerCount > 0, tableScroll.getVerticalScrollBar().isVisible());
             if (headerCount > 0) {
                 tableScroll.getVerticalScrollBar().setValue(200);
@@ -144,6 +150,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
     void veryShortEditorsCanScrollToHeaderActionsAndRecoverWhenEnlarged(boolean sse, int width) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             HttpTestSampleGui editor = sse ? new SseSamplerGui() : new HttpTestSampleGui();
+            expandTitlePreferredHeight(editor);
             HeaderTablePanel headers = descendants(editor, HeaderTablePanel.class).get(0);
             applyLongButtonLabels(headers);
             ((JTabbedPane) headers.getParent()).setSelectedComponent(headers);
@@ -177,7 +184,8 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             JTable table = descendants(headers, JTable.class).get(0);
             JScrollPane tableScroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
             assertTrue(tableScroll.getViewport().getHeight() >= table.getRowHeight(),
-                    "minimum height must leave room for a header row");
+                    "minimum height must leave room for a header row: viewport=" + tableScroll.getViewport().getHeight()
+                    + ", row=" + table.getRowHeight());
 
             outer.setSize(width, 450);
             layoutTree(outer);
@@ -213,8 +221,22 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
         }
     }
 
+    private void expandTitlePreferredHeight(HttpTestSampleGui editor) {
+        if (longButtonLabels) {
+            // BorderLayout allocates preferred height to the title, even when its minimum is smaller.
+            Container wrapper = (Container) editor.getComponent(0);
+            Component title = ((BorderLayout) wrapper.getLayout()).getLayoutComponent(BorderLayout.NORTH);
+            Dimension preferred = title.getPreferredSize();
+            title.setPreferredSize(new Dimension(preferred.width, preferred.height + 32));
+        }
+    }
+
     private void applyLongButtonLabels(HeaderTablePanel panel) {
         if (longButtonLabels) {
+            // Exercise extra viewport padding as used by platform look-and-feels.
+            JTable table = descendants(panel, JTable.class).get(0);
+            JScrollPane scroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
+            scroll.setViewportBorder(BorderFactory.createEmptyBorder(4, 2, 4, 2));
             // Match the wider fallback labels seen in CI without depending on global resource state.
             for (JButton button : descendants(panel, JButton.class)) {
                 String key = switch (button.getActionCommand()) {

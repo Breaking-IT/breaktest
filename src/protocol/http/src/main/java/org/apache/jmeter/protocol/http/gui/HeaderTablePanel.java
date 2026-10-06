@@ -183,9 +183,12 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
             @Override
             public Dimension getMinimumSize() {
                 Dimension minimum = super.getMinimumSize();
+                Insets viewportInsets = getViewportBorder() == null ? new Insets(0, 0, 0, 0)
+                        : getViewportBorder().getBorderInsets(this);
                 // A scrollbar's minimum alone can leave no room for rows on some look-and-feels.
                 minimum.height = Math.max(minimum.height, headerTable.getTableHeader().getPreferredSize().height
-                        + headerTable.getRowHeight() + getInsets().top + getInsets().bottom);
+                        + headerTable.getRowHeight() + getInsets().top + getInsets().bottom
+                        + viewportInsets.top + viewportInsets.bottom);
                 return minimum;
             }
         };
