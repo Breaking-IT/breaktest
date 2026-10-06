@@ -237,9 +237,9 @@ public class TestHTTPJavaHttp3Impl {
 
     @Test
     public void capabilityDetectionMatchesRuntimeFeatureVersion() {
-        // HTTP/3 arrived in the JDK HttpClient with Java 26 (JEP 517); capability
-        // detection must agree with the running JVM on any test toolchain.
-        assertEquals(Runtime.version().feature() >= 26, Http3RuntimeSupport.isHttp3Supported());
+        // BreakTest requires Java 27 even though the JDK introduced HTTP/3 in 26.
+        // Detection must enforce the minimum on every test toolchain.
+        assertEquals(Runtime.version().feature() >= 27, Http3RuntimeSupport.isHttp3Supported());
     }
 
     @Test
@@ -348,7 +348,7 @@ public class TestHTTPJavaHttp3Impl {
 
     private void sampleEndpoint(String endpoint, HTTPJavaHttp3Impl.Http3Discovery discovery,
             String... expectedProtocols) throws Exception {
-        assertTrue(Http3RuntimeSupport.isHttp3Supported(), "Requires Java 26+");
+        assertTrue(Http3RuntimeSupport.isHttp3Supported(), "Requires Java 27+");
         URL url = new URI(endpoint).toURL();
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setConnectTimeout("5000");
@@ -370,7 +370,7 @@ public class TestHTTPJavaHttp3Impl {
     @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_CERT_LIVE", matches = "true")
     public void ignoresSelfSignedCertificateByDefault() throws Exception {
         assertTrue(Http3RuntimeSupport.isHttp3Supported(),
-                "HTTP/3 certificate test requires a Java 26+ runtime");
+                "HTTP/3 certificate test requires a Java 27+ runtime");
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setConnectTimeout("5000");
@@ -559,7 +559,7 @@ public class TestHTTPJavaHttp3Impl {
         // HTTP/1.1), the server advertises HTTP/3 via Alt-Svc, and subsequent requests
         // to the same origin upgrade to HTTP/3.
         assertTrue(Http3RuntimeSupport.isHttp3Supported(),
-                "HTTP/3 live test requires a Java 26+ runtime");
+                "HTTP/3 live test requires a Java 27+ runtime");
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);
@@ -595,10 +595,10 @@ public class TestHTTPJavaHttp3Impl {
     @Tag("live-http3")
     @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_LIVE", matches = "true")
     public void http3SamplesLiveEndpointOnSupportedRuntime() {
-        // Requires a Java 26+ test JVM (-PjdkTestVersion=26) and network access to an
+        // Requires a Java 27+ test JVM (-PjdkTestVersion=27) and network access to an
         // HTTP/3-capable endpoint; opt in with BREAKTEST_HTTP3_LIVE=true.
         assertTrue(Http3RuntimeSupport.isHttp3Supported(),
-                "HTTP/3 live test requires a Java 26+ runtime");
+                "HTTP/3 live test requires a Java 27+ runtime");
 
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
         sampler.setProtocol(HTTPConstants.PROTOCOL_HTTPS);

@@ -44,7 +44,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       TZ: ${{ matrix.tz }}
-      BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '26' && 'true' || 'false' }}
+      BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '27' && 'true' || 'false' }}
       # Bound project concurrency; keep the existing test forks and JUnit isolation.
       GRADLE_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
     strategy:

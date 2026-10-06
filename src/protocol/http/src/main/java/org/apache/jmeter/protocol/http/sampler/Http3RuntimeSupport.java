@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
  * HTTP/3 sampling relies on {@code java.net.http.HttpClient} support introduced by
  * JEP 517 in Java 26 ({@code HttpClient.Version.HTTP_3}, {@code java.net.http.HttpOption}
  * and its {@code H3_DISCOVERY} option). BreakTest compiles against Java 21, so those
- * symbols are resolved reflectively, once, in this holder. Detection is all-or-nothing:
+ * symbols are resolved reflectively, once, in this holder on Java 27 or later. Detection is all-or-nothing:
  * either every symbol resolves and {@link #isHttp3Supported()} returns {@code true}, or
  * the runtime is treated as not HTTP/3 capable.
  */
@@ -68,14 +68,16 @@ public final class Http3RuntimeSupport {
         Object altSvcMode = null;
         Method setOption = null;
         try {
-            version = HttpClient.Version.valueOf("HTTP_3"); //$NON-NLS-1$
-            Class<?> httpOptionClass = Class.forName("java.net.http.HttpOption"); //$NON-NLS-1$
-            discoveryOption = httpOptionClass.getField("H3_DISCOVERY").get(null); //$NON-NLS-1$
-            Class<?> discoveryModeClass = discoveryModeClass();
-            uriOnlyMode = discoveryMode(discoveryModeClass, "HTTP_3_URI_ONLY"); //$NON-NLS-1$
-            anyMode = discoveryMode(discoveryModeClass, "ANY"); //$NON-NLS-1$
-            altSvcMode = discoveryMode(discoveryModeClass, "ALT_SVC"); //$NON-NLS-1$
-            setOption = HttpRequest.Builder.class.getMethod("setOption", httpOptionClass, Object.class); //$NON-NLS-1$
+            if (Runtime.version().feature() >= 27) {
+                version = HttpClient.Version.valueOf("HTTP_3"); //$NON-NLS-1$
+                Class<?> httpOptionClass = Class.forName("java.net.http.HttpOption"); //$NON-NLS-1$
+                discoveryOption = httpOptionClass.getField("H3_DISCOVERY").get(null); //$NON-NLS-1$
+                Class<?> discoveryModeClass = discoveryModeClass();
+                uriOnlyMode = discoveryMode(discoveryModeClass, "HTTP_3_URI_ONLY"); //$NON-NLS-1$
+                anyMode = discoveryMode(discoveryModeClass, "ANY"); //$NON-NLS-1$
+                altSvcMode = discoveryMode(discoveryModeClass, "ALT_SVC"); //$NON-NLS-1$
+                setOption = HttpRequest.Builder.class.getMethod("setOption", httpOptionClass, Object.class); //$NON-NLS-1$
+            }
         } catch (ReflectiveOperationException | IllegalArgumentException e) {
             log.debug("Java runtime {} has no HTTP/3 support: {}", Runtime.version(), e.toString());
             version = null;
@@ -111,7 +113,7 @@ public final class Http3RuntimeSupport {
     }
 
     /**
-     * @return true when the Java runtime (Java 26+) supports HTTP/3 in {@code java.net.http.HttpClient}
+     * @return true when the Java runtime (Java 27+) supports HTTP/3 in {@code java.net.http.HttpClient}
      */
     public static boolean isHttp3Supported() {
         return HTTP_3 != null;
@@ -124,7 +126,7 @@ public final class Http3RuntimeSupport {
     static void warnHttp3FallbackOnce() {
         if (FALLBACK_WARNED.compareAndSet(false, true)) {
             log.warn("HTTP/3 was selected on an HTTP Request sampler, but this Java runtime ({}) "
-                    + "does not support HTTP/3 (Java 26 or later is required). "
+                    + "does not meet BreakTest HTTP/3 requirements (Java 27 or later is required). "
                     + "Falling back to the HTTP/2 implementation (protocol negotiation).",
                     Runtime.version());
         }

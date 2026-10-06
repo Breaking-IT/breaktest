@@ -15,7 +15,7 @@ specific language governing permissions and limitations under the License.
 
 # HTTP/3 certificate integration tests
 
-Requires Java 26, Docker, OpenSSL, and keytool. Generate disposable certificates
+Requires Java 27, Docker, OpenSSL, and keytool. Generate disposable certificates
 in a fresh directory; nothing is installed into the machine's trust store:
 
 ```sh
@@ -29,20 +29,20 @@ docker run --rm -d --name breaktest-h3-review \
 export BREAKTEST_HTTP3_FIXTURE=/tmp/breaktest-h3-fixture
 export BREAKTEST_HTTP3_SELF_SIGNED_URL=https://localhost:19443/
 ./gradlew :src:protocol:http:test --tests '*TestHTTPJavaHttp3Impl' \
-  :src:core:test --tests '*UpdateService*Test' -PjdkTestVersion=26 \
+  :src:core:test --tests '*UpdateService*Test' -PjdkTestVersion=27 \
   -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true
 ./gradlew :src:protocol:http:test --tests '*HTTP3MutualTlsTest' \
-  -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
+  -PjdkTestVersion=27 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
   -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts"
 for retry in false true; do
   ./gradlew :src:protocol:http:test --tests '*HTTP3ScopedClientCertificateTest' \
-    -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
+    -PjdkTestVersion=27 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=true \
     -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts" \
     -Djmeter.properties.httpsampler.http3.ignore_certificate_errors="$retry"
 done
 ./gradlew :src:protocol:http:test \
   --tests '*TestHTTPJavaHttp3Impl.embeddedClientWithoutStartupSettingRejectsWrongHostname' \
-  -PjdkTestVersion=26 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=false
+  -PjdkTestVersion=27 -Djmeter.properties.jdk.internal.httpclient.disableHostnameVerification=false
 docker stop breaktest-h3-review
 ```
 
@@ -73,4 +73,4 @@ fixture CA; with retries enabled it deliberately leaves that CA untrusted, testi
 that the TLS probe and certificate-retry client preserve the scoped identity.
 Both modes also verify that global alias rotation keeps a bounded client cache,
 selects the next alias only when creating a new client, and preserves that alias
-through certificate retries. The Java 26 sampler TLS CI job runs both modes.
+through certificate retries. The Java 27 sampler TLS CI job runs both modes.

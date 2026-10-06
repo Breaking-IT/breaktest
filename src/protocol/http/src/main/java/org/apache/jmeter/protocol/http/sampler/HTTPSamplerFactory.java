@@ -78,7 +78,7 @@ public final class HTTPSamplerFactory {
     }
 
     /**
-     * When true and the runtime supports HTTP/3 (Java 26+), samplers with a blank/default
+     * When true and the runtime supports HTTP/3 (Java 27+), samplers with a blank/default
      * protocol use the JDK HTTP/3 client with Alt-Svc discovery (HTTP/3 preferred, falling
      * back to HTTP/2 or HTTP/1.1 per request) instead of HttpClient5 negotiation.
      * Samplers using features the HTTP/3 implementation does not support (multipart,
