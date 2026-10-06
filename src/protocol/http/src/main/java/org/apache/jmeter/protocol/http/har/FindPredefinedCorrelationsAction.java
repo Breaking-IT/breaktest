@@ -314,9 +314,21 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
     }
 
+    static String suggestedExportFilename(List<Rule> rules) {
+        List<String> groups = rules.stream().map(Rule::getGroup).distinct().toList();
+        if (groups.size() == 1) {
+            String group = groups.get(0).replaceAll("[^\\p{L}\\p{N}._-]+", "-")
+                    .replaceAll("^[.-]+|[.-]+$", "");
+            if (!group.isEmpty()) {
+                return group + "-correlations.json";
+            }
+        }
+        return "custom-predefined-correlations.json";
+    }
+
     private static void exportCustomRules(GuiPackage gui, List<Rule> rules) {
         JFileChooser chooser = FileDialoger.promptToSaveFile(
-                "custom-predefined-correlations.json", new String[] {".json"});
+                suggestedExportFilename(rules), new String[] {".json"});
         if (chooser == null) {
             return;
         }
