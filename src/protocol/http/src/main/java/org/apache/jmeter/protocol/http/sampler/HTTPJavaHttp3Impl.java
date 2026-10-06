@@ -62,6 +62,7 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.io.CountingInputStream;
 import org.apache.jorphan.util.StringUtilities;
@@ -142,7 +143,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             "transfer-encoding", //$NON-NLS-1$
             "te"); //$NON-NLS-1$
 
-    private static final ConcurrentMap<Object, Map<Http3ClientKey, HttpClient>>
+    private static final ConcurrentMap<Object, Map<Http3ClientKey, Http3ClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
     private volatile @Nullable CompletableFuture<HttpResponse<InputStream>> currentCall;
@@ -213,7 +214,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         res.setHTTPMethod(method);
         res.setURL(url);
 
-        HttpClient client;
+        Http3ClientState client;
         HttpRequest request;
         long requestBodyBytes;
         String destinationEndpoint = null;
@@ -235,7 +236,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         try {
             HttpResponse<InputStream> response;
             try {
-                response = send(client, request);
+                response = send(client.client(), request);
             } catch (Exception firstFailure) {
                 Throwable cause = unwrapExecutionException(firstFailure);
                 if (!IGNORE_CERTIFICATE_ERRORS || !isCertificateValidationFailure(cause)) {
@@ -244,7 +245,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 log.debug("HTTP/3 certificate validation failed for {}; retrying with the "
                         + "certificate observed through JMeter's lenient TLS context", url);
                 try {
-                    response = send(setupLenientClient(url), request);
+                    response = send(setupLenientClient(url, client).client(), request);
                 } catch (Exception retryFailure) {
                     retryFailure.addSuppressed(cause);
                     throw retryFailure;
@@ -381,50 +382,51 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
     }
 
-    private HttpClient setupClient(URL url) throws Exception {
+    private Http3ClientState setupClient(URL url) throws Exception {
         Http3ClientKey key = new Http3ClientKey(
                 getConnectTimeout(),
                 getAutoRedirects(),
                 getIpSourceAddress(),
-                null);
-        Map<Http3ClientKey, HttpClient> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
+                null, clientCertificateIdentity(url));
+        Map<Http3ClientKey, Http3ClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
                 .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
         synchronized (clients) {
             if (IGNORE_CERTIFICATE_ERRORS) {
                 Http3ClientKey lenientKey = new Http3ClientKey(
-                        key.connectTimeout(), key.autoRedirect(), key.localAddress(), trustedOrigin(url));
-                HttpClient lenientClient = clients.get(lenientKey);
+                        key.connectTimeout(), key.autoRedirect(), key.localAddress(), trustedOrigin(url), key.clientIdentity());
+                Http3ClientState lenientClient = clients.get(lenientKey);
                 if (lenientClient != null) {
                     return lenientClient;
                 }
             }
-            HttpClient client = clients.get(key);
+            Http3ClientState client = clients.get(key);
             if (client != null) {
                 return client;
             }
-            client = buildClient(key, ((JsseSSLManager) SSLManager.getInstance()).createQuicContext());
+            // A legacy rotating alias is selected once for this cached client, not on every request.
+            AsyncClientIdentity identity = key.clientIdentity() == null
+                    ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity() : key.clientIdentity();
+            client = new Http3ClientState(key, buildClient(key, identity.createQuicContext()), identity);
             log.debug("Created new HTTP/3 HttpClient: @{} {}", System.identityHashCode(client), key);
             clients.put(key, client);
             return client;
         }
     }
 
-    private HttpClient setupLenientClient(URL url) throws Exception {
-        String trustedOrigin = trustedOrigin(url);
-        Http3ClientKey key = new Http3ClientKey(
-                getConnectTimeout(),
-                getAutoRedirects(),
-                getIpSourceAddress(),
-                trustedOrigin);
-        Map<Http3ClientKey, HttpClient> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
+    private Http3ClientState setupLenientClient(URL url, Http3ClientState original) throws Exception {
+        Http3ClientKey originalKey = original.key();
+        Http3ClientKey key = new Http3ClientKey(originalKey.connectTimeout(), originalKey.autoRedirect(),
+                originalKey.localAddress(), trustedOrigin(url), originalKey.clientIdentity());
+        Map<Http3ClientKey, Http3ClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
                 .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
         synchronized (clients) {
-            HttpClient client = clients.get(key);
+            Http3ClientState client = clients.get(key);
             if (client != null) {
                 return client;
             }
-            SSLContext sslContext = createQuicCompatibleLenientContext(url);
-            client = buildClient(key, sslContext);
+            // Retrying must keep the exact identity of the failed attempt, including global rotation.
+            SSLContext sslContext = createQuicCompatibleLenientContext(url, original.identity());
+            client = new Http3ClientState(key, buildClient(key, sslContext), original.identity());
             log.debug("Created certificate-lenient HTTP/3 HttpClient: @{} {}",
                     System.identityHashCode(client), key);
             clients.put(key, client);
@@ -432,17 +434,18 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
     }
 
-    private SSLContext createQuicCompatibleLenientContext(URL url) throws Exception {
-        X509Certificate[] certificates = captureServerCertificates(url);
+    private SSLContext createQuicCompatibleLenientContext(URL url, AsyncClientIdentity identity) throws Exception {
+        X509Certificate[] certificates = captureServerCertificates(url, identity);
         KeyStore trustStore = KeyStore.getInstance(KeyStore.getDefaultType());
         trustStore.load(null, null);
         for (int i = 0; i < certificates.length; i++) {
             trustStore.setCertificateEntry("http3-peer-" + i, certificates[i]);
         }
-        return ((JsseSSLManager) SSLManager.getInstance()).createContextWithTrustStore(trustStore);
+        return identity == null ? ((JsseSSLManager) SSLManager.getInstance()).createContextWithTrustStore(trustStore)
+                : identity.createContextWithTrustStore(trustStore);
     }
 
-    private X509Certificate[] captureServerCertificates(URL url) throws Exception {
+    private X509Certificate[] captureServerCertificates(URL url, AsyncClientIdentity identity) throws Exception {
         String host = url.getHost();
         int port = url.getPort() > 0 ? url.getPort() : url.getDefaultPort();
         int connectTimeout = getConnectTimeout();
@@ -459,7 +462,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
             plainSocket.connect(new InetSocketAddress(host, port), probeConnectTimeout);
             plainSocket.setSoTimeout(probeResponseTimeout);
-            SSLContext jmeterContext = ((JsseSSLManager) SSLManager.getInstance()).getContext();
+            SSLContext jmeterContext = identity == null ? ((JsseSSLManager) SSLManager.getInstance()).getContext()
+                    : identity.createContext();
             try (SSLSocket sslSocket = (SSLSocket) jmeterContext.getSocketFactory()
                     .createSocket(plainSocket, host, port, true)) {
                 sslSocket.startHandshake();
@@ -853,14 +857,14 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey()));
     }
 
-    private static void closeClients(@Nullable Map<Http3ClientKey, HttpClient> clients) {
+    private static void closeClients(@Nullable Map<Http3ClientKey, Http3ClientState> clients) {
         if (clients == null) {
             return;
         }
         synchronized (clients) {
-            for (HttpClient client : clients.values()) {
+            for (Http3ClientState client : clients.values()) {
                 // shutdownNow instead of close: do not block thread teardown on in-flight exchanges
-                client.shutdownNow();
+                client.client().shutdownNow();
             }
             clients.clear();
         }
@@ -880,8 +884,11 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         return call != null;
     }
 
+    private record Http3ClientState(Http3ClientKey key, HttpClient client, AsyncClientIdentity identity) {
+    }
+
     private record Http3ClientKey(int connectTimeout, boolean autoRedirect,
-            @Nullable InetAddress localAddress, @Nullable String trustedOrigin) {
+            @Nullable InetAddress localAddress, @Nullable String trustedOrigin, @Nullable AsyncClientIdentity clientIdentity) {
 
         @Override
         public String toString() {

@@ -29,7 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -100,6 +102,9 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
         JMeterVariables user = new JMeterVariables();
         JMeterVariables otherUser = new JMeterVariables();
         user.put("existing", "unchanged");
+        // JMeter preloads start timestamps when an engine has already run in this JVM.
+        Map<String, Object> expected = new HashMap<>();
+        user.entrySet().forEach(entry -> expected.put(entry.getKey(), entry.getValue()));
         String text = "prefix {ping: true} suffix" + (char) 30;
         match.setMatchMode(WebSocketMatchController.REGEX);
         match.setMatchValue("(ping)");
@@ -107,13 +112,14 @@ class WebSocketMatchControllerTest extends JMeterTestCase {
         var noSave = match.matcher();
         assertTrue(noSave.match(message(text, false)));
         noSave.saveMessage(message(text, false), user);
-        assertEquals(1, user.entrySet().size());
+        assertEquals(expected.entrySet(), user.entrySet());
         match.setSaveMessageVariable("received.message");
         var save = match.matcher();
         save.saveMessage(message(text, false), user);
         assertEquals(text, user.get("received.message"));
         assertNull(otherUser.get("received.message"));
-        assertEquals(2, user.entrySet().size(), "No automatic capture or prefix variables");
+        expected.put("received.message", text);
+        assertEquals(expected.entrySet(), user.entrySet(), "No automatic capture or prefix variables");
         SampleResult binary = message("", true);
         binary.setResponseData(new byte[] {0, (byte) 255, 7, 30});
         save.saveMessage(binary, user);

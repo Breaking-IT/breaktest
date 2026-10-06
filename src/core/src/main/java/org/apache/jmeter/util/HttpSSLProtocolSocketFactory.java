@@ -56,6 +56,8 @@ public class HttpSSLProtocolSocketFactory
         }
     }
 
+    private final SSLSocketFactory boundFactory;
+
     private final int cps; // Characters per second to emulate
 
     public HttpSSLProtocolSocketFactory() {
@@ -63,7 +65,12 @@ public class HttpSSLProtocolSocketFactory
     }
 
     public HttpSSLProtocolSocketFactory(int cps) {
+        this(cps, null);
+    }
+
+    public HttpSSLProtocolSocketFactory(int cps, SSLSocketFactory boundFactory) {
         this.cps = cps;
+        this.boundFactory = boundFactory;
     }
 
 
@@ -105,7 +112,10 @@ public class HttpSSLProtocolSocketFactory
         return sb.toString();
     }
 
-    private static SSLSocketFactory getSSLSocketFactory() throws IOException {
+    private SSLSocketFactory getSSLSocketFactory() throws IOException {
+        if (boundFactory != null) {
+            return boundFactory;
+        }
         try {
             SSLContext sslContext = ((JsseSSLManager)SSLManager.getInstance()).getContext();
             return sslContext.getSocketFactory();

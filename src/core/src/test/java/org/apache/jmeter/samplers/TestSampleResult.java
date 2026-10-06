@@ -56,47 +56,50 @@ class TestSampleResult implements JMeterSerialTest {
     }
 
     @Test
-    void testPauseFalse() throws Exception {
-        SampleResult res = new SampleResult(false);
-        // Check sample increments OK
-        res.sampleStart();
-        long totalSampleTime = sleep(100); // accumulate the time spent 'sampling'
-        res.samplePause();
-
-        Thread.sleep(200); // This should be ignored
-
-        // Re-increment
-        res.sampleResume();
-        totalSampleTime += sleep(100);
-        res.sampleEnd();
-        long sampleTime = res.getTime();
-        assertAlmostEquals(totalSampleTime, sampleTime, 50, "Accumulated sample time");
+    void testPauseFalse() {
+        testPause(false);
     }
 
-    private static void assertAlmostEquals(long expected, long actual, long delta, String message) {
-        long actualDelta = Math.abs(expected - actual);
-        if (actualDelta > delta) {
-            Assertions.fail(() -> message + ", expected " + expected
-                    + " within delta of " + delta + ", but got " + actual
-                    + " which results in actual delta of " + actualDelta);
-        }
-    }
     @Test
-    void testPauseTrue() throws Exception {
-        SampleResult res = new SampleResult(true);
-        // Check sample increments OK
+    void testPauseTrue() {
+        testPause(true);
+    }
+
+    private static void testPause(boolean nanoTime) {
+        // Exercise pause accounting independently of scheduler and JIT delays.
+        ClockedSampleResult res = new ClockedSampleResult(nanoTime);
         res.sampleStart();
-        long totalSampleTime = sleep(100); // accumulate the time spent 'sampling'
+        res.advance(100);
         res.samplePause();
-
-        Thread.sleep(200); // this should be ignored
-
-        // Re-increment
+        res.advance(200);
         res.sampleResume();
-        totalSampleTime += sleep(100);
+        res.advance(100);
+        res.samplePause();
+        res.advance(300);
+        res.sampleResume();
+        res.advance(50);
         res.sampleEnd();
-        long sampleTime = res.getTime();
-        assertAlmostEquals(totalSampleTime, sampleTime, 50, "Accumulated sample time");
+        Assertions.assertEquals(250, res.getTime(), "Only active intervals count towards sample time");
+        Assertions.assertEquals(500, res.getIdleTime(), "Both pauses accumulate as idle time");
+        Assertions.assertEquals(750, res.getEndTime() - res.getStartTime());
+    }
+
+    private static final class ClockedSampleResult extends SampleResult {
+        private static final long serialVersionUID = 1L;
+        private long clock = 1000;
+
+        private ClockedSampleResult(boolean nanoTime) {
+            super(nanoTime);
+        }
+
+        private void advance(long millis) {
+            clock += millis;
+        }
+
+        @Override
+        public long currentTimeInMillis() {
+            return clock;
+        }
     }
 
     private LogRecordingDelegatingLogger recordLogger;
@@ -371,14 +374,6 @@ class TestSampleResult implements JMeterSerialTest {
             res.setEncodingAndType(contentType);
             Assertions.assertEquals("text", res.getDataType(), contentType);
         }
-    }
-
-    // sleep and return how long we actually slept
-    // may be rather longer if the system is busy
-    private static long sleep(long ms) throws InterruptedException {
-        long start = System.currentTimeMillis();
-        Thread.sleep(ms);
-        return System.currentTimeMillis() - start;
     }
 
     @Test

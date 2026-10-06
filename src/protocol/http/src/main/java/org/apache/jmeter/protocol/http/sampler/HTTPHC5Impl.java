@@ -171,6 +171,7 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
+import org.apache.jmeter.util.JsseSSLManager.AsyncClientIdentity;
 import org.apache.jmeter.util.SSLManager;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -726,13 +727,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private static final class HttpClientState {
         private final CloseableHttpClient client;
+        private final AsyncClientIdentity clientIdentity;
+        private final Map<HttpClientKey, HttpClientState> ownerClients;
         private final PoolingHttpClientConnectionManager connectionManager;
         private final HttpHost proxyHost;
         private AuthExchange proxyAuthExchange;
 
         private HttpClientState(CloseableHttpClient client, PoolingHttpClientConnectionManager connectionManager,
-                HttpHost proxyHost) {
+                HttpHost proxyHost, AsyncClientIdentity clientIdentity, Map<HttpClientKey, HttpClientState> ownerClients) {
             this.client = client;
+            this.clientIdentity = clientIdentity;
+            this.ownerClients = ownerClients;
             this.connectionManager = connectionManager;
             this.proxyHost = proxyHost;
         }
@@ -1012,7 +1017,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         } finally {
             JOrphanUtils.closeQuietly(httpResponse);
             currentRequest = null;
-            JMeterContextService.getContext().getSamplerContext().remove(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            // Embedded workers share this context. Only the page request may remove
+            // the owner after all descendants finish; an early worker must not clear it.
+            if (frameDepth == 0) {
+                JMeterContextService.getContext().getSamplerContext().remove(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            }
         }
         return res;
     }
@@ -1235,6 +1244,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      */
     private static final class HttpClientKey {
 
+        private final AsyncClientIdentity clientIdentity;
         private final String protocol;
         private final String authority;
         private final boolean hasProxy;
@@ -1256,9 +1266,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
          * @param proxyPass proxy password
          */
         private HttpClientKey(URL url, boolean hasProxy, String proxyScheme, String proxyHost,
-                int proxyPort, String proxyUser, String proxyPass) {
+                int proxyPort, String proxyUser, String proxyPass, AsyncClientIdentity clientIdentity) {
             // N.B. need to separate protocol from authority otherwise http://server would match https://erver (<= sic, not typo error)
             // could use separate fields, but simpler to combine them
+            this.clientIdentity = clientIdentity;
             this.protocol = url.getProtocol();
             this.authority = url.getAuthority();
             this.hasProxy = hasProxy;
@@ -1280,6 +1291,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 hash = hash*31 + getHash(proxyUser);
                 hash = hash*31 + getHash(proxyPass);
             }
+            hash = hash*31 + Objects.hashCode(clientIdentity);
             hash = hash*31 + getHash(protocol);
             hash = hash*31 + getHash(authority);
             return hash;
@@ -1300,7 +1312,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             if (!Objects.equals(authority, other.authority) ||
                     !Objects.equals(protocol, other.protocol) ||
-                    hasProxy != other.hasProxy) {
+                    hasProxy != other.hasProxy || !Objects.equals(clientIdentity, other.clientIdentity)) {
                 return false;
             }
             if (!hasProxy) {
@@ -1343,8 +1355,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     private HttpClientState setupClient(HttpClientKey key, JMeterVariables jMeterVariables,
             HttpClientContext clientContext) throws GeneralSecurityException {
-        Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey =
-                HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        HttpClientState parent = testElement.isConcurrentDwn() ? (HttpClientState) JMeterContextService.getContext()
+                .getSamplerContext().get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE) : null;
+        // Download workers borrow the owning user's cache. Any additional identity/route
+        // pools they need are therefore also closed when that user finishes.
+        Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey = parent == null
+                ? HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get() : parent.ownerClients;
         synchronized (mapHttpClientPerHttpClientKey) {
             return setupClient(key, jMeterVariables, clientContext, mapHttpClientPerHttpClientKey);
         }
@@ -1359,8 +1375,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         boolean concurrentDwn = this.testElement.isConcurrentDwn();
         Map<String, Object> samplerContext = JMeterContextService.getContext().getSamplerContext();
         if(concurrentDwn) {
-            clientState = (HttpClientState)
-                    samplerContext.get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            HttpClientState parent = (HttpClientState) samplerContext.get(CONTEXT_ATTRIBUTE_PARENT_SAMPLE_CLIENT_STATE);
+            if (parent != null && Objects.equals(parent.clientIdentity, key.clientIdentity)) {
+                clientState = parent;
+            }
         }
         if (clientState == null) {
             clientState = mapHttpClientPerHttpClientKey.get(key);
@@ -1390,7 +1408,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 };
             }
             Registry<ConnectionSocketFactory> registry = RegistryBuilder.<ConnectionSocketFactory> create().
-                    register("https", new LazyLayeredConnectionSocketFactoryHC5()).
+                    register("https", (key.clientIdentity == null ? new LazyLayeredConnectionSocketFactoryHC5()
+                            : new LazyLayeredConnectionSocketFactoryHC5(key.clientIdentity.createContext()))).
                     register("http", CONNECTION_SOCKET_FACTORY).
                     build();
 
@@ -1484,7 +1503,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (log.isDebugEnabled()) {
                 log.debug("Created new HttpClient: @{} {}", System.identityHashCode(httpClient), key);
             }
-            clientState = new HttpClientState(httpClient, pHCCM, proxy);
+            clientState = new HttpClientState(httpClient, pHCCM, proxy, key.clientIdentity, mapHttpClientPerHttpClientKey);
             mapHttpClientPerHttpClientKey.put(key, clientState); // save the agent for next time round
         } else {
             if (log.isDebugEnabled()) {
@@ -1503,10 +1522,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         return DefaultAuthenticationStrategy.INSTANCE;
     }
 
-    private HttpClientKey createHttpClientKey(URL url, HttpContext context) {
+    private HttpClientKey createHttpClientKey(URL url, HttpContext context) throws GeneralSecurityException {
         ProxySettings proxy = resolveProxy(url, context);
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password());
+                proxy.username(), proxy.password(), clientCertificateIdentity(url));
     }
 
     /**

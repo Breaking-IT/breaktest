@@ -16,15 +16,16 @@ fixture_dir="${1:?Usage: create-fixture.sh output-directory}"
 mkdir -p "$fixture_dir"
 cd "$fixture_dir"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -days 2 -subj '/CN=BreakTest HTTP3 Fixture CA'
-for name in selfsigned expired wronghost server client; do
+for name in selfsigned expired wronghost server client client-alice client-bob; do
     cert_host=localhost
     if [[ "$name" == wronghost ]]; then cert_host=wrong.example; fi
     if [[ "$name" == client ]]; then cert_host=fixture-client; fi
+    if [[ "$name" == client-* ]]; then cert_host="${name#client-}"; fi
     if [[ "$name" == server ]]; then cert_host=mtls.example.test; fi
     openssl req -new -newkey rsa:2048 -nodes -keyout "$name.key" -out "$name.csr" -subj "/CN=$cert_host"
     printf 'subjectAltName=DNS:%s\n' "$cert_host" > "$name.ext"
-    if [[ "$name" == client ]]; then echo 'extendedKeyUsage=clientAuth' >> "$name.ext"; fi
-    if [[ "$name" == server || "$name" == client ]]; then
+    if [[ "$name" == client* ]]; then echo 'extendedKeyUsage=clientAuth' >> "$name.ext"; fi
+    if [[ "$name" == server || "$name" == client* ]]; then
         openssl x509 -req -in "$name.csr" -CA ca.pem -CAkey ca.key -CAcreateserial -out "$name.pem" -days 2 -extfile "$name.ext"
     elif [[ "$name" == expired ]]; then
         keytool -genkeypair -alias expired -keyalg RSA -keystore expired.p12 -storetype PKCS12 -storepass password -keypass password -dname 'CN=localhost' -ext 'SAN=dns:localhost' -startdate '2020/01/01 00:00:00' -validity 1
@@ -35,6 +36,10 @@ for name in selfsigned expired wronghost server client; do
     fi
 done
 openssl pkcs12 -export -in client.pem -inkey client.key -certfile ca.pem -name fixture-client -out client.p12 -passout pass:password
+for name in alice bob; do
+    openssl pkcs12 -export -in "client-$name.pem" -inkey "client-$name.key" -certfile ca.pem -name "$name" -out "$name.p12" -passout pass:password
+    keytool -importkeystore -noprompt -srckeystore "$name.p12" -srcstoretype PKCS12 -srcstorepass password -srcalias "$name" -destkeystore users.p12 -deststoretype PKCS12 -deststorepass password -destalias "$name"
+done
 keytool -importcert -noprompt -alias fixture-ca -file ca.pem -keystore trust.jks -storetype JKS -storepass password
 echo '127.0.0.1 localhost mtls.example.test' > hosts
 cat > Caddyfile <<'CADDY'
@@ -62,6 +67,7 @@ https://mtls.example.test:19446 {
             trust_pool file /fixture/ca.pem
         }
     }
+    respond /identity "{http.request.tls.client.subject}"
     respond "mtls"
 }
 CADDY
