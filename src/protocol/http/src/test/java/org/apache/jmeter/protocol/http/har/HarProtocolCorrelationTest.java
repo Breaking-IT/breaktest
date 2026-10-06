@@ -148,7 +148,6 @@ class HarProtocolCorrelationTest extends JMeterTestCase {
         var replacement = correlation.getReplacements().get(0);
         String reference = "${__urldecode(${xsrf_cookie_token})}";
         assertEquals(reference, HarPredefinedCorrelation.variableReference(correlation, replacement));
-        assertEquals(List.of("encoded+token=="), HarPredefinedCorrelation.replacementVariants(correlation, replacement));
         HarImportOptions options = new HarImportOptions();
         options.setPredefinedCorrelations(matches);
         HashTree tree = new HarConverter(List.of(source, target), options, "synthetic.har", "test")
