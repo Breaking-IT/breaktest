@@ -557,6 +557,23 @@ common scenarios across several specialized thread groups.
   <li>Shutdown no longer waits for timers to complete; it waits for in-flight server responses to finish cleanly.</li>
 </ul>
 
+<h2>Weighted Switch Controller</h2>
+<p>Add a Weighted Switch Controller from the Logic Controllers menu to randomly run one direct
+child each time the controller is entered. The table automatically lists child samplers and
+controllers, including transactions and modules. Configuration elements are not selectable branches.</p>
+<p>Edit the Weight column to set a finite, non-negative number. New children default to 1.
+Weights are relative: 3 and 1 give probabilities of 75% and 25%; they do not need to add up to 100.
+Decimals are supported. Zero-weight and disabled children are excluded. If no child has a positive
+weight, the controller runs nothing. Invalid weights are rejected in the editor and fail execution
+if introduced directly into a plan file.</p>
+<p>A chosen controller runs its entire branch. Selection happens once per iteration, independently
+for each virtual user; observed proportions converge over many iterations rather than enforcing
+exact quotas. An empty or completed selected branch does not fall through to another child.</p>
+<p>Weights are saved on the child elements, so they survive renaming, reordering, copying and
+saving/reopening the plan, including children with duplicate names. Moving a weighted child into
+another Weighted Switch Controller retains its weight. The Enabled column is read-only; enable or
+disable children in the test tree.</p>
+
 <h2>Parallel And Fork Controllers</h2>
 <ul>
   <li>Parallel Controller runs child samplers concurrently with bounded scheduling.</li>
