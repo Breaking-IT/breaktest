@@ -27,6 +27,7 @@ import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.Test;
 
 class PreviousResponseSearchTest {
@@ -37,10 +38,13 @@ class PreviousResponseSearchTest {
         var plan = new JMeterTreeNode(new TestPlan(), null);
         plan.setName("Test Plan");
         root.add(plan);
+        var threadGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        threadGroup.setName("Users");
+        plan.add(threadGroup);
         var transaction = new JMeterTreeNode(new TransactionController(), null);
         transaction.setName("Login");
         transaction.getTestElement().setProperty("recording", "source");
-        plan.add(transaction);
+        threadGroup.add(transaction);
         var previous = new JMeterTreeNode(new HTTPSamplerProxy(), null);
         previous.setName("Token");
         transaction.add(previous);
@@ -52,12 +56,47 @@ class PreviousResponseSearchTest {
         assertEquals(1, candidates.size());
         var candidate = candidates.get(0);
         assertSame(previous, candidate.target());
-        assertEquals("Test Plan / Login / Token", candidate.path());
+        assertEquals("Test Plan / Users / Login / Token", candidate.path());
         assertNotSame(previous.getTestElement(), candidate.snapshot().getTestElement());
         var parent = (JMeterTreeNode) candidate.snapshot().getParent();
         transaction.getTestElement().setProperty("recording", "changed");
         assertEquals("source", parent.getTestElement().getPropertyAsString("recording"));
         assertTrue(PreviousResponseSearch.previousSamplers(previous).isEmpty());
+    }
+
+    @Test
+    void excludesOtherThreadGroupsButIncludesEarlierTransactionsInTheSameGroup() {
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        var otherGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        plan.add(otherGroup);
+        otherGroup.add(new JMeterTreeNode(new HTTPSamplerProxy(), null));
+        var threadGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        plan.add(threadGroup);
+        var earlierTransaction = new JMeterTreeNode(new TransactionController(), null);
+        threadGroup.add(earlierTransaction);
+        var previous = new JMeterTreeNode(new HTTPSamplerProxy(), null);
+        earlierTransaction.add(previous);
+        var transaction = new JMeterTreeNode(new TransactionController(), null);
+        threadGroup.add(transaction);
+        var current = new JMeterTreeNode(new HTTPSamplerProxy(), null);
+        transaction.add(current);
+        transaction.add(new JMeterTreeNode(new HTTPSamplerProxy(), null));
+
+        assertEquals(List.of(previous), PreviousResponseSearch.previousSamplers(current)
+                .stream().map(PreviousResponseSearch.Candidate::target).toList());
+        assertTrue(PreviousResponseSearch.previousSamplers(previous).isEmpty());
+    }
+
+    @Test
+    void doesNotSearchThePlanWhenCurrentSamplerHasNoThreadGroup() {
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        var threadGroup = new JMeterTreeNode(new ThreadGroup(), null);
+        plan.add(threadGroup);
+        threadGroup.add(new JMeterTreeNode(new HTTPSamplerProxy(), null));
+        var current = new JMeterTreeNode(new HTTPSamplerProxy(), null);
+        plan.add(current);
+
+        assertTrue(PreviousResponseSearch.previousSamplers(current).isEmpty());
     }
 
     @Test

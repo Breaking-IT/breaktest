@@ -46,6 +46,7 @@ import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 
 /** Literal parameter-value lookup in earlier recorded HTTP responses. */
@@ -60,7 +61,14 @@ final class PreviousResponseSearch {
     // Take detached copies on the EDT so recording I/O can run without reading a changing GUI tree.
     static List<Candidate> previousSamplers(JMeterTreeNode current) {
         List<Candidate> candidates = new ArrayList<>();
-        var nodes = ((JMeterTreeNode) current.getRoot()).preorderEnumeration();
+        JMeterTreeNode threadGroup = current;
+        while (threadGroup != null && !(threadGroup.getTestElement() instanceof AbstractThreadGroup)) {
+            threadGroup = (JMeterTreeNode) threadGroup.getParent();
+        }
+        if (threadGroup == null) {
+            return candidates;
+        }
+        var nodes = threadGroup.preorderEnumeration();
         while (nodes.hasMoreElements()) {
             JMeterTreeNode node = (JMeterTreeNode) nodes.nextElement();
             if (node == current) {
