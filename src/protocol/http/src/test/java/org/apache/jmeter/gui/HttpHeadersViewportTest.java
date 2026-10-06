@@ -32,7 +32,9 @@ import javax.swing.JButton;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.LookAndFeel;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
@@ -41,10 +43,12 @@ import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.sse.SseSampler;
 import org.apache.jmeter.protocol.sse.SseSamplerGui;
+import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
-class HttpHeadersViewportTest extends JMeterTestCase {
+class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest {
     @ParameterizedTest
     @CsvSource({
         "false, 500, 320, 0", "false, 700, 320, 100",
@@ -75,8 +79,11 @@ class HttpHeadersViewportTest extends JMeterTestCase {
             layoutTree(outer);
             layoutTree(outer);
 
-            assertEquals(outer.getViewport().getHeight(), main.getHeight());
-            assertFalse(outer.getVerticalScrollBar().isVisible());
+            boolean fits = main.getMinimumSize().height <= outer.getViewport().getHeight();
+            assertEquals(!fits, outer.getVerticalScrollBar().isVisible());
+            if (fits) {
+                assertEquals(outer.getViewport().getHeight(), main.getHeight());
+            }
             Rectangle visible = new Rectangle(outer.getViewport().getExtentSize());
             List<JButton> actions = new ArrayList<>();
             for (JButton button : descendants(headerPanel, JButton.class)) {
@@ -85,20 +92,26 @@ class HttpHeadersViewportTest extends JMeterTestCase {
                     actions.add(button);
                     Rectangle bounds = SwingUtilities.convertRectangle(
                             button.getParent(), button.getBounds(), main);
-                    assertTrue(visible.contains(bounds), button.getText() + " must remain visible: " + bounds);
+                    if (!fits) {
+                        main.scrollRectToVisible(bounds);
+                        visible = outer.getViewport().getViewRect();
+                    }
+                    assertTrue(visible.contains(bounds), button.getText() + " must remain reachable: " + bounds);
                 }
             }
             assertEquals(List.of("Add", "addFromClipboard", "Delete"),
                     actions.stream().map(JButton::getActionCommand).toList());
             JTable table = descendants(headerPanel, JTable.class).get(0);
             JScrollPane tableScroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
-            assertTrue(tableScroll.getViewport().getHeight() > 0);
+            assertTrue(tableScroll.getViewport().getHeight() >= table.getRowHeight(), "at least one header row must fit");
             assertEquals(headerCount > 0, tableScroll.getVerticalScrollBar().isVisible());
             if (headerCount > 0) {
                 tableScroll.getVerticalScrollBar().setValue(200);
                 assertTrue(tableScroll.getViewport().getViewPosition().y > 0);
             }
-            assertEquals(0, outer.getViewport().getViewPosition().y);
+            if (fits) {
+                assertEquals(0, outer.getViewport().getViewPosition().y);
+            }
 
             tabs.setSelectedIndex(0);
             assertFalse(editor.isViewportHeightConstrained());
@@ -106,7 +119,7 @@ class HttpHeadersViewportTest extends JMeterTestCase {
             tabs.setSelectedComponent(headerPanel);
             layoutTree(outer);
             layoutTree(outer);
-            assertFalse(outer.getVerticalScrollBar().isVisible());
+            assertEquals(!fits, outer.getVerticalScrollBar().isVisible());
 
             actions.get(0).doClick();
             assertEquals(headerCount + 1, table.getRowCount());
@@ -158,6 +171,10 @@ class HttpHeadersViewportTest extends JMeterTestCase {
             layoutTree(outer);
             layoutTree(outer);
             assertFalse(outer.getVerticalScrollBar().isVisible(), "the minimum itself must fit");
+            JTable table = descendants(headers, JTable.class).get(0);
+            JScrollPane tableScroll = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, table);
+            assertTrue(tableScroll.getViewport().getHeight() >= table.getRowHeight(),
+                    "minimum height must leave room for a header row");
 
             outer.setSize(width, 450);
             layoutTree(outer);
@@ -167,6 +184,36 @@ class HttpHeadersViewportTest extends JMeterTestCase {
             bounds = SwingUtilities.convertRectangle(clipboard.getParent(), clipboard.getBounds(), main);
             assertTrue(outer.getViewport().getViewRect().contains(bounds));
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"javax.swing.plaf.metal.MetalLookAndFeel", "javax.swing.plaf.nimbus.NimbusLookAndFeel"})
+    void minimumHeightWorksWithDifferentTabAndTableMetrics(String lookAndFeel) throws Exception {
+        LookAndFeel previous = UIManager.getLookAndFeel();
+        try {
+            SwingUtilities.invokeAndWait(() -> setLookAndFeel(lookAndFeel));
+            for (boolean sse : new boolean[]{false, true}) {
+                headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 0);
+                headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 100);
+                veryShortEditorsCanScrollToHeaderActionsAndRecoverWhenEnlarged(sse, 500);
+            }
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    UIManager.setLookAndFeel(previous);
+                } catch (javax.swing.UnsupportedLookAndFeelException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
+    }
+
+    private static void setLookAndFeel(String className) {
+        try {
+            UIManager.setLookAndFeel(className);
+        } catch (ReflectiveOperationException | javax.swing.UnsupportedLookAndFeelException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static void layoutTree(Container container) {

@@ -176,7 +176,17 @@ public class HeaderTablePanel extends JPanel implements ActionListener {
         headerTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         headerTable.setPreferredScrollableViewportSize(new Dimension(100, 70));
 
-        add(GuiUtils.emptyBorder(new JScrollPane(headerTable)), BorderLayout.CENTER);
+        JScrollPane tableScroll = new JScrollPane(headerTable) {
+            @Override
+            public Dimension getMinimumSize() {
+                Dimension minimum = super.getMinimumSize();
+                // A scrollbar's minimum alone can leave no room for rows on some look-and-feels.
+                minimum.height = Math.max(minimum.height, headerTable.getTableHeader().getPreferredSize().height
+                        + headerTable.getRowHeight() + getInsets().top + getInsets().bottom);
+                return minimum;
+            }
+        };
+        add(GuiUtils.emptyBorder(tableScroll), BorderLayout.CENTER);
         add(createButtonPanel(), BorderLayout.SOUTH);
     }
 
