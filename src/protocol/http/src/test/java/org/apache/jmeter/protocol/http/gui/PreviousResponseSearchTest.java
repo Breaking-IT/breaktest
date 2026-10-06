@@ -23,9 +23,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
+import org.apache.jmeter.control.ModuleController;
+import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.Test;
@@ -97,6 +100,67 @@ class PreviousResponseSearchTest {
         plan.add(current);
 
         assertTrue(PreviousResponseSearch.previousSamplers(current).isEmpty());
+    }
+
+    @Test
+    void searchesEarlierRequestsWithinTheCurrentFragment() {
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        var unrelated = add(plan, new TestFragmentController());
+        add(unrelated, new HTTPSamplerProxy());
+        var fragment = add(plan, new TestFragmentController());
+        fragment.setName("Login");
+        var previous = add(fragment, new HTTPSamplerProxy());
+        previous.setName("Token");
+        var transaction = add(fragment, new TransactionController());
+        var current = add(transaction, new HTTPSamplerProxy());
+        add(transaction, new HTTPSamplerProxy());
+
+        var candidates = PreviousResponseSearch.previousSamplers(current);
+        assertEquals(List.of(previous), candidates.stream().map(PreviousResponseSearch.Candidate::target).toList());
+        assertEquals("Login / Token", candidates.get(0).path());
+        assertTrue(PreviousResponseSearch.previousSamplers(previous).isEmpty());
+    }
+
+    @Test
+    void followsEarlierModulesIncludingNestedReferencesWithoutDuplicatesOrCycles() {
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        var login = add(plan, new TestFragmentController());
+        var token = add(login, new HTTPSamplerProxy());
+        var wrapper = add(plan, new TestFragmentController());
+        addModule(wrapper, login);
+        addModule(login, wrapper);
+        var laterFragment = add(plan, new TestFragmentController());
+        add(laterFragment, new HTTPSamplerProxy());
+        var unusedFragment = add(plan, new TestFragmentController());
+        add(unusedFragment, new HTTPSamplerProxy());
+        var otherGroup = add(plan, new ThreadGroup());
+        var otherController = add(otherGroup, new TransactionController());
+        add(otherController, new HTTPSamplerProxy());
+        var group = add(plan, new ThreadGroup());
+        addModule(group, wrapper);
+        addModule(group, login);
+        addModule(group, otherController);
+        add(group, new ModuleController());
+        var previous = add(group, new HTTPSamplerProxy());
+        var current = add(group, new HTTPSamplerProxy());
+        addModule(group, laterFragment);
+
+        var candidates = PreviousResponseSearch.previousSamplers(current);
+        assertEquals(List.of(token, previous),
+                candidates.stream().map(PreviousResponseSearch.Candidate::target).toList());
+        assertNotSame(token.getTestElement(), candidates.get(0).snapshot().getTestElement());
+    }
+
+    private static JMeterTreeNode add(JMeterTreeNode parent, TestElement element) {
+        var node = new JMeterTreeNode(element, null);
+        parent.add(node);
+        return node;
+    }
+
+    private static void addModule(JMeterTreeNode parent, JMeterTreeNode target) {
+        var module = new ModuleController();
+        add(parent, module);
+        module.setSelectedNode(target);
     }
 
     @Test
