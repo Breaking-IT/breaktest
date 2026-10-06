@@ -47,14 +47,16 @@ public final class RecordedValueReplacer {
     private static Pattern literalPattern(String literal) {
         // Percent escapes are case insensitive; the rest of a token is not.
         StringBuilder regex = new StringBuilder();
-        for (int i = 0; i < literal.length(); i++) {
+        int i = 0;
+        while (i < literal.length()) {
             if (literal.charAt(i) == '%' && i + 2 < literal.length()
                     && Character.digit(literal.charAt(i + 1), 16) >= 0
                     && Character.digit(literal.charAt(i + 2), 16) >= 0) {
                 regex.append("(?i:").append(Pattern.quote(literal.substring(i, i + 3))).append(')');
-                i += 2;
+                i += 3;
             } else {
                 regex.append(Pattern.quote(literal.substring(i, i + 1)));
+                i++;
             }
         }
         return Pattern.compile(regex.toString());
