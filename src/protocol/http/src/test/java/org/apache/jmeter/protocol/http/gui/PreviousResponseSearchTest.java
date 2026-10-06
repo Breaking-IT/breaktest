@@ -135,7 +135,8 @@ class PreviousResponseSearchTest {
         add(unusedFragment, new HTTPSamplerProxy());
         var otherGroup = add(plan, new ThreadGroup());
         var otherController = add(otherGroup, new TransactionController());
-        add(otherController, new HTTPSamplerProxy());
+        var referencedToken = add(otherController, new HTTPSamplerProxy());
+        add(otherGroup, new HTTPSamplerProxy());
         var group = add(plan, new ThreadGroup());
         addModule(group, wrapper);
         addModule(group, login);
@@ -146,9 +147,22 @@ class PreviousResponseSearchTest {
         addModule(group, laterFragment);
 
         var candidates = PreviousResponseSearch.previousSamplers(current);
-        assertEquals(List.of(token, previous),
+        assertEquals(List.of(token, referencedToken, previous),
                 candidates.stream().map(PreviousResponseSearch.Candidate::target).toList());
         assertNotSame(token.getTestElement(), candidates.get(0).snapshot().getTestElement());
+    }
+
+    @Test
+    void ignoresModuleTargetsFromAnotherPlan() {
+        var otherPlan = new JMeterTreeNode(new TestPlan(), null);
+        var target = add(otherPlan, new TransactionController());
+        add(target, new HTTPSamplerProxy());
+        var plan = new JMeterTreeNode(new TestPlan(), null);
+        var group = add(plan, new ThreadGroup());
+        addModule(group, target);
+        var current = add(group, new HTTPSamplerProxy());
+
+        assertTrue(PreviousResponseSearch.previousSamplers(current).isEmpty());
     }
 
     private static JMeterTreeNode add(JMeterTreeNode parent, TestElement element) {

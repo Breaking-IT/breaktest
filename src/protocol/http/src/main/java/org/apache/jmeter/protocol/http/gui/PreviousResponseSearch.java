@@ -70,7 +70,7 @@ final class PreviousResponseSearch {
             return candidates;
         }
         List<JMeterTreeNode> samplers = new ArrayList<>();
-        collectPreviousSamplers(scope, current, scope, new HashSet<>(), samplers);
+        collectPreviousSamplers(scope, current, new HashSet<>(), samplers);
         for (JMeterTreeNode node : samplers) {
             JMeterTreeNode snapshot = null;
             List<String> names = new ArrayList<>();
@@ -102,7 +102,7 @@ final class PreviousResponseSearch {
     // Follow module references at their position in the flow, retaining original nodes for navigation.
     // A visited set prevents cycles and duplicate results from repeated module references.
     private static boolean collectPreviousSamplers(JMeterTreeNode node, JMeterTreeNode current,
-            JMeterTreeNode scope, Set<JMeterTreeNode> visited, List<JMeterTreeNode> samplers) {
+            Set<JMeterTreeNode> visited, List<JMeterTreeNode> samplers) {
         if (node == current) {
             return true;
         }
@@ -114,15 +114,14 @@ final class PreviousResponseSearch {
         }
         if (node.getTestElement() instanceof ModuleController module) {
             JMeterTreeNode target = module.getSelectedNode();
-            JMeterTreeNode targetScope = target == null ? null : searchScope(target);
-            if (targetScope != null && target.getRoot() == current.getRoot()
-                    && (targetScope == scope || targetScope.getTestElement() instanceof TestFragmentController)) {
-                return collectPreviousSamplers(target, current, scope, visited, samplers);
+            // The referenced subtree runs in this thread, wherever it lives in the plan.
+            if (target != null && target.getRoot() == current.getRoot()) {
+                return collectPreviousSamplers(target, current, visited, samplers);
             }
             return false;
         }
         for (int i = 0; i < node.getChildCount(); i++) {
-            if (collectPreviousSamplers((JMeterTreeNode) node.getChildAt(i), current, scope, visited, samplers)) {
+            if (collectPreviousSamplers((JMeterTreeNode) node.getChildAt(i), current, visited, samplers)) {
                 return true;
             }
         }
