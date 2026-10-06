@@ -59,7 +59,7 @@ debugging, and migration work that has landed across the BreakTest PR series.
 - Apache HttpClient 5 is the active HTTP sampler path.
 - HTTP/2 is first-class, including negotiated fallback, HTTP/2 preferred
   selection, async execution, connect-time reporting, and file upload fixes.
-- HTTP/3 over QUIC is available as a beta on Java 26+, with explicit HTTP/3
+- HTTP/3 over QUIC is available as a beta on Java 27+, with explicit HTTP/3
   selection and optional browser-like Alt-Svc upgrades for default samplers.
 - HTTP/2 resource usage is lower: reactor threads are limited by default, client
   rebuilds are avoided when the same user continues, and parallel samplers reuse
@@ -291,7 +291,8 @@ preservation of every old edge case.
 
 ## Requirements
 
-- Java 21 or later
+- Java 21 or later; CI covers Java 21, 25, and 27
+- HTTP/3 requires Java 27 or later, with HTTP/3 and TLS coverage on Java 27
 - A JDK is recommended when recording HTTPS traffic because `keytool` is useful
   for certificate handling
 - Optional protocol libraries, such as JDBC or JMS drivers, should be placed in

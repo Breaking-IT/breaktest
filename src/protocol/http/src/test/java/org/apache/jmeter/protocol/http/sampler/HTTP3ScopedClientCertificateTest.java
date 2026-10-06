@@ -70,7 +70,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-/** Run in a fresh Java 26 test JVM, once with strict trust and once with certificate retries. */
+/** Run in a fresh Java 27 test JVM, once with strict trust and once with certificate retries. */
 @EnabledIfEnvironmentVariable(named = "BREAKTEST_HTTP3_FIXTURE", matches = ".+")
 @EnabledIf("org.apache.jmeter.protocol.http.sampler.Http3RuntimeSupport#isHttp3Supported")
 class HTTP3ScopedClientCertificateTest {

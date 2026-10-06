@@ -13,6 +13,11 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased
+
+- HTTP/3 now requires Java 27 or later. On older runtimes, explicit HTTP/3 samplers log a warning and fall back to HTTP/2 negotiation. Java 21 remains the minimum for other protocols.
+- CI now covers Java 21, 25, and 27, replacing Java 26 coverage.
+
 # BreakTest 2026.10.05 — Native WebSocket & SSE, Better Recording, and AI Scripting
 
 BreakTest now supports WebSocket and Server-Sent Events natively, bringing long-lived connections, incoming messages, and event-driven actions into the same test plan as your HTTP requests. The proxy recorder captures these conversations and turns them into editable native elements. AI Repair can build new flows as well as repair recordings, with less repeated context and token overhead. This release also adds scoped proxy filters and improves search, correlation, and everyday editing.

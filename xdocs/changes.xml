@@ -22,6 +22,10 @@
     <title>Release Notes</title>
 </properties>
 <body>
+<section name="Unreleased">
+<p>HTTP/3 now requires Java 27 or later. On older runtimes, explicit HTTP/3 samplers log a warning and fall back to HTTP/2 negotiation. Java 21 remains the minimum for other protocols. CI now covers Java 21, 25, and 27, replacing Java 26 coverage.</p>
+</section>
+
 <section name="Release Notes">
 
 <h1>BreakTest 2026.10.05 — Native WebSocket &amp; SSE, Better Recording, and AI Scripting</h1>

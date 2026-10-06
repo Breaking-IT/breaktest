@@ -28,7 +28,7 @@ matrix.addAxis({
   values: [
     '21',
     '25',
-    '26',
+    '27',
     eaJava,
   ]
 });
@@ -46,7 +46,7 @@ matrix.addAxis({
   name: 'os',
   title: x => x.replace('-latest', ''),
   values: [
-    // Linux is covered by the fixed Java 26 + Xvfb row appended below.
+    // Linux is covered by the fixed Java 27 + Xvfb row appended below.
     'windows-latest',
     'macos-latest'
   ]
@@ -87,8 +87,8 @@ matrix.imply({java_version: eaJava}, {java_distribution: {value: 'oracle'}})
 matrix.imply({java_distribution: {value: 'oracle'}}, {java_version: v => v === eaJava || v >= 21});
 // TODO: Semeru does not ship Java 21 builds yet
 matrix.exclude({java_distribution: {value: 'semeru'}, java_version: '21'});
-// Use Temurin for Java 26; not every vendor ships non-LTS releases.
-matrix.imply({java_version: "26"}, {java_distribution: {value: "temurin"}});
+// Use Temurin for Java 27; not every vendor ships non-LTS releases.
+matrix.imply({java_version: "27"}, {java_distribution: {value: "temurin"}});
 // Ensure at least one job with "same" hashcode exists
 matrix.generateRow({hash: {value: 'same'}});
 // Ensure at least one Windows job is present in the randomized matrix.
@@ -97,8 +97,8 @@ matrix.generateRow({os: 'windows-latest'});
 matrix.generateRow({java_version: "21"});
 // Ensure there will be at least one job with Java 25
 matrix.generateRow({java_version: "25"});
-// Always exercise the native HTTP/3 runtime and live HTTP/3 tests.
-matrix.generateRow({java_version: "26"});
+// Always exercise Java 27 HTTP/3 on Windows or macOS as well as Linux.
+matrix.generateRow({java_version: "27"});
 // Ensure there will be at least one job with Java EA
 // matrix.generateRow({java_version: eaJava});
 const include = matrix.generateRows(process.env.MATRIX_JOBS || 5);
@@ -152,10 +152,10 @@ include.forEach(v => {
 // Keep the Linux baseline outside the random job budget so it is always present
 // without displacing the existing Windows/macOS and Java-version guarantees.
 include.push({
-  name: '26, temurin, ubuntu, UTC, en_US, Xvfb',
+  name: '27, temurin, ubuntu, UTC, en_US, Xvfb',
   os: 'ubuntu-24.04',
-  java_version: '26',
-  non_ea_java_version: '26',
+  java_version: '27',
+  non_ea_java_version: '27',
   java_distribution: 'temurin',
   java_vendor: 'eclipse',
   tz: 'UTC',

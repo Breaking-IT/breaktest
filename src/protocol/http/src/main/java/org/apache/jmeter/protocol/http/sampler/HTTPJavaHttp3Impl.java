@@ -76,7 +76,7 @@ import org.slf4j.LoggerFactory;
  * <b>Beta:</b> HTTP/3 sampling is a beta feature. The underlying JDK QUIC stack shipped
  * with Java 26 (JEP 517) and has not yet accumulated long-run, high-concurrency mileage.
  * <p>
- * Requires a Java 26+ runtime (JEP 517); {@link HTTPSamplerFactory} only selects this
+ * Requires a Java 27+ runtime; {@link HTTPSamplerFactory} only selects this
  * implementation when {@link Http3RuntimeSupport#isHttp3Supported()} is true, and falls
  * back to the HTTP/2 implementation otherwise.
  * <p>
@@ -95,7 +95,7 @@ import org.slf4j.LoggerFactory;
  * <li>preemptive Basic uses the JDK client; configured NTLM, Kerberos, and Digest
  * authentication use HC5 for the matching request</li>
  * <li>no Cache Manager integration</li>
- * <li>certificate errors are ignored by default. Because Java 26 QUIC requires its
+ * <li>certificate errors are ignored by default. Because the JDK QUIC implementation requires its
  * built-in trust manager, BreakTest obtains the presented certificate through a
  * lenient TCP TLS handshake and retries with a QUIC-compatible trust context.
  * This requires TCP TLS at the original origin with a matching certificate;
