@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,6 +70,27 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
         }
     }
 
+
+    @Test
+    void largeCapturedScriptCanBeDiscoveredWithoutCompilingItAsRegex() {
+        Rule rule = new Rule("script", "Custom", "Script", "script",
+                ExtractorType.REGEX, ResponseField.BODY, "BEGIN(.*?)END", "$1$",
+                "", false, false, true);
+        String value = "this.match(e.id, a, null);cancelMatch(){this.subscription.unsubscribe();}".repeat(2000);
+        HarEntry source = entry(0, 0, "GET", "https://example.test/script");
+        source.setResponseContentText("BEGIN" + value + "END");
+        HarEntry target = entry(1, 100, "POST", "https://example.test/use");
+        target.setPostData(new PostData("text/plain", "unrelated short body", List.of()));
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule)).isEmpty());
+
+        String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8);
+        target.setPostData(new PostData("text/plain", encoded, List.of()));
+        List<HarPredefinedCorrelation> correlations = HarPredefinedCorrelation.find(
+                List.of(source, target), List.of(rule));
+        assertEquals(1, correlations.size());
+        assertEquals(value, correlations.get(0).getExtractedValue());
+        assertEquals(1, correlations.get(0).getReplacements().size());
+    }
 
     @Test
     void predefinedRegexesCompileWithJMeterRegexEngine() {
