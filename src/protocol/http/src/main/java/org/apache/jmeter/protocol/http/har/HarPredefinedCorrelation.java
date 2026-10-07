@@ -20,7 +20,6 @@ package org.apache.jmeter.protocol.http.har;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -29,6 +28,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.function.IntConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -304,22 +305,34 @@ final class HarPredefinedCorrelation {
     }
 
     static List<HarPredefinedCorrelation> find(List<HarEntry> entries, List<Rule> rules) {
+        return find(entries, rules, ignored -> { });
+    }
+
+    static List<HarPredefinedCorrelation> find(
+            List<HarEntry> entries, List<Rule> rules, IntConsumer progress) {
+        checkCancelled();
+        progress.accept(0);
         List<HarEntry> selected = entries.stream()
                 .sorted(Comparator.comparingDouble(HarEntry::getStartMs)
                         .thenComparingInt(HarEntry::getOriginalIndex))
                 .toList();
         List<Candidate> candidates = new ArrayList<>();
         JSONManager jsonManager = new JSONManager();
+        boolean hasJsonRules = rules.stream().anyMatch(rule -> rule.getExtractorType() == ExtractorType.JSON_PATH);
         for (int sourcePosition = 0; sourcePosition < selected.size(); sourcePosition++) {
+            checkCancelled();
             HarEntry source = selected.get(sourcePosition);
             String responseHeaders = responseHeaders(source);
             boolean scanBody = hasScannableBody(source);
+            Object jsonDocument = scanBody && hasJsonRules
+                    ? parseJsonBody(source.getResponseContentText(), jsonManager) : null;
             for (Rule rule : rules) {
+                checkCancelled();
                 if (!scanBody && rule.getResponseField() == ResponseField.BODY) {
                     continue;
                 }
                 List<ExtractedValue> extractedValues = extract(
-                        rule, source.getResponseContentText(), responseHeaders, jsonManager);
+                        rule, source.getResponseContentText(), responseHeaders, jsonManager, jsonDocument);
                 CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues);
                 if (matched == null) {
                     continue;
@@ -327,8 +340,35 @@ final class HarPredefinedCorrelation {
                 candidates.add(new Candidate(rule, sourcePosition, source, matched.extractedValue(),
                         new ArrayList<>(matched.replacements())));
             }
+            progress.accept((int) (99L * (sourcePosition + 1) / selected.size()));
         }
-        return build(keepNearestSource(candidates), rules);
+        checkCancelled();
+        List<HarPredefinedCorrelation> result = build(keepNearestSource(candidates), rules);
+        checkCancelled();
+        progress.accept(100);
+        return result;
+    }
+
+    static void checkCancelled() {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("Correlation scan cancelled");
+        }
+    }
+
+    private static Object parseJsonBody(String body, JSONManager jsonManager) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        char first = body.stripLeading().charAt(0);
+        // Preserve scalar JSON roots as well as objects and arrays.
+        if ("{[\"-0123456789tfn".indexOf(first) < 0) {
+            return null;
+        }
+        try {
+            return jsonManager.parse(body);
+        } catch (RuntimeException | StackOverflowError ignored) {
+            return null;
+        }
     }
 
     /**
@@ -341,6 +381,7 @@ final class HarPredefinedCorrelation {
     private static List<Candidate> keepNearestSource(List<Candidate> candidates) {
         Map<String, Integer> nearestCandidateByReplacement = new LinkedHashMap<>();
         for (int i = 0; i < candidates.size(); i++) {
+            checkCancelled();
             Candidate candidate = candidates.get(i);
             for (Replacement replacement : candidate.replacements()) {
                 String key = replacementKey(replacement);
@@ -353,6 +394,7 @@ final class HarPredefinedCorrelation {
         }
         List<Candidate> kept = new ArrayList<>();
         for (int i = 0; i < candidates.size(); i++) {
+            checkCancelled();
             Candidate candidate = candidates.get(i);
             int candidateIndex = i;
             List<Replacement> replacements = candidate.replacements().stream()
@@ -379,6 +421,7 @@ final class HarPredefinedCorrelation {
         Set<String> assigned = new LinkedHashSet<>();
         List<HarPredefinedCorrelation> result = new ArrayList<>(candidates.size());
         for (Candidate candidate : candidates) {
+            checkCancelled();
             String variableName = allocateVariableName(
                     candidate.rule().getVariableName(), reserved, assigned);
             result.add(new HarPredefinedCorrelation(candidate.rule(), variableName,
@@ -417,6 +460,7 @@ final class HarPredefinedCorrelation {
             }
             List<Replacement> replacements = new ArrayList<>();
             for (int targetPosition = sourcePosition + 1; targetPosition < entries.size(); targetPosition++) {
+                checkCancelled();
                 replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value()));
             }
             if (!replacements.isEmpty()) {
@@ -428,10 +472,13 @@ final class HarPredefinedCorrelation {
     }
 
     private static List<ExtractedValue> extract(
-            Rule rule, String responseBody, String responseHeaders, JSONManager jsonManager) {
+            Rule rule, String responseBody, String responseHeaders, JSONManager jsonManager, Object jsonDocument) {
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
+            if (jsonDocument == null) {
+                return List.of();
+            }
             try {
-                List<Object> values = jsonManager.extractWithJsonPath(responseBody, rule.getExpression());
+                List<Object> values = jsonManager.extractFromParsedJson(jsonDocument, rule.getExpression());
                 if (values.size() > rule.getMaxMatches()) {
                     return List.of();
                 }
@@ -442,7 +489,7 @@ final class HarPredefinedCorrelation {
                     }
                 }
                 return extractedValues;
-            } catch (ParseException | RuntimeException ignored) {
+            } catch (RuntimeException | StackOverflowError ignored) {
                 return List.of();
             }
         }
@@ -456,6 +503,7 @@ final class HarPredefinedCorrelation {
             int matchNumber = 0;
             List<ExtractedValue> extractedValues = new ArrayList<>();
             while (matcher.contains(input, pattern)) {
+                checkCancelled();
                 matchNumber++;
                 if (matchNumber > rule.getMaxMatches()) {
                     return List.of();
@@ -464,7 +512,9 @@ final class HarPredefinedCorrelation {
                         matchNumber, applyTemplate(rule.getTemplate(), matcher.getMatch())));
             }
             return extractedValues;
-        } catch (RuntimeException ignored) {
+        } catch (CancellationException ex) {
+            throw ex;
+        } catch (RuntimeException | StackOverflowError ignored) {
             return List.of();
         } finally {
             JMeterUtils.clearMatcherMemory(matcher, pattern);

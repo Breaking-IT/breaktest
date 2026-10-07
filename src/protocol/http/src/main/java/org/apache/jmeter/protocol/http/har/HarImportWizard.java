@@ -54,6 +54,7 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JRadioButton;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
@@ -635,6 +636,11 @@ public class HarImportWizard extends JDialog {
         correlationsSummary.setText(" ");
         correlationsPanel.removeAll();
         correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_analyzing")));
+        JProgressBar progress = new JProgressBar(0, 100);
+        progress.setStringPainted(true);
+        correlationsPanel.add(progress);
+        correlationsPanel.revalidate();
+        correlationsPanel.repaint();
         updateButtons();
 
         List<HarEntry> parsedEntries = List.copyOf(entries);
@@ -643,7 +649,9 @@ public class HarImportWizard extends JDialog {
         correlationWorker = new SwingWorker<>() {
             @Override
             protected List<HarPredefinedCorrelation> doInBackground() {
-                return HarPredefinedCorrelation.find(parsedEntries, selectedHosts, correlationRules);
+                return HarPredefinedCorrelation.find(parsedEntries.stream()
+                        .filter(entry -> selectedHosts.contains(HarConverter.hostnameOf(entry.getUrl())))
+                        .toList(), correlationRules, this::setProgress);
             }
 
             @Override
@@ -673,6 +681,11 @@ public class HarImportWizard extends JDialog {
                 }
             }
         };
+        correlationWorker.addPropertyChangeListener(event -> {
+            if ("progress".equals(event.getPropertyName()) && event.getSource() == correlationWorker) {
+                progress.setValue((Integer) event.getNewValue());
+            }
+        });
         correlationWorker.execute();
     }
 

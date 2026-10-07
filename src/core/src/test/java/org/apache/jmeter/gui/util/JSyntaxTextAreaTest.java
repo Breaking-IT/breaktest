@@ -18,13 +18,19 @@
 package org.apache.jmeter.gui.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
+import java.awt.GraphicsEnvironment;
 import java.awt.HeadlessException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.HashSet;
 import java.util.Properties;
+
+import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.util.JMeterUtils;
@@ -36,6 +42,45 @@ import org.junit.jupiter.api.parallel.Isolated;
 // other tests
 @Isolated
 public class JSyntaxTextAreaTest extends JMeterTestCase {
+
+    @Test
+    void largeBodiesRemainIntactAndNormalEditorSettingsAreRestored() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        SwingUtilities.invokeAndWait(() -> {
+            JSyntaxTextArea textArea = JSyntaxTextArea.getInstance(10, 80);
+            textArea.setLanguage("java");
+            textArea.setLineWrap(true);
+            textArea.setCodeFoldingEnabled(true);
+            String body = "UEsDB".repeat(70_000);
+            textArea.setInitialText(body);
+            assertEquals(body, textArea.getText());
+            assertFalse(textArea.getLineWrap());
+            assertFalse(textArea.isCodeFoldingEnabled());
+            assertEquals(SyntaxConstants.SYNTAX_STYLE_NONE, textArea.getSyntaxEditingStyle());
+
+            // Callers may set the language after the body. Keep the guard in place.
+            textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_JSON);
+            textArea.setLineWrap(true);
+            textArea.setCodeFoldingEnabled(true);
+            assertEquals(SyntaxConstants.SYNTAX_STYLE_NONE, textArea.getSyntaxEditingStyle());
+            assertFalse(textArea.getLineWrap());
+            assertFalse(textArea.isCodeFoldingEnabled());
+            textArea.setInitialText("{\"small\":true}");
+            assertEquals(SyntaxConstants.SYNTAX_STYLE_JSON, textArea.getSyntaxEditingStyle());
+            assertTrue(textArea.getLineWrap());
+            assertTrue(textArea.isCodeFoldingEnabled());
+            assertEquals("{\"small\":true}", textArea.getText());
+        });
+    }
+
+    @Test
+    void layoutGuardChecksLongLinesAndTotalSize() {
+        assertFalse(JSyntaxTextArea.needsPlainLayout(null));
+        assertFalse(JSyntaxTextArea.needsPlainLayout("x".repeat(10_000)));
+        assertTrue(JSyntaxTextArea.needsPlainLayout("x".repeat(10_001)));
+        assertFalse(JSyntaxTextArea.needsPlainLayout(("x".repeat(100) + "\r\n").repeat(100)));
+        assertTrue(JSyntaxTextArea.needsPlainLayout("short\n".repeat(200_000)));
+    }
 
     @Test
     public void testSetLanguage() {

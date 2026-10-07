@@ -311,6 +311,57 @@ class HarUploadCaptureTest extends JMeterTestCase {
         assertEquals(0, sampler.getArguments().getArgumentCount());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = HarImportOptions.FileUploadMode.class, mode = EnumSource.Mode.EXCLUDE,
+            names = "RECORDED_BODY")
+    void encodedBodySizeDoesNotOverrideBinaryContentLength(HarImportOptions.FileUploadMode mode) throws Exception {
+        ObjectNode root = recording();
+        byte[] bytes = {0x50, 0x4b, 3, 4, 0, (byte) 0xff};
+        capture(root, "document.docx", bytes);
+        String body = Base64.getEncoder().encodeToString(bytes);
+        rawRequest(root, body, "application/octet-stream");
+        ObjectNode request = (ObjectNode) root.path("log").path("entries").get(0).path("request");
+        request.put("bodySize", body.length());
+        request.putArray("headers").addObject().put("name", "Content-Length")
+                .put("value", Integer.toString(bytes.length));
+        HarParser.Recording parsed = parse(root);
+        assertTrue(parsed.uploads().warnings().isEmpty(), parsed.uploads().warnings().toString());
+        assertArrayEquals(bytes, parsed.entries().get(0).getPostData().getParams().get(0).getFileContent());
+        assertFalse(HarConverter.hasRecordedUploadBody(parsed.entries().get(0)));
+
+        HarImportOptions options = new HarImportOptions();
+        options.setFileUploadMode(mode);
+        List<HTTPSamplerProxy> samplers = new ArrayList<>();
+        collect(new HarConverter(parsed.entries(), options, "recording.har", "digest")
+                .convert(Set.of("example.com")), samplers);
+        HTTPSamplerProxy sampler = samplers.get(0);
+        assertEquals(1, sampler.getHTTPFiles().length);
+        assertEquals(mode == HarImportOptions.FileUploadMode.ARCHIVE
+                ? "${__archiveFile(document.docx)}" : "document.docx", sampler.getHTTPFiles()[0].getPath());
+        assertEquals("", sampler.getHTTPFiles()[0].getParamName());
+        assertEquals("application/octet-stream", sampler.getHTTPFiles()[0].getMimeType());
+        assertTrue(sampler.getSendFileAsPostBody());
+        assertFalse(sampler.getPostBodyRaw());
+        assertEquals(0, sampler.getArguments().getArgumentCount());
+
+        TestPlan plan = new TestPlan();
+        HarImportAction.storeArchiveUploads(parsed.entries(), Set.of("example.com"), plan);
+        assertArrayEquals(bytes, Files.readAllBytes(ArchiveFiles.materialize(
+                "files/document.docx", ArchiveFiles.references(plan).get("files/document.docx"))));
+        HarImportAction.storeUploadFiles(parsed.entries(), Set.of("example.com"), directory, List.of());
+        assertArrayEquals(bytes, Files.readAllBytes(directory.resolve("document.docx")));
+    }
+
+    @Test
+    void wireLengthPreventsDecodingLiteralBase64EvenWhenBodySizeClaimsDecodedLength() throws Exception {
+        ObjectNode root = recording();
+        capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
+        rawRequest(root, "aGVsbG8=", "application/octet-stream");
+        ObjectNode request = (ObjectNode) root.path("log").path("entries").get(0).path("request");
+        request.putArray("headers").addObject().put("name", "Content-Length").put("value", "8");
+        assertTrue(parse(root).entries().get(0).getPostData().getParams().isEmpty());
+    }
+
     @Test
     void recordedBodyKeepsLiteralRawUploadContent() throws Exception {
         ObjectNode root = recording();
@@ -404,6 +455,8 @@ class HarUploadCaptureTest extends JMeterTestCase {
         ObjectNode root = recording();
         capture(root, "notes.txt", "hello".getBytes(StandardCharsets.UTF_8));
         rawRequest(root, "aGVsbG8=", "text/plain").put("encoding", "base64");
+        // An explicit encoding marker also handles recorders that count the encoded text.
+        ((ObjectNode) root.path("log").path("entries").get(0).path("request")).put("bodySize", 8);
         HarParser.Recording parsed = parse(root);
         assertTrue(parsed.uploads().warnings().isEmpty());
         assertEquals("notes.txt", parsed.entries().get(0).getPostData().getParams().get(0).getFileName());

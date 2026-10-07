@@ -179,8 +179,9 @@ workload remain unchanged; the runtime still accepts legacy syntax.
 - Undo and redo are enabled for semantic test-plan changes such as add, delete,
   update, move, and search/replace operations.
 - Large JMX files load in the background with a loading overlay.
-- Optional fast GUI loading can skip expensive normalization with
-  `jmeter.gui.load.fast=true`.
+- Fast GUI loading is enabled by default, avoiding expensive initialization of
+  every element editor. Set `breaktest.gui.load.fast=false` for compatibility
+  with components that require editor initialization on load.
 - JMX files with missing plugin elements can open with disabled placeholders
   instead of failing the whole load.
 - Missing plugin placeholders are visible in the GUI and inert in non-GUI runs.
