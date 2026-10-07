@@ -83,7 +83,8 @@ public final class RecordedValueReplacer {
 
     private static String normalizeEscapes(String text) {
         StringBuilder normalized = null;
-        for (int i = 0; i < text.length(); i++) {
+        int i = 0;
+        while (i < text.length()) {
             if (isEscape(text, i)) {
                 for (int j = i + 1; j <= i + 2; j++) {
                     char original = text.charAt(j);
@@ -95,7 +96,9 @@ public final class RecordedValueReplacer {
                         normalized.setCharAt(j, upper);
                     }
                 }
-                i += 2;
+                i += 3;
+            } else {
+                i++;
             }
         }
         return normalized == null ? text : normalized.toString();
@@ -129,13 +132,16 @@ public final class RecordedValueReplacer {
             int first = -1;
             int end = 0;
             if (!decoded) {
-                for (int i = 0; i < value.length(); i++) {
+                int i = 0;
+                while (i < value.length()) {
                     if (isEscape(value, i)) {
                         if (first < 0) {
                             first = i;
                         }
                         end = i + 3;
-                        i += 2;
+                        i += 3;
+                    } else {
+                        i++;
                     }
                 }
             }
