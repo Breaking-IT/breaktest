@@ -344,6 +344,14 @@ is a separate project with its own validation, packaging, releases, and browser
 store submissions. Install and update it independently from BreakTest; it
 exports local HAR files that BreakTest can import through **File > Import HAR...**.
 
+HAR import excludes requests explicitly marked as served from browser cache.
+For older Chromium recorder exports that missed memory-cache markers, it also
+recognizes repeated cache reuse and first-occurrence entries with the old
+recorder's combined stale-size, inconsistent-timing, and sparse-header signature.
+Short duration or zero transferred bytes alone do not identify a cache hit;
+ambiguous entries remain replayable. Updating the recorder provides explicit
+cache metadata for future recordings.
+
 ## Build From Source
 
 BreakTest uses Gradle and JVM toolchains.

@@ -78,14 +78,17 @@ public final class HarParser {
             throw new IOException("Not a valid HAR file: missing log.entries array");
         }
         List<HarEntry> entries = new ArrayList<>(entriesNode.size());
+        boolean chromiumRecorder = "BreakTest Browser Recorder".equals(root.path("log").path("creator").path("name").asText())
+                && "chrome.debugger".equals(root.path("log").path("_breaktest").path("recordedWith").asText());
         Set<String> observedNetworkRequests = new HashSet<>();
         int index = 0;
         for (JsonNode entryNode : entriesNode) {
             HarEntry entry = parseEntry(entryNode, index);
             String requestKey = entry.getMethod() + '\n' + entry.getUrl();
             if (entry.getFromCache() == null
-                    && observedNetworkRequests.contains(requestKey)
-                    && looksLikeUnmarkedMemoryCacheReuse(entryNode, entry)) {
+                    && looksLikeUnmarkedMemoryCacheReuse(entryNode, entry)
+                    && (observedNetworkRequests.contains(requestKey)
+                            || chromiumRecorder && hasStaleCacheMetadata(entryNode))) {
                 entry.setFromCache("memory");
             } else if (entry.getFromCache() == null) {
                 observedNetworkRequests.add(requestKey);
@@ -102,13 +105,21 @@ public final class HarParser {
      * transferred body bytes, and the previously cached decoded content size.
      */
     private static boolean looksLikeUnmarkedMemoryCacheReuse(JsonNode entryNode, HarEntry entry) {
-        if (!"GET".equals(entry.getMethod()) || entry.getResponseStatus() != 200) {
+        JsonNode metadata = entryNode.path("_breaktest");
+        if (!"GET".equals(entry.getMethod()) || entry.getResponseStatus() != 200
+                || entry.isWebSocket() || entry.isServerSentEvents()
+                || metadata.path("failed").asBoolean() || metadata.path("incomplete").asBoolean()) {
             return false;
         }
         JsonNode response = entryNode.path("response");
         if (!response.has("bodySize")
                 || response.path("bodySize").asLong(-1) != 0
                 || response.path("content").path("size").asLong(-1) <= 0) {
+            return false;
+        }
+        // New recorders export the final transfer count. A zero or unknown count
+        // without an explicit cache marker is not evidence of a cache hit.
+        if (response.has("_transferSize") && response.path("_transferSize").asLong(-1) <= 0) {
             return false;
         }
         List<NameValue> headers = entry.getRequestHeaders();
@@ -122,6 +133,21 @@ public final class HarParser {
             }
         }
         return true;
+    }
+
+    private static boolean hasStaleCacheMetadata(JsonNode entryNode) {
+        // Older BreakTest Chromium exports retained the original response's byte
+        // count and timings for memory-cache hits, even on the first URL occurrence.
+        // Require the combined signature, not merely a short or empty response.
+        JsonNode response = entryNode.path("response");
+        JsonNode metadata = entryNode.path("_breaktest");
+        double elapsed = entryNode.path("time").asDouble(-1);
+        double wait = entryNode.path("timings").path("wait").asDouble(-1);
+        long transfer = response.path("_transferSize").asLong(-1);
+        return "network".equals(metadata.path("timingSource").asText())
+                && transfer > 0 && transfer == response.path("content").path("size").asLong(-1)
+                && Double.isFinite(elapsed) && elapsed >= 0 && Double.isFinite(wait)
+                && wait > elapsed + 1; // Allow timing-rounding differences of up to 1 ms.
     }
 
     private static void ensureRawHarContent(byte[] content) throws IOException {
