@@ -13,6 +13,45 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.10.07 — Faster Loading, Responsive Editors, and HAR Fixes
+
+This maintenance release improves large-plan loading and editing, adds progress and cancellation to correlation scans, and fixes binary upload references, URL encoding, and legacy cache handling in HAR imports.
+
+## Faster Loading and Responsive Editors
+
+- **Fast JMX loading is now the default.** Large plans open without initializing every element editor. Existing explicit preferences are retained; set `breaktest.gui.load.fast=false` for compatibility with components that require editor initialization on load.
+- **Large request bodies remain editable without freezing the GUI.** Oversized text and very long lines use unwrapped plain-text layout, with syntax highlighting and folding disabled. The complete content is retained, and normal editor settings return when smaller content is loaded.
+
+Sources: [#239](https://github.com/Breaking-IT/breaktest/pull/239).
+
+## Faster, Cancellable Correlation Scans
+
+- **Parse each response once for JSONPath rules.** Correlation scans reuse the parsed document and skip clearly non-JSON bodies instead of parsing the same response for every rule.
+- **See scan progress and cancel unwanted work.** Predefined correlation actions, recorder review, and the HAR wizard show progress. Cancellation is cooperative between evaluations, and cancelled scans do not apply partial results.
+- **Avoid stack overflows from large extracted values.** Recorded-value matching uses literal searches instead of generating enormous regular expressions, while preserving URL-encoding behavior. Extraction-level stack overflows are skipped so remaining rules can continue.
+
+Sources: [#234](https://github.com/Breaking-IT/breaktest/pull/234), [#239](https://github.com/Breaking-IT/breaktest/pull/239).
+
+## More Reliable HAR Imports and Replay
+
+- **Binary uploads honor the selected file-storage option.** HARs that count base64 characters in `bodySize` can now match the captured binary file using HTTP `Content-Length`. Archive, local-file, and reference-only modes create a Files entry with an empty Body; stored file bytes are preserved.
+- **Preserve existing URL escapes.** URL construction and relative URL resolution retain valid percent escapes when quoting spaces, braces, or malformed percent sequences, avoiding double encoding in imported request URLs.
+- **Skip legacy memory-cache hits.** Older BreakTest Chromium HARs can now identify resources cached before recording began, using recorder provenance and matching timing and transfer evidence. Ambiguous entries remain replayable.
+
+Sources: [#235](https://github.com/Breaking-IT/breaktest/pull/235), [#236](https://github.com/Breaking-IT/breaktest/pull/236), [#239](https://github.com/Breaking-IT/breaktest/pull/239).
+
+## Search Follows the Active Thread Group
+
+- Opening search selects the thread group containing the current tree selection, including nested elements. Selections outside a thread group retain the last-used scope for the current plan.
+
+Sources: [#238](https://github.com/Breaking-IT/breaktest/pull/238).
+
+## Upgrade Notes
+
+Existing saved upload samplers are not rewritten automatically; reimport the HAR to obtain corrected file references. Java 21 remains the minimum runtime, and HTTP/3 requires Java 27 or later.
+
+[Full changelog since 2026.10.06](https://github.com/Breaking-IT/breaktest/compare/2026.10.06...2026.10.07)
+
 # BreakTest 2026.10.06 — Native Test Utilities, Scoped Certificates, and Better Correlation
 
 This release adds native tools for synthetic results, asynchronous coordination, and weighted traffic flows. Client certificates can be scoped to profiles and virtual users, while correlation and HTTP editing handle more recorded plans correctly.
