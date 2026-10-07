@@ -1580,8 +1580,9 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         JMeterTreeNode currentNode = guiPackage == null ? null : guiPackage.getCurrentNode();
         JMeterTreeNode defaultScope = findThreadGroupScope(currentNode);
         boolean samePlan = guiPackage != null && guiPackage == scopeGui && scopeSession == guiPackage.getTestPlanSession();
-        JMeterTreeNode previousScope = samePlan ? selectedScope().threadGroup() : defaultScope;
-        ScopeOption previousOption = samePlan ? (ScopeOption) scopeComboBox.getSelectedItem() : null;
+        boolean reusePreviousScope = defaultScope == null && samePlan;
+        JMeterTreeNode previousScope = reusePreviousScope ? selectedScope().threadGroup() : defaultScope;
+        ScopeOption previousOption = reusePreviousScope ? (ScopeOption) scopeComboBox.getSelectedItem() : null;
         if (!samePlan) {
             searchDialogSize = null;
             previewSizes.clear();
