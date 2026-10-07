@@ -111,7 +111,8 @@ public class ConversionUtils {
         } catch (MalformedURLException original) {
             try {
                 UrlFileParts fileParts = UrlFileParts.parse(file);
-                return new URI(protocol, null, host, port, fileParts.path, fileParts.query, fileParts.fragment).toURL();
+                return preservePercentEscapes(new URI(
+                        protocol, null, host, port, fileParts.path, fileParts.query, fileParts.fragment)).toURL();
             } catch (URISyntaxException | IllegalArgumentException e) {
                 original.addSuppressed(e);
                 throw original;
@@ -139,13 +140,20 @@ public class ConversionUtils {
         } catch (URISyntaxException | IllegalArgumentException e) {
             try {
                 UrlFileParts locationParts = UrlFileParts.parse(location);
-                URI relative = new URI(
-                        null, null, locationParts.path, locationParts.query, locationParts.fragment);
+                URI relative = preservePercentEscapes(new URI(
+                        null, null, locationParts.path, locationParts.query, locationParts.fragment));
                 return baseURL.toURI().resolve(relative).normalize().toURL();
             } catch (URISyntaxException | IllegalArgumentException fallback) {
                 throw malformedUrl(baseURL + " + " + location, fallback);
             }
         }
+    }
+
+    private static URI preservePercentEscapes(URI quoted) throws URISyntaxException {
+        // Component constructors quote every percent sign, including existing escapes.
+        // Undo only that extra quoting for valid escapes; bare or malformed percent
+        // sequences must remain quoted. A single pass also preserves literal %25 escapes.
+        return new URI(quoted.toString().replaceAll("%25(?=[0-9a-fA-F]{2})", "%"));
     }
 
     private static boolean hasScheme(String url) {
