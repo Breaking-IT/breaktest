@@ -24,6 +24,37 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.10.07 — Faster Loading, Responsive Editors, and HAR Fixes</h1>
+<p>This maintenance release improves large-plan loading and editing, adds progress and cancellation to correlation scans, and fixes binary upload references, URL encoding, and legacy cache handling in HAR imports.</p>
+<ch_section>Faster Loading and Responsive Editors</ch_section>
+<ul>
+<li><b>Fast JMX loading is now the default.</b> Large plans open without initializing every element editor. Existing explicit preferences are retained; set <code>breaktest.gui.load.fast=false</code> for compatibility with components that require editor initialization on load.</li>
+<li><b>Large request bodies remain editable without freezing the GUI.</b> Oversized text and very long lines use unwrapped plain-text layout, with syntax highlighting and folding disabled. The complete content is retained, and normal editor settings return when smaller content is loaded.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/239">#239</a>.</p>
+<ch_section>Faster, Cancellable Correlation Scans</ch_section>
+<ul>
+<li><b>Parse each response once for JSONPath rules.</b> Correlation scans reuse the parsed document and skip clearly non-JSON bodies instead of parsing the same response for every rule.</li>
+<li><b>See scan progress and cancel unwanted work.</b> Predefined correlation actions, recorder review, and the HAR wizard show progress. Cancellation is cooperative between evaluations, and cancelled scans do not apply partial results.</li>
+<li><b>Avoid stack overflows from large extracted values.</b> Recorded-value matching uses literal searches instead of generating enormous regular expressions, while preserving URL-encoding behavior. Extraction-level stack overflows are skipped so remaining rules can continue.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/234">#234</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/239">#239</a>.</p>
+<ch_section>More Reliable HAR Imports and Replay</ch_section>
+<ul>
+<li><b>Binary uploads honor the selected file-storage option.</b> HARs that count base64 characters in <code>bodySize</code> can now match the captured binary file using HTTP <code>Content-Length</code>. Archive, local-file, and reference-only modes create a Files entry with an empty Body; stored file bytes are preserved.</li>
+<li><b>Preserve existing URL escapes.</b> URL construction and relative URL resolution retain valid percent escapes when quoting spaces, braces, or malformed percent sequences, avoiding double encoding in imported request URLs.</li>
+<li><b>Skip legacy memory-cache hits.</b> Older BreakTest Chromium HARs can now identify resources cached before recording began, using recorder provenance and matching timing and transfer evidence. Ambiguous entries remain replayable.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/235">#235</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/236">#236</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/239">#239</a>.</p>
+<ch_section>Search Follows the Active Thread Group</ch_section>
+<ul>
+<li>Opening search selects the thread group containing the current tree selection, including nested elements. Selections outside a thread group retain the last-used scope for the current plan.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/238">#238</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<p>Existing saved upload samplers are not rewritten automatically; reimport the HAR to obtain corrected file references. Java 21 remains the minimum runtime, and HTTP/3 requires Java 27 or later.</p>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.10.06...2026.10.07">Full changelog since 2026.10.06</a></p>
+
 <h1>BreakTest 2026.10.06 — Native Test Utilities, Scoped Certificates, and Better Correlation</h1>
 <p>This release adds native tools for synthetic results, asynchronous coordination, and weighted traffic flows. Client certificates can be scoped to profiles and virtual users, while correlation and HTTP editing handle more recorded plans correctly.</p>
 <ch_section>Native Test Utilities</ch_section>
