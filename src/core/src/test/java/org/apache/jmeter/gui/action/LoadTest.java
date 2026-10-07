@@ -266,12 +266,24 @@ class LoadTest {
     }
 
     @Test
-    void fastJmxLoadRequiresExplicitOptIn() {
+    void fastJmxLoadIsEnabledByDefaultAndCanBeDisabled() {
+        assertTrue(Load.useFastJmxLoad());
+
+        jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY, "false");
+        assertFalse(Load.useFastJmxLoad());
+    }
+
+    @Test
+    void legacyFastJmxLoadPreferenceIsHonoredUnlessCurrentPropertyOverridesIt() {
+        jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY_LEGACY, "false");
         assertFalse(Load.useFastJmxLoad());
 
         jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY, "true");
-
         assertTrue(Load.useFastJmxLoad());
+
+        jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY_LEGACY, "true");
+        jMeterProperties().setProperty(Load.FAST_JMX_LOAD_PROPERTY, "false");
+        assertFalse(Load.useFastJmxLoad());
     }
 
     @Test
@@ -285,6 +297,7 @@ class LoadTest {
                 .findFirst().orElseThrow();
         SettingsModel model = new SettingsModel(catalog, directory.resolve("jmeter.properties").toFile(),
                 directory.resolve("user.properties").toFile(), directory.resolve("system.properties").toFile());
+        assertEquals("true", model.getValue(group, setting), "Settings and loader must agree on the default");
         for (boolean enabled : new boolean[] {true, false}) {
             model.apply(group.getTarget(), Map.of(setting.getKey(), Boolean.toString(enabled)), Set.of());
             assertEquals(enabled, Load.useFastJmxLoad(), "GUI setting must reach the loader's runtime property");
@@ -293,7 +306,8 @@ class LoadTest {
             assertEquals(Boolean.toString(enabled), reloaded.getValue(group, setting));
         }
         model.apply(group.getTarget(), Map.of(), Set.of(setting.getKey()));
-        assertFalse(Load.useFastJmxLoad(), "Reset must restore the loader's opt-in default");
+        assertTrue(Load.useFastJmxLoad(), "Reset must restore fast loading by default");
+        assertEquals("true", model.getValue(group, setting));
     }
 
     private static Properties jMeterProperties() {

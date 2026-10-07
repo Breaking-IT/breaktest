@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URLEncoder;
@@ -28,6 +29,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.control.TransactionController;
@@ -70,6 +72,88 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
         }
     }
 
+
+    @Test
+    void jsonRulesReuseTheBodyAndPreserveMatchNumbersAcrossEntries() {
+        Rule missing = jsonRule("missing", "$.missing");
+        Rule token = jsonRule("token", "$.tokens[*]");
+        Rule other = jsonRule("other", "$.other");
+        HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+        source.setResponseContentText("  {\"tokens\":[\"unused-value\",\"token-value\"],\"other\":\"other-value\"}");
+        HarEntry next = entry(1, 100, "GET", "https://example.test/next?token=token-value&other=other-value");
+        next.setResponseContentText("{\"tokens\":[\"next-value\"]}");
+        HarEntry target = entry(2, 200, "GET", "https://example.test/use?token=next-value");
+        List<HarPredefinedCorrelation> found = HarPredefinedCorrelation.find(
+                List.of(source, next, target), List.of(missing, token, other));
+        assertEquals(List.of("token-value", "other-value", "next-value"),
+                found.stream().map(HarPredefinedCorrelation::getExtractedValue).toList());
+        assertEquals(List.of(2, 1, 1), found.stream().map(HarPredefinedCorrelation::getMatchNumber).toList());
+    }
+
+    @Test
+    void nonJsonAndMalformedBodiesStillAllowRegexAndHeaderRules() {
+        for (String body : List.of("<html>token-value</html>", "{invalid token-value", "")) {
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText(body);
+            source.getResponseHeaders().add(new NameValue("X-Token", "header-value"));
+            HarEntry target = entry(1, 100, "GET", "https://example.test/use?token=token-value&header=header-value");
+            Rule regex = new Rule("body", "Custom", "Body", "body",
+                    ExtractorType.REGEX, ResponseField.BODY, "(token-value)", "$1$", "", false, false, true);
+            Rule header = new Rule("header", "Custom", "Header", "header",
+                    ExtractorType.REGEX, ResponseField.HEADERS, "X-Token: (header-value)", "$1$", "", false, false, true);
+            assertEquals(body.isEmpty() ? 1 : 2, HarPredefinedCorrelation.find(
+                    List.of(source, target), List.of(jsonRule("token", "$.token"), regex, header)).size());
+        }
+    }
+
+    @Test
+    void jsonArrayAndStringRootsRemainSupported() {
+        for (String body : List.of("[\"token-value\"]", "\"token-value\"")) {
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText(body);
+            HarEntry target = entry(1, 100, "GET", "https://example.test/use?token=token-value");
+            String expression = body.startsWith("[") ? "$[0]" : "$";
+            assertEquals(1, HarPredefinedCorrelation.find(
+                    List.of(source, target), List.of(jsonRule("token", expression))).size());
+        }
+    }
+
+    @Test
+    void progressCompletesForEmptyAndNonEmptyScans() {
+        for (List<HarEntry> entries : List.of(List.<HarEntry>of(),
+                List.of(entry(0, 0, "GET", "https://example.test/"),
+                        entry(1, 100, "GET", "https://example.test/next")))) {
+            List<Integer> progress = new ArrayList<>();
+            HarPredefinedCorrelation.find(entries, List.of(), progress::add);
+            assertEquals(0, progress.get(0));
+            assertEquals(100, progress.get(progress.size() - 1));
+            assertEquals(progress.stream().sorted().toList(), progress);
+        }
+    }
+
+    @Test
+    void interruptedScanStopsWithoutReturningPartialResults() {
+        List<Integer> progress = new ArrayList<>();
+        try {
+            assertThrows(CancellationException.class, () -> HarPredefinedCorrelation.find(
+                    List.of(entry(0, 0, "GET", "https://example.test/"),
+                            entry(1, 100, "GET", "https://example.test/next")), List.of(), value -> {
+                        progress.add(value);
+                        if (value > 0) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }));
+            assertTrue(Thread.currentThread().isInterrupted());
+            assertTrue(progress.stream().noneMatch(value -> value == 100));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    private static Rule jsonRule(String id, String expression) {
+        return new Rule(id, "Custom", id, id, ExtractorType.JSON_PATH, ResponseField.BODY,
+                expression, "", 10, "", false, false, true);
+    }
 
     @Test
     void largeCapturedScriptCanBeDiscoveredWithoutCompilingItAsRegex() {

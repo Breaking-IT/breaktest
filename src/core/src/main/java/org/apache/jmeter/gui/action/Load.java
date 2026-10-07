@@ -512,7 +512,7 @@ public class Load extends AbstractActionWithNoRunningTest {
 
     static boolean useFastJmxLoad() {
         return JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY,
-                JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY_LEGACY, false));
+                JMeterUtils.getPropDefault(FAST_JMX_LOAD_PROPERTY_LEGACY, true));
     }
 
     /**

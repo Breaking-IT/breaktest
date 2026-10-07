@@ -62,6 +62,13 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
     private final Properties languageProperties = loadLanguageProperties();
 
     private final boolean disableUndo;
+    private static final int MAX_HIGHLIGHTED_LINE_LENGTH = 10_000;
+    private static final int MAX_HIGHLIGHTED_TEXT_LENGTH = 100_000;
+    private boolean largeTextMode;
+    private String normalSyntaxStyle;
+    private boolean normalLineWrap;
+    private boolean normalCodeFolding;
+
     private static final boolean WRAP_STYLE_WORD = JMeterUtils.getPropDefault("jsyntaxtextarea.wrapstyleword", true);
     private static final boolean LINE_WRAP = JMeterUtils.getPropDefault("jsyntaxtextarea.linewrap", true);
     private static final boolean CODE_FOLDING = JMeterUtils.getPropDefault("jsyntaxtextarea.codefolding", true);
@@ -275,13 +282,13 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
         if(language == null || languageProperties.isEmpty()) {
           // TODO: Log a message?
           // But how to find the name of the offending GUI element in the case of a TestBean?
-          super.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+          setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         } else {
           final String style = languageProperties.getProperty(language);
           if (style == null) {
-              super.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+              setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
           } else {
-              super.setSyntaxEditingStyle(style);
+              setSyntaxEditingStyle(style);
           }
         }
     }
@@ -299,6 +306,75 @@ public class JSyntaxTextArea extends RSyntaxTextArea {
             undoManager.setLimit(MAX_UNDOS);
         }
         return undoManager;
+    }
+
+    /** Keep full text editable without the quadratic wrapping cost of very long tokens. */
+    @Override
+    public void setText(String text) {
+        boolean large = needsPlainLayout(text);
+        if (large && !largeTextMode) {
+            normalSyntaxStyle = getSyntaxEditingStyle();
+            normalLineWrap = getLineWrap();
+            normalCodeFolding = isCodeFoldingEnabled();
+            largeTextMode = true;
+            super.setLineWrap(false);
+            super.setCodeFoldingEnabled(false);
+            super.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+        }
+        // Replace the old large document before restoring its editor's normal layout.
+        super.setText(text);
+        if (!large && largeTextMode) {
+            largeTextMode = false;
+            super.setSyntaxEditingStyle(normalSyntaxStyle);
+            super.setCodeFoldingEnabled(normalCodeFolding);
+            super.setLineWrap(normalLineWrap);
+        }
+    }
+
+    static boolean needsPlainLayout(String text) {
+        if (text == null) {
+            return false;
+        }
+        if (text.length() > MAX_HIGHLIGHTED_TEXT_LENGTH) {
+            return true;
+        }
+        int lineLength = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '\n' || ch == '\r') {
+                lineLength = 0;
+            } else if (++lineLength > MAX_HIGHLIGHTED_LINE_LENGTH) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public void setSyntaxEditingStyle(String style) {
+        if (largeTextMode) {
+            normalSyntaxStyle = style;
+        } else {
+            super.setSyntaxEditingStyle(style);
+        }
+    }
+
+    @Override
+    public void setLineWrap(boolean wrap) {
+        if (largeTextMode) {
+            normalLineWrap = wrap;
+        } else {
+            super.setLineWrap(wrap);
+        }
+    }
+
+    @Override
+    public void setCodeFoldingEnabled(boolean enabled) {
+        if (largeTextMode) {
+            normalCodeFolding = enabled;
+        } else {
+            super.setCodeFoldingEnabled(enabled);
+        }
     }
 
     /**

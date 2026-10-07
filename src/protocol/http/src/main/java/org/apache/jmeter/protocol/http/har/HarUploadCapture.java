@@ -198,10 +198,11 @@ public final class HarUploadCapture {
         boolean binary = mediaType.equals("application/octet-stream") || mediaType.equals("application/pdf")
                 || mediaType.equals("application/zip") || mediaType.startsWith("application/vnd.")
                 || mediaType.startsWith("image/") || mediaType.startsWith("audio/") || mediaType.startsWith("video/");
-        if (encoded || (binary && postData.getBodySize() >= 0 && postData.getBodySize() != literal.length)) {
+        long wireSize = rawBodyWireSize(entry);
+        if (encoded || (binary && wireSize >= 0 && wireSize != literal.length)) {
             try {
                 decoded = Base64.getDecoder().decode(text);
-                if (!encoded && decoded.length != postData.getBodySize()) {
+                if (!encoded && decoded.length != wireSize) {
                     decoded = null;
                 }
             } catch (IllegalArgumentException ex) {
@@ -232,6 +233,27 @@ public final class HarUploadCapture {
             warnings.add("Request " + (entry.getOriginalIndex() + 1)
                     + ": multiple captured filenames match the request body. Choose the file manually in the request's Files tab.");
         }
+    }
+
+    private static long rawBodyWireSize(HarEntry entry) {
+        // Chromium HARs can report the base64 text length in bodySize. The HTTP header
+        // describes the bytes sent on the wire, not the recorder's representation.
+        Long contentLength = null;
+        for (NameValue header : entry.getRequestHeaders()) {
+            if (!"content-length".equalsIgnoreCase(header.getName())) {
+                continue;
+            }
+            try {
+                long length = Long.parseLong(header.getValue().trim());
+                if (length < 0 || contentLength != null && contentLength != length) {
+                    return -1;
+                }
+                contentLength = length;
+            } catch (NumberFormatException ignored) {
+                return -1;
+            }
+        }
+        return contentLength == null ? entry.getPostData().getBodySize() : contentLength;
     }
 
     private static String resourceName(String name, byte[] bytes, Map<String, NameValue> resources) {

@@ -69,14 +69,24 @@ public class JSONManager {
      */
     public List<Object> extractWithJsonPath(String jsonString, String jsonPath)
             throws ParseException {
+        return extractFromParsedJson(parse(jsonString), jsonPath);
+    }
+
+    /** Parses a document once for repeated JSONPath extractions. */
+    public Object parse(String jsonString) {
+        return DEFAULT_CONFIGURATION.jsonProvider().parse(jsonString);
+    }
+
+    /** Extracts values from a document returned by {@link #parse(String)}. */
+    public List<Object> extractFromParsedJson(Object document, String jsonPath) {
         JsonPath jsonPathParser = getJsonPath(jsonPath);
         List<Object> extractedObjects;
         try {
-            extractedObjects = jsonPathParser.read(jsonString,
+            extractedObjects = jsonPathParser.read(document,
                     DEFAULT_CONFIGURATION);
         } catch (PathNotFoundException e) {
             if(log.isDebugEnabled()) {
-                log.debug("Could not find JSON Path {} in [{}]: {}", jsonPath, jsonString, e.getLocalizedMessage());
+                log.debug("Could not find JSON Path {} in [{}]: {}", jsonPath, document, e.getLocalizedMessage());
             }
             return Collections.emptyList();
         }

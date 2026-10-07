@@ -14,7 +14,7 @@
         {"key": "welcome.show", "type": "boolean", "default": "true", "description": "Show the welcome screen when starting without a test plan file."},
         {"key": "recent.files.max", "type": "integer", "default": "9", "description": "Number of recent test plans to remember, clamped to 1 through 100. The welcome screen shows all remembered files; the File menu shows at most nine."},
         {"key": "onload.expandtree", "type": "boolean", "default": "false", "description": "Expand the whole test plan tree when loading a test plan."},
-        {"key": "breaktest.gui.load.fast", "type": "boolean", "default": "false", "description": "Use the fast JMX loading mode when opening test plans. Applies the next time a test plan is opened."},
+        {"key": "breaktest.gui.load.fast", "type": "boolean", "default": "true", "description": "Load JMX files without initializing every element editor. Disable for compatibility with components that require editor initialization on load. Applies the next time a test plan is opened."},
         {"key": "confirm.delete.skip", "type": "boolean", "default": "false", "description": "Skip the confirmation dialogue when deleting tree elements."},
         {"key": "help.local", "type": "boolean", "default": "false", "description": "Open local documentation in the GUI instead of the online documentation in a browser."},
         {"key": "docgeneration.schematic_xsl", "type": "file", "description": "Path to the XSL file used to generate the Schematic View of a test plan. When empty the embedded stylesheet is used."}

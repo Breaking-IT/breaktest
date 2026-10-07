@@ -35,7 +35,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.function.IntConsumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
@@ -196,20 +198,21 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
 
         Path testPlanFile = StringUtilities.isEmpty(gui.getTestPlanFile())
                 ? null : Path.of(gui.getTestPlanFile());
-        gui.getMainFrame().showLoadingOverlay(
-                JMeterUtils.getResString("find_predefined_correlations_searching"));
+        CorrelationScanDialog progress = new CorrelationScanDialog(gui.getMainFrame());
         SwingWorker<ScanResult, Void> worker = new SwingWorker<>() {
             @Override
             protected ScanResult doInBackground() {
-                return scan(choice.node(), testPlanFile, selectedRules);
+                return scan(choice.node(), testPlanFile, selectedRules, this::setProgress);
             }
 
             @Override
             protected void done() {
-                gui.getMainFrame().hideLoadingOverlay();
+                progress.dispose();
                 try {
                     ScanResult scan = get();
                     reviewAndApply(gui, choice, scan);
+                } catch (CancellationException ignored) {
+                    // Cancelled scans never reach review or modify the plan.
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException ex) {
@@ -220,7 +223,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 }
             }
         };
-        worker.execute();
+        progress.start(worker);
     }
 
     public static List<JMeterTreeNode> correlationRequests(JMeterTreeModel model) {
@@ -246,8 +249,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         Path file = StringUtilities.isEmpty(gui.getTestPlanFile()) ? null : Path.of(gui.getTestPlanFile());
         Map<JMeterTreeNode, List<Rule>> rules = new LinkedHashMap<>();
         groups.keySet().forEach(group -> rules.put(group, HarCorrelationRuleCatalog.rulesFor(group)));
-        gui.getMainFrame().showLoadingOverlay(JMeterUtils.getResString("find_predefined_correlations_searching"));
-        new SwingWorker<Map<JMeterTreeNode, ScanResult>, Void>() {
+        CorrelationScanDialog progress = new CorrelationScanDialog(gui.getMainFrame());
+        SwingWorker<Map<JMeterTreeNode, ScanResult>, Void> worker = new SwingWorker<>() {
             @Override
             protected Map<JMeterTreeNode, ScanResult> doInBackground() {
                 Map<JMeterTreeNode, ScanResult> scans = new LinkedHashMap<>();
@@ -261,16 +264,20 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                             ordered.add((JMeterTreeNode) node);
                         }
                     }
-                    scans.put(group, scan(ordered, file, rules.get(group)));
+                    int completedGroups = scans.size();
+                    scans.put(group, scan(ordered, file, rules.get(group), true,
+                            value -> setProgress((completedGroups * 100 + value) / groups.size())));
                 });
                 return scans;
             }
 
             @Override
             protected void done() {
-                gui.getMainFrame().hideLoadingOverlay();
+                progress.dispose();
                 try {
                     get().forEach((group, scan) -> reviewAndApply(gui, new ThreadGroupChoice(group, nodePath(group)), scan));
+                } catch (CancellationException ignored) {
+                    // Cancelled scans never reach review or modify the plan.
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException ex) {
@@ -278,7 +285,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     JMeterUtils.reportErrorToUser("Recording added, but correlation analysis failed: " + ex.getCause().getMessage());
                 }
             }
-        }.execute();
+        };
+        progress.start(worker);
     }
 
     private static List<Rule> importCustomRules(GuiPackage gui, JMeterTreeNode testPlanNode) {
@@ -483,6 +491,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     }
 
     static ScanResult scan(JMeterTreeNode threadGroupNode, Path testPlanFile, List<Rule> rules) {
+        return scan(threadGroupNode, testPlanFile, rules, ignored -> { });
+    }
+
+    private static ScanResult scan(
+            JMeterTreeNode threadGroupNode, Path testPlanFile, List<Rule> rules, IntConsumer progress) {
         List<JMeterTreeNode> recordedNodes = new ArrayList<>();
         Enumeration<TreeNode> nodes = threadGroupNode.preorderEnumeration();
         while (nodes.hasMoreElements()) {
@@ -491,19 +504,22 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 recordedNodes.add(node);
             }
         }
-        return scan(recordedNodes, testPlanFile, rules, false);
+        return scan(recordedNodes, testPlanFile, rules, false, progress);
     }
 
     static ScanResult scan(List<JMeterTreeNode> recordedNodes, Path testPlanFile, List<Rule> rules) {
-        return scan(recordedNodes, testPlanFile, rules, true);
+        return scan(recordedNodes, testPlanFile, rules, true, ignored -> { });
     }
 
-    private static ScanResult scan(List<JMeterTreeNode> recordedNodes, Path testPlanFile, List<Rule> rules, boolean reportMissingRecordings) {
+    private static ScanResult scan(List<JMeterTreeNode> recordedNodes, Path testPlanFile,
+            List<Rule> rules, boolean reportMissingRecordings, IntConsumer progress) {
         List<HarEntry> entries = new ArrayList<>();
         Map<Integer, JMeterTreeNode> nodesByEntryIndex = new LinkedHashMap<>();
         int unavailableCount = 0;
         int entryIndex = 0;
+        progress.accept(0);
         for (JMeterTreeNode node : recordedNodes) {
+            HarPredefinedCorrelation.checkCancelled();
             TestElement sampler = node.getTestElement();
             RecordedHarExchangeResolver.Resolution resolution =
                     RecordedHarExchangeResolver.resolveFor(node, testPlanFile);
@@ -516,9 +532,10 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     exchange == null ? "" : exchange.responseBody(), entryIndex));
             nodesByEntryIndex.put(entryIndex, node);
             entryIndex++;
+            progress.accept((int) (20L * entryIndex / recordedNodes.size()));
         }
         return new ScanResult(
-                HarPredefinedCorrelation.find(entries, rules),
+                HarPredefinedCorrelation.find(entries, rules, value -> progress.accept(20 + value * 80 / 100)),
                 Map.copyOf(nodesByEntryIndex), unavailableCount);
     }
 
