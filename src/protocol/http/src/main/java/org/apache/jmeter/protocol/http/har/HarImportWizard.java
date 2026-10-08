@@ -20,8 +20,10 @@ package org.apache.jmeter.protocol.http.har;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Desktop;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -138,6 +140,8 @@ public class HarImportWizard extends JDialog {
             "https://chromewebstore.google.com/detail/breaktest-browser-recorde/nhndlgmkjpgkpmfkpmecedmccdgbbajm");
     private static final URI RECORDER_EDGE_STORE_URI = URI.create(
             "https://microsoftedge.microsoft.com/addons/detail/breaktest-browser-recorde/keilkcnnahbilkeakefndohijlkknkdp");
+    private static final URI RECORDER_FIREFOX_STORE_URI = URI.create(
+            "https://addons.mozilla.org/nl/firefox/addon/breaktest-browser-recorder/");
 
     private static final int STEP_FILE = 0;
     private static final int STEP_HOSTS = 1;
@@ -320,20 +324,21 @@ public class HarImportWizard extends JDialog {
         description.setWrapStyleWord(true);
         description.setOpaque(false);
         description.setFont(fileLabel.getFont());
-        description.setRows(3);
+        description.setBorder(BorderFactory.createEmptyBorder());
+        description.setRows(1);
         panel.add(description, BorderLayout.CENTER);
-        JPanel links = new JPanel();
-        links.setLayout(new BoxLayout(links, BoxLayout.Y_AXIS));
+        JPanel links = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         links.add(buildRecorderStoreLink("har_import_recorder_chrome_store", RECORDER_CHROME_STORE_URI));
-        links.add(Box.createVerticalStrut(6));
         links.add(buildRecorderStoreLink("har_import_recorder_edge_store", RECORDER_EDGE_STORE_URI));
+        links.add(buildRecorderStoreLink("har_import_recorder_firefox_store", RECORDER_FIREFOX_STORE_URI));
         panel.add(links, BorderLayout.SOUTH);
         return panel;
     }
 
     private JButton buildRecorderStoreLink(String labelKey, URI storeUri) {
         JButton storeLink = new JButton(JMeterUtils.getResString(labelKey));
-        storeLink.setAlignmentX(Component.LEFT_ALIGNMENT);
+        storeLink.setMargin(new Insets(6, 16, 6, 16));
+        storeLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         storeLink.setToolTipText(storeUri.toString());
         storeLink.addActionListener(e -> {
             try {
