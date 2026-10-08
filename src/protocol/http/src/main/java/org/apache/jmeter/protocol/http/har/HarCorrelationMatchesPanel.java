@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.awt.Component;
+import java.awt.Dimension;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,6 +30,8 @@ import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -84,6 +87,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
         checkBoxes.add(checkBox);
         displayedCorrelations.add(correlation);
         matchPanel.add(checkBox);
+        addValue(matchPanel, "har_import_correlation_matched_value", correlation.getExtractedValue());
         for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
             String location = replacement.getLocation().getDisplayName();
             if (!replacement.getLocationName().isEmpty()) {
@@ -95,8 +99,33 @@ final class HarCorrelationMatchesPanel extends JPanel {
             target.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
             target.setAlignmentX(Component.LEFT_ALIGNMENT);
             matchPanel.add(target);
+            if (!replacement.getMatchedLiteral().equals(correlation.getExtractedValue())) {
+                addValue(matchPanel, "har_import_correlation_request_value", replacement.getMatchedLiteral());
+            }
         }
         add(matchPanel);
+    }
+
+    private static void addValue(JPanel panel, String labelKey, String value) {
+        JPanel valuePanel = new JPanel();
+        valuePanel.setLayout(new BoxLayout(valuePanel, BoxLayout.Y_AXIS));
+        valuePanel.setBorder(BorderFactory.createEmptyBorder(2, 24, 4, 0));
+        valuePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel label = new JLabel(JMeterUtils.getResString(labelKey));
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        valuePanel.add(label);
+        JTextArea text = new JTextArea(value, 2, 50);
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(false);
+        text.setCaretPosition(0);
+        text.getAccessibleContext().setAccessibleName(label.getText());
+        label.setLabelFor(text);
+        JScrollPane scroll = new JScrollPane(text);
+        scroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, scroll.getPreferredSize().height));
+        valuePanel.add(scroll);
+        panel.add(valuePanel);
     }
 
     List<HarPredefinedCorrelation> getSelectedCorrelations() {
