@@ -33,6 +33,7 @@ public final class ActionNames {
     public static final String ADD_ALL          = "add_all"; // $NON-NLS-1$
     public static final String ADD_CUSTOM_PREDEFINED_CORRELATION =
             "add_custom_predefined_correlation"; // $NON-NLS-1$
+    public static final String PROCESS_CORRELATION_RULES = "process_correlation_rules"; // $NON-NLS-1$
     public static final String ADD_PARENT       = "Add Parent"; // $NON-NLS-1$
     public static final String ADD_THINK_TIME_BETWEEN_EACH_STEP    = "Add Think Time between each step"; // $NON-NLS-1$
     public static final String ANALYZE_FILE     = "Analyze File"; // $NON-NLS-1$

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
@@ -30,6 +31,22 @@ import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.junit.jupiter.api.Test;
 
 class SaveExtractorAsPredefinedCorrelationActionTest {
+
+    @Test
+    void failedRecordingInspectionKeepsDefaultMinimum() throws InterruptedException {
+        RegexExtractor extractor = new RegexExtractor();
+        extractor.setRefName("token");
+        extractor.setRegex("token=(.+)");
+        extractor.setTemplate("$1$");
+        var original = SaveExtractorAsPredefinedCorrelationAction.rulesFromExtractor(extractor);
+        var result = SaveExtractorAsPredefinedCorrelationAction.inspectedRules(
+                CompletableFuture.failedFuture(new IllegalStateException("Unreadable recording")), original);
+        assertEquals(original, result);
+        assertEquals(6, result.get(0).getMinValueLength());
+        var inspected = List.of(original.get(0).withMinValueLength(3));
+        assertEquals(inspected, SaveExtractorAsPredefinedCorrelationAction.inspectedRules(
+                CompletableFuture.completedFuture(inspected), original));
+    }
 
     @Test
     void capturesRegexExtractorSettings() {
@@ -51,7 +68,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
         assertEquals("Tenant session", rule.getName());
         assertEquals(ResponseField.HEADERS, rule.getResponseField());
         assertEquals("session-$1$", rule.getTemplate());
-        assertEquals(1, rule.getMaxMatches());
+        assertEquals(-1, rule.getMaxMatches());
         assertEquals("fallback", rule.getDefaultValue());
         assertTrue(rule.isEmptyDefaultValue());
         assertFalse(rule.isFailOnNoMatch());
@@ -72,7 +89,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
 
         assertEquals(List.of("custom-customer_id", "custom-order_id"),
                 rules.stream().map(Rule::getId).toList());
-        assertTrue(rules.stream().allMatch(rule -> rule.getMaxMatches() == 1));
+        assertTrue(rules.stream().allMatch(rule -> rule.getMaxMatches() == -1));
         assertEquals("missing", rules.get(1).getDefaultValue());
         assertTrue(rules.get(1).isComputeConcatenation());
     }
@@ -87,7 +104,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
 
         Rule rule = SaveExtractorAsPredefinedCorrelationAction.rulesFromExtractor(extractor).get(0);
 
-        assertEquals(1, rule.getMaxMatches());
+        assertEquals(-1, rule.getMaxMatches());
     }
 
     @Test

@@ -81,6 +81,11 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             pop.add(validate);
         }
 
+        if (!JMeterUtils.isTestRunning()) {
+            pop.addSeparator();
+            pop.add(createMenuItem("process_correlation_rules", ActionNames.PROCESS_CORRELATION_RULES));
+        }
+
         MenuFactory.addEditMenu(pop, true);
         MenuFactory.addFileMenu(pop, false);
         return pop;

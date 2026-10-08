@@ -456,7 +456,8 @@ final class HarCorrelationRulesPanel extends JPanel {
                 new Detail("Extractor", rule.getExtractorType()),
                 new Detail("Response field", rule.getResponseField()),
                 new Detail("Match number", "Detected from later request use"),
-                new Detail("Maximum matches", rule.getMaxMatches()),
+                new Detail(JMeterUtils.getResString("correlation_rule_max_matches"), rule.getMaxMatches()),
+                new Detail(JMeterUtils.getResString("correlation_rule_min_length"), rule.getMinValueLength()),
                 new Detail("Expression", rule.getExpression()),
                 new Detail("Template", rule.getTemplate()),
                 new Detail("Default value", rule.getDefaultValue()),
@@ -571,7 +572,18 @@ final class HarCorrelationRulesPanel extends JPanel {
         private final JComboBox<ResponseField> responseField = new JComboBox<>(ResponseField.values());
         private final JTextField expression = new JTextField(40);
         private final JTextField template = new JTextField(20);
-        private final JSpinner maxMatches = new JSpinner(new SpinnerNumberModel(1, 1, 100_000, 1));
+        private final JSpinner maxMatches = new JSpinner(new SpinnerNumberModel(-1, -1, 100_000, 1) {
+            @Override
+            public Object getNextValue() {
+                return getNumber().intValue() == -1 ? 1 : super.getNextValue();
+            }
+
+            @Override
+            public Object getPreviousValue() {
+                return getNumber().intValue() == 1 ? -1 : super.getPreviousValue();
+            }
+        });
+        private final JSpinner minValueLength = new JSpinner(new SpinnerNumberModel(6, 1, Integer.MAX_VALUE, 1));
         private final JTextField defaultValue = new JTextField(20);
         private final JCheckBox emptyDefaultValue = new JCheckBox();
         private final JCheckBox failOnNoMatch = new JCheckBox();
@@ -587,6 +599,7 @@ final class HarCorrelationRulesPanel extends JPanel {
             expression.setText(rule.getExpression());
             template.setText(rule.getTemplate());
             maxMatches.setValue(rule.getMaxMatches());
+            minValueLength.setValue(rule.getMinValueLength());
             defaultValue.setText(rule.getDefaultValue());
             emptyDefaultValue.setSelected(rule.isEmptyDefaultValue());
             failOnNoMatch.setSelected(rule.isFailOnNoMatch());
@@ -597,9 +610,17 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow("Variable name", variableName, row++);
             addRow("Extractor type", extractorType, row++);
             addRow("Response field", responseField, row++);
-            addRow("Expression", expression, row++);
-            addRow("Template", template, row++);
-            addRow("Maximum matches", maxMatches, row++);
+            addRow(rule.getExtractorType() == ExtractorType.BOUNDARY
+                    ? JMeterUtils.getResString("correlation_rule_left_boundary") : "Expression", expression, row++);
+            addRow(switch (rule.getExtractorType()) {
+            case BOUNDARY -> JMeterUtils.getResString("correlation_rule_right_boundary");
+            case CSS -> "Attribute (empty for text)";
+            default -> "Template";
+            }, template, row++);
+            maxMatches.setToolTipText(JMeterUtils.getResString("correlation_rule_max_matches_tooltip"));
+            addRow(JMeterUtils.getResString("correlation_rule_max_matches_label"), maxMatches, row++);
+            minValueLength.setToolTipText(JMeterUtils.getResString("correlation_rule_min_length_tooltip"));
+            addRow(JMeterUtils.getResString("correlation_rule_min_length"), minValueLength, row++);
             addRow("Default value", defaultValue, row++);
             addRow("Use empty default", emptyDefaultValue, row++);
             addRow("Fail when no match", failOnNoMatch, row);
@@ -610,8 +631,9 @@ final class HarCorrelationRulesPanel extends JPanel {
                     original.getId(), group.getText().trim(), name.getText().trim(),
                     variableName.getText().trim(), (ExtractorType) extractorType.getSelectedItem(),
                     (ResponseField) responseField.getSelectedItem(), expression.getText(), template.getText(),
-                    (Integer) maxMatches.getValue(), defaultValue.getText(),
-                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected());
+                    (Integer) maxMatches.getValue(), (Integer) minValueLength.getValue(), defaultValue.getText(),
+                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected(),
+                    original.getExtractorSettings());
         }
 
         private void addRow(String label, Component component, int row) {

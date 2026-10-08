@@ -66,7 +66,12 @@ final class HarPredefinedCorrelation {
 
     enum ExtractorType {
         REGEX,
-        JSON_PATH
+        JSON_PATH,
+        BOUNDARY,
+        CSS,
+        XPATH,
+        XPATH2,
+        JSON_JMESPATH
     }
 
     enum ResponseField {
@@ -102,6 +107,8 @@ final class HarPredefinedCorrelation {
         private final String expression;
         private final String template;
         private final int maxMatches;
+        private final int minValueLength;
+        private final Map<String, String> extractorSettings;
         private final String defaultValue;
         private final boolean emptyDefaultValue;
         private final boolean computeConcatenation;
@@ -112,13 +119,32 @@ final class HarPredefinedCorrelation {
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch) {
             this(id, group, name, variableName, extractorType, responseField, expression, template,
-                    1, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
+                    -1, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
         }
 
         Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
                 ResponseField responseField, String expression, String template, int maxMatches,
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch) {
+            this(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, MIN_CORRELATED_VALUE_LENGTH, defaultValue, emptyDefaultValue,
+                    computeConcatenation, failOnNoMatch);
+        }
+
+        Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
+                ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
+                String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
+                boolean failOnNoMatch) {
+            this(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, Map.of());
+        }
+
+        Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
+                ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
+                String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
+                boolean failOnNoMatch, Map<String, String> extractorSettings) {
+            this.extractorSettings = Map.copyOf(extractorSettings);
             this.id = id;
             this.group = group;
             this.name = name;
@@ -128,6 +154,7 @@ final class HarPredefinedCorrelation {
             this.expression = expression;
             this.template = template;
             this.maxMatches = maxMatches;
+            this.minValueLength = minValueLength;
             this.defaultValue = defaultValue;
             this.emptyDefaultValue = emptyDefaultValue;
             this.computeConcatenation = computeConcatenation;
@@ -168,6 +195,31 @@ final class HarPredefinedCorrelation {
 
         int getMaxMatches() {
             return maxMatches;
+        }
+
+        Map<String, String> getExtractorSettings() {
+            return extractorSettings;
+        }
+
+        Rule withExtractorSettings(Map<String, String> settings) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch, settings);
+        }
+
+        Rule withGroup(String group) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings);
+        }
+
+        Rule withMinValueLength(int minValueLength) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings);
+        }
+
+        int getMinValueLength() {
+            return minValueLength;
         }
 
         String getDefaultValue() {
@@ -248,6 +300,11 @@ final class HarPredefinedCorrelation {
         this.extractedValue = extractedValue;
         this.matchNumber = matchNumber;
         this.replacements = List.copyOf(replacements);
+    }
+
+    HarPredefinedCorrelation withReplacements(List<Replacement> selected) {
+        return new HarPredefinedCorrelation(rule, variableName, sourceEntryIndex, sourceUrl,
+                extractedValue, matchNumber, selected);
     }
 
     Rule getRule() {
@@ -333,7 +390,7 @@ final class HarPredefinedCorrelation {
                 }
                 List<ExtractedValue> extractedValues = extract(
                         rule, source.getResponseContentText(), responseHeaders, jsonManager, jsonDocument);
-                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues);
+                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues, rule.getMinValueLength());
                 if (matched == null) {
                     continue;
                 }
@@ -353,6 +410,15 @@ final class HarPredefinedCorrelation {
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("Correlation scan cancelled");
         }
+    }
+
+    static int observedMinimumLength(Rule rule, String body, String headers) {
+        JSONManager manager = new JSONManager();
+        Object document = rule.getExtractorType() == ExtractorType.JSON_PATH ? parseJsonBody(body, manager) : null;
+        return extract(rule, body, headers, manager, document).stream()
+                .mapToInt(value -> value.value().strip().length()).filter(length -> length > 0)
+                .min().stream().map(length -> Math.min(MIN_CORRELATED_VALUE_LENGTH, length))
+                .findFirst().orElse(MIN_CORRELATED_VALUE_LENGTH);
     }
 
     private static Object parseJsonBody(String body, JSONManager jsonManager) {
@@ -451,17 +517,17 @@ final class HarPredefinedCorrelation {
     }
 
     private static CandidateMatch findMatchingCandidate(
-            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues) {
+            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues, int minValueLength) {
         Map<String, CandidateMatch> matchesByValue = new LinkedHashMap<>();
         for (ExtractedValue extractedValue : extractedValues) {
             if (extractedValue.value() == null
-                    || extractedValue.value().strip().length() < MIN_CORRELATED_VALUE_LENGTH) {
+                    || extractedValue.value().strip().length() < minValueLength) {
                 continue;
             }
             List<Replacement> replacements = new ArrayList<>();
             for (int targetPosition = sourcePosition + 1; targetPosition < entries.size(); targetPosition++) {
                 checkCancelled();
-                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value()));
+                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value(), minValueLength));
             }
             if (!replacements.isEmpty()) {
                 matchesByValue.putIfAbsent(
@@ -473,22 +539,34 @@ final class HarPredefinedCorrelation {
 
     private static List<ExtractedValue> extract(
             Rule rule, String responseBody, String responseHeaders, JSONManager jsonManager, Object jsonDocument) {
+        if (HarNativeExtractorSupport.supports(rule.getExtractorType())) {
+            List<String> values = HarNativeExtractorSupport.extract(rule, responseBody, responseHeaders);
+            if (rule.getMaxMatches() != -1 && values.size() > rule.getMaxMatches()) {
+                return List.of();
+            }
+            Map<String, ExtractedValue> distinct = new LinkedHashMap<>();
+            for (int i = 0; i < values.size(); i++) {
+                distinct.putIfAbsent(values.get(i), new ExtractedValue(i + 1, values.get(i)));
+            }
+            return List.copyOf(distinct.values());
+        }
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
             if (jsonDocument == null) {
                 return List.of();
             }
             try {
                 List<Object> values = jsonManager.extractFromParsedJson(jsonDocument, rule.getExpression());
-                if (values.size() > rule.getMaxMatches()) {
+                if (rule.getMaxMatches() != -1 && values.size() > rule.getMaxMatches()) {
                     return List.of();
                 }
-                List<ExtractedValue> extractedValues = new ArrayList<>(values.size());
+                Map<String, ExtractedValue> extractedValues = new LinkedHashMap<>();
                 for (int i = 0; i < values.size(); i++) {
                     if (values.get(i) != null) {
-                        extractedValues.add(new ExtractedValue(i + 1, String.valueOf(values.get(i))));
+                        String value = String.valueOf(values.get(i));
+                        extractedValues.putIfAbsent(value, new ExtractedValue(i + 1, value));
                     }
                 }
-                return extractedValues;
+                return List.copyOf(extractedValues.values());
             } catch (RuntimeException | StackOverflowError ignored) {
                 return List.of();
             }
@@ -501,17 +579,17 @@ final class HarPredefinedCorrelation {
                     rule.getExpression(), Perl5Compiler.READ_ONLY_MASK);
             PatternMatcherInput input = new PatternMatcherInput(source);
             int matchNumber = 0;
-            List<ExtractedValue> extractedValues = new ArrayList<>();
+            Map<String, ExtractedValue> extractedValues = new LinkedHashMap<>();
             while (matcher.contains(input, pattern)) {
                 checkCancelled();
                 matchNumber++;
-                if (matchNumber > rule.getMaxMatches()) {
+                if (rule.getMaxMatches() != -1 && matchNumber > rule.getMaxMatches()) {
                     return List.of();
                 }
-                extractedValues.add(new ExtractedValue(
-                        matchNumber, applyTemplate(rule.getTemplate(), matcher.getMatch())));
+                String value = applyTemplate(rule.getTemplate(), matcher.getMatch());
+                extractedValues.putIfAbsent(value, new ExtractedValue(matchNumber, value));
             }
-            return extractedValues;
+            return List.copyOf(extractedValues.values());
         } catch (CancellationException ex) {
             throw ex;
         } catch (RuntimeException | StackOverflowError ignored) {
@@ -581,34 +659,34 @@ final class HarPredefinedCorrelation {
         return result.toString();
     }
 
-    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue) {
+    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue, int minValueLength) {
         List<Replacement> result = new ArrayList<>();
-        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue);
+        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, minValueLength);
         for (NameValue header : entry.getRequestHeaders()) {
             // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
             // would be listed as replacements that silently do nothing.
             if (HarConverter.isExportableHeader(header.getName())) {
                 addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
-                        header.getName(), header.getValue(), extractedValue);
+                        header.getName(), header.getValue(), extractedValue, minValueLength);
             }
         }
         for (NameValue parameter : entry.getQueryString()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    parameter.getName(), parameter.getValue(), extractedValue);
+                    parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
         }
         if (entry.getQueryString().isEmpty()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    "", urlQuery(entry.getUrl()), extractedValue);
+                    "", urlQuery(entry.getUrl()), extractedValue, minValueLength);
         }
         PostData postData = entry.getPostData();
         if (postData != null) {
             if (postData.getParams().isEmpty()) {
                 addReplacement(result, entry, RequestLocation.REQUEST_BODY, "",
-                        postData.getText(), extractedValue);
+                        postData.getText(), extractedValue, minValueLength);
             } else {
                 for (NameValue parameter : postData.getParams()) {
                     addReplacement(result, entry, RequestLocation.POST_PARAMETER,
-                            parameter.getName(), parameter.getValue(), extractedValue);
+                            parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
                 }
             }
         }
@@ -616,7 +694,7 @@ final class HarPredefinedCorrelation {
     }
 
     private static void addReplacement(List<Replacement> result, HarEntry entry,
-            RequestLocation location, String locationName, String text, String extractedValue) {
+            RequestLocation location, String locationName, String text, String extractedValue, int minValueLength) {
         String matchedLiteral = matchedLiteral(text, extractedValue);
         if (matchedLiteral == null && (location == RequestLocation.QUERY_PARAMETER
                 || location == RequestLocation.POST_PARAMETER)) {
@@ -624,7 +702,7 @@ final class HarPredefinedCorrelation {
         }
         if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
             String decoded = decodedHeaderValue(extractedValue);
-            if (!decoded.equals(extractedValue) && decoded.strip().length() >= MIN_CORRELATED_VALUE_LENGTH
+            if (!decoded.equals(extractedValue) && decoded.strip().length() >= minValueLength
                     && text.contains(decoded)) {
                 matchedLiteral = decoded;
             }
@@ -689,6 +767,9 @@ final class HarPredefinedCorrelation {
     }
 
     static TestElement buildExtractor(Rule rule, int matchNumber, String variableName) {
+        if (HarNativeExtractorSupport.supports(rule.getExtractorType())) {
+            return HarNativeExtractorSupport.build(rule, matchNumber, variableName);
+        }
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
             JSONPostProcessor extractor = new JSONPostProcessor();
             extractor.setProperty(TestElement.GUI_CLASS, JSONPostProcessorGui.class.getName());

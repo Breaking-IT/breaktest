@@ -28,10 +28,12 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.assertions.gui.XMLConfPanel;
 import org.apache.jmeter.extractor.XPathExtractor;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
@@ -41,6 +43,7 @@ import org.apache.jorphan.gui.JLabeledTextField;
  */
 @TestElementMetadata(labelResource = "xpath_extractor_title")
 public class XPathExtractorGui extends AbstractPostProcessorGui {
+
 
     private static final long serialVersionUID = 240L;
 
@@ -64,6 +67,11 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
             new JCheckBox();
 
     private final XMLConfPanel xml = new XMLConfPanel();
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
 
     @Override
     public String getLabelResource() {

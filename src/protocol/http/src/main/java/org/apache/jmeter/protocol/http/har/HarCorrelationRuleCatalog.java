@@ -348,6 +348,11 @@ final class HarCorrelationRuleCatalog {
                 ruleNode.put("expression", rule.getExpression());
                 ruleNode.put("template", rule.getTemplate());
                 ruleNode.put("maxMatches", rule.getMaxMatches());
+                ruleNode.put("minValueLength", rule.getMinValueLength());
+                if (!rule.getExtractorSettings().isEmpty()) {
+                    ObjectNode settings = ruleNode.putObject("extractorSettings");
+                    rule.getExtractorSettings().forEach(settings::put);
+                }
                 ruleNode.put("defaultValue", rule.getDefaultValue());
                 ruleNode.put("emptyDefaultValue", rule.isEmptyDefaultValue());
                 ruleNode.put("computeConcatenation", rule.isComputeConcatenation());
@@ -368,7 +373,7 @@ final class HarCorrelationRuleCatalog {
         String id = requiredText(node, "id");
         String name = requiredText(node, "name");
         String variableName = requiredText(node, "variableName");
-        String expression = requiredText(node, "expression");
+        String expression = node.path("expression").asText("");
         if (!id.matches("[A-Za-z0-9._-]+")) {
             throw new IOException("Invalid predefined correlation rule id: " + id);
         }
@@ -381,16 +386,27 @@ final class HarCorrelationRuleCatalog {
         }
         ExtractorType extractorType = enumValue(
                 ExtractorType.class, requiredText(node, "extractorType"), "extractorType", id);
+        if (extractorType != ExtractorType.BOUNDARY && expression.isBlank()) {
+            throw new IOException("expression is required: " + id);
+        }
         ResponseField responseField = enumValue(
                 ResponseField.class, node.path("responseField").asText("BODY"), "responseField", id);
-        if (extractorType == ExtractorType.JSON_PATH && responseField != ResponseField.BODY) {
-            throw new IOException("JSON_PATH rule must use BODY: " + id);
+        if (extractorType != ExtractorType.REGEX && extractorType != ExtractorType.BOUNDARY
+                && responseField != ResponseField.BODY) {
+            throw new IOException(extractorType + " rule must use BODY: " + id);
         }
         String template = node.path("template").asText(extractorType == ExtractorType.REGEX ? "$1$" : "");
-        int maxMatches = node.path("maxMatches").asInt(1);
-        if (maxMatches <= 0 || maxMatches > MAX_MATCHES) {
-            throw new IOException("Predefined correlation maxMatches must be between 1 and "
+        if (extractorType == ExtractorType.BOUNDARY && expression.isEmpty() && template.isEmpty()) {
+            throw new IOException("at least one boundary is required: " + id);
+        }
+        int maxMatches = node.path("maxMatches").asInt(-1);
+        if (maxMatches != -1 && (maxMatches <= 0 || maxMatches > MAX_MATCHES)) {
+            throw new IOException("Predefined correlation maxMatches must be -1 (unlimited) or between 1 and "
                     + MAX_MATCHES + ": " + id);
+        }
+        int minValueLength = node.path("minValueLength").asInt(HarPredefinedCorrelation.MIN_CORRELATED_VALUE_LENGTH);
+        if (minValueLength < 1) {
+            throw new IOException("Predefined correlation minValueLength must be at least 1: " + id);
         }
         if (extractorType == ExtractorType.REGEX) {
             try {
@@ -399,12 +415,25 @@ final class HarCorrelationRuleCatalog {
                 throw new IOException("Invalid JMeter regular expression for rule " + id, ex);
             }
         }
+        Map<String, String> settings = new LinkedHashMap<>();
+        JsonNode settingsNode = node.path("extractorSettings");
+        if (!settingsNode.isMissingNode()) {
+            if (!settingsNode.isObject()) {
+                throw new IOException("extractorSettings must be an object: " + id);
+            }
+            for (var field : settingsNode.properties()) {
+                if (!field.getValue().isTextual()) {
+                    throw new IOException("extractorSettings values must be strings: " + id);
+                }
+                settings.put(field.getKey(), field.getValue().asText());
+            }
+        }
         return new Rule(
                 id, group, name, variableName, extractorType, responseField, expression, template,
-                maxMatches,
+                maxMatches, minValueLength,
                 node.path("defaultValue").asText(""), node.path("emptyDefaultValue").asBoolean(false),
                 node.path("computeConcatenation").asBoolean(false),
-                node.path("failOnNoMatch").asBoolean(true));
+                node.path("failOnNoMatch").asBoolean(true), settings);
     }
 
     private static void validateGroup(String group, String context) throws IOException {

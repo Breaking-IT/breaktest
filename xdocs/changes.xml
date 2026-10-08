@@ -24,6 +24,13 @@
 <body>
 <section name="Release Notes">
 
+<h1>Unreleased</h1>
+<ch_section>Correlation Rule Compatibility</ch_section>
+<p>Correlation rules now default to unlimited matches (<code>maxMatches=-1</code>). Existing custom rule JSON files
+that omit <code>maxMatches</code> previously defaulted to 1 and may now produce additional matches. Set an explicit
+positive limit to retain a cap; <code>maxMatches=1</code> restores the previous limit. Duplicate captured values
+are deduplicated, while explicit positive limits still count every occurrence in the response.</p>
+
 <h1>BreakTest 2026.10.07 — Faster Loading, Responsive Editors, and HAR Fixes</h1>
 <p>This maintenance release improves large-plan loading and editing, adds progress and cancellation to correlation scans, and fixes binary upload references, URL encoding, and legacy cache handling in HAR imports.</p>
 <ch_section>Faster Loading and Responsive Editors</ch_section>

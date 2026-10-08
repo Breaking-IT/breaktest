@@ -27,10 +27,12 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.extractor.json.jmespath.JMESPathExtractor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
@@ -46,6 +48,7 @@ import org.apache.jorphan.gui.JLabeledTextField;
 public class JMESPathExtractorGui extends AbstractPostProcessorGui {
 
     private static final long serialVersionUID = -4825532539405119033L;
+
     private JLabeledTextField defaultValueField;
     private JLabeledTextField jmesPathExpressionField;
     private JLabeledTextField refNameField;
@@ -55,6 +58,11 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
     public JMESPathExtractorGui() {
         super();
         init();
+    }
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
     }
 
     @Override

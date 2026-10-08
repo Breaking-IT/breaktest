@@ -100,7 +100,31 @@ class HarProtocolCorrelationTest extends JMeterTestCase {
         HarEntry submit = entry(2, "/submit");
         submit.getRequestHeaders().add(new NameValue("Jenkins-Crumb", "jenkins-crumb-123"));
         submit.getRequestHeaders().add(new NameValue("X-CSRFToken", "flask-token-456"));
-        assertEquals(List.of("jenkins-crumb", "flask-csrf-token"), ids(find(jenkins, flask, submit)));
+        var rules = HarCorrelationRuleCatalog.builtInRules().stream()
+                .filter(rule -> Set.of("jenkins-crumb", "flask-csrf-token").contains(rule.getId())).toList();
+        var matches = HarPredefinedCorrelation.find(List.of(jenkins, flask, submit), rules);
+        assertEquals(List.of("jenkins-crumb", "flask-csrf-token"), ids(matches));
+        assertEquals("flask-token-456", matches.get(1).getExtractedValue());
+        assertEquals(1, matches.get(1).getMatchNumber());
+    }
+
+    @Test
+    void identicalCsrfPatternsKeepCatalogPrecedenceForRepeatedValues() {
+        HarEntry source = entry(0, "/form");
+        HarEntry submit = entry(1, "/submit");
+        submit.getRequestHeaders().add(new NameValue("X-CSRFToken", "shared-token-456"));
+        // Commerce Cloud and Flask use identical patterns; the first rule wins for either occurrence count.
+        for (int occurrences : List.of(1, 3)) {
+            source.setResponseContentText("<input value='shared-token-456' name='csrf_token'>".repeat(occurrences));
+            var matches = find(source, submit);
+            assertEquals(List.of("sfcc-csrf-token"), ids(matches));
+            var match = matches.get(0);
+            assertEquals("shared-token-456", match.getExtractedValue());
+            assertEquals(1, match.getMatchNumber());
+            assertEquals(1, match.getReplacements().size());
+            assertEquals("${sfcc_csrf_token}", HarPredefinedCorrelation.variableReference(
+                    match, match.getReplacements().get(0)));
+        }
     }
 
     @Test

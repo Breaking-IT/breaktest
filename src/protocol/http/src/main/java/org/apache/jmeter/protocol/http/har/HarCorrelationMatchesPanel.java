@@ -18,17 +18,21 @@
 package org.apache.jmeter.protocol.http.har;
 
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -38,6 +42,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
     private static final long serialVersionUID = 1L;
 
     private final List<JCheckBox> checkBoxes = new ArrayList<>();
+    private final List<Map<Integer, JCheckBox>> requestCheckBoxes = new ArrayList<>();
     private final List<HarPredefinedCorrelation> displayedCorrelations = new ArrayList<>();
 
     HarCorrelationMatchesPanel() {
@@ -46,6 +51,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
 
     void setCorrelations(List<HarPredefinedCorrelation> correlations) {
         checkBoxes.clear();
+        requestCheckBoxes.clear();
         displayedCorrelations.clear();
         removeAll();
         if (correlations.isEmpty()) {
@@ -58,7 +64,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
         }
         for (Map.Entry<String, List<HarPredefinedCorrelation>> group : groups.entrySet()) {
             JLabel groupLabel = new JLabel(group.getKey());
-            groupLabel.setFont(groupLabel.getFont().deriveFont(java.awt.Font.BOLD));
+            groupLabel.setFont(groupLabel.getFont().deriveFont(Font.BOLD));
             groupLabel.setBorder(BorderFactory.createEmptyBorder(8, 0, 2, 0));
             groupLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             add(groupLabel);
@@ -84,26 +90,60 @@ final class HarCorrelationMatchesPanel extends JPanel {
         checkBoxes.add(checkBox);
         displayedCorrelations.add(correlation);
         matchPanel.add(checkBox);
+        addValueMapping(matchPanel, correlation);
+        Map<Integer, JCheckBox> requests = new LinkedHashMap<>();
+        requestCheckBoxes.add(requests);
+        checkBox.addActionListener(event -> requests.values().forEach(box -> box.setSelected(checkBox.isSelected())));
+        Map<Integer, List<HarPredefinedCorrelation.Replacement>> targets = new LinkedHashMap<>();
         for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
-            String location = replacement.getLocation().getDisplayName();
-            if (!replacement.getLocationName().isEmpty()) {
-                location += " " + replacement.getLocationName();
-            }
-            JLabel target = new JLabel(MessageFormat.format(
-                    JMeterUtils.getResString("har_import_correlation_replacement"),
-                    replacement.getRequestMethod(), compactUrl(replacement.getRequestUrl()), location));
-            target.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
-            target.setAlignmentX(Component.LEFT_ALIGNMENT);
-            matchPanel.add(target);
+            targets.computeIfAbsent(replacement.getTargetEntryIndex(), ignored -> new ArrayList<>()).add(replacement);
+        }
+        for (var target : targets.entrySet()) {
+            HarPredefinedCorrelation.Replacement first = target.getValue().get(0);
+            String locations = target.getValue().stream().map(replacement ->
+                    replacement.getLocation().getDisplayName()
+                            + (replacement.getLocationName().isEmpty() ? "" : " " + replacement.getLocationName()))
+                    .distinct().collect(Collectors.joining(", "));
+            JCheckBox request = new JCheckBox(first.getRequestMethod() + " "
+                    + compactUrl(first.getRequestUrl()) + " — " + locations, true);
+            request.setToolTipText(first.getRequestMethod() + " " + first.getRequestUrl());
+            request.setAlignmentX(Component.LEFT_ALIGNMENT);
+            request.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
+            request.addActionListener(event -> checkBox.setSelected(
+                    requests.values().stream().anyMatch(JCheckBox::isSelected)));
+            requests.put(target.getKey(), request);
+            matchPanel.add(request);
         }
         add(matchPanel);
+    }
+
+    private static void addValueMapping(JPanel panel, HarPredefinedCorrelation correlation) {
+        String value = correlation.getExtractedValue().replace("\r", "\\r").replace("\n", "\\n");
+        String reference = "${" + correlation.getVariableName() + "}";
+        JTextField mapping = new JTextField(compactUrl(value) + " → " + reference);
+        mapping.setEditable(false);
+        mapping.setOpaque(false);
+        mapping.setBorder(BorderFactory.createEmptyBorder(2, 24, 4, 0));
+        mapping.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mapping.setMaximumSize(new Dimension(Integer.MAX_VALUE, mapping.getPreferredSize().height));
+        mapping.setToolTipText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_correlation_value_tooltip"), value, reference));
+        mapping.getAccessibleContext().setAccessibleName(JMeterUtils.getResString("har_import_correlation_value_mapping"));
+        panel.add(mapping);
     }
 
     List<HarPredefinedCorrelation> getSelectedCorrelations() {
         List<HarPredefinedCorrelation> selected = new ArrayList<>();
         for (int i = 0; i < checkBoxes.size(); i++) {
             if (checkBoxes.get(i).isSelected()) {
-                selected.add(displayedCorrelations.get(i));
+                HarPredefinedCorrelation correlation = displayedCorrelations.get(i);
+                Map<Integer, JCheckBox> requests = requestCheckBoxes.get(i);
+                List<HarPredefinedCorrelation.Replacement> replacements = correlation.getReplacements().stream()
+                        .filter(replacement -> requests.get(replacement.getTargetEntryIndex()).isSelected())
+                        .toList();
+                if (!replacements.isEmpty()) {
+                    selected.add(correlation.withReplacements(replacements));
+                }
             }
         }
         return selected;
