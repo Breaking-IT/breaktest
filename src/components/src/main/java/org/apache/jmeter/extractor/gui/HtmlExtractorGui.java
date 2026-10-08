@@ -49,6 +49,11 @@ import org.apache.jorphan.gui.JLabeledTextField;
 @GUIMenuSortOrder(1)
 @TestElementMetadata(labelResource = "html_extractor_title")
 public class HtmlExtractorGui extends AbstractPostProcessorGui {
+    @Override
+    public javax.swing.JPopupMenu createPopupMenu() {
+        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
+
     private static final long serialVersionUID = 240L;
 
     /**

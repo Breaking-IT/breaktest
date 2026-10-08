@@ -75,7 +75,7 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
     @Test
     void customMinimumAllowsShortValuesWithoutChangingOtherRules() {
-        for (ExtractorType type : ExtractorType.values()) {
+        for (ExtractorType type : List.of(ExtractorType.REGEX, ExtractorType.JSON_PATH)) {
             for (int minimum : new int[] {1, 2, 6}) {
                 Rule rule = new Rule("short", "Custom", "Short", "shortValue", type, ResponseField.BODY,
                         type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
@@ -105,7 +105,7 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
     @Test
     void unlimitedRulesDeduplicateCapturesAndPreserveTheirFirstMatchNumber() {
-        for (ExtractorType type : ExtractorType.values()) {
+        for (ExtractorType type : List.of(ExtractorType.REGEX, ExtractorType.JSON_PATH)) {
             Rule rule = new Rule("custom", "Custom", "Custom", "token", type, ResponseField.BODY,
                     type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
                     "$1$", "", false, false, true);
@@ -127,7 +127,7 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
     @Test
     void explicitPositiveLimitsStillRejectExcessOccurrences() {
-        for (ExtractorType type : ExtractorType.values()) {
+        for (ExtractorType type : List.of(ExtractorType.REGEX, ExtractorType.JSON_PATH)) {
             Rule rule = new Rule("custom", "Custom", "Custom", "token", type, ResponseField.BODY,
                     type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
                     "$1$", 1, "", false, false, true);

@@ -42,6 +42,11 @@ import net.miginfocom.swing.MigLayout;
 @TestElementMetadata(labelResource = "xpath2_extractor_title")
 public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ignore parents warning
 
+    @Override
+    public javax.swing.JPopupMenu createPopupMenu() {
+        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
+
     private static final long serialVersionUID = 1L;
 
     private final JTextField defaultField = new JTextField(25);

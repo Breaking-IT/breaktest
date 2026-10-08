@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.har;
 
 import java.awt.event.ActionEvent;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -29,6 +30,7 @@ import java.util.Set;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.SwingWorker;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
@@ -37,9 +39,11 @@ import org.apache.jmeter.gui.action.AbstractActionWithNoRunningTest;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
+import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -60,6 +64,7 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         if (gui == null || gui.getCurrentNode() == null) {
             return;
         }
+        gui.updateCurrentNode();
         TestElement extractor = gui.getCurrentNode().getTestElement();
         List<Rule> newRules;
         try {
@@ -70,6 +75,39 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
                     JMeterUtils.getResString("add_custom_predefined_correlation"));
             return;
         }
+        JMeterTreeNode parent = gui.getCurrentNode();
+        while (parent != null && !(parent.getTestElement() instanceof Sampler)) {
+            parent = (JMeterTreeNode) parent.getParent();
+        }
+        if (parent == null) {
+            saveRules(gui, newRules);
+            return;
+        }
+        JMeterTreeNode sampler = parent;
+        Path testPlanFile = StringUtilities.isEmpty(gui.getTestPlanFile()) ? null : Path.of(gui.getTestPlanFile());
+        List<Rule> original = newRules;
+        new SwingWorker<List<Rule>, Void>() {
+            @Override
+            protected List<Rule> doInBackground() {
+                return RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile).exchange()
+                        .map(exchange -> withObservedMinimums(original, exchange.responseBody(), exchange.responseHeaders()))
+                        .orElse(original);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    saveRules(gui, get());
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                } catch (java.util.concurrent.ExecutionException ex) {
+                    JMeterUtils.reportErrorToUser("Unable to inspect the recorded extraction: " + ex.getCause().getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private static void saveRules(GuiPackage gui, List<Rule> newRules) {
         List<JMeterTreeNode> testPlans = gui.getTreeModel().getNodesOfType(TestPlan.class);
         if (testPlans.isEmpty()) {
             JMeterUtils.reportErrorToUser(
@@ -128,7 +166,7 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         if (extractor instanceof JSONPostProcessor jsonExtractor) {
             return rulesFromJsonPath(jsonExtractor);
         }
-        throw new IllegalArgumentException("only Regex and JSONPath extractors are supported");
+        return List.of(HarNativeExtractorSupport.ruleFromExtractor(extractor));
     }
 
     private static Rule ruleFromRegex(RegexExtractor extractor) {
@@ -180,6 +218,15 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         return List.copyOf(rules);
     }
 
+    static List<Rule> withObservedMinimums(List<Rule> rules, String body, String headers) {
+        return rules.stream().map(rule -> new Rule(
+                rule.getId(), rule.getGroup(), rule.getName(), rule.getVariableName(), rule.getExtractorType(),
+                rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(),
+                HarPredefinedCorrelation.observedMinimumLength(rule, body, headers), rule.getDefaultValue(),
+                rule.isEmptyDefaultValue(), rule.isComputeConcatenation(), rule.isFailOnNoMatch())
+                .withExtractorSettings(rule.getExtractorSettings())).toList();
+    }
+
     static List<Rule> withGroup(List<Rule> rules, String group) {
         return rules.stream()
                 .map(rule -> new Rule(
@@ -187,7 +234,7 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
                         rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(), rule.getMinValueLength(),
                         rule.getDefaultValue(), rule.isEmptyDefaultValue(),
                         rule.isComputeConcatenation(),
-                        rule.isFailOnNoMatch()))
+                        rule.isFailOnNoMatch()).withExtractorSettings(rule.getExtractorSettings()))
                 .toList();
     }
 

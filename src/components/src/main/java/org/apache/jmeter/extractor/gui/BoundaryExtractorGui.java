@@ -48,6 +48,11 @@ import org.apache.jorphan.gui.JLabeledTextField;
 @GUIMenuSortOrder(4)
 @TestElementMetadata(labelResource = "boundaryextractor_title")
 public class BoundaryExtractorGui extends AbstractPostProcessorGui {
+    @Override
+    public javax.swing.JPopupMenu createPopupMenu() {
+        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
+
     private static final long serialVersionUID = 240L;
 
     private JLabeledTextField leftBoundaryField;

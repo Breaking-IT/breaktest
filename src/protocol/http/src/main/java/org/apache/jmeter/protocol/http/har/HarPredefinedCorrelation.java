@@ -66,7 +66,12 @@ final class HarPredefinedCorrelation {
 
     enum ExtractorType {
         REGEX,
-        JSON_PATH
+        JSON_PATH,
+        BOUNDARY,
+        CSS,
+        XPATH,
+        XPATH2,
+        JSON_JMESPATH
     }
 
     enum ResponseField {
@@ -103,6 +108,7 @@ final class HarPredefinedCorrelation {
         private final String template;
         private final int maxMatches;
         private final int minValueLength;
+        private Map<String, String> extractorSettings = Map.of();
         private final String defaultValue;
         private final boolean emptyDefaultValue;
         private final boolean computeConcatenation;
@@ -179,6 +185,17 @@ final class HarPredefinedCorrelation {
 
         int getMaxMatches() {
             return maxMatches;
+        }
+
+        Map<String, String> getExtractorSettings() {
+            return extractorSettings;
+        }
+
+        Rule withExtractorSettings(Map<String, String> settings) {
+            Rule copy = new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
+            copy.extractorSettings = Map.copyOf(settings);
+            return copy;
         }
 
         int getMinValueLength() {
@@ -375,6 +392,15 @@ final class HarPredefinedCorrelation {
         }
     }
 
+    static int observedMinimumLength(Rule rule, String body, String headers) {
+        JSONManager manager = new JSONManager();
+        Object document = rule.getExtractorType() == ExtractorType.JSON_PATH ? parseJsonBody(body, manager) : null;
+        return extract(rule, body, headers, manager, document).stream()
+                .mapToInt(value -> value.value().strip().length()).filter(length -> length > 0)
+                .min().stream().map(length -> Math.min(MIN_CORRELATED_VALUE_LENGTH, length))
+                .findFirst().orElse(MIN_CORRELATED_VALUE_LENGTH);
+    }
+
     private static Object parseJsonBody(String body, JSONManager jsonManager) {
         if (body == null || body.isBlank()) {
             return null;
@@ -493,6 +519,17 @@ final class HarPredefinedCorrelation {
 
     private static List<ExtractedValue> extract(
             Rule rule, String responseBody, String responseHeaders, JSONManager jsonManager, Object jsonDocument) {
+        if (HarNativeExtractorSupport.supports(rule.getExtractorType())) {
+            List<String> values = HarNativeExtractorSupport.extract(rule, responseBody, responseHeaders);
+            if (rule.getMaxMatches() != -1 && values.size() > rule.getMaxMatches()) {
+                return List.of();
+            }
+            Map<String, ExtractedValue> distinct = new LinkedHashMap<>();
+            for (int i = 0; i < values.size(); i++) {
+                distinct.putIfAbsent(values.get(i), new ExtractedValue(i + 1, values.get(i)));
+            }
+            return List.copyOf(distinct.values());
+        }
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
             if (jsonDocument == null) {
                 return List.of();
@@ -710,6 +747,9 @@ final class HarPredefinedCorrelation {
     }
 
     static TestElement buildExtractor(Rule rule, int matchNumber, String variableName) {
+        if (HarNativeExtractorSupport.supports(rule.getExtractorType())) {
+            return HarNativeExtractorSupport.build(rule, matchNumber, variableName);
+        }
         if (rule.getExtractorType() == ExtractorType.JSON_PATH) {
             JSONPostProcessor extractor = new JSONPostProcessor();
             extractor.setProperty(TestElement.GUI_CLASS, JSONPostProcessorGui.class.getName());

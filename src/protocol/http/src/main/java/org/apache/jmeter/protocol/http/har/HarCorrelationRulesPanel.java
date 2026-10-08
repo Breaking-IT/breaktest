@@ -610,8 +610,12 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow("Variable name", variableName, row++);
             addRow("Extractor type", extractorType, row++);
             addRow("Response field", responseField, row++);
-            addRow("Expression", expression, row++);
-            addRow("Template", template, row++);
+            addRow(rule.getExtractorType() == ExtractorType.BOUNDARY ? "Left boundary" : "Expression", expression, row++);
+            addRow(switch (rule.getExtractorType()) {
+            case BOUNDARY -> "Right boundary";
+            case CSS -> "Attribute (empty for text)";
+            default -> "Template";
+            }, template, row++);
             maxMatches.setToolTipText("-1 allows unlimited occurrences. A positive limit rejects responses exceeding it.");
             addRow("Maximum matches (-1 = unlimited)", maxMatches, row++);
             minValueLength.setToolTipText("Minimum captured value length after trimming whitespace; lower values can match inside unrelated request data.");
@@ -627,7 +631,8 @@ final class HarCorrelationRulesPanel extends JPanel {
                     variableName.getText().trim(), (ExtractorType) extractorType.getSelectedItem(),
                     (ResponseField) responseField.getSelectedItem(), expression.getText(), template.getText(),
                     (Integer) maxMatches.getValue(), (Integer) minValueLength.getValue(), defaultValue.getText(),
-                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected());
+                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected())
+                    .withExtractorSettings(original.getExtractorSettings());
         }
 
         private void addRow(String label, Component component, int row) {

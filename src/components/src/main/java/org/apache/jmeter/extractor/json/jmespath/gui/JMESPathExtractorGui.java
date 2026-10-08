@@ -45,6 +45,11 @@ import org.apache.jorphan.gui.JLabeledTextField;
 @TestElementMetadata(labelResource = "jmes_extractor_title")
 public class JMESPathExtractorGui extends AbstractPostProcessorGui {
 
+    @Override
+    public javax.swing.JPopupMenu createPopupMenu() {
+        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
+
     private static final long serialVersionUID = -4825532539405119033L;
     private JLabeledTextField defaultValueField;
     private JLabeledTextField jmesPathExpressionField;
