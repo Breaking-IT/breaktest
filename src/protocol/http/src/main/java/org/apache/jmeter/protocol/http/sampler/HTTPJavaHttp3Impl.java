@@ -627,7 +627,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 || HTTPConstants.DELETE.equals(method);
         boolean sendBodyDespiteMethod = !areFollowingRedirect
                 && ((!hasArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody());
-        if (!bodyCapableMethod && !sendBodyDespiteMethod) {
+        if ((!bodyCapableMethod && !sendBodyDespiteMethod)
+                || (!getArguments().getEnabledArguments().iterator().hasNext() && !getSendFileAsPostBody())) {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
             return 0;
         }

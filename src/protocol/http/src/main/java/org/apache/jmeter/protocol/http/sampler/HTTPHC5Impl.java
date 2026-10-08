@@ -1880,6 +1880,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      * @throws IOException if sending the data fails due to I/O
      */
     protected String setupHttpEntityEnclosingRequestData(ClassicHttpRequest entityEnclosingRequest)  throws IOException {
+        // An empty form entity makes HttpClient infer Content-Type even when no
+        // body was configured. Keep explicitly configured files and multipart bodies.
+        if (!getArguments().getEnabledArguments().iterator().hasNext()
+                && !getSendFileAsPostBody() && !getUseMultipart()) {
+            return "";
+        }
         // Buffer to hold the post body, except file content
         StringBuilder postedBody = new StringBuilder(1000);
         HTTPFileArg[] files = getHTTPFiles();
