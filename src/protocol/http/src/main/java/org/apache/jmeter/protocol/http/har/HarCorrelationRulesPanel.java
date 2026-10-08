@@ -456,8 +456,8 @@ final class HarCorrelationRulesPanel extends JPanel {
                 new Detail("Extractor", rule.getExtractorType()),
                 new Detail("Response field", rule.getResponseField()),
                 new Detail("Match number", "Detected from later request use"),
-                new Detail("Maximum matches", rule.getMaxMatches()),
-                new Detail("Minimum value length", rule.getMinValueLength()),
+                new Detail(JMeterUtils.getResString("correlation_rule_max_matches"), rule.getMaxMatches()),
+                new Detail(JMeterUtils.getResString("correlation_rule_min_length"), rule.getMinValueLength()),
                 new Detail("Expression", rule.getExpression()),
                 new Detail("Template", rule.getTemplate()),
                 new Detail("Default value", rule.getDefaultValue()),
@@ -610,16 +610,17 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow("Variable name", variableName, row++);
             addRow("Extractor type", extractorType, row++);
             addRow("Response field", responseField, row++);
-            addRow(rule.getExtractorType() == ExtractorType.BOUNDARY ? "Left boundary" : "Expression", expression, row++);
+            addRow(rule.getExtractorType() == ExtractorType.BOUNDARY
+                    ? JMeterUtils.getResString("correlation_rule_left_boundary") : "Expression", expression, row++);
             addRow(switch (rule.getExtractorType()) {
-            case BOUNDARY -> "Right boundary";
+            case BOUNDARY -> JMeterUtils.getResString("correlation_rule_right_boundary");
             case CSS -> "Attribute (empty for text)";
             default -> "Template";
             }, template, row++);
-            maxMatches.setToolTipText("-1 allows unlimited occurrences. A positive limit rejects responses exceeding it.");
-            addRow("Maximum matches (-1 = unlimited)", maxMatches, row++);
-            minValueLength.setToolTipText("Minimum captured value length after trimming whitespace; lower values can match inside unrelated request data.");
-            addRow("Minimum value length", minValueLength, row++);
+            maxMatches.setToolTipText(JMeterUtils.getResString("correlation_rule_max_matches_tooltip"));
+            addRow(JMeterUtils.getResString("correlation_rule_max_matches_label"), maxMatches, row++);
+            minValueLength.setToolTipText(JMeterUtils.getResString("correlation_rule_min_length_tooltip"));
+            addRow(JMeterUtils.getResString("correlation_rule_min_length"), minValueLength, row++);
             addRow("Default value", defaultValue, row++);
             addRow("Use empty default", emptyDefaultValue, row++);
             addRow("Fail when no match", failOnNoMatch, row);
@@ -631,8 +632,8 @@ final class HarCorrelationRulesPanel extends JPanel {
                     variableName.getText().trim(), (ExtractorType) extractorType.getSelectedItem(),
                     (ResponseField) responseField.getSelectedItem(), expression.getText(), template.getText(),
                     (Integer) maxMatches.getValue(), (Integer) minValueLength.getValue(), defaultValue.getText(),
-                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected())
-                    .withExtractorSettings(original.getExtractorSettings());
+                    emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected(),
+                    original.getExtractorSettings());
         }
 
         private void addRow(String label, Component component, int row) {

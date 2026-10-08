@@ -26,6 +26,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -49,12 +51,16 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.google.auto.service.AutoService;
 
 /** Saves a supported extractor as an installation-level and plan-local predefined correlation rule. */
 @AutoService(Command.class)
 public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractActionWithNoRunningTest {
+
+    private static final Logger LOG = LoggerFactory.getLogger(SaveExtractorAsPredefinedCorrelationAction.class);
 
     private static final Set<String> COMMANDS = Set.of(ActionNames.ADD_CUSTOM_PREDEFINED_CORRELATION);
 
@@ -97,14 +103,21 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
             @Override
             protected void done() {
                 try {
-                    saveRules(gui, get());
+                    saveRules(gui, inspectedRules(this, original));
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
-                } catch (java.util.concurrent.ExecutionException ex) {
-                    JMeterUtils.reportErrorToUser("Unable to inspect the recorded extraction: " + ex.getCause().getMessage());
                 }
             }
         }.execute();
+    }
+
+    static List<Rule> inspectedRules(Future<List<Rule>> inspection, List<Rule> original) throws InterruptedException {
+        try {
+            return inspection.get();
+        } catch (ExecutionException ex) {
+            LOG.warn("Unable to inspect the recorded extraction; using default minimum lengths", ex.getCause());
+            return original;
+        }
     }
 
     private static void saveRules(GuiPackage gui, List<Rule> newRules) {
@@ -219,23 +232,12 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
     }
 
     static List<Rule> withObservedMinimums(List<Rule> rules, String body, String headers) {
-        return rules.stream().map(rule -> new Rule(
-                rule.getId(), rule.getGroup(), rule.getName(), rule.getVariableName(), rule.getExtractorType(),
-                rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(),
-                HarPredefinedCorrelation.observedMinimumLength(rule, body, headers), rule.getDefaultValue(),
-                rule.isEmptyDefaultValue(), rule.isComputeConcatenation(), rule.isFailOnNoMatch())
-                .withExtractorSettings(rule.getExtractorSettings())).toList();
+        return rules.stream().map(rule -> rule.withMinValueLength(
+                HarPredefinedCorrelation.observedMinimumLength(rule, body, headers))).toList();
     }
 
     static List<Rule> withGroup(List<Rule> rules, String group) {
-        return rules.stream()
-                .map(rule -> new Rule(
-                        rule.getId(), group, rule.getName(), rule.getVariableName(), rule.getExtractorType(),
-                        rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(), rule.getMinValueLength(),
-                        rule.getDefaultValue(), rule.isEmptyDefaultValue(),
-                        rule.isComputeConcatenation(),
-                        rule.isFailOnNoMatch()).withExtractorSettings(rule.getExtractorSettings()))
-                .toList();
+        return rules.stream().map(rule -> rule.withGroup(group)).toList();
     }
 
     private static void requireParentScope(AbstractScopedTestElement extractor) {

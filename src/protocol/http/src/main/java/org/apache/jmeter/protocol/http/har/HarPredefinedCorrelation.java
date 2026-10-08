@@ -108,7 +108,7 @@ final class HarPredefinedCorrelation {
         private final String template;
         private final int maxMatches;
         private final int minValueLength;
-        private Map<String, String> extractorSettings = Map.of();
+        private final Map<String, String> extractorSettings;
         private final String defaultValue;
         private final boolean emptyDefaultValue;
         private final boolean computeConcatenation;
@@ -135,6 +135,16 @@ final class HarPredefinedCorrelation {
                 ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch) {
+            this(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, Map.of());
+        }
+
+        Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
+                ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
+                String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
+                boolean failOnNoMatch, Map<String, String> extractorSettings) {
+            this.extractorSettings = Map.copyOf(extractorSettings);
             this.id = id;
             this.group = group;
             this.name = name;
@@ -192,10 +202,20 @@ final class HarPredefinedCorrelation {
         }
 
         Rule withExtractorSettings(Map<String, String> settings) {
-            Rule copy = new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
-                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
-            copy.extractorSettings = Map.copyOf(settings);
-            return copy;
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch, settings);
+        }
+
+        Rule withGroup(String group) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings);
+        }
+
+        Rule withMinValueLength(int minValueLength) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings);
         }
 
         int getMinValueLength() {

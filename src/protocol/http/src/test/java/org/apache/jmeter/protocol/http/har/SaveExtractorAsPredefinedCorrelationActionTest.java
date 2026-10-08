@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
@@ -30,6 +31,22 @@ import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.junit.jupiter.api.Test;
 
 class SaveExtractorAsPredefinedCorrelationActionTest {
+
+    @Test
+    void failedRecordingInspectionKeepsDefaultMinimum() throws InterruptedException {
+        RegexExtractor extractor = new RegexExtractor();
+        extractor.setRefName("token");
+        extractor.setRegex("token=(.+)");
+        extractor.setTemplate("$1$");
+        var original = SaveExtractorAsPredefinedCorrelationAction.rulesFromExtractor(extractor);
+        var result = SaveExtractorAsPredefinedCorrelationAction.inspectedRules(
+                CompletableFuture.failedFuture(new IllegalStateException("Unreadable recording")), original);
+        assertEquals(original, result);
+        assertEquals(6, result.get(0).getMinValueLength());
+        var inspected = List.of(original.get(0).withMinValueLength(3));
+        assertEquals(inspected, SaveExtractorAsPredefinedCorrelationAction.inspectedRules(
+                CompletableFuture.completedFuture(inspected), original));
+    }
 
     @Test
     void capturesRegexExtractorSettings() {

@@ -19,11 +19,13 @@ package org.apache.jmeter.protocol.http.har;
 
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -62,7 +64,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
         }
         for (Map.Entry<String, List<HarPredefinedCorrelation>> group : groups.entrySet()) {
             JLabel groupLabel = new JLabel(group.getKey());
-            groupLabel.setFont(groupLabel.getFont().deriveFont(java.awt.Font.BOLD));
+            groupLabel.setFont(groupLabel.getFont().deriveFont(Font.BOLD));
             groupLabel.setBorder(BorderFactory.createEmptyBorder(8, 0, 2, 0));
             groupLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             add(groupLabel);
@@ -101,7 +103,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
             String locations = target.getValue().stream().map(replacement ->
                     replacement.getLocation().getDisplayName()
                             + (replacement.getLocationName().isEmpty() ? "" : " " + replacement.getLocationName()))
-                    .distinct().collect(java.util.stream.Collectors.joining(", "));
+                    .distinct().collect(Collectors.joining(", "));
             JCheckBox request = new JCheckBox(first.getRequestMethod() + " "
                     + compactUrl(first.getRequestUrl()) + " — " + locations, true);
             request.setToolTipText(first.getRequestMethod() + " " + first.getRequestUrl());
@@ -124,8 +126,9 @@ final class HarCorrelationMatchesPanel extends JPanel {
         mapping.setBorder(BorderFactory.createEmptyBorder(2, 24, 4, 0));
         mapping.setAlignmentX(Component.LEFT_ALIGNMENT);
         mapping.setMaximumSize(new Dimension(Integer.MAX_VALUE, mapping.getPreferredSize().height));
-        mapping.setToolTipText("Matched value: " + value + " → " + reference);
-        mapping.getAccessibleContext().setAccessibleName("Extracted value to variable");
+        mapping.setToolTipText(MessageFormat.format(
+                JMeterUtils.getResString("har_import_correlation_value_tooltip"), value, reference));
+        mapping.getAccessibleContext().setAccessibleName(JMeterUtils.getResString("har_import_correlation_value_mapping"));
         panel.add(mapping);
     }
 

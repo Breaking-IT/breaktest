@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -79,7 +80,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .get(0).getMinValueLength());
         for (int minimum : new int[] {-1, 0}) {
             String invalid = legacy.replace("\"id\":", "\"minValueLength\":" + minimum + ",\"id\":");
-            assertThrows(java.io.IOException.class,
+            assertThrows(IOException.class,
                     () -> HarCorrelationRuleCatalog.parse(invalid.getBytes(StandardCharsets.UTF_8)));
         }
     }
@@ -92,7 +93,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         for (int invalid : new int[] {-2, 0, 100001}) {
             Rule invalidRule = regexRule("invalid", "token", "value=([^;]+)", "$1$", invalid, true);
             byte[] invalidContent = HarCorrelationRuleCatalog.serialize(List.of(invalidRule));
-            assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.parse(invalidContent));
+            assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.parse(invalidContent));
         }
     }
 
@@ -146,8 +147,8 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         assertTrue(HarCorrelationRuleCatalog.loadCustomRules(plan).isEmpty());
         assertFalse(HarCorrelationRuleCatalog.sharedRules().stream().anyMatch(r -> r.getId().equals(custom.getId())));
         Rule builtIn = HarCorrelationRuleCatalog.builtInRules().get(0);
-        assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRule(plan, builtIn.getId()));
-        assertThrows(java.io.IOException.class,
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRule(plan, builtIn.getId()));
+        assertThrows(IOException.class,
                 () -> HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(builtIn)));
     }
 

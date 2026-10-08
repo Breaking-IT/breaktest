@@ -31,11 +31,13 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.extractor.HtmlExtractor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HorizontalPanel;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -49,10 +51,6 @@ import org.apache.jorphan.gui.JLabeledTextField;
 @GUIMenuSortOrder(1)
 @TestElementMetadata(labelResource = "html_extractor_title")
 public class HtmlExtractorGui extends AbstractPostProcessorGui {
-    @Override
-    public javax.swing.JPopupMenu createPopupMenu() {
-        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
-    }
 
     private static final long serialVersionUID = 240L;
 
@@ -73,6 +71,11 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
     public HtmlExtractorGui() {
         super();
         init();
+    }
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
     }
 
     @Override

@@ -20,9 +20,12 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.jmeter.extractor.BoundaryExtractor;
 import org.apache.jmeter.extractor.HtmlExtractor;
@@ -66,6 +69,32 @@ class HarNativeExtractorSupportTest extends JMeterTestCase {
                 new Fixture(xpath, "<root><id>abc</id></root>"),
                 new Fixture(xpath2, "<root xmlns='urn:test'><id>abc</id></root>"),
                 new Fixture(jmes, "{\"id\":\"abc\"}"));
+    }
+
+    @Test
+    void savesOnlyExtractorSpecificSettingsAndCopiesRulesImmutably() {
+        for (Fixture fixture : fixtures()) {
+            var extractor = fixture.extractor();
+            extractor.setProperty("unrelated.property", "stale");
+            var rule = HarNativeExtractorSupport.ruleFromExtractor(extractor);
+            assertEquals(extractor instanceof XPath2Extractor ? Map.of("XPathExtractor2.namespaces", "n=urn:test")
+                    : Map.of(), rule.getExtractorSettings());
+        }
+        XPath2Extractor extractor = new XPath2Extractor();
+        extractor.setRefName("value");
+        extractor.setXPathQuery("/root");
+        extractor.setFragment(true);
+        var original = HarNativeExtractorSupport.ruleFromExtractor(extractor);
+        assertEquals(Map.of("XPathExtractor2.fragment", "true"), original.getExtractorSettings());
+        var settings = new HashMap<>(original.getExtractorSettings());
+        var copied = original.withExtractorSettings(settings).withGroup("Other").withMinValueLength(3);
+        settings.clear();
+        assertEquals(original.getExtractorSettings(), copied.getExtractorSettings());
+        assertEquals("Custom", original.getGroup());
+        assertEquals(6, original.getMinValueLength());
+        assertEquals("Other", copied.getGroup());
+        assertEquals(3, copied.getMinValueLength());
+        assertThrows(UnsupportedOperationException.class, () -> copied.getExtractorSettings().clear());
     }
 
     @Test

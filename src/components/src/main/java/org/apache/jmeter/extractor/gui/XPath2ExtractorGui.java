@@ -23,12 +23,14 @@ import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
 
 import org.apache.jmeter.extractor.XPath2Extractor;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
@@ -42,10 +44,6 @@ import net.miginfocom.swing.MigLayout;
 @TestElementMetadata(labelResource = "xpath2_extractor_title")
 public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ignore parents warning
 
-    @Override
-    public javax.swing.JPopupMenu createPopupMenu() {
-        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
-    }
 
     private static final long serialVersionUID = 1L;
 
@@ -63,6 +61,11 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
     private JCheckBox failOnNoMatch;
 
     private JSyntaxTextArea namespacesTA;
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
+    }
 
     @Override
     public String getLabelResource() {

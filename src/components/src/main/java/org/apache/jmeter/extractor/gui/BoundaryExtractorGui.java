@@ -29,12 +29,14 @@ import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JRadioButton;
 
 import org.apache.jmeter.extractor.BoundaryExtractor;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
+import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.processor.gui.AbstractPostProcessorGui;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
@@ -48,10 +50,6 @@ import org.apache.jorphan.gui.JLabeledTextField;
 @GUIMenuSortOrder(4)
 @TestElementMetadata(labelResource = "boundaryextractor_title")
 public class BoundaryExtractorGui extends AbstractPostProcessorGui {
-    @Override
-    public javax.swing.JPopupMenu createPopupMenu() {
-        return org.apache.jmeter.gui.util.MenuFactory.getPredefinedCorrelationExtractorMenu();
-    }
 
     private static final long serialVersionUID = 240L;
 
@@ -90,6 +88,11 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
     public BoundaryExtractorGui() {
         super();
         init();
+    }
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        return MenuFactory.getPredefinedCorrelationExtractorMenu();
     }
 
     @Override

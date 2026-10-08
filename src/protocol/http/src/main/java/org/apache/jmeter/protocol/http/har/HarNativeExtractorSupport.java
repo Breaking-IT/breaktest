@@ -22,6 +22,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 import org.apache.jmeter.extractor.BoundaryExtractor;
 import org.apache.jmeter.extractor.HtmlExtractor;
@@ -113,10 +115,11 @@ final class HarNativeExtractorSupport {
             throw new IllegalArgumentException("variable name and expression are required");
         }
         Map<String, String> settings = new LinkedHashMap<>();
+        Set<String> settingNames = extractorSettingNames(type);
         var properties = element.propertyIterator();
         while (properties.hasNext()) {
             var property = properties.next();
-            if (!property.getName().startsWith("TestElement.")) {
+            if (settingNames.contains(property.getName())) {
                 settings.put(property.getName(), property.getStringValue());
             }
         }
@@ -127,6 +130,17 @@ final class HarNativeExtractorSupport {
         return new Rule("custom-" + variable.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "-"),
                 "Custom", name.isEmpty() ? variable : name, variable, type, field, expression, template,
                 defaultValue, empty, false, fail).withExtractorSettings(settings);
+    }
+
+    private static Set<String> extractorSettingNames(ExtractorType type) {
+        return switch (type) {
+        case CSS -> Set.of("HtmlExtractor.extractor_impl");
+        case XPATH -> Set.of("XPathExtractor.tolerant", "XPathExtractor.namespace", "XPathExtractor.quiet",
+                "XPathExtractor.report_errors", "XPathExtractor.show_warnings", "XPathExtractor.download_dtds",
+                "XPathExtractor.whitespace", "XPathExtractor.validate", "XPathExtractor.fragment");
+        case XPATH2 -> Set.of("XPathExtractor2.fragment", "XPathExtractor2.namespaces");
+        default -> Set.of();
+        };
     }
 
     static TestElement build(Rule rule, int matchNumber, String variable) {
@@ -219,7 +233,7 @@ final class HarNativeExtractorSupport {
                 values.add(value == null ? "" : value);
             }
             return values;
-        } catch (java.util.concurrent.CancellationException ex) {
+        } catch (CancellationException ex) {
             throw ex;
         } catch (RuntimeException | StackOverflowError ex) {
             return List.of();

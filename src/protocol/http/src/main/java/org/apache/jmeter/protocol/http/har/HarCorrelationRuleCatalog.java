@@ -433,7 +433,7 @@ final class HarCorrelationRuleCatalog {
                 maxMatches, minValueLength,
                 node.path("defaultValue").asText(""), node.path("emptyDefaultValue").asBoolean(false),
                 node.path("computeConcatenation").asBoolean(false),
-                node.path("failOnNoMatch").asBoolean(true)).withExtractorSettings(settings);
+                node.path("failOnNoMatch").asBoolean(true), settings);
     }
 
     private static void validateGroup(String group, String context) throws IOException {
