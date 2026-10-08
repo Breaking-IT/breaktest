@@ -1068,7 +1068,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             // so to avoid this we use HttpGet when there is no body (Content-Length will not be set)
             // otherwise we use HttpGetWithEntity
             if ( !areFollowingRedirect
-                    && ((!hasArguments() && getSendFileAsPostBody())
+                    && ((!hasEnabledArguments() && getSendFileAsPostBody())
                     || getSendParameterValuesAsPostBody()) ) {
                 result = new HttpGetWithEntity(uri);
             } else {
@@ -1880,6 +1880,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
      * @throws IOException if sending the data fails due to I/O
      */
     protected String setupHttpEntityEnclosingRequestData(ClassicHttpRequest entityEnclosingRequest)  throws IOException {
+        // An empty form entity makes HttpClient infer Content-Type even when no
+        // body was configured. Keep explicitly configured files and multipart bodies.
+        if (!hasRequestBody()) {
+            return "";
+        }
         // Buffer to hold the post body, except file content
         StringBuilder postedBody = new StringBuilder(1000);
         HTTPFileArg[] files = getHTTPFiles();
@@ -1966,7 +1971,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             boolean hasContentTypeHeader = contentTypeHeader != null && StringUtilities.isNotEmpty(contentTypeHeader.getValue());
             // If there are no arguments, we can send a file as the body of the request
             // TODO: needs a multiple file upload scenario
-            if(!hasArguments() && getSendFileAsPostBody()) {
+            if(!hasEnabledArguments() && getSendFileAsPostBody()) {
                 // If getSendFileAsPostBody returned true, it's sure that file is not null
                 HTTPFileArg file = files[0];
                 if(!hasContentTypeHeader) {
@@ -2104,7 +2109,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
         // Only create this if we are overriding whatever default there may be
         // If there are no arguments, we can send a file as the body of the request
-        if(!hasArguments() && getSendFileAsPostBody()) {
+        if(!hasEnabledArguments() && getSendFileAsPostBody()) {
             hasEntityBody = true;
 
             // If getSendFileAsPostBody returned true, it's sure that file is not null
@@ -2131,7 +2136,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             StringEntity requestEntity = new StringEntity(entityBodyContent.toString(), toCharset(charset));
             entity.setEntity(requestEntity);
-        } else if (hasArguments()) {
+        } else if (hasEnabledArguments()) {
             hasEntityBody = true;
             entity.setEntity(createUrlEncodedFormEntity(getContentEncoding()));
         }

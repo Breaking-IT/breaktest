@@ -1429,7 +1429,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             result = new HttpPost(uri);
         } else if (method.equals(HTTPConstants.GET)) {
             if (!areFollowingRedirect
-                    && ((!hasArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody())) {
+                    && ((!hasEnabledArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody())) {
                 result = new HttpGetWithEntity(uri);
             } else {
                 result = new HttpGet(uri);

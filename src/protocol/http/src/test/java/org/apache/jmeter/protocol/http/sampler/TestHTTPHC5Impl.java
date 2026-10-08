@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.InterruptedIOException;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.hc.client5.http.auth.AuthScope;
@@ -67,7 +69,9 @@ import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.protocol.http.control.Authorization;
+import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
+import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
@@ -75,13 +79,17 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
+@ExtendWith(WireMockExtension.class)
 public class TestHTTPHC5Impl {
     private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
 
@@ -1024,6 +1032,174 @@ public class TestHTTPHC5Impl {
             JMeterUtils.getJMeterProperties().remove(HTTP2_IO_THREAD_COUNT);
         } else {
             JMeterUtils.getJMeterProperties().put(HTTP2_IO_THREAD_COUNT, previous);
+        }
+    }
+
+    @Test
+    public void hasArgumentsIncludesDisabledParameters() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        assertFalse(sampler.hasArguments());
+        assertFalse(sampler.hasEnabledArguments());
+        sampler.addArgument("ignored", "value");
+        sampler.getArguments().getArgument(0).setEnabled(false);
+        assertTrue(sampler.hasArguments());
+        assertFalse(sampler.hasEnabledArguments());
+        assertFalse(sampler.hasRequestBody());
+        sampler.getArguments().getArgument(0).setEnabled(true);
+        assertTrue(sampler.hasArguments());
+        assertTrue(sampler.hasEnabledArguments());
+        assertTrue(sampler.hasRequestBody());
+    }
+
+    static Stream<Arguments> bodylessRequests() {
+        return Stream.of("classic", "http2", "jdk").flatMap(client ->
+                Stream.of("GET", "HEAD", "OPTIONS", "DELETE", "POST", "PUT", "PATCH").flatMap(method ->
+                        Stream.of("empty", "raw", "disabled", "disabledRaw", "explicitHeader")
+                                .map(body -> Arguments.of(client, method, body))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("bodylessRequests")
+    void bodylessRequestsDoNotInferContentType(String client, String method, String body, WireMockServer server)
+            throws Exception {
+        HTTPSamplerProxy sampler = sampler(server, method);
+        sampler.setPostBodyRaw(body.equals("raw") || body.equals("disabledRaw"));
+        if (body.startsWith("disabled")) {
+            sampler.addArgument("ignored", "value");
+            sampler.getArguments().getArgument(0).setEnabled(false);
+        }
+        boolean explicitHeader = body.equals("explicitHeader");
+        if (explicitHeader) {
+            sampler.setNativeHeaders(List.of(new Header("Content-Type", "application/json")));
+        }
+        sample(client, sampler);
+        var request = server.getAllServeEvents().get(0).getRequest();
+        assertEquals(method, request.getMethod().getName());
+        assertEquals(0, request.getBody().length);
+        String length = request.getHeader("Content-Length");
+        if (client.equals("jdk")) {
+            assertTrue(length == null || length.equals("0"), "Unexpected Content-Length: " + length);
+        } else {
+            boolean anticipatesBody = List.of("POST", "PUT", "PATCH").contains(method);
+            assertEquals(anticipatesBody ? "0" : null, length);
+        }
+        if (explicitHeader) {
+            assertEquals("application/json", request.getHeader("Content-Type"));
+        } else {
+            assertFalse(request.containsHeader("Content-Type"), request.getHeaders().toString());
+        }
+    }
+
+    static Stream<Arguments> configuredBodies() {
+        return Stream.of("classic", "http2", "jdk").flatMap(client ->
+                Stream.of("DELETE", "POST", "PUT", "PATCH").flatMap(method ->
+                        Stream.of("form", "raw", "multipart")
+                                .filter(body -> !client.equals("jdk") || !body.equals("multipart"))
+                                .map(body -> Arguments.of(client, method, body))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("configuredBodies")
+    void configuredBodiesKeepTheirContentType(String client, String method, String body, WireMockServer server)
+            throws Exception {
+        HTTPSamplerProxy sampler = sampler(server, method);
+        String expectedBody = "payload";
+        String expectedType = "application/json";
+        switch (body) {
+        case "form":
+            sampler.addArgument("key", "value");
+            expectedBody = "key=value";
+            expectedType = "application/x-www-form-urlencoded";
+            break;
+        case "raw":
+            sampler.setPostBodyRaw(true);
+            sampler.addNonEncodedArgument("", expectedBody, "");
+            sampler.setNativeHeaders(List.of(new Header("Content-Type", expectedType)));
+            break;
+        case "multipart":
+            sampler.setDoMultipart(true);
+            sampler.addArgument("key", expectedBody);
+            expectedType = "multipart/form-data";
+            break;
+        default:
+            throw new IllegalArgumentException(body);
+        }
+        sample(client, sampler);
+        var request = server.getAllServeEvents().get(0).getRequest();
+        assertTrue(request.getHeader("Content-Type").startsWith(expectedType), request.getHeaders().toString());
+        if (body.equals("multipart")) {
+            assertTrue(request.getBodyAsString().contains(expectedBody));
+        } else {
+            assertEquals(expectedBody, request.getBodyAsString());
+        }
+    }
+
+    static Stream<Arguments> fileBodies() {
+        return Stream.of("classic", "http2", "jdk").flatMap(client ->
+                Stream.of("GET", "DELETE", "POST", "PUT", "PATCH").flatMap(method ->
+                        Stream.of("file", "disabled", "disabledRaw", "emptyFileWithDisabled")
+                                .map(body -> Arguments.of(client, method, body))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("fileBodies")
+    void fileBodiesIgnoreDisabledParameters(String client, String method, String body,
+            WireMockServer server, @TempDir Path bodyDirectory) throws Exception {
+        HTTPSamplerProxy sampler = sampler(server, method);
+        String expectedBody = body.equals("emptyFileWithDisabled") ? "" : "file payload";
+        Path file = bodyDirectory.resolve("body.json");
+        Files.writeString(file, expectedBody);
+        sampler.setHTTPFiles(new HTTPFileArg[] {new HTTPFileArg(file.toString(), "", "application/json")});
+        if (!body.equals("file")) {
+            sampler.addArgument("ignored", "value");
+            sampler.getArguments().getArgument(0).setEnabled(false);
+        }
+        sampler.setPostBodyRaw(body.equals("disabledRaw"));
+        sample(client, sampler);
+        var request = server.getAllServeEvents().get(0).getRequest();
+        assertEquals(method, request.getMethod().getName());
+        assertEquals(expectedBody, request.getBodyAsString());
+        assertEquals("application/json", request.getHeader("Content-Type"));
+        String length = request.getHeader("Content-Length");
+        if (client.equals("jdk") && expectedBody.isEmpty()) {
+            // The JDK client can omit Content-Length for a zero-byte file body.
+            assertTrue(length == null || length.equals("0"), "Unexpected Content-Length: " + length);
+        } else {
+            assertEquals(Integer.toString(expectedBody.length()), length);
+        }
+    }
+
+    private static HTTPSamplerProxy sampler(WireMockServer server, String method) {
+        server.stubFor(WireMock.any(WireMock.urlPathEqualTo("/body")).willReturn(WireMock.ok()));
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProtocol("http");
+        sampler.setDomain("localhost");
+        sampler.setPort(server.port());
+        sampler.setPath("/body");
+        sampler.setMethod(method);
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("5000");
+        return sampler;
+    }
+
+    private static void sample(String client, HTTPSamplerProxy sampler) throws Exception {
+        assumeTrue(!client.equals("jdk") || Http3RuntimeSupport.isHttp3Supported(), "JDK HTTP/3 requires Java 27+");
+        sampler.setHttpProtocol(client.equals("http2") ? "HTTP/2" : "HTTP/1.1");
+        HTTPAbstractImpl impl = switch (client) {
+        case "classic" -> new HTTPHC5Impl(sampler);
+        case "http2" -> new HTTPHC5H2Impl(sampler);
+        // Exercise the HTTP/3 implementation's body builder through its TCP discovery path.
+        case "jdk" -> new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
+        default -> throw new IllegalArgumentException(client);
+        };
+        try {
+            HTTPSampleResult result = impl.sample(sampler.getUrl(), sampler.getMethod(), false, 0);
+            assertTrue(result.isSuccessful(), result.getResponseMessage() + "\n" + result.getResponseDataAsString());
+            if (client.equals("http2")) {
+                assertTrue(result.getResponseHeaders().startsWith("HTTP/2"), result.getResponseHeaders());
+            }
+        } finally {
+            impl.threadFinished();
         }
     }
 }

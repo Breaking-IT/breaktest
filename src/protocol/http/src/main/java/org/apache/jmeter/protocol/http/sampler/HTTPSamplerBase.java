@@ -945,6 +945,20 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return getArguments().getArgumentCount() > 0;
     }
 
+    /**
+     * @return whether any enabled arguments will be sent with the request
+     */
+    public boolean hasEnabledArguments() {
+        return getArguments().getEnabledArguments().iterator().hasNext();
+    }
+
+    /**
+     * @return whether arguments, a file body, or multipart content is configured
+     */
+    public boolean hasRequestBody() {
+        return hasEnabledArguments() || getSendFileAsPostBody() || getUseMultipart();
+    }
+
     @Override
     public void addTestElement(TestElement el) {
         if (el instanceof ClientCertificateConfig config) {
