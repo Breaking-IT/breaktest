@@ -1035,6 +1035,22 @@ public class TestHTTPHC5Impl {
         }
     }
 
+    @Test
+    public void hasArgumentsIncludesDisabledParameters() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        assertFalse(sampler.hasArguments());
+        assertFalse(sampler.hasEnabledArguments());
+        sampler.addArgument("ignored", "value");
+        sampler.getArguments().getArgument(0).setEnabled(false);
+        assertTrue(sampler.hasArguments());
+        assertFalse(sampler.hasEnabledArguments());
+        assertFalse(sampler.hasRequestBody());
+        sampler.getArguments().getArgument(0).setEnabled(true);
+        assertTrue(sampler.hasArguments());
+        assertTrue(sampler.hasEnabledArguments());
+        assertTrue(sampler.hasRequestBody());
+    }
+
     static Stream<Arguments> bodylessRequests() {
         return Stream.of("classic", "http2", "jdk").flatMap(client ->
                 Stream.of("GET", "HEAD", "OPTIONS", "DELETE", "POST", "PUT", "PATCH").flatMap(method ->

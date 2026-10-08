@@ -148,7 +148,7 @@ public class PostWriter {
         }
         else {
             // If there are no arguments, we can send a file as the body of the request
-            if(sampler.getArguments() != null && !sampler.hasArguments() && sampler.getSendFileAsPostBody()) {
+            if(sampler.getArguments() != null && !sampler.hasEnabledArguments() && sampler.getSendFileAsPostBody()) {
                 OutputStream out = connection.getOutputStream();
                 // we're sure that there is at least one file because of
                 // getSendFileAsPostBody method's return value.
@@ -247,7 +247,7 @@ public class PostWriter {
             boolean hasContentTypeHeader = StringUtilities.isNotEmpty(contentTypeHeader);
 
             // If there are no arguments, we can send a file as the body of the request
-            if(sampler.getArguments() != null && sampler.getArguments().getArgumentCount() == 0 && sampler.getSendFileAsPostBody()) {
+            if(sampler.getArguments() != null && !sampler.hasEnabledArguments() && sampler.getSendFileAsPostBody()) {
                 // we're sure that there is one file because of
                 // getSendFileAsPostBody method's return value.
                 HTTPFileArg file = files[0];

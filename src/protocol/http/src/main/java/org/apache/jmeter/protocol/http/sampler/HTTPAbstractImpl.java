@@ -417,6 +417,24 @@ public abstract class HTTPAbstractImpl implements Interruptible, HTTPConstantsIn
     }
 
     /**
+     * Invokes {@link HTTPSamplerBase#hasEnabledArguments()}
+     *
+     * @return whether enabled arguments will be sent
+     */
+    protected boolean hasEnabledArguments() {
+        return testElement.hasEnabledArguments();
+    }
+
+    /**
+     * Invokes {@link HTTPSamplerBase#hasRequestBody()}
+     *
+     * @return whether a request body is configured
+     */
+    protected boolean hasRequestBody() {
+        return testElement.hasRequestBody();
+    }
+
+    /**
      * Invokes {@link HTTPSamplerBase#isMonitor()}
      *
      * @return flag whether monitor is enabled

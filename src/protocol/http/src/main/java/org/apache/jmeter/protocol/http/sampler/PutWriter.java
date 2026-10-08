@@ -56,7 +56,7 @@ public class PutWriter extends PostWriter {
         HTTPFileArg[] files = sampler.getHTTPFiles();
 
         // If there are no arguments, we can send a file as the body of the request
-         if(sampler.getArguments() != null && sampler.getArguments().getArgumentCount() == 0 && sampler.getSendFileAsPostBody()) {
+         if(sampler.getArguments() != null && !sampler.hasEnabledArguments() && sampler.getSendFileAsPostBody()) {
             // If getSendFileAsPostBody returned true, it's sure that file is not null
             HTTPFileArg file = files[0];
             hasPutBody = true;

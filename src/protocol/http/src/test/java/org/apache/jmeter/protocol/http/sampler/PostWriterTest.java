@@ -47,6 +47,8 @@ import org.apache.jorphan.util.JOrphanUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,6 +96,27 @@ public class PostWriterTest implements JMeterSerialTest {
         if(!temporaryFile.delete()) {
             fail("Could not delete file:"+temporaryFile.getAbsolutePath());
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"POST,false", "POST,true", "PUT,false", "PUT,true"})
+    public void fileBodyWithDisabledParameterUsesMatchingHeaders(String method, boolean rawBody) throws IOException {
+        sampler.setMethod(method);
+        sampler.setPostBodyRaw(rawBody);
+        sampler.addArgument("ignored", "value");
+        sampler.getArguments().getArgument(0).setEnabled(false);
+        sampler.setHTTPFiles(new HTTPFileArg[] {
+                new HTTPFileArg(temporaryFile.getAbsolutePath(), "", "application/octet-stream")});
+        if (method.equals(HTTPConstants.PUT)) {
+            postWriter = new PutWriter();
+        }
+
+        postWriter.setHeaders(connection, sampler);
+        postWriter.sendPostData(connection, sampler);
+
+        assertEquals("application/octet-stream", connection.getRequestProperty(HTTPConstants.HEADER_CONTENT_TYPE));
+        checkContentLength(connection, TEST_FILE_CONTENT.length);
+        checkArraysHaveSameContent(TEST_FILE_CONTENT, connection.getOutputStreamContent());
     }
 
     /**

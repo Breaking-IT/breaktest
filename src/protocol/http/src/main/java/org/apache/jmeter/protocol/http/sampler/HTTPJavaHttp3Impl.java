@@ -626,16 +626,16 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 || HTTPConstants.PATCH.equals(method)
                 || HTTPConstants.DELETE.equals(method);
         boolean sendBodyDespiteMethod = !areFollowingRedirect
-                && ((!hasArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody());
+                && ((!hasEnabledArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody());
         if ((!bodyCapableMethod && !sendBodyDespiteMethod)
-                || !testElement.hasRequestBody()) {
+                || !hasRequestBody()) {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
             return 0;
         }
 
         Charset charset = charset();
         HttpRequest.BodyPublisher bodyPublisher;
-        if (!hasArguments() && getSendFileAsPostBody()) {
+        if (!hasEnabledArguments() && getSendFileAsPostBody()) {
             HTTPFileArg file = getHTTPFiles()[0];
             if (!hasContentTypeHeader && StringUtilities.isNotEmpty(file.getMimeType())) {
                 builder.setHeader(HTTPConstants.HEADER_CONTENT_TYPE, file.getMimeType());
