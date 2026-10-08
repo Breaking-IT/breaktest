@@ -41,6 +41,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
     private static final long serialVersionUID = 1L;
 
     private final List<JCheckBox> checkBoxes = new ArrayList<>();
+    private final List<Map<Integer, JCheckBox>> requestCheckBoxes = new ArrayList<>();
     private final List<HarPredefinedCorrelation> displayedCorrelations = new ArrayList<>();
 
     HarCorrelationMatchesPanel() {
@@ -49,6 +50,7 @@ final class HarCorrelationMatchesPanel extends JPanel {
 
     void setCorrelations(List<HarPredefinedCorrelation> correlations) {
         checkBoxes.clear();
+        requestCheckBoxes.clear();
         displayedCorrelations.clear();
         removeAll();
         if (correlations.isEmpty()) {
@@ -87,8 +89,23 @@ final class HarCorrelationMatchesPanel extends JPanel {
         checkBoxes.add(checkBox);
         displayedCorrelations.add(correlation);
         matchPanel.add(checkBox);
+        addValue(matchPanel, "har_import_correlation_variable", "${" + correlation.getVariableName() + "}");
+        Map<Integer, JCheckBox> requests = new LinkedHashMap<>();
+        requestCheckBoxes.add(requests);
+        checkBox.addActionListener(event -> requests.values().forEach(box -> box.setSelected(checkBox.isSelected())));
         addValue(matchPanel, "har_import_correlation_matched_value", correlation.getExtractedValue());
         for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+            if (!requests.containsKey(replacement.getTargetEntryIndex())) {
+                JCheckBox request = new JCheckBox(replacement.getRequestMethod() + " "
+                        + compactUrl(replacement.getRequestUrl()), true);
+                request.setToolTipText(replacement.getRequestUrl());
+                request.setAlignmentX(Component.LEFT_ALIGNMENT);
+                request.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
+                request.addActionListener(event -> checkBox.setSelected(
+                        requests.values().stream().anyMatch(JCheckBox::isSelected)));
+                requests.put(replacement.getTargetEntryIndex(), request);
+                matchPanel.add(request);
+            }
             String location = replacement.getLocation().getDisplayName();
             if (!replacement.getLocationName().isEmpty()) {
                 location += " " + replacement.getLocationName();
@@ -132,7 +149,14 @@ final class HarCorrelationMatchesPanel extends JPanel {
         List<HarPredefinedCorrelation> selected = new ArrayList<>();
         for (int i = 0; i < checkBoxes.size(); i++) {
             if (checkBoxes.get(i).isSelected()) {
-                selected.add(displayedCorrelations.get(i));
+                HarPredefinedCorrelation correlation = displayedCorrelations.get(i);
+                Map<Integer, JCheckBox> requests = requestCheckBoxes.get(i);
+                List<HarPredefinedCorrelation.Replacement> replacements = correlation.getReplacements().stream()
+                        .filter(replacement -> requests.get(replacement.getTargetEntryIndex()).isSelected())
+                        .toList();
+                if (!replacements.isEmpty()) {
+                    selected.add(correlation.withReplacements(replacements));
+                }
             }
         }
         return selected;

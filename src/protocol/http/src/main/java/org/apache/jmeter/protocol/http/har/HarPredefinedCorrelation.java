@@ -265,6 +265,11 @@ final class HarPredefinedCorrelation {
         this.replacements = List.copyOf(replacements);
     }
 
+    HarPredefinedCorrelation withReplacements(List<Replacement> selected) {
+        return new HarPredefinedCorrelation(rule, variableName, sourceEntryIndex, sourceUrl,
+                extractedValue, matchNumber, selected);
+    }
+
     Rule getRule() {
         return rule;
     }
