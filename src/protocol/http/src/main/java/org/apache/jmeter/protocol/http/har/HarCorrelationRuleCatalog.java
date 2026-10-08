@@ -387,9 +387,9 @@ final class HarCorrelationRuleCatalog {
             throw new IOException("JSON_PATH rule must use BODY: " + id);
         }
         String template = node.path("template").asText(extractorType == ExtractorType.REGEX ? "$1$" : "");
-        int maxMatches = node.path("maxMatches").asInt(1);
-        if (maxMatches <= 0 || maxMatches > MAX_MATCHES) {
-            throw new IOException("Predefined correlation maxMatches must be between 1 and "
+        int maxMatches = node.path("maxMatches").asInt(-1);
+        if (maxMatches != -1 && (maxMatches <= 0 || maxMatches > MAX_MATCHES)) {
+            throw new IOException("Predefined correlation maxMatches must be -1 (unlimited) or between 1 and "
                     + MAX_MATCHES + ": " + id);
         }
         if (extractorType == ExtractorType.REGEX) {

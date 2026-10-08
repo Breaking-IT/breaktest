@@ -51,7 +51,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
         assertEquals("Tenant session", rule.getName());
         assertEquals(ResponseField.HEADERS, rule.getResponseField());
         assertEquals("session-$1$", rule.getTemplate());
-        assertEquals(1, rule.getMaxMatches());
+        assertEquals(-1, rule.getMaxMatches());
         assertEquals("fallback", rule.getDefaultValue());
         assertTrue(rule.isEmptyDefaultValue());
         assertFalse(rule.isFailOnNoMatch());
@@ -72,7 +72,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
 
         assertEquals(List.of("custom-customer_id", "custom-order_id"),
                 rules.stream().map(Rule::getId).toList());
-        assertTrue(rules.stream().allMatch(rule -> rule.getMaxMatches() == 1));
+        assertTrue(rules.stream().allMatch(rule -> rule.getMaxMatches() == -1));
         assertEquals("missing", rules.get(1).getDefaultValue());
         assertTrue(rules.get(1).isComputeConcatenation());
     }
@@ -87,7 +87,7 @@ class SaveExtractorAsPredefinedCorrelationActionTest {
 
         Rule rule = SaveExtractorAsPredefinedCorrelationAction.rulesFromExtractor(extractor).get(0);
 
-        assertEquals(1, rule.getMaxMatches());
+        assertEquals(-1, rule.getMaxMatches());
     }
 
     @Test

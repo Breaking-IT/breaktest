@@ -112,7 +112,7 @@ final class HarPredefinedCorrelation {
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch) {
             this(id, group, name, variableName, extractorType, responseField, expression, template,
-                    1, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
+                    -1, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch);
         }
 
         Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
@@ -479,16 +479,17 @@ final class HarPredefinedCorrelation {
             }
             try {
                 List<Object> values = jsonManager.extractFromParsedJson(jsonDocument, rule.getExpression());
-                if (values.size() > rule.getMaxMatches()) {
+                if (rule.getMaxMatches() != -1 && values.size() > rule.getMaxMatches()) {
                     return List.of();
                 }
-                List<ExtractedValue> extractedValues = new ArrayList<>(values.size());
+                Map<String, ExtractedValue> extractedValues = new LinkedHashMap<>();
                 for (int i = 0; i < values.size(); i++) {
                     if (values.get(i) != null) {
-                        extractedValues.add(new ExtractedValue(i + 1, String.valueOf(values.get(i))));
+                        String value = String.valueOf(values.get(i));
+                        extractedValues.putIfAbsent(value, new ExtractedValue(i + 1, value));
                     }
                 }
-                return extractedValues;
+                return List.copyOf(extractedValues.values());
             } catch (RuntimeException | StackOverflowError ignored) {
                 return List.of();
             }
@@ -501,17 +502,17 @@ final class HarPredefinedCorrelation {
                     rule.getExpression(), Perl5Compiler.READ_ONLY_MASK);
             PatternMatcherInput input = new PatternMatcherInput(source);
             int matchNumber = 0;
-            List<ExtractedValue> extractedValues = new ArrayList<>();
+            Map<String, ExtractedValue> extractedValues = new LinkedHashMap<>();
             while (matcher.contains(input, pattern)) {
                 checkCancelled();
                 matchNumber++;
-                if (matchNumber > rule.getMaxMatches()) {
+                if (rule.getMaxMatches() != -1 && matchNumber > rule.getMaxMatches()) {
                     return List.of();
                 }
-                extractedValues.add(new ExtractedValue(
-                        matchNumber, applyTemplate(rule.getTemplate(), matcher.getMatch())));
+                String value = applyTemplate(rule.getTemplate(), matcher.getMatch());
+                extractedValues.putIfAbsent(value, new ExtractedValue(matchNumber, value));
             }
-            return extractedValues;
+            return List.copyOf(extractedValues.values());
         } catch (CancellationException ex) {
             throw ex;
         } catch (RuntimeException | StackOverflowError ignored) {

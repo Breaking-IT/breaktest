@@ -571,7 +571,17 @@ final class HarCorrelationRulesPanel extends JPanel {
         private final JComboBox<ResponseField> responseField = new JComboBox<>(ResponseField.values());
         private final JTextField expression = new JTextField(40);
         private final JTextField template = new JTextField(20);
-        private final JSpinner maxMatches = new JSpinner(new SpinnerNumberModel(1, 1, 100_000, 1));
+        private final JSpinner maxMatches = new JSpinner(new SpinnerNumberModel(-1, -1, 100_000, 1) {
+            @Override
+            public Object getNextValue() {
+                return getNumber().intValue() == -1 ? 1 : super.getNextValue();
+            }
+
+            @Override
+            public Object getPreviousValue() {
+                return getNumber().intValue() == 1 ? -1 : super.getPreviousValue();
+            }
+        });
         private final JTextField defaultValue = new JTextField(20);
         private final JCheckBox emptyDefaultValue = new JCheckBox();
         private final JCheckBox failOnNoMatch = new JCheckBox();
@@ -599,7 +609,8 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow("Response field", responseField, row++);
             addRow("Expression", expression, row++);
             addRow("Template", template, row++);
-            addRow("Maximum matches", maxMatches, row++);
+            maxMatches.setToolTipText("-1 allows unlimited occurrences. A positive limit rejects responses exceeding it.");
+            addRow("Maximum matches (-1 = unlimited)", maxMatches, row++);
             addRow("Default value", defaultValue, row++);
             addRow("Use empty default", emptyDefaultValue, row++);
             addRow("Fail when no match", failOnNoMatch, row);

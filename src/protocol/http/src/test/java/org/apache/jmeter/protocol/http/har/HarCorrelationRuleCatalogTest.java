@@ -62,6 +62,18 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void unlimitedLimitsRoundTripAndInvalidLimitsAreRejected() throws Exception {
+        Rule rule = regexRule("unlimited", "token", "value=([^;]+)", "$1$", -1, true);
+        byte[] content = HarCorrelationRuleCatalog.serialize(List.of(rule));
+        assertEquals(-1, HarCorrelationRuleCatalog.parse(content).get(0).getMaxMatches());
+        for (int invalid : new int[] {-2, 0, 100001}) {
+            Rule invalidRule = regexRule("invalid", "token", "value=([^;]+)", "$1$", invalid, true);
+            byte[] invalidContent = HarCorrelationRuleCatalog.serialize(List.of(invalidRule));
+            assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.parse(invalidContent));
+        }
+    }
+
+    @Test
     void invalidPreferenceFilesDoNotPreventLoadingRulesOrGetOverwritten() throws Exception {
         Path file = HarCorrelationRuleCatalog.stateFile();
         for (String content : List.of("", "{broken", "null", "{}", "[]",
@@ -217,7 +229,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         Rule rule = HarCorrelationRuleCatalog.parse(content.getBytes(StandardCharsets.UTF_8)).get(0);
 
         assertEquals("Custom", rule.getGroup());
-        assertEquals(1, rule.getMaxMatches());
+        assertEquals(-1, rule.getMaxMatches());
     }
 
     @Test

@@ -74,6 +74,43 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
 
     @Test
+    void unlimitedRulesDeduplicateCapturesAndPreserveTheirFirstMatchNumber() {
+        for (ExtractorType type : ExtractorType.values()) {
+            Rule rule = new Rule("custom", "Custom", "Custom", "token", type, ResponseField.BODY,
+                    type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
+                    "$1$", "", false, false, true);
+            assertEquals(-1, rule.getMaxMatches());
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText(type == ExtractorType.REGEX
+                    ? "value=unused-value;" + "value=token-value;".repeat(200)
+                    : "{\"values\":[\"unused-value\"," + "\"token-value\",".repeat(199) + "\"token-value\"]}");
+            HarEntry target = entry(1, 100, "GET", "https://example.test/use?token=token-value");
+            List<HarPredefinedCorrelation> found = HarPredefinedCorrelation.find(List.of(source, target), List.of(rule));
+            assertEquals(1, found.size(), type.toString());
+            assertEquals(2, found.get(0).getMatchNumber());
+            assertEquals("token-value", found.get(0).getExtractedValue());
+            target.setUrl("https://example.test/use?token=token-value&other=unused-value");
+            assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule)).isEmpty(),
+                    "Different used values must remain ambiguous");
+        }
+    }
+
+    @Test
+    void explicitPositiveLimitsStillRejectExcessOccurrences() {
+        for (ExtractorType type : ExtractorType.values()) {
+            Rule rule = new Rule("custom", "Custom", "Custom", "token", type, ResponseField.BODY,
+                    type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
+                    "$1$", 1, "", false, false, true);
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText(type == ExtractorType.REGEX
+                    ? "value=token-value;value=token-value;"
+                    : "{\"values\":[\"token-value\",\"token-value\"]}");
+            HarEntry target = entry(1, 100, "GET", "https://example.test/use?token=token-value");
+            assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule)).isEmpty());
+        }
+    }
+
+    @Test
     void jsonRulesReuseTheBodyAndPreserveMatchNumbersAcrossEntries() {
         Rule missing = jsonRule("missing", "$.missing");
         Rule token = jsonRule("token", "$.tokens[*]");
