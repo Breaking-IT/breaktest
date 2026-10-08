@@ -95,7 +95,8 @@ import com.google.auto.service.AutoService;
 public final class FindPredefinedCorrelationsAction extends AbstractActionWithNoRunningTest implements MenuCreator {
 
     private static final Logger LOG = LoggerFactory.getLogger(FindPredefinedCorrelationsAction.class);
-    private static final Set<String> COMMANDS = Set.of(ActionNames.FIND_PREDEFINED_CORRELATIONS);
+    private static final Set<String> COMMANDS = Set.of(
+            ActionNames.FIND_PREDEFINED_CORRELATIONS, ActionNames.PROCESS_CORRELATION_RULES);
 
     static JMeterTreeNode activeTestPlanNode(JMeterTreeModel model) {
         // The hidden root can retain the initial plan after another JMX is opened.
@@ -111,6 +112,10 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         gui.updateCurrentNode();
         JMeterTreeNode testPlanNode = activeTestPlanNode(gui.getTreeModel());
         TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
+        if (ActionNames.PROCESS_CORRELATION_RULES.equals(event.getActionCommand())) {
+            processRules(gui, HarCorrelationRuleCatalog.rulesFor(testPlan));
+            return;
+        }
         HarCorrelationRulesPanel rulesPanel = new HarCorrelationRulesPanel(
                 HarCorrelationRuleCatalog.allRulesFor(testPlan),
                 HarCorrelationRuleCatalog.customRuleIds(testPlan),
