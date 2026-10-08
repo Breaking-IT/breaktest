@@ -184,7 +184,7 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         return rules.stream()
                 .map(rule -> new Rule(
                         rule.getId(), group, rule.getName(), rule.getVariableName(), rule.getExtractorType(),
-                        rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(),
+                        rule.getResponseField(), rule.getExpression(), rule.getTemplate(), rule.getMaxMatches(), rule.getMinValueLength(),
                         rule.getDefaultValue(), rule.isEmptyDefaultValue(),
                         rule.isComputeConcatenation(),
                         rule.isFailOnNoMatch()))

@@ -348,6 +348,7 @@ final class HarCorrelationRuleCatalog {
                 ruleNode.put("expression", rule.getExpression());
                 ruleNode.put("template", rule.getTemplate());
                 ruleNode.put("maxMatches", rule.getMaxMatches());
+                ruleNode.put("minValueLength", rule.getMinValueLength());
                 ruleNode.put("defaultValue", rule.getDefaultValue());
                 ruleNode.put("emptyDefaultValue", rule.isEmptyDefaultValue());
                 ruleNode.put("computeConcatenation", rule.isComputeConcatenation());
@@ -392,6 +393,10 @@ final class HarCorrelationRuleCatalog {
             throw new IOException("Predefined correlation maxMatches must be -1 (unlimited) or between 1 and "
                     + MAX_MATCHES + ": " + id);
         }
+        int minValueLength = node.path("minValueLength").asInt(HarPredefinedCorrelation.MIN_CORRELATED_VALUE_LENGTH);
+        if (minValueLength < 1) {
+            throw new IOException("Predefined correlation minValueLength must be at least 1: " + id);
+        }
         if (extractorType == ExtractorType.REGEX) {
             try {
                 new Perl5Compiler().compile(expression);
@@ -401,7 +406,7 @@ final class HarCorrelationRuleCatalog {
         }
         return new Rule(
                 id, group, name, variableName, extractorType, responseField, expression, template,
-                maxMatches,
+                maxMatches, minValueLength,
                 node.path("defaultValue").asText(""), node.path("emptyDefaultValue").asBoolean(false),
                 node.path("computeConcatenation").asBoolean(false),
                 node.path("failOnNoMatch").asBoolean(true));

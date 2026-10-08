@@ -74,6 +74,36 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
 
     @Test
+    void customMinimumAllowsShortValuesWithoutChangingOtherRules() {
+        for (ExtractorType type : ExtractorType.values()) {
+            for (int minimum : new int[] {1, 2, 6}) {
+                Rule rule = new Rule("short", "Custom", "Short", "shortValue", type, ResponseField.BODY,
+                        type == ExtractorType.REGEX ? "value=([^;]+);" : "$.values[*]",
+                        "$1$", -1, minimum, "", false, false, true);
+                HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+                source.setResponseContentText(type == ExtractorType.REGEX
+                        ? "value=1;value=1;" : "{\"values\":[\"1\",\"1\"]}");
+                HarEntry target = entry(1, 100, "GET", "https://example.test/use?value=1");
+                List<HarPredefinedCorrelation> found = HarPredefinedCorrelation.find(List.of(source, target), List.of(rule));
+                assertEquals(minimum == 1 ? 1 : 0, found.size());
+            }
+        }
+    }
+
+    @Test
+    void customMinimumAppliesToDecodedHeadersToo() {
+        Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                ResponseField.BODY, "value=([^;]+);", "$1$", -1, 1, "", false, false, true);
+        HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+        source.setResponseContentText("value=%31;");
+        HarEntry target = entry(1, 100, "GET", "https://example.test/use");
+        target.getRequestHeaders().add(new NameValue("X-Value", "1"));
+        List<HarPredefinedCorrelation> found = HarPredefinedCorrelation.find(List.of(source, target), List.of(rule));
+        assertEquals(1, found.size());
+        assertEquals("1", found.get(0).getReplacements().get(0).getMatchedLiteral());
+    }
+
+    @Test
     void unlimitedRulesDeduplicateCapturesAndPreserveTheirFirstMatchNumber() {
         for (ExtractorType type : ExtractorType.values()) {
             Rule rule = new Rule("custom", "Custom", "Custom", "token", type, ResponseField.BODY,

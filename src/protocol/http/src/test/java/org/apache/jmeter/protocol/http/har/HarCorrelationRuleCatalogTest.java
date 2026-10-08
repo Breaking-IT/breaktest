@@ -62,6 +62,29 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void minimumValueLengthRoundTripsAndDefaultsForOlderRules() throws Exception {
+        Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                ResponseField.BODY, "value=([^;]+)", "$1$", -1, 1, "", false, false, true);
+        assertEquals(1, HarCorrelationRuleCatalog.parse(HarCorrelationRuleCatalog.serialize(List.of(rule)))
+                .get(0).getMinValueLength());
+        assertEquals(1, SaveExtractorAsPredefinedCorrelationAction.withGroup(List.of(rule), "Other")
+                .get(0).getMinValueLength());
+        String legacy = """
+                {"format":"breaktest-predefined-correlations-v1","rules":[{
+                  "id":"short","name":"Short","variableName":"shortValue",
+                  "extractorType":"REGEX","expression":"value=([^;]+)"
+                }]}
+                """;
+        assertEquals(6, HarCorrelationRuleCatalog.parse(legacy.getBytes(StandardCharsets.UTF_8))
+                .get(0).getMinValueLength());
+        for (int minimum : new int[] {-1, 0}) {
+            String invalid = legacy.replace("\"id\":", "\"minValueLength\":" + minimum + ",\"id\":");
+            assertThrows(java.io.IOException.class,
+                    () -> HarCorrelationRuleCatalog.parse(invalid.getBytes(StandardCharsets.UTF_8)));
+        }
+    }
+
+    @Test
     void unlimitedLimitsRoundTripAndInvalidLimitsAreRejected() throws Exception {
         Rule rule = regexRule("unlimited", "token", "value=([^;]+)", "$1$", -1, true);
         byte[] content = HarCorrelationRuleCatalog.serialize(List.of(rule));

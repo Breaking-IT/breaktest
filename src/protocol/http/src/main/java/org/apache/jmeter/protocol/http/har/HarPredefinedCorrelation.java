@@ -102,6 +102,7 @@ final class HarPredefinedCorrelation {
         private final String expression;
         private final String template;
         private final int maxMatches;
+        private final int minValueLength;
         private final String defaultValue;
         private final boolean emptyDefaultValue;
         private final boolean computeConcatenation;
@@ -119,6 +120,15 @@ final class HarPredefinedCorrelation {
                 ResponseField responseField, String expression, String template, int maxMatches,
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch) {
+            this(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, MIN_CORRELATED_VALUE_LENGTH, defaultValue, emptyDefaultValue,
+                    computeConcatenation, failOnNoMatch);
+        }
+
+        Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
+                ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
+                String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
+                boolean failOnNoMatch) {
             this.id = id;
             this.group = group;
             this.name = name;
@@ -128,6 +138,7 @@ final class HarPredefinedCorrelation {
             this.expression = expression;
             this.template = template;
             this.maxMatches = maxMatches;
+            this.minValueLength = minValueLength;
             this.defaultValue = defaultValue;
             this.emptyDefaultValue = emptyDefaultValue;
             this.computeConcatenation = computeConcatenation;
@@ -168,6 +179,10 @@ final class HarPredefinedCorrelation {
 
         int getMaxMatches() {
             return maxMatches;
+        }
+
+        int getMinValueLength() {
+            return minValueLength;
         }
 
         String getDefaultValue() {
@@ -333,7 +348,7 @@ final class HarPredefinedCorrelation {
                 }
                 List<ExtractedValue> extractedValues = extract(
                         rule, source.getResponseContentText(), responseHeaders, jsonManager, jsonDocument);
-                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues);
+                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues, rule.getMinValueLength());
                 if (matched == null) {
                     continue;
                 }
@@ -451,17 +466,17 @@ final class HarPredefinedCorrelation {
     }
 
     private static CandidateMatch findMatchingCandidate(
-            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues) {
+            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues, int minValueLength) {
         Map<String, CandidateMatch> matchesByValue = new LinkedHashMap<>();
         for (ExtractedValue extractedValue : extractedValues) {
             if (extractedValue.value() == null
-                    || extractedValue.value().strip().length() < MIN_CORRELATED_VALUE_LENGTH) {
+                    || extractedValue.value().strip().length() < minValueLength) {
                 continue;
             }
             List<Replacement> replacements = new ArrayList<>();
             for (int targetPosition = sourcePosition + 1; targetPosition < entries.size(); targetPosition++) {
                 checkCancelled();
-                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value()));
+                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value(), minValueLength));
             }
             if (!replacements.isEmpty()) {
                 matchesByValue.putIfAbsent(
@@ -582,34 +597,34 @@ final class HarPredefinedCorrelation {
         return result.toString();
     }
 
-    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue) {
+    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue, int minValueLength) {
         List<Replacement> result = new ArrayList<>();
-        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue);
+        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, minValueLength);
         for (NameValue header : entry.getRequestHeaders()) {
             // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
             // would be listed as replacements that silently do nothing.
             if (HarConverter.isExportableHeader(header.getName())) {
                 addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
-                        header.getName(), header.getValue(), extractedValue);
+                        header.getName(), header.getValue(), extractedValue, minValueLength);
             }
         }
         for (NameValue parameter : entry.getQueryString()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    parameter.getName(), parameter.getValue(), extractedValue);
+                    parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
         }
         if (entry.getQueryString().isEmpty()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    "", urlQuery(entry.getUrl()), extractedValue);
+                    "", urlQuery(entry.getUrl()), extractedValue, minValueLength);
         }
         PostData postData = entry.getPostData();
         if (postData != null) {
             if (postData.getParams().isEmpty()) {
                 addReplacement(result, entry, RequestLocation.REQUEST_BODY, "",
-                        postData.getText(), extractedValue);
+                        postData.getText(), extractedValue, minValueLength);
             } else {
                 for (NameValue parameter : postData.getParams()) {
                     addReplacement(result, entry, RequestLocation.POST_PARAMETER,
-                            parameter.getName(), parameter.getValue(), extractedValue);
+                            parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
                 }
             }
         }
@@ -617,7 +632,7 @@ final class HarPredefinedCorrelation {
     }
 
     private static void addReplacement(List<Replacement> result, HarEntry entry,
-            RequestLocation location, String locationName, String text, String extractedValue) {
+            RequestLocation location, String locationName, String text, String extractedValue, int minValueLength) {
         String matchedLiteral = matchedLiteral(text, extractedValue);
         if (matchedLiteral == null && (location == RequestLocation.QUERY_PARAMETER
                 || location == RequestLocation.POST_PARAMETER)) {
@@ -625,7 +640,7 @@ final class HarPredefinedCorrelation {
         }
         if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
             String decoded = decodedHeaderValue(extractedValue);
-            if (!decoded.equals(extractedValue) && decoded.strip().length() >= MIN_CORRELATED_VALUE_LENGTH
+            if (!decoded.equals(extractedValue) && decoded.strip().length() >= minValueLength
                     && text.contains(decoded)) {
                 matchedLiteral = decoded;
             }

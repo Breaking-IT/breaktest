@@ -95,6 +95,14 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         assertEquals(-1, updated.getMaxMatches());
     }
 
+    @Test
+    void customEditorPreservesMinimumValueLength() {
+        Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                ResponseField.BODY, "value=([^;]+)", "$1$", -1, 1, "", false, false, true);
+        Rule updated = new HarCorrelationRulesPanel.RuleEditorPanel(rule).updatedRule(rule);
+        assertEquals(1, updated.getMinValueLength());
+    }
+
     private static Rule rule(String id, String group, int maxMatches) {
         return new Rule(
                 id, group, id, id + "_value", ExtractorType.REGEX, ResponseField.BODY,

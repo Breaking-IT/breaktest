@@ -457,6 +457,7 @@ final class HarCorrelationRulesPanel extends JPanel {
                 new Detail("Response field", rule.getResponseField()),
                 new Detail("Match number", "Detected from later request use"),
                 new Detail("Maximum matches", rule.getMaxMatches()),
+                new Detail("Minimum value length", rule.getMinValueLength()),
                 new Detail("Expression", rule.getExpression()),
                 new Detail("Template", rule.getTemplate()),
                 new Detail("Default value", rule.getDefaultValue()),
@@ -582,6 +583,7 @@ final class HarCorrelationRulesPanel extends JPanel {
                 return getNumber().intValue() == 1 ? -1 : super.getPreviousValue();
             }
         });
+        private final JSpinner minValueLength = new JSpinner(new SpinnerNumberModel(6, 1, Integer.MAX_VALUE, 1));
         private final JTextField defaultValue = new JTextField(20);
         private final JCheckBox emptyDefaultValue = new JCheckBox();
         private final JCheckBox failOnNoMatch = new JCheckBox();
@@ -597,6 +599,7 @@ final class HarCorrelationRulesPanel extends JPanel {
             expression.setText(rule.getExpression());
             template.setText(rule.getTemplate());
             maxMatches.setValue(rule.getMaxMatches());
+            minValueLength.setValue(rule.getMinValueLength());
             defaultValue.setText(rule.getDefaultValue());
             emptyDefaultValue.setSelected(rule.isEmptyDefaultValue());
             failOnNoMatch.setSelected(rule.isFailOnNoMatch());
@@ -611,6 +614,8 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow("Template", template, row++);
             maxMatches.setToolTipText("-1 allows unlimited occurrences. A positive limit rejects responses exceeding it.");
             addRow("Maximum matches (-1 = unlimited)", maxMatches, row++);
+            minValueLength.setToolTipText("Minimum captured value length after trimming whitespace; lower values can match inside unrelated request data.");
+            addRow("Minimum value length", minValueLength, row++);
             addRow("Default value", defaultValue, row++);
             addRow("Use empty default", emptyDefaultValue, row++);
             addRow("Fail when no match", failOnNoMatch, row);
@@ -621,7 +626,7 @@ final class HarCorrelationRulesPanel extends JPanel {
                     original.getId(), group.getText().trim(), name.getText().trim(),
                     variableName.getText().trim(), (ExtractorType) extractorType.getSelectedItem(),
                     (ResponseField) responseField.getSelectedItem(), expression.getText(), template.getText(),
-                    (Integer) maxMatches.getValue(), defaultValue.getText(),
+                    (Integer) maxMatches.getValue(), (Integer) minValueLength.getValue(), defaultValue.getText(),
                     emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected());
         }
 
