@@ -628,7 +628,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         boolean sendBodyDespiteMethod = !areFollowingRedirect
                 && ((!hasArguments() && getSendFileAsPostBody()) || getSendParameterValuesAsPostBody());
         if ((!bodyCapableMethod && !sendBodyDespiteMethod)
-                || (!getArguments().getEnabledArguments().iterator().hasNext() && !getSendFileAsPostBody())) {
+                || !testElement.hasRequestBody()) {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
             return 0;
         }
@@ -662,7 +662,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
             bodyPublisher = HttpRequest.BodyPublishers.ofString(postBody.toString(), charset);
             res.setQueryString(postBody.toString());
-        } else if (hasArguments()) {
+        } else {
             if (!hasContentTypeHeader) {
                 builder.setHeader(HTTPConstants.HEADER_CONTENT_TYPE,
                         HTTPConstants.APPLICATION_X_WWW_FORM_URLENCODED);
@@ -670,8 +670,6 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             String formBody = testElement.getQueryString(charset.name());
             bodyPublisher = HttpRequest.BodyPublishers.ofString(formBody, charset);
             res.setQueryString(formBody);
-        } else {
-            bodyPublisher = HttpRequest.BodyPublishers.noBody();
         }
         builder.method(method, bodyPublisher);
         return Math.max(0, bodyPublisher.contentLength());

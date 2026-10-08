@@ -941,8 +941,18 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         this.getArguments().addArgument(new HTTPArgument(name, value, metadata));
     }
 
+    /**
+     * @return whether any enabled arguments will be sent with the request
+     */
     public boolean hasArguments() {
-        return getArguments().getArgumentCount() > 0;
+        return getArguments().getEnabledArguments().iterator().hasNext();
+    }
+
+    /**
+     * @return whether arguments, a file body, or multipart content is configured
+     */
+    public boolean hasRequestBody() {
+        return hasArguments() || getSendFileAsPostBody() || getUseMultipart();
     }
 
     @Override

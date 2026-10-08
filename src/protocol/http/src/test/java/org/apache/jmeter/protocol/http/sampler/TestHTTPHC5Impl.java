@@ -1035,9 +1035,6 @@ public class TestHTTPHC5Impl {
         }
     }
 
-    @TempDir
-    Path directory;
-
     static Stream<Arguments> bodylessRequests() {
         return Stream.of("classic", "http2", "jdk").flatMap(client ->
                 Stream.of("GET", "HEAD", "OPTIONS", "DELETE", "POST", "PUT", "PATCH").flatMap(method ->
@@ -1063,6 +1060,13 @@ public class TestHTTPHC5Impl {
         var request = server.getAllServeEvents().get(0).getRequest();
         assertEquals(method, request.getMethod().getName());
         assertEquals(0, request.getBody().length);
+        String length = request.getHeader("Content-Length");
+        if (client.equals("jdk")) {
+            assertTrue(length == null || length.equals("0"), "Unexpected Content-Length: " + length);
+        } else {
+            boolean anticipatesBody = List.of("POST", "PUT", "PATCH").contains(method);
+            assertEquals(anticipatesBody ? "0" : null, length);
+        }
         if (explicitHeader) {
             assertEquals("application/json", request.getHeader("Content-Type"));
         } else {
@@ -1073,7 +1077,7 @@ public class TestHTTPHC5Impl {
     static Stream<Arguments> configuredBodies() {
         return Stream.of("classic", "http2", "jdk").flatMap(client ->
                 Stream.of("DELETE", "POST", "PUT", "PATCH").flatMap(method ->
-                        Stream.of("form", "raw", "file", "multipart")
+                        Stream.of("form", "raw", "multipart")
                                 .filter(body -> !client.equals("jdk") || !body.equals("multipart"))
                                 .map(body -> Arguments.of(client, method, body))));
     }
@@ -1096,11 +1100,6 @@ public class TestHTTPHC5Impl {
             sampler.addNonEncodedArgument("", expectedBody, "");
             sampler.setNativeHeaders(List.of(new Header("Content-Type", expectedType)));
             break;
-        case "file":
-            Path file = directory.resolve("body.json");
-            Files.writeString(file, expectedBody);
-            sampler.setHTTPFiles(new HTTPFileArg[] {new HTTPFileArg(file.toString(), "", expectedType)});
-            break;
         case "multipart":
             sampler.setDoMultipart(true);
             sampler.addArgument("key", expectedBody);
@@ -1116,6 +1115,41 @@ public class TestHTTPHC5Impl {
             assertTrue(request.getBodyAsString().contains(expectedBody));
         } else {
             assertEquals(expectedBody, request.getBodyAsString());
+        }
+    }
+
+    static Stream<Arguments> fileBodies() {
+        return Stream.of("classic", "http2", "jdk").flatMap(client ->
+                Stream.of("GET", "DELETE", "POST", "PUT", "PATCH").flatMap(method ->
+                        Stream.of("file", "disabled", "disabledRaw", "emptyFileWithDisabled")
+                                .map(body -> Arguments.of(client, method, body))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("fileBodies")
+    void fileBodiesIgnoreDisabledParameters(String client, String method, String body,
+            WireMockServer server, @TempDir Path bodyDirectory) throws Exception {
+        HTTPSamplerProxy sampler = sampler(server, method);
+        String expectedBody = body.equals("emptyFileWithDisabled") ? "" : "file payload";
+        Path file = bodyDirectory.resolve("body.json");
+        Files.writeString(file, expectedBody);
+        sampler.setHTTPFiles(new HTTPFileArg[] {new HTTPFileArg(file.toString(), "", "application/json")});
+        if (!body.equals("file")) {
+            sampler.addArgument("ignored", "value");
+            sampler.getArguments().getArgument(0).setEnabled(false);
+        }
+        sampler.setPostBodyRaw(body.equals("disabledRaw"));
+        sample(client, sampler);
+        var request = server.getAllServeEvents().get(0).getRequest();
+        assertEquals(method, request.getMethod().getName());
+        assertEquals(expectedBody, request.getBodyAsString());
+        assertEquals("application/json", request.getHeader("Content-Type"));
+        String length = request.getHeader("Content-Length");
+        if (client.equals("jdk") && expectedBody.isEmpty()) {
+            // The JDK client can omit Content-Length for a zero-byte file body.
+            assertTrue(length == null || length.equals("0"), "Unexpected Content-Length: " + length);
+        } else {
+            assertEquals(Integer.toString(expectedBody.length()), length);
         }
     }
 
