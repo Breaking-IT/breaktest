@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Set;
 
 import javax.swing.JCheckBox;
-import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.junit.JMeterTestCase;
@@ -55,7 +55,7 @@ class HarCorrelationMatchesPanelTest extends JMeterTestCase {
             panel.setCorrelations(found);
             List<JCheckBox> boxes = components(panel, JCheckBox.class);
             assertEquals(3, boxes.size(), "One extraction and two requests, even with multiple locations");
-            assertTrue(components(panel, JTextArea.class).stream().anyMatch(text -> "${token}".equals(text.getText())));
+            assertTrue(components(panel, JTextField.class).stream().anyMatch(text -> "token-value → ${token}".equals(text.getText())));
             boxes.get(1).doClick();
             List<HarPredefinedCorrelation> selected = panel.getSelectedCorrelations();
             assertEquals(1, selected.size());

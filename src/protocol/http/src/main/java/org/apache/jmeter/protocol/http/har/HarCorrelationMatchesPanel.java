@@ -30,8 +30,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
+import javax.swing.JTextField;
 
 import org.apache.jmeter.util.JMeterUtils;
 
@@ -89,60 +88,45 @@ final class HarCorrelationMatchesPanel extends JPanel {
         checkBoxes.add(checkBox);
         displayedCorrelations.add(correlation);
         matchPanel.add(checkBox);
-        addValue(matchPanel, "har_import_correlation_variable", "${" + correlation.getVariableName() + "}");
+        addValueMapping(matchPanel, correlation);
         Map<Integer, JCheckBox> requests = new LinkedHashMap<>();
         requestCheckBoxes.add(requests);
         checkBox.addActionListener(event -> requests.values().forEach(box -> box.setSelected(checkBox.isSelected())));
-        addValue(matchPanel, "har_import_correlation_matched_value", correlation.getExtractedValue());
+        Map<Integer, List<HarPredefinedCorrelation.Replacement>> targets = new LinkedHashMap<>();
         for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
-            if (!requests.containsKey(replacement.getTargetEntryIndex())) {
-                JCheckBox request = new JCheckBox(replacement.getRequestMethod() + " "
-                        + compactUrl(replacement.getRequestUrl()), true);
-                request.setToolTipText(replacement.getRequestUrl());
-                request.setAlignmentX(Component.LEFT_ALIGNMENT);
-                request.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
-                request.addActionListener(event -> checkBox.setSelected(
-                        requests.values().stream().anyMatch(JCheckBox::isSelected)));
-                requests.put(replacement.getTargetEntryIndex(), request);
-                matchPanel.add(request);
-            }
-            String location = replacement.getLocation().getDisplayName();
-            if (!replacement.getLocationName().isEmpty()) {
-                location += " " + replacement.getLocationName();
-            }
-            JLabel target = new JLabel(MessageFormat.format(
-                    JMeterUtils.getResString("har_import_correlation_replacement"),
-                    replacement.getRequestMethod(), compactUrl(replacement.getRequestUrl()), location));
-            target.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
-            target.setAlignmentX(Component.LEFT_ALIGNMENT);
-            matchPanel.add(target);
-            if (!replacement.getMatchedLiteral().equals(correlation.getExtractedValue())) {
-                addValue(matchPanel, "har_import_correlation_request_value", replacement.getMatchedLiteral());
-            }
+            targets.computeIfAbsent(replacement.getTargetEntryIndex(), ignored -> new ArrayList<>()).add(replacement);
+        }
+        for (var target : targets.entrySet()) {
+            HarPredefinedCorrelation.Replacement first = target.getValue().get(0);
+            String locations = target.getValue().stream().map(replacement ->
+                    replacement.getLocation().getDisplayName()
+                            + (replacement.getLocationName().isEmpty() ? "" : " " + replacement.getLocationName()))
+                    .distinct().collect(java.util.stream.Collectors.joining(", "));
+            JCheckBox request = new JCheckBox(first.getRequestMethod() + " "
+                    + compactUrl(first.getRequestUrl()) + " — " + locations, true);
+            request.setToolTipText(first.getRequestMethod() + " " + first.getRequestUrl());
+            request.setAlignmentX(Component.LEFT_ALIGNMENT);
+            request.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
+            request.addActionListener(event -> checkBox.setSelected(
+                    requests.values().stream().anyMatch(JCheckBox::isSelected)));
+            requests.put(target.getKey(), request);
+            matchPanel.add(request);
         }
         add(matchPanel);
     }
 
-    private static void addValue(JPanel panel, String labelKey, String value) {
-        JPanel valuePanel = new JPanel();
-        valuePanel.setLayout(new BoxLayout(valuePanel, BoxLayout.Y_AXIS));
-        valuePanel.setBorder(BorderFactory.createEmptyBorder(2, 24, 4, 0));
-        valuePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JLabel label = new JLabel(JMeterUtils.getResString(labelKey));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        valuePanel.add(label);
-        JTextArea text = new JTextArea(value, 2, 50);
-        text.setEditable(false);
-        text.setLineWrap(true);
-        text.setWrapStyleWord(false);
-        text.setCaretPosition(0);
-        text.getAccessibleContext().setAccessibleName(label.getText());
-        label.setLabelFor(text);
-        JScrollPane scroll = new JScrollPane(text);
-        scroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, scroll.getPreferredSize().height));
-        valuePanel.add(scroll);
-        panel.add(valuePanel);
+    private static void addValueMapping(JPanel panel, HarPredefinedCorrelation correlation) {
+        String value = correlation.getExtractedValue().replace("\r", "\\r").replace("\n", "\\n");
+        String reference = "${" + correlation.getVariableName() + "}";
+        JTextField mapping = new JTextField(compactUrl(value) + " → " + reference);
+        mapping.setEditable(false);
+        mapping.setOpaque(false);
+        mapping.setBorder(BorderFactory.createEmptyBorder(2, 24, 4, 0));
+        mapping.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mapping.setMaximumSize(new Dimension(Integer.MAX_VALUE, mapping.getPreferredSize().height));
+        mapping.setToolTipText("Matched value: " + value + " → " + reference);
+        mapping.getAccessibleContext().setAccessibleName("Extracted value to variable");
+        panel.add(mapping);
     }
 
     List<HarPredefinedCorrelation> getSelectedCorrelations() {
