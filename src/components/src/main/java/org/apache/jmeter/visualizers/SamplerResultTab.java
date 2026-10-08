@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import javax.swing.Action;
 import javax.swing.BorderFactory;
@@ -50,13 +51,18 @@ import javax.swing.JSplitPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.JTextPane;
 import javax.swing.JToolBar;
+import javax.swing.RowFilter;
 import javax.swing.SwingConstants;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableRowSorter;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Caret;
 import javax.swing.text.DefaultStyledDocument;
@@ -351,8 +357,8 @@ public abstract class SamplerResultTab implements ResultRenderer {
         // Create the panels for the other tabs
         requestPanel = new RequestPanel(this::recordedRequestDiffContent);
         resultsPane = createResponseDataPanel();
-        cookiesPane = createTablePanel(cookiesModel);
-        variablesPane = createTablePanel(variablesModel);
+        cookiesPane = createTablePanel(cookiesModel, false);
+        variablesPane = createTablePanel(variablesModel, true);
         recordedRequestPane = createRecordedDataPanel(true);
         recordedResponsePane = createRecordedDataPanel(false);
         initialized = true;
@@ -1001,7 +1007,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
                         String.class, String.class }, false);
     }
 
-    private static JPanel createTablePanel(ObjectTableModel model) {
+    private static JPanel createTablePanel(ObjectTableModel model, boolean searchable) {
         JTable table = new JTable(model);
         JMeterUtils.applyHiDPI(table);
         table.setToolTipText(JMeterUtils.getResString("textbox_tooltip_cell")); // $NON-NLS-1$
@@ -1015,6 +1021,39 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(GuiUtils.makeScrollPane(table));
+        if (searchable) {
+            TableRowSorter<ObjectTableModel> sorter = new TableRowSorter<>(model);
+            table.setRowSorter(sorter);
+            JTextField searchField = new JTextField(20);
+            JLabel searchLabel = new JLabel(JMeterUtils.getResString("search_text_field")); // $NON-NLS-1$
+            searchLabel.setLabelFor(searchField);
+            JPanel searchPanel = new JPanel(new BorderLayout(5, 0));
+            searchPanel.add(searchLabel, BorderLayout.WEST);
+            searchPanel.add(searchField, BorderLayout.CENTER);
+            panel.add(searchPanel, BorderLayout.NORTH);
+            searchField.getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent event) {
+                    updateFilter();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent event) {
+                    updateFilter();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent event) {
+                    updateFilter();
+                }
+
+                private void updateFilter() {
+                    String text = searchField.getText();
+                    sorter.setRowFilter(text.isEmpty() ? null
+                            : RowFilter.regexFilter("(?iu)" + Pattern.quote(text))); // $NON-NLS-1$
+                }
+            });
+        }
         return panel;
     }
 
