@@ -13,6 +13,46 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.10.08 — Better Correlation, Variable Search, and HTTP Fixes
+
+This maintenance release makes correlation rules easier to apply and review, adds quick variable search in results, improves browser recorder shortcuts, and fixes headers and file bodies in HTTP replay.
+
+## More Flexible Correlation
+
+- **Repeated captures can be correlated automatically.** Rules now default to unlimited matches, deduplicate identical captured values, and keep the first matching occurrence for replay. Explicit positive limits still count every occurrence; different values used by later requests remain ambiguous.
+- **Choose which requests receive a replacement.** The review shows the extracted value and target variable, with a checkbox for each target request and controls to select or exclude all targets. Excluded requests keep their literal values; excluding every target omits the extractor.
+- **Process a thread group directly.** Use Process Correlation Rules in the thread group’s right-click menu to scan it with the enabled rules and open the review. The action is unavailable while a test runs.
+- **Reuse more native extractors as custom rules.** Boundary, CSS, XPath, XPath2, and JSON JMESPath extractors join Regex and JSONPath support. Rules retain extractor settings such as boundaries, attributes, and namespaces.
+- **Configure the minimum captured-value length.** Each rule has a minimum length, defaulting to 6. Saving an extractor as a custom rule can inspect its recorded response and lower the minimum to the shortest non-empty capture, capped at 6; missing recordings and fallback values retain the default.
+
+Sources: [#242](https://github.com/Breaking-IT/breaktest/pull/242).
+
+## Quick Variable Search
+
+- **Find variables without scrolling through the full snapshot.** The Variables tab in View Results Tree filters immediately by literal, case-insensitive text in either the name or value. Clearing the search restores all rows, and double-clicking a filtered cell opens the displayed value.
+
+Sources: [#243](https://github.com/Breaking-IT/breaktest/pull/243).
+
+## Browser Recorder Shortcuts
+
+- **Choose Chrome, Edge, or Firefox from HAR Import.** Compact browser buttons open the recorder extension listings, including Mozilla Add-ons for Firefox. The wizard explains recording requests and grouping them into transactions.
+
+Sources: [#241](https://github.com/Breaking-IT/breaktest/pull/241).
+
+## More Accurate HTTP Replay
+
+- **Bodyless requests no longer acquire an inferred Content-Type.** DELETE, POST, PUT, PATCH, and GET with empty raw-body mode avoid creating an empty form entity when no body is configured. Explicit Content-Type headers remain supported.
+- **File bodies survive disabled parameters.** HTTP/1.1, HTTP/2, and the JDK HTTP/3 path use enabled parameters consistently when selecting a file body, including GET and raw-body mode. File bytes and MIME types are preserved, and PostWriter/PutWriter calculate headers that match the file they write.
+- **Keep the public argument-query behavior compatible.** HTTPSamplerBase.hasArguments() still reports configured parameters, including disabled ones. Request construction uses the new hasEnabledArguments() helper.
+
+Sources: [#244](https://github.com/Breaking-IT/breaktest/pull/244).
+
+## Upgrade Notes
+
+Correlation rule JSON files that omit maxMatches now inherit unlimited matching (maxMatches=-1), where they previously defaulted to 1. Set maxMatches=1 to retain the previous limit. Existing explicit positive limits remain in effect. Bodyless HC5 DELETE requests now omit Content-Length instead of sending 0; bodyless POST, PUT, and PATCH requests still send 0. Java 21 remains the minimum runtime, and HTTP/3 requires Java 27 or later.
+
+[Full changelog since 2026.10.07](https://github.com/Breaking-IT/breaktest/compare/2026.10.07...2026.10.08)
+
 # BreakTest 2026.10.07 — Faster Loading, Responsive Editors, and HAR Fixes
 
 This maintenance release improves large-plan loading and editing, adds progress and cancellation to correlation scans, and fixes binary upload references, URL encoding, and legacy cache handling in HAR imports.
