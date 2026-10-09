@@ -166,6 +166,7 @@ public class HarImportWizard extends JDialog {
 
     private final JButton backButton = new JButton(JMeterUtils.getResString("har_import_back"));
     private final JButton nextButton = new JButton(JMeterUtils.getResString("har_import_next"));
+    private final JButton reviewStepByStepButton = new JButton(JMeterUtils.getResString("correlation_review_step_by_step"));
     private final JButton finishButton = new JButton(JMeterUtils.getResString("har_import_finish"));
     private final JButton cancelButton = new JButton(JMeterUtils.getResString("cancel"));
     private final JButton chooseButton = new JButton(JMeterUtils.getResString("har_import_choose_button"));
@@ -261,7 +262,9 @@ public class HarImportWizard extends JDialog {
         buttons.add(Box.createHorizontalGlue());
         backButton.addActionListener(e -> goBack());
         nextButton.addActionListener(e -> goNext());
-        finishButton.addActionListener(e -> finish());
+        finishButton.addActionListener(e -> finish(false));
+        reviewStepByStepButton.addActionListener(e -> finish(true));
+        correlationsPanel.addPropertyChangeListener("selection", e -> updateButtons());
         cancelButton.addActionListener(e -> {
             cancelCorrelationAnalysis();
             result = null;
@@ -630,6 +633,10 @@ public class HarImportWizard extends JDialog {
         JScrollPane scroll = new JScrollPane(correlationsPanel);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         panel.add(scroll, BorderLayout.CENTER);
+        JPanel reviewActions = new JPanel(new BorderLayout(0, 6));
+        reviewActions.add(new JLabel(JMeterUtils.getResString("har_import_step_by_step_hint")), BorderLayout.NORTH);
+        reviewActions.add(reviewStepByStepButton, BorderLayout.EAST);
+        panel.add(reviewActions, BorderLayout.SOUTH);
         return panel;
     }
 
@@ -908,9 +915,14 @@ public class HarImportWizard extends JDialog {
         boolean finishOnOptions = step == STEP_OPTIONS && !findPredefinedCorrelations.isSelected();
         boolean finishOnCorrelations = step == STEP_CORRELATIONS && correlationAnalysisComplete;
         finishButton.setEnabled((finishOnOptions || finishOnCorrelations) && canLeaveFile && canLeaveHosts);
+        reviewStepByStepButton.setEnabled(finishOnCorrelations && canLeaveFile && canLeaveHosts
+                && !selectedPredefinedCorrelations().isEmpty());
     }
 
-    private void finish() {
+    private void finish(boolean stepByStep) {
+        if (stepByStep && (!correlationAnalysisComplete || selectedPredefinedCorrelations().isEmpty())) {
+            return;
+        }
         HarImportOptions.DelayMode selectedDelayMode = selectedDelayMode();
         if (!validateDelayFields(selectedDelayMode)) {
             return;
@@ -938,12 +950,18 @@ public class HarImportWizard extends JDialog {
         options.setDelayMax(delayMax.getText());
         options.setUseDelayVariables(useDelayVariables.isSelected());
         if (findPredefinedCorrelations.isSelected()) {
-            options.setPredefinedCorrelations(selectedPredefinedCorrelations());
+            configureCorrelationReview(options, selectedPredefinedCorrelations(), stepByStep);
         }
 
         result = new Result(entries, selectedHostnames(), options, harName, harMd5, harContent);
         result.uploads = uploads;
         dispose();
+    }
+
+    static void configureCorrelationReview(HarImportOptions options,
+            List<HarPredefinedCorrelation> correlations, boolean stepByStep) {
+        options.setPredefinedCorrelations(stepByStep ? List.of() : correlations);
+        options.setStepByStepCorrelations(stepByStep ? correlations : List.of());
     }
 
     private HarImportOptions.DelayMode selectedDelayMode() {

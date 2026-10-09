@@ -27,7 +27,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,6 +53,7 @@ import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.plugin.MenuCreator;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.reporters.ResultCollector;
@@ -108,16 +111,17 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         // insert the generated sub-tree back on the EDT.
         var mainFrame = guiPackage.getMainFrame();
         mainFrame.showLoadingOverlay(JMeterUtils.getResString("har_import_progress"));
-        SwingWorker<HashTree, Void> worker = new SwingWorker<>() {
+        SwingWorker<ConvertedImport, Void> worker = new SwingWorker<>() {
             @Override
-            protected HashTree doInBackground() {
+            protected ConvertedImport doInBackground() {
                 return convertAndRegister(result, options, converter);
             }
 
             @Override
             protected void done() {
                 try {
-                    HashTree convertedTree = get();
+                    ConvertedImport converted = get();
+                    HashTree convertedTree = converted.tree();
                     // Flush any pending Test Plan GUI edits before changing its variables.
                     guiPackage.updateCurrentGui();
                     if (options.getFileUploadMode() == HarImportOptions.FileUploadMode.ARCHIVE) {
@@ -133,6 +137,8 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                     expanded.forEach(tree::expandPath);
                     expandImportedThreadGroup(tree, importedThreadGroup);
                     TreeState.expandThreadGroups(tree);
+                    mainFrame.hideLoadingOverlay();
+                    reviewImportedCorrelations(guiPackage, importedThreadGroup, options, converted);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     LOG.error("HAR import interrupted", ex);
@@ -151,9 +157,25 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         worker.execute();
     }
 
-    private static HashTree convertAndRegister(
+    private static void reviewImportedCorrelations(GuiPackage gui, JMeterTreeNode importedThreadGroup,
+            HarImportOptions options, ConvertedImport converted) {
+        if (importedThreadGroup != null && !options.getStepByStepCorrelations().isEmpty()) {
+            gui.updateCurrentNode();
+            CorrelationReviewDialog.show(gui, options.getStepByStepCorrelations(),
+                    importedCorrelationNodes(gui.getTreeModel(), converted.requests()));
+        }
+    }
+
+    record ConvertedImport(HashTree tree, Map<Integer, TestElement> requests) { }
+
+    static ConvertedImport convertAndRegister(
             HarImportWizard.Result result, HarImportOptions options, HarConverter converter) {
         HashTree convertedTree = converter.convert(result.getSelectedHostnames());
+        // Archive filtering replaces/removes HAR indexes. Keep object identities before it runs.
+        Map<Integer, TestElement> requests = new LinkedHashMap<>();
+        if (!options.getStepByStepCorrelations().isEmpty()) {
+            collectCorrelationRequests(convertedTree, requests);
+        }
         try {
             if (options.getFileUploadMode() == HarImportOptions.FileUploadMode.LOCAL_FILE) {
                 storeUploadFiles(result.getEntries(), result.getSelectedHostnames(), uploadWorkingDirectory(),
@@ -170,10 +192,34 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                 LOG.info("Filtered embedded HAR from {} to {} entries",
                         result.getEntries().size(), archive.exchangeCount());
             }
-            return convertedTree;
+            return new ConvertedImport(convertedTree, Map.copyOf(requests));
         } catch (java.io.IOException ex) {
             throw new IllegalStateException("Failed to store HAR import data: " + ex.getMessage(), ex);
         }
+    }
+
+    private static void collectCorrelationRequests(HashTree tree, Map<Integer, TestElement> requests) {
+        for (Object item : tree.list()) {
+            if (item instanceof TestElement element) {
+                String index = element.getPropertyAsString(RecordedHarExchangeResolver.HAR_ENTRY_INDEX);
+                if (!index.isEmpty()) {
+                    requests.put(Integer.parseInt(index), element);
+                }
+            }
+            collectCorrelationRequests(tree.getTree(item), requests);
+        }
+    }
+
+    static Map<Integer, JMeterTreeNode> importedCorrelationNodes(
+            JMeterTreeModel model, Map<Integer, TestElement> requests) {
+        Map<Integer, JMeterTreeNode> nodes = new LinkedHashMap<>();
+        requests.forEach((index, element) -> {
+            JMeterTreeNode node = model.getNodeOf(element);
+            if (node != null) {
+                nodes.put(index, node);
+            }
+        });
+        return nodes;
     }
 
     static void storeUploadFiles(List<HarEntry> entries, Set<String> selectedHostnames, Path workingDirectory)

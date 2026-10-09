@@ -29,6 +29,7 @@ import java.util.ResourceBundle;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
 
+import org.apache.jmeter.gui.util.EditorMatchHighlighter;
 import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
@@ -38,7 +39,7 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 
 /** Session settings and the same header table used by HTTP Request. */
-public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer {
+public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer implements org.apache.jmeter.gui.util.ReviewableEditor {
     private static final long serialVersionUID = 1L;
     private final HeaderTablePanel headers = new HeaderTablePanel(false);
     private transient Map<String, Object> properties;
@@ -64,6 +65,31 @@ public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer {
         tabs.addChangeListener(event -> loadRecording());
         setLayout(new BorderLayout());
         add(tabs, BorderLayout.CENTER);
+    }
+
+    /** Reveal a handshake header or the URL in the live connection editor. */
+    @Override
+    public Runnable highlightReviewField(String field, int row, String expected, int start, int end) {
+        if (field.startsWith("Header")) {
+            return EditorMatchHighlighter.table(
+                    headers, row, field.equals("Header name") ? 0 : 1, expected, start, end);
+        }
+        return highlightUrl(tabs.getComponentAt(0), expected, start, end);
+    }
+
+    private static Runnable highlightUrl(Component component, String expected, int start, int end) {
+        if (component instanceof javax.swing.text.JTextComponent text && expected.equals(text.getText())) {
+            return EditorMatchHighlighter.text(text, expected, start, end);
+        }
+        if (component instanceof java.awt.Container container) {
+            for (Component child : container.getComponents()) {
+                Runnable result = highlightUrl(child, expected, start, end);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+        return null;
     }
 
     @Override

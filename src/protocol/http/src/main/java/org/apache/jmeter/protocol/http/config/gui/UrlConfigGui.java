@@ -38,6 +38,7 @@ import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.gui.BindingGroup;
 import org.apache.jmeter.gui.JBooleanPropertyEditor;
 import org.apache.jmeter.gui.JLabeledFieldBinding;
+import org.apache.jmeter.gui.util.EditorMatchHighlighter;
 import org.apache.jmeter.gui.util.HorizontalPanel;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
@@ -70,7 +71,7 @@ import net.miginfocom.swing.MigLayout;
  * <li>redirects and keepalive</li>
  * </ul>
  */
-public class UrlConfigGui extends JPanel {
+public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.ReviewableEditor {
 
     private static final long serialVersionUID = 240L;
 
@@ -459,6 +460,31 @@ public class UrlConfigGui extends JPanel {
         return requestOptions;
     }
 
+    /** Reveal a live request field for occurrence-by-occurrence correlation review. */
+    @Override
+    public Runnable highlightReviewField(String field, int row, String expected, int start, int end) {
+        if ("Parameter value".equals(field) && row == 0 && postBodyContent != null && !postBodyContent.getText().isEmpty()) {
+            field = "Body";
+        }
+        return switch (field) {
+            case "Domain" -> EditorMatchHighlighter.text(domain, expected, start, end);
+            case "Protocol" -> EditorMatchHighlighter.text((Component) protocol, expected, start, end);
+            case "Port" -> EditorMatchHighlighter.text(port, expected, start, end);
+            case "Path" -> EditorMatchHighlighter.text(path, expected, start, end);
+            case "Body" -> EditorMatchHighlighter.text(postBodyContent,
+                    expected.replace("\r\n", "\n"), expected.substring(0, start).replace("\r\n", "\n").length(),
+                    expected.substring(0, end).replace("\r\n", "\n").length());
+            case "Parameter name", "Parameter value" -> EditorMatchHighlighter.table(
+                    argsPanel, row, field.equals("Parameter name") ? 1 : 2, expected, start, end);
+            case "File path", "File parameter", "File MIME type" -> EditorMatchHighlighter.table(
+                    filesPanel, row, field.equals("File path") ? 0 : field.equals("File parameter") ? 1 : 2,
+                    expected, start, end);
+            case "Header name", "Header value" -> EditorMatchHighlighter.table(
+                    headersPanel, row, field.equals("Header name") ? 0 : 1, expected, start, end);
+            default -> null;
+        };
+    }
+
     /**
      * @return whether this editor uses the modern (URL bar + side column) layout
      */
@@ -638,13 +664,11 @@ public class UrlConfigGui extends JPanel {
         postContentTabbedPane.add(paramsTabTitle, argsPanel);// $NON-NLS-1$
 
         int indx = TAB_PARAMETERS;
-        if (modernLayout || !notConfigOnly) {
-            tabHeadersIndex = ++indx;
-            headersPanel = new HeaderTablePanel(false);
-            headersPanel.addTableModelListener(e -> updateContentTabTitles());
-            headersTabTitle = JMeterUtils.getResString("web_request_headers");
-            postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
-        }
+        tabHeadersIndex = ++indx;
+        headersPanel = new HeaderTablePanel(false);
+        headersPanel.addTableModelListener(e -> updateContentTabTitles());
+        headersTabTitle = JMeterUtils.getResString("web_request_headers");
+        postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
 
         if(showRawBodyPane) {
             tabRawBodyIndex = ++indx;

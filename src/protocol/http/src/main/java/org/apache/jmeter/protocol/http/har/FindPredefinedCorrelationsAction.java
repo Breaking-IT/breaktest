@@ -438,11 +438,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             panel.add(warning, BorderLayout.SOUTH);
         }
 
-        int result = JOptionPane.showConfirmDialog(
+        Object[] options = {JMeterUtils.getResString("correlation_review_apply"),
+                JMeterUtils.getResString("correlation_review_step_by_step"), JMeterUtils.getResString("cancel")};
+        int result = JOptionPane.showOptionDialog(
                 gui.getMainFrame(), panel,
                 JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS),
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-        if (result != JOptionPane.OK_OPTION) {
+                JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (result == 1) {
+            gui.updateCurrentNode();
+            CorrelationReviewDialog.show(gui, matchesPanel.getSelectedCorrelations(), scan.nodesByEntryIndex());
+            return;
+        }
+        if (result != 0) {
             return;
         }
         List<HarPredefinedCorrelation> selected = matchesPanel.getSelectedCorrelations();
@@ -890,6 +897,55 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         gui.refreshCurrentGui();
         gui.getMainFrame().repaint();
         return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount);
+    }
+
+    static boolean acceptReviewStep(GuiPackage gui, CorrelationReviewStep step,
+            List<CorrelationReviewStep> steps, Map<Integer, JMeterTreeNode> nodes) {
+        return acceptReviewSteps(gui, List.of(step), steps, nodes) == 1;
+    }
+
+    static int acceptReviewSteps(GuiPackage gui, List<CorrelationReviewStep> requested,
+            List<CorrelationReviewStep> steps, Map<Integer, JMeterTreeNode> nodes) {
+        gui.updateCurrentNode();
+        List<CorrelationReviewStep> pending = CorrelationReviewStep.pending(requested).stream()
+                .filter(step -> step.current() && nodes.containsKey(step.correlation.getSourceEntryIndex())).toList();
+        if (pending.isEmpty()) {
+            return 0;
+        }
+        List<HarPredefinedCorrelation> selected = pending.stream()
+                .map(step -> step.correlation.withReplacements(List.of(step.replacement))).toList();
+        if (!confirmParallelControllerSplits(gui, selected, nodes)) {
+            return 0;
+        }
+        int accepted = 0;
+        gui.beginUndoTransaction();
+        try {
+            SplitResult split = splitParallelControllers(gui, selected, nodes);
+            for (CorrelationReviewStep step : pending) {
+                if (split.unseparableTargets().contains(step.field.node())
+                        || step.decision != CorrelationReviewStep.Decision.PENDING || !step.current()) {
+                    continue;
+                }
+                JMeterTreeNode source = nodes.get(step.correlation.getSourceEntryIndex());
+                if (!hasExtractor(source, step.correlation.getVariableName())) {
+                    // Adding an extractor commits the visible editor; refresh any earlier batch edits first.
+                    gui.refreshCurrentGui();
+                    gui.getTreeModel().addComponent(HarPredefinedCorrelation.buildExtractor(step.correlation), source);
+                }
+                if (step.accept(steps)) {
+                    gui.getTreeModel().nodeChanged(step.field.node());
+                    gui.setDirty(true);
+                    accepted++;
+                }
+            }
+        } catch (IllegalUserActionException ex) {
+            JMeterUtils.reportErrorToUser(ex.getMessage());
+        } finally {
+            gui.endUndoTransaction();
+            gui.refreshCurrentGui();
+            gui.getMainFrame().repaint();
+        }
+        return accepted;
     }
 
     static int applyReplacement(Replaceable sampler, HarPredefinedCorrelation correlation,

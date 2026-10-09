@@ -668,11 +668,15 @@ final class HarPredefinedCorrelation {
             if (HarConverter.isExportableHeader(header.getName())) {
                 addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
                         header.getName(), header.getValue(), extractedValue, minValueLength);
+                addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
+                        header.getName(), header.getName(), extractedValue, minValueLength);
             }
         }
         for (NameValue parameter : entry.getQueryString()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
                     parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
+            addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
+                    parameter.getName(), parameter.getName(), extractedValue, minValueLength);
         }
         if (entry.getQueryString().isEmpty()) {
             addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
@@ -687,6 +691,8 @@ final class HarPredefinedCorrelation {
                 for (NameValue parameter : postData.getParams()) {
                     addReplacement(result, entry, RequestLocation.POST_PARAMETER,
                             parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
+                    addReplacement(result, entry, RequestLocation.POST_PARAMETER,
+                            parameter.getName(), parameter.getName(), extractedValue, minValueLength);
                 }
             }
         }

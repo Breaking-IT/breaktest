@@ -69,7 +69,7 @@ import net.miginfocom.swing.MigLayout;
  * @see org.apache.jmeter.samplers.gui.AbstractSamplerGui
  *
  */
-public abstract class AbstractJMeterGuiComponent extends JPanel implements JMeterGUIComponent, Printable {
+public abstract class AbstractJMeterGuiComponent extends JPanel implements JMeterGUIComponent, Printable, org.apache.jmeter.gui.util.ReviewableEditor {
     private static final long serialVersionUID = 241L;
 
     /**
@@ -96,6 +96,18 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
     @API(status = INTERNAL, since = "5.2.0")
     @Deprecated
     @SuppressWarnings("DeprecatedIsStillUsed")
+    @Override
+    public Runnable highlightReviewField(String field, int row, String expected, int start, int end) {
+        if ("Name".equals(field) && row == 0) {
+            return org.apache.jmeter.gui.util.EditorMatchHighlighter.text(namePanel.getNameField(), expected, start, end);
+        }
+        if ("Comments".equals(field) && row == 0) {
+            expandComments();
+            return org.apache.jmeter.gui.util.EditorMatchHighlighter.text(commentField, expected, start, end);
+        }
+        return null;
+    }
+
     protected NamePanel namePanel;
 
     private final JTextArea commentField = JFactory.tabMovesFocus(new JTextArea());

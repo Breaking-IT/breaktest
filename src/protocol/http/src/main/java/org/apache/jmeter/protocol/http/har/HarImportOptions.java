@@ -81,6 +81,17 @@ public class HarImportOptions {
     /** Predefined correlations selected in the wizard review step. */
     private List<HarPredefinedCorrelation> predefinedCorrelations = List.of();
 
+    /** Selected matches deferred until their imported samplers are visible in the live editor. */
+    private List<HarPredefinedCorrelation> stepByStepCorrelations = List.of();
+
+    List<HarPredefinedCorrelation> getStepByStepCorrelations() {
+        return stepByStepCorrelations;
+    }
+
+    void setStepByStepCorrelations(List<HarPredefinedCorrelation> correlations) {
+        stepByStepCorrelations = List.copyOf(correlations);
+    }
+
     // Timeouts are always applied via HTTP Request Defaults; not exposed in the wizard.
     private int connectTimeoutSeconds = 10;
     private int readTimeoutSeconds = 60;
