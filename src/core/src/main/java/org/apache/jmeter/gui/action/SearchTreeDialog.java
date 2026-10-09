@@ -195,9 +195,9 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
 
     private JButton replaceAllButton;
 
-    private JButton findAndReplaceButton;
-
     private JButton removeMatchingButton;
+    private JButton reviewReplaceButton;
+    private JButton reviewDeleteButton;
 
     private JComboBox<RemovalTarget> removalTarget;
     private JComboBox<RowField> rowFieldCombo;
@@ -408,6 +408,9 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         removalOptions.add(removalTarget, BorderLayout.CENTER);
         flaggingButtons.add(removalOptions);
         flaggingButtons.add(removeMatchingButton);
+        reviewDeleteButton = createButton("search_review_delete");
+        reviewDeleteButton.addActionListener(this);
+        flaggingButtons.add(reviewDeleteButton);
         flaggingButtons.add(resetSearchButton);
 
         flaggingOptions.setBorder(BorderFactory.createEmptyBorder(0, 7, 0, 7));
@@ -426,14 +429,14 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         replaceButton.addActionListener(this);
         replaceAllButton = createButton("search_replace_all"); //$NON-NLS-1$
         replaceAllButton.addActionListener(this);
-        findAndReplaceButton = createButton("search_find_and_replace"); //$NON-NLS-1$
-        findAndReplaceButton.addActionListener(this);
         replaceButtons.add(replaceSearchButton);
         replaceButtons.add(replaceNextButton);
         replaceButtons.add(replacePreviousButton);
         replaceButtons.add(replaceButton);
         replaceButtons.add(replaceAllButton);
-        replaceButtons.add(findAndReplaceButton);
+        reviewReplaceButton = createButton("search_review_replace");
+        reviewReplaceButton.addActionListener(this);
+        replaceButtons.add(reviewReplaceButton);
 
         replaceOptions.setBorder(BorderFactory.createEmptyBorder(0, 7, 0, 7));
 
@@ -634,8 +637,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
             doReplaceAll(e);
         } else if (source == replaceButton) {
             doReplace();
-        } else if (source == findAndReplaceButton) {
-            doFindAndReplace();
+        } else if (source == reviewReplaceButton || source == reviewDeleteButton) {
+            doReview(source == reviewDeleteButton);
         } else if (source == removeMatchingButton) {
             doRemoveMatching(e);
         } else if(source == resetSearchButton) {
@@ -702,12 +705,6 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         statusLabel.setText(MessageFormat.format(
                 JMeterUtils.getResString("search_replaced_occurrences"), replacements));
         return true;
-    }
-
-    private void doFindAndReplace() {
-        if (doNavigateToSearchResult(true, SearchMode.REPLACE) != null) {
-            doReplace();
-        }
     }
 
     private JMeterTreeNode doNavigateToSearchResult(boolean isNext, SearchMode mode) {
@@ -931,6 +928,59 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
         searchTF.requestFocusInWindow();
         statusLabel.setText(MessageFormat.format(
                 JMeterUtils.getResString("search_remove_matching_cleanup_status"), removed, cleaned, skipped));
+    }
+
+    private void doReview(boolean delete) {
+        boolean nodeTypes = delete && flagByNodeTypeRB.isSelected();
+        RemovalTarget target = (RemovalTarget) removalTarget.getSelectedItem();
+        if (nodeTypes && target != RemovalTarget.ELEMENTS) {
+            statusLabel.setText(JMeterUtils.getResString("search_remove_rows_text_only"));
+            return;
+        }
+        if (!nodeTypes && StringUtilities.isEmpty(searchTF.getText())) {
+            statusLabel.setText(JMeterUtils.getResString("search_enter_text"));
+            return;
+        }
+        Pattern pattern = nodeTypes ? null : replacementPatternOrShowError();
+        if (!nodeTypes && pattern == null) {
+            return;
+        }
+        liveFlaggingTimer.stop();
+        GuiPackage gui = GuiPackage.getInstance();
+        gui.updateCurrentNode();
+        List<SearchReviewStep> steps;
+        try {
+            if (!delete) {
+                List<JMeterTreeNode> nodes = gui.getTreeModel().getNodesOfType(TestElement.class).stream()
+                        .filter(node -> !node.isRoot() && isWithinSearchScope(node, selectedScope())).toList();
+                steps = SearchReviewStep.replacements(nodes, pattern, replaceTF.getText(), isRegexpCB.isSelected(),
+                        selectedAreas(), selectedRowField());
+            } else if (target == RemovalTarget.ELEMENTS) {
+                steps = SearchReviewStep.elements(new ArrayList<>(findMatchingNodes(gui,
+                        currentSearchConditions(SearchMode.FLAGGING)).nodes()), pattern, selectedAreas(), selectedRowField());
+            } else {
+                Set<SearchArea> areas = selectedAreas();
+                areas.retainAll(target.areas());
+                var matches = matchingRows(gui.getTreeModel().getNodesOfType(TestElement.class), selectedScope(),
+                        areas, tokens -> tokens.stream().filter(token -> !token.isEmpty())
+                                .anyMatch(token -> pattern.matcher(token).find()), selectedRowField());
+                steps = SearchReviewStep.rows(matches, pattern, selectedRowField());
+            }
+        } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {
+            statusLabel.setText(MessageFormat.format(JMeterUtils.getResString("search_invalid_replacement"), ex.getMessage()));
+            return;
+        }
+        setVisible(false);
+        try {
+            org.apache.jmeter.gui.util.StepByStepReviewDialog.show(gui, steps,
+                    requested -> SearchReviewStep.apply(gui, requested, steps));
+        } finally {
+            lastSearchConditions = null;
+            lastSearchResult.clear();
+            currentSearchIndex = -1;
+            refreshScopeLabels();
+            setVisible(true);
+        }
     }
 
     private void doRemoveRows() {

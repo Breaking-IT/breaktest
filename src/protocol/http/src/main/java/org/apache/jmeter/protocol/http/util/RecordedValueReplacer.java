@@ -218,8 +218,26 @@ public final class RecordedValueReplacer {
     }
 
     public static String replace(String text, String value, String reference, boolean decoded) {
-        if (text == null || value.isEmpty() || !decoded && value.length() > text.length()) {
+        List<Match> matches = matches(text, value, reference, decoded);
+        if (matches.isEmpty()) {
             return text;
+        }
+        StringBuilder result = new StringBuilder();
+        int offset = 0;
+        for (Match match : matches) {
+            result.append(text, offset, match.start()).append(match.reference());
+            offset = match.end();
+        }
+        return result.append(text, offset, text.length()).toString();
+    }
+
+    /** One literal occurrence, with the encoding required by its replacement. */
+    public record Match(int start, int end, String reference) { }
+
+    /** Finds exactly the occurrences replaced by {@link #replace}, excluding variable references. */
+    public static List<Match> matches(String text, String value, String reference, boolean decoded) {
+        if (text == null || value.isEmpty() || !decoded && value.length() > text.length()) {
+            return List.of();
         }
         Map<String, String> variants = decoded ? decodedVariants(value, reference) : orderedVariants(value, reference);
         List<Literal> literals = new ArrayList<>();
@@ -231,14 +249,14 @@ public final class RecordedValueReplacer {
             }
         });
         if (literals.isEmpty()) {
-            return text;
+            return List.of();
         }
         SearchText search = new SearchText(text);
         int[] next = new int[literals.size()];
         for (int i = 0; i < next.length; i++) {
             next[i] = literals.get(i).find(search, 0);
         }
-        StringBuilder result = new StringBuilder();
+        List<Match> result = new ArrayList<>();
         int offset = 0;
         int variable = text.indexOf("${");
         // Single pass: never match inside a generated or pre-existing variable/function reference.
@@ -268,17 +286,15 @@ public final class RecordedValueReplacer {
                         depth--;
                     }
                 }
-                result.append(text, offset, end);
                 offset = end;
             } else if (selected >= 0) {
-                result.append(text, offset, start).append(references.get(selected));
+                result.add(new Match(start, start + literals.get(selected).value.length(), references.get(selected)));
                 offset = start + literals.get(selected).value.length();
             } else {
                 break;
             }
         }
-        result.append(text, offset, text.length());
-        return result.toString();
+        return result;
     }
 
     public static int replaceSampler(HTTPSamplerBase sampler, String value, String reference) {
@@ -290,6 +306,11 @@ public final class RecordedValueReplacer {
         }
         for (var property : sampler.getArguments()) {
             if (property.getObjectValue() instanceof HTTPArgument argument) {
+                String beforeName = argument.getName();
+                argument.setName(replace(beforeName, value, reference, argument.isAlwaysEncoded()));
+                if (!beforeName.equals(argument.getName())) {
+                    changed++;
+                }
                 String before = argument.getValue();
                 replaceArgument(argument, value, reference,
                         sampler.getPostBodyRaw() || sampler.getSendParameterValuesAsPostBody());
@@ -299,6 +320,11 @@ public final class RecordedValueReplacer {
             }
         }
         for (var header : sampler.getNativeHeaderList()) {
+            String name = replace(header.getName(), value, reference, false);
+            if (!name.equals(header.getName())) {
+                header.setName(name);
+                changed++;
+            }
             String replaced = replace(header.getValue(), value, reference, false);
             if (!replaced.equals(header.getValue())) {
                 header.setValue(replaced);
