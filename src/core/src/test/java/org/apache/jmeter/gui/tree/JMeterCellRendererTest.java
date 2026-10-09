@@ -30,10 +30,15 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.control.gui.TestPlanGui;
 import org.apache.jmeter.processor.PostProcessor;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JMeterCellRendererTest {
 
@@ -112,11 +117,11 @@ class JMeterCellRendererTest {
     }
 
     @Test
-    void unresolvedDelayVariableDoesNotShowSummary() {
+    void unresolvedDelayVariableShowsUnknownSummary() {
         JMeterTreeNode transactionNode = transactionNode(new TestPlan("Test Plan"),
                 TransactionController.DELAY_FIXED, "${Missing}", "0", "0");
 
-        assertNull(JMeterCellRenderer.delaySummary(transactionNode));
+        assertEquals("(?s)", JMeterCellRenderer.delaySummary(transactionNode));
     }
 
     @Test
@@ -135,6 +140,83 @@ class JMeterCellRendererTest {
         gui.modifyTestElement(plan);
 
         assertEquals("(3s)", JMeterCellRenderer.delaySummary(transactionNode));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {TransactionController.DELAY_FIXED, TransactionController.DELAY_RANDOM,
+            TransactionController.DELAY_GAUSSIAN_RANDOM})
+    void delaySummaryUsesDefaultAndSharedProfileVariables(String mode) {
+        JMeterTreeNode plan = new JMeterTreeNode(new TestPlan("Test Plan"), null);
+        JMeterTreeNode profiles = new JMeterTreeNode(new ProfilesSection(), null);
+        plan.add(profiles);
+        Profile other = new Profile("Other");
+        addProfileVariables(profiles, other, "ThinkTime", "9000");
+        Profile selected = new Profile("Default");
+        selected.setDefault(true);
+        JMeterTreeNode selectedVariables = addProfileVariables(profiles, selected, "ThinkTime", "${SharedTime}");
+        SharedProfile shared = new SharedProfile();
+        addProfileVariables(profiles, shared, "SharedTime", "3000");
+        JMeterTreeNode transaction = transactionNode(plan, mode, "${ThinkTime}", "${ThinkTime}", "${SharedTime}");
+
+        assertEquals("(3s)", JMeterCellRenderer.delaySummary(transaction));
+        selectedVariables.getTestElement().setEnabled(false);
+        assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
+        selected.setEnabled(false);
+        assertEquals(TransactionController.DELAY_FIXED.equals(mode) ? "(9s)" : "(6s)",
+                JMeterCellRenderer.delaySummary(transaction));
+        shared.setEnabled(false);
+        if (!TransactionController.DELAY_FIXED.equals(mode)) {
+            assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
+        }
+    }
+
+    @Test
+    void firstProfileIsTheFallbackAndOverridesSharedVariables() {
+        JMeterTreeNode plan = new JMeterTreeNode(new TestPlan("Test Plan"), null);
+        JMeterTreeNode profiles = new JMeterTreeNode(new ProfilesSection(), null);
+        plan.add(profiles);
+        addProfileVariables(profiles, new Profile("First"), "ThinkTime", "2000");
+        SharedProfile shared = new SharedProfile();
+        addProfileVariables(profiles, shared, "ThinkTime", "4000");
+        JMeterTreeNode transaction = transactionNode(plan, TransactionController.DELAY_FIXED,
+                "${ThinkTime}", "0", "0");
+
+        assertEquals("(2s)", JMeterCellRenderer.delaySummary(transaction));
+        shared.setOverridingThreadGroupVariables(true);
+        assertEquals("(2s)", JMeterCellRenderer.delaySummary(transaction));
+        profiles.getTestElement().setEnabled(false);
+        assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not a number", "${Missing}", "${ThinkTime}", "${__Random(1,10)}"})
+    void unparseableVariableShowsUnknownForFixedAndRandomDelays(String value) {
+        TestPlan plan = new TestPlan("Test Plan");
+        plan.getArguments().addArgument("ThinkTime", value);
+        for (String mode : new String[] {TransactionController.DELAY_FIXED, TransactionController.DELAY_RANDOM,
+                TransactionController.DELAY_GAUSSIAN_RANDOM}) {
+            assertEquals("(?s)", JMeterCellRenderer.delaySummary(
+                    transactionNode(plan, mode, "${ThinkTime}", "1000", "${ThinkTime}")));
+        }
+    }
+
+    @Test
+    void zeroAndDisabledDelaysHaveNoSummary() {
+        assertNull(JMeterCellRenderer.delaySummary(transactionNode(new TestPlan("Test Plan"),
+                TransactionController.DELAY_FIXED, "0", "0", "0")));
+        assertNull(JMeterCellRenderer.delaySummary(transactionNode(new TestPlan("Test Plan"),
+                TransactionController.DELAY_DISABLED, "${Missing}", "0", "0")));
+    }
+
+    private static JMeterTreeNode addProfileVariables(JMeterTreeNode profiles, TestElement profile,
+            String name, String value) {
+        JMeterTreeNode profileNode = new JMeterTreeNode(profile, null);
+        profiles.add(profileNode);
+        Arguments variables = new Arguments();
+        variables.addArgument(name, value);
+        JMeterTreeNode variablesNode = new JMeterTreeNode(variables, null);
+        profileNode.add(variablesNode);
+        return variablesNode;
     }
 
     private static JTable findTable(Component component) {

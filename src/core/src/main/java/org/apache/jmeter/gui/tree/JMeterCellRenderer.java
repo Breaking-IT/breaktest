@@ -218,11 +218,14 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
             long min = parseMillis(element.getPropertyAsString("TransactionController.delayMin", "0"), variables);
             long max = parseMillis(element.getPropertyAsString("TransactionController.delayMax", "0"), variables);
             if (min < 0 || max < 0) {
-                return null;
+                return "(?s)";
             }
             millis = Math.round(min / 2.0 + max / 2.0);
         } else {
             return null;
+        }
+        if (millis < 0) {
+            return "(?s)";
         }
         return millis > 0 ? "(" + formatSeconds(millis) + ")" : null;
     }
@@ -275,13 +278,40 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         if (builtInVariables instanceof Arguments arguments) {
             variables.putAll(arguments.getArgumentsAsMap());
         }
+        addDirectVariables(testPlanNode, variables);
+        JMeterTreeNode defaultProfile = null;
         for (int i = 0; i < testPlanNode.getChildCount(); i++) {
-            TestElement child = ((JMeterTreeNode) testPlanNode.getChildAt(i)).getTestElement();
-            if (child instanceof Arguments arguments) {
+            JMeterTreeNode section = (JMeterTreeNode) testPlanNode.getChildAt(i);
+            if (!(section.getTestElement() instanceof ProfilesSection) || !section.isEnabled()) {
+                continue;
+            }
+            for (int j = 0; j < section.getChildCount(); j++) {
+                JMeterTreeNode profileNode = (JMeterTreeNode) section.getChildAt(j);
+                if (!profileNode.isEnabled()) {
+                    continue;
+                }
+                if (profileNode.getTestElement() instanceof SharedProfile) {
+                    addDirectVariables(profileNode, variables);
+                } else if (profileNode.getTestElement() instanceof Profile profile
+                        && (defaultProfile == null || profile.isDefault()
+                            && !((Profile) defaultProfile.getTestElement()).isDefault())) {
+                    defaultProfile = profileNode;
+                }
+            }
+        }
+        if (defaultProfile != null) {
+            addDirectVariables(defaultProfile, variables);
+        }
+        return variables;
+    }
+
+    private static void addDirectVariables(JMeterTreeNode parent, Map<String, String> variables) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            JMeterTreeNode child = (JMeterTreeNode) parent.getChildAt(i);
+            if (child.isEnabled() && child.getTestElement() instanceof Arguments arguments) {
                 variables.putAll(arguments.getArgumentsAsMap());
             }
         }
-        return variables;
     }
 
     private static String formatSeconds(long millis) {

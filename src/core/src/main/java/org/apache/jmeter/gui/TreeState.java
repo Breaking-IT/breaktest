@@ -29,18 +29,25 @@ import org.apache.jmeter.threads.AbstractThreadGroup;
 
 public interface TreeState {
 
-    /** Expand every thread group without expanding its sampler/controller children. */
+    /** Reveal thread groups, expanding a group only when it is the only one in the plan. */
     static void expandThreadGroups(JTree tree) {
         Object root = tree.getModel().getRoot();
         if (!(root instanceof JMeterTreeNode treeRoot)) {
             return;
         }
+        List<TreePath> threadGroups = new ArrayList<>();
         for (var nodes = treeRoot.preorderEnumeration(); nodes.hasMoreElements();) {
             JMeterTreeNode treeNode = (JMeterTreeNode) nodes.nextElement();
-            if (treeNode.getTestElement() instanceof AbstractThreadGroup
-                    || treeNode.getTestElement() instanceof ThreadGroupsSection) {
+            if (treeNode.getTestElement() instanceof AbstractThreadGroup) {
+                threadGroups.add(new TreePath(treeNode.getPath()));
+            } else if (treeNode.getTestElement() instanceof ThreadGroupsSection) {
                 tree.expandPath(new TreePath(treeNode.getPath()));
             }
+        }
+        if (threadGroups.size() == 1) {
+            tree.expandPath(threadGroups.get(0));
+        } else {
+            threadGroups.forEach(tree::collapsePath);
         }
     }
 

@@ -41,8 +41,10 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
@@ -51,12 +53,14 @@ import javax.swing.JTextField;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
 
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
@@ -230,17 +234,7 @@ final class HarCorrelationRulesPanel extends JPanel {
         detailsTable.getColumnModel().getColumn(1).setPreferredWidth(420);
         detailPanel.add(new JScrollPane(detailsTable), BorderLayout.CENTER);
         editButton.addActionListener(this::editSelectedRule);
-        deleteButton.addActionListener(event -> {
-            if (selectedRule != null && customRuleIds.contains(selectedRule.getId())
-                    && ruleDeleter != null && ruleDeleter.test(selectedRule)) {
-                rules.remove(selectedRule);
-                customRuleIds.remove(selectedRule.getId());
-                disabledRuleIds.remove(selectedRule.getId());
-                selectedRule = null;
-                exportButton.setEnabled(ruleTransfer != null && !getCustomRules().isEmpty());
-                rebuildTree();
-            }
-        });
+        deleteButton.addActionListener(event -> deleteCustomRules(getSelectedCustomRules()));
         JPanel ruleButtons = new JPanel(new FlowLayout(FlowLayout.LEADING));
         ruleButtons.add(editButton);
         ruleButtons.add(deleteButton);
@@ -264,6 +258,7 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     private void configureTree() {
         ruleTree.setRootVisible(false);
+        ruleTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         ruleTree.setShowsRootHandles(true);
         ruleTree.setCellRenderer(new CatalogTreeRenderer());
         ruleTree.getInputMap().put(KeyStroke.getKeyStroke("SPACE"), "toggleRule");
@@ -282,7 +277,14 @@ final class HarCorrelationRulesPanel extends JPanel {
         ruleTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent event) {
-                toggleGroupAt(event);
+                if (!showPopup(event)) {
+                    toggleGroupAt(event);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                showPopup(event);
             }
         });
         rebuildTree();
@@ -374,8 +376,92 @@ final class HarCorrelationRulesPanel extends JPanel {
         return null;
     }
 
+    private boolean showPopup(MouseEvent event) {
+        if (!event.isPopupTrigger()) {
+            return false;
+        }
+        TreePath path = ruleTree.getPathForLocation(event.getX(), event.getY());
+        JPopupMenu popup = createPopup(path);
+        if (popup.getComponentCount() > 0) {
+            popup.show(ruleTree, event.getX(), event.getY());
+        }
+        return true;
+    }
+
+    JPopupMenu createPopup(TreePath path) {
+        if (path == null || !(path.getLastPathComponent() instanceof CatalogNode node)) {
+            return new JPopupMenu();
+        }
+        if (!ruleTree.isPathSelected(path)) {
+            ruleTree.setSelectionPath(path);
+        }
+        if (node.isGroup()) {
+            return createGroupPopup(node.group());
+        }
+        JPopupMenu popup = new JPopupMenu();
+        List<Rule> selected = getSelectedCustomRules();
+        if (!selected.isEmpty() && ruleDeleter != null) {
+            JMenuItem deleteRules = new JMenuItem(JMeterUtils.getResString(selected.size() == 1
+                    ? "correlation_rules_delete" : "correlation_rules_delete_selected"));
+            deleteRules.addActionListener(event -> deleteCustomRules(selected));
+            popup.add(deleteRules);
+        }
+        return popup;
+    }
+
+    private List<Rule> getSelectedCustomRules() {
+        List<Rule> selected = new ArrayList<>();
+        TreePath[] paths = ruleTree.getSelectionPaths();
+        if (paths != null) {
+            for (TreePath path : paths) {
+                if (path.getLastPathComponent() instanceof CatalogNode node && !node.isGroup()
+                        && customRuleIds.contains(node.rule().getId())) {
+                    selected.add(node.rule());
+                }
+            }
+        }
+        return selected;
+    }
+
+    JPopupMenu createGroupPopup(String group) {
+        JPopupMenu popup = new JPopupMenu();
+        List<Rule> groupRules = rules.stream().filter(rule -> group.equals(rule.getGroup())).toList();
+        List<Rule> customRules = groupRules.stream().filter(rule -> customRuleIds.contains(rule.getId())).toList();
+        if (customRules.isEmpty() || ruleDeleter == null) {
+            return popup;
+        }
+        JMenuItem deleteGroup = new JMenuItem(JMeterUtils.getResString(
+                customRules.size() == groupRules.size()
+                        ? "correlation_rules_delete_group" : "correlation_rules_delete_group_custom"));
+        deleteGroup.addActionListener(event -> deleteCustomRules(customRules));
+        popup.add(deleteGroup);
+        return popup;
+    }
+
+    private void deleteCustomRules(List<Rule> selected) {
+        if (ruleDeleter == null) {
+            return;
+        }
+        for (Rule rule : selected) {
+            if (!customRuleIds.contains(rule.getId())) {
+                continue;
+            }
+            if (!ruleDeleter.test(rule)) {
+                break;
+            }
+            rules.remove(rule);
+            customRuleIds.remove(rule.getId());
+            disabledRuleIds.remove(rule.getId());
+            if (rule == selectedRule) {
+                selectedRule = null;
+            }
+        }
+        exportButton.setEnabled(ruleTransfer != null && !getCustomRules().isEmpty());
+        rebuildTree();
+    }
+
     private void toggleGroupAt(MouseEvent event) {
-        if (event.getClickCount() != 1) {
+        if (!SwingUtilities.isLeftMouseButton(event) || event.isPopupTrigger() || event.getClickCount() != 1) {
             return;
         }
         TreePath path = ruleTree.getPathForLocation(event.getX(), event.getY());
@@ -414,6 +500,10 @@ final class HarCorrelationRulesPanel extends JPanel {
         } else {
             showRule(node.rule());
         }
+        int selectedCount = getSelectedCustomRules().size();
+        deleteButton.setText(JMeterUtils.getResString(selectedCount > 1
+                ? "correlation_rules_delete_selected" : "correlation_rules_delete"));
+        deleteButton.setEnabled(ruleDeleter != null && selectedCount > 0);
     }
 
     private void showGroup(String group) {
