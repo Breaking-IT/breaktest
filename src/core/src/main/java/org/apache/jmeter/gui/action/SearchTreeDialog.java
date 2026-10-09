@@ -962,7 +962,8 @@ public class SearchTreeDialog extends JDialog implements ActionListener { // NOS
                 Set<SearchArea> areas = selectedAreas();
                 areas.retainAll(target.areas());
                 var matches = matchingRows(gui.getTreeModel().getNodesOfType(TestElement.class), selectedScope(),
-                        areas, createSearcher(searchTF.getText()), selectedRowField());
+                        areas, tokens -> tokens.stream().filter(token -> !token.isEmpty())
+                                .anyMatch(token -> pattern.matcher(token).find()), selectedRowField());
                 steps = SearchReviewStep.rows(matches, pattern, selectedRowField());
             }
         } catch (IllegalArgumentException | IndexOutOfBoundsException ex) {

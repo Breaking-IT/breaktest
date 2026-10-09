@@ -93,7 +93,7 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
         });
         acceptAll.addActionListener(event -> {
             clear();
-            apply.accept(steps.stream().filter(step -> step.state() == ReviewStep.State.PENDING).toList());
+            applyVisibleSteps(steps, this::revealStep, apply);
             index = 0;
             while (index < steps.size() && steps.get(index).state() != ReviewStep.State.PENDING) {
                 index++;
@@ -121,6 +121,22 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
         dialog.setVisible(true);
     }
 
+    static <S extends ReviewStep> void applyVisibleSteps(List<S> steps,
+            java.util.function.Function<S, Runnable> reveal, Consumer<List<S>> apply) {
+        List<S> visible = new java.util.ArrayList<>();
+        for (S step : steps) {
+            if (step.state() != ReviewStep.State.PENDING) {
+                continue;
+            }
+            Runnable clear = reveal.apply(step);
+            if (clear != null) {
+                clear.run();
+                visible.add(step);
+            }
+        }
+        apply.accept(visible);
+    }
+
     private static JButton button(String key) {
         return new JButton(JMeterUtils.getResString(key));
     }
@@ -133,6 +149,9 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
 
     private void showStep() {
         clear();
+        if (index < steps.size()) {
+            clearHighlight = revealStep(steps.get(index));
+        }
         previous.setEnabled(index > 0);
         next.setEnabled(index < steps.size());
         accept.setEnabled(false);
@@ -147,6 +166,20 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
             return;
         }
         S step = steps.get(index);
+        boolean visible = clearHighlight != null;
+        progress.setText((index + 1) + " / " + steps.size() + " — "
+                + JMeterUtils.getResString("correlation_review_" + step.state().name().toLowerCase(java.util.Locale.ROOT)));
+        details.setText(step.description());
+        details.setCaretPosition(0);
+        boolean pending = step.state() == ReviewStep.State.PENDING;
+        accept.setEnabled(pending && visible);
+        reject.setEnabled(pending);
+        if (!visible && pending) {
+            details.append("\n" + JMeterUtils.getResString("correlation_review_not_visible"));
+        }
+    }
+
+    private Runnable revealStep(S step) {
         gui.updateCurrentNode();
         JMeterTreeNode node = step.node();
         boolean attached = node.getParent() != null && node.getRoot() == gui.getTreeModel().getRoot();
@@ -156,24 +189,15 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
             new EditCommand().doAction(null);
             gui.getMainFrame().getTree().scrollPathToVisible(path);
         }
-        if ((!attached || !step.current()) && step.state() == ReviewStep.State.PENDING) {
+        boolean current = attached && step.current();
+        if (!current && step.state() == ReviewStep.State.PENDING) {
             step.markStale();
         }
-        if (attached && step.current() && step.state() != ReviewStep.State.STALE
+        if (current && step.state() != ReviewStep.State.STALE
                 && gui.getGui(node.getTestElement()) instanceof Component component) {
-            clearHighlight = step.highlight(component);
+            return step.highlight(component);
         }
-        acceptAll.setEnabled(steps.stream().anyMatch(item -> item.state() == ReviewStep.State.PENDING));
-        progress.setText((index + 1) + " / " + steps.size() + " — "
-                + JMeterUtils.getResString("correlation_review_" + step.state().name().toLowerCase(java.util.Locale.ROOT)));
-        details.setText(step.description());
-        details.setCaretPosition(0);
-        boolean pending = step.state() == ReviewStep.State.PENDING;
-        accept.setEnabled(pending && clearHighlight != null);
-        reject.setEnabled(pending);
-        if (clearHighlight == null && pending) {
-            details.append("\n" + JMeterUtils.getResString("correlation_review_not_visible"));
-        }
+        return null;
     }
 
     private void clear() {

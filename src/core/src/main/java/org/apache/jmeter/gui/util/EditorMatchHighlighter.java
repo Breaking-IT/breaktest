@@ -97,8 +97,9 @@ public final class EditorMatchHighlighter {
                 tabs.setSelectedComponent(component);
             }
         }
-        if (component instanceof JComponent target) {
-            target.scrollRectToVisible(target.getVisibleRect());
+        if (component.getParent() instanceof JComponent parent) {
+            // JTextField handles scrolling within its text; ask its parent to reveal the field itself.
+            parent.scrollRectToVisible(component.getBounds());
         }
     }
 
@@ -118,6 +119,7 @@ public final class EditorMatchHighlighter {
             SwingUtilities.invokeLater(() -> {
                 for (var highlight : text.getHighlighter().getHighlights()) {
                     if (highlight == tag) {
+                        reveal(text);
                         scrollToMatch(text, start);
                         break;
                     }

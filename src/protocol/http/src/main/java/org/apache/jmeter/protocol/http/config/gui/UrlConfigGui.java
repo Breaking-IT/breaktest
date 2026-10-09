@@ -664,11 +664,13 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         postContentTabbedPane.add(paramsTabTitle, argsPanel);// $NON-NLS-1$
 
         int indx = TAB_PARAMETERS;
-        tabHeadersIndex = ++indx;
-        headersPanel = new HeaderTablePanel(false);
-        headersPanel.addTableModelListener(e -> updateContentTabTitles());
-        headersTabTitle = JMeterUtils.getResString("web_request_headers");
-        postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
+        if (modernLayout || !notConfigOnly) {
+            tabHeadersIndex = ++indx;
+            headersPanel = new HeaderTablePanel(false);
+            headersPanel.addTableModelListener(e -> updateContentTabTitles());
+            headersTabTitle = JMeterUtils.getResString("web_request_headers");
+            postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
+        }
 
         if(showRawBodyPane) {
             tabRawBodyIndex = ++indx;

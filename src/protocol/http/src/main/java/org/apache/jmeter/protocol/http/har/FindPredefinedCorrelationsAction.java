@@ -899,11 +899,6 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount);
     }
 
-    static boolean acceptReviewStep(GuiPackage gui, CorrelationReviewStep step,
-            List<CorrelationReviewStep> steps, Map<Integer, JMeterTreeNode> nodes) {
-        return acceptReviewSteps(gui, List.of(step), steps, nodes) == 1;
-    }
-
     static int acceptReviewSteps(GuiPackage gui, List<CorrelationReviewStep> requested,
             List<CorrelationReviewStep> steps, Map<Integer, JMeterTreeNode> nodes) {
         gui.updateCurrentNode();
@@ -921,9 +916,10 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         gui.beginUndoTransaction();
         try {
             SplitResult split = splitParallelControllers(gui, selected, nodes);
+            var related = steps.stream().collect(java.util.stream.Collectors.groupingBy(step -> step.field));
             for (CorrelationReviewStep step : pending) {
                 if (split.unseparableTargets().contains(step.field.node())
-                        || step.decision != CorrelationReviewStep.Decision.PENDING || !step.current()) {
+                        || step.decision != CorrelationReviewStep.State.PENDING || !step.current()) {
                     continue;
                 }
                 JMeterTreeNode source = nodes.get(step.correlation.getSourceEntryIndex());
@@ -932,7 +928,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     gui.refreshCurrentGui();
                     gui.getTreeModel().addComponent(HarPredefinedCorrelation.buildExtractor(step.correlation), source);
                 }
-                if (step.accept(steps)) {
+                if (step.accept(related.get(step.field))) {
                     gui.getTreeModel().nodeChanged(step.field.node());
                     gui.setDirty(true);
                     accepted++;

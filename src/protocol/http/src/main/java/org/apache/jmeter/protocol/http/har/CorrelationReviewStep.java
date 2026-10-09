@@ -32,7 +32,6 @@ import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 
 /** A single occurrence. Fields are resolved again after GUI commits, which can replace argument/header objects. */
 final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewStep {
-    enum Decision { PENDING, ACCEPTED, REJECTED, STALE }
 
     record Field(JMeterTreeNode node, String name, int row) {
         ReplaceableField resolve() {
@@ -71,7 +70,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
     String expected;
     int start;
     int end;
-    Decision decision = Decision.PENDING;
+    State decision = State.PENDING;
 
     private CorrelationReviewStep(HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement, Field field, String expected,
@@ -152,17 +151,17 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
 
     @Override
     public State state() {
-        return State.valueOf(decision.name());
+        return decision;
     }
 
     @Override
     public void reject() {
-        decision = Decision.REJECTED;
+        decision = State.REJECTED;
     }
 
     @Override
     public void markStale() {
-        decision = Decision.STALE;
+        decision = State.STALE;
     }
 
     @Override
@@ -177,7 +176,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
     }
 
     static List<CorrelationReviewStep> pending(List<CorrelationReviewStep> steps) {
-        return steps.stream().filter(step -> step.decision == Decision.PENDING).toList();
+        return steps.stream().filter(step -> step.decision == State.PENDING).toList();
     }
 
     @Override
@@ -187,7 +186,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
     }
 
     boolean accept(List<CorrelationReviewStep> steps) {
-        if (decision != Decision.PENDING || !current()) {
+        if (decision != State.PENDING || !current()) {
             return false;
         }
         String updated = expected.substring(0, start) + reference + expected.substring(end);
@@ -200,13 +199,13 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                     other.start += delta;
                     other.end += delta;
                 } else if (other.end > start) {
-                    other.decision = Decision.STALE;
+                    other.decision = State.STALE;
                 }
             }
         }
         expected = updated;
         end = start + reference.length();
-        decision = Decision.ACCEPTED;
+        decision = State.ACCEPTED;
         return true;
     }
 }

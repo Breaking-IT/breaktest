@@ -96,6 +96,8 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
     @API(status = INTERNAL, since = "5.2.0")
     @Deprecated
     @SuppressWarnings("DeprecatedIsStillUsed")
+    protected NamePanel namePanel;
+
     @Override
     public Runnable highlightReviewField(String field, int row, String expected, int start, int end) {
         if ("Name".equals(field) && row == 0) {
@@ -107,8 +109,6 @@ public abstract class AbstractJMeterGuiComponent extends JPanel implements JMete
         }
         return null;
     }
-
-    protected NamePanel namePanel;
 
     private final JTextArea commentField = JFactory.tabMovesFocus(new JTextArea());
 

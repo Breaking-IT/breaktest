@@ -74,22 +74,8 @@ public class WebSocketConnectCustomizer extends GenericTestBeanCustomizer implem
             return EditorMatchHighlighter.table(
                     headers, row, field.equals("Header name") ? 0 : 1, expected, start, end);
         }
-        return highlightUrl(tabs.getComponentAt(0), expected, start, end);
-    }
-
-    private static Runnable highlightUrl(Component component, String expected, int start, int end) {
-        if (component instanceof javax.swing.text.JTextComponent text && expected.equals(text.getText())) {
-            return EditorMatchHighlighter.text(text, expected, start, end);
-        }
-        if (component instanceof java.awt.Container container) {
-            for (Component child : container.getComponents()) {
-                Runnable result = highlightUrl(child, expected, start, end);
-                if (result != null) {
-                    return result;
-                }
-            }
-        }
-        return null;
+        return "URL".equals(field) && row == 0
+                ? EditorMatchHighlighter.text(propertyEditorComponent("url"), expected, start, end) : null;
     }
 
     @Override

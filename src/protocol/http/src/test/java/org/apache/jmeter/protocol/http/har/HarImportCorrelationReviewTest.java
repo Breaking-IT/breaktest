@@ -102,7 +102,7 @@ class HarImportCorrelationReviewTest extends JMeterTestCase {
             var steps = CorrelationReviewStep.create(options.getStepByStepCorrelations(), nodes);
             assertEquals(3, steps.size());
             assertTrue(steps.get(0).accept(steps));
-            steps.get(1).decision = CorrelationReviewStep.Decision.REJECTED;
+            steps.get(1).decision = CorrelationReviewStep.State.REJECTED;
             assertFalse(steps.get(1).accept(steps));
             assertEquals("${token}:" + TOKEN, target.getArguments().getArgument(0).getValue());
             assertEquals(TOKEN, target.getNativeHeaderList().get(0).getValue());

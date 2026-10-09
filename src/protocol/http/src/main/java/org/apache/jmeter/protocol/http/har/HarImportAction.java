@@ -138,7 +138,7 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                     expandImportedThreadGroup(tree, importedThreadGroup);
                     TreeState.expandThreadGroups(tree);
                     mainFrame.hideLoadingOverlay();
-                    reviewImportedCorrelations(guiPackage, importedThreadGroup, options, converted);
+                    reviewImportedCorrelations(guiPackage, options, converted);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                     LOG.error("HAR import interrupted", ex);
@@ -157,12 +157,18 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         worker.execute();
     }
 
-    private static void reviewImportedCorrelations(GuiPackage gui, JMeterTreeNode importedThreadGroup,
+    private static void reviewImportedCorrelations(GuiPackage gui,
             HarImportOptions options, ConvertedImport converted) {
-        if (importedThreadGroup != null && !options.getStepByStepCorrelations().isEmpty()) {
-            gui.updateCurrentNode();
-            CorrelationReviewDialog.show(gui, options.getStepByStepCorrelations(),
-                    importedCorrelationNodes(gui.getTreeModel(), converted.requests()));
+        if (!options.getStepByStepCorrelations().isEmpty()) {
+            try {
+                gui.updateCurrentNode();
+                CorrelationReviewDialog.show(gui, options.getStepByStepCorrelations(),
+                        importedCorrelationNodes(gui.getTreeModel(), converted.requests()));
+            } catch (RuntimeException ex) {
+                LOG.error("HAR imported, but correlation review failed", ex);
+                JMeterUtils.reportErrorToUser(JMeterUtils.getResString("har_import_review_failed"),
+                        JMeterUtils.getResString("correlation_review_step_by_step"));
+            }
         }
     }
 

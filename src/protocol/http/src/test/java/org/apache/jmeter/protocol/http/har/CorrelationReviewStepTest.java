@@ -67,7 +67,7 @@ class CorrelationReviewStepTest extends JMeterTestCase {
         sampler.addArgument("second", TOKEN);
         var steps = steps(sampler, TOKEN);
         assertEquals(3, steps.size());
-        steps.get(1).decision = CorrelationReviewStep.Decision.REJECTED;
+        steps.get(1).decision = CorrelationReviewStep.State.REJECTED;
         assertTrue(steps.get(0).accept(steps));
         assertEquals("${token}:" + TOKEN, sampler.getArguments().getArgument(0).getValue());
         assertEquals(TOKEN, sampler.getArguments().getArgument(1).getValue());
@@ -86,13 +86,13 @@ class CorrelationReviewStepTest extends JMeterTestCase {
         var steps = steps(sampler, TOKEN);
         // Review the middle occurrence first, leaving an earlier match undecided.
         assertTrue(steps.get(1).accept(steps));
-        steps.get(2).decision = CorrelationReviewStep.Decision.REJECTED;
+        steps.get(2).decision = CorrelationReviewStep.State.REJECTED;
         var remaining = CorrelationReviewStep.pending(steps);
         assertEquals(List.of(steps.get(0), steps.get(3)), remaining);
         remaining.forEach(step -> assertTrue(step.accept(steps)));
         assertEquals("${token}:${token}:" + TOKEN, sampler.getArguments().getArgument(0).getValue());
         assertEquals("${token}", sampler.getArguments().getArgument(1).getValue());
-        assertEquals(CorrelationReviewStep.Decision.REJECTED, steps.get(2).decision);
+        assertEquals(CorrelationReviewStep.State.REJECTED, steps.get(2).decision);
         assertTrue(CorrelationReviewStep.pending(steps).isEmpty());
     }
 
@@ -214,6 +214,40 @@ class CorrelationReviewStepTest extends JMeterTestCase {
             clear = editor.highlightReviewField("URL", 0, url, url.indexOf(TOKEN), url.length());
             assertNotNull(clear);
             clear.run();
+        });
+    }
+
+    @Test
+    void webSocketUrlHighlightUsesPropertyIdentityWhenValuesAreIdentical() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            class Editor extends org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectCustomizer {
+                java.awt.Component property(String name) { return propertyEditorComponent(name); }
+            }
+            var editor = new Editor();
+            Map<String, Object> properties = new java.util.HashMap<>();
+            properties.put("url", TOKEN);
+            properties.put("sessionName", TOKEN);
+            properties.put("textFilter", TOKEN);
+            editor.setObject(properties);
+            var clear = editor.highlightReviewField("URL", 0, TOKEN, 0, TOKEN.length());
+            assertNotNull(clear);
+            var url = EditorMatchHighlighter.find(editor.property("url"), JTextComponent.class);
+            var session = EditorMatchHighlighter.find(editor.property("sessionName"), JTextComponent.class);
+            assertEquals(1, url.getHighlighter().getHighlights().length);
+            assertEquals(0, session.getHighlighter().getHighlights().length);
+            clear.run();
+        });
+    }
+
+    @Test
+    void legacySamplerDoesNotGainHeadersTab() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var legacy = new UrlConfigGui(true, true, true, false);
+            var modern = new UrlConfigGui(true, true, true, true);
+            var defaults = new UrlConfigGui(false, true, true, false);
+            assertEquals(legacy.getContentTabbedPane().getTabCount() + 1,
+                    modern.getContentTabbedPane().getTabCount());
+            assertEquals(modern.getContentTabbedPane().getTabCount(), defaults.getContentTabbedPane().getTabCount());
         });
     }
 

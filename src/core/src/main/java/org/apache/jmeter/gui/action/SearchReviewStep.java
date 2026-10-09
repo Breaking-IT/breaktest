@@ -236,10 +236,21 @@ final class SearchReviewStep implements ReviewStep {
         return SearchTreeDialog.editWithUndo(gui, JMeterUtils.getResString("correlation_review_step_by_step"),
                 count -> count > 0, () -> {
                     int count = 0;
+                    record FieldKey(JMeterTreeNode node, String field, int row) { }
+                    Map<Object, List<SearchReviewStep>> related = new HashMap<>();
+                    List<SearchReviewStep> rejected = new ArrayList<>();
+                    for (SearchReviewStep step : steps) {
+                        if (step.state == State.REJECTED) {
+                            rejected.add(step);
+                        }
+                        Object key = step.kind == Kind.ROW ? step.rows : new FieldKey(step.node, step.field, step.row);
+                        related.computeIfAbsent(key, ignored -> new ArrayList<>()).add(step);
+                    }
                     // Children first prevents accepted parents invalidating pending child reviews.
                     for (SearchReviewStep step : requested.stream()
                             .sorted(java.util.Comparator.comparingInt((SearchReviewStep step) -> step.node.getLevel()).reversed()).toList()) {
-                        if (step.apply(gui, steps)) {
+                        Object key = step.kind == Kind.ROW ? step.rows : new FieldKey(step.node, step.field, step.row);
+                        if (step.apply(gui, step.kind == Kind.ELEMENT ? rejected : related.get(key))) {
                             if (step.node.getParent() != null) {
                                 gui.getTreeModel().nodeChanged(step.node);
                             }
