@@ -20,17 +20,26 @@ package org.apache.jmeter.protocol.http.har;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Component;
+import java.awt.Container;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import javax.swing.JButton;
 import javax.swing.JMenuItem;
+import javax.swing.JTree;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ExtractorType;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.ResponseField;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class HarCorrelationRulesPanelTest extends JMeterTestCase {
 
@@ -161,6 +170,76 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         assertEquals(List.of(first, second), attempted);
         assertEquals(List.of(second, third), panel.getCustomRules());
         assertEquals(Set.of("second"), panel.getDisabledRuleIds());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void deletesOnlySelectedCustomRulesFromPopupOrButton(boolean useButton) {
+        Rule first = rule("first", "Custom", 1);
+        Rule unselected = rule("unselected", "Custom", 1);
+        Rule second = rule("second", "Custom", 1);
+        Rule builtIn = rule("built-in", "Custom", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, unselected, second, builtIn), Set.of("first", "unselected", "second"), null, null);
+        List<Rule> deleted = new ArrayList<>();
+        panel.configureManagement(Set.of("second"), deleted::add);
+        JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
+                .findFirst().orElseThrow();
+        DefaultMutableTreeNode group = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
+        TreePath firstPath = new TreePath(((DefaultMutableTreeNode) group.getChildAt(0)).getPath());
+        TreePath secondPath = new TreePath(((DefaultMutableTreeNode) group.getChildAt(2)).getPath());
+        TreePath builtInPath = new TreePath(((DefaultMutableTreeNode) group.getChildAt(3)).getPath());
+        tree.setSelectionPaths(new TreePath[] {firstPath, secondPath, builtInPath, new TreePath(group.getPath())});
+
+        if (useButton) {
+            JButton delete = descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)
+                    .filter(button -> JMeterUtils.getResString("correlation_rules_delete_selected").equals(button.getText()))
+                    .findFirst().orElseThrow();
+            assertTrue(delete.isEnabled());
+            delete.doClick();
+        } else {
+            var popup = panel.createPopup(secondPath);
+            assertEquals(4, tree.getSelectionCount(), "Right-click must preserve the selected rules");
+            ((JMenuItem) popup.getComponent(0)).doClick();
+        }
+
+        assertEquals(List.of(first, second), deleted);
+        assertEquals(List.of("Custom > unselected", "Custom > built-in"), panel.getRulePaths());
+        assertEquals(Set.of(), panel.getDisabledRuleIds());
+    }
+
+    @Test
+    void rightClickOnUnselectedRuleReplacesPreviousSelection() {
+        Rule first = rule("first", "Custom", 1);
+        Rule second = rule("second", "Custom", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, second), Set.of("first", "second"), null, null);
+        List<Rule> deleted = new ArrayList<>();
+        panel.configureManagement(Set.of(), deleted::add);
+        JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
+                .findFirst().orElseThrow();
+        DefaultMutableTreeNode group = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
+        TreePath firstPath = new TreePath(((DefaultMutableTreeNode) group.getChildAt(0)).getPath());
+        TreePath secondPath = new TreePath(((DefaultMutableTreeNode) group.getChildAt(1)).getPath());
+        tree.setSelectionPath(firstPath);
+
+        var popup = panel.createPopup(secondPath);
+
+        assertEquals(List.of(secondPath), List.of(tree.getSelectionPaths()));
+        ((JMenuItem) popup.getComponent(0)).doClick();
+        assertEquals(List.of(second), deleted);
+        assertEquals(List.of(first), panel.getCustomRules());
+    }
+
+    private static List<Component> descendants(Container container) {
+        List<Component> result = new ArrayList<>();
+        for (Component component : container.getComponents()) {
+            result.add(component);
+            if (component instanceof Container child) {
+                result.addAll(descendants(child));
+            }
+        }
+        return result;
     }
 
     private static Rule rule(String id, String group, int maxMatches) {
