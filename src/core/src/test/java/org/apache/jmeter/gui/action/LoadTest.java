@@ -65,16 +65,19 @@ import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class LoadTest {
 
-    @Test
-    void revealsThreadGroupsWithoutOpeningTheirTransactionsOrChangingSelection() {
+    @ParameterizedTest
+    @CsvSource({"0, false", "1, false", "1, true", "2, false", "2, true", "3, false", "3, true"})
+    void expandsOnlyASingleThreadGroupWithoutChangingSelection(int groupCount, boolean initiallyExpanded) {
         JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Test Plan"));
         JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
         JMeterTreeNode section = new JMeterTreeNode(new ThreadGroupsSection(), model);
         plan.add(section);
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < groupCount; i++) {
             JMeterTreeNode group = new JMeterTreeNode(new ThreadGroup(), model);
             JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);
             transaction.add(new JMeterTreeNode(new ConfigTestElement(), model));
@@ -82,6 +85,12 @@ class LoadTest {
             section.add(group);
         }
         JTree tree = new JTree(model);
+        if (initiallyExpanded) {
+            for (int i = 0; i < section.getChildCount(); i++) {
+                JMeterTreeNode group = (JMeterTreeNode) section.getChildAt(i);
+                tree.expandPath(new TreePath(group.getPath()));
+            }
+        }
         TreePath planPath = new TreePath(plan.getPath());
         tree.setSelectionPath(planPath);
         tree.collapsePath(planPath);
@@ -89,13 +98,16 @@ class LoadTest {
         TreeState.expandThreadGroups(tree);
 
         assertEquals(planPath, tree.getSelectionPath());
-        assertTrue(tree.isExpanded(new TreePath(section.getPath())));
+        if (groupCount > 0) {
+            assertTrue(tree.isExpanded(new TreePath(section.getPath())));
+        }
         for (int i = 0; i < section.getChildCount(); i++) {
             JMeterTreeNode group = (JMeterTreeNode) section.getChildAt(i);
-            assertTrue(tree.isExpanded(new TreePath(group.getPath())));
+            assertTrue(tree.isVisible(new TreePath(group.getPath())));
+            assertEquals(groupCount == 1, tree.isExpanded(new TreePath(group.getPath())));
             JMeterTreeNode transaction = (JMeterTreeNode) group.getChildAt(0);
             assertFalse(tree.isExpanded(new TreePath(transaction.getPath())));
-            assertTrue(tree.isVisible(new TreePath(transaction.getPath())));
+            assertEquals(groupCount == 1, tree.isVisible(new TreePath(transaction.getPath())));
         }
     }
 
