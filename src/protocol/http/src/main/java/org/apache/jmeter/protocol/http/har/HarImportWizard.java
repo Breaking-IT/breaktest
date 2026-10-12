@@ -229,6 +229,7 @@ public class HarImportWizard extends JDialog {
     // Step 4 state
     private final HarCorrelationMatchesPanel correlationsPanel = new HarCorrelationMatchesPanel();
     private final JLabel correlationsSummary = new JLabel(" ");
+    private final JTextArea correlationWarnings = new JTextArea();
     private List<HarPredefinedCorrelation> predefinedCorrelations = List.of();
     private SwingWorker<List<HarPredefinedCorrelation>, Void> correlationWorker;
     private boolean correlationAnalysisComplete;
@@ -628,6 +629,13 @@ public class HarImportWizard extends JDialog {
         heading.add(prompt);
         heading.add(Box.createVerticalStrut(6));
         heading.add(correlationsSummary);
+        correlationWarnings.setEditable(false);
+        correlationWarnings.setLineWrap(true);
+        correlationWarnings.setWrapStyleWord(true);
+        JScrollPane warningsScroll = new JScrollPane(correlationWarnings);
+        warningsScroll.setPreferredSize(new Dimension(600, 65));
+        warningsScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        heading.add(warningsScroll);
         panel.add(heading, BorderLayout.NORTH);
 
         JScrollPane scroll = new JScrollPane(correlationsPanel);
@@ -646,6 +654,7 @@ public class HarImportWizard extends JDialog {
         predefinedCorrelations = List.of();
         correlationsPanel.setCorrelations(List.of());
         correlationsSummary.setText(" ");
+        correlationWarnings.setText("");
         correlationsPanel.removeAll();
         correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_analyzing")));
         JProgressBar progress = new JProgressBar(0, 100);
@@ -673,6 +682,7 @@ public class HarImportWizard extends JDialog {
                 }
                 try {
                     predefinedCorrelations = get();
+                    correlationWarnings.setText(String.join("\n", HarPredefinedCorrelation.diagnostics(correlationRules)));
                     correlationAnalysisComplete = true;
                     rebuildCorrelationsPanel();
                 } catch (CancellationException ignored) {

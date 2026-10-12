@@ -40,7 +40,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 
-import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
@@ -48,6 +47,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.MenuElement;
 import javax.swing.SwingWorker;
 import javax.swing.tree.TreeNode;
@@ -159,7 +159,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         });
         rulesPanel.configureMoving(rules -> {
             try {
-                HarCorrelationRuleCatalog.storeCustomRulesEverywhere(testPlan, rules);
+                HarCorrelationRuleCatalog.moveCustomRulesEverywhere(testPlan, rules.stream()
+                        .collect(Collectors.toMap(Rule::getId, Rule::getGroup)));
                 if (testPlanNode != null) {
                     gui.getTreeModel().nodeChanged(testPlanNode);
                     gui.setDirty(true);
@@ -441,6 +442,9 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 message += "\n" + MessageFormat.format(
                         JMeterUtils.getResString("find_predefined_correlations_incomplete"), scan.unavailableCount());
             }
+            if (!scan.warnings().isEmpty()) {
+                message += "\n\n" + String.join("\n", scan.warnings());
+            }
             JMeterUtils.reportInfoToUser(message,
                     JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
             return;
@@ -455,11 +459,17 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 JMeterUtils.getResString("find_predefined_correlations_review"), choice.label())),
                 BorderLayout.NORTH);
         panel.add(scroll, BorderLayout.CENTER);
+        List<String> warnings = new ArrayList<>(scan.warnings());
         if (scan.unavailableCount() > 0) {
-            JLabel warning = new JLabel(MessageFormat.format(
+            warnings.add(MessageFormat.format(
                     JMeterUtils.getResString("find_predefined_correlations_incomplete"), scan.unavailableCount()));
-            warning.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
-            panel.add(warning, BorderLayout.SOUTH);
+        }
+        if (!warnings.isEmpty()) {
+            JTextArea warning = new JTextArea(String.join("\n", warnings), Math.min(4, warnings.size()), 60);
+            warning.setEditable(false);
+            warning.setLineWrap(true);
+            warning.setWrapStyleWord(true);
+            panel.add(new JScrollPane(warning), BorderLayout.SOUTH);
         }
 
         Object[] options = {JMeterUtils.getResString("correlation_review_apply"),
@@ -572,7 +582,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
         return new ScanResult(
                 HarPredefinedCorrelation.find(entries, rules, value -> progress.accept(20 + value * 80 / 100)),
-                Map.copyOf(nodesByEntryIndex), unavailableCount);
+                Map.copyOf(nodesByEntryIndex), unavailableCount, HarPredefinedCorrelation.diagnostics(rules));
     }
 
     /**
@@ -899,7 +909,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 }
             }
             for (HarPredefinedCorrelation correlation : correlations) {
+                Set<Integer> processedTargets = new LinkedHashSet<>();
                 for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                    if (!processedTargets.add(replacement.getTargetEntryIndex())) {
+                        continue;
+                    }
                     JMeterTreeNode targetNode = nodesByEntryIndex.get(replacement.getTargetEntryIndex());
                     if (targetNode == null || !(targetNode.getTestElement() instanceof Replaceable sampler)) {
                         continue;
@@ -1105,7 +1119,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     record ScanResult(
             List<HarPredefinedCorrelation> correlations,
             Map<Integer, JMeterTreeNode> nodesByEntryIndex,
-            int unavailableCount) {
+            int unavailableCount, List<String> warnings) {
     }
 
     private record ApplyResult(int extractorCount, int replacementCount, int movedRequestCount,

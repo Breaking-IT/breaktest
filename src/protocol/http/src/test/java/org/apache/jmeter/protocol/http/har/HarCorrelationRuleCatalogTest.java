@@ -87,6 +87,15 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
             assertEquals(List.of("broken", "added"), stored.stream().map(Rule::getId).toList());
             assertEquals("[", stored.get(0).getReplacementFilter().fieldPattern());
         }
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan, Map.of("broken", "Moved", "added", "Moved"));
+        for (var stored : List.of(HarCorrelationRuleCatalog.parse(Files.readAllBytes(file), true),
+                HarCorrelationRuleCatalog.loadCustomRules(plan))) {
+            assertEquals(List.of("Moved", "Moved"), stored.stream().map(Rule::getGroup).toList());
+            assertEquals("[", stored.get(0).getReplacementFilter().fieldPattern());
+            assertFalse(stored.get(0).getReplacementFilter().diagnostic().isEmpty());
+        }
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan,
+                List.of(HarCorrelationRuleCatalog.loadCustomRules(plan).get(0))));
         HarCorrelationRuleCatalog.deleteCustomRule(plan, "added");
         assertEquals("[", HarCorrelationRuleCatalog.loadCustomRules(plan).get(0).getReplacementFilter().fieldPattern());
         assertEquals("[", HarCorrelationRuleCatalog.parse(Files.readAllBytes(file), true).get(0).getReplacementFilter().fieldPattern());
@@ -179,7 +188,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .withExtractorSettings(Map.of("custom.setting", "preserve"));
         HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(original));
         Rule moved = original.withGroup("Destination");
-        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(moved));
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan, Map.of(moved.getId(), moved.getGroup()));
         for (List<Rule> stored : List.of(HarCorrelationRuleCatalog.readRulesFile(file),
                 HarCorrelationRuleCatalog.loadCustomRules(plan))) {
             assertEquals(1, stored.size());

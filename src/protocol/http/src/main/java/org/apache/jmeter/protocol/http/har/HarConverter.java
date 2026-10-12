@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -60,6 +61,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
+import org.apache.jmeter.protocol.http.util.RecordedValueReplacer.Match;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler;
@@ -796,8 +798,7 @@ public final class HarConverter {
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
-                String decodedValue = percentDecode(param.getValue());
-                decodedValue = replaceDecodedCorrelations(entry, decodedValue, param.getName(),
+                String decodedValue = replaceDecodedCorrelations(entry, param.getValue(), param.getName(),
                         HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
                 boolean alwaysEncode = needsUrlEncoding(decodedName) || !param.getName().equals(decodedName)
                         || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
@@ -843,8 +844,7 @@ public final class HarConverter {
                 sampler.setDoBrowserCompatibleMultipart(generatedMultipart);
             } else if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
-                    String decodedValue = percentDecode(param.getValue());
-                    decodedValue = replaceDecodedCorrelations(entry, decodedValue, param.getName(),
+                    String decodedValue = replaceDecodedCorrelations(entry, param.getValue(), param.getName(),
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
                     boolean alwaysEncode = needsUrlEncoding(param.getName())
                             || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
@@ -946,7 +946,8 @@ public final class HarConverter {
 
     private String replaceCorrelations(HarEntry entry, String text, String name, boolean decoded, boolean urlField,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        String replaced = text;
+        String original = decoded ? percentDecode(text) : text;
+        TreeMap<Integer, Match> accepted = new TreeMap<>();
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
             for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
@@ -956,17 +957,25 @@ public final class HarConverter {
                     String value = reference.startsWith("${__urldecode(")
                             ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
                     var filter = correlation.getRule().getReplacementFilter();
-                    String current = replaced;
+                    String current = original;
                     var matches = urlField
                             ? filter.urlFieldMatches(current, value, reference, entry.isWebSocket()).stream()
                                     .filter(match -> CorrelationReplacementFilter.urlLocation(current, match.start()) == replacement.getLocation())
                                     .toList()
-                            : filter.matches(current, value, reference, decoded, replacement.getLocation(), name);
-                    replaced = CorrelationReplacementFilter.replace(replaced, matches);
+                            : decoded ? filter.decodedMatches(text, value, reference, replacement.getLocation(), name)
+                            : filter.matches(current, value, reference, false, replacement.getLocation(), name);
+                    for (var match : matches) {
+                        var previous = accepted.floorEntry(match.start());
+                        var next = accepted.ceilingEntry(match.start());
+                        if ((previous == null || previous.getValue().end() <= match.start())
+                                && (next == null || next.getKey() >= match.end())) {
+                            accepted.put(match.start(), match);
+                        }
+                    }
                 }
             }
         }
-        return replaced;
+        return CorrelationReplacementFilter.replace(original, List.copyOf(accepted.values()));
     }
 
     private void addPredefinedExtractors(HashTree samplerHt, HarEntry entry) {
@@ -1174,7 +1183,7 @@ public final class HarConverter {
     }
 
     /** Percent-decode like Python's urllib.parse.unquote (does NOT turn '+' into space). */
-    private static String percentDecode(String value) {
+    static String percentDecode(String value) {
         if (value.indexOf('%') < 0) {
             return value;
         }

@@ -221,6 +221,20 @@ final class HarCorrelationRuleCatalog {
 
     static void storeCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
         parse(serialize(newRules)); // Validate only the incoming edits strictly; retain existing inactive rules.
+        persistCustomRulesEverywhere(testPlan, newRules);
+    }
+
+    static void moveCustomRulesEverywhere(TestElement testPlan, Map<String, String> destinations) throws IOException {
+        List<Rule> stored = merge(loadStoredCustomRules(), testPlan == null ? List.of() : loadCustomRules(testPlan));
+        List<Rule> moved = stored.stream().filter(rule -> destinations.containsKey(rule.getId()))
+                .map(rule -> rule.withGroup(destinations.get(rule.getId()))).toList();
+        if (moved.size() != destinations.size()) {
+            throw new IOException("Cannot move an unknown custom correlation rule");
+        }
+        persistCustomRulesEverywhere(testPlan, moved);
+    }
+
+    private static void persistCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
         rejectBuiltInIds(newRules.stream().map(Rule::getId).toList());
         List<Rule> sharedCustomRules = merge(loadStoredCustomRules(), newRules);
         byte[] sharedContent = serialize(sharedCustomRules);

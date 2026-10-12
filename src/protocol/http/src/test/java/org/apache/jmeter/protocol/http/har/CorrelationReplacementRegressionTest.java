@@ -75,6 +75,57 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
     }
 
     @Test
+    void webSocketQueryNamesStayLiteralAndRepeatedValuesProduceOneCandidatePerField() {
+        for (boolean review : List.of(false, true)) {
+            var socket = new WebSocketConnectSampler();
+            socket.setUrl("wss://example.test/socket?id&id=id&id=id&other=id");
+            var found = find(socket, "id", rule(CorrelationReplacementFilter.ALL));
+            assertEquals(List.of("id", "other"), found.get(0).getReplacements().stream()
+                    .map(HarPredefinedCorrelation.Replacement::getLocationName).toList());
+            apply(socket, "id", rule(CorrelationReplacementFilter.ALL), review);
+            assertEquals("wss://example.test/socket?id&id=${token}&id=${token}&other=${token}", socket.getUrl());
+            var message = new WebSocketSendWaitSampler();
+            message.setPayload("id ".repeat(100));
+            var correlations = find(message, "id", rule(CorrelationReplacementFilter.ALL));
+            assertEquals(1, correlations.get(0).getReplacements().size());
+            apply(message, "id", rule(CorrelationReplacementFilter.ALL), review);
+            assertEquals("${token} ".repeat(100), message.getPayload());
+        }
+    }
+
+    @Test
+    void encodedParameterPatternSurvivesHarImportForQueryAndForm() throws Exception {
+        for (String method : List.of("GET", "POST")) {
+            String har = """
+                    {"log":{"entries":[
+                      {"startedDateTime":"2026-10-12T00:00:00Z","time":10,"serverIPAddress":"127.0.0.1",
+                       "request":{"method":"GET","url":"https://example.test/source","headers":[]},
+                       "response":{"status":200,"headers":[],"content":{"text":"token=abc/def;"}}},
+                      {"startedDateTime":"2026-10-12T00:00:01Z","time":10,"serverIPAddress":"127.0.0.1",
+                       "request":{"method":"%s","url":"https://example.test/target","headers":[],
+                           "queryString":[{"name":"id","value":"abc%%2Fdef"}],
+                           "postData":{"mimeType":"application/x-www-form-urlencoded",
+                             "params":[{"name":"id","value":"abc%%2Fdef"}]}},
+                       "response":{"status":200,"headers":[],"content":{"text":""}}}
+                    ]}}
+                    """.formatted(method);
+            var entries = HarParser.parse(har.getBytes(StandardCharsets.UTF_8));
+            var filtered = rule(new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.PARAMETERS,
+                    true, "^id=abc%2Fdef$"));
+            var found = HarPredefinedCorrelation.find(entries, List.of(filtered));
+            assertEquals(1, found.size());
+            var options = new HarImportOptions();
+            options.setPredefinedCorrelations(found);
+            var tree = new HarConverter(entries, options, "probe.har", "md5").convert(java.util.Set.of("example.test"));
+            var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
+            tree.traverse(samplers);
+            var target = samplers.getSearchResults().stream().filter(sampler -> sampler.getPath().equals("/target"))
+                    .findFirst().orElseThrow();
+            assertEquals("${token}", target.getArguments().getArgument(0).getValue());
+        }
+    }
+
+    @Test
     void webSocketHeaderNamesStayLiteralAndQueryLocationsAreReportedAccurately() {
         for (boolean review : List.of(false, true)) {
             var socket = new WebSocketConnectSampler();
@@ -166,7 +217,7 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
                    "request":{"method":"GET","url":"https://example.test/token","headers":[]},
                    "response":{"status":200,"headers":[],"content":{"text":"token=recorded-token;"}}},
                   {"startedDateTime":"2026-10-12T00:00:01Z","time":10,"serverIPAddress":"127.0.0.1",
-                   "request":{"method":"GET","url":"wss://recorded-token.example.test/socket#recorded-token","headers":[]},
+                   "request":{"method":"GET","url":"wss://recorded-token.example.test/socket?recorded-token=recorded-token&recorded-token#recorded-token","headers":[]},
                    "response":{"status":101,"headers":[],"content":{"text":""}},
                    "_webSocketMessages":[{"type":"send","time":1791763202,"opcode":1,"data":"id: recorded-token"}]}
                 ]}}
@@ -180,7 +231,12 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
         var tree = new HarConverter(entries, options, "messages.har", "md5").convert(java.util.Set.of("example.test", "recorded-token.example.test"));
         var samplers = new org.apache.jorphan.collections.SearchByClass<>(WebSocketConnectSampler.class);
         tree.traverse(samplers);
-        assertEquals("wss://${token}.example.test/socket#${token}", samplers.getSearchResults().iterator().next().getUrl());
+        assertEquals("wss://${token}.example.test/socket?recorded-token=${token}&recorded-token#${token}",
+                samplers.getSearchResults().iterator().next().getUrl());
+        assertEquals(2, correlations.get(0).getReplacements().size());
+        assertEquals("recorded-token", correlations.get(0).getReplacements().stream()
+                .filter(replacement -> replacement.getLocation() == RequestLocation.QUERY_PARAMETER)
+                .findFirst().orElseThrow().getLocationName());
     }
 
     @Test

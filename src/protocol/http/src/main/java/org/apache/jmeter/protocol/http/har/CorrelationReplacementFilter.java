@@ -103,6 +103,10 @@ final class CorrelationReplacementFilter {
         return validationError.isEmpty() ? matchingError : validationError;
     }
 
+    void clearMatchingDiagnostic() {
+        matchingError = "";
+    }
+
     boolean unrestricted() {
         return validationError.isEmpty() && scopes.contains(Scope.ALL) && !wholeValue && pattern == null;
     }
@@ -251,8 +255,12 @@ final class CorrelationReplacementFilter {
                     end = urlEnd;
                 }
                 int equals = text.indexOf('=', start);
-                int valueStart = equals >= start && equals < end ? equals + 1 : start;
-                String name = valueStart == start ? "" : text.substring(start, equals);
+                if (equals < start || equals >= end) {
+                    start = end + 1;
+                    continue; // A query component without '=' is a name with an empty value.
+                }
+                int valueStart = equals + 1;
+                String name = text.substring(start, equals);
                 appendMatches(result, text.substring(valueStart, end), valueStart, value, reference, location, name);
                 start = end + 1;
             }
@@ -287,10 +295,32 @@ final class CorrelationReplacementFilter {
                 ? RequestLocation.QUERY_PARAMETER : RequestLocation.URL_PATH;
     }
 
-    List<Match> urlFieldMatches(String text, String value, String reference, boolean fullUrl) {
-        if (fullUrl && unrestricted()) {
-            return RecordedValueReplacer.matches(text, value, reference, false);
+    static String urlLocationName(String text, int offset) {
+        if (urlLocation(text, offset) != RequestLocation.QUERY_PARAMETER) {
+            return "";
         }
+        int start = Math.max(text.lastIndexOf('&', offset), text.indexOf('?')) + 1;
+        int equals = text.indexOf('=', start);
+        return equals >= start && equals < offset ? text.substring(start, equals) : "";
+    }
+
+    /** Evaluate patterns on recorded text, then map accepted spans onto decoded argument values. */
+    List<Match> decodedMatches(String recorded, String value, String reference, RequestLocation location, String name) {
+        var allowed = matches(recorded, value, reference, false, location, name);
+        if (allowed.isEmpty()) {
+            allowed = matches(recorded, value, reference, true, location, name);
+        }
+        List<int[]> ranges = new ArrayList<>();
+        for (var match : allowed) {
+            ranges.add(new int[] {HarConverter.percentDecode(recorded.substring(0, match.start())).length(),
+                    HarConverter.percentDecode(recorded.substring(0, match.end())).length()});
+        }
+        return RecordedValueReplacer.matches(HarConverter.percentDecode(recorded), value, reference, true).stream()
+                .filter(match -> ranges.stream().anyMatch(range -> range[0] == match.start() && range[1] == match.end()))
+                .toList();
+    }
+
+    List<Match> urlFieldMatches(String text, String value, String reference, boolean fullUrl) {
         List<Match> result = new ArrayList<>(urlMatches(text, value, reference, RequestLocation.URL_PATH));
         result.addAll(urlMatches(text, value, reference, RequestLocation.QUERY_PARAMETER));
         if (fullUrl) {

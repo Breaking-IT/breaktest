@@ -392,6 +392,7 @@ final class HarPredefinedCorrelation {
             List<HarEntry> entries, List<Rule> rules, IntConsumer progress) {
         checkCancelled();
         progress.accept(0);
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
         List<HarEntry> selected = entries.stream()
                 .sorted(Comparator.comparingDouble(HarEntry::getStartMs)
                         .thenComparingInt(HarEntry::getOriginalIndex))
@@ -427,6 +428,12 @@ final class HarPredefinedCorrelation {
         checkCancelled();
         progress.accept(100);
         return result;
+    }
+
+    static List<String> diagnostics(List<Rule> rules) {
+        return rules.stream().filter(rule -> !rule.getReplacementFilter().diagnostic().isEmpty())
+                .map(rule -> rule.getName() + " [" + rule.getId() + "]: " + rule.getReplacementFilter().diagnostic())
+                .distinct().toList();
     }
 
     static void checkCancelled() {
@@ -717,16 +724,19 @@ final class HarPredefinedCorrelation {
                         RequestLocation matchLocation = field.name().equals("URL")
                                 ? CorrelationReplacementFilter.urlLocation(field.value(), match.start()) : location;
                         result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
-                                matchLocation, name, field.value().substring(match.start(), match.end())));
+                                matchLocation, field.name().equals("URL")
+                                        ? CorrelationReplacementFilter.urlLocationName(field.value(), match.start()) : name,
+                                field.value().substring(match.start(), match.end())));
                     }
                 }
             }
-            return result;
+            return uniqueReplacements(result);
         }
         if (entry.isWebSocket()) {
             for (var match : rule.getReplacementFilter().urlFieldMatches(entry.getUrl(), extractedValue, "", true)) {
                 result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
-                        CorrelationReplacementFilter.urlLocation(entry.getUrl(), match.start()), "URL",
+                        CorrelationReplacementFilter.urlLocation(entry.getUrl(), match.start()),
+                        CorrelationReplacementFilter.urlLocationName(entry.getUrl(), match.start()),
                         entry.getUrl().substring(match.start(), match.end())));
             }
         } else {
@@ -740,18 +750,20 @@ final class HarPredefinedCorrelation {
                         header.getName(), header.getValue(), extractedValue, rule);
             }
         }
-        for (NameValue parameter : entry.getQueryString()) {
-            addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    parameter.getName(), parameter.getValue(), extractedValue, rule);
-        }
-        if (entry.getQueryString().isEmpty()) {
-            String query = urlQuery(entry.getUrl());
-            if (query != null) {
-                for (String parameter : query.split("&")) {
-                    int equals = parameter.indexOf('=');
-                    addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                            equals < 0 ? "" : parameter.substring(0, equals),
-                            equals < 0 ? parameter : parameter.substring(equals + 1), extractedValue, rule);
+        if (!entry.isWebSocket()) {
+            for (NameValue parameter : entry.getQueryString()) {
+                addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
+                        parameter.getName(), parameter.getValue(), extractedValue, rule);
+            }
+            if (entry.getQueryString().isEmpty()) {
+                String query = urlQuery(entry.getUrl());
+                if (query != null) {
+                    for (String parameter : query.split("&")) {
+                        int equals = parameter.indexOf('=');
+                        addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
+                                equals < 0 ? parameter : parameter.substring(0, equals),
+                                equals < 0 ? "" : parameter.substring(equals + 1), extractedValue, rule);
+                    }
                 }
             }
         }
@@ -767,7 +779,13 @@ final class HarPredefinedCorrelation {
                 }
             }
         }
-        return result;
+        return uniqueReplacements(result);
+    }
+
+    private static List<Replacement> uniqueReplacements(List<Replacement> replacements) {
+        Map<String, Replacement> unique = new LinkedHashMap<>();
+        replacements.forEach(replacement -> unique.putIfAbsent(replacementKey(replacement), replacement));
+        return List.copyOf(unique.values());
     }
 
     private static void addReplacement(List<Replacement> result, HarEntry entry,
