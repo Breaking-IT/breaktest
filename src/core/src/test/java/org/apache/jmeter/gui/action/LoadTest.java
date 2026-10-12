@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -58,6 +59,9 @@ import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.PostThreadGroup;
+import org.apache.jmeter.threads.SetupThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
@@ -65,16 +69,19 @@ import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class LoadTest {
 
-    @Test
-    void revealsThreadGroupsWithoutOpeningTheirTransactionsOrChangingSelection() {
+    @ParameterizedTest
+    @CsvSource({"0, false", "1, false", "1, true", "2, false", "2, true", "3, false", "3, true"})
+    void expandsOnlyASingleThreadGroupWithoutChangingSelection(int groupCount, boolean initiallyExpanded) {
         JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Test Plan"));
         JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
         JMeterTreeNode section = new JMeterTreeNode(new ThreadGroupsSection(), model);
         plan.add(section);
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < groupCount; i++) {
             JMeterTreeNode group = new JMeterTreeNode(new ThreadGroup(), model);
             JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);
             transaction.add(new JMeterTreeNode(new ConfigTestElement(), model));
@@ -82,20 +89,56 @@ class LoadTest {
             section.add(group);
         }
         JTree tree = new JTree(model);
+        if (initiallyExpanded) {
+            for (int i = 0; i < section.getChildCount(); i++) {
+                JMeterTreeNode group = (JMeterTreeNode) section.getChildAt(i);
+                tree.expandPath(new TreePath(group.getPath()));
+            }
+        }
         TreePath planPath = new TreePath(plan.getPath());
         tree.setSelectionPath(planPath);
         tree.collapsePath(planPath);
 
-        TreeState.expandThreadGroups(tree);
+        TreeState.initializeLoadedTree(tree, false);
 
         assertEquals(planPath, tree.getSelectionPath());
-        assertTrue(tree.isExpanded(new TreePath(section.getPath())));
+        if (groupCount > 0) {
+            assertTrue(tree.isExpanded(new TreePath(section.getPath())));
+        }
         for (int i = 0; i < section.getChildCount(); i++) {
             JMeterTreeNode group = (JMeterTreeNode) section.getChildAt(i);
-            assertTrue(tree.isExpanded(new TreePath(group.getPath())));
+            assertTrue(tree.isVisible(new TreePath(group.getPath())));
+            assertEquals(groupCount == 1, tree.isExpanded(new TreePath(group.getPath())));
             JMeterTreeNode transaction = (JMeterTreeNode) group.getChildAt(0);
             assertFalse(tree.isExpanded(new TreePath(transaction.getPath())));
-            assertTrue(tree.isVisible(new TreePath(transaction.getPath())));
+            assertEquals(groupCount == 1, tree.isVisible(new TreePath(transaction.getPath())));
+        }
+    }
+
+    @Test
+    void initialViewCountsOnlyEnabledOrdinaryGroupsAndHonorsExpandAll() {
+        JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Plan"));
+        JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
+        ThreadGroup disabled = new ThreadGroup();
+        disabled.setEnabled(false);
+        List<JMeterTreeNode> groups = new ArrayList<>();
+        for (AbstractThreadGroup element : List.of(new ThreadGroup(), new SetupThreadGroup(), new PostThreadGroup(), disabled)) {
+            JMeterTreeNode group = new JMeterTreeNode(element, model);
+            JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);
+            transaction.add(new JMeterTreeNode(new ConfigTestElement(), model));
+            group.add(transaction);
+            plan.add(group);
+            groups.add(group);
+        }
+        JTree tree = new JTree(model);
+        TreeState.initializeLoadedTree(tree, false);
+        for (int i = 0; i < groups.size(); i++) {
+            assertEquals(i == 0, tree.isExpanded(new TreePath(groups.get(i).getPath())));
+        }
+        TreeState.initializeLoadedTree(tree, true);
+        for (JMeterTreeNode group : groups) {
+            assertTrue(tree.isExpanded(new TreePath(group.getPath())));
+            assertTrue(tree.isExpanded(new TreePath(((JMeterTreeNode) group.getChildAt(0)).getPath())));
         }
     }
 

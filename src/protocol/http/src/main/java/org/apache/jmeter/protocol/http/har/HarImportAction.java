@@ -45,7 +45,6 @@ import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
-import org.apache.jmeter.gui.TreeState;
 import org.apache.jmeter.gui.action.AbstractActionWithNoRunningTest;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
@@ -136,7 +135,6 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                     guiPackage.refreshCurrentGui();
                     expanded.forEach(tree::expandPath);
                     expandImportedThreadGroup(tree, importedThreadGroup);
-                    TreeState.expandThreadGroups(tree);
                     mainFrame.hideLoadingOverlay();
                     reviewImportedCorrelations(guiPackage, options, converted);
                 } catch (InterruptedException ex) {

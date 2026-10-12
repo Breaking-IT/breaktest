@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.har;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -27,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jmeter.extractor.RegexExtractor;
@@ -134,6 +136,63 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         assertTrue(HarCorrelationRuleCatalog.rulesFor(plan).stream().anyMatch(r -> r.getId().equals("new-custom")));
         HarCorrelationRuleCatalog.saveDisabledRuleIds(Set.of());
         assertTrue(HarCorrelationRuleCatalog.sharedRules().stream().anyMatch(r -> r.getId().equals(builtInId)));
+    }
+
+    @Test
+    void movingRulePersistsGroupInBothStoresWithoutChangingExtractorSettings() throws Exception {
+        Path file = tempDir.resolve("custom.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        TestPlan plan = new TestPlan("Plan");
+        Rule original = regexRule("move-me", "value", "value=(.+)", "$1$", 4, true)
+                .withExtractorSettings(Map.of("custom.setting", "preserve"));
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(original));
+        Rule moved = original.withGroup("Destination");
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(moved));
+        for (List<Rule> stored : List.of(HarCorrelationRuleCatalog.readRulesFile(file),
+                HarCorrelationRuleCatalog.loadCustomRules(plan))) {
+            assertEquals(1, stored.size());
+            Rule result = stored.get(0);
+            assertEquals("Destination", result.getGroup());
+            assertEquals(original.getId(), result.getId());
+            assertEquals(original.getName(), result.getName());
+            assertEquals(original.getVariableName(), result.getVariableName());
+            assertEquals(original.getExtractorType(), result.getExtractorType());
+            assertEquals(original.getResponseField(), result.getResponseField());
+            assertEquals(original.getExpression(), result.getExpression());
+            assertEquals(original.getTemplate(), result.getTemplate());
+            assertEquals(original.getMaxMatches(), result.getMaxMatches());
+            assertEquals(original.getMinValueLength(), result.getMinValueLength());
+            assertEquals(original.getDefaultValue(), result.getDefaultValue());
+            assertEquals(original.isEmptyDefaultValue(), result.isEmptyDefaultValue());
+            assertEquals(original.isComputeConcatenation(), result.isComputeConcatenation());
+            assertEquals(original.isFailOnNoMatch(), result.isFailOnNoMatch());
+            assertEquals(original.getExtractorSettings(), result.getExtractorSettings());
+        }
+    }
+
+    @Test
+    void bulkDeletionValidatesBeforeWritingAndPreservesBothStoresOnFailure() throws Exception {
+        Path file = tempDir.resolve("custom.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        TestPlan plan = new TestPlan("Plan");
+        Rule first = regexRule("first", "value", "value=(.+)", "$1$", 1, false);
+        Rule second = regexRule("second", "value", "value=(.+)", "$1$", 1, false);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(first, second));
+        byte[] before = Files.readAllBytes(file);
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRules(plan,
+                Set.of(first.getId(), HarCorrelationRuleCatalog.builtInRules().get(0).getId())));
+        assertArrayEquals(before, Files.readAllBytes(file));
+        assertEquals(2, HarCorrelationRuleCatalog.loadCustomRules(plan).size());
+        Files.delete(file);
+        Files.createDirectory(file);
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRules(plan,
+                Set.of(first.getId(), second.getId())));
+        assertEquals(2, HarCorrelationRuleCatalog.loadCustomRules(plan).size());
+        Files.delete(file);
+        Files.write(file, before);
+        HarCorrelationRuleCatalog.deleteCustomRules(plan, Set.of(first.getId(), second.getId()));
+        assertTrue(HarCorrelationRuleCatalog.readRulesFile(file).isEmpty());
+        assertTrue(HarCorrelationRuleCatalog.loadCustomRules(plan).isEmpty());
     }
 
     @Test
