@@ -22,7 +22,11 @@ import java.awt.event.ActionEvent;
 import java.util.HashSet;
 import java.util.Set;
 
+import javax.swing.JTree;
+import javax.swing.tree.TreePath;
+
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.slf4j.Logger;
@@ -67,14 +71,32 @@ public class AddParent extends AbstractAction {
 
     protected static void addParentToTree(TestElement newParent) {
         GuiPackage guiPackage = GuiPackage.getInstance();
+        JMeterTreeListener treeListener = guiPackage.getTreeListener();
+        JTree tree = treeListener.getJTree();
         JMeterTreeNode newNode = new JMeterTreeNode(newParent, guiPackage.getTreeModel());
-        JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
+        JMeterTreeNode currentNode = treeListener.getCurrentNode();
+        JMeterTreeNode[] nodes = treeListener.getSelectedNodes();
         JMeterTreeNode parentNode = (JMeterTreeNode) currentNode.getParent();
         int index = parentNode.getIndex(currentNode);
-        guiPackage.getTreeModel().insertNodeInto(newNode, parentNode, index);
-        JMeterTreeNode[] nodes = guiPackage.getTreeListener().getSelectedNodes();
-        for (JMeterTreeNode node : nodes) {
-            moveNode(guiPackage, node, newNode);
+        treeListener.beginSuppressEditAction();
+        try {
+            guiPackage.getTreeModel().insertNodeInto(newNode, parentNode, index);
+            TreePath[] paths = new TreePath[nodes.length];
+            int pathIndex = 0;
+            for (int i = 0; i < nodes.length; i++) {
+                moveNode(guiPackage, nodes[i], newNode);
+                if (nodes[i] != currentNode) {
+                    paths[pathIndex++] = new TreePath(nodes[i].getPath());
+                }
+            }
+            TreePath currentPath = new TreePath(currentNode.getPath());
+            // Swing uses the last selected path as the lead selection.
+            paths[pathIndex] = currentPath;
+            treeListener.setSelectionPathWithoutEdit(currentPath);
+            tree.setSelectionPaths(paths);
+            tree.scrollPathToVisible(currentPath);
+        } finally {
+            treeListener.endSuppressEditAction();
         }
     }
 
