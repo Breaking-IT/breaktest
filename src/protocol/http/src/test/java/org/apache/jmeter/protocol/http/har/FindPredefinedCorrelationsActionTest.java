@@ -440,7 +440,7 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(1, matches.size());
         assertEquals(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
                 matches.get(0).getReplacements().get(0).getLocation());
-        assertTrue(matches.get(0).getReplacements().get(0).getLocationName().isEmpty());
+        assertEquals("code", matches.get(0).getReplacements().get(0).getLocationName());
     }
 
     /** The controller inserted right after the given one by a split. */

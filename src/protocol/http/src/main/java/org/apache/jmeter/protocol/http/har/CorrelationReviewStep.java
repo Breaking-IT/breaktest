@@ -97,7 +97,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                 }
                 Map<String, Integer> rows = new LinkedHashMap<>();
                 List<Field> fields = new ArrayList<>();
-                boolean raw = node.getTestElement() instanceof HTTPSamplerBase http && http.getPostBodyRaw();
+                boolean raw = node.getTestElement() instanceof HTTPSamplerBase http && http.getSendParameterValuesAsPostBody();
                 for (var candidate : sampler.getReplaceableFields()) {
                     int row = rows.merge(candidate.name(), 1, Integer::sum) - 1;
                     if (List.of("Path", "URL", "Parameter value", "Header value")
@@ -137,7 +137,8 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
 
     private static void addMatches(List<CorrelationReviewStep> steps, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement, Field field, String text, String value, String reference) {
-        for (var match : RecordedValueReplacer.matches(text, value, reference, field.decoded())) {
+        for (var match : correlation.getRule().getReplacementFilter().samplerMatches(
+                (Replaceable) field.node().getTestElement(), field.name(), field.row(), text, value, reference, field.decoded())) {
             if (steps.stream().noneMatch(step -> step.start < match.end() && step.end > match.start())) {
                 steps.add(new CorrelationReviewStep(correlation, replacement, field, text, match));
             }

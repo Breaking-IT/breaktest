@@ -654,6 +654,9 @@ final class HarCorrelationRulesPanel extends JPanel {
                 new Detail(JMeterUtils.getResString("correlation_rule_min_length"), rule.getMinValueLength()),
                 new Detail("Expression", rule.getExpression()),
                 new Detail("Template", rule.getTemplate()),
+                new Detail("Replacement scope", rule.getReplacementFilter().scopes()),
+                new Detail("Match whole value only", rule.getReplacementFilter().wholeValue()),
+                new Detail("Replacement field pattern", rule.getReplacementFilter().fieldPattern()),
                 new Detail("Default value", rule.getDefaultValue()),
                 new Detail("Use empty default", rule.isEmptyDefaultValue()),
                 new Detail("Fail when no match", rule.isFailOnNoMatch())));
@@ -754,6 +757,48 @@ final class HarCorrelationRulesPanel extends JPanel {
         }
     }
 
+    /** Multi-selection with All exclusive of specific request scopes. */
+    static final class ScopeSelector extends JPanel {
+        private static final long serialVersionUID = 1L;
+        private final Map<CorrelationReplacementFilter.Scope, JCheckBox> choices = new LinkedHashMap<>();
+
+        ScopeSelector() {
+            super(new GridLayout(0, 3));
+            for (var scope : CorrelationReplacementFilter.Scope.values()) {
+                JCheckBox choice = new JCheckBox(scope.toString());
+                choices.put(scope, choice);
+                add(choice);
+                choice.addActionListener(event -> {
+                    if (choice.isSelected()) {
+                        if (scope == CorrelationReplacementFilter.Scope.ALL) {
+                            setScopes(Set.of(scope));
+                        } else {
+                            choices.get(CorrelationReplacementFilter.Scope.ALL).setSelected(false);
+                        }
+                    }
+                    if (selectedScopes().isEmpty()) {
+                        setScopes(Set.of(CorrelationReplacementFilter.Scope.ALL));
+                    }
+                });
+            }
+            setScopes(Set.of(CorrelationReplacementFilter.Scope.ALL));
+        }
+
+        void setScopes(Set<CorrelationReplacementFilter.Scope> scopes) {
+            choices.forEach((scope, choice) -> choice.setSelected(scopes.contains(scope)));
+        }
+
+        Set<CorrelationReplacementFilter.Scope> selectedScopes() {
+            Set<CorrelationReplacementFilter.Scope> scopes = new LinkedHashSet<>();
+            choices.forEach((scope, choice) -> {
+                if (choice.isSelected()) {
+                    scopes.add(scope);
+                }
+            });
+            return scopes;
+        }
+    }
+
     /** Editor used by the action for custom (never built-in) correlation rules. */
     static final class RuleEditorPanel extends JPanel {
 
@@ -778,6 +823,9 @@ final class HarCorrelationRulesPanel extends JPanel {
             }
         });
         private final JSpinner minValueLength = new JSpinner(new SpinnerNumberModel(6, 1, Integer.MAX_VALUE, 1));
+        private final ScopeSelector replacementScope = new ScopeSelector();
+        private final JCheckBox replacementWholeValue = new JCheckBox();
+        private final JTextField replacementFieldPattern = new JTextField(40);
         private final JTextField defaultValue = new JTextField(20);
         private final JCheckBox emptyDefaultValue = new JCheckBox();
         private final JCheckBox failOnNoMatch = new JCheckBox();
@@ -794,6 +842,9 @@ final class HarCorrelationRulesPanel extends JPanel {
             template.setText(rule.getTemplate());
             maxMatches.setValue(rule.getMaxMatches());
             minValueLength.setValue(rule.getMinValueLength());
+            replacementScope.setScopes(rule.getReplacementFilter().scopes());
+            replacementWholeValue.setSelected(rule.getReplacementFilter().wholeValue());
+            replacementFieldPattern.setText(rule.getReplacementFilter().fieldPattern());
             defaultValue.setText(rule.getDefaultValue());
             emptyDefaultValue.setSelected(rule.isEmptyDefaultValue());
             failOnNoMatch.setSelected(rule.isFailOnNoMatch());
@@ -815,6 +866,12 @@ final class HarCorrelationRulesPanel extends JPanel {
             addRow(JMeterUtils.getResString("correlation_rule_max_matches_label"), maxMatches, row++);
             minValueLength.setToolTipText(JMeterUtils.getResString("correlation_rule_min_length_tooltip"));
             addRow(JMeterUtils.getResString("correlation_rule_min_length"), minValueLength, row++);
+            addRow("Replacement scope", replacementScope, row++);
+            replacementWholeValue.setToolTipText("Replace only when the extracted value matches the entire field value.");
+            addRow("Match whole value only", replacementWholeValue, row++);
+            replacementFieldPattern.setToolTipText(
+                    "Optional Java regex: replace only inside matching regions. Parameters use name=value; headers use name: value.");
+            addRow("Replacement field pattern", replacementFieldPattern, row++);
             addRow("Default value", defaultValue, row++);
             addRow("Use empty default", emptyDefaultValue, row++);
             addRow("Fail when no match", failOnNoMatch, row);
@@ -827,7 +884,9 @@ final class HarCorrelationRulesPanel extends JPanel {
                     (ResponseField) responseField.getSelectedItem(), expression.getText(), template.getText(),
                     (Integer) maxMatches.getValue(), (Integer) minValueLength.getValue(), defaultValue.getText(),
                     emptyDefaultValue.isSelected(), original.isComputeConcatenation(), failOnNoMatch.isSelected(),
-                    original.getExtractorSettings());
+                    original.getExtractorSettings()).withReplacementFilter(new CorrelationReplacementFilter(
+                            replacementScope.selectedScopes(),
+                            replacementWholeValue.isSelected(), replacementFieldPattern.getText()));
         }
 
         private void addRow(String label, Component component, int row) {

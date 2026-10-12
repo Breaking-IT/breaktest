@@ -391,7 +391,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
     }
 
-    private static Rule editCustomRule(GuiPackage gui, JMeterTreeNode testPlanNode, Rule rule) {
+    static Rule editCustomRule(GuiPackage gui, JMeterTreeNode testPlanNode, Rule rule) {
         if (testPlanNode == null) {
             return null;
         }
@@ -406,12 +406,12 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             if (result != JOptionPane.OK_OPTION) {
                 return null;
             }
-            updated = editor.updatedRule(rule);
             try {
+                updated = editor.updatedRule(rule);
                 HarCorrelationRuleCatalog.storeCustomRulesEverywhere(
                         testPlanNode.getTestElement(), List.of(updated));
                 break;
-            } catch (IOException ex) {
+            } catch (IOException | IllegalArgumentException ex) {
                 JMeterUtils.reportErrorToUser(
                         ex.getMessage(), JMeterUtils.getResString("try_predefined_correlations_edit_title"));
             }
@@ -964,13 +964,36 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
         String value = reference.startsWith("${__urldecode(")
                 ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
-        if (sampler instanceof HTTPSamplerBase httpSampler) {
-            return RecordedValueReplacer.replaceSampler(httpSampler, value, reference);
+        if (correlation.getRule().getReplacementFilter().unrestricted() && sampler instanceof HTTPSamplerBase http) {
+            return RecordedValueReplacer.replaceSampler(http, value, reference);
         }
-        // Non-HTTP samplers (including WebSocket URLs) expose raw text fields.
         int count = 0;
+        boolean decodedHeader = reference.startsWith("${__urldecode(");
+        boolean rawBody = sampler instanceof HTTPSamplerBase http && http.getSendParameterValuesAsPostBody();
+        if (rawBody && !decodedHeader) {
+            HTTPSamplerBase http = (HTTPSamplerBase) sampler;
+            StringBuilder body = new StringBuilder();
+            http.getArguments().forEach(property -> body.append(((HTTPArgument) property.getObjectValue()).getValue()));
+            String text = body.toString();
+            String updated = CorrelationReplacementFilter.replace(text, correlation.getRule().getReplacementFilter()
+                    .matches(text, value, reference, false, HarPredefinedCorrelation.RequestLocation.REQUEST_BODY, ""));
+            if (!updated.equals(text)) {
+                http.getArguments().removeAllArguments();
+                http.addNonEncodedArgument("", updated, "");
+                count++;
+            }
+        }
+        Map<String, Integer> rows = new LinkedHashMap<>();
         for (var field : sampler.getReplaceableFields()) {
-            String replaced = RecordedValueReplacer.replace(field.value(), value, reference, false);
+            int row = rows.merge(field.name(), 1, Integer::sum) - 1;
+            if (rawBody && field.name().startsWith("Parameter") || decodedHeader && !field.name().equals("Header value")) {
+                continue;
+            }
+            boolean decoded = sampler instanceof HTTPSamplerBase http && field.name().equals("Parameter value")
+                    && !http.getPostBodyRaw() && !http.getSendParameterValuesAsPostBody()
+                    && ((HTTPArgument) http.getArguments().getArgument(row)).isAlwaysEncoded();
+            String replaced = CorrelationReplacementFilter.replace(field.value(), correlation.getRule().getReplacementFilter()
+                    .samplerMatches(sampler, field.name(), row, field.value(), value, reference, decoded));
             if (!replaced.equals(field.value())) {
                 field.setValue(replaced);
                 count++;

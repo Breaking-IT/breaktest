@@ -362,6 +362,10 @@ final class HarCorrelationRuleCatalog {
                 ruleNode.put("template", rule.getTemplate());
                 ruleNode.put("maxMatches", rule.getMaxMatches());
                 ruleNode.put("minValueLength", rule.getMinValueLength());
+                ArrayNode scopes = ruleNode.putArray("replacementScope");
+                rule.getReplacementFilter().scopes().forEach(scope -> scopes.add(scope.name()));
+                ruleNode.put("replacementWholeValue", rule.getReplacementFilter().wholeValue());
+                ruleNode.put("replacementFieldPattern", rule.getReplacementFilter().fieldPattern());
                 if (!rule.getExtractorSettings().isEmpty()) {
                     ObjectNode settings = ruleNode.putObject("extractorSettings");
                     rule.getExtractorSettings().forEach(settings::put);
@@ -441,12 +445,29 @@ final class HarCorrelationRuleCatalog {
                 settings.put(field.getKey(), field.getValue().asText());
             }
         }
+        CorrelationReplacementFilter filter;
+        try {
+            Set<CorrelationReplacementFilter.Scope> scopes = new LinkedHashSet<>();
+            JsonNode scopeNode = node.path("replacementScope");
+            if (scopeNode.isArray()) {
+                for (JsonNode scope : scopeNode) {
+                    scopes.add(CorrelationReplacementFilter.Scope.valueOf(scope.asText()));
+                }
+            } else if (!scopeNode.isMissingNode() && !scopeNode.isNull()) {
+                scopes.add(CorrelationReplacementFilter.Scope.valueOf(scopeNode.asText()));
+            }
+            filter = new CorrelationReplacementFilter(scopes,
+                    node.path("replacementWholeValue").asBoolean(false),
+                    node.path("replacementFieldPattern").asText(""));
+        } catch (IllegalArgumentException ex) {
+            throw new IOException("Invalid replacement filter for rule " + id + ": " + ex.getMessage(), ex);
+        }
         return new Rule(
                 id, group, name, variableName, extractorType, responseField, expression, template,
                 maxMatches, minValueLength,
                 node.path("defaultValue").asText(""), node.path("emptyDefaultValue").asBoolean(false),
                 node.path("computeConcatenation").asBoolean(false),
-                node.path("failOnNoMatch").asBoolean(true), settings);
+                node.path("failOnNoMatch").asBoolean(true), settings).withReplacementFilter(filter);
     }
 
     private static void validateGroup(String group, String context) throws IOException {
