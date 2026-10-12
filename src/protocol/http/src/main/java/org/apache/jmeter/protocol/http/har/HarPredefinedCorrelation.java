@@ -436,6 +436,10 @@ final class HarPredefinedCorrelation {
                 .distinct().toList();
     }
 
+    static List<Rule> correlationRules(List<HarPredefinedCorrelation> correlations) {
+        return correlations.stream().map(HarPredefinedCorrelation::getRule).distinct().toList();
+    }
+
     static void checkCancelled() {
         if (Thread.currentThread().isInterrupted()) {
             throw new CancellationException("Correlation scan cancelled");
@@ -765,6 +769,13 @@ final class HarPredefinedCorrelation {
                                 equals < 0 ? "" : parameter.substring(equals + 1), extractedValue, rule);
                     }
                 }
+            }
+        }
+        if (!entry.isWebSocket() && rule.getReplacementFilter().unrestricted()
+                && result.stream().noneMatch(replacement -> replacement.getLocation() == RequestLocation.QUERY_PARAMETER)) {
+            String query = urlQuery(entry.getUrl());
+            if (query != null && !rule.getReplacementFilter().urlFieldMatches("?" + query, extractedValue, "", false).isEmpty()) {
+                addReplacement(result, entry, RequestLocation.QUERY_PARAMETER, "", query, extractedValue, rule);
             }
         }
         PostData postData = entry.getPostData();

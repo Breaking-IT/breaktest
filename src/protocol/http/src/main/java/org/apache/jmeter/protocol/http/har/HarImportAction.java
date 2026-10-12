@@ -136,6 +136,7 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
                     expanded.forEach(tree::expandPath);
                     expandImportedThreadGroup(tree, importedThreadGroup);
                     mainFrame.hideLoadingOverlay();
+                    CorrelationReviewDialog.showWarnings(guiPackage, converter.getCorrelationWarnings());
                     reviewImportedCorrelations(guiPackage, options, converted);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();

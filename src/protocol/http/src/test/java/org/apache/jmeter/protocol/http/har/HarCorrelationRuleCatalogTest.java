@@ -65,6 +65,26 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void movingPreservesEachCatalogsVersionAndMembership() throws Exception {
+        Path file = tempDir.resolve("isolated.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        Rule shared = regexRule("both", "shared", "shared=(.+)", "$1$", 1, false);
+        Rule local = regexRule("both", "local", "local=(.+)", "$1$", 2, true);
+        Rule sharedOnly = regexRule("shared-only", "shared", "shared=(.+)", "$1$", 1, false);
+        Rule localOnly = regexRule("local-only", "local", "local=(.+)", "$1$", 1, false);
+        Files.write(file, HarCorrelationRuleCatalog.serialize(List.of(shared, sharedOnly)));
+        TestPlan plan = new TestPlan();
+        HarCorrelationRuleCatalog.storeCustomRules(plan, List.of(local, localOnly));
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan,
+                Map.of("both", "Moved", "shared-only", "Moved", "local-only", "Moved"));
+        assertEquals(new String(HarCorrelationRuleCatalog.serialize(List.of(shared.withGroup("Moved"), sharedOnly.withGroup("Moved"))),
+                StandardCharsets.UTF_8), Files.readString(file));
+        assertEquals(new String(HarCorrelationRuleCatalog.serialize(List.of(local.withGroup("Moved"), localOnly.withGroup("Moved"))),
+                StandardCharsets.UTF_8), new String(HarCorrelationRuleCatalog.serialize(HarCorrelationRuleCatalog.loadCustomRules(plan)),
+                        StandardCharsets.UTF_8));
+    }
+
+    @Test
     void editingAndDeletingOtherRulesPreservesInvalidPatternsInBothStores() throws Exception {
         String config = """
                 {"format":"breaktest-predefined-correlations-v1","rules":[{

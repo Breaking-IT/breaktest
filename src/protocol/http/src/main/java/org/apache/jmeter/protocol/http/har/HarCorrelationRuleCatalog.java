@@ -225,13 +225,30 @@ final class HarCorrelationRuleCatalog {
     }
 
     static void moveCustomRulesEverywhere(TestElement testPlan, Map<String, String> destinations) throws IOException {
-        List<Rule> stored = merge(loadStoredCustomRules(), testPlan == null ? List.of() : loadCustomRules(testPlan));
-        List<Rule> moved = stored.stream().filter(rule -> destinations.containsKey(rule.getId()))
-                .map(rule -> rule.withGroup(destinations.get(rule.getId()))).toList();
-        if (moved.size() != destinations.size()) {
+        rejectBuiltInIds(List.copyOf(destinations.keySet()));
+        List<Rule> shared = loadStoredCustomRules();
+        List<Rule> local = testPlan == null ? List.of() : loadCustomRules(testPlan);
+        Set<String> knownIds = new LinkedHashSet<>();
+        shared.forEach(rule -> knownIds.add(rule.getId()));
+        local.forEach(rule -> knownIds.add(rule.getId()));
+        if (!knownIds.containsAll(destinations.keySet())) {
             throw new IOException("Cannot move an unknown custom correlation rule");
         }
-        persistCustomRulesEverywhere(testPlan, moved);
+        byte[] sharedContent = serialize(movedRules(shared, destinations));
+        byte[] localContent = serialize(movedRules(local, destinations));
+        parse(sharedContent, true);
+        parse(localContent, true);
+        if (shared.stream().anyMatch(rule -> destinations.containsKey(rule.getId()))) {
+            storeConfiguredCustomRules(sharedContent);
+        }
+        if (testPlan != null && local.stream().anyMatch(rule -> destinations.containsKey(rule.getId()))) {
+            registerCustomRules(testPlan, localContent);
+        }
+    }
+
+    private static List<Rule> movedRules(List<Rule> rules, Map<String, String> destinations) {
+        return rules.stream().map(rule -> destinations.containsKey(rule.getId())
+                ? rule.withGroup(destinations.get(rule.getId())) : rule).toList();
     }
 
     private static void persistCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {

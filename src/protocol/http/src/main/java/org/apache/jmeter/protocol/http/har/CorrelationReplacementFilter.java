@@ -321,6 +321,12 @@ final class CorrelationReplacementFilter {
     }
 
     List<Match> urlFieldMatches(String text, String value, String reference, boolean fullUrl) {
+        if (unrestricted()) {
+            // Default rules retain opaque URL matching, including bare queries and delimiter-spanning values.
+            // Explicit name=value keys still remain literal.
+            return RecordedValueReplacer.matches(text, value, reference, false).stream()
+                    .filter(match -> !isQueryName(text, match)).toList();
+        }
         List<Match> result = new ArrayList<>(urlMatches(text, value, reference, RequestLocation.URL_PATH));
         result.addAll(urlMatches(text, value, reference, RequestLocation.QUERY_PARAMETER));
         if (fullUrl) {
@@ -328,6 +334,20 @@ final class CorrelationReplacementFilter {
         }
         result.sort(java.util.Comparator.comparingInt(Match::start));
         return result;
+    }
+
+    private static boolean isQueryName(String text, Match match) {
+        var parts = urlParts(text);
+        if (parts.query() < 0 || match.start() <= parts.query() || match.end() > parts.urlEnd()) {
+            return false;
+        }
+        int start = Math.max(parts.query(), text.lastIndexOf('&', match.start() - 1)) + 1;
+        int end = text.indexOf('&', start);
+        if (end < 0 || end > parts.urlEnd()) {
+            end = parts.urlEnd();
+        }
+        int equals = text.indexOf('=', start);
+        return equals >= start && equals < end && match.end() <= equals;
     }
 
     private void appendMatches(List<Match> result, String text, int offset, String value, String reference,

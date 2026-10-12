@@ -507,6 +507,9 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                     JMeterUtils.getResString("find_predefined_correlations_split_skipped"),
                     applied.skippedCount());
         }
+        if (!applied.warnings().isEmpty()) {
+            message += "\n\n" + String.join("\n", applied.warnings());
+        }
         JMeterUtils.reportInfoToUser(message,
                 JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
     }
@@ -885,6 +888,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
 
     private static ApplyResult apply(GuiPackage gui, List<HarPredefinedCorrelation> correlations,
             Map<Integer, JMeterTreeNode> nodesByEntryIndex) {
+        var rules = HarPredefinedCorrelation.correlationRules(correlations);
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
         int extractorCount = 0;
         int replacementCount = 0;
         int skippedCount = 0;
@@ -935,7 +940,8 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
         gui.refreshCurrentGui();
         gui.getMainFrame().repaint();
-        return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount);
+        return new ApplyResult(extractorCount, replacementCount, split.movedRequests(), skippedCount,
+                HarPredefinedCorrelation.diagnostics(rules));
     }
 
     static int acceptReviewSteps(GuiPackage gui, List<CorrelationReviewStep> requested,
@@ -1123,7 +1129,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     }
 
     private record ApplyResult(int extractorCount, int replacementCount, int movedRequestCount,
-            int skippedCount) {
+            int skippedCount, List<String> warnings) {
     }
 
     private record ThreadGroupChoice(JMeterTreeNode node, String label) {

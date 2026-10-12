@@ -96,6 +96,7 @@ public final class HarConverter {
     private int sseSessionCounter;
     private final Map<Integer, String> webSocketSessionNames = new HashMap<>();
     private int parallelCounter;
+    private List<String> correlationWarnings = List.of();
 
     public HarConverter(List<HarEntry> entries, HarImportOptions options, String harName, String harMd5) {
         this.entries = entries;
@@ -146,6 +147,10 @@ public final class HarConverter {
     // Conversion entry point
     // ---------------------------------------------------------------------
 
+    public List<String> getCorrelationWarnings() {
+        return correlationWarnings;
+    }
+
     /**
      * Build the test-plan sub-tree for the given selected hostnames.
      *
@@ -155,6 +160,9 @@ public final class HarConverter {
      *         be inserted directly under the Test Plan node
      */
     public HashTree convert(Set<String> selectedHostnames) {
+        var rules = HarPredefinedCorrelation.correlationRules(options.getPredefinedCorrelations());
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
+        correlationWarnings = List.of();
         List<HarEntry> kept = new ArrayList<>();
         for (HarEntry entry : entries) {
             String host = hostnameOf(entry.getUrl());
@@ -209,6 +217,7 @@ public final class HarConverter {
         for (int i = 0; i < transactions.size(); i++) {
             populateTransaction(threadGroupHt, transactions.get(i), commonHeadersLower, i == 0);
         }
+        correlationWarnings = HarPredefinedCorrelation.diagnostics(rules);
         return tree;
     }
 

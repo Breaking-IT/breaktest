@@ -75,15 +75,43 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
     }
 
     @Test
+    void defaultUrlsRetainOpaqueAndDelimiterSpanningValues() {
+        for (String token : List.of("abc123token", "abc&def=ghi", "abc=def")) {
+            var socket = new WebSocketConnectSampler();
+            socket.setUrl("wss://example.test/socket?" + token);
+            apply(socket, token, rule(CorrelationReplacementFilter.ALL), true);
+            assertEquals("wss://example.test/socket?${token}", socket.getUrl());
+            var http = new HTTPSamplerProxy();
+            http.setProtocol("https");
+            http.setDomain("example.test");
+            http.setMethod("POST");
+            http.setPath("/target?" + token);
+            var source = FindPredefinedCorrelationsAction.toHarEntry(http, "", "token=" + token + ";", 0);
+            var consumer = FindPredefinedCorrelationsAction.toHarEntry(http, "", "", 1);
+            var found = HarPredefinedCorrelation.find(List.of(source, consumer), List.of(rule(CorrelationReplacementFilter.ALL)));
+            assertEquals(1, found.size());
+            var options = new HarImportOptions();
+            options.setPredefinedCorrelations(found);
+            var tree = new HarConverter(List.of(source, consumer), options, "opaque.har", "md5")
+                    .convert(java.util.Set.of("example.test"));
+            var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
+            tree.traverse(samplers);
+            assertTrue(samplers.getSearchResults().stream().anyMatch(sampler -> sampler.getPath().equals("/target?${token}")));
+        }
+        var filtered = new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.QUERY_PARAMETERS, true, "");
+        assertTrue(filtered.urlFieldMatches("wss://example.test/?abc123token", "abc123token", "${token}", true).isEmpty());
+    }
+
+    @Test
     void webSocketQueryNamesStayLiteralAndRepeatedValuesProduceOneCandidatePerField() {
         for (boolean review : List.of(false, true)) {
             var socket = new WebSocketConnectSampler();
             socket.setUrl("wss://example.test/socket?id&id=id&id=id&other=id");
             var found = find(socket, "id", rule(CorrelationReplacementFilter.ALL));
-            assertEquals(List.of("id", "other"), found.get(0).getReplacements().stream()
+            assertEquals(List.of("", "id", "other"), found.get(0).getReplacements().stream()
                     .map(HarPredefinedCorrelation.Replacement::getLocationName).toList());
             apply(socket, "id", rule(CorrelationReplacementFilter.ALL), review);
-            assertEquals("wss://example.test/socket?id&id=${token}&id=${token}&other=${token}", socket.getUrl());
+            assertEquals("wss://example.test/socket?${token}&id=${token}&id=${token}&other=${token}", socket.getUrl());
             var message = new WebSocketSendWaitSampler();
             message.setPayload("id ".repeat(100));
             var correlations = find(message, "id", rule(CorrelationReplacementFilter.ALL));
@@ -194,8 +222,14 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
         pending.addAll(found);
         var options = new HarImportOptions();
         options.setPredefinedCorrelations(pending);
-        var tree = new HarConverter(List.of(sourceEntry, targetEntry), options, "patterns.har", "md5")
-                .convert(java.util.Set.of("example.test"));
+        var prepared = CorrelationReviewDialog.prepare(pending, Map.of(1, new JMeterTreeNode(target, null)));
+        assertEquals(1, prepared.warnings().size());
+        assertTrue(prepared.warnings().get(0).contains("work limit"));
+        var converter = new HarConverter(List.of(sourceEntry, targetEntry), options, "patterns.har", "md5");
+        var tree = converter.convert(java.util.Set.of("example.test"));
+        assertEquals(prepared.warnings(), converter.getCorrelationWarnings());
+        slow.getReplacementFilter().clearMatchingDiagnostic();
+        assertEquals(1, converter.getCorrelationWarnings().size(), "Import warning is a snapshot");
         var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
         tree.traverse(samplers);
         assertEquals("a".repeat(2000) + "!${good}", samplers.getSearchResults().stream()
@@ -207,6 +241,7 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
             }
         }
         assertEquals("a".repeat(2000) + "!${good}", target.getArguments().getArgument(0).getValue());
+        assertTrue(HarPredefinedCorrelation.diagnostics(List.of(slow)).get(0).contains("work limit"));
     }
 
     @Test
@@ -231,9 +266,9 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
         var tree = new HarConverter(entries, options, "messages.har", "md5").convert(java.util.Set.of("example.test", "recorded-token.example.test"));
         var samplers = new org.apache.jorphan.collections.SearchByClass<>(WebSocketConnectSampler.class);
         tree.traverse(samplers);
-        assertEquals("wss://${token}.example.test/socket?recorded-token=${token}&recorded-token#${token}",
+        assertEquals("wss://${token}.example.test/socket?recorded-token=${token}&${token}#${token}",
                 samplers.getSearchResults().iterator().next().getUrl());
-        assertEquals(2, correlations.get(0).getReplacements().size());
+        assertEquals(3, correlations.get(0).getReplacements().size());
         assertEquals("recorded-token", correlations.get(0).getReplacements().stream()
                 .filter(replacement -> replacement.getLocation() == RequestLocation.QUERY_PARAMETER)
                 .findFirst().orElseThrow().getLocationName());
