@@ -26,28 +26,48 @@ import javax.swing.tree.TreePath;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.PostThreadGroup;
+import org.apache.jmeter.threads.SetupThreadGroup;
 
 public interface TreeState {
 
-    /** Reveal thread groups, expanding a group only when it is the only one in the plan. */
-    static void expandThreadGroups(JTree tree) {
+    /** Apply the initial view when opening a plan, unless the user requested the whole tree. */
+    static void initializeLoadedTree(JTree tree, boolean expandWholeTree) {
+        if (expandWholeTree) {
+            for (int i = 0; i < tree.getRowCount(); i++) {
+                tree.expandRow(i);
+            }
+            return;
+        }
+        tree.expandRow(0);
         Object root = tree.getModel().getRoot();
         if (!(root instanceof JMeterTreeNode treeRoot)) {
             return;
         }
         List<TreePath> threadGroups = new ArrayList<>();
+        List<TreePath> runnableGroups = new ArrayList<>();
         for (var nodes = treeRoot.preorderEnumeration(); nodes.hasMoreElements();) {
             JMeterTreeNode treeNode = (JMeterTreeNode) nodes.nextElement();
             if (treeNode.getTestElement() instanceof AbstractThreadGroup) {
-                threadGroups.add(new TreePath(treeNode.getPath()));
+                TreePath path = new TreePath(treeNode.getPath());
+                threadGroups.add(path);
+                boolean enabled = true;
+                for (Object ancestor : path.getPath()) {
+                    if (ancestor instanceof JMeterTreeNode parent && !parent.isEnabled()) {
+                        enabled = false;
+                    }
+                }
+                if (enabled && !(treeNode.getTestElement() instanceof SetupThreadGroup)
+                        && !(treeNode.getTestElement() instanceof PostThreadGroup)) {
+                    runnableGroups.add(path);
+                }
             } else if (treeNode.getTestElement() instanceof ThreadGroupsSection) {
                 tree.expandPath(new TreePath(treeNode.getPath()));
             }
         }
-        if (threadGroups.size() == 1) {
-            tree.expandPath(threadGroups.get(0));
-        } else {
-            threadGroups.forEach(tree::collapsePath);
+        threadGroups.forEach(tree::collapsePath);
+        if (runnableGroups.size() == 1) {
+            tree.expandPath(runnableGroups.get(0));
         }
     }
 

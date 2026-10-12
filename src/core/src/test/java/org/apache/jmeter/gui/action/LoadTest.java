@@ -58,6 +58,9 @@ import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.PostThreadGroup;
+import org.apache.jmeter.threads.SetupThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.gui.AbstractVisualizer;
@@ -95,7 +98,7 @@ class LoadTest {
         tree.setSelectionPath(planPath);
         tree.collapsePath(planPath);
 
-        TreeState.expandThreadGroups(tree);
+        TreeState.initializeLoadedTree(tree, false);
 
         assertEquals(planPath, tree.getSelectionPath());
         if (groupCount > 0) {
@@ -108,6 +111,33 @@ class LoadTest {
             JMeterTreeNode transaction = (JMeterTreeNode) group.getChildAt(0);
             assertFalse(tree.isExpanded(new TreePath(transaction.getPath())));
             assertEquals(groupCount == 1, tree.isVisible(new TreePath(transaction.getPath())));
+        }
+    }
+
+    @Test
+    void initialViewCountsOnlyEnabledOrdinaryGroupsAndHonorsExpandAll() {
+        JMeterTreeModel model = new JMeterTreeModel(new TestPlan("Plan"));
+        JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
+        ThreadGroup disabled = new ThreadGroup();
+        disabled.setEnabled(false);
+        List<JMeterTreeNode> groups = new java.util.ArrayList<>();
+        for (AbstractThreadGroup element : List.of(new ThreadGroup(), new SetupThreadGroup(), new PostThreadGroup(), disabled)) {
+            JMeterTreeNode group = new JMeterTreeNode(element, model);
+            JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);
+            transaction.add(new JMeterTreeNode(new ConfigTestElement(), model));
+            group.add(transaction);
+            plan.add(group);
+            groups.add(group);
+        }
+        JTree tree = new JTree(model);
+        TreeState.initializeLoadedTree(tree, false);
+        for (int i = 0; i < groups.size(); i++) {
+            assertEquals(i == 0, tree.isExpanded(new TreePath(groups.get(i).getPath())));
+        }
+        TreeState.initializeLoadedTree(tree, true);
+        for (JMeterTreeNode group : groups) {
+            assertTrue(tree.isExpanded(new TreePath(group.getPath())));
+            assertTrue(tree.isExpanded(new TreePath(((JMeterTreeNode) group.getChildAt(0)).getPath())));
         }
     }
 

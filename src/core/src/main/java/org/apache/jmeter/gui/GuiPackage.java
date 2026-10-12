@@ -668,7 +668,9 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 }
                 if (currentNodeEdited && (!historyEnabled || before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
-                    if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments)) {
+                    if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments
+                            || el instanceof Profile || el instanceof org.apache.jmeter.scenario.SharedProfile
+                            || el instanceof org.apache.jmeter.scenario.Scenario)) {
                         // Transaction tree labels can summarize delays backed by Test Plan/User Defined
                         // Variables. Recalculate cached row widths when those values change.
                         mainFrame.getTree().treeDidChange();

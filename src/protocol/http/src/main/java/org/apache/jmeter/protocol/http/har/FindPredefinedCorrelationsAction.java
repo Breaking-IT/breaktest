@@ -131,9 +131,10 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                         exportCustomRules(gui, rules);
                     }
                 });
-        rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rule -> {
+        rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rules -> {
             try {
-                HarCorrelationRuleCatalog.deleteCustomRule(testPlan, rule.getId());
+                HarCorrelationRuleCatalog.deleteCustomRules(testPlan, rules.stream()
+                        .map(Rule::getId).collect(java.util.stream.Collectors.toSet()));
                 if (testPlanNode != null) {
                     gui.getTreeModel().nodeChanged(testPlanNode);
                     gui.setDirty(true);

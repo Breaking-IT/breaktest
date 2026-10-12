@@ -495,15 +495,10 @@ public class Load extends AbstractActionWithNoRunningTest {
 
         ActionRouter.getInstance().actionPerformed(actionEvent);
         final JTree jTree = guiInstance.getMainFrame().getTree();
-        if (EXPAND_TREE && !merging) { // don't automatically expand when merging
-            for(int i = 0; i < jTree.getRowCount(); i++) {
-                jTree.expandRow(i);
-            }
+        if (!merging) {
+            TreeState.initializeLoadedTree(jTree, EXPAND_TREE);
         } else {
             jTree.expandRow(0);
-        }
-        if (!merging) {
-            TreeState.expandThreadGroups(jTree);
         }
         jTree.setSelectionPath(jTree.getPathForRow(1));
         FocusRequester.requestFocus(jTree);

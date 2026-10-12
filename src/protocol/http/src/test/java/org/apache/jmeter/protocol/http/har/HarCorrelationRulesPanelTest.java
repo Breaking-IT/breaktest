@@ -123,7 +123,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         List<Rule> deleted = new ArrayList<>();
         HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
                 List.of(first, second, other), Set.of("first", "second", "other"), null, null);
-        panel.configureManagement(Set.of("second", "other"), deleted::add);
+        panel.configureManagement(Set.of("second", "other"), deleted::addAll, selected -> true);
 
         ((JMenuItem) panel.createGroupPopup("Custom").getComponent(0)).doClick();
 
@@ -140,7 +140,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
                 List.of(builtIn, custom), Set.of("custom"), null, null);
         List<Rule> deleted = new ArrayList<>();
-        panel.configureManagement(Set.of(), deleted::add);
+        panel.configureManagement(Set.of(), deleted::addAll, selected -> true);
         panel.setCustomOnly(true);
 
         ((JMenuItem) panel.createGroupPopup("Mixed").getComponent(0)).doClick();
@@ -152,7 +152,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
     }
 
     @Test
-    void groupDeletionStopsOnPersistenceFailureAndKeepsRemainingRules() {
+    void groupDeletionKeepsAllRulesOnPersistenceFailure() {
         Rule first = rule("first", "Custom", 1);
         Rule second = rule("second", "Custom", 1);
         Rule third = rule("third", "Custom", 1);
@@ -160,15 +160,15 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
                 List.of(first, second, third), Set.of("first", "second", "third"), null, null);
         assertEquals(0, panel.createGroupPopup("Custom").getComponentCount());
         List<Rule> attempted = new ArrayList<>();
-        panel.configureManagement(Set.of("second"), rule -> {
-            attempted.add(rule);
-            return rule == first;
-        });
+        panel.configureManagement(Set.of("second"), selected -> {
+            attempted.addAll(selected);
+            return false;
+        }, selected -> true);
 
         ((JMenuItem) panel.createGroupPopup("Custom").getComponent(0)).doClick();
 
-        assertEquals(List.of(first, second), attempted);
-        assertEquals(List.of(second, third), panel.getCustomRules());
+        assertEquals(List.of(first, second, third), attempted);
+        assertEquals(List.of(first, second, third), panel.getCustomRules());
         assertEquals(Set.of("second"), panel.getDisabledRuleIds());
     }
 
@@ -182,7 +182,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
                 List.of(first, unselected, second, builtIn), Set.of("first", "unselected", "second"), null, null);
         List<Rule> deleted = new ArrayList<>();
-        panel.configureManagement(Set.of("second"), deleted::add);
+        panel.configureManagement(Set.of("second"), deleted::addAll, selected -> true);
         JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
                 .findFirst().orElseThrow();
         DefaultMutableTreeNode group = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
@@ -215,7 +215,7 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
                 List.of(first, second), Set.of("first", "second"), null, null);
         List<Rule> deleted = new ArrayList<>();
-        panel.configureManagement(Set.of(), deleted::add);
+        panel.configureManagement(Set.of(), deleted::addAll, selected -> true);
         JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
                 .findFirst().orElseThrow();
         DefaultMutableTreeNode group = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
@@ -229,6 +229,52 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         ((JMenuItem) popup.getComponent(0)).doClick();
         assertEquals(List.of(second), deleted);
         assertEquals(List.of(first), panel.getCustomRules());
+    }
+
+    @Test
+    void cancelledGroupDeletionDoesNotWriteOrChangeSelection() {
+        Rule first = rule("first", "Custom", 1);
+        Rule second = rule("second", "Custom", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, second), Set.of("first", "second"), null, null);
+        List<List<Rule>> confirmations = new ArrayList<>();
+        panel.configureManagement(Set.of("second"), selected -> {
+            throw new AssertionError("Cancelled deletion must not persist anything");
+        }, selected -> {
+            confirmations.add(selected);
+            return false;
+        });
+        ((JMenuItem) panel.createGroupPopup("Custom").getComponent(0)).doClick();
+        assertEquals(List.of(List.of(first, second)), confirmations);
+        assertEquals(List.of(first, second), panel.getCustomRules());
+        assertEquals(Set.of("second"), panel.getDisabledRuleIds());
+    }
+
+    @Test
+    void multipleSelectionSummarizesRulesDisablesEditAndTogglesTogether() {
+        Rule first = rule("first", "Custom", 1);
+        Rule second = rule("second", "Custom", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, second), Set.of("first", "second"), rule -> rule, null);
+        panel.configureManagement(Set.of("second"), null);
+        JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
+                .findFirst().orElseThrow();
+        DefaultMutableTreeNode group = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
+        tree.setSelectionPaths(new TreePath[] {
+                new TreePath(((DefaultMutableTreeNode) group.getChildAt(0)).getPath()),
+                new TreePath(((DefaultMutableTreeNode) group.getChildAt(1)).getPath())});
+        JButton edit = descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)
+                .filter(button -> JMeterUtils.getResString("try_predefined_correlations_edit_custom").equals(button.getText()))
+                .findFirst().orElseThrow();
+        org.junit.jupiter.api.Assertions.assertFalse(edit.isEnabled());
+        javax.swing.JTable details = descendants(panel).stream().filter(javax.swing.JTable.class::isInstance)
+                .map(javax.swing.JTable.class::cast).findFirst().orElseThrow();
+        assertEquals("Selected rules", details.getValueAt(0, 0));
+        assertEquals(2, details.getValueAt(0, 1));
+        tree.getActionMap().get("toggleRule").actionPerformed(null);
+        assertEquals(Set.of(), panel.getDisabledRuleIds());
+        tree.getActionMap().get("toggleRule").actionPerformed(null);
+        assertEquals(Set.of("first", "second"), panel.getDisabledRuleIds());
     }
 
     private static List<Component> descendants(Container container) {

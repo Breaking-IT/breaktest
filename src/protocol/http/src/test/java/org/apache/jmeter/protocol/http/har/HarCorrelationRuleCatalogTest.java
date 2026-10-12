@@ -137,6 +137,31 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void bulkDeletionValidatesBeforeWritingAndPreservesBothStoresOnFailure() throws Exception {
+        Path file = tempDir.resolve("custom.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        TestPlan plan = new TestPlan("Plan");
+        Rule first = regexRule("first", "value", "value=(.+)", "$1$", 1, false);
+        Rule second = regexRule("second", "value", "value=(.+)", "$1$", 1, false);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(first, second));
+        byte[] before = Files.readAllBytes(file);
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRules(plan,
+                Set.of(first.getId(), HarCorrelationRuleCatalog.builtInRules().get(0).getId())));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(file));
+        assertEquals(2, HarCorrelationRuleCatalog.loadCustomRules(plan).size());
+        Files.delete(file);
+        Files.createDirectory(file);
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRules(plan,
+                Set.of(first.getId(), second.getId())));
+        assertEquals(2, HarCorrelationRuleCatalog.loadCustomRules(plan).size());
+        Files.delete(file);
+        Files.write(file, before);
+        HarCorrelationRuleCatalog.deleteCustomRules(plan, Set.of(first.getId(), second.getId()));
+        assertTrue(HarCorrelationRuleCatalog.readRulesFile(file).isEmpty());
+        assertTrue(HarCorrelationRuleCatalog.loadCustomRules(plan).isEmpty());
+    }
+
+    @Test
     void deletesCustomRulesFromSharedCatalogAndArchiveButProtectsBuiltIns() throws Exception {
         JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY,
                 tempDir.resolve("custom.json").toString());

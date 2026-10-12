@@ -38,7 +38,10 @@ import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.JTree;
 import javax.swing.border.Border;
+import javax.swing.event.TreeModelEvent;
+import javax.swing.event.TreeModelListener;
 import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreeNode;
 
 import org.apache.jmeter.config.Arguments;
@@ -50,12 +53,14 @@ import org.apache.jmeter.scenario.NonTestElementsSection;
 import org.apache.jmeter.scenario.Profile;
 import org.apache.jmeter.scenario.ProfilesSection;
 import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.ScenarioWorkload;
 import org.apache.jmeter.scenario.ScenariosSection;
 import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -76,6 +81,45 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     private static final Pattern SIMPLE_VARIABLE = Pattern.compile("\\$\\{([^{}]+)}");
 
     private String delaySummary;
+    private transient TreeModel previewModel;
+    private final Map<JMeterTreeNode, PreviewVariables> previews = new LinkedHashMap<>();
+    private final TreeModelListener previewInvalidator = new TreeModelListener() {
+        @Override
+        public void treeNodesChanged(TreeModelEvent event) {
+            previews.clear();
+        }
+        @Override
+        public void treeNodesInserted(TreeModelEvent event) {
+            previews.clear();
+        }
+        @Override
+        public void treeNodesRemoved(TreeModelEvent event) {
+            previews.clear();
+        }
+        @Override
+        public void treeStructureChanged(TreeModelEvent event) {
+            previews.clear();
+        }
+    };
+
+    String cachedDelaySummary(JTree tree, JMeterTreeNode node) {
+        if (previewModel != tree.getModel()) {
+            if (previewModel != null) {
+                previewModel.removeTreeModelListener(previewInvalidator);
+            }
+            previewModel = tree.getModel();
+            previewModel.addTreeModelListener(previewInvalidator);
+            previews.clear();
+        }
+        if (!(node.getTestElement() instanceof TransactionController transaction)
+                || TransactionController.DELAY_DISABLED.equals(transaction.getDelayMode())) {
+            return null;
+        }
+        JMeterTreeNode plan = ancestor(node, TestPlan.class);
+        Map<String, String> variables = plan == null ? Map.of()
+                : previews.computeIfAbsent(plan, PreviewVariables::new).forNode(node);
+        return delaySummary(node, variables);
+    }
 
     /** "Active" scenario or "Default" profile: which one of its kind is used, shown as a pill after the name */
     private String statusBadge;
@@ -91,7 +135,8 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded,
             boolean leaf, int row, boolean p_hasFocus) {
         JMeterTreeNode node = (JMeterTreeNode) value;
-        this.delaySummary = delaySummary(node);
+        this.delaySummary = cachedDelaySummary(tree, node);
+        setToolTipText(delaySummary == null ? null : JMeterUtils.getResString("transaction_delay_preview_tooltip"));
         this.statusBadge = statusBadge(node);
         super.getTreeCellRendererComponent(tree,
                 StringUtilities.isBlank(node.getName()) ? BLANK : node.getName(),
@@ -204,11 +249,15 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
     }
 
     static String delaySummary(JMeterTreeNode node) {
+        JMeterTreeNode plan = ancestor(node, TestPlan.class);
+        return delaySummary(node, plan == null ? Map.of() : new PreviewVariables(plan).forNode(node));
+    }
+
+    private static String delaySummary(JMeterTreeNode node, Map<String, String> variables) {
         TestElement element = node.getTestElement();
         if (!(element instanceof TransactionController)) {
             return null;
         }
-        Map<String, String> variables = testPlanVariables(node);
         String mode = element.getPropertyAsString("TransactionController.delayMode", TransactionController.DELAY_DISABLED);
         long millis;
         if (TransactionController.DELAY_FIXED.equals(mode)) {
@@ -261,48 +310,120 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         return resolveSimpleVariable(replacement.trim(), variables, visited);
     }
 
-    private static Map<String, String> testPlanVariables(JMeterTreeNode node) {
-        JMeterTreeNode testPlanNode = null;
+    private static JMeterTreeNode ancestor(JMeterTreeNode node, Class<?> type) {
         for (TreeNode current = node; current instanceof JMeterTreeNode treeNode; current = current.getParent()) {
-            if (treeNode.getTestElement() instanceof TestPlan) {
-                testPlanNode = treeNode;
-                break;
+            if (type.isInstance(treeNode.getTestElement())) {
+                return treeNode;
             }
         }
-        if (testPlanNode == null) {
-            return Map.of();
-        }
-        Map<String, String> variables = new LinkedHashMap<>();
-        TestPlan testPlan = (TestPlan) testPlanNode.getTestElement();
-        Object builtInVariables = testPlan.getUserDefinedVariablesAsProperty().getObjectValue();
-        if (builtInVariables instanceof Arguments arguments) {
-            variables.putAll(arguments.getArgumentsAsMap());
-        }
-        addDirectVariables(testPlanNode, variables);
-        JMeterTreeNode defaultProfile = null;
-        for (int i = 0; i < testPlanNode.getChildCount(); i++) {
-            JMeterTreeNode section = (JMeterTreeNode) testPlanNode.getChildAt(i);
-            if (!(section.getTestElement() instanceof ProfilesSection) || !section.isEnabled()) {
-                continue;
-            }
-            for (int j = 0; j < section.getChildCount(); j++) {
-                JMeterTreeNode profileNode = (JMeterTreeNode) section.getChildAt(j);
-                if (!profileNode.isEnabled()) {
+        return null;
+    }
+
+    /** Static editor preview: never evaluate functions or read data files while painting. */
+    private static final class PreviewVariables {
+        private final Map<String, String> shared = new LinkedHashMap<>();
+        private final Map<String, JMeterTreeNode> profiles = new LinkedHashMap<>();
+        private final Map<JMeterTreeNode, Map<String, String>> groupVariables = new LinkedHashMap<>();
+        private final List<Scenario> scenarios = new java.util.ArrayList<>();
+        private JMeterTreeNode defaultProfile;
+
+        PreviewVariables(JMeterTreeNode plan) {
+            shared.putAll(((TestPlan) plan.getTestElement()).getUserDefinedVariables());
+            addDirectVariables(plan, shared);
+            for (int i = 0; i < plan.getChildCount(); i++) {
+                JMeterTreeNode section = (JMeterTreeNode) plan.getChildAt(i);
+                if (!section.isEnabled()) {
                     continue;
                 }
-                if (profileNode.getTestElement() instanceof SharedProfile) {
-                    addDirectVariables(profileNode, variables);
-                } else if (profileNode.getTestElement() instanceof Profile profile
-                        && (defaultProfile == null || profile.isDefault()
-                            && !((Profile) defaultProfile.getTestElement()).isDefault())) {
-                    defaultProfile = profileNode;
+                if (section.getTestElement() instanceof ProfilesSection) {
+                    for (int j = 0; j < section.getChildCount(); j++) {
+                        JMeterTreeNode child = (JMeterTreeNode) section.getChildAt(j);
+                        if (!child.isEnabled()) {
+                            continue;
+                        }
+                        if (child.getTestElement() instanceof SharedProfile) {
+                            addDirectVariables(child, shared);
+                        } else if (child.getTestElement() instanceof Profile profile) {
+                            profiles.put(profile.getName(), child);
+                            if (defaultProfile == null || profile.isDefault()
+                                    && !((Profile) defaultProfile.getTestElement()).isDefault()) {
+                                defaultProfile = child;
+                            }
+                        }
+                    }
+                } else if (section.getTestElement() instanceof ScenariosSection) {
+                    for (int j = 0; j < section.getChildCount(); j++) {
+                        JMeterTreeNode child = (JMeterTreeNode) section.getChildAt(j);
+                        if (child.isEnabled() && child.getTestElement() instanceof Scenario scenario) {
+                            scenarios.add(scenario);
+                        }
+                    }
                 }
             }
         }
-        if (defaultProfile != null) {
-            addDirectVariables(defaultProfile, variables);
+
+        Map<String, String> forNode(JMeterTreeNode node) {
+            JMeterTreeNode group = ancestor(node, AbstractThreadGroup.class);
+            return groupVariables.computeIfAbsent(group, this::forGroup);
         }
-        return variables;
+
+        private Map<String, String> forGroup(JMeterTreeNode group) {
+            JMeterTreeNode profile = defaultProfile;
+            if (group != null && !scenarios.isEmpty()) {
+                if (scenarios.size() != 1) {
+                    return Map.of();
+                }
+                String groupId = ((AbstractThreadGroup) group.getTestElement()).getThreadGroupId();
+                Set<JMeterTreeNode> selectedProfiles = new HashSet<>();
+                for (ScenarioWorkload workload : scenarios.get(0).getWorkloads()) {
+                    if (!workload.isEnabled() || !groupId.equals(workload.getThreadGroupId())) {
+                        continue;
+                    }
+                    String name = resolveSimpleVariable(workload.getProfile().trim(), shared, new HashSet<>());
+                    if (name == null) {
+                        return Map.of();
+                    }
+                    JMeterTreeNode selected = name.isBlank() ? defaultProfile : profiles.get(name);
+                    if (!name.isBlank() && selected == null) {
+                        return Map.of();
+                    }
+                    selectedProfiles.add(selected);
+                }
+                if (selectedProfiles.size() != 1) {
+                    return Map.of();
+                }
+                profile = selectedProfiles.iterator().next();
+            }
+            Map<String, String> variables = new LinkedHashMap<>(shared);
+            if (group != null) {
+                addScriptVariables(group, variables);
+            }
+            if (profile != null) {
+                if (((Profile) profile.getTestElement()).isOverridingThreadGroupVariables()) {
+                    addDirectVariables(profile, variables);
+                } else {
+                    Map<String, String> defaults = new LinkedHashMap<>(shared);
+                    addDirectVariables(profile, defaults);
+                    if (group != null) {
+                        addScriptVariables(group, defaults);
+                    }
+                    variables = defaults;
+                }
+            }
+            return variables;
+        }
+    }
+
+    private static void addScriptVariables(JMeterTreeNode parent, Map<String, String> variables) {
+        if (!parent.isEnabled()) {
+            return;
+        }
+        if (parent.getTestElement().getClass() == Arguments.class) {
+            variables.putAll(((Arguments) parent.getTestElement()).getArgumentsAsMap());
+        }
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            addScriptVariables((JMeterTreeNode) parent.getChildAt(i), variables);
+        }
     }
 
     private static void addDirectVariables(JMeterTreeNode parent, Map<String, String> variables) {

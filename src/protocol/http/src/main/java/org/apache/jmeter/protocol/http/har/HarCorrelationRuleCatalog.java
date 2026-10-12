@@ -132,14 +132,23 @@ final class HarCorrelationRuleCatalog {
     }
 
     static void deleteCustomRule(TestElement testPlan, String id) throws IOException {
-        rejectBuiltInIds(List.of(id));
-        List<Rule> shared = loadConfiguredCustomRulesStrict().stream()
-                .filter(rule -> !id.equals(rule.getId())).toList();
-        List<Rule> local = loadCustomRules(testPlan).stream()
-                .filter(rule -> !id.equals(rule.getId())).toList();
-        storeConfiguredCustomRules(serialize(shared));
-        if (testPlan != null) {
-            storeCustomRules(testPlan, local);
+        deleteCustomRules(testPlan, Set.of(id));
+    }
+
+    static void deleteCustomRules(TestElement testPlan, Set<String> ids) throws IOException {
+        rejectBuiltInIds(List.copyOf(ids));
+        byte[] shared = serialize(loadConfiguredCustomRulesStrict().stream()
+                .filter(rule -> !ids.contains(rule.getId())).toList());
+        byte[] local = testPlan == null ? null : serialize(loadCustomRules(testPlan).stream()
+                .filter(rule -> !ids.contains(rule.getId())).toList());
+        // Validate both results before the single disk write. Updating the archive reference is in-memory only.
+        parse(shared);
+        if (local != null) {
+            parse(local);
+        }
+        storeConfiguredCustomRules(shared);
+        if (local != null) {
+            registerCustomRules(testPlan, local);
         }
     }
 
@@ -198,6 +207,10 @@ final class HarCorrelationRuleCatalog {
     static void storeCustomRules(TestElement testPlan, List<Rule> rules) throws IOException {
         byte[] content = serialize(rules);
         parse(content);
+        registerCustomRules(testPlan, content);
+    }
+
+    private static void registerCustomRules(TestElement testPlan, byte[] content) {
         String checksum = sha256(content);
         JmxArchiveEntryStore.register(CUSTOM_ARCHIVE_ENTRY, checksum, content);
         testPlan.setProperty(
