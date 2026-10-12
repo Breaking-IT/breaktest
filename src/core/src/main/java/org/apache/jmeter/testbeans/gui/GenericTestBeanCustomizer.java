@@ -912,6 +912,16 @@ public class GenericTestBeanCustomizer extends JPanel implements SharedCustomize
         }
     }
 
+    /** Returns the editor bound to a bean property, independent of its displayed value. */
+    protected Component propertyEditorComponent(String property) {
+        for (int i = 0; i < descriptors.length; i++) {
+            if (property.equals(descriptors[i].getName()) && editors[i] != null) {
+                return editors[i].getCustomEditor();
+            }
+        }
+        return null;
+    }
+
     private JLabel createLabel(PropertyDescriptor desc) {
         String text = desc.getDisplayName();
         if (!"".equals(text)) {

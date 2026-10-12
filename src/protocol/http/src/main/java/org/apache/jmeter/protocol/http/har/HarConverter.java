@@ -171,6 +171,14 @@ public final class HarConverter {
         }
 
         Map<String, String> commonHeaders = findCommonHeaders(kept);
+        // Deferred matches must remain in their sampler's Headers tab for individual review.
+        for (HarPredefinedCorrelation correlation : options.getStepByStepCorrelations()) {
+            for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
+                if (replacement.getLocation() == HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER) {
+                    commonHeaders.keySet().removeIf(name -> name.equalsIgnoreCase(replacement.getLocationName()));
+                }
+            }
+        }
         Set<String> commonHeadersLower = new HashSet<>();
         for (String name : commonHeaders.keySet()) {
             commonHeadersLower.add(name.toLowerCase(Locale.ROOT));

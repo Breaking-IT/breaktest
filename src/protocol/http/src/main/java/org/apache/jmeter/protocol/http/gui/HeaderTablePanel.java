@@ -54,9 +54,18 @@ import org.slf4j.LoggerFactory;
  * (plus optional Load / Save from file). Backs both the standalone HTTP Header Manager
  * editor ({@link HeaderPanel}) and the Headers tab of the HTTP Request sampler.
  */
-public class HeaderTablePanel extends JPanel implements ActionListener {
+public class HeaderTablePanel extends JPanel implements ActionListener, org.apache.jmeter.gui.util.ReviewableEditor {
 
     private static final Logger log = LoggerFactory.getLogger(HeaderTablePanel.class);
+
+    @Override
+    public Runnable highlightReviewField(String field, int row, String expected, int start, int end) {
+        if (field.equals("Header name") || field.equals("Header value")) {
+            return org.apache.jmeter.gui.util.EditorMatchHighlighter.table(
+                    this, row, field.equals("Header name") ? 0 : 1, expected, start, end);
+        }
+        return null;
+    }
 
     private static final long serialVersionUID = 241L;
 

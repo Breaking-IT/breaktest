@@ -93,7 +93,10 @@ final class HarCorrelationMatchesPanel extends JPanel {
         addValueMapping(matchPanel, correlation);
         Map<Integer, JCheckBox> requests = new LinkedHashMap<>();
         requestCheckBoxes.add(requests);
-        checkBox.addActionListener(event -> requests.values().forEach(box -> box.setSelected(checkBox.isSelected())));
+        checkBox.addActionListener(event -> {
+            requests.values().forEach(box -> box.setSelected(checkBox.isSelected()));
+            firePropertyChange("selection", false, true);
+        });
         Map<Integer, List<HarPredefinedCorrelation.Replacement>> targets = new LinkedHashMap<>();
         for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
             targets.computeIfAbsent(replacement.getTargetEntryIndex(), ignored -> new ArrayList<>()).add(replacement);
@@ -109,8 +112,10 @@ final class HarCorrelationMatchesPanel extends JPanel {
             request.setToolTipText(first.getRequestMethod() + " " + first.getRequestUrl());
             request.setAlignmentX(Component.LEFT_ALIGNMENT);
             request.setBorder(BorderFactory.createEmptyBorder(2, 24, 0, 0));
-            request.addActionListener(event -> checkBox.setSelected(
-                    requests.values().stream().anyMatch(JCheckBox::isSelected)));
+            request.addActionListener(event -> {
+                checkBox.setSelected(requests.values().stream().anyMatch(JCheckBox::isSelected));
+                firePropertyChange("selection", false, true);
+            });
             requests.put(target.getKey(), request);
             matchPanel.add(request);
         }
