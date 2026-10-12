@@ -22,7 +22,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.gui.Replaceable;
 import org.apache.jmeter.gui.ReplaceableField;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
@@ -41,13 +40,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                     StringBuilder body = new StringBuilder();
                     sampler.getArguments().forEach(property -> body.append(((HTTPArgument) property.getObjectValue()).getValue()));
                     return body.toString();
-                }, value -> {
-                    Arguments arguments = new Arguments();
-                    HTTPArgument argument = new HTTPArgument("", value, false);
-                    argument.setAlwaysEncoded(false);
-                    arguments.addArgument(argument);
-                    sampler.setArguments(arguments);
-                });
+                }, value -> RecordedValueReplacer.setRawBodyValue(sampler, value));
             }
             return ((Replaceable) node.getTestElement()).getReplaceableFields().stream()
                     .filter(field -> field.name().equals(name)).skip(row).findFirst().orElse(null);
@@ -99,9 +92,11 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                 Map<String, Integer> rows = new LinkedHashMap<>();
                 List<Field> fields = new ArrayList<>();
                 boolean raw = node.getTestElement() instanceof HTTPSamplerBase http && http.getSendParameterValuesAsPostBody();
-                for (var candidate : sampler.getReplaceableFields()) {
+                var descriptors = sampler.getReplaceableFields();
+                for (var candidate : descriptors) {
                     int row = rows.merge(candidate.name(), 1, Integer::sum) - 1;
-                    if ((!(sampler instanceof HTTPSamplerBase) || List.of("Path", "Parameter value", "Header value")
+                    if (candidate.rowField() != org.apache.jmeter.gui.RowField.NAME
+                            && (!(sampler instanceof HTTPSamplerBase) || List.of("Path", "Parameter value", "Header value")
                             .contains(candidate.name())) && !(raw && candidate.name().startsWith("Parameter"))) {
                         fields.add(new Field(node, candidate.name(), row));
                     }
@@ -112,18 +107,21 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                 var candidates = correlation.getReplacements().stream()
                         .filter(item -> item.getTargetEntryIndex() == target).toList();
                 for (Field field : fields) {
-                    String text = field.resolve().value();
+                    String text = field.name().equals("Body") && raw ? field.resolve().value()
+                            : descriptors.stream().filter(item -> item.name().equals(field.name()))
+                                    .skip(field.row()).findFirst().orElseThrow().value();
                     List<CorrelationReviewStep> fieldSteps = new ArrayList<>();
-                    addMatches(fieldSteps, correlation, candidates.get(0), field, text,
+                    addMatches(fieldSteps, correlation, candidates.get(0), field, descriptors, text,
                             correlation.getExtractedValue(), "${" + correlation.getVariableName() + "}");
                     if (field.name().startsWith("Header")) {
-                        String headerName = new Field(node, "Header name", field.row()).resolve().value();
+                        String headerName = descriptors.stream().filter(item -> item.name().equals("Header name"))
+                                .skip(field.row()).map(ReplaceableField::value).findFirst().orElse("");
                         for (var replacement : candidates) {
                             String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
                             if (replacement.getLocation() == HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER
                                     && replacement.getLocationName().equals(headerName)
                                     && reference.startsWith("${__urldecode(")) {
-                                addMatches(fieldSteps, correlation, replacement, field, text,
+                                addMatches(fieldSteps, correlation, replacement, field, descriptors, text,
                                         replacement.getMatchedLiteral(), reference);
                             }
                         }
@@ -137,9 +135,10 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
     }
 
     private static void addMatches(List<CorrelationReviewStep> steps, HarPredefinedCorrelation correlation,
-            HarPredefinedCorrelation.Replacement replacement, Field field, String text, String value, String reference) {
+            HarPredefinedCorrelation.Replacement replacement, Field field, List<ReplaceableField> descriptors,
+            String text, String value, String reference) {
         for (var match : correlation.getRule().getReplacementFilter().samplerMatches(
-                (Replaceable) field.node().getTestElement(), field.name(), field.row(), text, value, reference, field.decoded())) {
+                (Replaceable) field.node().getTestElement(), descriptors, field.name(), field.row(), text, value, reference, field.decoded())) {
             if (steps.stream().noneMatch(step -> step.start < match.end() && step.end > match.start())) {
                 var step = new CorrelationReviewStep(correlation, replacement, field, text, match);
                 if (field.name().equals("Parameter value") && field.node().getTestElement() instanceof HTTPSamplerBase http

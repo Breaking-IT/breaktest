@@ -116,10 +116,22 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
             processRules(gui, HarCorrelationRuleCatalog.rulesFor(testPlan));
             return;
         }
+        showRules(gui, testPlanNode, null, "");
+    }
+
+    static void showRules(GuiPackage gui, JMeterTreeNode testPlanNode, String selectedRuleId, String notification) {
+        TestElement testPlan = testPlanNode == null ? null : testPlanNode.getTestElement();
+        JLabel status = new JLabel(notification);
         HarCorrelationRulesPanel rulesPanel = new HarCorrelationRulesPanel(
                 HarCorrelationRuleCatalog.allRulesFor(testPlan),
                 HarCorrelationRuleCatalog.customRuleIds(testPlan),
-                rule -> editCustomRule(gui, testPlanNode, rule),
+                rule -> {
+                    Rule updated = editCustomRule(gui, testPlanNode, rule);
+                    if (updated != null) {
+                        status.setText(JMeterUtils.getResString("try_predefined_correlations_custom_saved"));
+                    }
+                    return updated;
+                },
                 new HarCorrelationRulesPanel.RuleTransfer() {
                     @Override
                     public List<Rule> importRules() {
@@ -158,7 +170,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 return false;
             }
         });
+        rulesPanel.selectRule(selectedRuleId);
         rulesPanel.setPreferredSize(new Dimension(950, 550));
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.add(status, BorderLayout.NORTH);
+        content.add(rulesPanel, BorderLayout.CENTER);
         Object[] options = {
                 JMeterUtils.getResString("correlation_rules_save"),
                 JMeterUtils.getResString("try_predefined_correlations_try"),
@@ -166,14 +182,13 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         };
         while (true) {
             int result = JOptionPane.showOptionDialog(
-                    gui.getMainFrame(), rulesPanel,
+                    gui.getMainFrame(), content,
                     JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS),
                     JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
             if (result == 0) {
                 try {
                     HarCorrelationRuleCatalog.saveDisabledRuleIds(rulesPanel.getDisabledRuleIds());
-                    JMeterUtils.reportInfoToUser(JMeterUtils.getResString("correlation_rules_saved"),
-                            JMeterUtils.getResString(ActionNames.FIND_PREDEFINED_CORRELATIONS));
+                    status.setText(JMeterUtils.getResString("correlation_rules_saved"));
                 } catch (IOException ex) {
                     JMeterUtils.reportErrorToUser(ex.getMessage());
                 }
@@ -415,9 +430,6 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         }
         gui.getTreeModel().nodeChanged(testPlanNode);
         gui.setDirty(true);
-        JMeterUtils.reportInfoToUser(
-                JMeterUtils.getResString("try_predefined_correlations_custom_saved"),
-                JMeterUtils.getResString("try_predefined_correlations_edit_title"));
         return updated;
     }
 

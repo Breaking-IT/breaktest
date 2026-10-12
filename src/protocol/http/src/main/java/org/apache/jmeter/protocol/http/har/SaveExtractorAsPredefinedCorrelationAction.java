@@ -167,12 +167,8 @@ public final class SaveExtractorAsPredefinedCorrelationAction extends AbstractAc
         }
         gui.getTreeModel().nodeChanged(testPlanNode);
         gui.setDirty(true);
-        JMeterUtils.reportInfoToUser(MessageFormat.format(
-                JMeterUtils.getResString("add_custom_predefined_correlation_saved"), newRules.size()),
-                JMeterUtils.getResString("add_custom_predefined_correlation"));
-        for (Rule rule : newRules) {
-            FindPredefinedCorrelationsAction.editCustomRule(gui, testPlanNode, rule);
-        }
+        FindPredefinedCorrelationsAction.showRules(gui, testPlanNode, newRules.get(0).getId(),
+                MessageFormat.format(JMeterUtils.getResString("add_custom_predefined_correlation_saved"), newRules.size()));
     }
 
     static List<Rule> rulesFromExtractor(TestElement extractor) {

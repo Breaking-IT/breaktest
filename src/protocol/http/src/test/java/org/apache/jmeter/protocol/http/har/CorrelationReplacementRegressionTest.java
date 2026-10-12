@@ -75,6 +75,90 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
     }
 
     @Test
+    void webSocketHeaderNamesStayLiteralAndQueryLocationsAreReportedAccurately() {
+        for (boolean review : List.of(false, true)) {
+            var socket = new WebSocketConnectSampler();
+            socket.setUrl("wss://example.test/socket?id=recorded-token");
+            socket.setHeaders(List.of(new org.apache.jmeter.protocol.http.control.Header("recorded-token", "recorded-token")));
+            var found = find(socket, "recorded-token", rule(CorrelationReplacementFilter.ALL));
+            assertTrue(found.get(0).getReplacements().stream().anyMatch(r -> r.getLocation() == RequestLocation.QUERY_PARAMETER));
+            assertTrue(found.get(0).getReplacements().stream().noneMatch(r -> r.getLocation() == RequestLocation.URL_PATH));
+            apply(socket, "recorded-token", rule(CorrelationReplacementFilter.ALL), review);
+            assertEquals("recorded-token", socket.getHeaders().get(0).getName());
+            assertEquals("${token}", socket.getHeaders().get(0).getValue());
+        }
+    }
+
+    @Test
+    void defaultBulkApplyPreservesBodyArgumentsAndTheirMetadata() {
+        var http = new HTTPSamplerProxy();
+        http.setDomain("example.test");
+        http.setProtocol("https");
+        http.setMethod("POST");
+        http.setPath("/");
+        http.setPostBodyRaw(true);
+        http.addNonEncodedArgument("", "recorded-token", "=");
+        http.addNonEncodedArgument("", "/recorded-token", "");
+        var arguments = http.getArguments();
+        var first = arguments.getArgument(0);
+        var second = arguments.getArgument(1);
+        first.setDescription("keep first");
+        second.setDescription("keep second");
+        arguments.setName("body metadata");
+        apply(http, "recorded-token", rule(CorrelationReplacementFilter.ALL), false);
+        org.junit.jupiter.api.Assertions.assertSame(arguments, http.getArguments());
+        org.junit.jupiter.api.Assertions.assertSame(first, http.getArguments().getArgument(0));
+        org.junit.jupiter.api.Assertions.assertSame(second, http.getArguments().getArgument(1));
+        assertEquals("${token}", first.getValue());
+        assertEquals("/${token}", second.getValue());
+        assertEquals("keep first", first.getDescription());
+        assertEquals("keep second", second.getDescription());
+        assertEquals("body metadata", arguments.getName());
+    }
+
+    @Test
+    void expensivePatternDoesNotAbortScanImportOrBulkApply() {
+        var slow = rule(new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.BODY, false, "(a+)+$"));
+        var good = new Rule("good", "Custom", "Good", "good", HarPredefinedCorrelation.ExtractorType.REGEX,
+                HarPredefinedCorrelation.ResponseField.BODY, "safe=([^;]+);", "$1$", -1, 1, "", false, false, true);
+        var source = new HTTPSamplerProxy();
+        source.setProtocol("https");
+        source.setDomain("example.test");
+        source.setMethod("GET");
+        source.setPath("/source");
+        var target = (HTTPSamplerProxy) source.clone();
+        target.setMethod("POST");
+        target.setPostBodyRaw(true);
+        target.addNonEncodedArgument("", "a", "");
+        var sourceEntry = FindPredefinedCorrelationsAction.toHarEntry(source, "", "token=a;safe=good;", 0);
+        var benign = FindPredefinedCorrelationsAction.toHarEntry(target, "", "", 1);
+        var earlySlow = HarPredefinedCorrelation.find(List.of(sourceEntry, benign), List.of(slow));
+        assertEquals(1, earlySlow.size());
+        String body = "a".repeat(2000) + "!good";
+        target.getArguments().getArgument(0).setValue(body);
+        var targetEntry = FindPredefinedCorrelationsAction.toHarEntry(target, "", "", 1);
+        var found = HarPredefinedCorrelation.find(List.of(sourceEntry, targetEntry), List.of(slow, good));
+        assertEquals(List.of("good"), found.stream().map(c -> c.getRule().getId()).toList());
+        var pending = new java.util.ArrayList<>(earlySlow);
+        pending.addAll(found);
+        var options = new HarImportOptions();
+        options.setPredefinedCorrelations(pending);
+        var tree = new HarConverter(List.of(sourceEntry, targetEntry), options, "patterns.har", "md5")
+                .convert(java.util.Set.of("example.test"));
+        var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
+        tree.traverse(samplers);
+        assertEquals("a".repeat(2000) + "!${good}", samplers.getSearchResults().stream()
+                .filter(sampler -> sampler.getMethod().equals("POST")).findFirst().orElseThrow()
+                .getArguments().getArgument(0).getValue());
+        for (var correlation : pending) {
+            for (var replacement : correlation.getReplacements()) {
+                FindPredefinedCorrelationsAction.applyReplacement(target, correlation, replacement);
+            }
+        }
+        assertEquals("a".repeat(2000) + "!${good}", target.getArguments().getArgument(0).getValue());
+    }
+
+    @Test
     void harImportCorrelatesWebSocketHostAndFragment() throws Exception {
         String har = """
                 {"log":{"entries":[
@@ -169,13 +253,19 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
         rules.add(invalid);
         byte[] content = mapper.writeValueAsBytes(json);
         assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.parse(content));
-        assertEquals(List.of("test"), HarCorrelationRuleCatalog.parse(content, true).stream().map(Rule::getId).toList());
+        var restored = HarCorrelationRuleCatalog.parse(content, true);
+        assertEquals(List.of("test", "invalid"), restored.stream().map(Rule::getId).toList());
+        assertEquals("[", restored.get(1).getReplacementFilter().fieldPattern());
+        assertTrue(!restored.get(1).getReplacementFilter().diagnostic().isEmpty());
+        assertTrue(restored.get(1).getReplacementFilter().matches("token", "token", "${token}", false,
+                RequestLocation.REQUEST_BODY, "").isEmpty());
     }
 
     @Test
     void pathologicalRegexFailsWithinABoundedAmountOfWork() {
         var filter = new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.BODY, false, "(a+)+$");
-        assertTimeout(Duration.ofSeconds(2), () -> assertThrows(IllegalArgumentException.class,
-                () -> filter.matches("a".repeat(2000) + "!", "a", "${token}", false, RequestLocation.REQUEST_BODY, "")));
+        assertTimeout(Duration.ofSeconds(2), () -> assertTrue(
+                filter.matches("a".repeat(2000) + "!", "a", "${token}", false, RequestLocation.REQUEST_BODY, "").isEmpty()));
+        assertTrue(!filter.diagnostic().isEmpty());
     }
 }

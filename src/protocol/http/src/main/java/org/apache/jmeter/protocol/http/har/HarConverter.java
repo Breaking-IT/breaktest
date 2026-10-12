@@ -688,7 +688,8 @@ public final class HarConverter {
         String url = entry.getUrl().replaceFirst("(?i)^https:", "wss:").replaceFirst("(?i)^http:", "ws:");
         sampler.setUrl(replaceUrlCorrelations(entry, url,
                 HarPredefinedCorrelation.RequestLocation.URL_PATH,
-                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER));
+                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
+                HarPredefinedCorrelation.RequestLocation.REQUEST_OTHER));
         List<Header> headers = new ArrayList<>();
         for (NameValue header : entry.getRequestHeaders()) {
             String lower = header.getName().toLowerCase(Locale.ROOT);
@@ -955,11 +956,12 @@ public final class HarConverter {
                     String value = reference.startsWith("${__urldecode(")
                             ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
                     var filter = correlation.getRule().getReplacementFilter();
+                    String current = replaced;
                     var matches = urlField
-                            ? entry.isWebSocket() && filter.unrestricted()
-                                    ? org.apache.jmeter.protocol.http.util.RecordedValueReplacer.matches(replaced, value, reference, false)
-                                    : filter.urlMatches(replaced, value, reference, replacement.getLocation())
-                            : filter.matches(replaced, value, reference, decoded, replacement.getLocation(), name);
+                            ? filter.urlFieldMatches(current, value, reference, entry.isWebSocket()).stream()
+                                    .filter(match -> CorrelationReplacementFilter.urlLocation(current, match.start()) == replacement.getLocation())
+                                    .toList()
+                            : filter.matches(current, value, reference, decoded, replacement.getLocation(), name);
                     replaced = CorrelationReplacementFilter.replace(replaced, matches);
                 }
             }

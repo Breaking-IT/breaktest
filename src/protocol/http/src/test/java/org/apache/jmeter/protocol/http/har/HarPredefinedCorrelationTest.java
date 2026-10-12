@@ -193,7 +193,9 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
             }
             for (var actual : List.of(live, reviewed)) {
                 assertEquals(imported.getPath(), actual.getPath(), scopes.toString());
-                assertEquals(imported.getArguments().getArgument(0).getValue(), actual.getArguments().getArgument(0).getValue());
+                assertEquals(imported.getArguments().getArgument(0).getValue(), java.util.stream.IntStream
+                        .range(0, actual.getArguments().getArgumentCount())
+                        .mapToObj(i -> actual.getArguments().getArgument(i).getValue()).collect(java.util.stream.Collectors.joining()));
                 assertEquals(imported.getNativeHeaderList().get(0).getValue(), actual.getNativeHeaderList().get(0).getValue());
             }
             assertEquals(filter.includes(HarPredefinedCorrelation.RequestLocation.URL_PATH) ? "/item/${shortValue}" : "/item/1",

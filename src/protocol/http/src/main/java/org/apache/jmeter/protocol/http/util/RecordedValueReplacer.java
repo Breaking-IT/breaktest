@@ -300,6 +300,35 @@ public final class RecordedValueReplacer {
         return result;
     }
 
+    /** Updates one contiguous edit without replacing the arguments or their metadata. */
+    public static void setRawBodyValue(HTTPSamplerBase sampler, String updated) {
+        StringBuilder original = new StringBuilder();
+        sampler.getArguments().forEach(property -> original.append(((HTTPArgument) property.getObjectValue()).getValue()));
+        int start = 0;
+        while (start < original.length() && start < updated.length() && original.charAt(start) == updated.charAt(start)) {
+            start++;
+        }
+        int end = original.length();
+        int updatedEnd = updated.length();
+        while (end > start && updatedEnd > start && original.charAt(end - 1) == updated.charAt(updatedEnd - 1)) {
+            end--;
+            updatedEnd--;
+        }
+        String inserted = updated.substring(start, updatedEnd);
+        int offset = 0;
+        boolean written = false;
+        for (var property : sampler.getArguments()) {
+            HTTPArgument argument = (HTTPArgument) property.getObjectValue();
+            String text = argument.getValue();
+            int from = Math.max(0, Math.min(text.length(), start - offset));
+            int to = Math.max(0, Math.min(text.length(), end - offset));
+            boolean writeHere = !written && start <= offset + text.length();
+            argument.setValue(text.substring(0, from) + (writeHere ? inserted : "") + text.substring(to));
+            written |= writeHere;
+            offset += text.length();
+        }
+    }
+
     public static int replaceSampler(HTTPSamplerBase sampler, String value, String reference) {
         int changed = 0;
         String path = replace(sampler.getPath(), value, reference, false);

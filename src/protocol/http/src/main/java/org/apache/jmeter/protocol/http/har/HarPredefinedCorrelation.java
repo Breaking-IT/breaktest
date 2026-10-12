@@ -687,7 +687,8 @@ final class HarPredefinedCorrelation {
         List<Replacement> result = new ArrayList<>();
         if (entry.getRequestFields() != null) {
             Map<String, Integer> rows = new LinkedHashMap<>();
-            for (var field : entry.getRequestFields().getReplaceableFields()) {
+            var fields = entry.getRequestFields().getReplaceableFields();
+            for (var field : fields) {
                 int row = rows.merge(field.name(), 1, Integer::sum) - 1;
                 RequestLocation location = switch (field.area()) {
                 case BODY -> RequestLocation.REQUEST_BODY;
@@ -698,30 +699,39 @@ final class HarPredefinedCorrelation {
                 };
                 String name = field.name();
                 if (field.name().equals("Header value")) {
-                    name = entry.getRequestFields().getReplaceableFields().stream()
+                    name = fields.stream()
                             .filter(item -> item.name().equals("Header name")).skip(row)
                             .map(item -> item.value()).findFirst().orElse(name);
                 }
-                var matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), field.name(), row,
+                var matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), fields, field.name(), row,
                         field.value(), extractedValue, "", false);
                 if (matches.isEmpty() && location == RequestLocation.REQUEST_HEADER) {
                     String decoded = decodedHeaderValue(extractedValue);
                     if (decoded.strip().length() >= rule.getMinValueLength()) {
-                        matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), field.name(), row,
+                        matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), fields, field.name(), row,
                                 field.value(), decoded, "", false);
                     }
                 }
                 if (!matches.isEmpty()) {
-                    var match = matches.get(0);
-                    result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
-                            location, name, field.value().substring(match.start(), match.end())));
+                    for (var match : matches) {
+                        RequestLocation matchLocation = field.name().equals("URL")
+                                ? CorrelationReplacementFilter.urlLocation(field.value(), match.start()) : location;
+                        result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
+                                matchLocation, name, field.value().substring(match.start(), match.end())));
+                    }
                 }
             }
             return result;
         }
-        addReplacement(result, entry, RequestLocation.URL_PATH, "",
-                entry.isWebSocket() && rule.getReplacementFilter().unrestricted() ? entry.getUrl() : urlPath(entry.getUrl()),
-                extractedValue, rule);
+        if (entry.isWebSocket()) {
+            for (var match : rule.getReplacementFilter().urlFieldMatches(entry.getUrl(), extractedValue, "", true)) {
+                result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
+                        CorrelationReplacementFilter.urlLocation(entry.getUrl(), match.start()), "URL",
+                        entry.getUrl().substring(match.start(), match.end())));
+            }
+        } else {
+            addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, rule);
+        }
         for (NameValue header : entry.getRequestHeaders()) {
             // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
             // would be listed as replacements that silently do nothing.

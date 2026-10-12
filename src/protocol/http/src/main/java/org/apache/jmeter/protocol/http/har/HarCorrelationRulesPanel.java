@@ -333,6 +333,14 @@ final class HarCorrelationRulesPanel extends JPanel {
         rebuildTree();
     }
 
+    void selectRule(String id) {
+        TreePath path = findRulePath(id);
+        if (path != null) {
+            ruleTree.setSelectionPath(path);
+            ruleTree.scrollPathToVisible(path);
+        }
+    }
+
     private void rebuildTree() {
         String selectedRuleId = selectedRule == null ? null : selectedRule.getId();
         treeRoot.removeAllChildren();
@@ -657,6 +665,7 @@ final class HarCorrelationRulesPanel extends JPanel {
                 new Detail("Replacement scope", rule.getReplacementFilter().scopes()),
                 new Detail("Match whole value only", rule.getReplacementFilter().wholeValue()),
                 new Detail("Replacement field pattern", rule.getReplacementFilter().fieldPattern()),
+                new Detail("Replacement filter diagnostic", rule.getReplacementFilter().diagnostic()),
                 new Detail("Default value", rule.getDefaultValue()),
                 new Detail("Use empty default", rule.isEmptyDefaultValue()),
                 new Detail("Fail when no match", rule.isFailOnNoMatch())));
