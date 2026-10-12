@@ -137,6 +137,38 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void movingRulePersistsGroupInBothStoresWithoutChangingExtractorSettings() throws Exception {
+        Path file = tempDir.resolve("custom.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        TestPlan plan = new TestPlan("Plan");
+        Rule original = regexRule("move-me", "value", "value=(.+)", "$1$", 4, true)
+                .withExtractorSettings(java.util.Map.of("custom.setting", "preserve"));
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(original));
+        Rule moved = original.withGroup("Destination");
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(moved));
+        for (List<Rule> stored : List.of(HarCorrelationRuleCatalog.readRulesFile(file),
+                HarCorrelationRuleCatalog.loadCustomRules(plan))) {
+            assertEquals(1, stored.size());
+            Rule result = stored.get(0);
+            assertEquals("Destination", result.getGroup());
+            assertEquals(original.getId(), result.getId());
+            assertEquals(original.getName(), result.getName());
+            assertEquals(original.getVariableName(), result.getVariableName());
+            assertEquals(original.getExtractorType(), result.getExtractorType());
+            assertEquals(original.getResponseField(), result.getResponseField());
+            assertEquals(original.getExpression(), result.getExpression());
+            assertEquals(original.getTemplate(), result.getTemplate());
+            assertEquals(original.getMaxMatches(), result.getMaxMatches());
+            assertEquals(original.getMinValueLength(), result.getMinValueLength());
+            assertEquals(original.getDefaultValue(), result.getDefaultValue());
+            assertEquals(original.isEmptyDefaultValue(), result.isEmptyDefaultValue());
+            assertEquals(original.isComputeConcatenation(), result.isComputeConcatenation());
+            assertEquals(original.isFailOnNoMatch(), result.isFailOnNoMatch());
+            assertEquals(original.getExtractorSettings(), result.getExtractorSettings());
+        }
+    }
+
+    @Test
     void bulkDeletionValidatesBeforeWritingAndPreservesBothStoresOnFailure() throws Exception {
         Path file = tempDir.resolve("custom.json");
         JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());

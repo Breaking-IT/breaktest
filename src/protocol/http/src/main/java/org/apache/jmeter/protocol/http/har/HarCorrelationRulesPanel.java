@@ -33,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import javax.swing.AbstractAction;
@@ -111,7 +112,37 @@ final class HarCorrelationRulesPanel extends JPanel {
     private final JCheckBox customOnly = new JCheckBox(
             JMeterUtils.getResString("try_predefined_correlations_custom_only"));
     private final JButton deleteButton = new JButton(JMeterUtils.getResString("correlation_rules_delete"));
+    private final JButton moveButton = new JButton(JMeterUtils.getResString("correlation_rules_move"));
+    private Predicate<List<Rule>> ruleMover;
+    private Function<List<String>, String> groupChooser;
     private Rule selectedRule;
+
+    void configureMoving(Predicate<List<Rule>> mover) {
+        configureMoving(mover, groups -> {
+            JComboBox<String> destination = new JComboBox<>(groups.toArray(String[]::new));
+            destination.setEditable(true);
+            destination.setSelectedItem("");
+            JPanel prompt = new JPanel(new BorderLayout(0, 8));
+            prompt.add(new JLabel(JMeterUtils.getResString("correlation_rules_move_prompt")), BorderLayout.NORTH);
+            prompt.add(destination, BorderLayout.CENTER);
+            while (JOptionPane.showConfirmDialog(this, prompt,
+                    JMeterUtils.getResString("correlation_rules_move"), JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.PLAIN_MESSAGE) == JOptionPane.OK_OPTION) {
+                String group = String.valueOf(destination.getEditor().getItem()).trim();
+                if (!group.isEmpty()) {
+                    return group;
+                }
+            }
+            return null;
+        });
+    }
+
+    void configureMoving(Predicate<List<Rule>> mover, Function<List<String>, String> chooser) {
+        ruleMover = mover;
+        groupChooser = chooser;
+        refreshSelectedGroupDetails();
+    }
+
 
     void configureManagement(Set<String> disabled, Predicate<List<Rule>> deleter) {
         configureManagement(disabled, deleter, selected -> JOptionPane.showConfirmDialog(this,
@@ -248,6 +279,9 @@ final class HarCorrelationRulesPanel extends JPanel {
         JPanel ruleButtons = new JPanel(new FlowLayout(FlowLayout.LEADING));
         ruleButtons.add(editButton);
         ruleButtons.add(deleteButton);
+        moveButton.addActionListener(event -> moveSelectedRules());
+        moveButton.setEnabled(false);
+        ruleButtons.add(moveButton);
         detailPanel.add(ruleButtons, BorderLayout.SOUTH);
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, treePanel, detailPanel);
@@ -414,7 +448,38 @@ final class HarCorrelationRulesPanel extends JPanel {
             deleteRules.addActionListener(event -> deleteCustomRules(selected));
             popup.add(deleteRules);
         }
+        if (!selected.isEmpty() && ruleMover != null) {
+            JMenuItem moveRules = new JMenuItem(JMeterUtils.getResString("correlation_rules_move"));
+            moveRules.addActionListener(event -> moveSelectedRules());
+            popup.add(moveRules);
+        }
         return popup;
+    }
+
+    private void moveSelectedRules() {
+        List<Rule> selected = getSelectedCustomRules();
+        if (selected.isEmpty() || ruleMover == null) {
+            return;
+        }
+        List<String> groups = rules.stream().map(Rule::getGroup).distinct().sorted().toList();
+        String destination = groupChooser.apply(groups);
+        if (destination == null || destination.isBlank()) {
+            return;
+        }
+        String group = destination.trim();
+        List<Rule> updated = selected.stream().filter(rule -> !group.equals(rule.getGroup()))
+                .map(rule -> rule.withGroup(group)).toList();
+        if (updated.isEmpty() || !ruleMover.test(updated)) {
+            return;
+        }
+        Map<String, Rule> replacements = new LinkedHashMap<>();
+        updated.forEach(rule -> replacements.put(rule.getId(), rule));
+        rules.replaceAll(rule -> replacements.getOrDefault(rule.getId(), rule));
+        selectedRule = updated.get(0);
+        rebuildTree();
+        TreePath[] paths = selected.stream().map(rule -> findRulePath(rule.getId())).toArray(TreePath[]::new);
+        ruleTree.setSelectionPaths(paths);
+        ruleTree.scrollPathToVisible(paths[0]);
     }
 
     private List<Rule> getSelectedCustomRules() {
@@ -543,6 +608,7 @@ final class HarCorrelationRulesPanel extends JPanel {
         deleteButton.setText(JMeterUtils.getResString(selectedCount > 1
                 ? "correlation_rules_delete_selected" : "correlation_rules_delete"));
         deleteButton.setEnabled(ruleDeleter != null && selectedCount > 0);
+        moveButton.setEnabled(ruleMover != null && selectedCount > 0);
     }
 
     private void showGroup(String group) {

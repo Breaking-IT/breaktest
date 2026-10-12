@@ -145,6 +145,19 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                 return false;
             }
         });
+        rulesPanel.configureMoving(rules -> {
+            try {
+                HarCorrelationRuleCatalog.storeCustomRulesEverywhere(testPlan, rules);
+                if (testPlanNode != null) {
+                    gui.getTreeModel().nodeChanged(testPlanNode);
+                    gui.setDirty(true);
+                }
+                return true;
+            } catch (IOException ex) {
+                JMeterUtils.reportErrorToUser(ex.getMessage());
+                return false;
+            }
+        });
         rulesPanel.setPreferredSize(new Dimension(950, 550));
         Object[] options = {
                 JMeterUtils.getResString("correlation_rules_save"),

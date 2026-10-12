@@ -277,6 +277,70 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         assertEquals(Set.of("first", "second"), panel.getDisabledRuleIds());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void movesSelectedCustomRulesToAnotherGroupThroughMenuOrButton(boolean useButton) {
+        Rule first = rule("first", "Source", 1);
+        Rule second = rule("second", "Source", 2);
+        Rule builtIn = rule("built-in", "Source", 1);
+        Rule other = rule("other", "Destination", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(
+                List.of(first, second, builtIn, other), Set.of("first", "second", "other"), null, null);
+        panel.configureManagement(Set.of("second"), null);
+        List<List<Rule>> saved = new ArrayList<>();
+        panel.configureMoving(saved::add, groups -> {
+            assertEquals(List.of("Destination", "Source"), groups);
+            return " Destination ";
+        });
+        JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
+                .findFirst().orElseThrow();
+        DefaultMutableTreeNode source = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
+        TreePath firstPath = new TreePath(((DefaultMutableTreeNode) source.getChildAt(0)).getPath());
+        tree.setSelectionPaths(new TreePath[] {firstPath,
+                new TreePath(((DefaultMutableTreeNode) source.getChildAt(1)).getPath()),
+                new TreePath(((DefaultMutableTreeNode) source.getChildAt(2)).getPath())});
+        if (useButton) {
+            JButton move = descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)
+                    .filter(button -> JMeterUtils.getResString("correlation_rules_move").equals(button.getText()))
+                    .findFirst().orElseThrow();
+            assertTrue(move.isEnabled());
+            move.doClick();
+        } else {
+            ((JMenuItem) panel.createPopup(firstPath).getComponent(0)).doClick();
+        }
+        assertEquals(1, saved.size());
+        assertEquals(List.of("first", "second"), saved.get(0).stream().map(Rule::getId).toList());
+        assertEquals(List.of("Destination > first", "Destination > second", "Source > built-in", "Destination > other"),
+                panel.getRulePaths());
+        assertEquals(Set.of("second"), panel.getDisabledRuleIds());
+        assertEquals(2, tree.getSelectionCount());
+        assertEquals(2, panel.getCustomRules().get(1).getMaxMatches());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"cancel", "blank", "same", "failure", "new"})
+    void movingOneRuleHandlesCancelNoOpFailureAndNewGroup(String outcome) {
+        Rule rule = rule("one", "Source", 1);
+        HarCorrelationRulesPanel panel = new HarCorrelationRulesPanel(List.of(rule), Set.of("one"), null, null);
+        List<List<Rule>> saved = new ArrayList<>();
+        panel.configureMoving(updated -> {
+            saved.add(updated);
+            return !"failure".equals(outcome);
+        }, groups -> switch (outcome) {
+            case "cancel" -> null;
+            case "blank" -> " ";
+            case "same" -> "Source";
+            default -> "New group";
+        });
+        JTree tree = descendants(panel).stream().filter(JTree.class::isInstance).map(JTree.class::cast)
+                .findFirst().orElseThrow();
+        DefaultMutableTreeNode source = (DefaultMutableTreeNode) tree.getModel().getChild(tree.getModel().getRoot(), 0);
+        TreePath path = new TreePath(((DefaultMutableTreeNode) source.getChildAt(0)).getPath());
+        ((JMenuItem) panel.createPopup(path).getComponent(0)).doClick();
+        assertEquals("new".equals(outcome) || "failure".equals(outcome) ? 1 : 0, saved.size());
+        assertEquals(List.of("new".equals(outcome) ? "New group > one" : "Source > one"), panel.getRulePaths());
+    }
+
     private static List<Component> descendants(Container container) {
         List<Component> result = new ArrayList<>();
         for (Component component : container.getComponents()) {
