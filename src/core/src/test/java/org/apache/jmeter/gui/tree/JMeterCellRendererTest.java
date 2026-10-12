@@ -18,11 +18,15 @@
 package org.apache.jmeter.gui.tree;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 import javax.swing.JTable;
 import javax.swing.JTree;
@@ -41,6 +45,7 @@ import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.testelement.property.NullProperty;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -231,7 +236,7 @@ class JMeterCellRendererTest {
         workload.setThreadGroupId("group");
         workload.setProfile("Production");
         Scenario scenario = new Scenario("Load");
-        scenario.setWorkloads(java.util.List.of(workload));
+        scenario.setWorkloads(List.of(workload));
         JMeterTreeNode scenarios = new JMeterTreeNode(new ScenariosSection(), null);
         scenarios.add(new JMeterTreeNode(scenario, null));
         plan.add(scenarios);
@@ -239,14 +244,63 @@ class JMeterCellRendererTest {
         ScenarioWorkload other = new ScenarioWorkload();
         other.setThreadGroupId("group");
         other.setProfile("Default");
-        scenario.setWorkloads(java.util.List.of(workload, other));
+        scenario.setWorkloads(List.of(workload, other));
         assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
         workload.setProfile("${__P(profile)}");
-        scenario.setWorkloads(java.util.List.of(workload));
+        scenario.setWorkloads(List.of(workload));
         assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
         workload.setProfile("");
-        scenario.setWorkloads(java.util.List.of(workload));
+        scenario.setWorkloads(List.of(workload));
         assertEquals("(1s)", JMeterCellRenderer.delaySummary(transaction));
+    }
+
+    @Test
+    void renderingDoesNotCreateTestPlanVariables() {
+        TestPlan plan = new TestPlan("Plan");
+        plan.removeProperty(plan.getSchema().getUserDefinedVariables().getName());
+        assertInstanceOf(NullProperty.class, plan.getUserDefinedVariablesAsProperty());
+        JMeterTreeNode transaction = transactionNode(plan, TransactionController.DELAY_FIXED,
+                "${Missing}", "0", "0");
+        JTree tree = new JTree(new DefaultTreeModel(transaction.getParent()));
+        JMeterCellRenderer renderer = new JMeterCellRenderer();
+        renderer.getTreeCellRendererComponent(tree, transaction, false, false, true, 1, false);
+        assertInstanceOf(NullProperty.class, plan.getUserDefinedVariablesAsProperty());
+        assertEquals("(?s)", JMeterCellRenderer.delaySummary(transaction));
+        assertInstanceOf(NullProperty.class, plan.getUserDefinedVariablesAsProperty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void groupsOutsideTheEnabledScenarioKeepKnownVariableValues(boolean disabledWorkload) {
+        TestPlan plan = new TestPlan("Plan");
+        plan.getArguments().addArgument("PlanDelay", "1000");
+        JMeterTreeNode planNode = new JMeterTreeNode(plan, null);
+        JMeterTreeNode profiles = new JMeterTreeNode(new ProfilesSection(), null);
+        planNode.add(profiles);
+        addProfileVariables(profiles, new SharedProfile(), "SharedDelay", "2000");
+        addProfileVariables(profiles, new Profile("Default"), "ProfileDelay", "3000");
+        addProfileVariables(profiles, new Profile("Production"), "ProfileDelay", "9000");
+        ThreadGroup group = new ThreadGroup();
+        group.setThreadGroupId("excluded");
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, null);
+        planNode.add(groupNode);
+        ScenarioWorkload workload = new ScenarioWorkload();
+        workload.setThreadGroupId(disabledWorkload ? "excluded" : "other");
+        workload.setEnabled(!disabledWorkload);
+        workload.setProfile("Production");
+        Scenario scenario = new Scenario("Load");
+        scenario.setWorkloads(List.of(workload));
+        JMeterTreeNode scenarios = new JMeterTreeNode(new ScenariosSection(), null);
+        scenarios.add(new JMeterTreeNode(scenario, null));
+        planNode.add(scenarios);
+        JTree tree = new JTree(new DefaultTreeModel(planNode));
+        JMeterCellRenderer renderer = new JMeterCellRenderer();
+        for (Map.Entry<String, String> value : Map.of("PlanDelay", "(1s)", "SharedDelay", "(2s)",
+                "ProfileDelay", "(3s)").entrySet()) {
+            JMeterTreeNode transaction = transactionNode(groupNode, TransactionController.DELAY_FIXED,
+                    "${" + value.getKey() + "}", "0", "0");
+            assertEquals(value.getValue(), renderer.cachedDelaySummary(tree, transaction));
+        }
     }
 
     @Test
@@ -256,7 +310,7 @@ class JMeterCellRendererTest {
         arguments.addArgument("ThinkTime", "1000");
         JMeterTreeNode variablesNode = new JMeterTreeNode(arguments, null);
         plan.add(variablesNode);
-        java.util.List<JMeterTreeNode> transactions = new java.util.ArrayList<>();
+        List<JMeterTreeNode> transactions = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             transactions.add(transactionNode(plan, TransactionController.DELAY_FIXED, "${ThinkTime}", "0", "0"));
         }
@@ -290,7 +344,7 @@ class JMeterCellRendererTest {
         private int reads;
 
         @Override
-        public java.util.Map<String, String> getArgumentsAsMap() {
+        public Map<String, String> getArgumentsAsMap() {
             reads++;
             return super.getArgumentsAsMap();
         }

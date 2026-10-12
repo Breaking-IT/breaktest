@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.har;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -28,6 +29,7 @@ import java.util.Set;
 
 import javax.swing.JButton;
 import javax.swing.JMenuItem;
+import javax.swing.JTable;
 import javax.swing.JTree;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
@@ -266,9 +268,9 @@ class HarCorrelationRulesPanelTest extends JMeterTestCase {
         JButton edit = descendants(panel).stream().filter(JButton.class::isInstance).map(JButton.class::cast)
                 .filter(button -> JMeterUtils.getResString("try_predefined_correlations_edit_custom").equals(button.getText()))
                 .findFirst().orElseThrow();
-        org.junit.jupiter.api.Assertions.assertFalse(edit.isEnabled());
-        javax.swing.JTable details = descendants(panel).stream().filter(javax.swing.JTable.class::isInstance)
-                .map(javax.swing.JTable.class::cast).findFirst().orElseThrow();
+        assertFalse(edit.isEnabled());
+        JTable details = descendants(panel).stream().filter(JTable.class::isInstance)
+                .map(JTable.class::cast).findFirst().orElseThrow();
         assertEquals("Selected rules", details.getValueAt(0, 0));
         assertEquals(2, details.getValueAt(0, 1));
         tree.getActionMap().get("toggleRule").actionPerformed(null);

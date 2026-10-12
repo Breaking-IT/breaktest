@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.IntConsumer;
+import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
@@ -134,7 +135,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rules -> {
             try {
                 HarCorrelationRuleCatalog.deleteCustomRules(testPlan, rules.stream()
-                        .map(Rule::getId).collect(java.util.stream.Collectors.toSet()));
+                        .map(Rule::getId).collect(Collectors.toSet()));
                 if (testPlanNode != null) {
                     gui.getTreeModel().nodeChanged(testPlanNode);
                     gui.setDirty(true);

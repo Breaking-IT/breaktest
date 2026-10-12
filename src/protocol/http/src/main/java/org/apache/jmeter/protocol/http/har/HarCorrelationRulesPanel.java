@@ -27,6 +27,7 @@ import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -146,7 +147,7 @@ final class HarCorrelationRulesPanel extends JPanel {
 
     void configureManagement(Set<String> disabled, Predicate<List<Rule>> deleter) {
         configureManagement(disabled, deleter, selected -> JOptionPane.showConfirmDialog(this,
-                java.text.MessageFormat.format(JMeterUtils.getResString("correlation_rules_confirm_delete"), selected.size()),
+                MessageFormat.format(JMeterUtils.getResString("correlation_rules_confirm_delete"), selected.size()),
                 JMeterUtils.getResString("correlation_rules_delete_selected"),
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.OK_OPTION);
     }

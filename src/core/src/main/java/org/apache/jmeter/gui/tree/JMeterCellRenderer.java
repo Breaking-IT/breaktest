@@ -26,6 +26,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -324,11 +325,14 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
         private final Map<String, String> shared = new LinkedHashMap<>();
         private final Map<String, JMeterTreeNode> profiles = new LinkedHashMap<>();
         private final Map<JMeterTreeNode, Map<String, String>> groupVariables = new LinkedHashMap<>();
-        private final List<Scenario> scenarios = new java.util.ArrayList<>();
+        private final List<Scenario> scenarios = new ArrayList<>();
         private JMeterTreeNode defaultProfile;
 
         PreviewVariables(JMeterTreeNode plan) {
-            shared.putAll(((TestPlan) plan.getTestElement()).getUserDefinedVariables());
+            Object variables = ((TestPlan) plan.getTestElement()).getUserDefinedVariablesAsProperty().getObjectValue();
+            if (variables instanceof Arguments arguments) {
+                shared.putAll(arguments.getArgumentsAsMap());
+            }
             addDirectVariables(plan, shared);
             for (int i = 0; i < plan.getChildCount(); i++) {
                 JMeterTreeNode section = (JMeterTreeNode) plan.getChildAt(i);
@@ -389,10 +393,13 @@ public class JMeterCellRenderer extends DefaultTreeCellRenderer {
                     }
                     selectedProfiles.add(selected);
                 }
-                if (selectedProfiles.size() != 1) {
+                if (selectedProfiles.size() > 1) {
                     return Map.of();
                 }
-                profile = selectedProfiles.iterator().next();
+                // A group outside the enabled scenario still has a useful default-profile preview.
+                if (!selectedProfiles.isEmpty()) {
+                    profile = selectedProfiles.iterator().next();
+                }
             }
             Map<String, String> variables = new LinkedHashMap<>(shared);
             if (group != null) {

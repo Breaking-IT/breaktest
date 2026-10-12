@@ -67,6 +67,8 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.Scenario;
+import org.apache.jmeter.scenario.SharedProfile;
 import org.apache.jmeter.scenario.gui.UniqueNames;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testbeans.TestBean;
@@ -669,8 +671,8 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
                 if (currentNodeEdited && (!historyEnabled || before != after)) {
                     currentNode.nameChanged(); // Bug 50221 - ensure label is updated
                     if (mainFrame != null && (el instanceof TestPlan || el instanceof Arguments
-                            || el instanceof Profile || el instanceof org.apache.jmeter.scenario.SharedProfile
-                            || el instanceof org.apache.jmeter.scenario.Scenario)) {
+                            || el instanceof Profile || el instanceof SharedProfile
+                            || el instanceof Scenario)) {
                         // Transaction tree labels can summarize delays backed by Test Plan/User Defined
                         // Variables. Recalculate cached row widths when those values change.
                         mainFrame.getTree().treeDidChange();

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -120,7 +121,7 @@ class LoadTest {
         JMeterTreeNode plan = (JMeterTreeNode) ((JMeterTreeNode) model.getRoot()).getChildAt(0);
         ThreadGroup disabled = new ThreadGroup();
         disabled.setEnabled(false);
-        List<JMeterTreeNode> groups = new java.util.ArrayList<>();
+        List<JMeterTreeNode> groups = new ArrayList<>();
         for (AbstractThreadGroup element : List.of(new ThreadGroup(), new SetupThreadGroup(), new PostThreadGroup(), disabled)) {
             JMeterTreeNode group = new JMeterTreeNode(element, model);
             JMeterTreeNode transaction = new JMeterTreeNode(new TransactionController(), model);

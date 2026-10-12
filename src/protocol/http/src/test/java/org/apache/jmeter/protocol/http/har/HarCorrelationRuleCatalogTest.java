@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.har;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -27,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.jmeter.extractor.RegexExtractor;
@@ -142,7 +144,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
         TestPlan plan = new TestPlan("Plan");
         Rule original = regexRule("move-me", "value", "value=(.+)", "$1$", 4, true)
-                .withExtractorSettings(java.util.Map.of("custom.setting", "preserve"));
+                .withExtractorSettings(Map.of("custom.setting", "preserve"));
         HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(original));
         Rule moved = original.withGroup("Destination");
         HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(moved));
@@ -179,7 +181,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
         byte[] before = Files.readAllBytes(file);
         assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.deleteCustomRules(plan,
                 Set.of(first.getId(), HarCorrelationRuleCatalog.builtInRules().get(0).getId())));
-        org.junit.jupiter.api.Assertions.assertArrayEquals(before, Files.readAllBytes(file));
+        assertArrayEquals(before, Files.readAllBytes(file));
         assertEquals(2, HarCorrelationRuleCatalog.loadCustomRules(plan).size());
         Files.delete(file);
         Files.createDirectory(file);
