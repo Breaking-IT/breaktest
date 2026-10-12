@@ -68,6 +68,27 @@ class SearchReviewStepTest extends JMeterTestCase {
     }
 
     @Test
+    void rejectedDescendantsProtectOnlyTheirAncestorsAcrossLargeDeletionBatches() {
+        var root = new JMeterTreeNode(new TestPlan(), null);
+        var parent = new JMeterTreeNode(new GenericController(), null);
+        root.add(parent);
+        List<JMeterTreeNode> nodes = new java.util.ArrayList<>();
+        nodes.add(parent);
+        for (int i = 0; i < 1000; i++) {
+            var child = new JMeterTreeNode(sampler(), null);
+            parent.add(child);
+            nodes.add(child);
+        }
+        var steps = SearchReviewStep.elements(nodes, null, ALL, RowField.ALL);
+        assertTrue(SearchReviewStep.protectedAncestors(steps).isEmpty());
+        steps.get(1).reject();
+        steps.get(2).reject();
+        assertEquals(Set.of(root, parent), SearchReviewStep.protectedAncestors(steps));
+        assertFalse(steps.get(0).apply(null, steps));
+        assertEquals(1000, parent.getChildCount());
+    }
+
+    @Test
     void regexGroupsAreExpandedPerOccurrenceAndRejectedMatchesSurviveAcceptAll() {
         var sampler = sampler();
         sampler.addArgument("first", "a1 b22 c333");
@@ -180,7 +201,7 @@ class SearchReviewStepTest extends JMeterTestCase {
                 assertEquals("new new", sampler.getArguments().getArgument(0).getValue());
                 var deletions = SearchReviewStep.elements(List.of(parent, node), null, ALL, RowField.ALL);
                 deletions.get(1).reject();
-                assertFalse(deletions.get(0).apply(gui, deletions));
+                assertEquals(0, SearchReviewStep.apply(gui, List.of(deletions.get(0)), deletions));
                 assertEquals(1, parent.getChildCount());
             });
         } finally {

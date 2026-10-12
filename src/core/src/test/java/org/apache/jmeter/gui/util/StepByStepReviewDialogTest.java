@@ -55,6 +55,16 @@ class StepByStepReviewDialogTest {
     }
 
     @Test
+    void failuresWithoutMessagesStillExplainHowToRecover() {
+        String message = StepByStepReviewDialog.failureMessage(new NullPointerException());
+        assertTrue(message.contains("NullPointerException"));
+        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException(" "))
+                .contains("IllegalStateException"));
+        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException("Editor failed"))
+                .contains("Editor failed"));
+    }
+
+    @Test
     void batchesGroupInterleavedMatchesByEditorAndBoundWorkBetweenEventTurns() {
         List<Step> steps = new ArrayList<>();
         var first = new JMeterTreeNode();

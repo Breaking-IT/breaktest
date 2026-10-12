@@ -179,6 +179,10 @@ final class SearchReviewStep implements ReviewStep {
     }
 
     boolean apply(GuiPackage gui, List<SearchReviewStep> steps) {
+        return apply(gui, steps, kind == Kind.ELEMENT && protectedAncestors(steps).contains(node));
+    }
+
+    private boolean apply(GuiPackage gui, List<SearchReviewStep> steps, boolean protectedElement) {
         if (state != State.PENDING || !current()) {
             if (state == State.PENDING) {
                 markStale();
@@ -190,8 +194,7 @@ final class SearchReviewStep implements ReviewStep {
         }
         if (kind == Kind.ELEMENT) {
             // Rejecting a child must not be bypassed by accepting a containing element.
-            if (steps.stream().anyMatch(step -> step.state == State.REJECTED && step.node != node
-                    && node.isNodeDescendant(step.node))) {
+            if (protectedElement) {
                 return false;
             }
             if (!SearchTreeDialog.removeMatchingNode(gui, node)) {
@@ -243,7 +246,7 @@ final class SearchReviewStep implements ReviewStep {
         }
         Map<Object, List<SearchReviewStep>> groups = new HashMap<>();
         for (SearchReviewStep step : steps) {
-            step.relatedSteps = step.kind == Kind.ELEMENT ? steps
+            step.relatedSteps = step.kind == Kind.ELEMENT ? List.of()
                     : groups.computeIfAbsent(step.groupKey(), ignored -> new ArrayList<>());
             if (step.kind != Kind.ELEMENT) {
                 step.relatedSteps.add(step);
@@ -251,8 +254,24 @@ final class SearchReviewStep implements ReviewStep {
         }
     }
 
+    static Set<JMeterTreeNode> protectedAncestors(List<SearchReviewStep> steps) {
+        Set<JMeterTreeNode> protectedNodes = new java.util.HashSet<>();
+        for (SearchReviewStep step : steps) {
+            if (step.state == State.REJECTED) {
+                for (var parent = step.node.getParent(); parent instanceof JMeterTreeNode node; parent = node.getParent()) {
+                    if (!protectedNodes.add(node)) {
+                        break;
+                    }
+                }
+            }
+        }
+        return protectedNodes;
+    }
+
     static int apply(GuiPackage gui, List<SearchReviewStep> requested, List<SearchReviewStep> steps) {
         prepareGroups(steps);
+        Set<JMeterTreeNode> protectedNodes = requested.stream().anyMatch(step -> step.kind == Kind.ELEMENT)
+                ? protectedAncestors(steps) : Set.of();
         gui.updateCurrentNode();
         ResetSearchCommand.clearSearchMarks(gui);
         return SearchTreeDialog.editWithUndo(gui, JMeterUtils.getResString("correlation_review_step_by_step"),
@@ -261,7 +280,7 @@ final class SearchReviewStep implements ReviewStep {
                     // Children first prevents accepted parents invalidating pending child reviews.
                     for (SearchReviewStep step : requested.stream()
                             .sorted(java.util.Comparator.comparingInt((SearchReviewStep step) -> step.node.getLevel()).reversed()).toList()) {
-                        if (step.apply(gui, step.relatedSteps)) {
+                        if (step.apply(gui, step.relatedSteps, protectedNodes.contains(step.node))) {
                             if (step.node.getParent() != null) {
                                 gui.getTreeModel().nodeChanged(step.node);
                             }
