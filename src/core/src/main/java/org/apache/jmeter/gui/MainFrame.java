@@ -1401,7 +1401,7 @@ public class MainFrame extends JFrame implements TestStateListener, DropTargetLi
                     }
                 }
             }
-            return null;
+            return super.getToolTipText(event);
         }
 
         @Override

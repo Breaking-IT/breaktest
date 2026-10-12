@@ -522,6 +522,8 @@ class ProxyControlSectionsTest extends JMeterTestCase {
     @Test
     void retainsTlsNegotiationFailureWithItsConnectDestination() throws Exception {
         var proxy = new ProxyControl();
+        // Generate the certificate during setup, outside the browser's handshake timeout.
+        proxy.setSslDomains("localhost");
         proxy.setNonGuiTreeModel(model);
         proxy.setTarget(recordMe());
         try (ServerSocket available = new ServerSocket(0)) {

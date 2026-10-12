@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.IntConsumer;
+import java.util.stream.Collectors;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
@@ -131,9 +132,23 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
                         exportCustomRules(gui, rules);
                     }
                 });
-        rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rule -> {
+        rulesPanel.configureManagement(HarCorrelationRuleCatalog.disabledRuleIds(), rules -> {
             try {
-                HarCorrelationRuleCatalog.deleteCustomRule(testPlan, rule.getId());
+                HarCorrelationRuleCatalog.deleteCustomRules(testPlan, rules.stream()
+                        .map(Rule::getId).collect(Collectors.toSet()));
+                if (testPlanNode != null) {
+                    gui.getTreeModel().nodeChanged(testPlanNode);
+                    gui.setDirty(true);
+                }
+                return true;
+            } catch (IOException ex) {
+                JMeterUtils.reportErrorToUser(ex.getMessage());
+                return false;
+            }
+        });
+        rulesPanel.configureMoving(rules -> {
+            try {
+                HarCorrelationRuleCatalog.storeCustomRulesEverywhere(testPlan, rules);
                 if (testPlanNode != null) {
                     gui.getTreeModel().nodeChanged(testPlanNode);
                     gui.setDirty(true);
