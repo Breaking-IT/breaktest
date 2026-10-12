@@ -21,8 +21,17 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dialog;
 import java.awt.FlowLayout;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -31,15 +40,22 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.Timer;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.EditCommand;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.util.JMeterUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Small modal navigator: the sampler editor remains visible behind it. Decisions apply immediately. */
 public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog {
+    private static final Logger LOG = LoggerFactory.getLogger(StepByStepReviewDialog.class);
+
+    enum FailurePhase { REVIEW, CHECKING, APPLYING }
+
     private final GuiPackage gui;
     private final List<S> steps;
     private final JLabel progress = new JLabel();
@@ -51,8 +67,7 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
     private final JButton reject = button("correlation_review_reject");
     private Runnable clearHighlight;
     private int index;
-    private javax.swing.Timer batchTimer;
-
+    private Timer batchTimer;
 
     private StepByStepReviewDialog(GuiPackage gui, List<S> steps, Consumer<List<S>> apply) {
         super(gui.getMainFrame(), JMeterUtils.getResString("correlation_review_step_by_step"),
@@ -84,15 +99,25 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
             move(1);
         });
         accept.addActionListener(event -> {
-            clear();
-            apply.accept(List.of(steps.get(index)));
-            if (steps.get(index).state() == ReviewStep.State.ACCEPTED) {
-                move(1);
-            } else if (showStep()) {
-                details.append("\n" + JMeterUtils.getResString("review_not_applied"));
+            try {
+                clear();
+                apply.accept(List.of(steps.get(index)));
+                if (steps.get(index).state() == ReviewStep.State.ACCEPTED) {
+                    move(1);
+                } else if (showStep()) {
+                    details.append("\n" + JMeterUtils.getResString("review_not_applied"));
+                }
+            } catch (RuntimeException ex) {
+                showFailure(ex, FailurePhase.APPLYING);
             }
         });
-        acceptAll.addActionListener(event -> startAcceptAll(apply));
+        acceptAll.addActionListener(event -> {
+            try {
+                startAcceptAll(apply);
+            } catch (RuntimeException ex) {
+                showFailure(ex, FailurePhase.CHECKING);
+            }
+        });
         close.addActionListener(event -> dispose());
         pack();
         var owner = gui.getMainFrame();
@@ -119,11 +144,12 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
         reject.setEnabled(false);
         acceptAll.setEnabled(false);
         var batches = reviewBatches(steps).iterator();
-        List<S> visible = new java.util.ArrayList<>();
-        java.util.Set<S> notVisible = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        List<S> visible = new ArrayList<>();
+        Set<S> notVisible = Collections.newSetFromMap(new IdentityHashMap<>());
         int[] checked = {0};
+        boolean[] applying = {false};
         JMeterTreeNode[] loadedNode = {null};
-        batchTimer = new javax.swing.Timer(1, event -> {
+        batchTimer = new Timer(1, event -> {
             try {
                 if (batches.hasNext()) {
                     List<S> batch = batches.next();
@@ -136,12 +162,13 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
                         return highlight;
                     }, visible::addAll);
                     checked[0] += batch.size();
-                    progress.setText(java.text.MessageFormat.format(
+                    progress.setText(MessageFormat.format(
                             JMeterUtils.getResString("review_checking_visibility"), checked[0]));
                     return;
                 }
                 batchTimer.stop();
                 batchTimer = null;
+                applying[0] = true;
                 apply.accept(visible);
                 index = 0;
                 while (index < steps.size() && steps.get(index).state() != ReviewStep.State.PENDING) {
@@ -151,7 +178,7 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
                     details.append("\n" + JMeterUtils.getResString("review_not_applied"));
                 }
             } catch (RuntimeException ex) {
-                showFailure(ex);
+                showFailure(ex, applying[0] ? FailurePhase.APPLYING : FailurePhase.CHECKING);
             }
         });
         batchTimer.start();
@@ -159,13 +186,13 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
 
     /** One editor per batch, with bounded work before returning to the event queue. */
     static <S extends ReviewStep> List<List<S>> reviewBatches(List<S> steps) {
-        java.util.Map<JMeterTreeNode, List<S>> nodes = new java.util.LinkedHashMap<>();
+        Map<JMeterTreeNode, List<S>> nodes = new LinkedHashMap<>();
         for (S step : steps) {
             if (step.state() == ReviewStep.State.PENDING) {
-                nodes.computeIfAbsent(step.node(), ignored -> new java.util.ArrayList<>()).add(step);
+                nodes.computeIfAbsent(step.node(), ignored -> new ArrayList<>()).add(step);
             }
         }
-        List<List<S>> batches = new java.util.ArrayList<>();
+        List<List<S>> batches = new ArrayList<>();
         for (List<S> nodeSteps : nodes.values()) {
             for (int start = 0; start < nodeSteps.size(); start += 32) {
                 batches.add(nodeSteps.subList(start, Math.min(start + 32, nodeSteps.size())));
@@ -175,8 +202,8 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
     }
 
     static <S extends ReviewStep> void applyVisibleSteps(List<S> steps,
-            java.util.function.Function<S, Runnable> reveal, Consumer<List<S>> apply) {
-        List<S> visible = new java.util.ArrayList<>();
+            Function<S, Runnable> reveal, Consumer<List<S>> apply) {
+        List<S> visible = new ArrayList<>();
         for (S step : steps) {
             if (step.state() != ReviewStep.State.PENDING) {
                 continue;
@@ -211,21 +238,31 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
     }
 
     private void showFailure(RuntimeException ex) {
+        showFailure(ex, FailurePhase.REVIEW);
+    }
+
+    private void showFailure(RuntimeException ex, FailurePhase phase) {
         stopBatch();
-        org.slf4j.LoggerFactory.getLogger(StepByStepReviewDialog.class).error("Review failed", ex);
+        LOG.error("Review failed during {}", phase, ex);
+        progress.setText(JMeterUtils.getResString("review_stopped"));
         // Do not load the failing editor again while recovering. Navigation can choose another step.
         previous.setEnabled(index > 0);
         next.setEnabled(index < steps.size());
         accept.setEnabled(false);
         reject.setEnabled(false);
         acceptAll.setEnabled(false);
-        details.setText(failureMessage(ex));
+        details.setText(failureMessage(ex, phase));
         details.setCaretPosition(0);
     }
 
-    static String failureMessage(RuntimeException ex) {
+    static String failureMessage(RuntimeException ex, FailurePhase phase) {
+        String context = switch (phase) {
+            case CHECKING -> JMeterUtils.getResString("review_checking_failed");
+            case APPLYING -> JMeterUtils.getResString("review_applying_failed");
+            case REVIEW -> JMeterUtils.getResString("review_failed");
+        };
         String message = ex.getMessage();
-        return JMeterUtils.getResString("review_failed") + "\n"
+        return context + "\n"
                 + (message == null || message.isBlank() ? ex.getClass().getSimpleName() : message);
     }
 
@@ -250,14 +287,14 @@ public final class StepByStepReviewDialog<S extends ReviewStep> extends JDialog 
             progress.setText(JMeterUtils.getResString("correlation_review_end"));
             long accepted = steps.stream().filter(step -> step.state() == ReviewStep.State.ACCEPTED).count();
             long rejected = steps.stream().filter(step -> step.state() == ReviewStep.State.REJECTED).count();
-            details.setText(java.text.MessageFormat.format(JMeterUtils.getResString("correlation_review_summary"),
+            details.setText(MessageFormat.format(JMeterUtils.getResString("correlation_review_summary"),
                     accepted, rejected, steps.size() - accepted - rejected));
             return;
         }
         S step = steps.get(index);
         boolean visible = clearHighlight != null;
         progress.setText((index + 1) + " / " + steps.size() + " — "
-                + JMeterUtils.getResString("correlation_review_" + step.state().name().toLowerCase(java.util.Locale.ROOT)));
+                + JMeterUtils.getResString("correlation_review_" + step.state().name().toLowerCase(Locale.ROOT)));
         details.setText(step.description());
         details.setCaretPosition(0);
         boolean pending = step.state() == ReviewStep.State.PENDING;

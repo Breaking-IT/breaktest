@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -55,12 +56,32 @@ class StepByStepReviewDialogTest {
     }
 
     @Test
+    void checkingAndApplyingFailuresDescribeDifferentMutationOutcomes() {
+        var error = new IllegalStateException("Editor failed");
+        String checking = StepByStepReviewDialog.failureMessage(error,
+                StepByStepReviewDialog.FailurePhase.CHECKING);
+        String applying = StepByStepReviewDialog.failureMessage(error,
+                StepByStepReviewDialog.FailurePhase.APPLYING);
+        String checkingContext = org.apache.jmeter.util.JMeterUtils.getResString("review_checking_failed");
+        String applyingContext = org.apache.jmeter.util.JMeterUtils.getResString("review_applying_failed");
+        assertTrue(checking.contains(checkingContext));
+        assertFalse(applying.contains(checkingContext));
+        assertTrue(applying.contains(applyingContext));
+        assertFalse(checking.contains(applyingContext));
+        assertTrue(checking.endsWith("Editor failed"));
+        assertTrue(applying.endsWith("Editor failed"));
+    }
+
+    @Test
     void failuresWithoutMessagesStillExplainHowToRecover() {
-        String message = StepByStepReviewDialog.failureMessage(new NullPointerException());
+        String message = StepByStepReviewDialog.failureMessage(new NullPointerException(),
+                StepByStepReviewDialog.FailurePhase.REVIEW);
         assertTrue(message.contains("NullPointerException"));
-        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException(" "))
+        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException(" "),
+                StepByStepReviewDialog.FailurePhase.REVIEW)
                 .contains("IllegalStateException"));
-        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException("Editor failed"))
+        assertTrue(StepByStepReviewDialog.failureMessage(new IllegalStateException("Editor failed"),
+                StepByStepReviewDialog.FailurePhase.REVIEW)
                 .contains("Editor failed"));
     }
 
