@@ -111,7 +111,10 @@ class HarImportCorrelationReviewTest extends JMeterTestCase {
 
     @Test
     void normalImportStillAppliesSelectedCorrelationsDuringConversion() throws Exception {
-        var entries = HarParser.parse(HAR);
+        byte[] named = new String(HAR, StandardCharsets.UTF_8)
+                .replace("\"name\":\"token\"", "\"name\":\"recorded-token\"")
+                .getBytes(StandardCharsets.UTF_8);
+        var entries = HarParser.parse(named);
         var correlations = correlations(entries);
         HarImportOptions options = new HarImportOptions();
         HarImportWizard.configureCorrelationReview(options, correlations, true);
@@ -124,6 +127,7 @@ class HarImportCorrelationReviewTest extends JMeterTestCase {
         var target = samplers.getSearchResults().stream().filter(sampler -> sampler.getMethod().equals("POST"))
                 .findFirst().orElseThrow();
         assertEquals("${token}:${token}", target.getArguments().getArgument(0).getValue());
+        assertEquals(TOKEN, target.getArguments().getArgument(0).getName());
         var extractors = new SearchByClass<>(RegexExtractor.class);
         tree.traverse(extractors);
         assertEquals(1, extractors.getSearchResults().size());

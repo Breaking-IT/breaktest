@@ -174,7 +174,8 @@ class SearchReviewStepTest extends JMeterTestCase {
                 gui.refreshCurrentGui();
                 var steps = SearchReviewStep.replacements(List.of(node), Pattern.compile("same"), "new",
                         false, ALL, RowField.ALL);
-                assertEquals(2, SearchReviewStep.apply(gui, steps, steps));
+                assertEquals(1, SearchReviewStep.apply(gui, List.of(steps.get(0)), steps));
+                assertEquals(1, SearchReviewStep.apply(gui, List.of(steps.get(1)), steps));
                 gui.updateCurrentNode();
                 assertEquals("new new", sampler.getArguments().getArgument(0).getValue());
                 var deletions = SearchReviewStep.elements(List.of(parent, node), null, ALL, RowField.ALL);

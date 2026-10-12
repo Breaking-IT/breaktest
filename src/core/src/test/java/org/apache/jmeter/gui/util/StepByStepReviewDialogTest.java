@@ -32,12 +32,13 @@ class StepByStepReviewDialogTest {
         private State state = State.PENDING;
         private final boolean visible;
         private boolean highlighted;
+        private JMeterTreeNode node;
 
         private Step(boolean visible) { this.visible = visible; }
         @Override
         public State state() { return state; }
         @Override
-        public JMeterTreeNode node() { return null; }
+        public JMeterTreeNode node() { return node; }
         @Override
         public boolean current() { return true; }
         @Override
@@ -51,6 +52,32 @@ class StepByStepReviewDialogTest {
             highlighted = visible;
             return visible ? () -> highlighted = false : null;
         }
+    }
+
+    @Test
+    void batchesGroupInterleavedMatchesByEditorAndBoundWorkBetweenEventTurns() {
+        List<Step> steps = new ArrayList<>();
+        var first = new JMeterTreeNode();
+        var second = new JMeterTreeNode();
+        for (int i = 0; i < 1000; i++) {
+            Step step = new Step(true);
+            step.node = i % 2 == 0 ? first : second;
+            steps.add(step);
+        }
+        steps.get(0).reject();
+        var batches = StepByStepReviewDialog.reviewBatches(steps);
+        assertEquals(999, batches.stream().mapToInt(List::size).sum());
+        assertTrue(batches.stream().allMatch(batch -> batch.size() <= 32
+                && batch.stream().allMatch(step -> step.node() == batch.get(0).node())));
+        long editorLoads = 0;
+        JMeterTreeNode loaded = null;
+        for (var batch : batches) {
+            if (loaded != batch.get(0).node()) {
+                editorLoads++;
+                loaded = batch.get(0).node();
+            }
+        }
+        assertEquals(2, editorLoads);
     }
 
     @Test

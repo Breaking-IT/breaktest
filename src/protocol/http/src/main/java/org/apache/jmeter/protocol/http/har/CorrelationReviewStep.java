@@ -100,7 +100,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                 boolean raw = node.getTestElement() instanceof HTTPSamplerBase http && http.getPostBodyRaw();
                 for (var candidate : sampler.getReplaceableFields()) {
                     int row = rows.merge(candidate.name(), 1, Integer::sum) - 1;
-                    if (List.of("Path", "URL", "Parameter name", "Parameter value", "Header name", "Header value")
+                    if (List.of("Path", "URL", "Parameter value", "Header value")
                             .contains(candidate.name()) && !(raw && candidate.name().startsWith("Parameter"))) {
                         fields.add(new Field(node, candidate.name(), row));
                     }

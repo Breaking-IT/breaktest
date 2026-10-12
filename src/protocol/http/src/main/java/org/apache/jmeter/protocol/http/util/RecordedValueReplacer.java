@@ -306,11 +306,6 @@ public final class RecordedValueReplacer {
         }
         for (var property : sampler.getArguments()) {
             if (property.getObjectValue() instanceof HTTPArgument argument) {
-                String beforeName = argument.getName();
-                argument.setName(replace(beforeName, value, reference, argument.isAlwaysEncoded()));
-                if (!beforeName.equals(argument.getName())) {
-                    changed++;
-                }
                 String before = argument.getValue();
                 replaceArgument(argument, value, reference,
                         sampler.getPostBodyRaw() || sampler.getSendParameterValuesAsPostBody());
@@ -320,11 +315,6 @@ public final class RecordedValueReplacer {
             }
         }
         for (var header : sampler.getNativeHeaderList()) {
-            String name = replace(header.getName(), value, reference, false);
-            if (!name.equals(header.getName())) {
-                header.setName(name);
-                changed++;
-            }
             String replaced = replace(header.getValue(), value, reference, false);
             if (!replaced.equals(header.getValue())) {
                 header.setValue(replaced);

@@ -38,6 +38,11 @@ import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.junit.jupiter.api.Test;
 
 class CorrelationReviewStepTest extends JMeterTestCase {
+    @org.junit.jupiter.api.BeforeEach
+    void initializeLocale() {
+        org.apache.jmeter.util.JMeterUtils.setLocale(java.util.Locale.getDefault());
+    }
+
     private static final String TOKEN = "recorded-token";
 
     private static HTTPSamplerProxy sampler() {
@@ -127,16 +132,17 @@ class CorrelationReviewStepTest extends JMeterTestCase {
     }
 
     @Test
-    void findsNamesHeadersPathsAndBodyOccurrences() {
+    void findsValuesHeadersPathsAndBodyOccurrencesWithoutRenamingFields() {
         var sampler = sampler();
         sampler.setPath("/" + TOKEN);
         sampler.addArgument(TOKEN, "fixed");
         sampler.setNativeHeaders(List.of(new Header(TOKEN, TOKEN)));
         var steps = steps(sampler, TOKEN);
-        assertEquals(List.of("Path", "Parameter name", "Header name", "Header value"),
+        assertEquals(List.of("Path", "Header value"),
                 steps.stream().map(step -> step.field.name()).toList());
         steps.forEach(step -> assertTrue(step.accept(steps)));
-        assertEquals("${token}", sampler.getNativeHeaderList().get(0).getName());
+        assertEquals(TOKEN, sampler.getNativeHeaderList().get(0).getName());
+        assertEquals(TOKEN, sampler.getArguments().getArgument(0).getName());
         var body = sampler();
         body.setPostBodyRaw(true);
         body.addArgument("", "first\r\n" + TOKEN + " " + TOKEN);
@@ -148,16 +154,19 @@ class CorrelationReviewStepTest extends JMeterTestCase {
     }
 
     @Test
-    void discoversMatchesThatOccurOnlyInNames() {
+    void ignoresMatchesThatOccurOnlyInNames() {
         var sampler = sampler();
         sampler.addArgument(TOKEN, "fixed");
         sampler.setNativeHeaders(List.of(new Header("X-" + TOKEN, "fixed")));
-        var steps = steps(sampler, TOKEN);
-        assertEquals(List.of("Parameter name", "Header name"),
-                steps.stream().map(step -> step.field.name()).toList());
-        steps.forEach(step -> assertTrue(step.accept(steps)));
-        assertEquals("${token}", sampler.getArguments().getArgument(0).getName());
-        assertEquals("X-${token}", sampler.getNativeHeaderList().get(0).getName());
+        var source = FindPredefinedCorrelationsAction.toHarEntry(sampler(), "", "token=" + TOKEN + ";", 0);
+        var target = FindPredefinedCorrelationsAction.toHarEntry(sampler, "", "", 1);
+        var rule = new HarPredefinedCorrelation.Rule("test", "test", "Test", "token",
+                HarPredefinedCorrelation.ExtractorType.REGEX, HarPredefinedCorrelation.ResponseField.BODY,
+                "token=([^;]+);", "$1$", "", false, false, false);
+        assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule)).isEmpty());
+        assertEquals(0, RecordedValueReplacer.replaceSampler(sampler, TOKEN, "${token}"));
+        assertEquals(TOKEN, sampler.getArguments().getArgument(0).getName());
+        assertEquals("X-" + TOKEN, sampler.getNativeHeaderList().get(0).getName());
     }
 
     @Test

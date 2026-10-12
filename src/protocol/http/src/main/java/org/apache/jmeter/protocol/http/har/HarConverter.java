@@ -695,8 +695,7 @@ public final class HarConverter {
             String lower = header.getName().toLowerCase(Locale.ROOT);
             if (isExportableHeader(lower) && !Set.of("connection", "upgrade", "expect").contains(lower)
                     && (!lower.startsWith("sec-websocket-") || "sec-websocket-protocol".equals(lower))) {
-                headers.add(new Header(replaceCorrelations(entry, header.getName(),
-                        HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER), replaceCorrelations(entry, header.getValue(),
+                headers.add(new Header(header.getName(), replaceCorrelations(entry, header.getValue(),
                         HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER)));
             }
         }
@@ -796,8 +795,7 @@ public final class HarConverter {
         boolean keptUploadBody = false;
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
-                String decodedName = replaceDecodedCorrelations(entry, percentDecode(param.getName()),
-                        HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
+                String decodedName = percentDecode(param.getName());
                 String decodedValue = percentDecode(param.getValue());
                 decodedValue = replaceDecodedCorrelations(entry, decodedValue,
                         HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
@@ -838,9 +836,7 @@ public final class HarConverter {
                     }
                     String value = replaceCorrelations(entry, param.getValue(),
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
-                    String parameterName = replaceCorrelations(entry, param.getName(),
-                            HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
-                    addHttpArgument(arguments, parameterName, value, false, true);
+                    addHttpArgument(arguments, param.getName(), value, false, true);
                 }
                 sampler.setHTTPFiles(files.toArray(HTTPFileArg[]::new));
                 sampler.setDoMultipart(generatedMultipart);
@@ -850,11 +846,9 @@ public final class HarConverter {
                     String decodedValue = percentDecode(param.getValue());
                     decodedValue = replaceDecodedCorrelations(entry, decodedValue,
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
-                    String parameterName = replaceDecodedCorrelations(entry, param.getName(),
-                            HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
-                    boolean alwaysEncode = needsUrlEncoding(parameterName)
+                    boolean alwaysEncode = needsUrlEncoding(param.getName())
                             || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
-                    addHttpArgument(arguments, parameterName, decodedValue, alwaysEncode, true);
+                    addHttpArgument(arguments, param.getName(), decodedValue, alwaysEncode, true);
                 }
             } else if (postData.getText() != null) {
                 sampler.setPostBodyRaw(true);
@@ -878,9 +872,7 @@ public final class HarConverter {
                     && !generatedBoundaryHeader) {
                 String value = replaceCorrelations(entry, header.getValue(),
                         HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER);
-                String headerName = replaceCorrelations(entry, header.getName(),
-                        HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER);
-                uniqueHeaders.add(new Header(headerName, value));
+                uniqueHeaders.add(new Header(header.getName(), value));
             }
         }
         if (keptUploadBody && !entry.getPostData().getMimeType().isBlank()
