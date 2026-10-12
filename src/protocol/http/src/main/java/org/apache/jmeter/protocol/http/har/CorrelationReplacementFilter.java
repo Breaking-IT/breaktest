@@ -25,6 +25,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.apache.jmeter.gui.Replaceable;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.RequestLocation;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
@@ -54,6 +55,7 @@ final class CorrelationReplacementFilter {
             case POST_PARAMETER -> this == PARAMETERS || this == POST_PARAMETERS;
             case REQUEST_BODY -> this == BODY;
             case REQUEST_HEADER -> this == HEADERS;
+            case REQUEST_OTHER -> false;
             };
         }
     }
@@ -103,29 +105,108 @@ final class CorrelationReplacementFilter {
         }
         List<Match> matches = RecordedValueReplacer.matches(text, value, reference, decoded);
         if (wholeValue) {
-            matches = matches.stream().filter(match -> match.start() == 0 && match.end() == text.length()).toList();
+            matches = matches.stream().filter(match -> wholeMatch(text, match, location)).toList();
         }
         if (pattern == null || matches.isEmpty()) {
             return matches;
         }
         String prefix = name.isEmpty() ? "" : name + (location == RequestLocation.REQUEST_HEADER ? ": " : "=");
         List<int[]> regions = new ArrayList<>();
-        var valueMatcher = pattern.matcher(text);
-        while (valueMatcher.find()) {
-            regions.add(new int[] {valueMatcher.start(), valueMatcher.end()});
+        var budget = new RegexBudget(text.length());
+        try {
+            collectRegions(text, 0, budget, regions);
+            if (!prefix.isEmpty()) {
+                collectRegions(prefix + text, prefix.length(), budget, regions);
+            }
+        } catch (StackOverflowError ex) {
+            throw new IllegalArgumentException("Replacement field pattern exhausted the regex stack", ex);
         }
-        var matcher = pattern.matcher(prefix + text);
+        regions.sort(java.util.Comparator.comparingInt(region -> region[0]));
+        List<Match> accepted = new ArrayList<>();
+        int regionIndex = 0;
+        int regionEnd = -1;
+        for (Match match : matches) {
+            while (regionIndex < regions.size() && regions.get(regionIndex)[0] <= match.start()) {
+                regionEnd = Math.max(regionEnd, regions.get(regionIndex++)[1]);
+            }
+            if (match.end() <= regionEnd) {
+                accepted.add(match);
+            }
+        }
+        return accepted;
+    }
+
+    private void collectRegions(String text, int offset, RegexBudget budget, List<int[]> regions) {
+        var matcher = pattern.matcher(new BoundedText(text, budget));
         while (matcher.find()) {
-            regions.add(new int[] {matcher.start() - prefix.length(), matcher.end() - prefix.length()});
+            regions.add(new int[] {matcher.start() - offset, matcher.end() - offset});
         }
-        return matches.stream().filter(match -> regions.stream().anyMatch(region ->
-                match.start() >= region[0] && match.end() <= region[1])).toList();
+    }
+
+    private static boolean wholeMatch(String text, Match match, RequestLocation location) {
+        if (location == RequestLocation.URL_PATH) {
+            return (match.start() == 0 || text.charAt(match.start() - 1) == '/')
+                    && (match.end() == text.length() || text.charAt(match.end()) == '/');
+        }
+        if (location == RequestLocation.REQUEST_BODY) {
+            return (match.start() == 0 || !tokenCharacter(text.charAt(match.start() - 1)))
+                    && (match.end() == text.length() || !tokenCharacter(text.charAt(match.end())));
+        }
+        return match.start() == 0 && match.end() == text.length();
+    }
+
+    private static boolean tokenCharacter(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '-' || c == '.' || c == '%';
+    }
+
+    // Interrupt Java regex evaluation cooperatively, including catastrophic backtracking.
+    private static final class RegexBudget {
+        private long remaining;
+
+        RegexBudget(int length) {
+            remaining = Math.min(10_000_000L, Math.max(100_000L, length * 100L));
+        }
+
+        void read() {
+            HarPredefinedCorrelation.checkCancelled();
+            if (--remaining < 0) {
+                throw new IllegalArgumentException("Replacement field pattern exceeded its matching budget");
+            }
+        }
+    }
+
+    private record BoundedText(String text, RegexBudget budget) implements CharSequence {
+        @Override
+        public int length() {
+            return text.length();
+        }
+
+        @Override
+        public char charAt(int index) {
+            budget.read();
+            return text.charAt(index);
+        }
+
+        @Override
+        public CharSequence subSequence(int start, int end) {
+            return new BoundedText(text.substring(start, end), budget);
+        }
+
+        @Override
+        public String toString() {
+            return text;
+        }
     }
 
     List<Match> urlMatches(String text, String value, String reference, RequestLocation location) {
         List<Match> result = new ArrayList<>();
+        int fragment = text.indexOf('#');
+        int urlEnd = fragment < 0 ? text.length() : fragment;
         int query = text.indexOf('?');
-        int pathEnd = query < 0 ? text.length() : query;
+        if (query >= urlEnd) {
+            query = -1;
+        }
+        int pathEnd = query < 0 ? urlEnd : query;
         int scheme = text.indexOf("://");
         int pathStart = scheme < 0 ? 0 : text.indexOf('/', scheme + 3);
         if (pathStart < 0 || pathStart > pathEnd) {
@@ -135,10 +216,10 @@ final class CorrelationReplacementFilter {
             appendMatches(result, text.substring(pathStart, pathEnd), pathStart, value, reference, location, "");
         } else if (query >= 0) {
             int start = query + 1;
-            while (start < text.length()) {
+            while (start < urlEnd) {
                 int end = text.indexOf('&', start);
-                if (end < 0) {
-                    end = text.length();
+                if (end < 0 || end > urlEnd) {
+                    end = urlEnd;
                 }
                 int equals = text.indexOf('=', start);
                 int valueStart = equals >= start && equals < end ? equals + 1 : start;
@@ -159,16 +240,27 @@ final class CorrelationReplacementFilter {
 
     List<Match> samplerMatches(Replaceable sampler, String field, int row, String text,
             String value, String reference, boolean decoded) {
+        var descriptor = sampler.getReplaceableFields().stream().filter(item -> item.name().equals(field))
+                .skip(row).findFirst().orElse(null);
+        if (unrestricted() && !(sampler instanceof HTTPSamplerBase)) {
+            return RecordedValueReplacer.matches(text, value, reference, decoded);
+        }
         if (field.equals("Path") || field.equals("URL")) {
             List<Match> result = new ArrayList<>(urlMatches(text, value, reference, RequestLocation.URL_PATH));
             result.addAll(urlMatches(text, value, reference, RequestLocation.QUERY_PARAMETER));
             return result;
         }
-        if (field.equals("Body")) {
+        if (field.equals("Body") || descriptor != null && descriptor.area() == SearchArea.BODY) {
             return matches(text, value, reference, false, RequestLocation.REQUEST_BODY, "");
         }
         if (!field.equals("Header value") && !field.equals("Parameter value")) {
-            return List.of();
+            RequestLocation location = descriptor == null ? RequestLocation.REQUEST_OTHER : switch (descriptor.area()) {
+            case PATH -> RequestLocation.URL_PATH;
+            case PARAMETERS -> RequestLocation.POST_PARAMETER;
+            case HEADERS -> RequestLocation.REQUEST_HEADER;
+            default -> RequestLocation.REQUEST_OTHER;
+            };
+            return matches(text, value, reference, decoded, location, "");
         }
         boolean header = field.equals("Header value");
         String nameField = header ? "Header name" : "Parameter name";
@@ -187,12 +279,6 @@ final class CorrelationReplacementFilter {
     }
 
     static String replace(String text, List<Match> matches) {
-        StringBuilder result = new StringBuilder();
-        int offset = 0;
-        for (Match match : matches) {
-            result.append(text, offset, match.start()).append(match.reference());
-            offset = match.end();
-        }
-        return result.append(text, offset, text.length()).toString();
+        return RecordedValueReplacer.replace(text, matches);
     }
 }

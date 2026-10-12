@@ -81,6 +81,30 @@ class UDPSamplerTest extends JMeterTestCase {
     }
 
     @Test
+    void responseExtractorsProcessAnActualUdpResult() throws Exception {
+        try (UdpServer server = UdpServer.echo()) {
+            UDPSampler sampler = textSamplerFor(server.port(), "{\"id\":\"udp-token\"}");
+            SampleResult result = sampler.sample(null);
+            assertTrue(result.isSuccessful(), result::getResponseMessage);
+            JMeterContextService.getContext().setPreviousResult(result);
+            var regex = new org.apache.jmeter.extractor.RegexExtractor();
+            regex.setRefName("regexId");
+            regex.setRegex("id\":\"([^\"]+)\"");
+            regex.setTemplate("$1$");
+            regex.setMatchNumber(1);
+            regex.process();
+            var json = new org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor();
+            json.setRefNames("jsonId");
+            json.setJsonPathExpressions("$.id");
+            json.setMatchNumbers("1");
+            json.setDefaultValues("missing");
+            json.process();
+            assertEquals("udp-token", JMeterContextService.getContext().getVariables().get("regexId"));
+            assertEquals("udp-token", JMeterContextService.getContext().getVariables().get("jsonId"));
+        }
+    }
+
+    @Test
     void defaultsToUtf8TextPayloads() {
         assertEquals(UTF8StringUDPTrafficCodec.class.getName(), new UDPSampler().getEncoderClass());
     }

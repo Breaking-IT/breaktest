@@ -84,7 +84,8 @@ final class HarPredefinedCorrelation {
         QUERY_PARAMETER("query parameter"),
         POST_PARAMETER("form parameter"),
         REQUEST_BODY("request body"),
-        REQUEST_HEADER("request header");
+        REQUEST_HEADER("request header"),
+        REQUEST_OTHER("request field");
 
         private final String displayName;
 
@@ -684,7 +685,43 @@ final class HarPredefinedCorrelation {
 
     private static List<Replacement> findReplacements(HarEntry entry, String extractedValue, Rule rule) {
         List<Replacement> result = new ArrayList<>();
-        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, rule);
+        if (entry.getRequestFields() != null) {
+            Map<String, Integer> rows = new LinkedHashMap<>();
+            for (var field : entry.getRequestFields().getReplaceableFields()) {
+                int row = rows.merge(field.name(), 1, Integer::sum) - 1;
+                RequestLocation location = switch (field.area()) {
+                case BODY -> RequestLocation.REQUEST_BODY;
+                case PATH -> RequestLocation.URL_PATH;
+                case HEADERS -> RequestLocation.REQUEST_HEADER;
+                case PARAMETERS -> RequestLocation.POST_PARAMETER;
+                default -> RequestLocation.REQUEST_OTHER;
+                };
+                String name = field.name();
+                if (field.name().equals("Header value")) {
+                    name = entry.getRequestFields().getReplaceableFields().stream()
+                            .filter(item -> item.name().equals("Header name")).skip(row)
+                            .map(item -> item.value()).findFirst().orElse(name);
+                }
+                var matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), field.name(), row,
+                        field.value(), extractedValue, "", false);
+                if (matches.isEmpty() && location == RequestLocation.REQUEST_HEADER) {
+                    String decoded = decodedHeaderValue(extractedValue);
+                    if (decoded.strip().length() >= rule.getMinValueLength()) {
+                        matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), field.name(), row,
+                                field.value(), decoded, "", false);
+                    }
+                }
+                if (!matches.isEmpty()) {
+                    var match = matches.get(0);
+                    result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
+                            location, name, field.value().substring(match.start(), match.end())));
+                }
+            }
+            return result;
+        }
+        addReplacement(result, entry, RequestLocation.URL_PATH, "",
+                entry.isWebSocket() && rule.getReplacementFilter().unrestricted() ? entry.getUrl() : urlPath(entry.getUrl()),
+                extractedValue, rule);
         for (NameValue header : entry.getRequestHeaders()) {
             // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
             // would be listed as replacements that silently do nothing.

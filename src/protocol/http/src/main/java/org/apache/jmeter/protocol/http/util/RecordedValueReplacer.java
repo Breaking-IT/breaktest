@@ -218,7 +218,10 @@ public final class RecordedValueReplacer {
     }
 
     public static String replace(String text, String value, String reference, boolean decoded) {
-        List<Match> matches = matches(text, value, reference, decoded);
+        return replace(text, matches(text, value, reference, decoded));
+    }
+
+    public static String replace(String text, List<Match> matches) {
         if (matches.isEmpty()) {
             return text;
         }
@@ -324,15 +327,20 @@ public final class RecordedValueReplacer {
         return changed;
     }
 
+    public static boolean encodeWholeArgument(HTTPArgument argument, String value, boolean raw) {
+        if (raw || argument.isAlwaysEncoded()) {
+            return false;
+        }
+        String literal = matchedLiteral(argument.getValue(), value);
+        return literal != null && literal.equals(argument.getValue()) && !literal.equals(value)
+                && !literal.contains("%20");
+    }
+
     public static void replaceArgument(HTTPArgument argument, String value, String reference, boolean raw) {
-        if (!raw && !argument.isAlwaysEncoded()) {
-            String literal = matchedLiteral(argument.getValue(), value);
-            if (literal != null && literal.equals(argument.getValue()) && !literal.equals(value)
-                    && !literal.contains("%20")) {
-                argument.setValue(reference);
-                argument.setAlwaysEncoded(true);
-                return;
-            }
+        if (encodeWholeArgument(argument, value, raw)) {
+            argument.setValue(reference);
+            argument.setAlwaysEncoded(true);
+            return;
         }
         argument.setValue(replace(argument.getValue(), value, reference, !raw && argument.isAlwaysEncoded()));
     }

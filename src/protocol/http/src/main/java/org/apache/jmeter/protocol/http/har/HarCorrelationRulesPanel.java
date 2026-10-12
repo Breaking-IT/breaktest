@@ -867,7 +867,7 @@ final class HarCorrelationRulesPanel extends JPanel {
             minValueLength.setToolTipText(JMeterUtils.getResString("correlation_rule_min_length_tooltip"));
             addRow(JMeterUtils.getResString("correlation_rule_min_length"), minValueLength, row++);
             addRow("Replacement scope", replacementScope, row++);
-            replacementWholeValue.setToolTipText("Replace only when the extracted value matches the entire field value.");
+            replacementWholeValue.setToolTipText("Match complete parameter/header values, path segments, or body tokens.");
             addRow("Match whole value only", replacementWholeValue, row++);
             replacementFieldPattern.setToolTipText(
                     "Optional Java regex: replace only inside matching regions. Parameters use name=value; headers use name: value.");

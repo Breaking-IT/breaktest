@@ -201,7 +201,7 @@ final class HarCorrelationRuleCatalog {
         if (content.isEmpty()) {
             throw new IOException("Custom predefined correlation rules are unavailable: " + entryName);
         }
-        return parse(content.orElseThrow());
+        return parse(content.orElseThrow(), true);
     }
 
     static void storeCustomRules(TestElement testPlan, List<Rule> rules) throws IOException {
@@ -287,6 +287,10 @@ final class HarCorrelationRuleCatalog {
     }
 
     static List<Rule> parse(byte[] content) throws IOException {
+        return parse(content, false);
+    }
+
+    static List<Rule> parse(byte[] content, boolean skipInvalidPatterns) throws IOException {
         if (content == null || content.length == 0 || content.length > MAX_CONFIG_BYTES) {
             throw new IOException("Predefined correlation config must contain 1 to "
                     + MAX_CONFIG_BYTES + " bytes");
@@ -322,7 +326,7 @@ final class HarCorrelationRuleCatalog {
                     if (ruleNode.has("group")) {
                         throw new IOException("Grouped predefined correlation rule must not repeat its group");
                     }
-                    addRule(rules, byId, parseRule(ruleNode, group));
+                    parseAndAddRule(rules, byId, ruleNode, group, skipInvalidPatterns);
                 }
             }
         } else {
@@ -330,13 +334,25 @@ final class HarCorrelationRuleCatalog {
                 throw new IOException("Predefined correlation config must contain a groups array");
             }
             for (JsonNode ruleNode : legacyRulesNode) {
-                addRule(rules, byId, parseRule(ruleNode, ruleNode.path("group").asText("Custom").trim()));
+                parseAndAddRule(rules, byId, ruleNode, ruleNode.path("group").asText("Custom").trim(), skipInvalidPatterns);
             }
         }
         if (rules.size() > MAX_RULES) {
             throw new IOException("Predefined correlation config must contain at most " + MAX_RULES + " rules");
         }
         return List.copyOf(rules);
+    }
+
+    private static void parseAndAddRule(List<Rule> rules, Map<String, Rule> byId, JsonNode node,
+            String group, boolean skipInvalidPatterns) throws IOException {
+        try {
+            addRule(rules, byId, parseRule(node, group));
+        } catch (IOException ex) {
+            if (!skipInvalidPatterns || !(ex.getCause() instanceof java.util.regex.PatternSyntaxException)) {
+                throw ex;
+            }
+            LOG.warn("Skipping correlation rule {} with invalid replacement field pattern", node.path("id").asText(), ex);
+        }
     }
 
     static byte[] serialize(List<Rule> rules) throws IOException {
@@ -506,7 +522,14 @@ final class HarCorrelationRuleCatalog {
 
     private static List<Rule> loadConfiguredCustomRules() {
         try {
-            return loadConfiguredCustomRulesStrict();
+            Path file = configuredCustomFile();
+            if (!Files.exists(file)) {
+                return List.of();
+            }
+            if (Files.size(file) > MAX_CONFIG_BYTES) {
+                throw new IOException("Predefined correlation config is too large");
+            }
+            return parse(Files.readAllBytes(file), true);
         } catch (IOException | RuntimeException ex) {
             Path customFile = configuredCustomFile();
             LOG.warn("Unable to load custom predefined correlation file {}", customFile, ex);

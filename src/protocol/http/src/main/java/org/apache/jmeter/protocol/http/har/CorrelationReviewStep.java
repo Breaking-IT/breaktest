@@ -35,8 +35,8 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
 
     record Field(JMeterTreeNode node, String name, int row) {
         ReplaceableField resolve() {
-            if (name.equals("Body")) {
-                HTTPSamplerBase sampler = (HTTPSamplerBase) node.getTestElement();
+            if (name.equals("Body") && node.getTestElement() instanceof HTTPSamplerBase sampler
+                    && sampler.getSendParameterValuesAsPostBody()) {
                 return new ReplaceableField(name, () -> {
                     StringBuilder body = new StringBuilder();
                     sampler.getArguments().forEach(property -> body.append(((HTTPArgument) property.getObjectValue()).getValue()));
@@ -71,6 +71,7 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
     int start;
     int end;
     State decision = State.PENDING;
+    private boolean encodeArgument;
 
     private CorrelationReviewStep(HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement, Field field, String expected,
@@ -100,8 +101,8 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
                 boolean raw = node.getTestElement() instanceof HTTPSamplerBase http && http.getSendParameterValuesAsPostBody();
                 for (var candidate : sampler.getReplaceableFields()) {
                     int row = rows.merge(candidate.name(), 1, Integer::sum) - 1;
-                    if (List.of("Path", "URL", "Parameter value", "Header value")
-                            .contains(candidate.name()) && !(raw && candidate.name().startsWith("Parameter"))) {
+                    if ((!(sampler instanceof HTTPSamplerBase) || List.of("Path", "Parameter value", "Header value")
+                            .contains(candidate.name())) && !(raw && candidate.name().startsWith("Parameter"))) {
                         fields.add(new Field(node, candidate.name(), row));
                     }
                 }
@@ -140,7 +141,17 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
         for (var match : correlation.getRule().getReplacementFilter().samplerMatches(
                 (Replaceable) field.node().getTestElement(), field.name(), field.row(), text, value, reference, field.decoded())) {
             if (steps.stream().noneMatch(step -> step.start < match.end() && step.end > match.start())) {
-                steps.add(new CorrelationReviewStep(correlation, replacement, field, text, match));
+                var step = new CorrelationReviewStep(correlation, replacement, field, text, match);
+                if (field.name().equals("Parameter value") && field.node().getTestElement() instanceof HTTPSamplerBase http
+                        && match.start() == 0 && match.end() == text.length()) {
+                    HTTPArgument argument = (HTTPArgument) http.getArguments().getArgument(field.row());
+                    if (RecordedValueReplacer.encodeWholeArgument(argument, value, http.getSendParameterValuesAsPostBody())) {
+                        step = new CorrelationReviewStep(correlation, replacement, field, text,
+                                new RecordedValueReplacer.Match(match.start(), match.end(), reference));
+                        step.encodeArgument = true;
+                    }
+                }
+                steps.add(step);
             }
         }
     }
@@ -192,6 +203,10 @@ final class CorrelationReviewStep implements org.apache.jmeter.gui.util.ReviewSt
         }
         String updated = expected.substring(0, start) + reference + expected.substring(end);
         field.resolve().setValue(updated);
+        if (encodeArgument) {
+            HTTPSamplerBase http = (HTTPSamplerBase) field.node().getTestElement();
+            ((HTTPArgument) http.getArguments().getArgument(field.row())).setAlwaysEncoded(true);
+        }
         int delta = reference.length() - (end - start);
         for (CorrelationReviewStep other : steps) {
             if (other != this && other.field.equals(field) && other.expected.equals(expected)) {

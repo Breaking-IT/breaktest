@@ -25,16 +25,38 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.PortUnreachableException;
 import java.net.SocketTimeoutException;
+import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.jmeter.gui.Replaceable;
+import org.apache.jmeter.gui.ReplaceableField;
+import org.apache.jmeter.gui.SearchArea;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jorphan.util.JOrphanUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @TestElementMetadata(labelResource = "udp_sample_title")
-public class UDPSampler extends AbstractUDPSampler {
+public class UDPSampler extends AbstractUDPSampler implements Replaceable {
+
+    @Override
+    public List<ReplaceableField> getReplaceableFields() {
+        return List.of(new ReplaceableField(
+                "Data", this::getRequestData, this::setRequestData, SearchArea.BODY));
+    }
+
+
+    @Override
+    public int replace(String regex, String replaceBy, boolean caseSensitive) throws Exception {
+        return JOrphanUtils.replaceValue(regex, replaceBy, caseSensitive, getRequestData(), this::setRequestData);
+    }
+
+    @Override
+    public int replaceLiteral(String literal, String replaceBy) {
+        return JOrphanUtils.replaceLiteralValue(literal, replaceBy, true, getRequestData(), this::setRequestData);
+    }
 
     private static final Logger log = LoggerFactory.getLogger(UDPSampler.class);
 

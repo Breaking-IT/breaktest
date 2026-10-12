@@ -686,7 +686,7 @@ public final class HarConverter {
         sampler.setName(name);
         sampler.setSessionName(webSocketSessionNames.get(entry.getOriginalIndex()));
         String url = entry.getUrl().replaceFirst("(?i)^https:", "wss:").replaceFirst("(?i)^http:", "ws:");
-        sampler.setUrl(replaceCorrelations(entry, url,
+        sampler.setUrl(replaceUrlCorrelations(entry, url,
                 HarPredefinedCorrelation.RequestLocation.URL_PATH,
                 HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER));
         List<Header> headers = new ArrayList<>();
@@ -742,7 +742,7 @@ public final class HarConverter {
         if (url.query != null && !url.query.isEmpty() && bodyMethod) {
             fullPath = path + "?" + url.query;
         }
-        fullPath = replaceCorrelations(entry, fullPath,
+        fullPath = replaceUrlCorrelations(entry, fullPath,
                 HarPredefinedCorrelation.RequestLocation.URL_PATH,
                 HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
 
@@ -925,20 +925,25 @@ public final class HarConverter {
 
     private String replaceCorrelations(HarEntry entry, String text,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        return replaceCorrelations(entry, text, "", false, locations);
+        return replaceCorrelations(entry, text, "", false, false, locations);
     }
 
     private String replaceCorrelations(HarEntry entry, String text, String name,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        return replaceCorrelations(entry, text, name, false, locations);
+        return replaceCorrelations(entry, text, name, false, false, locations);
     }
 
     private String replaceDecodedCorrelations(HarEntry entry, String text, String name,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        return replaceCorrelations(entry, text, name, true, locations);
+        return replaceCorrelations(entry, text, name, true, false, locations);
     }
 
-    private String replaceCorrelations(HarEntry entry, String text, String name, boolean decoded,
+    private String replaceUrlCorrelations(HarEntry entry, String text,
+            HarPredefinedCorrelation.RequestLocation... locations) {
+        return replaceCorrelations(entry, text, "", false, true, locations);
+    }
+
+    private String replaceCorrelations(HarEntry entry, String text, String name, boolean decoded, boolean urlField,
             HarPredefinedCorrelation.RequestLocation... locations) {
         String replaced = text;
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
@@ -950,8 +955,10 @@ public final class HarConverter {
                     String value = reference.startsWith("${__urldecode(")
                             ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
                     var filter = correlation.getRule().getReplacementFilter();
-                    var matches = locations.length > 1
-                            ? filter.urlMatches(replaced, value, reference, replacement.getLocation())
+                    var matches = urlField
+                            ? entry.isWebSocket() && filter.unrestricted()
+                                    ? org.apache.jmeter.protocol.http.util.RecordedValueReplacer.matches(replaced, value, reference, false)
+                                    : filter.urlMatches(replaced, value, reference, replacement.getLocation())
                             : filter.matches(replaced, value, reference, decoded, replacement.getLocation(), name);
                     replaced = CorrelationReplacementFilter.replace(replaced, matches);
                 }

@@ -75,7 +75,6 @@ import org.apache.jmeter.protocol.http.har.HarEntry.PostData;
 import org.apache.jmeter.protocol.http.har.HarPredefinedCorrelation.Rule;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
-import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
@@ -247,13 +246,11 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
     }
 
     public static List<JMeterTreeNode> correlationRequests(JMeterTreeModel model) {
-        List<JMeterTreeNode> nodes = new ArrayList<>(model.getNodesOfType(HTTPSamplerBase.class));
-        nodes.addAll(model.getNodesOfType(WebSocketConnectSampler.class));
-        return nodes;
+        return new ArrayList<>(model.getNodesOfType(org.apache.jmeter.samplers.Sampler.class));
     }
 
     private static boolean supportsCorrelation(TestElement element) {
-        return element instanceof HTTPSamplerBase || element instanceof WebSocketConnectSampler;
+        return element instanceof org.apache.jmeter.samplers.Sampler;
     }
 
     /** Review only the newly inserted recorder requests, independently for each thread group. */
@@ -766,19 +763,20 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         if (sampler instanceof HTTPSamplerBase http) {
             return toHarEntry(http, response, responseBody, index);
         }
-        WebSocketConnectSampler socket = (WebSocketConnectSampler) sampler;
         HarEntry entry = new HarEntry();
         entry.setOriginalIndex(index);
         entry.setStartMs(index);
         entry.setEndMs(index);
-        entry.setMethod("GET");
-        entry.setUrl(socket.getUrl());
-        entry.setWebSocket(true);
+        entry.setMethod(sampler instanceof WebSocketConnectSampler ? "GET" : sampler.getClass().getSimpleName());
+        entry.setUrl(sampler instanceof WebSocketConnectSampler socket ? socket.getUrl() : "");
+        entry.setWebSocket(sampler instanceof WebSocketConnectSampler);
         entry.setServerIpAddress("recorded");
         entry.setHasPositiveTiming(true);
         entry.setResponseContentText(responseBody);
         addResponseHeaders(entry, response);
-        socket.getHeaders().forEach(header -> entry.getRequestHeaders().add(new NameValue(header.getName(), header.getValue())));
+        if (sampler instanceof Replaceable) {
+            entry.setRequestFields((Replaceable) sampler.clone());
+        }
         return entry;
     }
 
@@ -961,45 +959,18 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
 
     static int applyReplacement(Replaceable sampler, HarPredefinedCorrelation correlation,
             HarPredefinedCorrelation.Replacement replacement) {
-        String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
-        String value = reference.startsWith("${__urldecode(")
-                ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
-        if (correlation.getRule().getReplacementFilter().unrestricted() && sampler instanceof HTTPSamplerBase http) {
-            return RecordedValueReplacer.replaceSampler(http, value, reference);
+        if (!(sampler instanceof TestElement element)) {
+            return 0;
         }
-        int count = 0;
-        boolean decodedHeader = reference.startsWith("${__urldecode(");
-        boolean rawBody = sampler instanceof HTTPSamplerBase http && http.getSendParameterValuesAsPostBody();
-        if (rawBody && !decodedHeader) {
-            HTTPSamplerBase http = (HTTPSamplerBase) sampler;
-            StringBuilder body = new StringBuilder();
-            http.getArguments().forEach(property -> body.append(((HTTPArgument) property.getObjectValue()).getValue()));
-            String text = body.toString();
-            String updated = CorrelationReplacementFilter.replace(text, correlation.getRule().getReplacementFilter()
-                    .matches(text, value, reference, false, HarPredefinedCorrelation.RequestLocation.REQUEST_BODY, ""));
-            if (!updated.equals(text)) {
-                http.getArguments().removeAllArguments();
-                http.addNonEncodedArgument("", updated, "");
-                count++;
+        var node = new JMeterTreeNode(element, null);
+        var steps = CorrelationReviewStep.create(List.of(correlation), Map.of(replacement.getTargetEntryIndex(), node));
+        Set<CorrelationReviewStep.Field> changed = new LinkedHashSet<>();
+        for (var step : steps) {
+            if (step.accept(steps)) {
+                changed.add(step.field);
             }
         }
-        Map<String, Integer> rows = new LinkedHashMap<>();
-        for (var field : sampler.getReplaceableFields()) {
-            int row = rows.merge(field.name(), 1, Integer::sum) - 1;
-            if (rawBody && field.name().startsWith("Parameter") || decodedHeader && !field.name().equals("Header value")) {
-                continue;
-            }
-            boolean decoded = sampler instanceof HTTPSamplerBase http && field.name().equals("Parameter value")
-                    && !http.getPostBodyRaw() && !http.getSendParameterValuesAsPostBody()
-                    && ((HTTPArgument) http.getArguments().getArgument(row)).isAlwaysEncoded();
-            String replaced = CorrelationReplacementFilter.replace(field.value(), correlation.getRule().getReplacementFilter()
-                    .samplerMatches(sampler, field.name(), row, field.value(), value, reference, decoded));
-            if (!replaced.equals(field.value())) {
-                field.setValue(replaced);
-                count++;
-            }
-        }
-        return count;
+        return changed.size();
     }
 
     private static boolean hasExtractor(JMeterTreeNode samplerNode, String variableName) {
