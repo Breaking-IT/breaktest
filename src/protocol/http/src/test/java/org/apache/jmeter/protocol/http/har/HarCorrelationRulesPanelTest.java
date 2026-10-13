@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JMenuItem;
 import javax.swing.JTable;
 import javax.swing.JTree;
@@ -44,6 +45,28 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class HarCorrelationRulesPanelTest extends JMeterTestCase {
+
+    @Test
+    void scopeSelectorCombinesValuesAndAllOverridesThem() {
+        var selector = new HarCorrelationRulesPanel.ScopeSelector();
+        var boxes = descendants(selector).stream().filter(JCheckBox.class::isInstance).map(JCheckBox.class::cast).toList();
+        JCheckBox all = boxes.stream().filter(box -> box.getText().equals("All")).findFirst().orElseThrow();
+        JCheckBox headers = boxes.stream().filter(box -> box.getText().equals("Headers")).findFirst().orElseThrow();
+        JCheckBox params = boxes.stream().filter(box -> box.getText().equals("Parameters")).findFirst().orElseThrow();
+        assertTrue(all.isSelected());
+        headers.doClick();
+        params.doClick();
+        assertEquals(Set.of(CorrelationReplacementFilter.Scope.HEADERS, CorrelationReplacementFilter.Scope.PARAMETERS),
+                selector.selectedScopes());
+        assertFalse(all.isSelected());
+        all.doClick();
+        assertEquals(Set.of(CorrelationReplacementFilter.Scope.ALL), selector.selectedScopes());
+        assertFalse(headers.isSelected());
+        assertFalse(params.isSelected());
+        headers.doClick();
+        headers.doClick();
+        assertEquals(Set.of(CorrelationReplacementFilter.Scope.ALL), selector.selectedScopes());
+    }
 
     @Test
     void enablesIndividualRulesAndPreservesStateWhenFiltering() {

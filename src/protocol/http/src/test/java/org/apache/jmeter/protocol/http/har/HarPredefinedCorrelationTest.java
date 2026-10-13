@@ -74,6 +74,180 @@ class HarPredefinedCorrelationTest extends JMeterTestCase {
 
 
     @Test
+    void scopeArraysAcceptLegacyStringsAndDefaultToAll() throws Exception {
+        Rule original = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                ResponseField.BODY, "id=(1);", "$1$", -1, 1, "", false, false, true);
+        String json = new String(HarCorrelationRuleCatalog.serialize(List.of(original)), StandardCharsets.UTF_8);
+        for (String value : List.of("[]", "null", "[\"ALL\", \"HEADERS\"]", "\"ALL\"")) {
+            String updated = json.replaceFirst("\\[\\s*\"ALL\"\\s*]", value);
+            var restored = HarCorrelationRuleCatalog.parse(updated.getBytes(StandardCharsets.UTF_8)).get(0);
+            assertEquals(Set.of(CorrelationReplacementFilter.Scope.ALL), restored.getReplacementFilter().scopes());
+        }
+        String legacy = json.replaceFirst("\\[\\s*\"ALL\"\\s*]", "\"HEADERS\"");
+        assertEquals(Set.of(CorrelationReplacementFilter.Scope.HEADERS),
+                HarCorrelationRuleCatalog.parse(legacy.getBytes(StandardCharsets.UTF_8)).get(0).getReplacementFilter().scopes());
+        String missing = json.replaceFirst("\"replacementScope\"\\s*:\\s*\\[\\s*\"ALL\"\\s*],", "");
+        assertTrue(HarCorrelationRuleCatalog.parse(missing.getBytes(StandardCharsets.UTF_8)).get(0).getReplacementFilter().unrestricted());
+    }
+
+    @Test
+    void namedWholeValueFiltersProtectOtherParametersAndHeadersDuringImportAndApply() {
+        for (var scope : List.of(CorrelationReplacementFilter.Scope.PARAMETERS, CorrelationReplacementFilter.Scope.HEADERS)) {
+            Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                    ResponseField.BODY, "id=(1);", "$1$", -1, 1, "", false, false, true)
+                    .withReplacementFilter(new CorrelationReplacementFilter(scope, true,
+                            scope == CorrelationReplacementFilter.Scope.HEADERS ? "^id: \\d+$" : "^id=\\d+$"));
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText("id=1;");
+            HarEntry target = entry(1, 100, "POST", "https://example.test/1?id=1&other=1&id=21");
+            target.getRequestHeaders().addAll(List.of(new NameValue("id", "1"), new NameValue("other", "1")));
+            target.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(
+                    new NameValue("id", "1"), new NameValue("other", "1"), new NameValue("id", "21"))));
+            var found = HarPredefinedCorrelation.find(List.of(source, target), List.of(rule));
+            assertEquals(1, found.size());
+            assertTrue(found.get(0).getReplacements().stream().allMatch(r -> r.getLocationName().equals("id")));
+            HarImportOptions options = new HarImportOptions();
+            options.setPredefinedCorrelations(found);
+            var imported = collect(new HarConverter(List.of(source, target), options, "scope.har", "md5")
+                    .convert(Set.of("example.test")), HTTPSamplerProxy.class).stream()
+                    .filter(it -> it.getMethod().equals("POST")).findFirst().orElseThrow();
+            assertEquals(scope == CorrelationReplacementFilter.Scope.PARAMETERS ? "/1?id=${shortValue}&other=1&id=21"
+                    : "/1?id=1&other=1&id=21", imported.getPath());
+            assertEquals(scope == CorrelationReplacementFilter.Scope.PARAMETERS ? "${shortValue}" : "1",
+                    imported.getArguments().getArgument(0).getValue());
+            assertEquals("1", imported.getArguments().getArgument(1).getValue());
+            assertEquals("21", imported.getArguments().getArgument(2).getValue());
+            assertEquals(scope == CorrelationReplacementFilter.Scope.HEADERS ? "${shortValue}" : "1",
+                    imported.getNativeHeaderList().get(0).getValue());
+            assertEquals("1", imported.getNativeHeaderList().get(1).getValue());
+            HTTPSamplerProxy live = new HTTPSamplerProxy();
+            live.setMethod("POST");
+            live.setPath("/1?id=1&other=1&id=21");
+            live.addArgument("id", "1");
+            live.addArgument("other", "1");
+            live.addArgument("id", "21");
+            live.setNativeHeaders(List.of(new Header("id", "1"), new Header("other", "1")));
+            for (var replacement : found.get(0).getReplacements()) {
+                FindPredefinedCorrelationsAction.applyReplacement(live, found.get(0), replacement);
+            }
+            assertEquals(imported.getPath(), live.getPath());
+            for (int i = 0; i < 3; i++) {
+                assertEquals(imported.getArguments().getArgument(i).getValue(), live.getArguments().getArgument(i).getValue());
+            }
+            assertEquals(imported.getNativeHeaderList().get(0).getValue(), live.getNativeHeaderList().get(0).getValue());
+            assertEquals("1", live.getNativeHeaderList().get(1).getValue());
+        }
+    }
+
+    @Test
+    void replacementFiltersAgreeAcrossScanImportReviewAndApply() {
+        List<Set<CorrelationReplacementFilter.Scope>> selections = new ArrayList<>();
+        for (var scope : CorrelationReplacementFilter.Scope.values()) {
+            selections.add(Set.of(scope));
+        }
+        selections.add(Set.of(CorrelationReplacementFilter.Scope.HEADERS, CorrelationReplacementFilter.Scope.PARAMETERS));
+        selections.add(Set.of(CorrelationReplacementFilter.Scope.ALL, CorrelationReplacementFilter.Scope.HEADERS));
+        for (var scopes : selections) {
+            var filter = new CorrelationReplacementFilter(scopes, false, "");
+            Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                    ResponseField.BODY, "id=(1);", "$1$", -1, 1, "", false, false, true)
+                    .withReplacementFilter(filter);
+            HarEntry source = entry(0, 0, "GET", "https://example.test/start");
+            source.setResponseContentText("id=1;");
+            HarEntry target = entry(1, 100, "POST", "https://example.test/item/1?id=1&other=21");
+            target.getQueryString().addAll(List.of(new NameValue("id", "1"), new NameValue("other", "21")));
+            target.getRequestHeaders().add(new NameValue("X-Id", "1"));
+            target.setPostData(new PostData("application/x-www-form-urlencoded", "", List.of(new NameValue("id", "1"))));
+            if (scopes.equals(Set.of(CorrelationReplacementFilter.Scope.BODY))) {
+                target.setPostData(new PostData("text/plain", "id: 1, other: 1", List.of()));
+                rule = rule.withReplacementFilter(new CorrelationReplacementFilter(scopes, false, "id: \\d+"));
+            }
+            List<HarEntry> entries = List.of(source, target);
+            var correlations = HarPredefinedCorrelation.find(entries, List.of(rule));
+            assertEquals(1, correlations.size(), scopes.toString());
+            assertTrue(correlations.get(0).getReplacements().stream().allMatch(r -> filter.includes(r.getLocation())));
+            HarImportOptions options = new HarImportOptions();
+            options.setPredefinedCorrelations(correlations);
+            var imported = collect(new HarConverter(entries, options, "scope.har", "md5")
+                    .convert(Set.of("example.test")), HTTPSamplerProxy.class).stream()
+                    .filter(it -> it.getMethod().equals("POST")).findFirst().orElseThrow();
+            HTTPSamplerProxy live = new HTTPSamplerProxy();
+            live.setMethod("POST");
+            live.setPath("/item/1?id=1&other=21");
+            live.setNativeHeaders(List.of(new Header("X-Id", "1")));
+            if (scopes.equals(Set.of(CorrelationReplacementFilter.Scope.BODY))) {
+                live.setPostBodyRaw(true);
+                live.addNonEncodedArgument("", "id:", "");
+                live.addNonEncodedArgument("", " 1, other: 1", "");
+            } else {
+                live.addArgument("id", "1");
+            }
+            var reviewed = (HTTPSamplerProxy) live.clone();
+            var node = new org.apache.jmeter.gui.tree.JMeterTreeNode(reviewed, null);
+            var steps = CorrelationReviewStep.create(correlations, java.util.Map.of(1, node));
+            for (var step : steps) {
+                assertTrue(step.accept(steps));
+            }
+            for (var replacement : correlations.get(0).getReplacements()) {
+                FindPredefinedCorrelationsAction.applyReplacement(live, correlations.get(0), replacement);
+            }
+            for (var actual : List.of(live, reviewed)) {
+                assertEquals(imported.getPath(), actual.getPath(), scopes.toString());
+                assertEquals(imported.getArguments().getArgument(0).getValue(), java.util.stream.IntStream
+                        .range(0, actual.getArguments().getArgumentCount())
+                        .mapToObj(i -> actual.getArguments().getArgument(i).getValue()).collect(java.util.stream.Collectors.joining()));
+                assertEquals(imported.getNativeHeaderList().get(0).getValue(), actual.getNativeHeaderList().get(0).getValue());
+            }
+            assertEquals(filter.includes(HarPredefinedCorrelation.RequestLocation.URL_PATH) ? "/item/${shortValue}" : "/item/1",
+                    imported.getPath().split("\\?")[0]);
+            if (scopes.equals(Set.of(CorrelationReplacementFilter.Scope.BODY))) {
+                assertEquals("id: ${shortValue}, other: 1", imported.getArguments().getArgument(0).getValue());
+            } else {
+                assertEquals(filter.includes(HarPredefinedCorrelation.RequestLocation.POST_PARAMETER) ? "${shortValue}" : "1",
+                        imported.getArguments().getArgument(0).getValue());
+            }
+            assertEquals(filter.includes(HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER) ? "${shortValue}" : "1",
+                    imported.getNativeHeaderList().get(0).getValue());
+        }
+    }
+
+    @Test
+    void wholeValueAndNamedPatternsExcludeUnrelatedFields() {
+        for (var location : List.of(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
+                HarPredefinedCorrelation.RequestLocation.POST_PARAMETER, HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER)) {
+            String pattern = location == HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER ? "^id: \\d+$" : "^id=\\d+$";
+            var filter = new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.ALL, true, pattern);
+            assertEquals(1, filter.matches("1", "1", "${id}", false, location, "id").size());
+            assertTrue(filter.matches("21", "1", "${id}", false, location, "id").isEmpty());
+            assertTrue(filter.matches("1", "1", "${id}", false, location, "other").isEmpty());
+        }
+        var filter = new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.QUERY_PARAMETERS, true, "^id=\\d+$");
+        assertEquals("/1?id=${id}&other=1&id=21", CorrelationReplacementFilter.replace("/1?id=1&other=1&id=21",
+                filter.urlMatches("/1?id=1&other=1&id=21", "1", "${id}", HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER)));
+    }
+
+    @Test
+    void replacementSettingsSurvivePersistenceCopiesAndEditor() throws Exception {
+        Rule original = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
+                ResponseField.BODY, "id=(1);", "$1$", -1, 1, "", false, false, true)
+                .withReplacementFilter(new CorrelationReplacementFilter(
+                        Set.of(CorrelationReplacementFilter.Scope.PARAMETERS, CorrelationReplacementFilter.Scope.HEADERS), true, "id=\\d+"));
+        Rule restored = HarCorrelationRuleCatalog.parse(HarCorrelationRuleCatalog.serialize(List.of(original))).get(0);
+        for (Rule rule : List.of(restored, restored.withGroup("Moved"), restored.withMinValueLength(2),
+                restored.withExtractorSettings(java.util.Map.of()), new HarCorrelationRulesPanel.RuleEditorPanel(restored).updatedRule(restored))) {
+            assertEquals(Set.of(CorrelationReplacementFilter.Scope.PARAMETERS, CorrelationReplacementFilter.Scope.HEADERS),
+                    rule.getReplacementFilter().scopes());
+            assertTrue(rule.getReplacementFilter().wholeValue());
+            assertEquals("id=\\d+", rule.getReplacementFilter().fieldPattern());
+        }
+        String invalid = new String(HarCorrelationRuleCatalog.serialize(List.of(original)), StandardCharsets.UTF_8)
+                .replace("PARAMETERS", "INVALID");
+        assertThrows(java.io.IOException.class, () -> HarCorrelationRuleCatalog.parse(invalid.getBytes(StandardCharsets.UTF_8)));
+        assertThrows(java.util.regex.PatternSyntaxException.class,
+                () -> new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.ALL, false, "["));
+    }
+
+    @Test
     void customMinimumAllowsShortValuesWithoutChangingOtherRules() {
         for (ExtractorType type : List.of(ExtractorType.REGEX, ExtractorType.JSON_PATH)) {
             for (int minimum : new int[] {1, 2, 6}) {

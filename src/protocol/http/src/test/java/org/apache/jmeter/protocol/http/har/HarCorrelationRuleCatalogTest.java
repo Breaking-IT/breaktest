@@ -65,6 +65,67 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
     }
 
     @Test
+    void movingPreservesEachCatalogsVersionAndMembership() throws Exception {
+        Path file = tempDir.resolve("isolated.json");
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        Rule shared = regexRule("both", "shared", "shared=(.+)", "$1$", 1, false);
+        Rule local = regexRule("both", "local", "local=(.+)", "$1$", 2, true);
+        Rule sharedOnly = regexRule("shared-only", "shared", "shared=(.+)", "$1$", 1, false);
+        Rule localOnly = regexRule("local-only", "local", "local=(.+)", "$1$", 1, false);
+        Files.write(file, HarCorrelationRuleCatalog.serialize(List.of(shared, sharedOnly)));
+        TestPlan plan = new TestPlan();
+        HarCorrelationRuleCatalog.storeCustomRules(plan, List.of(local, localOnly));
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan,
+                Map.of("both", "Moved", "shared-only", "Moved", "local-only", "Moved"));
+        assertEquals(new String(HarCorrelationRuleCatalog.serialize(List.of(shared.withGroup("Moved"), sharedOnly.withGroup("Moved"))),
+                StandardCharsets.UTF_8), Files.readString(file));
+        assertEquals(new String(HarCorrelationRuleCatalog.serialize(List.of(local.withGroup("Moved"), localOnly.withGroup("Moved"))),
+                StandardCharsets.UTF_8), new String(HarCorrelationRuleCatalog.serialize(HarCorrelationRuleCatalog.loadCustomRules(plan)),
+                        StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void editingAndDeletingOtherRulesPreservesInvalidPatternsInBothStores() throws Exception {
+        String config = """
+                {"format":"breaktest-predefined-correlations-v1","rules":[{
+                  "id":"broken","name":"Broken","variableName":"broken",
+                  "extractorType":"REGEX","expression":"token=(.+)","replacementFieldPattern":"["
+                }]}
+                """;
+        byte[] content = config.getBytes(StandardCharsets.UTF_8);
+        Path file = tempDir.resolve("rules.json");
+        Files.write(file, content);
+        JMeterUtils.setProperty(HarCorrelationRuleCatalog.CUSTOM_FILE_PROPERTY, file.toString());
+        TestPlan plan = new TestPlan();
+        JmxArchiveEntryStore.register("correlations/broken.json", "broken-checksum", content);
+        plan.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_FILENAME_PROPERTY, "correlations/broken.json");
+        plan.setProperty(JmxArchiveEntryStore.CORRELATION_RULES_CHECKSUM_PROPERTY, "broken-checksum");
+        Rule added = regexRule("added", "added", "token=(.+)", "$1$", 1, false);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(added));
+        for (var stored : List.of(HarCorrelationRuleCatalog.parse(Files.readAllBytes(file), true),
+                HarCorrelationRuleCatalog.loadCustomRules(plan))) {
+            assertEquals(List.of("broken", "added"), stored.stream().map(Rule::getId).toList());
+            assertEquals("[", stored.get(0).getReplacementFilter().fieldPattern());
+        }
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan, Map.of("broken", "Moved", "added", "Moved"));
+        for (var stored : List.of(HarCorrelationRuleCatalog.parse(Files.readAllBytes(file), true),
+                HarCorrelationRuleCatalog.loadCustomRules(plan))) {
+            assertEquals(List.of("Moved", "Moved"), stored.stream().map(Rule::getGroup).toList());
+            assertEquals("[", stored.get(0).getReplacementFilter().fieldPattern());
+            assertFalse(stored.get(0).getReplacementFilter().diagnostic().isEmpty());
+        }
+        assertThrows(IOException.class, () -> HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan,
+                List.of(HarCorrelationRuleCatalog.loadCustomRules(plan).get(0))));
+        HarCorrelationRuleCatalog.deleteCustomRule(plan, "added");
+        assertEquals("[", HarCorrelationRuleCatalog.loadCustomRules(plan).get(0).getReplacementFilter().fieldPattern());
+        assertEquals("[", HarCorrelationRuleCatalog.parse(Files.readAllBytes(file), true).get(0).getReplacementFilter().fieldPattern());
+        Rule repaired = HarCorrelationRuleCatalog.loadCustomRules(plan).get(0)
+                .withReplacementFilter(CorrelationReplacementFilter.ALL);
+        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(repaired));
+        assertTrue(HarCorrelationRuleCatalog.parse(Files.readAllBytes(file)).get(0).getReplacementFilter().diagnostic().isEmpty());
+    }
+
+    @Test
     void minimumValueLengthRoundTripsAndDefaultsForOlderRules() throws Exception {
         Rule rule = new Rule("short", "Custom", "Short", "shortValue", ExtractorType.REGEX,
                 ResponseField.BODY, "value=([^;]+)", "$1$", -1, 1, "", false, false, true);
@@ -147,7 +208,7 @@ class HarCorrelationRuleCatalogTest extends JMeterTestCase {
                 .withExtractorSettings(Map.of("custom.setting", "preserve"));
         HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(original));
         Rule moved = original.withGroup("Destination");
-        HarCorrelationRuleCatalog.storeCustomRulesEverywhere(plan, List.of(moved));
+        HarCorrelationRuleCatalog.moveCustomRulesEverywhere(plan, Map.of(moved.getId(), moved.getGroup()));
         for (List<Rule> stored : List.of(HarCorrelationRuleCatalog.readRulesFile(file),
                 HarCorrelationRuleCatalog.loadCustomRules(plan))) {
             assertEquals(1, stored.size());

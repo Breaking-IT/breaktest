@@ -52,6 +52,26 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
     @TempDir
     private Path tempDir;
 
+    @Test
+    void scanReturnsPatternWarningsEvenWhenNoCorrelationsRemain() throws Exception {
+        RecordedFlow flow = recordedFlow(1);
+        var target = flow.consumers().get(0);
+        target.setNativeHeaders(List.of(new Header("Authorization", "a".repeat(2000) + "!linked-token-123")));
+        flow.group().add(new JMeterTreeNode(flow.source(), null));
+        flow.group().add(new JMeterTreeNode(target, null));
+        var rule = HarCorrelationRuleCatalog.builtInRules().stream()
+                .filter(candidate -> candidate.getId().equals("oauth-access-token")).findFirst().orElseThrow()
+                .withReplacementFilter(new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.HEADERS,
+                        false, "(a+)+$"));
+        var scan = FindPredefinedCorrelationsAction.scan(flow.group(), tempDir.resolve("plan.jmx"), List.of(rule));
+        assertTrue(scan.correlations().isEmpty());
+        assertEquals(1, scan.warnings().size());
+        assertTrue(scan.warnings().get(0).contains("oauth-access-token"));
+        assertTrue(scan.warnings().get(0).contains("work limit"));
+        rule.getReplacementFilter().clearMatchingDiagnostic();
+        assertEquals(1, scan.warnings().size(), "Warnings survive independently of mutable rule copies");
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     void matchesSignalRFromNativeProxyResponseToWebSocketUrl(boolean encoded) throws Exception {
@@ -440,7 +460,7 @@ class FindPredefinedCorrelationsActionTest extends JMeterTestCase {
         assertEquals(1, matches.size());
         assertEquals(HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
                 matches.get(0).getReplacements().get(0).getLocation());
-        assertTrue(matches.get(0).getReplacements().get(0).getLocationName().isEmpty());
+        assertEquals("code", matches.get(0).getReplacements().get(0).getLocationName());
     }
 
     /** The controller inserted right after the given one by a split. */

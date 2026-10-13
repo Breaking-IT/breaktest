@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -60,7 +61,7 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
-import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
+import org.apache.jmeter.protocol.http.util.RecordedValueReplacer.Match;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketCloseSampler;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketConnectSampler;
 import org.apache.jmeter.protocol.websocket.sampler.WebSocketSendWaitSampler;
@@ -95,6 +96,7 @@ public final class HarConverter {
     private int sseSessionCounter;
     private final Map<Integer, String> webSocketSessionNames = new HashMap<>();
     private int parallelCounter;
+    private List<String> correlationWarnings = List.of();
 
     public HarConverter(List<HarEntry> entries, HarImportOptions options, String harName, String harMd5) {
         this.entries = entries;
@@ -145,6 +147,10 @@ public final class HarConverter {
     // Conversion entry point
     // ---------------------------------------------------------------------
 
+    public List<String> getCorrelationWarnings() {
+        return correlationWarnings;
+    }
+
     /**
      * Build the test-plan sub-tree for the given selected hostnames.
      *
@@ -154,6 +160,9 @@ public final class HarConverter {
      *         be inserted directly under the Test Plan node
      */
     public HashTree convert(Set<String> selectedHostnames) {
+        var rules = HarPredefinedCorrelation.correlationRules(options.getPredefinedCorrelations());
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
+        correlationWarnings = List.of();
         List<HarEntry> kept = new ArrayList<>();
         for (HarEntry entry : entries) {
             String host = hostnameOf(entry.getUrl());
@@ -208,6 +217,7 @@ public final class HarConverter {
         for (int i = 0; i < transactions.size(); i++) {
             populateTransaction(threadGroupHt, transactions.get(i), commonHeadersLower, i == 0);
         }
+        correlationWarnings = HarPredefinedCorrelation.diagnostics(rules);
         return tree;
     }
 
@@ -687,15 +697,16 @@ public final class HarConverter {
         sampler.setName(name);
         sampler.setSessionName(webSocketSessionNames.get(entry.getOriginalIndex()));
         String url = entry.getUrl().replaceFirst("(?i)^https:", "wss:").replaceFirst("(?i)^http:", "ws:");
-        sampler.setUrl(replaceCorrelations(entry, url,
+        sampler.setUrl(replaceUrlCorrelations(entry, url,
                 HarPredefinedCorrelation.RequestLocation.URL_PATH,
-                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER));
+                HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER,
+                HarPredefinedCorrelation.RequestLocation.REQUEST_OTHER));
         List<Header> headers = new ArrayList<>();
         for (NameValue header : entry.getRequestHeaders()) {
             String lower = header.getName().toLowerCase(Locale.ROOT);
             if (isExportableHeader(lower) && !Set.of("connection", "upgrade", "expect").contains(lower)
                     && (!lower.startsWith("sec-websocket-") || "sec-websocket-protocol".equals(lower))) {
-                headers.add(new Header(header.getName(), replaceCorrelations(entry, header.getValue(),
+                headers.add(new Header(header.getName(), replaceCorrelations(entry, header.getValue(), header.getName(),
                         HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER)));
             }
         }
@@ -743,7 +754,7 @@ public final class HarConverter {
         if (url.query != null && !url.query.isEmpty() && bodyMethod) {
             fullPath = path + "?" + url.query;
         }
-        fullPath = replaceCorrelations(entry, fullPath,
+        fullPath = replaceUrlCorrelations(entry, fullPath,
                 HarPredefinedCorrelation.RequestLocation.URL_PATH,
                 HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
 
@@ -796,8 +807,7 @@ public final class HarConverter {
         if (!bodyMethod) {
             for (NameValue param : entry.getQueryString()) {
                 String decodedName = percentDecode(param.getName());
-                String decodedValue = percentDecode(param.getValue());
-                decodedValue = replaceDecodedCorrelations(entry, decodedValue,
+                String decodedValue = replaceDecodedCorrelations(entry, param.getValue(), param.getName(),
                         HarPredefinedCorrelation.RequestLocation.QUERY_PARAMETER);
                 boolean alwaysEncode = needsUrlEncoding(decodedName) || !param.getName().equals(decodedName)
                         || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
@@ -834,7 +844,7 @@ public final class HarConverter {
                                 param.getContentType()));
                         continue;
                     }
-                    String value = replaceCorrelations(entry, param.getValue(),
+                    String value = replaceCorrelations(entry, param.getValue(), param.getName(),
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
                     addHttpArgument(arguments, param.getName(), value, false, true);
                 }
@@ -843,8 +853,7 @@ public final class HarConverter {
                 sampler.setDoBrowserCompatibleMultipart(generatedMultipart);
             } else if (!postData.getParams().isEmpty()) {
                 for (NameValue param : postData.getParams()) {
-                    String decodedValue = percentDecode(param.getValue());
-                    decodedValue = replaceDecodedCorrelations(entry, decodedValue,
+                    String decodedValue = replaceDecodedCorrelations(entry, param.getValue(), param.getName(),
                             HarPredefinedCorrelation.RequestLocation.POST_PARAMETER);
                     boolean alwaysEncode = needsUrlEncoding(param.getName())
                             || needsUrlEncoding(decodedValue) || !param.getValue().equals(decodedValue);
@@ -870,7 +879,7 @@ public final class HarConverter {
             if (!commonHeadersLower.contains(lower)
                     && isExportableHeader(header.getName())
                     && !generatedBoundaryHeader) {
-                String value = replaceCorrelations(entry, header.getValue(),
+                String value = replaceCorrelations(entry, header.getValue(), header.getName(),
                         HarPredefinedCorrelation.RequestLocation.REQUEST_HEADER);
                 uniqueHeaders.add(new Header(header.getName(), value));
             }
@@ -926,17 +935,28 @@ public final class HarConverter {
 
     private String replaceCorrelations(HarEntry entry, String text,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        return replaceCorrelations(entry, text, false, locations);
+        return replaceCorrelations(entry, text, "", false, false, locations);
     }
 
-    private String replaceDecodedCorrelations(HarEntry entry, String text,
+    private String replaceCorrelations(HarEntry entry, String text, String name,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        return replaceCorrelations(entry, text, true, locations);
+        return replaceCorrelations(entry, text, name, false, false, locations);
     }
 
-    private String replaceCorrelations(HarEntry entry, String text, boolean decoded,
+    private String replaceDecodedCorrelations(HarEntry entry, String text, String name,
             HarPredefinedCorrelation.RequestLocation... locations) {
-        String replaced = text;
+        return replaceCorrelations(entry, text, name, true, false, locations);
+    }
+
+    private String replaceUrlCorrelations(HarEntry entry, String text,
+            HarPredefinedCorrelation.RequestLocation... locations) {
+        return replaceCorrelations(entry, text, "", false, true, locations);
+    }
+
+    private String replaceCorrelations(HarEntry entry, String text, String name, boolean decoded, boolean urlField,
+            HarPredefinedCorrelation.RequestLocation... locations) {
+        String original = decoded ? percentDecode(text) : text;
+        TreeMap<Integer, Match> accepted = new TreeMap<>();
         Set<HarPredefinedCorrelation.RequestLocation> acceptedLocations = Set.of(locations);
         for (HarPredefinedCorrelation correlation : options.getPredefinedCorrelations()) {
             for (HarPredefinedCorrelation.Replacement replacement : correlation.getReplacements()) {
@@ -945,11 +965,26 @@ public final class HarConverter {
                     String reference = HarPredefinedCorrelation.variableReference(correlation, replacement);
                     String value = reference.startsWith("${__urldecode(")
                             ? replacement.getMatchedLiteral() : correlation.getExtractedValue();
-                    replaced = RecordedValueReplacer.replace(replaced, value, reference, decoded);
+                    var filter = correlation.getRule().getReplacementFilter();
+                    String current = original;
+                    var matches = urlField
+                            ? filter.urlFieldMatches(current, value, reference, entry.isWebSocket()).stream()
+                                    .filter(match -> CorrelationReplacementFilter.urlLocation(current, match.start()) == replacement.getLocation())
+                                    .toList()
+                            : decoded ? filter.decodedMatches(text, value, reference, replacement.getLocation(), name)
+                            : filter.matches(current, value, reference, false, replacement.getLocation(), name);
+                    for (var match : matches) {
+                        var previous = accepted.floorEntry(match.start());
+                        var next = accepted.ceilingEntry(match.start());
+                        if ((previous == null || previous.getValue().end() <= match.start())
+                                && (next == null || next.getKey() >= match.end())) {
+                            accepted.put(match.start(), match);
+                        }
+                    }
                 }
             }
         }
-        return replaced;
+        return CorrelationReplacementFilter.replace(original, List.copyOf(accepted.values()));
     }
 
     private void addPredefinedExtractors(HashTree samplerHt, HarEntry entry) {
@@ -1157,7 +1192,7 @@ public final class HarConverter {
     }
 
     /** Percent-decode like Python's urllib.parse.unquote (does NOT turn '+' into space). */
-    private static String percentDecode(String value) {
+    static String percentDecode(String value) {
         if (value.indexOf('%') < 0) {
             return value;
         }

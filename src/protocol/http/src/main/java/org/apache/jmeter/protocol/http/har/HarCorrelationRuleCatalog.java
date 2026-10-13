@@ -137,14 +137,14 @@ final class HarCorrelationRuleCatalog {
 
     static void deleteCustomRules(TestElement testPlan, Set<String> ids) throws IOException {
         rejectBuiltInIds(List.copyOf(ids));
-        byte[] shared = serialize(loadConfiguredCustomRulesStrict().stream()
+        byte[] shared = serialize(loadStoredCustomRules().stream()
                 .filter(rule -> !ids.contains(rule.getId())).toList());
         byte[] local = testPlan == null ? null : serialize(loadCustomRules(testPlan).stream()
                 .filter(rule -> !ids.contains(rule.getId())).toList());
         // Validate both results before the single disk write. Updating the archive reference is in-memory only.
-        parse(shared);
+        parse(shared, true);
         if (local != null) {
-            parse(local);
+            parse(local, true);
         }
         storeConfiguredCustomRules(shared);
         if (local != null) {
@@ -201,7 +201,7 @@ final class HarCorrelationRuleCatalog {
         if (content.isEmpty()) {
             throw new IOException("Custom predefined correlation rules are unavailable: " + entryName);
         }
-        return parse(content.orElseThrow());
+        return parse(content.orElseThrow(), true);
     }
 
     static void storeCustomRules(TestElement testPlan, List<Rule> rules) throws IOException {
@@ -220,19 +220,51 @@ final class HarCorrelationRuleCatalog {
     }
 
     static void storeCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
+        parse(serialize(newRules)); // Validate only the incoming edits strictly; retain existing inactive rules.
+        persistCustomRulesEverywhere(testPlan, newRules);
+    }
+
+    static void moveCustomRulesEverywhere(TestElement testPlan, Map<String, String> destinations) throws IOException {
+        rejectBuiltInIds(List.copyOf(destinations.keySet()));
+        List<Rule> shared = loadStoredCustomRules();
+        List<Rule> local = testPlan == null ? List.of() : loadCustomRules(testPlan);
+        Set<String> knownIds = new LinkedHashSet<>();
+        shared.forEach(rule -> knownIds.add(rule.getId()));
+        local.forEach(rule -> knownIds.add(rule.getId()));
+        if (!knownIds.containsAll(destinations.keySet())) {
+            throw new IOException("Cannot move an unknown custom correlation rule");
+        }
+        byte[] sharedContent = serialize(movedRules(shared, destinations));
+        byte[] localContent = serialize(movedRules(local, destinations));
+        parse(sharedContent, true);
+        parse(localContent, true);
+        if (shared.stream().anyMatch(rule -> destinations.containsKey(rule.getId()))) {
+            storeConfiguredCustomRules(sharedContent);
+        }
+        if (testPlan != null && local.stream().anyMatch(rule -> destinations.containsKey(rule.getId()))) {
+            registerCustomRules(testPlan, localContent);
+        }
+    }
+
+    private static List<Rule> movedRules(List<Rule> rules, Map<String, String> destinations) {
+        return rules.stream().map(rule -> destinations.containsKey(rule.getId())
+                ? rule.withGroup(destinations.get(rule.getId())) : rule).toList();
+    }
+
+    private static void persistCustomRulesEverywhere(TestElement testPlan, List<Rule> newRules) throws IOException {
         rejectBuiltInIds(newRules.stream().map(Rule::getId).toList());
-        List<Rule> sharedCustomRules = merge(loadConfiguredCustomRulesStrict(), newRules);
+        List<Rule> sharedCustomRules = merge(loadStoredCustomRules(), newRules);
         byte[] sharedContent = serialize(sharedCustomRules);
-        parse(sharedContent);
+        parse(sharedContent, true);
         List<Rule> planCustomRules = testPlan == null
                 ? List.of() : merge(loadCustomRules(testPlan), newRules);
         byte[] planContent = testPlan == null ? null : serialize(planCustomRules);
         if (planContent != null) {
-            parse(planContent);
+            parse(planContent, true);
         }
         storeConfiguredCustomRules(sharedContent);
         if (testPlan != null) {
-            storeCustomRules(testPlan, planCustomRules);
+            registerCustomRules(testPlan, planContent);
         }
     }
 
@@ -287,6 +319,10 @@ final class HarCorrelationRuleCatalog {
     }
 
     static List<Rule> parse(byte[] content) throws IOException {
+        return parse(content, false);
+    }
+
+    static List<Rule> parse(byte[] content, boolean preserveInvalidPatterns) throws IOException {
         if (content == null || content.length == 0 || content.length > MAX_CONFIG_BYTES) {
             throw new IOException("Predefined correlation config must contain 1 to "
                     + MAX_CONFIG_BYTES + " bytes");
@@ -322,7 +358,7 @@ final class HarCorrelationRuleCatalog {
                     if (ruleNode.has("group")) {
                         throw new IOException("Grouped predefined correlation rule must not repeat its group");
                     }
-                    addRule(rules, byId, parseRule(ruleNode, group));
+                    parseAndAddRule(rules, byId, ruleNode, group, preserveInvalidPatterns);
                 }
             }
         } else {
@@ -330,13 +366,18 @@ final class HarCorrelationRuleCatalog {
                 throw new IOException("Predefined correlation config must contain a groups array");
             }
             for (JsonNode ruleNode : legacyRulesNode) {
-                addRule(rules, byId, parseRule(ruleNode, ruleNode.path("group").asText("Custom").trim()));
+                parseAndAddRule(rules, byId, ruleNode, ruleNode.path("group").asText("Custom").trim(), preserveInvalidPatterns);
             }
         }
         if (rules.size() > MAX_RULES) {
             throw new IOException("Predefined correlation config must contain at most " + MAX_RULES + " rules");
         }
         return List.copyOf(rules);
+    }
+
+    private static void parseAndAddRule(List<Rule> rules, Map<String, Rule> byId, JsonNode node,
+            String group, boolean preserveInvalidPatterns) throws IOException {
+        addRule(rules, byId, parseRule(node, group, preserveInvalidPatterns));
     }
 
     static byte[] serialize(List<Rule> rules) throws IOException {
@@ -362,6 +403,10 @@ final class HarCorrelationRuleCatalog {
                 ruleNode.put("template", rule.getTemplate());
                 ruleNode.put("maxMatches", rule.getMaxMatches());
                 ruleNode.put("minValueLength", rule.getMinValueLength());
+                ArrayNode scopes = ruleNode.putArray("replacementScope");
+                rule.getReplacementFilter().scopes().forEach(scope -> scopes.add(scope.name()));
+                ruleNode.put("replacementWholeValue", rule.getReplacementFilter().wholeValue());
+                ruleNode.put("replacementFieldPattern", rule.getReplacementFilter().fieldPattern());
                 if (!rule.getExtractorSettings().isEmpty()) {
                     ObjectNode settings = ruleNode.putObject("extractorSettings");
                     rule.getExtractorSettings().forEach(settings::put);
@@ -382,7 +427,7 @@ final class HarCorrelationRuleCatalog {
         rules.add(rule);
     }
 
-    private static Rule parseRule(JsonNode node, String group) throws IOException {
+    private static Rule parseRule(JsonNode node, String group, boolean preserveInvalidPatterns) throws IOException {
         String id = requiredText(node, "id");
         String name = requiredText(node, "name");
         String variableName = requiredText(node, "variableName");
@@ -441,12 +486,29 @@ final class HarCorrelationRuleCatalog {
                 settings.put(field.getKey(), field.getValue().asText());
             }
         }
+        CorrelationReplacementFilter filter;
+        try {
+            Set<CorrelationReplacementFilter.Scope> scopes = new LinkedHashSet<>();
+            JsonNode scopeNode = node.path("replacementScope");
+            if (scopeNode.isArray()) {
+                for (JsonNode scope : scopeNode) {
+                    scopes.add(CorrelationReplacementFilter.Scope.valueOf(scope.asText()));
+                }
+            } else if (!scopeNode.isMissingNode() && !scopeNode.isNull()) {
+                scopes.add(CorrelationReplacementFilter.Scope.valueOf(scopeNode.asText()));
+            }
+            filter = new CorrelationReplacementFilter(scopes,
+                    node.path("replacementWholeValue").asBoolean(false),
+                    node.path("replacementFieldPattern").asText(""), preserveInvalidPatterns);
+        } catch (IllegalArgumentException ex) {
+            throw new IOException("Invalid replacement filter for rule " + id + ": " + ex.getMessage(), ex);
+        }
         return new Rule(
                 id, group, name, variableName, extractorType, responseField, expression, template,
                 maxMatches, minValueLength,
                 node.path("defaultValue").asText(""), node.path("emptyDefaultValue").asBoolean(false),
                 node.path("computeConcatenation").asBoolean(false),
-                node.path("failOnNoMatch").asBoolean(true), settings);
+                node.path("failOnNoMatch").asBoolean(true), settings).withReplacementFilter(filter);
     }
 
     private static void validateGroup(String group, String context) throws IOException {
@@ -485,7 +547,14 @@ final class HarCorrelationRuleCatalog {
 
     private static List<Rule> loadConfiguredCustomRules() {
         try {
-            return loadConfiguredCustomRulesStrict();
+            Path file = configuredCustomFile();
+            if (!Files.exists(file)) {
+                return List.of();
+            }
+            if (Files.size(file) > MAX_CONFIG_BYTES) {
+                throw new IOException("Predefined correlation config is too large");
+            }
+            return parse(Files.readAllBytes(file), true);
         } catch (IOException | RuntimeException ex) {
             Path customFile = configuredCustomFile();
             LOG.warn("Unable to load custom predefined correlation file {}", customFile, ex);
@@ -493,12 +562,15 @@ final class HarCorrelationRuleCatalog {
         }
     }
 
-    private static List<Rule> loadConfiguredCustomRulesStrict() throws IOException {
+    private static List<Rule> loadStoredCustomRules() throws IOException {
         Path customFile = configuredCustomFile();
         if (!Files.exists(customFile)) {
             return List.of();
         }
-        return readRulesFile(customFile);
+        if (Files.size(customFile) > MAX_CONFIG_BYTES) {
+            throw new IOException("Predefined correlation config is too large");
+        }
+        return parse(Files.readAllBytes(customFile), true);
     }
 
     private static void storeConfiguredCustomRules(byte[] content) throws IOException {

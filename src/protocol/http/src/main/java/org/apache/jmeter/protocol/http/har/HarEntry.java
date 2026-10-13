@@ -30,6 +30,17 @@ import org.apache.jmeter.recording.RecordedWebSocketMessage;
  */
 public class HarEntry {
 
+    private org.apache.jmeter.gui.Replaceable requestFields;
+
+    org.apache.jmeter.gui.Replaceable getRequestFields() {
+        return requestFields;
+    }
+
+    void setRequestFields(org.apache.jmeter.gui.Replaceable requestFields) {
+        this.requestFields = requestFields;
+    }
+
+
     /** A name/value pair as found in HAR headers, query string, and form params. */
     public static class NameValue {
         private final String name;

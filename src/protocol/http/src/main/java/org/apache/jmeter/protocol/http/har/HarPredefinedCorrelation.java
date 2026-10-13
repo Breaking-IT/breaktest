@@ -84,7 +84,8 @@ final class HarPredefinedCorrelation {
         QUERY_PARAMETER("query parameter"),
         POST_PARAMETER("form parameter"),
         REQUEST_BODY("request body"),
-        REQUEST_HEADER("request header");
+        REQUEST_HEADER("request header"),
+        REQUEST_OTHER("request field");
 
         private final String displayName;
 
@@ -98,6 +99,7 @@ final class HarPredefinedCorrelation {
     }
 
     static final class Rule {
+        private final CorrelationReplacementFilter replacementFilter;
         private final String id;
         private final String group;
         private final String name;
@@ -144,6 +146,17 @@ final class HarPredefinedCorrelation {
                 ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
                 String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
                 boolean failOnNoMatch, Map<String, String> extractorSettings) {
+            this(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings, CorrelationReplacementFilter.ALL);
+        }
+
+        private Rule(String id, String group, String name, String variableName, ExtractorType extractorType,
+                ResponseField responseField, String expression, String template, int maxMatches, int minValueLength,
+                String defaultValue, boolean emptyDefaultValue, boolean computeConcatenation,
+                boolean failOnNoMatch, Map<String, String> extractorSettings,
+                CorrelationReplacementFilter replacementFilter) {
+            this.replacementFilter = replacementFilter;
             this.extractorSettings = Map.copyOf(extractorSettings);
             this.id = id;
             this.group = group;
@@ -159,6 +172,16 @@ final class HarPredefinedCorrelation {
             this.emptyDefaultValue = emptyDefaultValue;
             this.computeConcatenation = computeConcatenation;
             this.failOnNoMatch = failOnNoMatch;
+        }
+
+        CorrelationReplacementFilter getReplacementFilter() {
+            return replacementFilter;
+        }
+
+        Rule withReplacementFilter(CorrelationReplacementFilter filter) {
+            return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
+                    failOnNoMatch, extractorSettings, filter);
         }
 
         String getId() {
@@ -203,19 +226,19 @@ final class HarPredefinedCorrelation {
 
         Rule withExtractorSettings(Map<String, String> settings) {
             return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
-                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch, settings);
+                    maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation, failOnNoMatch, settings, replacementFilter);
         }
 
         Rule withGroup(String group) {
             return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
                     maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
-                    failOnNoMatch, extractorSettings);
+                    failOnNoMatch, extractorSettings, replacementFilter);
         }
 
         Rule withMinValueLength(int minValueLength) {
             return new Rule(id, group, name, variableName, extractorType, responseField, expression, template,
                     maxMatches, minValueLength, defaultValue, emptyDefaultValue, computeConcatenation,
-                    failOnNoMatch, extractorSettings);
+                    failOnNoMatch, extractorSettings, replacementFilter);
         }
 
         int getMinValueLength() {
@@ -369,6 +392,7 @@ final class HarPredefinedCorrelation {
             List<HarEntry> entries, List<Rule> rules, IntConsumer progress) {
         checkCancelled();
         progress.accept(0);
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
         List<HarEntry> selected = entries.stream()
                 .sorted(Comparator.comparingDouble(HarEntry::getStartMs)
                         .thenComparingInt(HarEntry::getOriginalIndex))
@@ -390,7 +414,7 @@ final class HarPredefinedCorrelation {
                 }
                 List<ExtractedValue> extractedValues = extract(
                         rule, source.getResponseContentText(), responseHeaders, jsonManager, jsonDocument);
-                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues, rule.getMinValueLength());
+                CandidateMatch matched = findMatchingCandidate(selected, sourcePosition, extractedValues, rule);
                 if (matched == null) {
                     continue;
                 }
@@ -404,6 +428,16 @@ final class HarPredefinedCorrelation {
         checkCancelled();
         progress.accept(100);
         return result;
+    }
+
+    static List<String> diagnostics(List<Rule> rules) {
+        return rules.stream().filter(rule -> !rule.getReplacementFilter().diagnostic().isEmpty())
+                .map(rule -> rule.getName() + " [" + rule.getId() + "]: " + rule.getReplacementFilter().diagnostic())
+                .distinct().toList();
+    }
+
+    static List<Rule> correlationRules(List<HarPredefinedCorrelation> correlations) {
+        return correlations.stream().map(HarPredefinedCorrelation::getRule).distinct().toList();
     }
 
     static void checkCancelled() {
@@ -517,7 +551,8 @@ final class HarPredefinedCorrelation {
     }
 
     private static CandidateMatch findMatchingCandidate(
-            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues, int minValueLength) {
+            List<HarEntry> entries, int sourcePosition, List<ExtractedValue> extractedValues, Rule rule) {
+        int minValueLength = rule.getMinValueLength();
         Map<String, CandidateMatch> matchesByValue = new LinkedHashMap<>();
         for (ExtractedValue extractedValue : extractedValues) {
             if (extractedValue.value() == null
@@ -527,7 +562,7 @@ final class HarPredefinedCorrelation {
             List<Replacement> replacements = new ArrayList<>();
             for (int targetPosition = sourcePosition + 1; targetPosition < entries.size(); targetPosition++) {
                 checkCancelled();
-                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value(), minValueLength));
+                replacements.addAll(findReplacements(entries.get(targetPosition), extractedValue.value(), rule));
             }
             if (!replacements.isEmpty()) {
                 matchesByValue.putIfAbsent(
@@ -659,42 +694,116 @@ final class HarPredefinedCorrelation {
         return result.toString();
     }
 
-    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue, int minValueLength) {
+    private static List<Replacement> findReplacements(HarEntry entry, String extractedValue, Rule rule) {
         List<Replacement> result = new ArrayList<>();
-        addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, minValueLength);
+        if (entry.getRequestFields() != null) {
+            Map<String, Integer> rows = new LinkedHashMap<>();
+            var fields = entry.getRequestFields().getReplaceableFields();
+            for (var field : fields) {
+                int row = rows.merge(field.name(), 1, Integer::sum) - 1;
+                RequestLocation location = switch (field.area()) {
+                case BODY -> RequestLocation.REQUEST_BODY;
+                case PATH -> RequestLocation.URL_PATH;
+                case HEADERS -> RequestLocation.REQUEST_HEADER;
+                case PARAMETERS -> RequestLocation.POST_PARAMETER;
+                default -> RequestLocation.REQUEST_OTHER;
+                };
+                String name = field.name();
+                if (field.name().equals("Header value")) {
+                    name = fields.stream()
+                            .filter(item -> item.name().equals("Header name")).skip(row)
+                            .map(item -> item.value()).findFirst().orElse(name);
+                }
+                var matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), fields, field.name(), row,
+                        field.value(), extractedValue, "", false);
+                if (matches.isEmpty() && location == RequestLocation.REQUEST_HEADER) {
+                    String decoded = decodedHeaderValue(extractedValue);
+                    if (decoded.strip().length() >= rule.getMinValueLength()) {
+                        matches = rule.getReplacementFilter().samplerMatches(entry.getRequestFields(), fields, field.name(), row,
+                                field.value(), decoded, "", false);
+                    }
+                }
+                if (!matches.isEmpty()) {
+                    for (var match : matches) {
+                        RequestLocation matchLocation = field.name().equals("URL")
+                                ? CorrelationReplacementFilter.urlLocation(field.value(), match.start()) : location;
+                        result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
+                                matchLocation, field.name().equals("URL")
+                                        ? CorrelationReplacementFilter.urlLocationName(field.value(), match.start()) : name,
+                                field.value().substring(match.start(), match.end())));
+                    }
+                }
+            }
+            return uniqueReplacements(result);
+        }
+        if (entry.isWebSocket()) {
+            for (var match : rule.getReplacementFilter().urlFieldMatches(entry.getUrl(), extractedValue, "", true)) {
+                result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),
+                        CorrelationReplacementFilter.urlLocation(entry.getUrl(), match.start()),
+                        CorrelationReplacementFilter.urlLocationName(entry.getUrl(), match.start()),
+                        entry.getUrl().substring(match.start(), match.end())));
+            }
+        } else {
+            addReplacement(result, entry, RequestLocation.URL_PATH, "", urlPath(entry.getUrl()), extractedValue, rule);
+        }
         for (NameValue header : entry.getRequestHeaders()) {
             // Headers the converter drops (HTTP/2 pseudo-headers, Cookie, Host, Content-Length)
             // would be listed as replacements that silently do nothing.
             if (HarConverter.isExportableHeader(header.getName())) {
                 addReplacement(result, entry, RequestLocation.REQUEST_HEADER,
-                        header.getName(), header.getValue(), extractedValue, minValueLength);
+                        header.getName(), header.getValue(), extractedValue, rule);
             }
         }
-        for (NameValue parameter : entry.getQueryString()) {
-            addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
+        if (!entry.isWebSocket()) {
+            for (NameValue parameter : entry.getQueryString()) {
+                addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
+                        parameter.getName(), parameter.getValue(), extractedValue, rule);
+            }
+            if (entry.getQueryString().isEmpty()) {
+                String query = urlQuery(entry.getUrl());
+                if (query != null) {
+                    for (String parameter : query.split("&")) {
+                        int equals = parameter.indexOf('=');
+                        addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
+                                equals < 0 ? parameter : parameter.substring(0, equals),
+                                equals < 0 ? "" : parameter.substring(equals + 1), extractedValue, rule);
+                    }
+                }
+            }
         }
-        if (entry.getQueryString().isEmpty()) {
-            addReplacement(result, entry, RequestLocation.QUERY_PARAMETER,
-                    "", urlQuery(entry.getUrl()), extractedValue, minValueLength);
+        if (!entry.isWebSocket() && HarConverter.isBodyMethod(entry.getMethod()) && rule.getReplacementFilter().unrestricted()
+                && result.stream().noneMatch(replacement -> replacement.getLocation() == RequestLocation.QUERY_PARAMETER)) {
+            String query = urlQuery(entry.getUrl());
+            if (query != null && !rule.getReplacementFilter().urlFieldMatches("?" + query, extractedValue, "", false).isEmpty()) {
+                addReplacement(result, entry, RequestLocation.QUERY_PARAMETER, "", query, extractedValue, rule);
+            }
         }
         PostData postData = entry.getPostData();
         if (postData != null) {
             if (postData.getParams().isEmpty()) {
                 addReplacement(result, entry, RequestLocation.REQUEST_BODY, "",
-                        postData.getText(), extractedValue, minValueLength);
+                        postData.getText(), extractedValue, rule);
             } else {
                 for (NameValue parameter : postData.getParams()) {
                     addReplacement(result, entry, RequestLocation.POST_PARAMETER,
-                            parameter.getName(), parameter.getValue(), extractedValue, minValueLength);
+                            parameter.getName(), parameter.getValue(), extractedValue, rule);
                 }
             }
         }
-        return result;
+        return uniqueReplacements(result);
+    }
+
+    private static List<Replacement> uniqueReplacements(List<Replacement> replacements) {
+        Map<String, Replacement> unique = new LinkedHashMap<>();
+        replacements.forEach(replacement -> unique.putIfAbsent(replacementKey(replacement), replacement));
+        return List.copyOf(unique.values());
     }
 
     private static void addReplacement(List<Replacement> result, HarEntry entry,
-            RequestLocation location, String locationName, String text, String extractedValue, int minValueLength) {
+            RequestLocation location, String locationName, String text, String extractedValue, Rule rule) {
+        if (!rule.getReplacementFilter().includes(location)) {
+            return;
+        }
         String matchedLiteral = matchedLiteral(text, extractedValue);
         if (matchedLiteral == null && (location == RequestLocation.QUERY_PARAMETER
                 || location == RequestLocation.POST_PARAMETER)) {
@@ -702,10 +811,24 @@ final class HarPredefinedCorrelation {
         }
         if (matchedLiteral == null && location == RequestLocation.REQUEST_HEADER && text != null) {
             String decoded = decodedHeaderValue(extractedValue);
-            if (!decoded.equals(extractedValue) && decoded.strip().length() >= minValueLength
+            if (!decoded.equals(extractedValue) && decoded.strip().length() >= rule.getMinValueLength()
                     && text.contains(decoded)) {
                 matchedLiteral = decoded;
             }
+        }
+        if (matchedLiteral != null && !rule.getReplacementFilter().unrestricted()) {
+            var filter = rule.getReplacementFilter();
+            var matches = filter.matches(text, extractedValue, "", false, location, locationName);
+            if (matches.isEmpty() && (location == RequestLocation.QUERY_PARAMETER || location == RequestLocation.POST_PARAMETER)) {
+                matches = filter.matches(text, extractedValue, "", true, location, locationName);
+            }
+            if (matches.isEmpty() && location == RequestLocation.REQUEST_HEADER) {
+                String decoded = decodedHeaderValue(extractedValue);
+                if (decoded.strip().length() >= rule.getMinValueLength()) {
+                    matches = filter.matches(text, decoded, "", false, location, locationName);
+                }
+            }
+            matchedLiteral = matches.isEmpty() ? null : text.substring(matches.get(0).start(), matches.get(0).end());
         }
         if (matchedLiteral != null) {
             result.add(new Replacement(entry.getOriginalIndex(), entry.getMethod(), entry.getUrl(),

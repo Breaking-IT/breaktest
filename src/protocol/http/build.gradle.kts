@@ -114,6 +114,7 @@ dependencies {
     implementation("io.airlift:aircompressor") {
         because("ZstdDecoder for HTTP response decompression")
     }
+    testImplementation(projects.src.protocol.udp)
     testImplementation(testFixtures(projects.src.core))
     testImplementation(testFixtures(projects.src.testkitWiremock))
     testImplementation("org.wiremock:wiremock")

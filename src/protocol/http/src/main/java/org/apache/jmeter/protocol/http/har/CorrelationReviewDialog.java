@@ -20,6 +20,8 @@ package org.apache.jmeter.protocol.http.har;
 import java.util.List;
 import java.util.Map;
 
+import javax.swing.JOptionPane;
+
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.StepByStepReviewDialog;
@@ -29,8 +31,26 @@ final class CorrelationReviewDialog {
     private CorrelationReviewDialog() { }
 
     static void show(GuiPackage gui, List<HarPredefinedCorrelation> correlations, Map<Integer, JMeterTreeNode> nodes) {
-        List<CorrelationReviewStep> steps = CorrelationReviewStep.create(correlations, nodes);
+        PreparedReview prepared = prepare(correlations, nodes);
+        showWarnings(gui, prepared.warnings());
+        List<CorrelationReviewStep> steps = prepared.steps();
         StepByStepReviewDialog.show(gui, steps,
                 requested -> FindPredefinedCorrelationsAction.acceptReviewSteps(gui, requested, steps, nodes));
+    }
+
+    record PreparedReview(List<CorrelationReviewStep> steps, List<String> warnings) { }
+
+    static PreparedReview prepare(List<HarPredefinedCorrelation> correlations, Map<Integer, JMeterTreeNode> nodes) {
+        var rules = HarPredefinedCorrelation.correlationRules(correlations);
+        rules.forEach(rule -> rule.getReplacementFilter().clearMatchingDiagnostic());
+        var steps = CorrelationReviewStep.create(correlations, nodes);
+        return new PreparedReview(steps, HarPredefinedCorrelation.diagnostics(rules));
+    }
+
+    static void showWarnings(GuiPackage gui, List<String> warnings) {
+        if (!warnings.isEmpty()) {
+            JOptionPane.showMessageDialog(gui.getMainFrame(), String.join("\n", warnings),
+                    "Correlation warnings", JOptionPane.WARNING_MESSAGE);
+        }
     }
 }

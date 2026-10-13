@@ -218,7 +218,10 @@ public final class RecordedValueReplacer {
     }
 
     public static String replace(String text, String value, String reference, boolean decoded) {
-        List<Match> matches = matches(text, value, reference, decoded);
+        return replace(text, matches(text, value, reference, decoded));
+    }
+
+    public static String replace(String text, List<Match> matches) {
         if (matches.isEmpty()) {
             return text;
         }
@@ -297,6 +300,35 @@ public final class RecordedValueReplacer {
         return result;
     }
 
+    /** Updates one contiguous edit without replacing the arguments or their metadata. */
+    public static void setRawBodyValue(HTTPSamplerBase sampler, String updated) {
+        StringBuilder original = new StringBuilder();
+        sampler.getArguments().forEach(property -> original.append(((HTTPArgument) property.getObjectValue()).getValue()));
+        int start = 0;
+        while (start < original.length() && start < updated.length() && original.charAt(start) == updated.charAt(start)) {
+            start++;
+        }
+        int end = original.length();
+        int updatedEnd = updated.length();
+        while (end > start && updatedEnd > start && original.charAt(end - 1) == updated.charAt(updatedEnd - 1)) {
+            end--;
+            updatedEnd--;
+        }
+        String inserted = updated.substring(start, updatedEnd);
+        int offset = 0;
+        boolean written = false;
+        for (var property : sampler.getArguments()) {
+            HTTPArgument argument = (HTTPArgument) property.getObjectValue();
+            String text = argument.getValue();
+            int from = Math.max(0, Math.min(text.length(), start - offset));
+            int to = Math.max(0, Math.min(text.length(), end - offset));
+            boolean writeHere = !written && start <= offset + text.length();
+            argument.setValue(text.substring(0, from) + (writeHere ? inserted : "") + text.substring(to));
+            written |= writeHere;
+            offset += text.length();
+        }
+    }
+
     public static int replaceSampler(HTTPSamplerBase sampler, String value, String reference) {
         int changed = 0;
         String path = replace(sampler.getPath(), value, reference, false);
@@ -324,15 +356,20 @@ public final class RecordedValueReplacer {
         return changed;
     }
 
+    public static boolean encodeWholeArgument(HTTPArgument argument, String value, boolean raw) {
+        if (raw || argument.isAlwaysEncoded()) {
+            return false;
+        }
+        String literal = matchedLiteral(argument.getValue(), value);
+        return literal != null && literal.equals(argument.getValue()) && !literal.equals(value)
+                && !literal.contains("%20");
+    }
+
     public static void replaceArgument(HTTPArgument argument, String value, String reference, boolean raw) {
-        if (!raw && !argument.isAlwaysEncoded()) {
-            String literal = matchedLiteral(argument.getValue(), value);
-            if (literal != null && literal.equals(argument.getValue()) && !literal.equals(value)
-                    && !literal.contains("%20")) {
-                argument.setValue(reference);
-                argument.setAlwaysEncoded(true);
-                return;
-            }
+        if (encodeWholeArgument(argument, value, raw)) {
+            argument.setValue(reference);
+            argument.setAlwaysEncoded(true);
+            return;
         }
         argument.setValue(replace(argument.getValue(), value, reference, !raw && argument.isAlwaysEncoded()));
     }
