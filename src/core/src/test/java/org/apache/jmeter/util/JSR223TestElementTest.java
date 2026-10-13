@@ -84,6 +84,29 @@ public class JSR223TestElementTest {
     }
 
     @Test
+    void cachedInlineEngineIsSharedAcrossElementsButBindingsAreFresh() throws Exception {
+        element.setScript("assert !binding.hasVariable('scratch'); scratch = Label; scratch");
+        element.setName("first");
+        assertEquals("first", evaluate());
+        JSR223TestElement other = new TestElement();
+        other.setScript(element.getScript());
+        other.setName("second");
+        assertSame(element.getScriptEngine(), other.getScriptEngine());
+        assertEquals("second", other.processFileOrScript(other.getScriptEngine(), null));
+        assertEquals("first", evaluate());
+    }
+
+    @Test
+    void fileSelectionDoesNotReuseAnInlineEngine(@TempDir Path directory) throws Exception {
+        element.setScript("1");
+        assertEquals(1, evaluate());
+        ScriptEngine inlineEngine = element.getScriptEngine();
+        element.setFilename(directory.resolve("missing.groovy").toString());
+        assertNotSame(inlineEngine, element.getScriptEngine());
+        assertThrows(ScriptException.class, this::evaluate);
+    }
+
+    @Test
     void cachedScriptEvaluationsKeepConcurrentBindingsSeparate() throws Exception {
         element.setScript("def value = marker; Thread.yield(); marker = value + 1; marker");
         ScriptEngine engine = element.getScriptEngine();
@@ -230,13 +253,14 @@ public class JSR223TestElementTest {
     }
 
     @Test
-    void changedAndRemovedScriptFilesAreValidated(@TempDir Path directory) throws Exception {
+    void fileScriptsKeepFreshEngineLookupAndValidateChanges(@TempDir Path directory) throws Exception {
         Path script = directory.resolve("script.groovy");
         Files.writeString(script, "1");
         element.setFilename(script.toString());
         ScriptEngine first = element.getScriptEngine();
         assertEquals(1, element.processFileOrScript(first, null));
-        assertSame(first, element.getScriptEngine());
+        assertNotSame(first, element.getScriptEngine());
+        assertEquals(1, evaluate());
         long modified = Files.getLastModifiedTime(script).toMillis();
         Files.writeString(script, "2");
         Files.setLastModifiedTime(script, FileTime.fromMillis(modified + 2000));

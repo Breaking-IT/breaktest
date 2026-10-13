@@ -19,6 +19,8 @@ package org.apache.jmeter.util;
 
 import java.util.concurrent.TimeUnit;
 
+import javax.script.ScriptEngine;
+
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -52,12 +54,19 @@ public class JSR223EngineBenchmark {
         JMeterVariables variables = new JMeterVariables();
         variables.put("counter", "0");
         JMeterContextService.getContext().setVariables(variables);
-        execute();
+        reuseCachedEngine();
     }
 
     @Benchmark
-    public Object execute() throws Exception {
+    public Object reuseCachedEngine() throws Exception {
         return element.processFileOrScript(element.getScriptEngine(), null);
+    }
+
+    /** Matches the previous lookup path while keeping compiled-script caching enabled. */
+    @Benchmark
+    public Object freshEngine() throws Exception {
+        ScriptEngine engine = JSR223TestElement.getInstance().getEngineByName("groovy");
+        return element.processFileOrScript(engine, null);
     }
 
     @TearDown
