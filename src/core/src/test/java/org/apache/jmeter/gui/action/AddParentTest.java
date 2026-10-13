@@ -19,6 +19,7 @@ package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.event.ActionEvent;
@@ -35,6 +36,7 @@ import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.gui.SimpleConfigGui;
 import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.gui.LogicControllerGui;
+import org.apache.jmeter.exceptions.IllegalUserActionException;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
@@ -152,6 +154,27 @@ class AddParentTest {
     }
 
     @Test
+    void rejectsSelectionWithDifferentParentsAndKeepsEditorBound() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JMeterTreeNode first = fixture.add(fixture.plan, "First");
+            JMeterTreeNode controller = new JMeterTreeNode(new GenericController(), fixture.model);
+            fixture.model.insertNodeInto(controller, fixture.plan, 1);
+            JMeterTreeNode nested = fixture.add(controller, "Nested");
+            fixture.select(nested, first);
+            SimpleConfigGui editor = (SimpleConfigGui) fixture.gui.getCurrentGui();
+
+            assertThrows(IllegalUserActionException.class, fixture::tryInsertParent);
+
+            assertEquals(2, fixture.plan.getChildCount());
+            assertSame(first, fixture.plan.getChildAt(0));
+            assertSame(nested, controller.getChildAt(0));
+            editor.setName("After rejection");
+            fixture.gui.updateCurrentNode();
+            assertEquals("After rejection", first.getName());
+        });
+    }
+
+    @Test
     void usesSelectedNodeWhenCurrentPathIsMissing() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             JMeterTreeNode node = fixture.add(fixture.plan, "Selected");
@@ -160,7 +183,7 @@ class AddParentTest {
             fixture.tree.setSelectionPath(new TreePath(node.getPath()));
             fixture.tree.addTreeSelectionListener(fixture.listener);
 
-            AddParent.addParentToTree(new GenericController());
+            fixture.insertParent(new GenericController());
 
             assertSame(node, ((JMeterTreeNode) fixture.plan.getChildAt(0)).getChildAt(0));
             fixture.assertSelection(node, node);
@@ -204,9 +227,25 @@ class AddParentTest {
         }
 
         void insertParent() {
+            try {
+                tryInsertParent();
+            } catch (IllegalUserActionException e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        void tryInsertParent() throws IllegalUserActionException {
             JMenuItem item = new JMenuItem();
             item.setName(LogicControllerGui.class.getName());
             new AddParent().doAction(new ActionEvent(item, ActionEvent.ACTION_PERFORMED, ActionNames.ADD_PARENT));
+        }
+
+        void insertParent(TestElement controller) {
+            try {
+                AddParent.addParentToTree(controller);
+            } catch (IllegalUserActionException e) {
+                throw new AssertionError(e);
+            }
         }
 
         void assertSelection(JMeterTreeNode current, JMeterTreeNode... selected) {
