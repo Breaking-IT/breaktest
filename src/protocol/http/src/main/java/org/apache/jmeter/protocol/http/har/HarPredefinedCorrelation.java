@@ -771,7 +771,7 @@ final class HarPredefinedCorrelation {
                 }
             }
         }
-        if (!entry.isWebSocket() && rule.getReplacementFilter().unrestricted()
+        if (!entry.isWebSocket() && HarConverter.isBodyMethod(entry.getMethod()) && rule.getReplacementFilter().unrestricted()
                 && result.stream().noneMatch(replacement -> replacement.getLocation() == RequestLocation.QUERY_PARAMETER)) {
             String query = urlQuery(entry.getUrl());
             if (query != null && !rule.getReplacementFilter().urlFieldMatches("?" + query, extractedValue, "", false).isEmpty()) {

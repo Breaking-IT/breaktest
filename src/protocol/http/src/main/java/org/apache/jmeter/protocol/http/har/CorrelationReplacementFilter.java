@@ -325,7 +325,7 @@ final class CorrelationReplacementFilter {
             // Default rules retain opaque URL matching, including bare queries and delimiter-spanning values.
             // Explicit name=value keys still remain literal.
             return RecordedValueReplacer.matches(text, value, reference, false).stream()
-                    .filter(match -> !isQueryName(text, match)).toList();
+                    .filter(match -> !overlapsQueryName(text, match)).toList();
         }
         List<Match> result = new ArrayList<>(urlMatches(text, value, reference, RequestLocation.URL_PATH));
         result.addAll(urlMatches(text, value, reference, RequestLocation.QUERY_PARAMETER));
@@ -336,18 +336,24 @@ final class CorrelationReplacementFilter {
         return result;
     }
 
-    private static boolean isQueryName(String text, Match match) {
+    private static boolean overlapsQueryName(String text, Match match) {
         var parts = urlParts(text);
-        if (parts.query() < 0 || match.start() <= parts.query() || match.end() > parts.urlEnd()) {
+        if (parts.query() < 0 || match.end() <= parts.query() || match.start() >= parts.urlEnd()) {
             return false;
         }
-        int start = Math.max(parts.query(), text.lastIndexOf('&', match.start() - 1)) + 1;
-        int end = text.indexOf('&', start);
-        if (end < 0 || end > parts.urlEnd()) {
-            end = parts.urlEnd();
+        int start = parts.query() + 1;
+        while (start < Math.min(match.end(), parts.urlEnd())) {
+            int end = text.indexOf('&', start);
+            if (end < 0 || end > parts.urlEnd()) {
+                end = parts.urlEnd();
+            }
+            int equals = text.indexOf('=', start);
+            if (equals > start && equals < end && match.start() < equals && match.end() > start) {
+                return true;
+            }
+            start = end + 1;
         }
-        int equals = text.indexOf('=', start);
-        return equals >= start && equals < end && match.end() <= equals;
+        return false;
     }
 
     private void appendMatches(List<Match> result, String text, int offset, String value, String reference,

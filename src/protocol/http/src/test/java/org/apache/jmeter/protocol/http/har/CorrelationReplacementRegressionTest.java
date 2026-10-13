@@ -75,17 +75,73 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
     }
 
     @Test
+    void bareQueriesDoNotCreateUnusedExtractorsForArgumentBasedRequests() {
+        for (String method : List.of("GET", "DELETE", "OPTIONS", "HEAD")) {
+            var source = new HarEntry();
+            source.setOriginalIndex(0);
+            source.setMethod("GET");
+            source.setUrl("https://example.test/source");
+            source.setHasPositiveTiming(true);
+            source.setResponseContentText("token=abc123token;");
+            var target = new HarEntry();
+            target.setOriginalIndex(1);
+            target.setMethod(method);
+            target.setUrl("https://example.test/target?abc123token");
+            target.setHasPositiveTiming(true);
+            target.getQueryString().add(new HarEntry.NameValue("abc123token", ""));
+            var found = HarPredefinedCorrelation.find(List.of(source, target), List.of(rule(CorrelationReplacementFilter.ALL)));
+            assertTrue(found.isEmpty(), method);
+            var options = new HarImportOptions();
+            options.setPredefinedCorrelations(found);
+            var tree = new HarConverter(List.of(source, target), options, "bare.har", "md5")
+                    .convert(java.util.Set.of("example.test"));
+            var extractors = new org.apache.jorphan.collections.SearchByClass<>(org.apache.jmeter.extractor.RegexExtractor.class);
+            tree.traverse(extractors);
+            assertTrue(extractors.getSearchResults().isEmpty());
+            var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
+            tree.traverse(samplers);
+            assertEquals(2, samplers.getSearchResults().size());
+        }
+    }
+
+    @Test
+    void urlMatchesCannotOverlapAnyNamedQueryKey() {
+        var filter = CorrelationReplacementFilter.ALL;
+        String url = "wss://example.test/socket?a=1&abc=2#fragment";
+        for (String value : List.of("1&abc", "1&ab", "a=1&abc=2", "socket?a", "abc=2#fragment")) {
+            assertTrue(filter.urlFieldMatches(url, value, "${token}", true).isEmpty(), value);
+        }
+        assertEquals("wss://example.test/socket?a=${token}&abc=2#fragment",
+                CorrelationReplacementFilter.replace(url, filter.urlFieldMatches(url, "1", "${token}", true)));
+        for (String method : List.of("GET", "POST")) {
+            var source = new HarEntry();
+            source.setOriginalIndex(0);
+            source.setMethod("GET");
+            source.setUrl("https://example.test/source");
+            source.setHasPositiveTiming(true);
+            source.setResponseContentText("token=1&abc;");
+            var target = new HarEntry();
+            target.setOriginalIndex(1);
+            target.setMethod(method);
+            target.setUrl(url);
+            target.setWebSocket(method.equals("GET"));
+            assertTrue(HarPredefinedCorrelation.find(List.of(source, target), List.of(rule(filter))).isEmpty());
+        }
+    }
+
+    @Test
     void defaultUrlsRetainOpaqueAndDelimiterSpanningValues() {
-        for (String token : List.of("abc123token", "abc&def=ghi", "abc=def")) {
+        for (String token : List.of("abc123token", "abc&def", "abc=def")) {
+            String prefix = token.equals("abc123token") ? "?" : "?value=";
             var socket = new WebSocketConnectSampler();
-            socket.setUrl("wss://example.test/socket?" + token);
+            socket.setUrl("wss://example.test/socket" + prefix + token);
             apply(socket, token, rule(CorrelationReplacementFilter.ALL), true);
-            assertEquals("wss://example.test/socket?${token}", socket.getUrl());
+            assertEquals("wss://example.test/socket" + prefix + "${token}", socket.getUrl());
             var http = new HTTPSamplerProxy();
             http.setProtocol("https");
             http.setDomain("example.test");
             http.setMethod("POST");
-            http.setPath("/target?" + token);
+            http.setPath("/target" + prefix + token);
             var source = FindPredefinedCorrelationsAction.toHarEntry(http, "", "token=" + token + ";", 0);
             var consumer = FindPredefinedCorrelationsAction.toHarEntry(http, "", "", 1);
             var found = HarPredefinedCorrelation.find(List.of(source, consumer), List.of(rule(CorrelationReplacementFilter.ALL)));
@@ -96,7 +152,7 @@ class CorrelationReplacementRegressionTest extends JMeterTestCase {
                     .convert(java.util.Set.of("example.test"));
             var samplers = new org.apache.jorphan.collections.SearchByClass<>(HTTPSamplerProxy.class);
             tree.traverse(samplers);
-            assertTrue(samplers.getSearchResults().stream().anyMatch(sampler -> sampler.getPath().equals("/target?${token}")));
+            assertTrue(samplers.getSearchResults().stream().anyMatch(sampler -> sampler.getPath().equals("/target" + prefix + "${token}")));
         }
         var filtered = new CorrelationReplacementFilter(CorrelationReplacementFilter.Scope.QUERY_PARAMETERS, true, "");
         assertTrue(filtered.urlFieldMatches("wss://example.test/?abc123token", "abc123token", "${token}", true).isEmpty());
