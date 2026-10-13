@@ -19,17 +19,231 @@ package org.apache.jmeter.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.Reader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
+import javax.script.AbstractScriptEngine;
+import javax.script.Bindings;
+import javax.script.Compilable;
+import javax.script.CompiledScript;
+import javax.script.ScriptContext;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineFactory;
+import javax.script.ScriptException;
+import javax.script.SimpleBindings;
+
+import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class JSR223TestElementTest {
 
     @SuppressWarnings("serial")
-    private JSR223TestElement element = new JSR223TestElement() {
-    };
+    private static class TestElement extends JSR223TestElement {
+    }
+
+    private final JSR223TestElement element = new TestElement();
+
+    @AfterEach
+    void clearScriptCache() {
+        element.testEnded();
+    }
+
+    private Object evaluate() throws Exception {
+        return element.processFileOrScript(element.getScriptEngine(), null);
+    }
+
+    @Test
+    void cachedScriptReusesEngineAndIsolatesBindings() throws Exception {
+        element.setScript("binding.hasVariable('scratch') ? scratch : (scratch = 1)");
+        ScriptEngine original = element.getScriptEngine();
+        assertEquals(1, element.processFileOrScript(original, null));
+        assertSame(original, element.getScriptEngine());
+        assertEquals(1, evaluate());
+        Bindings bindings = original.createBindings();
+        bindings.put("scratch", 7);
+        assertEquals(7, element.processFileOrScript(element.getScriptEngine(), bindings));
+        assertEquals(1, evaluate());
+        element.testEnded();
+        assertNotSame(original, element.getScriptEngine());
+    }
+
+    @Test
+    void cachedScriptEvaluationsKeepConcurrentBindingsSeparate() throws Exception {
+        element.setScript("def value = marker; Thread.yield(); marker = value + 1; marker");
+        ScriptEngine engine = element.getScriptEngine();
+        Bindings warmup = engine.createBindings();
+        warmup.put("marker", 0);
+        assertEquals(1, element.processFileOrScript(engine, warmup));
+        try (var workers = Executors.newFixedThreadPool(4)) {
+            List<Future<Object>> results = new ArrayList<>();
+            for (int i = 0; i < 100; i++) {
+                final int value = i;
+                results.add(workers.submit(() -> {
+                    Bindings bindings = engine.createBindings();
+                    bindings.put("marker", value);
+                    return element.processFileOrScript(engine, bindings);
+                }));
+            }
+            for (int i = 0; i < results.size(); i++) {
+                assertEquals(i + 1, results.get(i).get());
+            }
+        }
+    }
+
+    @Test
+    void cachedEngineUsesEachVirtualUsersCurrentContext() throws Exception {
+        element.setScript("assert !binding.hasVariable('scratch'); "
+                + "scratch = vars.get('user'); Thread.yield(); "
+                + "assert ctx.getVariables().is(vars); assert ctx.getPreviousResult().is(prev); "
+                + "assert prev.getSampleLabel() == scratch; scratch");
+        try (var workers = Executors.newFixedThreadPool(4)) {
+            List<Future<?>> results = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                final String user = "user-" + i;
+                results.add(workers.submit(() -> {
+                    JSR223TestElement local = new TestElement();
+                    local.setScript(element.getScript());
+                    try {
+                        for (int execution = 0; execution < 10; execution++) {
+                            String value = user + "-" + execution;
+                            JMeterVariables variables = new JMeterVariables();
+                            variables.put("user", value);
+                            SampleResult previous = new SampleResult();
+                            previous.setSampleLabel(value);
+                            JMeterContextService.getContext().setVariables(variables);
+                            JMeterContextService.getContext().setPreviousResult(previous);
+                            assertEquals(value, local.processFileOrScript(local.getScriptEngine(), null));
+                        }
+                    } finally {
+                        JMeterContextService.getContext().clear();
+                    }
+                    return null;
+                }));
+            }
+            for (Future<?> result : results) {
+                result.get();
+            }
+        }
+    }
+
+    @Test
+    void preservesFirstEvaluationCachingUntilTestEndAndSeparatesLanguages() throws Exception {
+        element.setScript("1");
+        assertEquals(1, evaluate());
+        element.setScript("2");
+        assertEquals(1, evaluate());
+        element.testEnded();
+        assertEquals(2, evaluate());
+        element.setScriptLanguage("missing-benchmark-test-language");
+        assertThrows(ScriptException.class, element::getScriptEngine);
+    }
+
+    @Test
+    void customProviderRetainsBindingsEvaluationAndFreshEngineLookup() throws Exception {
+        element.setScript("custom-provider-script");
+        ScriptEngine custom = new CustomEngine();
+        assertEquals("bindings-overload", element.processFileOrScript(custom, null));
+        assertNotSame(custom, element.getScriptEngine());
+    }
+
+    @Test
+    void groovyEngineSubclassIsNotReused() throws Exception {
+        ScriptEngine custom = (ScriptEngine) element.getScriptEngine().eval(
+                "new org.codehaus.groovy.jsr223.GroovyScriptEngineImpl() { }");
+        element.setScript("42");
+        assertEquals(42, element.processFileOrScript(custom, null));
+        assertNotSame(custom, element.getScriptEngine());
+        assertEquals(42, evaluate());
+    }
+
+    private static final class CustomEngine extends AbstractScriptEngine implements Compilable {
+        @Override
+        public Bindings createBindings() {
+            return new SimpleBindings();
+        }
+
+        @Override
+        public ScriptEngineFactory getFactory() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Object eval(String script, ScriptContext context) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Object eval(Reader reader, ScriptContext context) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompiledScript compile(Reader reader) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public CompiledScript compile(String script) {
+            return new CompiledScript() {
+                @Override
+                public Object eval(Bindings bindings) {
+                    return "bindings-overload";
+                }
+
+                @Override
+                public Object eval(ScriptContext context) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public ScriptEngine getEngine() {
+                    return CustomEngine.this;
+                }
+            };
+        }
+    }
+
+    @Test
+    void disabledCachePreservesFreshEngineBehavior() throws Exception {
+        element.setScript("1");
+        assertEquals(1, evaluate());
+        element.setCacheKey("false");
+        ScriptEngine first = element.getScriptEngine();
+        assertEquals(1, element.processFileOrScript(first, null));
+        assertNotSame(first, element.getScriptEngine());
+    }
+
+    @Test
+    void changedAndRemovedScriptFilesAreValidated(@TempDir Path directory) throws Exception {
+        Path script = directory.resolve("script.groovy");
+        Files.writeString(script, "1");
+        element.setFilename(script.toString());
+        ScriptEngine first = element.getScriptEngine();
+        assertEquals(1, element.processFileOrScript(first, null));
+        assertSame(first, element.getScriptEngine());
+        long modified = Files.getLastModifiedTime(script).toMillis();
+        Files.writeString(script, "2");
+        Files.setLastModifiedTime(script, FileTime.fromMillis(modified + 2000));
+        assertEquals(2, evaluate());
+        Files.delete(script);
+        assertThrows(ScriptException.class, this::evaluate);
+    }
 
     @Test
     public void testGetScriptEngineDefault() throws Exception {

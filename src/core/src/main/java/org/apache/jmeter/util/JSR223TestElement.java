@@ -86,6 +86,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
 
     /** md5 of the script, used as an unique key for the cache */
     private ScriptCacheKey scriptMd5;
+    private transient String hashedLanguage;
 
     /**
      * Initialization On Demand Holder pattern
@@ -111,6 +112,24 @@ public abstract class JSR223TestElement extends ScriptingTestElement
      */
     protected ScriptEngine getScriptEngine() throws ScriptException {
         String lang = getScriptLanguageWithDefault();
+        // A compiled script already owns the engine used to evaluate it. Do not
+        // construct and discard another engine merely to create its bindings.
+        ScriptCacheKey key = null;
+        String filename = getFilename();
+        if (StringUtilities.isNotEmpty(filename)) {
+            File file = new File(filename);
+            key = ScriptCacheKey.ofFile(lang, file.getAbsolutePath(), file.lastModified());
+        } else if (!ScriptingBeanInfoSupport.FALSE_AS_STRING.equals(cacheKey)) {
+            String script = getScript();
+            if (StringUtilities.isNotEmpty(script)) {
+                computeScriptMD5(script);
+                key = scriptMd5;
+            }
+        }
+        CompiledScript cached = key == null ? null : COMPILED_SCRIPT_CACHE.getIfPresent(key);
+        if (cached != null && isStandardGroovyScript(cached)) {
+            return cached.getEngine();
+        }
         ScriptEngine scriptEngine = getInstance().getEngineByName(lang);
         if (scriptEngine == null) {
             throw new ScriptException("Cannot find engine named: '"+lang+"', ensure you set language field in JSR223 element named: " + getName());
@@ -182,10 +201,10 @@ public abstract class JSR223TestElement extends ScriptingTestElement
         }
         populateBindings(bindings);
         String filename = getFilename();
-        File scriptFile = new File(filename);
         boolean supportsCompilable = scriptEngine instanceof Compilable;
         try {
             if (StringUtilities.isNotEmpty(filename)) {
+                File scriptFile = new File(filename);
                 if (!scriptFile.isFile()) {
                     throw new ScriptException("Script file '" + scriptFile.getAbsolutePath()
                             + "' is not a file for JSR223 element named: " + getName());
@@ -201,7 +220,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
                 }
                 CompiledScript compiledScript;
                 ScriptCacheKey newCacheKey =
-                        ScriptCacheKey.ofFile(getScriptLanguage(), scriptFile.getAbsolutePath(), scriptFile.lastModified());
+                        ScriptCacheKey.ofFile(getScriptLanguageWithDefault(), scriptFile.getAbsolutePath(), scriptFile.lastModified());
                 compiledScript = getCompiledScript(newCacheKey, key -> {
                     try (BufferedReader fileReader = Files.newBufferedReader(scriptFile.toPath())) {
                         return ((Compilable) scriptEngine).compile(fileReader);
@@ -238,6 +257,13 @@ public abstract class JSR223TestElement extends ScriptingTestElement
                 throw ex;
             }
         }
+    }
+
+    private static boolean isStandardGroovyScript(CompiledScript script) {
+        // Other providers can have engine-specific createBindings behavior.
+        // Preserve their existing fresh-engine lifecycle.
+        return script.getClass().getName().equals("org.codehaus.groovy.jsr223.GroovyCompiledScript")
+                && script.getEngine().getClass().getName().equals("org.codehaus.groovy.jsr223.GroovyScriptEngineImpl");
     }
 
     private static <T extends ScriptCacheKey> CompiledScript getCompiledScript(
@@ -303,12 +329,17 @@ public abstract class JSR223TestElement extends ScriptingTestElement
      * compute MD5 if it is null
      */
     private void computeScriptMD5(String script) {
-        // compute the md5 of the script if needed
-        if (scriptMd5 == null) {
+        // Preserve JMeter's first-evaluation caching of expanded inline scripts.
+        // A language change must not select a script compiled by another provider.
+        String language = getScriptLanguageWithDefault();
+        if (scriptMd5 == null || !language.equals(hashedLanguage)) {
             try {
                 MessageDigest md = MessageDigest.getInstance("MD5");
+                md.update(language.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
                 md.update(script.getBytes(StandardCharsets.UTF_8));
                 scriptMd5 = ScriptCacheKey.ofDigest(md.digest());
+                hashedLanguage = language;
             } catch (NoSuchAlgorithmException e) {
                 throw new RuntimeException("MessageDigest.getInstance(MD5) was not found", e);
             }
@@ -360,6 +391,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
     public void testEnded(String host) {
         COMPILED_SCRIPT_CACHE.invalidateAll();
         scriptMd5 = null;
+        hashedLanguage = null;
     }
 
     public String getScriptLanguage() {
