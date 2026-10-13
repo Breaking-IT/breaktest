@@ -19,7 +19,10 @@ package org.apache.jmeter.gui.action;
 
 import java.awt.Component;
 import java.awt.event.ActionEvent;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import javax.swing.JTree;
@@ -76,28 +79,54 @@ public class AddParent extends AbstractAction {
         JMeterTreeNode newNode = new JMeterTreeNode(newParent, guiPackage.getTreeModel());
         JMeterTreeNode currentNode = treeListener.getCurrentNode();
         JMeterTreeNode[] nodes = treeListener.getSelectedNodes();
-        JMeterTreeNode parentNode = (JMeterTreeNode) currentNode.getParent();
-        int index = parentNode.getIndex(currentNode);
+        Set<JMeterTreeNode> selected = new HashSet<>(Arrays.asList(nodes));
+        if (!selected.contains(currentNode)) {
+            currentNode = nodes[nodes.length - 1];
+        }
+        List<JMeterTreeNode> roots = new ArrayList<>();
+        var enumeration = ((JMeterTreeNode) guiPackage.getTreeModel().getRoot()).preorderEnumeration();
+        while (enumeration.hasMoreElements()) {
+            JMeterTreeNode node = (JMeterTreeNode) enumeration.nextElement();
+            if (selected.contains(node) && !hasSelectedAncestor(node, selected)) {
+                roots.add(node);
+            }
+        }
+        if (roots.isEmpty() || roots.get(0).getParent() == null) {
+            return;
+        }
+        JMeterTreeNode firstNode = roots.get(0);
+        JMeterTreeNode parentNode = (JMeterTreeNode) firstNode.getParent();
+        int index = parentNode.getIndex(firstNode);
         treeListener.beginSuppressEditAction();
         try {
             guiPackage.getTreeModel().insertNodeInto(newNode, parentNode, index);
-            TreePath[] paths = new TreePath[nodes.length];
-            int pathIndex = 0;
-            for (int i = 0; i < nodes.length; i++) {
-                moveNode(guiPackage, nodes[i], newNode);
-                if (nodes[i] != currentNode) {
-                    paths[pathIndex++] = new TreePath(nodes[i].getPath());
+            for (JMeterTreeNode node : roots) {
+                moveNode(guiPackage, node, newNode);
+            }
+            List<TreePath> paths = new ArrayList<>();
+            for (JMeterTreeNode node : nodes) {
+                if (node != currentNode) {
+                    paths.add(new TreePath(node.getPath()));
                 }
             }
             TreePath currentPath = new TreePath(currentNode.getPath());
             // Swing uses the last selected path as the lead selection.
-            paths[pathIndex] = currentPath;
-            treeListener.setSelectionPathWithoutEdit(currentPath);
-            tree.setSelectionPaths(paths);
+            paths.add(currentPath);
+            tree.setSelectionPaths(paths.toArray(new TreePath[0]));
             tree.scrollPathToVisible(currentPath);
         } finally {
             treeListener.endSuppressEditAction();
         }
+        guiPackage.refreshCurrentGui();
+    }
+
+    private static boolean hasSelectedAncestor(JMeterTreeNode node, Set<JMeterTreeNode> selected) {
+        for (var ancestor = node.getParent(); ancestor != null; ancestor = ancestor.getParent()) {
+            if (selected.contains(ancestor)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void moveNode(GuiPackage guiPackage, JMeterTreeNode node, JMeterTreeNode newParentNode) {
