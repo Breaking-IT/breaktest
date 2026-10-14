@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.jmeter.samplers.SampleResult;
@@ -41,6 +42,7 @@ final class BoundedSampleQueue {
     private final ConcurrentLinkedQueue<SampleResult> queue = new ConcurrentLinkedQueue<>();
     private final AtomicInteger size = new AtomicInteger();
     private final int capacity;
+    private volatile Thread waitingConsumer;
 
     private final ReentrantLock lock = new ReentrantLock();
     private final Condition notFull = lock.newCondition();
@@ -65,7 +67,24 @@ final class BoundedSampleQueue {
             return false;
         }
         queue.offer(sample);
+        LockSupport.unpark(waitingConsumer);
         return true;
+    }
+
+    /**
+     * Waits only while empty. Register before checking so an offer racing with
+     * the check either makes the queue nonempty or supplies an unpark permit.
+     * Must only be called by the single consumer; spurious wakeups are allowed.
+     */
+    void awaitNotEmpty(long nanos) {
+        waitingConsumer = Thread.currentThread();
+        try {
+            if (queue.isEmpty()) {
+                LockSupport.parkNanos(this, nanos);
+            }
+        } finally {
+            waitingConsumer = null;
+        }
     }
 
     /** Inserts the sample, waiting for space if necessary. */

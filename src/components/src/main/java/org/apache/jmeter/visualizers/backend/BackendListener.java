@@ -221,18 +221,15 @@ public class BackendListener
                         }
                         sendToListener(backendListenerClient, context, sampleResults);
                         idleParkNanos = MIN_IDLE_PARK_NANOS;
-                        if (drained < MAX_BATCH_SIZE) {
-                            // No backlog: let the next batch accumulate instead of delivering
-                            // single samples in a busy loop
-                            LockSupport.parkNanos(this, MIN_IDLE_PARK_NANOS);
-                        }
                         continue;
                     }
                     if (ended || Thread.interrupted()) {
                         break;
                     }
-                    // Idle: back off; testEnded unparks the worker so shutdown is not delayed.
-                    LockSupport.parkNanos(this, idleParkNanos);
+                    // Wait only while empty, and wake as soon as producers enqueue work.
+                    // Timed parks can oversleep substantially on Windows; an unconditional
+                    // per-batch park throttles small queues even with blocked producers.
+                    listenerClientData.queue.awaitNotEmpty(idleParkNanos);
                     idleParkNanos = Math.min(idleParkNanos * 2, MAX_IDLE_PARK_NANOS);
                 }
                 log.info("Worker ended");

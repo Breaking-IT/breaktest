@@ -120,6 +120,46 @@ class BoundedSampleQueueTest {
     }
 
     @Test
+    void offerWakesParkedConsumerWithoutWaitingForTimeout() throws Exception {
+        BoundedSampleQueue queue = new BoundedSampleQueue(1);
+        CountDownLatch started = new CountDownLatch(1);
+        Thread consumer = Thread.ofPlatform().unstarted(() -> {
+            started.countDown();
+            queue.awaitNotEmpty(TimeUnit.SECONDS.toNanos(30));
+        });
+        try {
+            consumer.start();
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (consumer.getState() != Thread.State.TIMED_WAITING && consumer.isAlive()
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+            assertEquals(Thread.State.TIMED_WAITING, consumer.getState());
+            assertTrue(queue.offer(sample("wake")));
+            consumer.join(5000);
+            assertFalse(consumer.isAlive(), "An offer must wake the consumer before its park timeout");
+        } finally {
+            consumer.interrupt();
+            consumer.join(5000);
+        }
+    }
+
+    @Test
+    void sampleOfferedBeforeWaitDoesNotNeedAnotherWakeup() throws Exception {
+        BoundedSampleQueue queue = new BoundedSampleQueue(1);
+        assertTrue(queue.offer(sample("already queued")));
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            Future<?> waiting = executor.submit(() -> queue.awaitNotEmpty(TimeUnit.SECONDS.toNanos(30)));
+            try {
+                waiting.get(5, TimeUnit.SECONDS);
+            } finally {
+                waiting.cancel(true);
+            }
+        }
+    }
+
+    @Test
     void putIsInterruptible() throws Exception {
         BoundedSampleQueue queue = new BoundedSampleQueue(1);
         assertTrue(queue.offer(sample("first")));
