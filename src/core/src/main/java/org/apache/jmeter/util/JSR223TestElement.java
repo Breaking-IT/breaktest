@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.function.Function;
 
@@ -81,12 +82,16 @@ public abstract class JSR223TestElement extends ScriptingTestElement
         }
     }
 
+    private static final boolean GROOVY_DIRECT_EVAL =
+            JMeterUtils.getPropDefault("jsr223.groovy.direct_eval", true);
+
     /** If not empty then script in ScriptText will be compiled and cached */
     private String cacheKey = "";
 
     /** md5 of the script, used as an unique key for the cache */
     private ScriptCacheKey scriptMd5;
     private transient String hashedLanguage;
+    private transient volatile ElementLogger elementLogger;
 
     /**
      * Initialization On Demand Holder pattern
@@ -160,7 +165,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
         final String fileName = getFilename();
         final String scriptParameters = getParameters();
         // Use actual class name for log
-        final Logger elementLogger = LoggerFactory.getLogger(getClass().getName()+"."+getName());
+        final Logger elementLogger = getElementLogger(label);
         bindings.put("log", elementLogger); // $NON-NLS-1$ (this name is fixed)
         bindings.put("Label", label); // $NON-NLS-1$ (this name is fixed)
         bindings.put("FileName", fileName); // $NON-NLS-1$ (this name is fixed)
@@ -184,6 +189,22 @@ public abstract class JSR223TestElement extends ScriptingTestElement
         bindings.put("prev", prev); // $NON-NLS-1$ (this name is fixed)
     }
 
+
+    /**
+     * Returns the logger named after the element class and name. The lookup goes
+     * through the logging backend's context selection, which walks the call stack,
+     * so the result is reused until the element name changes.
+     */
+    private Logger getElementLogger(String name) {
+        ElementLogger cached = elementLogger;
+        if (cached == null || !Objects.equals(cached.name(), name)) {
+            cached = new ElementLogger(name, LoggerFactory.getLogger(getClass().getName() + "." + name));
+            elementLogger = cached;
+        }
+        return cached.logger();
+    }
+
+    private record ElementLogger(String name, Logger logger) {}
 
     /**
      * This method will run inline script or file script with special behaviour for file script:
@@ -230,7 +251,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
                         throw new ScriptCompilationInvocationTargetException(e);
                     }
                 });
-                return compiledScript.eval(bindings);
+                return evalCompiled(compiledScript, bindings);
             }
             String script = getScript();
             if (StringUtilities.isNotEmpty(script)) {
@@ -243,7 +264,7 @@ public abstract class JSR223TestElement extends ScriptingTestElement
                             throw new ScriptCompilationInvocationTargetException(e);
                         }
                     });
-                    return compiledScript.eval(bindings);
+                    return evalCompiled(compiledScript, bindings);
                 } else {
                     return scriptEngine.eval(script, bindings);
                 }
@@ -256,6 +277,40 @@ public abstract class JSR223TestElement extends ScriptingTestElement
                 throw (RuntimeException) ex.getCause();
             } else {
                 throw ex;
+            }
+        }
+    }
+
+    /**
+     * Evaluates standard Groovy compiled scripts directly, see {@link GroovyDirectEval}.
+     * Set {@code jsr223.groovy.direct_eval=false} to use {@link CompiledScript#eval(Bindings)}.
+     */
+    private static Object evalCompiled(CompiledScript compiledScript, Bindings bindings) throws ScriptException {
+        if (GROOVY_DIRECT_EVAL && DirectGroovyClasses.COMPILED_SCRIPT != null
+                && compiledScript.getClass() == DirectGroovyClasses.COMPILED_SCRIPT) {
+            return GroovyDirectEval.eval(compiledScript, bindings);
+        }
+        return compiledScript.eval(bindings);
+    }
+
+    /**
+     * Groovy compiled-script class visible to this class loader, the one {@link GroovyDirectEval}
+     * links against. Scripts of engines from other class loaders use {@link CompiledScript#eval}.
+     */
+    static final class DirectGroovyClasses {
+        static final Class<?> COMPILED_SCRIPT = resolve();
+
+        private DirectGroovyClasses() {
+        }
+
+        private static Class<?> resolve() {
+            try {
+                ClassLoader loader = JSR223TestElement.class.getClassLoader();
+                Class.forName("groovy.lang.Script", false, loader);
+                return Class.forName("org.codehaus.groovy.jsr223.GroovyCompiledScript", false, loader);
+            } catch (ClassNotFoundException | LinkageError e) {
+                // Groovy is optional; other providers keep the standard evaluation path.
+                return null;
             }
         }
     }
