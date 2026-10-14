@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.sampler;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -103,6 +104,20 @@ public class TestHTTPJavaHttp3Impl {
         } finally {
             client.threadFinished();
         }
+    }
+
+    @Test
+    public void clientsShareVirtualTaskExecutorThatOutlivesThem() throws Exception {
+        HttpClient first = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder()).build();
+        HttpClient second = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder()).build();
+        assertSame(HTTPJavaHttp3Impl.sharedTaskExecutor(), first.executor().orElseThrow());
+        assertSame(first.executor().orElseThrow(), second.executor().orElseThrow());
+        first.close();
+        // One virtual user's client closing must not stop task execution for the others
+        assertFalse(HTTPJavaHttp3Impl.sharedTaskExecutor().isShutdown());
+        assertTrue(HTTPJavaHttp3Impl.sharedTaskExecutor()
+                .submit(() -> Thread.currentThread().isVirtual()).get(5, java.util.concurrent.TimeUnit.SECONDS));
+        second.close();
     }
 
     @Test

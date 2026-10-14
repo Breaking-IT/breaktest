@@ -532,6 +532,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setDefaultAuthSchemeRegistry(authSchemeRegistry)
                 .addRequestInterceptorLast(HTTPHC5H2Impl::setContentLengthForHttp2)
                 .disableContentCompression();
+        // Virtual reactor threads avoid one platform reactor thread per virtual user; each user
+        // keeps its own client, connection manager and TLS state.
+        if (JMeterUtils.getPropDefault("httpsampler.http2.virtual_reactor_threads", true)) {
+            builder.setThreadFactory(Thread.ofVirtual().name("httpclient-virtual-", 0).factory());
+        }
         if (DEBUG_CONNECTION_CLOSURE) {
             builder.setIOSessionListener(new H2ConnectionClosureDebugSessionListener(key.toString()));
         }

@@ -19,9 +19,15 @@ package org.apache.jmeter.protocol.http.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.zip.GZIPOutputStream;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
@@ -30,7 +36,8 @@ import org.junit.jupiter.api.Test;
  * Tests response-body buffer sizing in
  * {@link HTTPSamplerBase#readResponse(SampleResult, java.io.InputStream, long, String)}:
  * a known Content-Length within {@code httpsampler.max_preallocate_size} is allocated
- * exactly, unknown or oversized lengths fall back to the growable default buffer.
+ * exactly, unknown or oversized lengths start from the first nonempty read,
+ * capped by the configured growable default buffer.
  */
 public class HTTPSamplerReadResponseBufferTest {
 
@@ -70,11 +77,11 @@ public class HTTPSamplerReadResponseBufferTest {
     }
 
     @Test
-    public void chunkedResponseWithTruncationPreallocatesLimit() {
+    public void chunkedResponseTruncationCapsFallback() {
         // Unknown length (chunked) with truncation below the growable default -> exact buffer
         assertEquals(32 * 1024,
                 HTTPSamplerBase.storedBodyInitialBufferSize(0, false, 32 * 1024, MAX_BUFFER, PREALLOC),
-                "chunked + truncation must preallocate the truncation limit for a zero-copy return");
+                "chunked + truncation caps the fallback before first-read sizing");
         assertEquals(0,
                 HTTPSamplerBase.storedBodyInitialBufferSize(-1, false, 32 * 1024, MAX_BUFFER, PREALLOC) - 32 * 1024);
     }
@@ -83,7 +90,7 @@ public class HTTPSamplerReadResponseBufferTest {
     public void chunkedResponseWithoutTruncationUsesGrowableBuffer() {
         assertEquals(MAX_BUFFER,
                 HTTPSamplerBase.storedBodyInitialBufferSize(0, false, 0, MAX_BUFFER, PREALLOC),
-                "no truncation -> grow on demand from the default buffer");
+                "no truncation leaves the base fallback unchanged before first-read sizing");
     }
 
     @Test
@@ -126,5 +133,113 @@ public class HTTPSamplerReadResponseBufferTest {
         // A lying server: preallocation is too large, but content must be exact
         byte[] body = body(100_000);
         assertArrayEquals(body, readResponse(body, 300_000));
+    }
+
+    @Test
+    public void firstReadBoundsUnknownAndUntrustedLengthAllocation() {
+        assertEquals(123, HTTPSamplerBase.storedBodyInitialBufferSize(
+                -1, false, 0, MAX_BUFFER, PREALLOC, 123));
+        assertEquals(7, HTTPSamplerBase.storedBodyInitialBufferSize(
+                Long.MAX_VALUE, false, 0, MAX_BUFFER, PREALLOC, 7));
+        assertEquals(32, HTTPSamplerBase.storedBodyInitialBufferSize(
+                0, false, 32, MAX_BUFFER, PREALLOC, 100));
+        assertEquals(100, HTTPSamplerBase.storedBodyInitialBufferSize(
+                0, true, 32, MAX_BUFFER, PREALLOC, 100), "recording bypasses truncation");
+        assertEquals(16, HTTPSamplerBase.storedBodyInitialBufferSize(
+                -1, false, 0, 16, PREALLOC, 100), "configured initial buffer cap is retained");
+    }
+
+    @Test
+    public void firstReadDoesNotReduceKnownLengthPreallocation() {
+        assertEquals(100_000, HTTPSamplerBase.storedBodyInitialBufferSize(
+                100_000, false, 0, MAX_BUFFER, PREALLOC, 7));
+        assertEquals(32, HTTPSamplerBase.storedBodyInitialBufferSize(
+                100_000, false, 32, MAX_BUFFER, PREALLOC, 7));
+        assertEquals(100_000, HTTPSamplerBase.storedBodyInitialBufferSize(
+                100_000, true, 32, MAX_BUFFER, PREALLOC, 7));
+    }
+
+    @Test
+    public void emptySmallAndIncorrectlyDeclaredBodiesRemainExact() throws IOException {
+        for (long length : new long[]{-1, 0, 1, 100_000, Long.MAX_VALUE}) {
+            assertArrayEquals(new byte[0], readResponse(new byte[0], length));
+            assertArrayEquals(body(1), readResponse(body(1), length));
+            assertArrayEquals(body(123), readResponse(body(123), length));
+        }
+        assertArrayEquals(body(20_000), readResponse(body(20_000), 7),
+                "bodies longer than the declaration must grow without losing bytes");
+    }
+
+    @Test
+    public void unknownLengthHandlesShortAndZeroReads() throws IOException {
+        byte[] original = body(20_000);
+        InputStream input = new ByteArrayInputStream(original) {
+            private boolean zeroRead = true;
+
+            @Override
+            public synchronized int read(byte[] bytes, int offset, int length) {
+                if (zeroRead) {
+                    zeroRead = false;
+                    return 0;
+                }
+                zeroRead = true;
+                return super.read(bytes, offset, Math.min(length, 7));
+            }
+        };
+        SampleResult result = new SampleResult();
+        result.sampleStart();
+        new HTTPNullSampler().readResponse(result, input, -1, null);
+        assertArrayEquals(original, result.getResponseData());
+    }
+
+    @Test
+    public void laterResponsesCannotOverwriteEarlierStoredBodies() throws IOException {
+        byte[] first = readResponse(body(7), -1);
+        byte[] second = readResponse(body(20_000), -1);
+        second[0] = 42;
+        assertArrayEquals(body(7), first);
+    }
+
+    @Test
+    public void compressedUnknownLengthBodyRetainsEncodingAndDecodesExactly() throws IOException {
+        byte[] original = body(20_000);
+        ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(compressed)) {
+            gzip.write(original);
+        }
+        SampleResult result = new SampleResult();
+        result.sampleStart();
+        new HTTPNullSampler().readResponse(result, new ByteArrayInputStream(compressed.toByteArray()), -1, "gzip");
+        assertTrue(result.isResponseDataCompressed());
+        assertArrayEquals(original, result.getResponseData());
+    }
+
+    @Test
+    public void inputFailuresPropagateBeforeAndAfterTheFirstRead() {
+        IOException failure = new IOException("body read failed");
+        for (boolean emitFirstByte : new boolean[]{false, true}) {
+            InputStream input = new InputStream() {
+                private boolean emitted;
+
+                @Override
+                public int read() throws IOException {
+                    throw failure;
+                }
+
+                @Override
+                public int read(byte[] bytes, int offset, int length) throws IOException {
+                    if (emitFirstByte && !emitted) {
+                        emitted = true;
+                        bytes[offset] = 1;
+                        return 1;
+                    }
+                    throw failure;
+                }
+            };
+            SampleResult result = new SampleResult();
+            result.sampleStart();
+            assertSame(failure, assertThrows(IOException.class,
+                    () -> new HTTPNullSampler().readResponse(result, input, -1, null)));
+        }
     }
 }
