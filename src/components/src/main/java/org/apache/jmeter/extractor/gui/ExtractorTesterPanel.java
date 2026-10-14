@@ -609,6 +609,8 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         private final AtomicBoolean finished = new AtomicBoolean();
         private volatile Future<?> task;
         private volatile ScheduledFuture<?> timeoutTask;
+        private ScheduledFuture<?> queueTimeoutTask;
+        private boolean evaluationStarted;
 
         private PreviewRun(long generation, E extractor, SampleResult sampleResult,
                 List<ReplacementSource> replacementSources) {
@@ -618,23 +620,41 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
             this.replacementSources = replacementSources;
         }
 
-        private boolean start() {
+        private synchronized boolean start() {
             try {
                 task = PREVIEW_EXECUTOR.submit(this::evaluate);
+                queueTimeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::queueTimeout,
+                        PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
                 return true;
             } catch (RejectedExecutionException e) {
                 return false;
             }
         }
 
-        private void evaluate() {
+        private synchronized boolean beginEvaluation() {
             if (finished.get()) {
-                return;
+                return false;
             }
-            // Start the watchdog only once the worker picks this run up, so time spent queued
-            // behind a previous, non-interruptible evaluation is not reported as a timeout.
+            evaluationStarted = true;
+            queueTimeoutTask.cancel(false);
+            // Give execution its own budget, separate from the bounded queue wait.
             timeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::timeout,
                     PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            return true;
+        }
+
+        private synchronized void queueTimeout() {
+            if (!evaluationStarted && finished.compareAndSet(false, true)) {
+                task.cancel(false);
+                PREVIEW_EXECUTOR.purge();
+                showResult(JMeterUtils.getResString("extractor_test_busy")); //$NON-NLS-1$
+            }
+        }
+
+        private void evaluate() {
+            if (!beginEvaluation()) {
+                return;
+            }
             long started = System.nanoTime();
             long elapsed = -1L;
             try {
@@ -680,7 +700,10 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
             }
         }
 
-        private void cancelTimeout() {
+        private synchronized void cancelTimeout() {
+            if (queueTimeoutTask != null) {
+                queueTimeoutTask.cancel(false);
+            }
             ScheduledFuture<?> currentTimeoutTask = timeoutTask;
             if (currentTimeoutTask != null) {
                 currentTimeoutTask.cancel(false);
