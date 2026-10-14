@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -146,6 +147,155 @@ class ExtractorPreviewQueueTest implements JMeterSerialTest {
                 }
                 if (second.get() != null) {
                     second.get().clear();
+                }
+            });
+        }
+    }
+
+    @Test
+    void postedBusyRetryCannotCancelNewerTester() throws Exception {
+        CountDownLatch blockedStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch busy = new CountDownLatch(1);
+        CountDownLatch currentStarted = new CountDownLatch(1);
+        CountDownLatch releaseCurrent = new CountDownLatch(1);
+        CountDownLatch success = new CountDownLatch(1);
+        AtomicInteger oldEvaluations = new AtomicInteger();
+        AtomicInteger interruptions = new AtomicInteger();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> blocker = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> old = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> current = new AtomicReference<>();
+        ExtractorTestResult result = new ExtractorTestResult(Map.of("value", "ok"), Set.of(), 1);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                blocker.set(panel((extractor, sample) -> {
+                    blockedStarted.countDown();
+                    boolean released = false;
+                    while (!released) {
+                        try {
+                            releaseBlocker.await();
+                            released = true;
+                        } catch (InterruptedException ignored) {
+                            // Model a parser that ignores cancellation.
+                        }
+                    }
+                    return result;
+                }));
+                blocker.get().updateTestResult();
+            });
+            assertTrue(blockedStarted.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                old.set(panel((extractor, sample) -> {
+                    oldEvaluations.incrementAndGet();
+                    return result;
+                }));
+                onStatus(old.get(), "extractor_test_busy", busy);
+                old.get().updateTestResult();
+            });
+            assertTrue(busy.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                // Hold the EDT in a selection event while the expired task posts its retry.
+                Object expired = field(old.get(), "previewRun", Object.class);
+                Future<?> task = field(expired, "task", Future.class);
+                releaseBlocker.countDown();
+                try {
+                    task.get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new AssertionError(e);
+                }
+                current.set(panel((extractor, sample) -> {
+                    currentStarted.countDown();
+                    try {
+                        releaseCurrent.await();
+                    } catch (InterruptedException e) {
+                        interruptions.incrementAndGet();
+                        Thread.currentThread().interrupt();
+                    }
+                    return result;
+                }));
+                onStatus(current.get(), "regex_test_match_count", success);
+                current.get().updateTestResult();
+                try {
+                    assertTrue(currentStarted.await(1, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+            });
+            // This event runs after the old retry callback.
+            SwingUtilities.invokeAndWait(() -> releaseCurrent.countDown());
+            assertTrue(success.await(10, TimeUnit.SECONDS), "The selected tester must finish normally");
+            assertEquals(0, interruptions.get(), "A posted stale retry must not cancel the current preview");
+            assertEquals(0, oldEvaluations.get(), "A hidden tester must not retry");
+        } finally {
+            releaseBlocker.countDown();
+            releaseCurrent.countDown();
+            SwingUtilities.invokeAndWait(() -> {
+                for (var reference : java.util.List.of(blocker, old, current)) {
+                    if (reference.get() != null) {
+                        reference.get().clear();
+                    }
+                }
+            });
+        }
+    }
+
+    @Test
+    void rejectedPreviewRetriesAfterExpiredQueueEntryDrains() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch busy = new CountDownLatch(1);
+        CountDownLatch rejected = new CountDownLatch(1);
+        CountDownLatch success = new CountDownLatch(1);
+        AtomicInteger obsoleteEvaluations = new AtomicInteger();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> blocker = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> expired = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> current = new AtomicReference<>();
+        ExtractorTestResult result = new ExtractorTestResult(Map.of("value", "ok"), Set.of(), 1);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                blocker.set(panel((extractor, sample) -> {
+                    started.countDown();
+                    boolean released = false;
+                    while (!released) {
+                        try {
+                            release.await();
+                            released = true;
+                        } catch (InterruptedException ignored) {
+                            // Keep the single worker occupied through cancellation.
+                        }
+                    }
+                    return result;
+                }));
+                blocker.get().updateTestResult();
+            });
+            assertTrue(started.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                expired.set(panel((extractor, sample) -> {
+                    obsoleteEvaluations.incrementAndGet();
+                    return result;
+                }));
+                onStatus(expired.get(), "extractor_test_busy", busy);
+                expired.get().updateTestResult();
+            });
+            assertTrue(busy.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                current.set(panel((extractor, sample) -> result));
+                onStatus(current.get(), "extractor_test_busy", rejected);
+                onStatus(current.get(), "regex_test_match_count", success);
+                current.get().updateTestResult();
+            });
+            assertEquals(0, rejected.getCount(), "The expired no-op still occupies the queue slot");
+            release.countDown();
+            assertTrue(success.await(10, TimeUnit.SECONDS),
+                    "Rejected work must retry even when it has no completion callback of its own");
+            assertEquals(0, obsoleteEvaluations.get());
+        } finally {
+            release.countDown();
+            SwingUtilities.invokeAndWait(() -> {
+                for (var reference : java.util.List.of(blocker, expired, current)) {
+                    if (reference.get() != null) {
+                        reference.get().clear();
+                    }
                 }
             });
         }

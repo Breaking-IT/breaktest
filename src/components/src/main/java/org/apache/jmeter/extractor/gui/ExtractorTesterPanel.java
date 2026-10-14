@@ -105,8 +105,8 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
      * selected, so a new submission cancels the previous one to free the single worker and queue slot.
      */
     private static final AtomicReference<ExtractorTesterPanel<?>.PreviewRun> ACTIVE_RUN = new AtomicReference<>();
-    /** Re-runs the preview that last reported busy, once the worker finishes its current evaluation. */
-    private static final AtomicReference<Runnable> BUSY_RETRY = new AtomicReference<>();
+    /** Invalidates retries across tester panels, including callbacks already posted to the EDT. */
+    private static final AtomicLong REQUEST_GENERATION = new AtomicLong();
 
     private JLabel testResultStatus;
     private ExtractorTestTiming testParseTime;
@@ -291,12 +291,12 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
     }
 
     public void updateTestResult() {
+        long requestGeneration = REQUEST_GENERATION.incrementAndGet();
         cancelPreview();
         ExtractorTesterPanel<?>.PreviewRun active = ACTIVE_RUN.getAndSet(null);
         if (active != null) {
             active.cancel();
         }
-        BUSY_RETRY.set(null);
         PREVIEW_EXECUTOR.purge();
         long generation = previewGeneration.incrementAndGet();
         clearTestResult();
@@ -316,24 +316,15 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         if (replacementSources == null) {
             replacementSources = snapshotReplacementSources(findParentSamplerNode(configuredExtractor));
         }
-        PreviewRun run = new PreviewRun(generation, extractor, recordedSampleResult, replacementSources);
+        PreviewRun run = new PreviewRun(generation, requestGeneration, extractor, recordedSampleResult, replacementSources);
         previewRun = run;
         ACTIVE_RUN.set(run);
         showStatus(JMeterUtils.getResString("regex_test_running"));
         if (!run.start()) {
-            previewRun = null;
-            ACTIVE_RUN.compareAndSet(run, null);
             showStatus(JMeterUtils.getResString("extractor_test_busy"));
-            scheduleBusyRetry(generation);
+            // A rejected task has no worker completion callback. Retry with a bounded delay.
+            run.scheduleRetry();
         }
-    }
-
-    private void scheduleBusyRetry(long generation) {
-        BUSY_RETRY.set(() -> {
-            if (previewGeneration.get() == generation) {
-                updateTestResult();
-            }
-        });
     }
 
     private void clearTestResult() {
@@ -627,6 +618,7 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
 
     private final class PreviewRun {
         private final long generation;
+        private final long requestGeneration;
         private final E extractor;
         private final SampleResult sampleResult;
         private final List<ReplacementSource> replacementSources;
@@ -635,10 +627,12 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         private volatile ScheduledFuture<?> timeoutTask;
         private ScheduledFuture<?> queueTimeoutTask;
         private boolean evaluationStarted;
+        private volatile boolean queueExpired;
 
-        private PreviewRun(long generation, E extractor, SampleResult sampleResult,
+        private PreviewRun(long generation, long requestGeneration, E extractor, SampleResult sampleResult,
                 List<ReplacementSource> replacementSources) {
             this.generation = generation;
+            this.requestGeneration = requestGeneration;
             this.extractor = extractor;
             this.sampleResult = sampleResult;
             this.replacementSources = replacementSources;
@@ -673,8 +667,7 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
                 // and its finally block fires the retry. Cancelling it here could race with the worker
                 // dequeuing it, so the retry would never run.
                 showResult(JMeterUtils.getResString("extractor_test_busy")); //$NON-NLS-1$
-                // Registered under the run lock, before the worker can observe this run as finished.
-                scheduleBusyRetry(generation);
+                queueExpired = true;
             }
         }
 
@@ -684,12 +677,23 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
                     evaluateStarted();
                 }
             } finally {
-                // The worker is about to become free: retry a preview that gave up waiting for it.
-                Runnable retry = BUSY_RETRY.getAndSet(null);
-                if (retry != null) {
-                    SwingUtilities.invokeLater(retry);
+                if (queueExpired) {
+                    retry();
                 }
             }
+        }
+
+        private synchronized void scheduleRetry() {
+            queueTimeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::retry,
+                    PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+        }
+
+        private void retry() {
+            SwingUtilities.invokeLater(() -> {
+                if (REQUEST_GENERATION.get() == requestGeneration && previewGeneration.get() == generation) {
+                    updateTestResult();
+                }
+            });
         }
 
         private void evaluateStarted() {
