@@ -19,6 +19,8 @@ package org.apache.jmeter.modifiers;
 
 import java.io.Serializable;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.util.Locale;
 
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
@@ -66,9 +68,16 @@ public class CounterConfig extends AbstractTestElement
     // Used for per-thread/user storage of increment in Thread Group Main loop
     private transient ThreadLocal<Long> perTheadLastIterationNumber;
 
+    // DecimalFormat is mutable and not thread-safe; this element is shared across users.
+    private transient ThreadLocal<NumberFormatter> numberFormatter;
+
+    private record NumberFormatter(String pattern, Locale locale, DecimalFormat formatter) {
+    }
+
     private static final Logger log = LoggerFactory.getLogger(CounterConfig.class);
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
+        numberFormatter = new ThreadLocal<>();
         perTheadNumber = ThreadLocal.withInitial(this::getStart);
         perTheadLastIterationNumber = ThreadLocal.withInitial(() -> Long.valueOf(1));
     }
@@ -126,8 +135,14 @@ public class CounterConfig extends AbstractTestElement
         String format = getFormat();
         if (StringUtilities.isNotEmpty(format)) {
             try {
-                DecimalFormat myFormatter = new DecimalFormat(format);
-                return myFormatter.format(value);
+                Locale locale = Locale.getDefault(Locale.Category.FORMAT);
+                NumberFormatter cached = numberFormatter.get();
+                if (cached == null || !format.equals(cached.pattern()) || !locale.equals(cached.locale())) {
+                    DecimalFormat formatter = new DecimalFormat(format, DecimalFormatSymbols.getInstance(locale));
+                    cached = new NumberFormatter(format, locale, formatter);
+                    numberFormatter.set(cached);
+                }
+                return cached.formatter().format(value);
             } catch (IllegalArgumentException ignored) {
                 log.warn("Error formatting {} at format {}, using default", value, format);
             }
@@ -238,6 +253,7 @@ public class CounterConfig extends AbstractTestElement
 
     @Override
     public void threadFinished() {
+        numberFormatter.remove();
         perTheadLastIterationNumber.remove();
         perTheadNumber.remove();
     }
