@@ -263,31 +263,28 @@ public abstract class JSR223TestElement extends ScriptingTestElement
     private static boolean isStandardGroovyScript(CompiledScript script) {
         // Other providers can have engine-specific createBindings behavior.
         // Preserve their existing fresh-engine lifecycle.
-        return script.getClass() == StandardGroovyClasses.COMPILED_SCRIPT
-                && script.getEngine().getClass() == StandardGroovyClasses.ENGINE;
+        return script.getClass() == STANDARD_GROOVY_SCRIPT.get(script.getEngine().getClass());
     }
 
-    private static final class StandardGroovyClasses {
-        private static final Class<?> COMPILED_SCRIPT;
-        private static final Class<?> ENGINE;
-
-        static {
-            Class<?> compiledScript = null;
-            Class<?> engine = null;
+    // Resolve once per engine class, using its defining loader for embedded deployments.
+    // ClassValue allows plugin class loaders to be reclaimed when their engines are unloaded.
+    private static final ClassValue<Class<?>> STANDARD_GROOVY_SCRIPT = new ClassValue<>() {
+        @Override
+        protected Class<?> computeValue(Class<?> engineClass) {
             try {
-                ClassLoader loader = JSR223TestElement.class.getClassLoader();
-                compiledScript = Class.forName("org.codehaus.groovy.jsr223.GroovyCompiledScript", false, loader);
-                engine = Class.forName("org.codehaus.groovy.jsr223.GroovyScriptEngineImpl", false, loader);
+                ClassLoader loader = engineClass.getClassLoader();
+                if (engineClass == Class.forName("org.codehaus.groovy.jsr223.GroovyScriptEngineImpl", false, loader)) {
+                    return Class.forName("org.codehaus.groovy.jsr223.GroovyCompiledScript", false, loader);
+                }
             } catch (ClassNotFoundException | LinkageError e) {
-                // Resolve once and fail closed. Groovy remains an optional runtime
-                // dependency for installations using only other script providers.
-                logger.warn("Cached Groovy engine reuse is disabled: the expected Groovy JSR223 classes "
-                        + "are unavailable. Check Groovy compatibility before enabling reuse.", e);
+                // Groovy is optional for installations using only other providers.
+                logger.debug("Cached Groovy engine reuse is unavailable for engine {}. "
+                        + "Fresh-engine lookup will be used; no action is required. Reason: {}",
+                        engineClass.getName(), e.toString());
             }
-            COMPILED_SCRIPT = compiledScript;
-            ENGINE = engine;
+            return null;
         }
-    }
+    };
 
     private static <T extends ScriptCacheKey> CompiledScript getCompiledScript(
             T newCacheKey,

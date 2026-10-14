@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.Reader;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -183,6 +185,26 @@ public class JSR223TestElementTest {
         ScriptEngine custom = new CustomEngine();
         assertEquals("bindings-overload", element.processFileOrScript(custom, null));
         assertNotSame(custom, element.getScriptEngine());
+    }
+
+    @Test
+    void groovyEngineFromAnIsolatedLoaderIsReused() throws Exception {
+        ScriptEngine standard = element.getScriptEngine();
+        URL engineJar = standard.getClass().getProtectionDomain().getCodeSource().getLocation();
+        URL groovyJar = Class.forName("groovy.lang.GroovyObject").getProtectionDomain().getCodeSource().getLocation();
+        try (URLClassLoader loader = new URLClassLoader(
+                new URL[] {engineJar, groovyJar}, ClassLoader.getPlatformClassLoader())) {
+            ScriptEngine isolated = (ScriptEngine) Class.forName(standard.getClass().getName(), true, loader)
+                    .getConstructor().newInstance();
+            assertNotSame(standard.getClass(), isolated.getClass());
+            assertSame(loader, isolated.getClass().getClassLoader());
+            element.setScript("assert !binding.hasVariable('scratch'); scratch = Label; scratch");
+            element.setName("first");
+            assertEquals("first", element.processFileOrScript(isolated, null));
+            assertSame(isolated, element.getScriptEngine());
+            element.setName("second");
+            assertEquals("second", evaluate());
+        }
     }
 
     @Test
