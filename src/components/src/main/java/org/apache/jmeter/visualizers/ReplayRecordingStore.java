@@ -38,6 +38,7 @@ import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
@@ -100,7 +101,10 @@ final class ReplayRecordingStore {
                     .filter(node -> node.getTestElement() instanceof AbstractThreadGroup
                             || node.getTestElement() instanceof TestFragmentController)
                     .findFirst()
-                    .orElse(null);
+                    .orElseGet(() -> path.stream()
+                            .filter(node -> node.getTestElement() instanceof TestFragmentsSection)
+                            .findFirst()
+                            .orElse(null));
             if (threadGroupNode == null) {
                 JMeterUtils.reportErrorToUser(
                         JMeterUtils.getResString("view_results_store_replay_no_thread_group")); // $NON-NLS-1$
@@ -216,8 +220,8 @@ final class ReplayRecordingStore {
     }
 
     /**
-     * The nearest element between the sampler and its Thread Group or Test Fragment that already
-     * carries a recording source, so the replay lands where the resolver reads it; a sampler copied
+     * The nearest element between the sampler and its Thread Group, Test Fragment, or Test Fragments
+     * section that already carries a recording source, so the replay lands where the resolver reads it; a sampler copied
      * out of its original Thread Group carries its own source.
      */
     private static JMeterTreeNode recordingOwner(List<JMeterTreeNode> path, JMeterTreeNode threadGroupNode) {
