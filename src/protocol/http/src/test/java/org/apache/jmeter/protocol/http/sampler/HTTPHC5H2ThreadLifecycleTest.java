@@ -196,12 +196,17 @@ class HTTPHC5H2ThreadLifecycleTest {
         withServer(server -> {
             AtomicReference<JMeterThread> owner = new AtomicReference<>();
             AtomicInteger clientsAtThreadFinish = new AtomicInteger(-1);
-            CacheSnapshotListener snapshot = new CacheSnapshotListener(owner, clientsAtThreadFinish);
+            AtomicInteger reactorThreadsAtThreadFinish = new AtomicInteger(-1);
+            CacheSnapshotListener snapshot = new CacheSnapshotListener(
+                    owner, clientsAtThreadFinish, reactorThreadsAtThreadFinish);
+            int reactorThreadBaseline = httpClientReactorThreadCount();
 
             runUser(server.port(), 0, ExitMode.NORMAL, true, new UserRunObserver(owner, snapshot));
 
             assertEquals(1, clientsAtThreadFinish.get(),
                     "parallel branches for one VU should share one client for the same route");
+            assertTrue(reactorThreadsAtThreadFinish.get() > reactorThreadBaseline,
+                    "an open client's reactor threads must be visible to the leak checks");
             server.verify(2, WireMock.getRequestedFor(WireMock.urlEqualTo("/resource")));
 
             clientsAtThreadFinish.set(-1);
@@ -464,11 +469,13 @@ class HTTPHC5H2ThreadLifecycleTest {
     }
 
     private static int httpClientReactorThreadCount() {
+        // Thread.getAllStackTraces() omits virtual threads, so add the live virtual reactors.
         return (int) Thread.getAllStackTraces().keySet().stream()
                 .filter(Thread::isAlive)
                 .map(Thread::getName)
                 .filter(name -> name.startsWith("httpclient-"))
-                .count();
+                .count()
+                + HTTPHC5H2Impl.liveVirtualReactorThreadCount();
     }
 
     private static int totalLiveThreadCount() {
@@ -531,10 +538,13 @@ class HTTPHC5H2ThreadLifecycleTest {
         private static final long serialVersionUID = 1L;
         private final AtomicReference<JMeterThread> owner;
         private final AtomicInteger clientsAtThreadFinish;
+        private final AtomicInteger reactorThreadsAtThreadFinish;
 
-        private CacheSnapshotListener(AtomicReference<JMeterThread> owner, AtomicInteger clientsAtThreadFinish) {
+        private CacheSnapshotListener(AtomicReference<JMeterThread> owner, AtomicInteger clientsAtThreadFinish,
+                AtomicInteger reactorThreadsAtThreadFinish) {
             this.owner = owner;
             this.clientsAtThreadFinish = clientsAtThreadFinish;
+            this.reactorThreadsAtThreadFinish = reactorThreadsAtThreadFinish;
         }
 
         @Override
@@ -546,6 +556,7 @@ class HTTPHC5H2ThreadLifecycleTest {
             try {
                 Object clients = clientCache().get(owner.get());
                 clientsAtThreadFinish.set(clients instanceof Map<?, ?> map ? map.size() : 0);
+                reactorThreadsAtThreadFinish.set(httpClientReactorThreadCount());
             } catch (Exception e) {
                 throw new AssertionError(e);
             }

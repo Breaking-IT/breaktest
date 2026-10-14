@@ -2686,9 +2686,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * it without a final copy. Content-Length is remote-controlled, so unknown or larger
      * values fall back to a {@code httpsampler.max_buffer_size} buffer that grows on demand.
      * <p>
-     * For unknown-length responses (e.g. {@code Transfer-Encoding: chunked}) with truncation
-     * active, the truncation limit is the exact stored size, so the buffer is preallocated to
-     * it - giving even chunked responses the single-buffer, zero-copy path.
+     * For unknown-length responses (e.g. {@code Transfer-Encoding: chunked}), this returns
+     * a fallback capped by the truncation limit when applicable. The read loop shrinks that
+     * fallback to a short first read, avoiding oversized allocations for small responses.
+     * Empty responses do not allocate a body buffer.
      */
     static int storedBodyInitialBufferSize(long expectedLength, boolean recording) {
         return storedBodyInitialBufferSize(expectedLength, recording,
@@ -2698,24 +2699,48 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     // VisibleForTesting
     static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
             int maxBytesToStore, int maxBufferSize, int maxPreallocate) {
-        boolean truncating = maxBytesToStore > 0 && !recording;
+        int exactSize = exactStoredBodySize(expectedLength, recording, maxBytesToStore, maxPreallocate);
+        return exactSize >= 0 ? exactSize : fallbackStoredBodySize(recording, maxBytesToStore, maxBufferSize);
+    }
+
+    /**
+     * Initial buffer size once the first nonempty read is known. Exact preallocations are kept.
+     * Otherwise a short first read usually holds the whole small body, so it sizes the buffer
+     * exactly; a first read that filled the read buffer signals more data, so the fallback
+     * (exactly the truncation limit when truncating) is kept for a single-buffer, zero-copy return.
+     */
+    // VisibleForTesting
+    static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
+            int maxBytesToStore, int maxBufferSize, int maxPreallocate,
+            int firstReadSize, boolean firstReadFilledBuffer) {
+        int exactSize = exactStoredBodySize(expectedLength, recording, maxBytesToStore, maxPreallocate);
+        if (exactSize >= 0) {
+            return exactSize;
+        }
+        int fallback = fallbackStoredBodySize(recording, maxBytesToStore, maxBufferSize);
+        return firstReadFilledBuffer ? fallback : Math.min(fallback, firstReadSize);
+    }
+
+    /** Stored size for a trusted Content-Length within the preallocation limit, otherwise -1. */
+    private static int exactStoredBodySize(long expectedLength, boolean recording,
+            int maxBytesToStore, int maxPreallocate) {
         if (expectedLength <= 0) {
-            // Unknown length (chunked): if truncating below the growable default, the stored
-            // size is exactly the limit, so preallocate it; otherwise grow on demand.
-            if (truncating && maxBytesToStore <= maxBufferSize) {
-                return maxBytesToStore;
-            }
-            return maxBufferSize;
+            return -1;
         }
         long expectedStored = expectedLength;
-        if (truncating) {
+        if (maxBytesToStore > 0 && !recording) {
             // The read loop truncates stored data at this limit
             expectedStored = Math.min(expectedStored, maxBytesToStore);
         }
-        if (expectedStored > maxPreallocate) {
-            return maxBufferSize;
+        return expectedStored > maxPreallocate ? -1 : (int) expectedStored;
+    }
+
+    /** Growable buffer size for unknown or untrusted lengths; truncation bounds the stored size. */
+    private static int fallbackStoredBodySize(boolean recording, int maxBytesToStore, int maxBufferSize) {
+        if (maxBytesToStore > 0 && !recording && maxBytesToStore <= maxBufferSize) {
+            return maxBytesToStore;
         }
-        return (int) expectedStored;
+        return maxBufferSize;
     }
 
     /**
@@ -2789,20 +2814,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
         MessageDigest md = null;
         DirectAccessByteArrayOutputStream w = null;
+        boolean storeBody = false;
         switch (responseProcessingMode) {
             case FETCH_AND_DISCARD -> {
             }
             case STORE_ON_ERROR -> {
                 // The HTTP status must be set on the result before readResponse is called
-                if (isErrorResponse(sampleResult)) {
-                    w = new DirectAccessByteArrayOutputStream(
-                            storedBodyInitialBufferSize(length, JMeterContextService.getContext().isRecording()));
-                }
+                storeBody = isErrorResponse(sampleResult);
             }
-            case STORE_COMPRESSED -> {
-                w = new DirectAccessByteArrayOutputStream(
-                        storedBodyInitialBufferSize(length, JMeterContextService.getContext().isRecording()));
-            }
+            case STORE_COMPRESSED -> storeBody = true;
             case CHECKSUM_DECODED_MD5, CHECKSUM_ENCODED_MD5 -> {
                 try {
                     md = MessageDigest.getInstance("MD5"); //$NON-NLS-1$
@@ -2827,7 +2847,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
             if (md != null) {
                 md.update(readBuffer, 0, bytesReadInBuffer);
-            } else if (storeInBOS && w != null) {
+            } else if (storeInBOS && storeBody) {
+                if (w == null) {
+                    // Empty responses need no body buffer. Size from the first read so small
+                    // bodies avoid the growable default.
+                    w = new DirectAccessByteArrayOutputStream(storedBodyInitialBufferSize(
+                            length, JMeterContextService.getContext().isRecording(),
+                            MAX_BYTES_TO_STORE_PER_REQUEST, MAX_BUFFER_SIZE, MAX_PREALLOCATE_SIZE,
+                            bytesReadInBuffer, bytesReadInBuffer == readBuffer.length));
+                }
                 if (MAX_BYTES_TO_STORE_PER_REQUEST <= 0 ||
                         (totalBytes + bytesReadInBuffer <= MAX_BYTES_TO_STORE_PER_REQUEST) ||
                         JMeterContextService.getContext().isRecording()) {
