@@ -2687,9 +2687,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * values fall back to a {@code httpsampler.max_buffer_size} buffer that grows on demand.
      * <p>
      * For unknown-length responses (e.g. {@code Transfer-Encoding: chunked}), this returns
-     * a fallback capped by the truncation limit when applicable. The read loop further
-     * bounds that fallback by the first nonempty read, avoiding oversized allocations
-     * for small responses. Empty responses do not allocate a body buffer.
+     * a fallback capped by the truncation limit when applicable. The read loop shrinks that
+     * fallback to a short first read, avoiding oversized allocations for small responses.
+     * Empty responses do not allocate a body buffer.
      */
     static int storedBodyInitialBufferSize(long expectedLength, boolean recording) {
         return storedBodyInitialBufferSize(expectedLength, recording,
@@ -2699,37 +2699,48 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     // VisibleForTesting
     static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
             int maxBytesToStore, int maxBufferSize, int maxPreallocate) {
-        boolean truncating = maxBytesToStore > 0 && !recording;
+        int exactSize = exactStoredBodySize(expectedLength, recording, maxBytesToStore, maxPreallocate);
+        return exactSize >= 0 ? exactSize : fallbackStoredBodySize(recording, maxBytesToStore, maxBufferSize);
+    }
+
+    /**
+     * Initial buffer size once the first nonempty read is known. Exact preallocations are kept.
+     * Otherwise a short first read usually holds the whole small body, so it sizes the buffer
+     * exactly; a first read that filled the read buffer signals more data, so the fallback
+     * (exactly the truncation limit when truncating) is kept for a single-buffer, zero-copy return.
+     */
+    // VisibleForTesting
+    static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
+            int maxBytesToStore, int maxBufferSize, int maxPreallocate,
+            int firstReadSize, boolean firstReadFilledBuffer) {
+        int exactSize = exactStoredBodySize(expectedLength, recording, maxBytesToStore, maxPreallocate);
+        if (exactSize >= 0) {
+            return exactSize;
+        }
+        int fallback = fallbackStoredBodySize(recording, maxBytesToStore, maxBufferSize);
+        return firstReadFilledBuffer ? fallback : Math.min(fallback, firstReadSize);
+    }
+
+    /** Stored size for a trusted Content-Length within the preallocation limit, otherwise -1. */
+    private static int exactStoredBodySize(long expectedLength, boolean recording,
+            int maxBytesToStore, int maxPreallocate) {
         if (expectedLength <= 0) {
-            // Unknown length (chunked): truncation bounds the stored size. Cap the
-            // fallback here; the read loop can reduce it further after its first read.
-            if (truncating && maxBytesToStore <= maxBufferSize) {
-                return maxBytesToStore;
-            }
-            return maxBufferSize;
+            return -1;
         }
         long expectedStored = expectedLength;
-        if (truncating) {
+        if (maxBytesToStore > 0 && !recording) {
             // The read loop truncates stored data at this limit
             expectedStored = Math.min(expectedStored, maxBytesToStore);
         }
-        if (expectedStored > maxPreallocate) {
-            return maxBufferSize;
-        }
-        return (int) expectedStored;
+        return expectedStored > maxPreallocate ? -1 : (int) expectedStored;
     }
 
-    // VisibleForTesting: the first read gives unknown-length bodies a useful initial size.
-    static int storedBodyInitialBufferSize(long expectedLength, boolean recording,
-            int maxBytesToStore, int maxBufferSize, int maxPreallocate, int firstReadSize) {
-        int initialSize = storedBodyInitialBufferSize(expectedLength, recording,
-                maxBytesToStore, maxBufferSize, maxPreallocate);
-        long expectedStored = maxBytesToStore > 0 && !recording
-                ? Math.min(expectedLength, maxBytesToStore) : expectedLength;
-        if (expectedLength <= 0 || expectedStored > maxPreallocate) {
-            return Math.min(initialSize, firstReadSize);
+    /** Growable buffer size for unknown or untrusted lengths; truncation bounds the stored size. */
+    private static int fallbackStoredBodySize(boolean recording, int maxBytesToStore, int maxBufferSize) {
+        if (maxBytesToStore > 0 && !recording && maxBytesToStore <= maxBufferSize) {
+            return maxBytesToStore;
         }
-        return initialSize;
+        return maxBufferSize;
     }
 
     /**
@@ -2838,13 +2849,12 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                 md.update(readBuffer, 0, bytesReadInBuffer);
             } else if (storeInBOS && storeBody) {
                 if (w == null) {
-                    // Empty responses need no body buffer. For unknown lengths, size from
-                    // the first read instead of eagerly allocating the growable default.
-                    // Known lengths retain their exact preallocation and zero-copy return.
+                    // Empty responses need no body buffer. Size from the first read so small
+                    // bodies avoid the growable default.
                     w = new DirectAccessByteArrayOutputStream(storedBodyInitialBufferSize(
                             length, JMeterContextService.getContext().isRecording(),
                             MAX_BYTES_TO_STORE_PER_REQUEST, MAX_BUFFER_SIZE, MAX_PREALLOCATE_SIZE,
-                            bytesReadInBuffer));
+                            bytesReadInBuffer, bytesReadInBuffer == readBuffer.length));
                 }
                 if (MAX_BYTES_TO_STORE_PER_REQUEST <= 0 ||
                         (totalBytes + bytesReadInBuffer <= MAX_BYTES_TO_STORE_PER_REQUEST) ||

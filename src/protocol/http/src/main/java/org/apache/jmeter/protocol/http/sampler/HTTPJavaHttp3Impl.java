@@ -488,27 +488,28 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 + url.getHost().toLowerCase(Locale.ROOT) + ':' + port;
     }
 
-    /**
-     * Runs the JDK client's asynchronous tasks on virtual threads instead of a cached
-     * platform-thread pool per client. With one client per virtual user, the default pools
-     * hand every task to a platform thread, which dominated CPU under load. Only task
-     * scheduling is shared; each virtual user keeps its own client, connections and TLS state.
-     */
-    private static final boolean VIRTUAL_EXECUTOR =
-            JMeterUtils.getPropDefault("httpsampler.http3.virtual_executor", true); //$NON-NLS-1$
-
     private static final class VirtualExecutorHolder {
         // Never shut down: HttpClient.close() leaves a supplied executor running.
         static final ExecutorService EXECUTOR =
                 Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("http3-client-", 0).factory());
     }
 
-    /** Applies the shared virtual-thread task executor when enabled. */
-    static HttpClient.Builder withTaskExecutor(HttpClient.Builder builder) {
-        if (VIRTUAL_EXECUTOR) {
+    /**
+     * Runs the JDK client's asynchronous tasks on virtual threads instead of a cached
+     * platform-thread pool per client. With one client per virtual user, the default pools
+     * hand every task to a platform thread, which dominated CPU under load. Only task
+     * scheduling is shared; each virtual user keeps its own client, connections and TLS state.
+     */
+    static HttpClient.Builder withTaskExecutor(HttpClient.Builder builder, boolean virtualExecutor) {
+        if (virtualExecutor) {
             builder.executor(VirtualExecutorHolder.EXECUTOR);
         }
         return builder;
+    }
+
+    /** Read per client, like the HTTP/2 reactor setting, so changes after class load apply. */
+    static boolean useVirtualExecutor() {
+        return JMeterUtils.getPropDefault("httpsampler.http3.virtual_executor", true); //$NON-NLS-1$
     }
 
     static ExecutorService sharedTaskExecutor() {
@@ -524,7 +525,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         if (sslContext != null) {
             builder.sslContext(sslContext);
         }
-        withTaskExecutor(builder);
+        withTaskExecutor(builder, useVirtualExecutor());
         if (key.connectTimeout() > 0) {
             builder.connectTimeout(Duration.ofMillis(key.connectTimeout()));
         }

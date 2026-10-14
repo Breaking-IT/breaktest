@@ -37,7 +37,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
@@ -174,6 +176,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final String HTTP2_IO_THREAD_COUNT = "httpclient5.http2.io_thread_count";
 
     private static final int DEFAULT_HTTP2_IO_THREAD_COUNT = 1;
+
+    // Thread.getAllStackTraces() omits virtual threads, so live reactors are counted here
+    // for lifecycle checks.
+    private static final AtomicInteger LIVE_VIRTUAL_REACTOR_THREADS = new AtomicInteger();
+    private static final ThreadFactory VIRTUAL_REACTOR_THREAD_FACTORY = virtualReactorThreadFactory();
 
     private static final String HTTP2_CLOSED_SESSION_RETRY_COUNT =
             "httpsampler.hc5.h2.closed_session_retry_count";
@@ -535,12 +542,29 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         // Virtual reactor threads avoid one platform reactor thread per virtual user; each user
         // keeps its own client, connection manager and TLS state.
         if (useVirtualReactorThreads(Runtime.version().feature())) {
-            builder.setThreadFactory(Thread.ofVirtual().name("httpclient-virtual-", 0).factory());
+            builder.setThreadFactory(VIRTUAL_REACTOR_THREAD_FACTORY);
         }
         if (DEBUG_CONNECTION_CLOSURE) {
             builder.setIOSessionListener(new H2ConnectionClosureDebugSessionListener(key.toString()));
         }
         return builder.build();
+    }
+
+    private static ThreadFactory virtualReactorThreadFactory() {
+        ThreadFactory virtualThreads = Thread.ofVirtual().name("httpclient-virtual-", 0).factory();
+        return task -> virtualThreads.newThread(() -> {
+            LIVE_VIRTUAL_REACTOR_THREADS.incrementAndGet();
+            try {
+                task.run();
+            } finally {
+                LIVE_VIRTUAL_REACTOR_THREADS.decrementAndGet();
+            }
+        });
+    }
+
+    // VisibleForTesting
+    static int liveVirtualReactorThreadCount() {
+        return LIVE_VIRTUAL_REACTOR_THREADS.get();
     }
 
     static boolean useVirtualReactorThreads(int javaVersion) {

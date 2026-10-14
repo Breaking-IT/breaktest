@@ -108,8 +108,8 @@ public class TestHTTPJavaHttp3Impl {
 
     @Test
     public void clientsShareVirtualTaskExecutorThatOutlivesThem() throws Exception {
-        HttpClient first = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder()).build();
-        HttpClient second = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder()).build();
+        HttpClient first = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder(), true).build();
+        HttpClient second = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder(), true).build();
         assertSame(HTTPJavaHttp3Impl.sharedTaskExecutor(), first.executor().orElseThrow());
         assertSame(first.executor().orElseThrow(), second.executor().orElseThrow());
         first.close();
@@ -118,6 +118,13 @@ public class TestHTTPJavaHttp3Impl {
         assertTrue(HTTPJavaHttp3Impl.sharedTaskExecutor()
                 .submit(() -> Thread.currentThread().isVirtual()).get(5, java.util.concurrent.TimeUnit.SECONDS));
         second.close();
+    }
+
+    @Test
+    public void disabledVirtualExecutorKeepsJdkDefault() {
+        try (HttpClient client = HTTPJavaHttp3Impl.withTaskExecutor(HttpClient.newBuilder(), false).build()) {
+            assertTrue(client.executor().isEmpty());
+        }
     }
 
     @Test

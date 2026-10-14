@@ -78,7 +78,7 @@ public class HTTPSamplerReadResponseBufferTest {
 
     @Test
     public void chunkedResponseTruncationCapsFallback() {
-        // Unknown length (chunked) with truncation below the growable default -> exact buffer
+        // Unknown length (chunked) with truncation below the growable default -> limit-sized fallback
         assertEquals(32 * 1024,
                 HTTPSamplerBase.storedBodyInitialBufferSize(0, false, 32 * 1024, MAX_BUFFER, PREALLOC),
                 "chunked + truncation caps the fallback before first-read sizing");
@@ -138,25 +138,36 @@ public class HTTPSamplerReadResponseBufferTest {
     @Test
     public void firstReadBoundsUnknownAndUntrustedLengthAllocation() {
         assertEquals(123, HTTPSamplerBase.storedBodyInitialBufferSize(
-                -1, false, 0, MAX_BUFFER, PREALLOC, 123));
+                -1, false, 0, MAX_BUFFER, PREALLOC, 123, false));
         assertEquals(7, HTTPSamplerBase.storedBodyInitialBufferSize(
-                Long.MAX_VALUE, false, 0, MAX_BUFFER, PREALLOC, 7));
+                Long.MAX_VALUE, false, 0, MAX_BUFFER, PREALLOC, 7, false));
         assertEquals(32, HTTPSamplerBase.storedBodyInitialBufferSize(
-                0, false, 32, MAX_BUFFER, PREALLOC, 100));
+                0, false, 32, MAX_BUFFER, PREALLOC, 100, false));
         assertEquals(100, HTTPSamplerBase.storedBodyInitialBufferSize(
-                0, true, 32, MAX_BUFFER, PREALLOC, 100), "recording bypasses truncation");
+                0, true, 32, MAX_BUFFER, PREALLOC, 100, false), "recording bypasses truncation");
         assertEquals(16, HTTPSamplerBase.storedBodyInitialBufferSize(
-                -1, false, 0, 16, PREALLOC, 100), "configured initial buffer cap is retained");
+                -1, false, 0, 16, PREALLOC, 100, false), "configured initial buffer cap is retained");
+    }
+
+    @Test
+    public void fullFirstReadKeepsFallbackForZeroCopyTruncation() {
+        assertEquals(32 * 1024, HTTPSamplerBase.storedBodyInitialBufferSize(
+                -1, false, 32 * 1024, MAX_BUFFER, PREALLOC, 8192, true),
+                "a large chunked body reaches the truncation limit, so allocate it exactly");
+        assertEquals(MAX_BUFFER, HTTPSamplerBase.storedBodyInitialBufferSize(
+                -1, false, 0, MAX_BUFFER, PREALLOC, 8192, true));
+        assertEquals(MAX_BUFFER, HTTPSamplerBase.storedBodyInitialBufferSize(
+                Long.MAX_VALUE, false, 0, MAX_BUFFER, PREALLOC, 8192, true));
     }
 
     @Test
     public void firstReadDoesNotReduceKnownLengthPreallocation() {
         assertEquals(100_000, HTTPSamplerBase.storedBodyInitialBufferSize(
-                100_000, false, 0, MAX_BUFFER, PREALLOC, 7));
+                100_000, false, 0, MAX_BUFFER, PREALLOC, 7, false));
         assertEquals(32, HTTPSamplerBase.storedBodyInitialBufferSize(
-                100_000, false, 32, MAX_BUFFER, PREALLOC, 7));
+                100_000, false, 32, MAX_BUFFER, PREALLOC, 7, false));
         assertEquals(100_000, HTTPSamplerBase.storedBodyInitialBufferSize(
-                100_000, true, 32, MAX_BUFFER, PREALLOC, 7));
+                100_000, true, 32, MAX_BUFFER, PREALLOC, 7, false));
     }
 
     @Test
