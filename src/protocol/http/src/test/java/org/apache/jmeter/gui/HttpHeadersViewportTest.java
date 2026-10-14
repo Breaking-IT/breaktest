@@ -158,7 +158,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             MainFrame.ScrollableMainPanel main = new MainFrame.ScrollableMainPanel();
             main.setMainPanel(editor);
             JScrollPane outer = new JScrollPane(main);
-            outer.setSize(width, 450);
+            outer.setSize(width, 480);
             layoutTree(outer);
             layoutTree(outer);
             assertFalse(outer.getVerticalScrollBar().isVisible());
@@ -188,7 +188,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
                     "minimum height must leave room for a header row: viewport=" + tableScroll.getViewport().getHeight()
                     + ", row=" + table.getRowHeight());
 
-            outer.setSize(width, 450);
+            outer.setSize(width, 480);
             layoutTree(outer);
             layoutTree(outer);
             assertFalse(outer.getVerticalScrollBar().isVisible());
