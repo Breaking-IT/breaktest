@@ -26,6 +26,7 @@ import org.apache.jmeter.engine.StandardJMeterEngine
 import org.apache.jmeter.gui.tree.JMeterTreeModel
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.junit.JMeterTestCase
+import org.apache.jmeter.recording.RecordedExchangeStore
 import org.apache.jmeter.sampler.DebugSampler
 import org.apache.jmeter.scenario.ListenersSection
 import org.apache.jmeter.scenario.Scenario
@@ -135,6 +136,27 @@ class MoveToTestFragmentsTest : JMeterTestCase() {
         assertEquals(path(transactionNode), saved(toTransaction)) { "The saved path follows the moved transaction" }
         assertEquals(path(stepNode), saved(toStep)) { "The saved path follows elements inside the transaction" }
         assertEquals("Login (2)", saved(toStep)[3]) { "Including the new, unique name of the transaction" }
+    }
+
+    @Test
+    fun `moved transaction keeps the recording of its thread group`() {
+        val threadGroup = ThreadGroup().apply {
+            name = "Browse"
+            setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recordings/manifests/browse.json")
+            setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "browse-checksum")
+        }
+        val threadGroupNode = add(threadGroup, node(ThreadGroupsSection::class.java))
+        val transactionNode = add(TransactionController().apply { name = "Login" }, threadGroupNode)
+        add(
+            DebugSampler().apply { setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "login-exchange") },
+            transactionNode
+        )
+
+        MoveToTestFragments.moveToTestFragments(model, transactionNode, node(TestFragmentsSection::class.java))
+
+        val transaction = transactionNode.testElement
+        assertEquals("recordings/manifests/browse.json", transaction.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY))
+        assertEquals("browse-checksum", transaction.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY))
     }
 
     @Test

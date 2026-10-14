@@ -97,14 +97,7 @@ final class ReplayRecordingStore {
         Map<JMeterTreeNode, Map<JMeterTreeNode, SampleResult>> samplesByThreadGroup = new LinkedHashMap<>();
         for (Map.Entry<JMeterTreeNode, SampleResult> replayedSample : replayedSamples.entrySet()) {
             List<JMeterTreeNode> path = replayedSample.getKey().getPathToThreadGroup();
-            JMeterTreeNode threadGroupNode = path.stream()
-                    .filter(node -> node.getTestElement() instanceof AbstractThreadGroup
-                            || node.getTestElement() instanceof TestFragmentController)
-                    .findFirst()
-                    .orElseGet(() -> path.stream()
-                            .filter(node -> node.getTestElement() instanceof TestFragmentsSection)
-                            .findFirst()
-                            .orElse(null));
+            JMeterTreeNode threadGroupNode = recordingRoot(path);
             if (threadGroupNode == null) {
                 JMeterUtils.reportErrorToUser(
                         JMeterUtils.getResString("view_results_store_replay_no_thread_group")); // $NON-NLS-1$
@@ -220,8 +213,26 @@ final class ReplayRecordingStore {
     }
 
     /**
-     * The nearest element between the sampler and its Thread Group, Test Fragment, or Test Fragments
-     * section that already carries a recording source, so the replay lands where the resolver reads it; a sampler copied
+     * The Thread Group or Test Fragment the sampler belongs to; for an element directly in the Test Fragments
+     * section, that element, so each reusable fragment owns its own recording.
+     */
+    private static JMeterTreeNode recordingRoot(List<JMeterTreeNode> path) {
+        JMeterTreeNode fragment = null;
+        for (int i = 0; i < path.size(); i++) {
+            TestElement element = path.get(i).getTestElement();
+            if (element instanceof AbstractThreadGroup || element instanceof TestFragmentController) {
+                return path.get(i);
+            }
+            if (fragment == null && element instanceof TestFragmentsSection && i + 1 < path.size()) {
+                fragment = path.get(i + 1);
+            }
+        }
+        return fragment;
+    }
+
+    /**
+     * The nearest element between the sampler and its Thread Group or Test Fragment that already
+     * carries a recording source, so the replay lands where the resolver reads it; a sampler copied
      * out of its original Thread Group carries its own source.
      */
     private static JMeterTreeNode recordingOwner(List<JMeterTreeNode> path, JMeterTreeNode threadGroupNode) {
