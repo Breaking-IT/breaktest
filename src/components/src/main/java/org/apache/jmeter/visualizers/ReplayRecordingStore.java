@@ -38,6 +38,7 @@ import org.apache.jmeter.recording.RecordingStorageMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
@@ -96,11 +97,7 @@ final class ReplayRecordingStore {
         Map<JMeterTreeNode, Map<JMeterTreeNode, SampleResult>> samplesByThreadGroup = new LinkedHashMap<>();
         for (Map.Entry<JMeterTreeNode, SampleResult> replayedSample : replayedSamples.entrySet()) {
             List<JMeterTreeNode> path = replayedSample.getKey().getPathToThreadGroup();
-            JMeterTreeNode threadGroupNode = path.stream()
-                    .filter(node -> node.getTestElement() instanceof AbstractThreadGroup
-                            || node.getTestElement() instanceof TestFragmentController)
-                    .findFirst()
-                    .orElse(null);
+            JMeterTreeNode threadGroupNode = recordingRoot(path);
             if (threadGroupNode == null) {
                 JMeterUtils.reportErrorToUser(
                         JMeterUtils.getResString("view_results_store_replay_no_thread_group")); // $NON-NLS-1$
@@ -213,6 +210,24 @@ final class ReplayRecordingStore {
                     JMeterUtils.getResString("view_results_store_replay_recording")); // $NON-NLS-1$
         }
         return storedCount;
+    }
+
+    /**
+     * The Thread Group or Test Fragment the sampler belongs to; for an element directly in the Test Fragments
+     * section, that element, so each reusable fragment owns its own recording.
+     */
+    private static JMeterTreeNode recordingRoot(List<JMeterTreeNode> path) {
+        JMeterTreeNode fragment = null;
+        for (int i = 0; i < path.size(); i++) {
+            TestElement element = path.get(i).getTestElement();
+            if (element instanceof AbstractThreadGroup || element instanceof TestFragmentController) {
+                return path.get(i);
+            }
+            if (fragment == null && element instanceof TestFragmentsSection && i + 1 < path.size()) {
+                fragment = path.get(i + 1);
+            }
+        }
+        return fragment;
     }
 
     /**

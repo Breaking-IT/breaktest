@@ -35,6 +35,7 @@ import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.Command;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.util.JMeterUtils;
@@ -103,6 +104,8 @@ public class MoveToTestFragments extends AbstractAction {
         // Module Controllers find their target by name, so the moved transaction must be unique in the section
         transaction.getTestElement().setName(uniqueName(name, fragments));
 
+        // The recording stays with the thread group: the moved transaction keeps a link to it
+        RecordedHarExchangeResolver.carryInheritedRecordingSource(transaction, transaction.getTestElement());
         treeModel.removeNodeFromParent(transaction);
         treeModel.insertNodeInto(transaction, fragments, fragments.getChildCount());
         references.forEach(ModuleController::setSelectedNode);

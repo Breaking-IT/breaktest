@@ -69,6 +69,7 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.TransactionRef;
 import org.apache.jmeter.save.JmxArchiveEntryStore;
 import org.apache.jmeter.save.SaveService;
+import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
@@ -494,6 +495,77 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
         assertTrue(RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().isPresent());
         assertTrue(RecordedHarExchangeResolver.resolveFor(replay).exchange().isPresent());
+    }
+
+    @Test
+    public void storesReplaysFromTransactionsDirectlyInTestFragmentsSection() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode sectionNode = new JMeterTreeNode(new TestFragmentsSection(), treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(sectionNode);
+        Map<JMeterTreeNode, SampleResult> replays = new LinkedHashMap<>();
+        for (int i = 1; i <= 3; i++) {
+            TransactionController transaction = new TransactionController();
+            transaction.setName("Transaction " + i);
+            JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, treeModel);
+            sectionNode.add(transactionNode);
+            JMeterTreeNode samplerNode = new JMeterTreeNode(new DebugSampler(), treeModel);
+            transactionNode.add(samplerNode);
+            replays.put(samplerNode, replayResult("fragment-response-" + i));
+        }
+
+        ReplayRecordingStore.store(replays, RecordingStorageMode.ALL);
+
+        assertTrue(sectionNode.getTestElement().getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY)
+                .isEmpty());
+        for (Map.Entry<JMeterTreeNode, SampleResult> replay : replays.entrySet()) {
+            assertFalse(((JMeterTreeNode) replay.getKey().getParent()).getTestElement()
+                    .getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+            assertFalse(replay.getKey().getTestElement()
+                    .getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY).isEmpty());
+            assertTrue(RecordedHarExchangeResolver.resolveFor(replay.getKey(), null).responseText()
+                    .contains(replay.getValue().getResponseDataAsString()));
+        }
+    }
+
+    @Test
+    public void storesReplaysInTestFragmentsSectionWithTheirNestedOwner() throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        JMeterTreeNode sectionNode = new JMeterTreeNode(new TestFragmentsSection(), treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(sectionNode);
+        TestFragmentController fragment = new TestFragmentController();
+        JMeterTreeNode fragmentNode = new JMeterTreeNode(fragment, treeModel);
+        sectionNode.add(fragmentNode);
+        JMeterTreeNode fragmentSampler = new JMeterTreeNode(new DebugSampler(), treeModel);
+        fragmentNode.add(fragmentSampler);
+        TransactionController transaction = new TransactionController();
+        JMeterTreeNode transactionNode = new JMeterTreeNode(transaction, treeModel);
+        sectionNode.add(transactionNode);
+        DebugSampler copied = new DebugSampler();
+        copied.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, "recordings/manifests/original.json");
+        copied.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "original-checksum");
+        copied.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "copied-exchange");
+        JMeterTreeNode copiedSampler = new JMeterTreeNode(copied, treeModel);
+        transactionNode.add(copiedSampler);
+        Map<JMeterTreeNode, SampleResult> replays = new LinkedHashMap<>();
+        replays.put(fragmentSampler, replayResult("in-fragment"));
+        replays.put(copiedSampler, replayResult("in-copied-sampler"));
+
+        ReplayRecordingStore.store(replays, RecordingStorageMode.ALL);
+
+        assertTrue(sectionNode.getTestElement().getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY)
+                .isEmpty());
+        assertTrue(transaction.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+        assertFalse(fragment.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
+        assertNotEquals("recordings/manifests/original.json",
+                copied.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        assertTrue(RecordedHarExchangeResolver.resolveFor(fragmentSampler, null).responseText()
+                .contains("in-fragment"));
+        assertTrue(RecordedHarExchangeResolver.resolveFor(copiedSampler, null).responseText()
+                .contains("in-copied-sampler"));
     }
 
     @Test

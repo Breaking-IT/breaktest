@@ -171,8 +171,8 @@ public final class RecordedHarExchangeResolver {
         TestElement recordingSource = findRecordingSource(samplerNode);
         if (recordingSource == null) {
             return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
-                    "The sampler has BreakTest recording metadata, but no parent Thread Group or Test Fragment contains "
-                            + "a recording source."); // $NON-NLS-1$
+                    "The sampler has BreakTest recording metadata, but no parent Thread Group, Test Fragment, "
+                            + "or Test Fragments section entry contains a recording source."); // $NON-NLS-1$
         }
         Path testPlanFile = StringUtilities.isEmpty(guiPackage.getTestPlanFile())
                 ? null
@@ -209,7 +209,8 @@ public final class RecordedHarExchangeResolver {
         TestElement harSource = findRecordingSource(samplerNode);
         if (harSource == null) {
             return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
-                    "The sampler has BreakTest HAR metadata, but no parent Thread Group or Test Fragment contains "
+                    "The sampler has BreakTest HAR metadata, but no parent Thread Group, Test Fragment, "
+                            + "or Test Fragments section entry contains " // $NON-NLS-1$
                             + HAR_FILENAME + "."); // $NON-NLS-1$ //$NON-NLS-2$
         }
         String harFilename = harSource.getPropertyAsString(HAR_FILENAME);
@@ -277,7 +278,8 @@ public final class RecordedHarExchangeResolver {
         TestElement recordingSource = findRecordingSource(samplerNode);
         if (recordingSource == null) {
             return Resolution.diagnostic(Status.HAR_SOURCE_NOT_FOUND,
-                    "The sampler has recording metadata, but no parent Thread Group or Test Fragment contains a manifest."); // $NON-NLS-1$
+                    "The sampler has recording metadata, but no parent Thread Group, Test Fragment, "
+                            + "or Test Fragments section entry contains a manifest."); // $NON-NLS-1$
         }
         String manifestEntryName = recordingSource.getPropertyAsString(RECORDING_MANIFEST);
         String expectedChecksum = recordingSource.getPropertyAsString(RECORDING_CHECKSUM);
