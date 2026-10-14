@@ -534,13 +534,19 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .disableContentCompression();
         // Virtual reactor threads avoid one platform reactor thread per virtual user; each user
         // keeps its own client, connection manager and TLS state.
-        if (JMeterUtils.getPropDefault("httpsampler.http2.virtual_reactor_threads", true)) {
+        if (useVirtualReactorThreads(Runtime.version().feature())) {
             builder.setThreadFactory(Thread.ofVirtual().name("httpclient-virtual-", 0).factory());
         }
         if (DEBUG_CONNECTION_CLOSURE) {
             builder.setIOSessionListener(new H2ConnectionClosureDebugSessionListener(key.toString()));
         }
         return builder.build();
+    }
+
+    static boolean useVirtualReactorThreads(int javaVersion) {
+        // Older runtimes can exhaust the carrier pool while reactors wait in Selector.select().
+        // Keep the virtual-thread default on the verified Java 25+ runtimes.
+        return JMeterUtils.getPropDefault("httpsampler.http2.virtual_reactor_threads", javaVersion >= 25);
     }
 
     private static H2RouteReuseConnectionManager createConnectionManager(

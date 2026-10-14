@@ -22,7 +22,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.parallel.Isolated;
 
-/** Run the same ownership, parallel-branch and cleanup checks with virtual reactors. */
+/** Run the same ownership, parallel-branch and cleanup checks with platform reactors. */
 @Isolated("Changes the HTTP/2 reactor thread setting")
 class HTTPHC5H2PlatformReactorLifecycleTest extends HTTPHC5H2ThreadLifecycleTest {
     private static final String PROPERTY = "httpsampler.http2.virtual_reactor_threads";

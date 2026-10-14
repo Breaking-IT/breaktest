@@ -22,7 +22,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.parallel.Isolated;
 
-/** Run HTTP/2 streaming and cancellation checks with virtual reactor threads. */
+/** Run HTTP/2 streaming and cancellation checks with platform reactor threads. */
 @Isolated("Changes the HTTP/2 reactor thread setting")
 class SseHttp2PlatformReactorTest extends SseHttp2Test {
     private static final String PROPERTY = "httpsampler.http2.virtual_reactor_threads";
