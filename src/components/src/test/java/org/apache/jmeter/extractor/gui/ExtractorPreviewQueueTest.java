@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Test;
 
 class ExtractorPreviewQueueTest implements JMeterSerialTest {
     @Test
-    void queuedPreviewReportsBusyAndCanRetryAfterUninterruptibleEvaluationStops() throws Exception {
+    void queuedPreviewReportsBusyAndRetriesAutomaticallyAfterUninterruptibleEvaluationStops() throws Exception {
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch timeout = new CountDownLatch(1);
         CountDownLatch busy = new CountDownLatch(1);
@@ -86,8 +86,8 @@ class ExtractorPreviewQueueTest implements JMeterSerialTest {
                 assertFalse(field(second.get(), "testParseTime", ExtractorTestTiming.class).isVisible());
             });
             release.countDown();
-            SwingUtilities.invokeAndWait(() -> second.get().updateTestResult());
-            assertTrue(success.await(10, TimeUnit.SECONDS), "A retry should succeed once the worker is available");
+            assertTrue(success.await(10, TimeUnit.SECONDS),
+                    "The busy preview should retry by itself once the worker is available");
             assertEquals(1, evaluations.get());
             SwingUtilities.invokeAndWait(() -> {
                 assertEquals("ok", field(second.get(), "testResultTable", JTable.class).getValueAt(0, 1));
@@ -95,6 +95,51 @@ class ExtractorPreviewQueueTest implements JMeterSerialTest {
             });
         } finally {
             release.countDown();
+            SwingUtilities.invokeAndWait(() -> {
+                if (first.get() != null) {
+                    first.get().clear();
+                }
+                if (second.get() != null) {
+                    second.get().clear();
+                }
+            });
+        }
+    }
+
+    @Test
+    void newPreviewCancelsRunStillOccupyingWorkerForAnotherTester() throws Exception {
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch firstInterrupted = new CountDownLatch(1);
+        CountDownLatch success = new CountDownLatch(1);
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> first = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> second = new AtomicReference<>();
+        ExtractorTestResult result = new ExtractorTestResult(Map.of("value", "ok"), Set.of(), 1);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                // A tester that is no longer shown is never cleared by GuiPackage.
+                first.set(panel((extractor, sample) -> {
+                    firstStarted.countDown();
+                    try {
+                        new CountDownLatch(1).await();
+                    } catch (InterruptedException e) {
+                        firstInterrupted.countDown();
+                        Thread.currentThread().interrupt();
+                    }
+                    return result;
+                }));
+                first.get().updateTestResult();
+            });
+            assertTrue(firstStarted.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                second.set(panel((extractor, sample) -> result));
+                onStatus(second.get(), "regex_test_match_count", success);
+                second.get().updateTestResult();
+            });
+            assertTrue(firstInterrupted.await(1, TimeUnit.SECONDS),
+                    "Another tester's run must be cancelled instead of holding the worker until its timeout");
+            assertTrue(success.await(1, TimeUnit.SECONDS),
+                    "The new preview must run without waiting for the previous tester's timeout");
+        } finally {
             SwingUtilities.invokeAndWait(() -> {
                 if (first.get() != null) {
                     first.get().clear();

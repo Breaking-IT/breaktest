@@ -47,6 +47,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -99,6 +100,13 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
             daemonThreadFactory("extractor-preview")); //$NON-NLS-1$
     private static final ScheduledExecutorService PREVIEW_TIMEOUT_EXECUTOR =
             Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("extractor-watchdog")); //$NON-NLS-1$
+    /**
+     * Latest run submitted by any tester. Extractor GUIs are not cleared when another element is
+     * selected, so a new submission cancels the previous one to free the single worker and queue slot.
+     */
+    private static final AtomicReference<ExtractorTesterPanel<?>.PreviewRun> ACTIVE_RUN = new AtomicReference<>();
+    /** Re-runs the preview that last reported busy, once the worker finishes its current evaluation. */
+    private static final AtomicReference<Runnable> BUSY_RETRY = new AtomicReference<>();
 
     private JLabel testResultStatus;
     private ExtractorTestTiming testParseTime;
@@ -284,6 +292,11 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
 
     public void updateTestResult() {
         cancelPreview();
+        ExtractorTesterPanel<?>.PreviewRun active = ACTIVE_RUN.getAndSet(null);
+        if (active != null) {
+            active.cancel();
+        }
+        BUSY_RETRY.set(null);
         PREVIEW_EXECUTOR.purge();
         long generation = previewGeneration.incrementAndGet();
         clearTestResult();
@@ -305,11 +318,22 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         }
         PreviewRun run = new PreviewRun(generation, extractor, recordedSampleResult, replacementSources);
         previewRun = run;
+        ACTIVE_RUN.set(run);
         showStatus(JMeterUtils.getResString("regex_test_running"));
         if (!run.start()) {
             previewRun = null;
+            ACTIVE_RUN.compareAndSet(run, null);
             showStatus(JMeterUtils.getResString("extractor_test_busy"));
+            scheduleBusyRetry(generation);
         }
+    }
+
+    private void scheduleBusyRetry(long generation) {
+        BUSY_RETRY.set(() -> {
+            if (previewGeneration.get() == generation) {
+                updateTestResult();
+            }
+        });
     }
 
     private void clearTestResult() {
@@ -645,16 +669,30 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
 
         private synchronized void queueTimeout() {
             if (!evaluationStarted && finished.compareAndSet(false, true)) {
-                task.cancel(false);
-                PREVIEW_EXECUTOR.purge();
+                // Leave the task queued: once the worker frees up it runs as a no-op (finished is set)
+                // and its finally block fires the retry. Cancelling it here could race with the worker
+                // dequeuing it, so the retry would never run.
                 showResult(JMeterUtils.getResString("extractor_test_busy")); //$NON-NLS-1$
+                // Registered under the run lock, before the worker can observe this run as finished.
+                scheduleBusyRetry(generation);
             }
         }
 
         private void evaluate() {
-            if (!beginEvaluation()) {
-                return;
+            try {
+                if (beginEvaluation()) {
+                    evaluateStarted();
+                }
+            } finally {
+                // The worker is about to become free: retry a preview that gave up waiting for it.
+                Runnable retry = BUSY_RETRY.getAndSet(null);
+                if (retry != null) {
+                    SwingUtilities.invokeLater(retry);
+                }
             }
+        }
+
+        private void evaluateStarted() {
             long started = System.nanoTime();
             long elapsed = -1L;
             try {
