@@ -124,6 +124,11 @@ class GroovyDirectEvalTest {
             "throw new IllegalStateException('boom')",
             "class Declared { }",
             "this.metaClass.respondsTo(this, 'run').size()",
+            "def w = new StringWriter(); context.setWriter(w); println 'captured'; w.toString()",
+            "context.setBindings(new javax.script.SimpleBindings([input: 99]), javax.script.ScriptContext.ENGINE_SCOPE); input",
+            "context.setBindings(new javax.script.SimpleBindings(), javax.script.ScriptContext.ENGINE_SCOPE); written = 1; null",
+            "context.setAttribute('viaContext', 7, javax.script.ScriptContext.ENGINE_SCOPE); viaContext",
+            "context.setBindings(new javax.script.SimpleBindings([globalValue: 'g2']), javax.script.ScriptContext.GLOBAL_SCOPE); globalValue",
     })
     void behavesLikeCompiledScriptEval(String source) throws Exception {
         assertSameBehaviour(source, Map.of("input", 41));

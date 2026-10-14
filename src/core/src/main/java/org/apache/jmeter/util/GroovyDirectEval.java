@@ -133,6 +133,23 @@ final class GroovyDirectEval {
 
         @Override
         public Object getVariable(String name) {
+            ScriptContext ctx = context;
+            if (ctx != null) {
+                int scope = ctx.getAttributesScope(name);
+                if (scope != -1) {
+                    return ctx.getAttribute(name, scope);
+                }
+                if ("out".equals(name)) {
+                    Writer writer = ctx.getWriter();
+                    if (writer != null) {
+                        return writer instanceof PrintWriter ? writer : new PrintWriter(writer, true);
+                    }
+                }
+                if ("context".equals(name)) {
+                    return ctx;
+                }
+                throw new MissingPropertyException(name, getClass());
+            }
             if (engineScope.containsKey(name)) {
                 return engineScope.get(name);
             }
@@ -154,6 +171,12 @@ final class GroovyDirectEval {
 
         @Override
         public void setVariable(String name, Object value) {
+            ScriptContext ctx = context;
+            if (ctx != null) {
+                int scope = ctx.getAttributesScope(name);
+                ctx.setAttribute(name, value, scope == -1 ? ScriptContext.ENGINE_SCOPE : scope);
+                return;
+            }
             Bindings global = engine.getBindings(ScriptContext.GLOBAL_SCOPE);
             if (!engineScope.containsKey(name) && global != null && global.containsKey(name)) {
                 global.put(name, value);
