@@ -26,6 +26,7 @@ import javax.swing.JPanel;
 import javax.swing.UIManager;
 
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jorphan.gui.JMeterUIDefaults;
 
 /** Displays elapsed parse time, highlighting only slow timing values. */
 final class ExtractorTestTiming extends JPanel {
@@ -43,7 +44,15 @@ final class ExtractorTestTiming extends JPanel {
         value.setText(elapsedNanos < 1_000_000L
                 ? String.format(Locale.ROOT, "%.1f µs", elapsedNanos / 1_000d)
                 : String.format(Locale.ROOT, "%.1f ms", elapsedNanos / 1_000_000d));
-        value.setForeground(elapsedNanos > 10_000_000L ? Color.RED : UIManager.getColor("Label.foreground"));
+        // A null foreground inherits the look-and-feel color and follows theme changes.
+        value.setForeground(elapsedNanos > 10_000_000L
+                ? errorColor() : null);
         setVisible(true);
+    }
+
+    /** Look-and-feel error color, falling back to red when no theme defines one. */
+    static Color errorColor() {
+        Color error = UIManager.getColor(JMeterUIDefaults.LABEL_ERROR_FOREGROUND);
+        return error == null ? Color.RED : error;
     }
 }

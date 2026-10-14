@@ -121,11 +121,12 @@ public class JSONPostProcessor
         String[] defaults = getDefaultValues().split(SEPARATOR, -1);
         validateSameLengthOfArguments(names, paths, defaults);
         int[] matchNumbers = getMatchNumbersAsInt(defaults.length);
-        List<String> responses = getSampleList(sample).stream()
+        JSONManager manager = new JSONManager();
+        List<Object> responses = getSampleList(sample).stream()
                 .map(SampleResult::getResponseDataAsString)
                 .filter(StringUtilities::isNotBlank)
+                .map(manager::parse)
                 .collect(Collectors.toList());
-        JSONManager manager = new JSONManager();
         Set<String> counts = new HashSet<>();
         int matchCount = 0;
         for (int i = 0; i < paths.length; i++) {
@@ -135,8 +136,8 @@ public class JSONPostProcessor
                 handleEmptyResponse(variables, defaults[i], name);
             } else {
                 List<Object> values = new ArrayList<>();
-                for (String response : responses) {
-                    values.addAll(manager.extractFromParsedJson(manager.parse(response), paths[i].trim()));
+                for (Object response : responses) {
+                    values.addAll(manager.extractFromParsedJson(response, paths[i].trim()));
                 }
                 matchCount += values.size();
                 handleResult(variables, defaults[i], matchNumbers[i], name, values);

@@ -30,8 +30,11 @@ import java.net.URISyntaxException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
@@ -58,7 +61,9 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -103,6 +108,8 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
     private String recordedSampleMessage;
     private TestElement configuredExtractor;
     private List<ReplacementCandidate> displayedCandidates = List.of();
+    /** Detached copies of later samplers, so replacement counting can run off the EDT. */
+    private List<ReplacementSource> replacementSources;
     private final AtomicLong previewGeneration = new AtomicLong();
     private volatile PreviewRun previewRun;
 
@@ -127,8 +134,18 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         add(makeTestResultPanel(), BorderLayout.CENTER);
     }
 
-    /** Watches editor controls, including scope, parser options and namespace text areas. */
-    public void watch(Component component, BooleanSupplier suspended) {
+    /**
+     * Watches editor controls, including scope, parser options and namespace text areas.
+     * Components in {@code ignored} (such as the title panel) and their children are not watched.
+     */
+    public void watch(Component component, BooleanSupplier suspended, Component... ignored) {
+        watch(component, suspended, Set.of(ignored));
+    }
+
+    private void watch(Component component, BooleanSupplier suspended, Set<Component> ignored) {
+        if (component == this || ignored.contains(component) || component instanceof JScrollBar) {
+            return;
+        }
         Runnable update = () -> {
             if (!suspended.getAsBoolean()) {
                 updateTestResult();
@@ -156,13 +173,17 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
             button.addActionListener(event -> update.run());
         }
         if (component instanceof JComboBox<?> combo) {
+            // Do not descend: the arrow button and editor are internal parts of the combo.
             combo.addActionListener(event -> update.run());
+            return;
+        }
+        if (component instanceof JSpinner spinner) {
+            spinner.addChangeListener(event -> update.run());
+            return;
         }
         if (component instanceof Container container) {
             for (Component child : container.getComponents()) {
-                if (child != this) {
-                    watch(child, suspended);
-                }
+                watch(child, suspended, ignored);
             }
         }
     }
@@ -180,6 +201,7 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         recordedSampleResult = null;
         recordedSampleMessage = null;
         configuredExtractor = null;
+        replacementSources = null;
         clearTestResult();
     }
 
@@ -278,7 +300,10 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
                     ? JMeterUtils.getResString("regex_test_no_recorded_response") : recordedSampleMessage);
             return;
         }
-        PreviewRun run = new PreviewRun(generation, extractor, recordedSampleResult);
+        if (replacementSources == null) {
+            replacementSources = snapshotReplacementSources(findParentSamplerNode(configuredExtractor));
+        }
+        PreviewRun run = new PreviewRun(generation, extractor, recordedSampleResult, replacementSources);
         previewRun = run;
         showStatus(JMeterUtils.getResString("regex_test_running"));
         if (!run.start()) {
@@ -367,20 +392,38 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
     }
 
 
-    private static int countOccurrences(List<ReplacementTarget> targets) {
-        return targets.stream().mapToInt(ReplacementTarget::occurrences).sum();
-    }
-
-    private void showMatches(ExtractorTestResult result, long elapsedNanos) {
-        displayedCandidates = result.variables().entrySet().stream()
+    private static List<ReplacementCandidate> buildCandidates(ExtractorTestResult result) {
+        return result.variables().entrySet().stream()
                 .map(entry -> new ReplacementCandidate(entry.getKey(), entry.getValue(),
                         !result.countVariables().contains(entry.getKey()) && isReplaceable(entry.getValue())))
                 .toList();
+    }
+
+    /** Runs on the preview thread against detached sampler copies; never touches the live tree. */
+    private static Map<String, Integer> countReplacementOccurrences(List<ReplacementCandidate> candidates,
+            List<ReplacementSource> sources, AtomicBoolean stopped) {
+        Map<String, Integer> occurrences = new HashMap<>();
+        for (ReplacementCandidate candidate : candidates) {
+            if (stopped.get()) {
+                break;
+            }
+            if (candidate.replaceable() && !occurrences.containsKey(candidate.value())) {
+                int total = 0;
+                for (ReplacementSource source : sources) {
+                    total += countOccurrences(source.copy(), candidate.value());
+                }
+                occurrences.put(candidate.value(), total);
+            }
+        }
+        return occurrences;
+    }
+
+    private void showMatches(ExtractorTestResult result, Map<String, Integer> occurrencesByValue,
+            long elapsedNanos) {
+        displayedCandidates = buildCandidates(result);
         testResultModel.setRowCount(0);
-        JMeterTreeNode sourceNode = findParentSamplerNode(configuredExtractor);
         for (ReplacementCandidate candidate : displayedCandidates) {
-            int occurrences = candidate.replaceable() && sourceNode != null
-                    ? countOccurrences(findReplacementTargets(sourceNode, candidate.value())) : 0;
+            int occurrences = candidate.replaceable() ? occurrencesByValue.getOrDefault(candidate.value(), 0) : 0;
             testResultModel.addRow(new Object[] {
                     candidate.variableName(), candidate.value(), occurrences,
                     candidate.replaceable() ? JMeterUtils.getResString("regex_test_replace") : ""
@@ -431,12 +474,37 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         applyReplacement(gui, targets, candidate.value(), candidate.variableName());
     }
 
+    private static List<ReplacementSource> snapshotReplacementSources(JMeterTreeNode sourceNode) {
+        if (sourceNode == null) {
+            return List.of();
+        }
+        List<ReplacementSource> sources = new ArrayList<>();
+        for (JMeterTreeNode node : findLaterReplaceableSamplers(sourceNode)) {
+            sources.add(new ReplacementSource(node, (TestElement) node.getTestElement().clone()));
+        }
+        return sources;
+    }
+
     private static List<ReplacementTarget> findReplacementTargets(JMeterTreeNode sourceNode, String literal) {
-        JMeterTreeNode threadGroup = findThreadGroupNode(sourceNode);
-        if (threadGroup == null || literal.isEmpty()) {
+        if (literal.isEmpty()) {
             return List.of();
         }
         List<ReplacementTarget> targets = new ArrayList<>();
+        for (JMeterTreeNode node : findLaterReplaceableSamplers(sourceNode)) {
+            int occurrences = countOccurrences(node.getTestElement(), literal);
+            if (occurrences > 0) {
+                targets.add(new ReplacementTarget(node, occurrences, (Replaceable) node.getTestElement()));
+            }
+        }
+        return targets;
+    }
+
+    private static List<JMeterTreeNode> findLaterReplaceableSamplers(JMeterTreeNode sourceNode) {
+        JMeterTreeNode threadGroup = findThreadGroupNode(sourceNode);
+        if (threadGroup == null) {
+            return List.of();
+        }
+        List<JMeterTreeNode> samplers = new ArrayList<>();
         boolean afterSource = false;
         Enumeration<?> nodes = threadGroup.preorderEnumeration();
         while (nodes.hasMoreElements()) {
@@ -449,14 +517,11 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
                 continue;
             }
             if (afterSource && node.getTestElement() instanceof Sampler
-                    && node.getTestElement() instanceof Replaceable replaceable) {
-                int occurrences = countOccurrences(node.getTestElement(), literal);
-                if (occurrences > 0) {
-                    targets.add(new ReplacementTarget(node, occurrences, replaceable));
-                }
+                    && node.getTestElement() instanceof Replaceable) {
+                samplers.add(node);
             }
         }
-        return targets;
+        return samplers;
     }
 
     private static JMeterTreeNode findThreadGroupNode(JMeterTreeNode node) {
@@ -523,6 +588,7 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         JMeterUtils.reportInfoToUser(MessageFormat.format(
                 JMeterUtils.getResString("regex_test_replacement_applied"), replacementCount), //$NON-NLS-1$
                 JMeterUtils.getResString("regex_test_replacement")); //$NON-NLS-1$
+        replacementSources = null;
         updateTestResult();
     }
 
@@ -539,21 +605,22 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         private final long generation;
         private final E extractor;
         private final SampleResult sampleResult;
+        private final List<ReplacementSource> replacementSources;
         private final AtomicBoolean finished = new AtomicBoolean();
         private volatile Future<?> task;
         private volatile ScheduledFuture<?> timeoutTask;
 
-        private PreviewRun(long generation, E extractor, SampleResult sampleResult) {
+        private PreviewRun(long generation, E extractor, SampleResult sampleResult,
+                List<ReplacementSource> replacementSources) {
             this.generation = generation;
             this.extractor = extractor;
             this.sampleResult = sampleResult;
+            this.replacementSources = replacementSources;
         }
 
         private boolean start() {
             try {
                 task = PREVIEW_EXECUTOR.submit(this::evaluate);
-                timeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::timeout,
-                        PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
                 return true;
             } catch (RejectedExecutionException e) {
                 return false;
@@ -561,16 +628,29 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         }
 
         private void evaluate() {
+            if (finished.get()) {
+                return;
+            }
+            // Start the watchdog only once the worker picks this run up, so time spent queued
+            // behind a previous, non-interruptible evaluation is not reported as a timeout.
+            timeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::timeout,
+                    PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
             long started = System.nanoTime();
+            long elapsed = -1L;
             try {
                 ExtractorTestResult matches = evaluation.evaluate(extractor, sampleResult);
-                long elapsed = System.nanoTime() - started;
+                elapsed = System.nanoTime() - started;
+                // Replacement counting is excluded from the reported parse time.
+                Map<String, Integer> occurrences = countReplacementOccurrences(
+                        buildCandidates(matches), replacementSources, finished);
                 if (finished.compareAndSet(false, true)) {
                     cancelTimeout();
-                    showResult(matches, elapsed);
+                    showResult(matches, occurrences, elapsed);
                 }
             } catch (Exception | StackOverflowError e) {
-                long elapsed = System.nanoTime() - started;
+                if (elapsed < 0) {
+                    elapsed = System.nanoTime() - started;
+                }
                 if (finished.compareAndSet(false, true)) {
                     cancelTimeout();
                     showResult(JMeterUtils.getResString("extractor_test_error") //$NON-NLS-1$
@@ -623,10 +703,11 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
             });
         }
 
-        private void showResult(ExtractorTestResult matches, long elapsedNanos) {
+        private void showResult(ExtractorTestResult matches, Map<String, Integer> occurrences,
+                long elapsedNanos) {
             SwingUtilities.invokeLater(() -> {
                 if (previewGeneration.get() == generation && testResultTable != null) {
-                    showMatches(matches, elapsedNanos);
+                    showMatches(matches, occurrences, elapsedNanos);
                 }
             });
         }
@@ -636,6 +717,9 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
     }
 
     private record ReplacementTarget(JMeterTreeNode node, int occurrences, Replaceable replaceable) {
+    }
+
+    private record ReplacementSource(JMeterTreeNode node, TestElement copy) {
     }
 
     private static final int REPLACE_BUTTON_WIDTH = 84;

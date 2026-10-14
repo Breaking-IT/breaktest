@@ -18,6 +18,7 @@
 package org.apache.jmeter.extractor.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Container;
 
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
@@ -153,13 +154,14 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
         setLayout(new BorderLayout());
         setBorder(makeBorder());
 
-        add(makeTitlePanel(), BorderLayout.NORTH);
+        Container title = makeTitlePanel();
+        add(title, BorderLayout.NORTH);
         JPanel editor = new JPanel(new BorderLayout(0, 16));
         editor.add(makeParameterPanel(), BorderLayout.NORTH);
         add(editor, BorderLayout.CENTER);
         tester = new ExtractorTesterPanel<>("xpath2_tester_title", () -> (XPath2Extractor) createTestElement(),
                 e -> !e.getXPathQuery().isBlank(), XPath2Extractor::extractForTesting);
-        tester.watch(this, () -> configuring);
+        tester.watch(this, () -> configuring, title);
         editor.add(tester, BorderLayout.CENTER);
 
     }

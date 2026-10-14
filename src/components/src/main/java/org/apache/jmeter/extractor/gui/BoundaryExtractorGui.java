@@ -18,6 +18,7 @@
 package org.apache.jmeter.extractor.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
@@ -199,7 +200,8 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         setBorder(makeBorder());
 
         Box box = Box.createVerticalBox();
-        box.add(makeTitlePanel());
+        Container title = makeTitlePanel();
+        box.add(title);
         box.add(createScopePanel(true));
         box.add(makeSourcePanel());
         add(box, BorderLayout.NORTH);
@@ -208,7 +210,7 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         add(editor, BorderLayout.CENTER);
         tester = new ExtractorTesterPanel<>("boundary_tester_title", () -> (BoundaryExtractor) createTestElement(),
                 e -> !e.getLeftBoundary().isEmpty() || !e.getRightBoundary().isEmpty(), BoundaryExtractor::extractForTesting);
-        tester.watch(this, () -> configuring);
+        tester.watch(this, () -> configuring, title);
         editor.add(tester, BorderLayout.CENTER);
 
     }

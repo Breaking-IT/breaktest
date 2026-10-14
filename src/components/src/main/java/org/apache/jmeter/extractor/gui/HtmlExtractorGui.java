@@ -19,6 +19,7 @@ package org.apache.jmeter.extractor.gui;
 
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
@@ -177,7 +178,8 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         setBorder(makeBorder());
 
         Box box = Box.createVerticalBox();
-        box.add(makeTitlePanel());
+        Container title = makeTitlePanel();
+        box.add(title);
         box.add(createScopePanel(true));
         box.add(makeExtractorPanel());
         add(box, BorderLayout.NORTH);
@@ -186,7 +188,7 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         add(editor, BorderLayout.CENTER);
         tester = new ExtractorTesterPanel<>("css_selector_tester_title", () -> (HtmlExtractor) createTestElement(),
                 e -> !e.getExpression().isBlank(), HtmlExtractor::extractForTesting);
-        tester.watch(this, () -> configuring);
+        tester.watch(this, () -> configuring, title);
         editor.add(tester, BorderLayout.CENTER);
 
     }

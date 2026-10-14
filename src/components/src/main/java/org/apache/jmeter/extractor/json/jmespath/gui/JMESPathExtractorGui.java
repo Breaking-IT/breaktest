@@ -18,6 +18,7 @@
 package org.apache.jmeter.extractor.json.jmespath.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
@@ -153,7 +154,8 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
         setBorder(makeBorder());
 
         Box box = Box.createVerticalBox();
-        box.add(makeTitlePanel());
+        Container title = makeTitlePanel();
+        box.add(title);
         box.add(createScopePanel(true));
         add(box, BorderLayout.NORTH);
         JPanel editor = new JPanel(new BorderLayout(0, 16));
@@ -162,7 +164,7 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
 
         tester = new ExtractorTesterPanel<>("jmespath_tester_title", () -> (JMESPathExtractor) createTestElement(),
                 e -> !e.getJmesPathExpression().isBlank(), JMESPathExtractor::extractForTesting);
-        tester.watch(this, () -> configuring);
+        tester.watch(this, () -> configuring, title);
         editor.add(tester, BorderLayout.CENTER);
 
     }

@@ -541,10 +541,14 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
                         break;
                     }
                 }
-                try {
-                    metadata.setURL(new java.net.URI(exchange.requestUrl()).toURL());
-                } catch (java.net.URISyntaxException | java.net.MalformedURLException | IllegalArgumentException ignored) {
-                    // Content type and body detection still work without a valid URL.
+                // The URL path describes the response resource, so it must not drive request body formatting.
+                if (!request) {
+                    try {
+                        metadata.setURL(new java.net.URI(exchange.requestUrl()).toURL());
+                    } catch (java.net.URISyntaxException | java.net.MalformedURLException
+                            | IllegalArgumentException ignored) {
+                        // Content type and body detection still work without a valid URL.
+                    }
                 }
                 display = raw.substring(0, bodyStart)
                         + SamplerResultTab.prettyPrint(raw.substring(bodyStart), metadata);

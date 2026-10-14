@@ -18,6 +18,7 @@
 package org.apache.jmeter.extractor.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
@@ -162,7 +163,8 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         setBorder(makeBorder());
 
         Box box = Box.createVerticalBox();
-        box.add(makeTitlePanel());
+        Container title = makeTitlePanel();
+        box.add(title);
         box.add(createScopePanel(true, true, true));
         xml.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("xpath_assertion_option"))); //$NON-NLS-1$
@@ -172,7 +174,7 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         add(box, BorderLayout.NORTH);
         tester = new ExtractorTesterPanel<>("xpath_tester_title", () -> (XPathExtractor) createTestElement(),
                 e -> !e.getXPathQuery().isBlank(), XPathExtractor::extractForTesting);
-        tester.watch(this, () -> configuring);
+        tester.watch(this, () -> configuring, title);
         this.add(tester, BorderLayout.CENTER);
 
     }
