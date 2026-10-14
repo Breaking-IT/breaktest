@@ -22,8 +22,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.LongAdder;
@@ -53,7 +51,10 @@ public class BackendListener
 
     private static final class ListenerClientData {
         private BackendListenerClient client;
-        private BlockingQueue<SampleResult> queue;
+        private BoundedSampleQueue queue;
+        // Set by the last testEnded after sampling has stopped; the worker exits once drained
+        private volatile boolean ended;
+        private Thread worker;
         private LongAdder queueWaits; // how many times we had to wait to queue a SampleResult
         private LongAdder queueWaitTime; // how long we had to wait (nanoSeconds)
         // @GuardedBy("LOCK")
@@ -90,9 +91,6 @@ public class BackendListener
     private Class<?> clientClass;
 
     public static final String DEFAULT_QUEUE_SIZE = "5000";
-
-    // Create unique object as marker for end of queue
-    private static final transient SampleResult FINAL_SAMPLE_RESULT = new SampleResult();
 
     /**
      * Share listener client data across clones of the same test element.
@@ -189,6 +187,10 @@ public class BackendListener
      */
     private static final class Worker extends Thread {
 
+        private static final int MAX_BATCH_SIZE = 1024;
+        private static final long MIN_IDLE_PARK_NANOS = 50_000L;
+        private static final long MAX_IDLE_PARK_NANOS = 2_000_000L;
+
         private final ListenerClientData listenerClientData;
         private final BackendListenerContext context;
         private final BackendListenerClient backendListenerClient;
@@ -204,56 +206,35 @@ public class BackendListener
         @Override
         public void run() {
             final boolean isDebugEnabled = log.isDebugEnabled();
-            List<SampleResult> sampleResults = new ArrayList<>(listenerClientData.queue.size());
+            List<SampleResult> sampleResults = new ArrayList<>(MAX_BATCH_SIZE);
+            long idleParkNanos = MIN_IDLE_PARK_NANOS;
             try {
-                try {
-
-                    boolean endOfLoop = false;
-                    while (!endOfLoop) {
+                while (true) {
+                    // Read the flag before draining: testEnded sets it only after sampling
+                    // has stopped, so an empty drain after observing it means nothing is left.
+                    boolean ended = listenerClientData.ended;
+                    // Bounded batches: continuous producers cannot postpone delivery indefinitely.
+                    int drained = listenerClientData.queue.drainTo(sampleResults, MAX_BATCH_SIZE);
+                    if (drained > 0) {
                         if (isDebugEnabled) {
-                            log.debug("Thread: {} taking SampleResult from queue: {}", Thread.currentThread().getName(),
-                                    listenerClientData.queue.size());
-                        }
-                        SampleResult sampleResult = listenerClientData.queue.take();
-                        if (isDebugEnabled) {
-                            log.debug("Thread: {} took SampleResult: {}, isFinal: {}",
-                                    Thread.currentThread().getName(),
-                                    sampleResult,
-                                    sampleResult == FINAL_SAMPLE_RESULT);
-                        }
-                        // try to process as many as possible
-                        // The == comparison is not a mistake
-                        while (sampleResult != null) {
-                            endOfLoop = sampleResult == FINAL_SAMPLE_RESULT;
-                            if (endOfLoop) {
-                                break;
-                            }
-                            sampleResults.add(sampleResult);
-                            if (isDebugEnabled) {
-                                log.debug("Thread: {} polling from queue: {}", Thread.currentThread().getName(),
-                                        listenerClientData.queue.size());
-                            }
-                            sampleResult = listenerClientData.queue.poll(); // returns null if nothing on queue currently
-                            if (isDebugEnabled) {
-                                log.debug("Thread: {} took from queue: {}, isFinal: {}", Thread.currentThread().getName(),
-                                        sampleResult, sampleResult == FINAL_SAMPLE_RESULT);
-                            }
-                        }
-                        if (isDebugEnabled) {
-                            log.debug("Thread: {} exiting with FINAL EVENT: {}, null: {}",
-                                    Thread.currentThread().getName(), sampleResult == FINAL_SAMPLE_RESULT,
-                                    sampleResult == null);
+                            log.debug("Thread: {} delivering {} results", Thread.currentThread().getName(), drained);
                         }
                         sendToListener(backendListenerClient, context, sampleResults);
-                        if (!endOfLoop) {
-                            LockSupport.parkNanos(100);
+                        idleParkNanos = MIN_IDLE_PARK_NANOS;
+                        if (drained < MAX_BATCH_SIZE) {
+                            // No backlog: let the next batch accumulate instead of delivering
+                            // single samples in a busy loop
+                            LockSupport.parkNanos(this, MIN_IDLE_PARK_NANOS);
                         }
+                        continue;
                     }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                    if (ended || Thread.interrupted()) {
+                        break;
+                    }
+                    // Idle: back off; testEnded unparks the worker so shutdown is not delayed.
+                    LockSupport.parkNanos(this, idleParkNanos);
+                    idleParkNanos = Math.min(idleParkNanos * 2, MAX_IDLE_PARK_NANOS);
                 }
-                // We may have been interrupted
-                sendToListener(backendListenerClient, context, sampleResults);
                 log.info("Worker ended");
             } finally {
                 listenerClientData.latch.countDown();
@@ -327,7 +308,7 @@ public class BackendListener
                 BackendListenerContext context = new BackendListenerContext((Arguments) getArguments().clone());
 
                 listenerClientData = new ListenerClientData();
-                listenerClientData.queue = new ArrayBlockingQueue<>(queueSize);
+                listenerClientData.queue = new BoundedSampleQueue(queueSize);
                 listenerClientData.queueWaits = new LongAdder();
                 listenerClientData.queueWaitTime = new LongAdder();
                 listenerClientData.latch = new CountDownLatch(1);
@@ -338,6 +319,7 @@ public class BackendListener
                 }
                 Worker worker = new Worker(backendListenerClient, (Arguments) getArguments().clone(), listenerClientData);
                 worker.setDaemon(true);
+                listenerClientData.worker = worker;
                 worker.start();
                 if (log.isInfoEnabled()) {
                     log.info("{}: Started  worker with class: {}", getName(), clientClass);
@@ -385,11 +367,8 @@ public class BackendListener
                 log.error("No listener client data found for BackendListener {}", myName);
             }
         }
-        try {
-            listenerClientData.queue.put(FINAL_SAMPLE_RESULT);
-        } catch (Exception ex) {
-            log.warn("testEnded() with exception: {}", ex.getMessage(), ex);
-        }
+        listenerClientData.ended = true;
+        LockSupport.unpark(listenerClientData.worker);
         if (listenerClientData.queueWaits.longValue() > 0) {
             log.warn(
                     "QueueWaits: {}; QueueWaitTime: {} (nanoseconds), you may need to increase queue capacity, see property 'backend_queue_capacity'",

@@ -75,6 +75,9 @@ dependencies {
     runtimeOnly("org.apache.groovy:groovy") {
         because("Groovy is a default JSR232 engine")
     }
+    compileOnly("org.apache.groovy:groovy") {
+        because("JSR223TestElement evaluates compiled Groovy scripts directly when Groovy is present")
+    }
     arrayOf("dateutil", "datetime", "jmx", "json", "jsr223", "sql", "templates").forEach {
         runtimeOnly("org.apache.groovy:groovy-$it") {
             because("Groovy is a default JSR232 engine")

@@ -418,10 +418,11 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             if (overlay.isEmpty()) {
                 return;
             }
+            boolean checkTemporary = owner.mayHaveTemporaryProperties();
             Iterator<Map.Entry<String, JMeterProperty>> iter = overlay.entrySet().iterator();
             while (iter.hasNext()) {
                 JMeterProperty prop = iter.next().getValue();
-                if (owner.isTemporary(prop)) {
+                if (checkTemporary && owner.isTemporary(prop)) {
                     iter.remove();
                     owner.clearTemporary(prop);
                 } else {
@@ -1369,11 +1370,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             return;
         }
         try (ResourceLock ignored = writeLock()) {
+            boolean checkTemporary = mayHaveTemporaryProperties();
             Iterator<Map.Entry<String, JMeterProperty>> iter = propMap.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<String, JMeterProperty> entry = iter.next();
                 JMeterProperty prop = entry.getValue();
-                if (isTemporary(prop)) {
+                if (checkTemporary && isTemporary(prop)) {
                     iter.remove();
                     clearTemporary(prop);
                 } else {
@@ -1384,6 +1386,30 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
             emptyTemporary();
         }
     }
+
+    /**
+     * Whether {@link #recoverRunningVersion()} must ask {@link #isTemporary} about each
+     * property. False when no property was marked temporary and the class uses this
+     * implementation of {@code isTemporary}, which then always answers false.
+     * Callers hold the write lock.
+     */
+    private boolean mayHaveTemporaryProperties() {
+        return (temporaryProperties != null && !temporaryProperties.isEmpty())
+                || (identityTemporaryProperties != null && !identityTemporaryProperties.isEmpty())
+                || OVERRIDES_IS_TEMPORARY.get(getClass());
+    }
+
+    private static final ClassValue<Boolean> OVERRIDES_IS_TEMPORARY = new ClassValue<>() {
+        @Override
+        protected Boolean computeValue(Class<?> type) {
+            try {
+                return type.getMethod("isTemporary", JMeterProperty.class).getDeclaringClass()
+                        != AbstractTestElement.class;
+            } catch (NoSuchMethodException e) {
+                return true;
+            }
+        }
+    };
 
     /**
      * Clears temporaryProperties
