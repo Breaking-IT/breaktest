@@ -46,6 +46,8 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
 
 
     private static final long serialVersionUID = 1L;
+    private ExtractorTesterPanel<XPath2Extractor> tester;
+    private boolean configuring;
 
     private final JTextField defaultField = new JTextField(25);
 
@@ -79,6 +81,16 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
 
     @Override
     public void configure(TestElement el) {
+        configuring = true;
+        try {
+            configureFields(el);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(el);
+    }
+
+    private void configureFields(TestElement el) {
         super.configure(el);
         XPath2Extractor xpe = (XPath2Extractor) el;
         showScopeSettings(xpe, true);
@@ -118,6 +130,16 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
         xpathQueryField.setText(""); // $NON-NLS-1$
         defaultField.setText(""); // $NON-NLS-1$
@@ -132,7 +154,14 @@ public class XPath2ExtractorGui extends AbstractPostProcessorGui{ // NOSONAR Ign
         setBorder(makeBorder());
 
         add(makeTitlePanel(), BorderLayout.NORTH);
-        add(makeParameterPanel(), BorderLayout.CENTER);
+        JPanel editor = new JPanel(new BorderLayout(0, 16));
+        editor.add(makeParameterPanel(), BorderLayout.NORTH);
+        add(editor, BorderLayout.CENTER);
+        tester = new ExtractorTesterPanel<>("xpath2_tester_title", () -> (XPath2Extractor) createTestElement(),
+                e -> !e.getXPathQuery().isBlank(), XPath2Extractor::extractForTesting);
+        tester.watch(this, () -> configuring);
+        editor.add(tester, BorderLayout.CENTER);
+
     }
 
     private JPanel makeParameterPanel() {

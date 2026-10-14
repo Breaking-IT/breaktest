@@ -29,6 +29,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 
+import org.apache.jmeter.extractor.gui.ExtractorTesterPanel;
 import org.apache.jmeter.extractor.json.jmespath.JMESPathExtractor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
@@ -48,6 +49,8 @@ import org.apache.jorphan.gui.JLabeledTextField;
 public class JMESPathExtractorGui extends AbstractPostProcessorGui {
 
     private static final long serialVersionUID = -4825532539405119033L;
+    private ExtractorTesterPanel<JMESPathExtractor> tester;
+    private boolean configuring;
 
     private JLabeledTextField defaultValueField;
     private JLabeledTextField jmesPathExpressionField;
@@ -72,6 +75,16 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement element) {
+        configuring = true;
+        try {
+            configureFields(element);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(element);
+    }
+
+    private void configureFields(TestElement element) {
         super.configure(element);
         JMESPathExtractor config = (JMESPathExtractor) element;
         showScopeSettings(config, true);
@@ -115,6 +128,16 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
         refNameField.setText(""); //$NON-NLS-1$
         jmesPathExpressionField.setText(""); //$NON-NLS-1$
@@ -133,7 +156,14 @@ public class JMESPathExtractorGui extends AbstractPostProcessorGui {
         box.add(makeTitlePanel());
         box.add(createScopePanel(true));
         add(box, BorderLayout.NORTH);
-        add(makeParameterPanel(), BorderLayout.CENTER);
+        JPanel editor = new JPanel(new BorderLayout(0, 16));
+        editor.add(makeParameterPanel(), BorderLayout.NORTH);
+        add(editor, BorderLayout.CENTER);
+
+        tester = new ExtractorTesterPanel<>("jmespath_tester_title", () -> (JMESPathExtractor) createTestElement(),
+                e -> !e.getJmesPathExpression().isBlank(), JMESPathExtractor::extractForTesting);
+        tester.watch(this, () -> configuring);
+        editor.add(tester, BorderLayout.CENTER);
 
     }
 

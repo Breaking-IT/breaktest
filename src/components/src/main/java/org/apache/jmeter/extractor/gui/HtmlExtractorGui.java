@@ -53,6 +53,8 @@ import org.apache.jorphan.gui.JLabeledTextField;
 public class HtmlExtractorGui extends AbstractPostProcessorGui {
 
     private static final long serialVersionUID = 240L;
+    private ExtractorTesterPanel<HtmlExtractor> tester;
+    private boolean configuring;
 
     /**
      * This choice means don't explicitly set Implementation and rely on default
@@ -85,6 +87,16 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement el) {
+        configuring = true;
+        try {
+            configureFields(el);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(el);
+    }
+
+    private void configureFields(TestElement el) {
         super.configure(el);
         if (el instanceof HtmlExtractor htmlExtractor){
             showScopeSettings(htmlExtractor, true);
@@ -139,6 +151,16 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
         extractorImplName.setSelectedItem(HtmlExtractor.DEFAULT_EXTRACTOR);
         expressionField.setText(""); //$NON-NLS-1$
@@ -159,7 +181,14 @@ public class HtmlExtractorGui extends AbstractPostProcessorGui {
         box.add(createScopePanel(true));
         box.add(makeExtractorPanel());
         add(box, BorderLayout.NORTH);
-        add(makeParameterPanel(), BorderLayout.CENTER);
+        JPanel editor = new JPanel(new BorderLayout(0, 16));
+        editor.add(makeParameterPanel(), BorderLayout.NORTH);
+        add(editor, BorderLayout.CENTER);
+        tester = new ExtractorTesterPanel<>("css_selector_tester_title", () -> (HtmlExtractor) createTestElement(),
+                e -> !e.getExpression().isBlank(), HtmlExtractor::extractForTesting);
+        tester.watch(this, () -> configuring);
+        editor.add(tester, BorderLayout.CENTER);
+
     }
 
     private Component makeExtractorPanel() {

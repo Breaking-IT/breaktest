@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.Set;
 
 import javax.swing.BorderFactory;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -58,10 +59,12 @@ import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.gui.AbstractSamplerGui;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
+import org.apache.jmeter.visualizers.SamplerResultTab;
 import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
@@ -89,6 +92,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     private Component configTabToRestore;
     private JPanel recordedRequestPane;
     private JPanel recordedResponsePane;
+    private JCheckBox prettyPrintRequest;
+    private JCheckBox prettyPrintResponse;
     private JSyntaxTextArea recordedRequestData;
     private JSyntaxTextArea recordedResponseData;
     private TestElement recordedHarElement;
@@ -387,8 +392,18 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             installRecordedResponseActions();
         }
 
+        JCheckBox prettyPrint = new JCheckBox(JMeterUtils.getResString("view_results_pretty_print"));
+        prettyPrint.addActionListener(event -> refreshRecordedData(request));
+        if (request) {
+            prettyPrintRequest = prettyPrint;
+        } else {
+            prettyPrintResponse = prettyPrint;
+        }
+        JPanel toolbar = new JPanel(new BorderLayout());
+        toolbar.add(new JSyntaxSearchToolBar(textArea).getToolBar(), BorderLayout.CENTER);
+        toolbar.add(prettyPrint, BorderLayout.EAST);
         JPanel contentAndSearch = new JPanel(new BorderLayout());
-        contentAndSearch.add(new JSyntaxSearchToolBar(textArea).getToolBar(), BorderLayout.NORTH);
+        contentAndSearch.add(toolbar, BorderLayout.NORTH);
         contentAndSearch.add(JTextScrollPane.getInstance(textArea), BorderLayout.CENTER);
 
         JPanel panel = new JPanel(new BorderLayout(0, 5));
@@ -495,10 +510,48 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             ssePanel.setEvents(recordedHarResolution.exchange().map(
                     RecordedHarExchangeResolver.RecordedExchange::serverSentEvents).orElse(java.util.List.of()));
         }
-        recordedRequestData.setText(recordedHarResolution.requestText());
-        recordedRequestData.setCaretPosition(0);
-        recordedResponseData.setText(recordedHarResolution.responseText());
-        recordedResponseData.setCaretPosition(0);
+        refreshRecordedData(true);
+        refreshRecordedData(false);
+    }
+
+    private void refreshRecordedData(boolean request) {
+        if (!recordedHarExchangeLoaded) {
+            return;
+        }
+        JSyntaxTextArea textArea = request ? recordedRequestData : recordedResponseData;
+        if (recordedHarResolution.exchange().isEmpty()) {
+            textArea.setText(request ? recordedHarResolution.requestText() : recordedHarResolution.responseText());
+            textArea.setCaretPosition(0);
+            return;
+        }
+        var exchange = recordedHarResolution.exchange().orElseThrow();
+        String raw = request ? exchange.request() : exchange.response();
+        JCheckBox prettyPrint = request ? prettyPrintRequest : prettyPrintResponse;
+        String display = raw;
+        if (prettyPrint.isSelected()) {
+            // The resolver separates the unchanged HTTP headers and body with a blank line.
+            int bodyStart = request ? raw.indexOf("\n\n") + 2 : raw.length() - exchange.responseBody().length();
+            if (bodyStart > 1 && bodyStart < raw.length()) {
+                SampleResult metadata = new SampleResult();
+                String headers = request ? exchange.requestHeaders() : exchange.responseHeaders();
+                for (String header : headers.split("\n")) {
+                    int colon = header.indexOf(':');
+                    if (colon > 0 && "Content-Type".equalsIgnoreCase(header.substring(0, colon).trim())) {
+                        metadata.setContentType(header.substring(colon + 1).trim());
+                        break;
+                    }
+                }
+                try {
+                    metadata.setURL(new java.net.URI(exchange.requestUrl()).toURL());
+                } catch (java.net.URISyntaxException | java.net.MalformedURLException | IllegalArgumentException ignored) {
+                    // Content type and body detection still work without a valid URL.
+                }
+                display = raw.substring(0, bodyStart)
+                        + SamplerResultTab.prettyPrint(raw.substring(bodyStart), metadata);
+            }
+        }
+        textArea.setText(display);
+        textArea.setCaretPosition(0);
     }
 
     private boolean isRecordedHarTabSelected() {
@@ -515,6 +568,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     public void selectRecordedResponseText(int offset, String value) {
         configTabbedPane.setSelectedComponent(recordedResponsePane);
         populateSelectedRecordedHarTab();
+        if (prettyPrintResponse.isSelected()) {
+            prettyPrintResponse.setSelected(false);
+            refreshRecordedData(false);
+        }
         String text = recordedResponseData.getText();
         if (offset >= 0 && text.startsWith(value, offset)) {
             recordedResponseData.requestFocusInWindow();

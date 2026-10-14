@@ -1282,7 +1282,8 @@ public abstract class SamplerResultTab implements ResultRenderer {
         return SyntaxConstants.SYNTAX_STYLE_NONE;
     }
 
-    private static String prettyPrint(String text, SampleResult result) {
+    /** Formats a body for display using its content type and URL, leaving unknown formats unchanged. */
+    public static String prettyPrint(String text, SampleResult result) {
         String contentType = result.getContentType().toLowerCase(Locale.ENGLISH);
         String path = result.getURL() == null ? "" : result.getURL().getPath().toLowerCase(Locale.ENGLISH); // $NON-NLS-1$
         if (isJson(contentType, path)) {

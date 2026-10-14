@@ -52,6 +52,8 @@ import org.apache.jorphan.gui.JLabeledTextField;
 public class BoundaryExtractorGui extends AbstractPostProcessorGui {
 
     private static final long serialVersionUID = 240L;
+    private ExtractorTesterPanel<BoundaryExtractor> tester;
+    private boolean configuring;
 
     private JLabeledTextField leftBoundaryField;
 
@@ -102,6 +104,16 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement el) {
+        configuring = true;
+        try {
+            configureFields(el);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(el);
+    }
+
+    private void configureFields(TestElement el) {
         super.configure(el);
         if (el instanceof BoundaryExtractor boundary){
             showScopeSettings(boundary, true);
@@ -159,6 +171,16 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
 
         useBody.setSelected(true);
@@ -181,7 +203,14 @@ public class BoundaryExtractorGui extends AbstractPostProcessorGui {
         box.add(createScopePanel(true));
         box.add(makeSourcePanel());
         add(box, BorderLayout.NORTH);
-        add(makeParameterPanel(), BorderLayout.CENTER);
+        JPanel editor = new JPanel(new BorderLayout(0, 16));
+        editor.add(makeParameterPanel(), BorderLayout.NORTH);
+        add(editor, BorderLayout.CENTER);
+        tester = new ExtractorTesterPanel<>("boundary_tester_title", () -> (BoundaryExtractor) createTestElement(),
+                e -> !e.getLeftBoundary().isEmpty() || !e.getRightBoundary().isEmpty(), BoundaryExtractor::extractForTesting);
+        tester.watch(this, () -> configuring);
+        editor.add(tester, BorderLayout.CENTER);
+
     }
 
     private JPanel makeSourcePanel() {
