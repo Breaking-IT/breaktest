@@ -22,6 +22,7 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.net.MalformedURLException;
@@ -107,6 +108,9 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
     private static final AtomicReference<ExtractorTesterPanel<?>.PreviewRun> ACTIVE_RUN = new AtomicReference<>();
     /** Invalidates retries across tester panels, including callbacks already posted to the EDT. */
     private static final AtomicLong REQUEST_GENERATION = new AtomicLong();
+    /** A rejected run, retried as soon as the worker completes the task that held the queue slot. */
+    private static final AtomicReference<ExtractorTesterPanel<?>.PreviewRun> WAITING_FOR_WORKER =
+            new AtomicReference<>();
 
     private JLabel testResultStatus;
     private ExtractorTestTiming testParseTime;
@@ -140,6 +144,19 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         this.evaluation = evaluation;
         this.titleResource = titleResource;
         add(makeTestResultPanel(), BorderLayout.CENTER);
+        addHierarchyListener(event -> {
+            if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && !isShowing()) {
+                // MainFrame removes and re-adds the same editor when another element of this type is
+                // selected, so only act if the tester is still hidden once that event completes.
+                SwingUtilities.invokeLater(() -> {
+                    if (!isShowing()) {
+                        // Invalidate pending busy retries and free the worker for the visible editor.
+                        previewGeneration.incrementAndGet();
+                        cancelPreview();
+                    }
+                });
+            }
+        });
     }
 
     /**
@@ -322,8 +339,12 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         showStatus(JMeterUtils.getResString("regex_test_running"));
         if (!run.start()) {
             showStatus(JMeterUtils.getResString("extractor_test_busy"));
-            // A rejected task has no worker completion callback. Retry with a bounded delay.
-            run.scheduleRetry();
+            // The queue slot is held by a task that has not run yet; its completion retries this run.
+            WAITING_FOR_WORKER.set(run);
+            if (PREVIEW_EXECUTOR.getQueue().isEmpty() && WAITING_FOR_WORKER.compareAndSet(run, null)) {
+                // That task completed before the registration above could be observed.
+                run.retry();
+            }
         }
     }
 
@@ -680,12 +701,11 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
                 if (queueExpired) {
                     retry();
                 }
+                ExtractorTesterPanel<?>.PreviewRun waiting = WAITING_FOR_WORKER.getAndSet(null);
+                if (waiting != null) {
+                    waiting.retry();
+                }
             }
-        }
-
-        private synchronized void scheduleRetry() {
-            queueTimeoutTask = PREVIEW_TIMEOUT_EXECUTOR.schedule(this::retry,
-                    PREVIEW_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
         }
 
         private void retry() {

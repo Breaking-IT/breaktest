@@ -20,7 +20,9 @@ package org.apache.jmeter.extractor.gui;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
+import java.awt.GraphicsEnvironment;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -29,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
@@ -286,8 +289,9 @@ class ExtractorPreviewQueueTest implements JMeterSerialTest {
             });
             assertEquals(0, rejected.getCount(), "The expired no-op still occupies the queue slot");
             release.countDown();
-            assertTrue(success.await(10, TimeUnit.SECONDS),
-                    "Rejected work must retry even when it has no completion callback of its own");
+            // Well under PREVIEW_TIMEOUT_MILLIS: the retry follows the worker, not a timer.
+            assertTrue(success.await(1, TimeUnit.SECONDS),
+                    "Rejected work must retry as soon as the queued entry drains");
             assertEquals(0, obsoleteEvaluations.get());
         } finally {
             release.countDown();
@@ -296,6 +300,102 @@ class ExtractorPreviewQueueTest implements JMeterSerialTest {
                     if (reference.get() != null) {
                         reference.get().clear();
                     }
+                }
+            });
+        }
+    }
+
+    @Test
+    void hiddenTesterDropsBusyRetryButReaddedTesterKeepsItsRun() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless(), "Needs a displayable frame to observe showing changes");
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch busy = new CountDownLatch(1);
+        CountDownLatch readdedRelease = new CountDownLatch(1);
+        CountDownLatch readdedSuccess = new CountDownLatch(1);
+        AtomicInteger hiddenEvaluations = new AtomicInteger();
+        AtomicReference<JFrame> frame = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> blocker = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> hidden = new AtomicReference<>();
+        AtomicReference<ExtractorTesterPanel<JSONPostProcessor>> readded = new AtomicReference<>();
+        ExtractorTestResult result = new ExtractorTestResult(Map.of("value", "ok"), Set.of(), 1);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                frame.set(new JFrame());
+                blocker.set(panel((extractor, sample) -> {
+                    started.countDown();
+                    boolean released = false;
+                    while (!released) {
+                        try {
+                            release.await();
+                            released = true;
+                        } catch (InterruptedException ignored) {
+                            // Keep the single worker occupied through cancellation.
+                        }
+                    }
+                    return result;
+                }));
+                blocker.get().updateTestResult();
+            });
+            assertTrue(started.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                hidden.set(panel((extractor, sample) -> {
+                    hiddenEvaluations.incrementAndGet();
+                    return result;
+                }));
+                frame.get().getContentPane().add(hidden.get());
+                frame.get().pack();
+                frame.get().setVisible(true);
+                onStatus(hidden.get(), "extractor_test_busy", busy);
+                hidden.get().updateTestResult();
+            });
+            assertTrue(busy.await(10, TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> {
+                // Selecting a non-extractor element replaces the editor without a new tester request.
+                frame.get().getContentPane().remove(hidden.get());
+                frame.get().revalidate();
+            });
+            SwingUtilities.invokeAndWait(() -> { });
+            release.countDown();
+            Thread.sleep(500);
+            SwingUtilities.invokeAndWait(() -> { });
+            assertEquals(0, hiddenEvaluations.get(), "A tester that is no longer shown must not retry");
+
+            SwingUtilities.invokeAndWait(() -> {
+                readded.set(panel((extractor, sample) -> {
+                    try {
+                        readdedRelease.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return result;
+                }));
+                frame.get().getContentPane().add(readded.get());
+                frame.get().revalidate();
+            });
+            SwingUtilities.invokeAndWait(() -> {
+                onStatus(readded.get(), "regex_test_match_count", readdedSuccess);
+                readded.get().updateTestResult();
+                // MainFrame.setMainPanel removes and re-adds the same editor after configuring it.
+                frame.get().getContentPane().remove(readded.get());
+                frame.get().getContentPane().add(readded.get());
+                frame.get().revalidate();
+            });
+            SwingUtilities.invokeAndWait(() -> { });
+            readdedRelease.countDown();
+            assertTrue(readdedSuccess.await(10, TimeUnit.SECONDS),
+                    "Re-adding the same editor within one event must not cancel its preview");
+        } finally {
+            release.countDown();
+            readdedRelease.countDown();
+            SwingUtilities.invokeAndWait(() -> {
+                for (var reference : java.util.List.of(blocker, hidden, readded)) {
+                    if (reference.get() != null) {
+                        reference.get().clear();
+                    }
+                }
+                if (frame.get() != null) {
+                    frame.get().dispose();
                 }
             });
         }
