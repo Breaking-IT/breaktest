@@ -759,6 +759,69 @@ Existing script settings take precedence when that script is opened. Host and fa
   <li>Transaction Controller has no <b>Generate parent sample</b> option. Every sample is sent to listeners as soon as it completes and links to the transaction it ran in, and the transaction sample follows when the transaction ends. Transactions only keep running totals, never the samples themselves. Plans saved with the old option load unchanged, and the option is not saved again.</li>
   <li>Flat result listeners show top-level transactions and samples outside transactions by default. Enable <b>Children</b> on a listener to include child samples and nested transactions in its display and statistics. This applies to live results and loaded result files with transaction IDs; saved result files still contain all samples allowed by the logging filters. Clear the display before a new run, or reload the file, after changing the option. View Results Tree always keeps children expandable under their transaction.</li>
   <li>Boundary, CSS/HTML, Regex, XPath, XPath2, JSONPath, and JMESPath extractors support fail-on-no-match behavior.</li>
+  <li>JSON Data Set Config loads a UTF-8 JSON object or an array of objects into variables.
+  Add it under Config Elements and select the JSON file. Relative filenames resolve against
+  the test plan directory. For <code>{"name":"Alice","payload":{"id":1}}</code>,
+  <code>${name}</code> is <code>Alice</code> and <code>${payload}</code> is
+  <code>{"id":1}</code>. An optional prefix such as <code>data.</code> produces
+  <code>${data.name}</code>. Strings are unquoted, numbers and booleans use JSON text,
+  nulls become empty strings, and nested objects and arrays remain JSON strings.
+  Nested fields are also exposed as variables, for example <code>${payload.id}</code>.
+  Arrays use one-based indexes and a count: <code>${addresses_1.city}</code>,
+  <code>${addresses_2.city}</code>, and <code>${addresses_matchNr}</code>.
+  Use <code>Copy JSON into archive</code> to include the file in the saved JMX;
+  <code>Use JSON from archive</code> selects that shared copy and Browse selects an archived file.
+  <code>Read first 10 samples</code> previews all variable assignments without advancing the test.
+  <code>Edit JSON</code> edits the selected local or archived file and validates it before saving;
+  a missing file can be created from the editor. <code>Export JSON</code> saves a local copy.
+  One object is allocated per iteration according to Sharing mode. All threads (the default)
+  share a record position for the same file; Current thread group shares within a group;
+  Current thread gives each thread its own position. A custom identifier shares a position
+  among threads using the same file and identifier, even across groups. Different formats,
+  files, and XML Record XPath selections keep separate positions. Prefixes do not split a
+  shared position. Shared positions and cached data reset between test runs.
+  Missing fields and indexed values become empty strings, and missing array counts become zero,
+  so shorter rows do not retain values from earlier rows. Generated names that collide with
+  existing names (for example <code>a.b</code> and a nested <code>a</code>/<code>b</code>)
+  are rejected rather than silently overwriting values. Recycling defaults to enabled;
+  disabling it sets variables to <code>&lt;EOF&gt;</code> after the last record,
+  or stops the thread when Stop thread on EOF is enabled. Empty arrays, invalid JSON,
+  non-object records, and unreadable files stop the thread with an error.</li>
+  <li>XML Data Set Config provides the same archive copy, file browsing, sample preview,
+  editing, export, variable prefix, sharing modes, recycling, and end-of-file controls as JSON Data Set Config.
+  Record XPath selects one element per iteration: the default <code>/*/*</code> selects
+  children of the document root, while <code>/*</code> treats the root as a single record.
+  For <code>&lt;users&gt;&lt;user id="1"&gt;&lt;name&gt;Alice&lt;/name&gt;&lt;age&gt;30&lt;/age&gt;&lt;/user&gt;&lt;/users&gt;</code>,
+  the variables are <code>${@id}=1</code>, <code>${name}=Alice</code>, and <code>${age}=30</code>.
+  Simple child elements become text values. Nested, attributed, or repeated child elements
+  remain available as XML fragments, with nested values also exposed directly:
+  <code>${addresses.item_1.city}</code>, <code>${addresses.item_2.city}</code>, and
+  <code>${addresses.item_matchNr}</code>. Nested attributes use names such as
+  <code>${addresses.item_1.@id}</code>. Sibling names repeated anywhere in the selected records
+  are indexed consistently across all rows, even rows with just one such sibling. Elements
+  named <code>item</code> are always indexed. Non-repeated children use dotted paths.
+  The complete XML variables are retained; repeated fragments are concatenated in document order.
+  Records without child elements expose <code>${#text}</code>. Namespace prefixes are retained
+  in variable names; use XPath <code>local-name()</code> to select namespaced records.
+  Missing fields become empty strings, missing counts become zero, and previews do not
+  advance shared record positions. The editor preserves the XML encoding and validates before saving.
+  DTDs and external entities are disabled. Invalid XML, a missing file, or an XPath selecting
+  no records or non-element nodes stops the thread with an error.
+  An example with 100 records is included as <code>bin/examples/XMLSample_users.xml</code>.</li>
+  <li>YAML Data Set Config supports UTF-8 <code>.yaml</code> and <code>.yml</code> files
+  with the same archive, preview, editor, export, prefix, sharing modes, and end-of-file controls as JSON.
+  A mapping supplies one record; a list of mappings supplies successive records. Multiple
+  documents separated by <code>---</code> are read in order, with lists expanded into records.
+  Each mapping key becomes a variable. Strings remain text, null becomes an empty string,
+  and nested lists and mappings remain JSON strings while also exposing the same dotted
+  paths, one-based indexes, and <code>_matchNr</code> counts as JSON.
+  YAML 1.2 JSON-schema scalar rules apply: <code>true</code> and <code>false</code> are booleans,
+  while <code>yes</code>, <code>no</code>, and dates remain strings. Comments, block strings,
+  and non-recursive anchors and aliases are supported. Duplicate or non-string mapping keys,
+  custom tags, recursive aliases, and non-mapping records are rejected.
+  Documents are limited to 3,145,728 code points; expanded input is limited to 100,000 values
+  and 100 nested levels. An example with 100 records is included as
+  <code>bin/examples/YAMLSample_users.yaml</code>.</li>
   <li>CSV Data Set can read records in random order.</li>
   <li>CSV preview shows first sample variable assignments.</li>
 </ul>

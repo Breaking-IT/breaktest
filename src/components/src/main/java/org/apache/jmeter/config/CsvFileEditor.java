@@ -54,7 +54,7 @@ final class CsvFileEditor {
 
     static void checkEditableSize(long size) throws IOException {
         if (size > maxEditableBytes()) {
-            throw new IOException("CSV is too large for the built-in editor (limit "
+            throw new IOException("File is too large for the built-in editor (limit "
                     + maxEditableBytes() / (1024 * 1024)
                     + " MiB). Export it and use an external editor, then import the updated file.");
         }
