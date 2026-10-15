@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
 import org.junit.jupiter.api.Test;
@@ -115,6 +116,22 @@ public class TestHTTPSamplers {
         sampler.setPath("/index.html?pear");
         sampler.setDomain("www.apache.org");
         assertEquals("http://www.apache.org/index.html?pear", sampler.getUrl().toString());
+    }
+
+    @Test
+    public void testUnencodedArgumentSpacesAreSentAsPercent20InUrlOnly() throws Exception {
+        HTTPSamplerBase sampler = new HTTPNullSampler();
+        sampler.setProtocol("http");
+        sampler.setDomain("www.apache.org");
+        sampler.setPath("/index.html");
+        HTTPArgument unencoded = new HTTPArgument("q", "two words+%25");
+        unencoded.setAlwaysEncoded(false);
+        sampler.getArguments().addArgument(unencoded);
+
+        sampler.setMethod(HTTPConstants.GET);
+        assertEquals("http://www.apache.org/index.html?q=two%20words+%25", sampler.getUrl().toString());
+        // A POST body built from the same arguments keeps its spaces
+        assertEquals("q=two words+%25", sampler.getQueryString());
     }
 
     @Test

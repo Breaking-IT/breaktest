@@ -1880,7 +1880,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             // Get the query string encoded in specified encoding
             // If no encoding is specified by user, we will get it
             // encoded in UTF-8, which is what the HTTP spec says
-            String queryString = getQueryString(getContentEncoding());
+            // Unencoded parameters may hold spaces; send them as %20, as the path does.
+            // Only the URL needs this: getQueryString() also builds POST bodies.
+            String queryString = encodeSpaces(getQueryString(getContentEncoding()));
             if (!queryString.isEmpty()) {
                 if (path.contains(QRY_PFX)) {// Already contains a prefix
                     pathAndQuery.append(QRY_SEP);

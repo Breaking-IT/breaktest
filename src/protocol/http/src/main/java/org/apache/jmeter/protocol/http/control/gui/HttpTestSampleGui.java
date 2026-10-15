@@ -614,7 +614,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
      */
     protected UrlConfigGui createUrlConfigGui() {
         final UrlConfigGui configGui = new UrlConfigGui(true, true, true, true);
-        configGui.setBorder(makeBorder());
+        // No left inset: the URL bar and tabs line up with the title and Name field above
+        configGui.setBorder(BorderFactory.createEmptyBorder(10, 0, 5, 10));
         return configGui;
     }
 
