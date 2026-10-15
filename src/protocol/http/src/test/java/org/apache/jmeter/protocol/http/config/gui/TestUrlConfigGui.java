@@ -261,21 +261,49 @@ public class TestUrlConfigGui {
     }
 
     @Test
-    public void testParamsStayInTableWithVariableAfterLeadingSlash() throws Exception {
+    public void testParamsMoveIntoPathWithVariableAfterLeadingSlash() throws Exception {
         assertParamsMoveAtRuntime("/p/${id}", "y", "2", Map.of("id", "7"),
-                false, "https://example.com/p/7?y=2");
+                true, "https://example.com/p/7?y=2");
     }
 
+    /**
+     * Accepted risk, kept on purpose: variables after a literal leading "/" stay
+     * movable so correlated paths keep the buttons. A variable value containing "?"
+     * then changes the separator the sampler picks. Blocking every path variable to
+     * avoid this would disable the feature for the paths that need it most.
+     */
     @Test
-    public void testParamsStayInTableWhenPathVariableIntroducesQuery() throws Exception {
-        assertParamsMoveAtRuntime("/p/${id}", "y", "2", Map.of("id", "7?x=1"),
-                false, "https://example.com/p/7?x=1&y=2");
-    }
+    public void testPathVariableContainingQuestionMarkIsAnAcceptedRisk() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                Map<String, String> variables = Map.of("id", "7?x=1");
 
-    @Test
-    public void testQueryStaysInPathWhenPathVariableIntroducesQuery() throws Exception {
-        assertQueryMoveAtRuntime("/p/${id}?y=2", Map.of("id", "7?x=1"),
-                false, "https://example.com/p/7?x=1?y=2");
+                HTTPSamplerProxy params = getSampler("/p/${id}");
+                params.getArguments().addArgument(unencoded("y", "2", true));
+                UrlConfigGui toQuery = new UrlConfigGui(true, true, true, true);
+                toQuery.configure(params);
+                Assertions.assertTrue(toQuery.canMoveParamsToQuery());
+                toQuery.moveParamsToQuery();
+                HTTPSamplerProxy movedToQuery = new HTTPSamplerProxy();
+                toQuery.modifyTestElement(movedToQuery);
+                assertRuntimeUrls(params, movedToQuery, variables,
+                        "https://example.com/p/7?x=1&y=2", "https://example.com/p/7?x=1?y=2");
+
+                HTTPSamplerProxy query = getSampler("/p/${id}?y=2");
+                UrlConfigGui toParams = new UrlConfigGui(true, true, true, true);
+                toParams.configure(query);
+                Assertions.assertTrue(toParams.canMoveQueryToParams());
+                toParams.moveQueryToParams();
+                HTTPSamplerProxy movedToParams = new HTTPSamplerProxy();
+                toParams.modifyTestElement(movedToParams);
+                assertRuntimeUrls(query, movedToParams, variables,
+                        "https://example.com/p/7?x=1?y=2", "https://example.com/p/7?x=1&y=2");
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            } finally {
+                JMeterContextService.getContext().clear();
+            }
+        });
     }
 
     @Test
@@ -292,7 +320,7 @@ public class TestUrlConfigGui {
 
     @Test
     public void testQueryWithVariablesMovesWithoutChangingTheUrl() throws Exception {
-        assertQueryMoveAtRuntime("/a/7/b?x=${value}&y=1", Map.of("value", "two words"),
+        assertQueryMoveAtRuntime("/a/${id}/b?x=${value}&y=1", Map.of("id", "7", "value", "two words"),
                 true, "https://example.com/a/7/b?x=two%20words&y=1");
     }
 
@@ -340,6 +368,11 @@ public class TestUrlConfigGui {
     /** Resolve variables as a running test would, then compare the URLs both samplers send. */
     private static void assertRuntimeUrls(HTTPSamplerProxy before, HTTPSamplerProxy after,
             Map<String, String> variables, String expectedUrl) throws Exception {
+        assertRuntimeUrls(before, after, variables, expectedUrl, expectedUrl);
+    }
+
+    private static void assertRuntimeUrls(HTTPSamplerProxy before, HTTPSamplerProxy after,
+            Map<String, String> variables, String expectedBefore, String expectedAfter) throws Exception {
         JMeterVariables vars = new JMeterVariables();
         vars.putAll(variables);
         JMeterContextService.getContext().setVariables(vars);
@@ -350,8 +383,8 @@ public class TestUrlConfigGui {
         replacer.replaceValues(after);
         before.setRunningVersion(true);
         after.setRunningVersion(true);
-        Assertions.assertEquals(expectedUrl, before.getUrl().toString());
-        Assertions.assertEquals(expectedUrl, after.getUrl().toString());
+        Assertions.assertEquals(expectedBefore, before.getUrl().toString());
+        Assertions.assertEquals(expectedAfter, after.getUrl().toString());
     }
 
     @Test
@@ -382,7 +415,9 @@ public class TestUrlConfigGui {
     public void testQuestionMarkInsideFunctionIsNotTheQueryStart() {
         String resource = "/a/${__groovy(1 ? 'b' : 'c')}/d";
         PathQuery.Split split = PathQuery.split(resource + "?x=1");
-        Assertions.assertNull(split, "a dynamic resource cannot safely move its query");
+        Assertions.assertNotNull(split);
+        Assertions.assertEquals(resource, split.path());
+        Assertions.assertEquals(1, split.parameters().size());
         Assertions.assertEquals(resource + "?x=1", PathQuery.appendQuery(resource, "x=1"));
     }
 
