@@ -527,10 +527,10 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
      * still sends Path's query ahead of the existing Params.
      */
     void moveQueryToParams() {
-        PathQuery.Split split = PathQuery.split(path.getText());
-        if (split == null) {
+        if (!canMoveQueryToParams()) {
             return;
         }
+        PathQuery.Split split = PathQuery.split(path.getText());
         Arguments moved = new Arguments();
         split.parameters().forEach(moved::addArgument);
         Arguments existing = argsPanel.createTestElement();

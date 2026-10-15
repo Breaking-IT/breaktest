@@ -251,24 +251,95 @@ public class TestUrlConfigGui {
                     Assertions.assertEquals(path, after.getPath());
                 }
 
-                JMeterVariables vars = new JMeterVariables();
-                vars.putAll(variables);
-                JMeterContextService.getContext().setVariables(vars);
-                JMeterContextService.getContext().setSamplingStarted(true);
-                ValueReplacer replacer = new ValueReplacer();
-                replacer.setUserDefinedVariables(variables);
-                replacer.replaceValues(before);
-                replacer.replaceValues(after);
-                before.setRunningVersion(true);
-                after.setRunningVersion(true);
-                Assertions.assertEquals(expectedUrl, before.getUrl().toString());
-                Assertions.assertEquals(expectedUrl, after.getUrl().toString());
+                assertRuntimeUrls(before, after, variables, expectedUrl);
             } catch (Exception ex) {
                 throw new AssertionError(ex);
             } finally {
                 JMeterContextService.getContext().clear();
             }
         });
+    }
+
+    @Test
+    public void testParamsMoveIntoPathWithVariableAfterLeadingSlash() throws Exception {
+        assertParamsMoveAtRuntime("/p/${id}", "y", "2", Map.of("id", "7"),
+                true, "https://example.com/p/7?y=2");
+    }
+
+    @Test
+    public void testQueryStaysInPathWhenPathCouldBeFullUrl() throws Exception {
+        assertQueryMoveAtRuntime("${baseUrl}/p?x=1", Map.of("baseUrl", "https://example.com"),
+                false, "https://example.com/p?x=1");
+    }
+
+    @Test
+    public void testQueryStaysInPathForOptionalName() throws Exception {
+        assertQueryMoveAtRuntime("/p?${optional}=1", Map.of("optional", ""),
+                false, "https://example.com/p?=1");
+    }
+
+    @Test
+    public void testQueryWithVariablesMovesWithoutChangingTheUrl() throws Exception {
+        assertQueryMoveAtRuntime("/a/${id}/b?x=${value}&y=1", Map.of("id", "7", "value", "two words"),
+                true, "https://example.com/a/7/b?x=two%20words&y=1");
+    }
+
+    @Test
+    public void testMoveActionsCheckTheMethodWhenCalledDirectly() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HTTPSamplerProxy post = getSampler("/p?x=1");
+            post.setMethod(HTTPConstants.POST);
+            UrlConfigGui gui = new UrlConfigGui(true, true, true, true);
+            gui.configure(post);
+            gui.moveQueryToParams();
+
+            HTTPSamplerProxy after = new HTTPSamplerProxy();
+            gui.modifyTestElement(after);
+            Assertions.assertEquals("/p?x=1", after.getPath());
+            Assertions.assertEquals(0, after.getArguments().getArgumentCount());
+        });
+    }
+
+    private static void assertQueryMoveAtRuntime(String path, Map<String, String> variables,
+            boolean movable, String expectedUrl) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                HTTPSamplerProxy before = getSampler(path);
+                UrlConfigGui gui = new UrlConfigGui(true, true, true, true);
+                gui.configure(before);
+                Assertions.assertEquals(movable, gui.canMoveQueryToParams());
+                // The action must also enforce the guard when invoked directly.
+                gui.moveQueryToParams();
+                HTTPSamplerProxy after = new HTTPSamplerProxy();
+                gui.modifyTestElement(after);
+                if (!movable) {
+                    Assertions.assertEquals(path, after.getPath());
+                    Assertions.assertEquals(0, after.getArguments().getArgumentCount());
+                }
+                assertRuntimeUrls(before, after, variables, expectedUrl);
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            } finally {
+                JMeterContextService.getContext().clear();
+            }
+        });
+    }
+
+    /** Resolve variables as a running test would, then compare the URLs both samplers send. */
+    private static void assertRuntimeUrls(HTTPSamplerProxy before, HTTPSamplerProxy after,
+            Map<String, String> variables, String expectedUrl) throws Exception {
+        JMeterVariables vars = new JMeterVariables();
+        vars.putAll(variables);
+        JMeterContextService.getContext().setVariables(vars);
+        JMeterContextService.getContext().setSamplingStarted(true);
+        ValueReplacer replacer = new ValueReplacer();
+        replacer.setUserDefinedVariables(variables);
+        replacer.replaceValues(before);
+        replacer.replaceValues(after);
+        before.setRunningVersion(true);
+        after.setRunningVersion(true);
+        Assertions.assertEquals(expectedUrl, before.getUrl().toString());
+        Assertions.assertEquals(expectedUrl, after.getUrl().toString());
     }
 
     @Test
@@ -296,14 +367,25 @@ public class TestUrlConfigGui {
     }
 
     @Test
+    public void testQuestionMarkInsideFunctionIsNotTheQueryStart() {
+        String resource = "/a/${__groovy(1 ? 'b' : 'c')}/d";
+        PathQuery.Split split = PathQuery.split(resource + "?x=1");
+        Assertions.assertNotNull(split);
+        Assertions.assertEquals(resource, split.path());
+        Assertions.assertEquals(1, split.parameters().size());
+        Assertions.assertEquals(resource + "?x=1", PathQuery.appendQuery(resource, "x=1"));
+    }
+
+    @Test
     public void testPathQueryKeepsVariablesTogether() {
-        String query = "id=${__groovy(a&b=c, d e)}&${name}=${value}&plain";
+        String query = "id=${__groovy(a&b=c, d e)}&name=${value}&plain";
         PathQuery.Split split = PathQuery.split("/p?" + query);
         Assertions.assertNotNull(split);
         Assertions.assertEquals("/p", split.path());
         Assertions.assertEquals(3, split.parameters().size());
         Assertions.assertEquals("${__groovy(a&b=c, d e)}", split.parameters().get(0).getValue());
-        Assertions.assertEquals("${name}", split.parameters().get(1).getName());
+        Assertions.assertEquals("${value}", split.parameters().get(1).getValue());
+        Assertions.assertNull(PathQuery.split("/p?${name}=1"), "a dynamic name may resolve to empty");
         Assertions.assertEquals(query, PathQuery.join(split.parameters()));
     }
 

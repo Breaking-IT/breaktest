@@ -48,23 +48,24 @@ final class PathQuery {
      *
      * @param path the Path field value
      * @return the split, or {@code null} when there is no query or it cannot move to
-     *         Params without changing the request (a full URL, or an empty parameter
-     *         name, which the sampler would drop)
+     *         Params without changing the request: the path could be a full URL, or a
+     *         parameter name is empty or dynamic (the sampler drops nameless rows)
      */
     static Split split(String path) {
-        if (isFullUrl(path)) {
+        // A '?' inside ${...} is part of a function call, not the start of the query
+        int queryStart = indexOutsideVariables(path, QUERY_PREFIX);
+        if (queryStart < 0 || queryStart == path.length() - 1) {
             return null;
         }
-        // Same test the sampler uses to decide between '?' and '&' when appending Params
-        int queryStart = path.indexOf(QUERY_PREFIX);
-        if (queryStart < 0 || queryStart == path.length() - 1) {
+        String resource = path.substring(0, queryStart);
+        if (!canAppendQuery(resource)) {
             return null;
         }
         List<HTTPArgument> parameters = new ArrayList<>();
         for (String segment : splitOutsideVariables(path.substring(queryStart + 1), PARAM_SEPARATOR)) {
             int equals = indexOutsideVariables(segment, NAME_VALUE_SEPARATOR);
             String name = equals < 0 ? segment : segment.substring(0, equals);
-            if (name.isEmpty()) {
+            if (name.isEmpty() || containsExpression(name)) {
                 return null;
             }
             HTTPArgument argument = new HTTPArgument(name, equals < 0 ? "" : segment.substring(equals + 1));
@@ -72,7 +73,7 @@ final class PathQuery {
             argument.setUseEquals(equals >= 0);
             parameters.add(argument);
         }
-        return new Split(path.substring(0, queryStart), parameters);
+        return new Split(resource, parameters);
     }
 
     /**
@@ -111,12 +112,16 @@ final class PathQuery {
     }
 
     /**
-     * @return whether the path's URL form and query separator are known before execution
+     * A query can move between Path and Params only while the sampler is certain to
+     * append Params to this path. A full URL ignores Params, and an expression at the
+     * start of the path could resolve to one. Expressions after a literal leading
+     * {@code /} are allowed; the remaining risk is a value that itself contains
+     * {@code ?}, which would change the separator the sampler uses.
+     *
+     * @return whether Params are appended to this path at runtime
      */
     static boolean canAppendQuery(String path) {
-        // Expressions may introduce a query or turn the path into a full URL, for
-        // which the sampler ignores Params entirely. Keep that decision at runtime.
-        return !isFullUrl(path) && !containsExpression(path);
+        return !isFullUrl(path) && (path.startsWith("/") || !containsExpression(path)); // $NON-NLS-1$
     }
 
     private static boolean containsExpression(String text) {
@@ -127,7 +132,7 @@ final class PathQuery {
      * @return {@code path} with {@code query} appended the way the sampler appends Params
      */
     static String appendQuery(String path, String query) {
-        return path + (path.indexOf(QUERY_PREFIX) >= 0 ? PARAM_SEPARATOR : QUERY_PREFIX) + query;
+        return path + (indexOutsideVariables(path, QUERY_PREFIX) >= 0 ? PARAM_SEPARATOR : QUERY_PREFIX) + query;
     }
 
     // Keep "&" and "=" inside ${...} (variables and functions) as part of the value
