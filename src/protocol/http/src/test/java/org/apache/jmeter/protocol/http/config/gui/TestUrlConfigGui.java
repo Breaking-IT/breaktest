@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.config.gui;
 import java.awt.Component;
 import java.awt.Container;
 import java.lang.reflect.Field;
+import java.util.Map;
 
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -27,11 +28,14 @@ import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.gui.ArgumentsPanel;
+import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.protocol.http.gui.HTTPArgumentsPanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jorphan.gui.JLabeledTextField;
 import org.apache.jorphan.gui.ObjectTableModel;
 import org.junit.jupiter.api.Assertions;
@@ -203,6 +207,66 @@ public class TestUrlConfigGui {
                 Assertions.assertEquals(before, after.getUrl().toString());
             } catch (Exception ex) {
                 throw new AssertionError(ex);
+            }
+        });
+    }
+
+    @Test
+    public void testParamsStayInTableForDynamicPath() throws Exception {
+        assertParamsMoveAtRuntime("${resource}", "y", "2", Map.of("resource", "/p?x=1"),
+                false, "https://example.com/p?x=1&y=2");
+        assertParamsMoveAtRuntime("${resource}", "y", "2", Map.of("resource", "https://example.com/p"),
+                false, "https://example.com/p");
+    }
+
+    @Test
+    public void testParamsStayInTableForOptionalName() throws Exception {
+        assertParamsMoveAtRuntime("/p", "${optional}", "2", Map.of("optional", ""),
+                false, "https://example.com/p");
+        assertParamsMoveAtRuntime("/p", "${optional}", "2", Map.of("optional", "y"),
+                false, "https://example.com/p?y=2");
+    }
+
+    @Test
+    public void testParamsWithDynamicValueCanStillMove() throws Exception {
+        assertParamsMoveAtRuntime("/p", "y", "${value}", Map.of("value", "two words"),
+                true, "https://example.com/p?y=two%20words");
+    }
+
+    private static void assertParamsMoveAtRuntime(String path, String name, String value,
+            Map<String, String> variables, boolean movable, String expectedUrl) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                HTTPSamplerProxy before = getSampler(path);
+                before.getArguments().addArgument(unencoded(name, value, true));
+                UrlConfigGui gui = new UrlConfigGui(true, true, true, true);
+                gui.configure(before);
+                Assertions.assertEquals(movable, gui.canMoveParamsToQuery());
+                // The action must also enforce the guard when invoked directly.
+                gui.moveParamsToQuery();
+                HTTPSamplerProxy after = new HTTPSamplerProxy();
+                gui.modifyTestElement(after);
+                Assertions.assertEquals(movable ? 0 : 1, after.getArguments().getArgumentCount());
+                if (!movable) {
+                    Assertions.assertEquals(path, after.getPath());
+                }
+
+                JMeterVariables vars = new JMeterVariables();
+                vars.putAll(variables);
+                JMeterContextService.getContext().setVariables(vars);
+                JMeterContextService.getContext().setSamplingStarted(true);
+                ValueReplacer replacer = new ValueReplacer();
+                replacer.setUserDefinedVariables(variables);
+                replacer.replaceValues(before);
+                replacer.replaceValues(after);
+                before.setRunningVersion(true);
+                after.setRunningVersion(true);
+                Assertions.assertEquals(expectedUrl, before.getUrl().toString());
+                Assertions.assertEquals(expectedUrl, after.getUrl().toString());
+            } catch (Exception ex) {
+                throw new AssertionError(ex);
+            } finally {
+                JMeterContextService.getContext().clear();
             }
         });
     }

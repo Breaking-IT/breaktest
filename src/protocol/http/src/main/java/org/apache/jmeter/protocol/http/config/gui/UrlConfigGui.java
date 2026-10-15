@@ -515,7 +515,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     }
 
     boolean canMoveParamsToQuery() {
-        if (!paramsGoToQueryString() || PathQuery.isFullUrl(path.getText())) {
+        if (!paramsGoToQueryString() || !PathQuery.canAppendQuery(path.getText())) {
             return false;
         }
         List<HTTPArgument> sent = sentParameters();
@@ -549,10 +549,10 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
      * nameless rows (which the sampler skips) in the table.
      */
     void moveParamsToQuery() {
-        List<HTTPArgument> sent = sentParameters();
-        if (sent.isEmpty() || !sent.stream().allMatch(PathQuery::isMovableToPath)) {
+        if (!canMoveParamsToQuery()) {
             return;
         }
+        List<HTTPArgument> sent = sentParameters();
         Arguments remaining = new Arguments();
         Arguments existing = argsPanel.createTestElement();
         for (JMeterProperty property : existing.getArguments()) {

@@ -105,7 +105,22 @@ final class PathQuery {
      * @return whether the row is sent as-is, so it can live in the path unchanged
      */
     static boolean isMovableToPath(HTTPArgument parameter) {
-        return !parameter.isAlwaysEncoded();
+        // A dynamic name can resolve to empty, in which case the sampler omits the
+        // entire row. A query embedded in Path cannot preserve that behavior.
+        return !parameter.isAlwaysEncoded() && !containsExpression(parameter.getName());
+    }
+
+    /**
+     * @return whether the path's URL form and query separator are known before execution
+     */
+    static boolean canAppendQuery(String path) {
+        // Expressions may introduce a query or turn the path into a full URL, for
+        // which the sampler ignores Params entirely. Keep that decision at runtime.
+        return !isFullUrl(path) && !containsExpression(path);
+    }
+
+    private static boolean containsExpression(String text) {
+        return text.contains("${"); // $NON-NLS-1$
     }
 
     /**
