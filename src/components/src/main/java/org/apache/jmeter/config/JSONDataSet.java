@@ -34,14 +34,17 @@ import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.services.FileServer;
 
-import net.minidev.json.parser.JSONParser;
-import net.minidev.json.parser.ParseException;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonToken;
 
 /** Loads JSON object members as variables, advancing one record per thread iteration. */
 @GUIMenuSortOrder(6)
 @TestElementMetadata(labelResource = "displayName")
 public class JSONDataSet extends StructuredDataSet {
     private static final long serialVersionUID = 1L;
+    private static final JsonFactory JSON_FACTORY = new JsonFactory();
 
     @Override
     protected List<Map<String, String>> loadDataRecords() throws IOException {
@@ -60,7 +63,14 @@ public class JSONDataSet extends StructuredDataSet {
             if (json.startsWith("\uFEFF")) {
                 json = json.substring(1);
             }
-            Object document = new JSONParser(JSONParser.MODE_STRICTEST | JSONParser.ACCEPT_TAILLING_SPACE).parse(json);
+            Object document;
+            try (JsonParser parser = JSON_FACTORY.createParser(json)) {
+                parser.nextToken();
+                document = readValue(parser);
+                if (parser.nextToken() != null) {
+                    throw new IllegalArgumentException("Unexpected content after the JSON document");
+                }
+            }
             List<?> values = document instanceof List<?> list ? list : Collections.singletonList(document);
             List<Map<String, String>> loaded = new ArrayList<>();
             for (Object value : values) {
@@ -75,8 +85,47 @@ public class JSONDataSet extends StructuredDataSet {
                 throw new IllegalArgumentException("JSON record array must not be empty");
             }
             return loaded;
-        } catch (ParseException | IllegalArgumentException e) {
+        } catch (JsonProcessingException | IllegalArgumentException e) {
             throw new IOException("Invalid JSON data: " + e.getMessage(), e);
+        }
+    }
+
+    // Numbers keep their source text so values such as 10.00 or 1e5 are not reformatted.
+    private static Object readValue(JsonParser parser) throws IOException {
+        JsonToken token = parser.currentToken();
+        if (token == null) {
+            throw new IllegalArgumentException("JSON document is empty");
+        }
+        switch (token) {
+            case START_OBJECT -> {
+                Map<String, Object> object = new LinkedHashMap<>();
+                while (parser.nextToken() == JsonToken.FIELD_NAME) {
+                    String key = parser.currentName();
+                    parser.nextToken();
+                    object.put(key, readValue(parser));
+                }
+                return object;
+            }
+            case START_ARRAY -> {
+                List<Object> array = new ArrayList<>();
+                while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    array.add(readValue(parser));
+                }
+                return array;
+            }
+            case VALUE_STRING -> {
+                return parser.getText();
+            }
+            case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
+                return new StructuredDataVariables.RawNumber(parser.getText());
+            }
+            case VALUE_TRUE, VALUE_FALSE -> {
+                return parser.getBooleanValue();
+            }
+            case VALUE_NULL -> {
+                return null;
+            }
+            default -> throw new IllegalArgumentException("Unexpected JSON token: " + token);
         }
     }
 
@@ -125,8 +174,13 @@ public class JSONDataSet extends StructuredDataSet {
         setUseJsonFromArchive(true);
     }
 
+    @Override
+    protected String archiveProperty() {
+        return "useJsonFromArchive";
+    }
+
     public boolean isUseJsonFromArchive() {
-        return getPropertyAsBoolean("useJsonFromArchive");
+        return getPropertyAsBoolean(archiveProperty());
     }
 
     public void setUseJsonFromArchive(boolean useArchive) {

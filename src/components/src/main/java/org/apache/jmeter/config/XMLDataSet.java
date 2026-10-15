@@ -217,8 +217,13 @@ public class XMLDataSet extends StructuredDataSet {
         setUseXmlFromArchive(true);
     }
 
+    @Override
+    protected String archiveProperty() {
+        return "useXmlFromArchive";
+    }
+
     public boolean isUseXmlFromArchive() {
-        return getPropertyAsBoolean("useXmlFromArchive");
+        return getPropertyAsBoolean(archiveProperty());
     }
 
     public void setUseXmlFromArchive(boolean useArchive) {

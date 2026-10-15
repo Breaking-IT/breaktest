@@ -37,6 +37,7 @@ dependencies {
     implementation("io.burt:jmespath-jackson")
     implementation("jcharts:jcharts")
     implementation("oro:oro")
+    implementation("com.fasterxml.jackson.core:jackson-core")
     implementation("net.minidev:json-smart")
     implementation("net.minidev:accessors-smart")
     implementation("org.apache.commons:commons-pool2")

@@ -254,4 +254,15 @@ class YAMLDataSetTest extends JMeterTestCase {
         data.setFilename(directory.resolve("missing.yaml").toString());
         assertThrows(JMeterStopThreadException.class, () -> data.iterationStart(null));
     }
+
+    @Test
+    void numbersKeepTheirSourceText() throws Exception {
+        YAMLDataSet data = dataset("amount: 10.00\nbig: 1e5\nid: 12345678901234567890\nnested: {n: 10.50}");
+        data.iterationStart(null);
+        assertEquals("10.00", variables.get("amount"));
+        assertEquals("1e5", variables.get("big"));
+        assertEquals("12345678901234567890", variables.get("id"));
+        assertEquals("{\"n\":10.50}", variables.get("nested"));
+        assertEquals("10.50", variables.get("nested.n"));
+    }
 }

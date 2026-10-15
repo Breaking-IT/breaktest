@@ -878,22 +878,17 @@ public class SaveService {
                             + "or change the CSV source. Saving will not include this file.");
                 }
             }
-            if (item instanceof TestElement element) {
-                for (String format : new String[] {"Json", "Xml", "Yaml"}) {
-                    if (!element.getPropertyAsBoolean("use" + format + "FromArchive")) {
-                        continue;
+            if (item instanceof ArchivedDataFile data && data.archivedDataFilename() != null) {
+                String label = item.getClass().getSimpleName() + " '" + ((TestElement) item).getName() + "'";
+                try {
+                    String entry = ArchiveFiles.entryName(data.archivedDataFilename());
+                    if (!index.containsKey(entry)) {
+                        warnings.add(label + " references " + entry
+                                + ", which is not in this plan's archive. Import it using Tools > Archive browser "
+                                + "or change the data source. Saving will not include this file.");
                     }
-                    String label = format.toUpperCase(java.util.Locale.ROOT) + " Data Set '" + element.getName() + "'";
-                    try {
-                        String entry = ArchiveFiles.entryName(element.getPropertyAsString("filename"));
-                        if (!index.containsKey(entry)) {
-                            warnings.add(label + " references " + entry
-                                    + ", which is not in this plan's archive. Import it using Tools > Archive browser "
-                                    + "or change the data source. Saving will not include this file.");
-                        }
-                    } catch (IllegalArgumentException e) {
-                        warnings.add(label + ": " + e.getMessage());
-                    }
+                } catch (IllegalArgumentException e) {
+                    warnings.add(label + ": " + e.getMessage());
                 }
             }
             collectUnindexedDataSetWarnings(tree.getTree(item), index, warnings);

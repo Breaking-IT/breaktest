@@ -18,7 +18,6 @@
 package org.apache.jmeter.config;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +28,7 @@ import java.util.concurrent.ConcurrentMap;
 import org.apache.jmeter.engine.event.LoopIterationEvent;
 import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.engine.util.NoConfigMerge;
+import org.apache.jmeter.save.ArchivedDataFile;
 import org.apache.jmeter.testbeans.TestBean;
 import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.threads.JMeterContext;
@@ -37,14 +37,22 @@ import org.apache.jorphan.util.JMeterStopThreadException;
 
 /** Shared record allocation for structured file data sets. */
 public abstract class StructuredDataSet extends ConfigTestElement
-        implements TestBean, LoopIterationListener, NoConfigMerge, TestStateListener {
+        implements TestBean, LoopIterationListener, NoConfigMerge, TestStateListener, ArchivedDataFile {
     private static final long serialVersionUID = 1L;
-    private static final ConcurrentMap<SourceKey, Cursor> CURSORS = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<SourceKey, Source> CURSORS = new ConcurrentHashMap<>();
     private transient Cursor cursor;
 
     protected abstract List<Map<String, String>> loadDataRecords() throws IOException;
 
     protected abstract String recordSource() throws IOException;
+
+    /** Name of the boolean property that selects the archived copy of the file. */
+    protected abstract String archiveProperty();
+
+    @Override
+    public String archivedDataFilename() {
+        return getPropertyAsBoolean(archiveProperty()) ? getFilename() : null;
+    }
 
     protected String recordSelection() {
         return "";
@@ -89,14 +97,9 @@ public abstract class StructuredDataSet extends ConfigTestElement
     public void iterationStart(LoopIterationEvent event) {
         if (cursor == null) {
             try {
-                cursor = CURSORS.computeIfAbsent(sourceKey(), key -> {
-                    try {
-                        return new Cursor(loadDataRecords());
-                    } catch (IOException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                });
-            } catch (IOException | UncheckedIOException | IllegalArgumentException e) {
+                // Load outside the map's lock; the source loads once and remembers a failure.
+                cursor = CURSORS.computeIfAbsent(sourceKey(), key -> new Source()).cursor(this);
+            } catch (IOException | IllegalArgumentException e) {
                 throw new JMeterStopThreadException("Unable to load " + getClass().getSimpleName() + ": " + getFilename(), e);
             }
         }
@@ -107,10 +110,36 @@ public abstract class StructuredDataSet extends ConfigTestElement
         JMeterVariables variables = getThreadContext().getVariables();
         String prefix = getVariablePrefix();
         for (String name : cursor.names) {
-            variables.put(prefix + name, record == null ? "<EOF>" : StructuredDataVariables.missingValue(name));
+            if (record == null) {
+                variables.put(prefix + name, "<EOF>");
+            } else if (!record.containsKey(name)) {
+                variables.put(prefix + name, StructuredDataVariables.missingValue(name));
+            }
         }
         if (record != null) {
             record.forEach((name, value) -> variables.put(prefix + name, value));
+        }
+    }
+
+    private static final class Source {
+        private Cursor cursor;
+        private Exception failure;
+
+        private synchronized Cursor cursor(StructuredDataSet owner) throws IOException {
+            if (cursor == null && failure == null) {
+                try {
+                    cursor = new Cursor(owner.loadDataRecords());
+                } catch (IOException | RuntimeException e) {
+                    failure = e;
+                }
+            }
+            if (failure instanceof IOException e) {
+                throw e;
+            }
+            if (failure instanceof RuntimeException e) {
+                throw e;
+            }
+            return cursor;
         }
     }
 

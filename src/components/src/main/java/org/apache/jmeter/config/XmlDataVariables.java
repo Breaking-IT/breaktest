@@ -78,13 +78,9 @@ final class XmlDataVariables {
             List<Element> children = field.getValue();
             String childPath = path + name;
             String variable = prefix + name;
-            StringWriter combined = new StringWriter();
-            for (Element child : children) {
-                serializer.transform(new DOMSource(child), new StreamResult(combined));
-            }
             boolean indexed = lists.contains(childPath);
             StructuredDataVariables.put(record, variable, children.size() == 1
-                    ? value(children.get(0), serializer) : combined.toString());
+                    ? value(children.get(0), serializer) : combined(children, serializer));
             if (indexed) {
                 StructuredDataVariables.put(record, variable + "_matchNr", Integer.toString(children.size()));
             }
@@ -102,6 +98,14 @@ final class XmlDataVariables {
         if (fields.isEmpty()) {
             StructuredDataVariables.put(record, prefix + "#text", element.getTextContent());
         }
+    }
+
+    private static String combined(List<Element> children, Transformer serializer) throws TransformerException {
+        StringWriter combined = new StringWriter();
+        for (Element child : children) {
+            serializer.transform(new DOMSource(child), new StreamResult(combined));
+        }
+        return combined.toString();
     }
 
     private static String value(Element element, Transformer serializer) throws TransformerException {

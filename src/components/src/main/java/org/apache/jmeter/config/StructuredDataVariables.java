@@ -20,11 +20,20 @@ package org.apache.jmeter.config;
 import java.util.List;
 import java.util.Map;
 
+import net.minidev.json.JSONAware;
 import net.minidev.json.JSONValue;
 
 /** Names shared by structured previews and execution. */
 final class StructuredDataVariables {
     private StructuredDataVariables() {
+    }
+
+    /** Number kept as written in the source file, also inside serialized nested values. */
+    record RawNumber(String text) implements JSONAware {
+        @Override
+        public String toJSONString() {
+            return text;
+        }
     }
 
     static void put(Map<String, String> record, String name, String value) {
@@ -45,7 +54,8 @@ final class StructuredDataVariables {
         if (depth > 100) {
             throw new IllegalArgumentException("Structured data exceeds 100 nesting levels");
         }
-        put(record, name, value == null ? "" : value instanceof String text ? text : JSONValue.toJSONString(value));
+        put(record, name, value == null ? "" : value instanceof String text ? text
+                : value instanceof RawNumber number ? number.text() : JSONValue.toJSONString(value));
         if (value instanceof Map<?, ?> map) {
             map.forEach((key, member) -> flatten(record, name + "." + key, member, depth + 1));
         } else if (value instanceof List<?> list) {

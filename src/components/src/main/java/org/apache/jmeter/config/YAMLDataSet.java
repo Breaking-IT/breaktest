@@ -34,9 +34,12 @@ import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.services.FileServer;
+import org.snakeyaml.engine.v2.api.ConstructNode;
 import org.snakeyaml.engine.v2.api.Load;
 import org.snakeyaml.engine.v2.api.LoadSettings;
 import org.snakeyaml.engine.v2.exceptions.YamlEngineException;
+import org.snakeyaml.engine.v2.nodes.ScalarNode;
+import org.snakeyaml.engine.v2.nodes.Tag;
 import org.snakeyaml.engine.v2.schema.JsonSchema;
 
 
@@ -45,6 +48,8 @@ import org.snakeyaml.engine.v2.schema.JsonSchema;
 @TestElementMetadata(labelResource = "displayName")
 public class YAMLDataSet extends StructuredDataSet {
     private static final long serialVersionUID = 1L;
+    private static final ConstructNode RAW_NUMBER =
+            node -> new StructuredDataVariables.RawNumber(((ScalarNode) node).getValue());
 
     @Override
     protected List<Map<String, String>> loadDataRecords() throws IOException {
@@ -67,6 +72,8 @@ public class YAMLDataSet extends StructuredDataSet {
                     .setLabel("YAML Data Set")
                     .setSchema(new JsonSchema())
                     .setAllowDuplicateKeys(false)
+                    // Numbers keep their source text so values such as 10.00 or 1e5 are not reformatted.
+                    .setTagConstructors(Map.of(Tag.INT, RAW_NUMBER, Tag.FLOAT, RAW_NUMBER))
                     .build();
             List<Map<String, String>> loaded = new ArrayList<>();
             int[] remaining = {100_000};
@@ -113,9 +120,10 @@ public class YAMLDataSet extends StructuredDataSet {
             }
             ancestors.remove(value);
         } else if (value != null && !(value instanceof String) && !(value instanceof Boolean)
-                && !(value instanceof Number)) {
+                && !(value instanceof StructuredDataVariables.RawNumber)) {
             throw new IllegalArgumentException("Unsupported YAML value type: " + value.getClass().getSimpleName());
-        } else if (value instanceof Double number && !Double.isFinite(number)) {
+        } else if (value instanceof StructuredDataVariables.RawNumber number
+                && !number.text().matches("[-+]?[0-9.eE+-]+")) {
             throw new IllegalArgumentException("Non-finite YAML numbers are not supported");
         }
     }
@@ -165,8 +173,13 @@ public class YAMLDataSet extends StructuredDataSet {
         setUseYamlFromArchive(true);
     }
 
+    @Override
+    protected String archiveProperty() {
+        return "useYamlFromArchive";
+    }
+
     public boolean isUseYamlFromArchive() {
-        return getPropertyAsBoolean("useYamlFromArchive");
+        return getPropertyAsBoolean(archiveProperty());
     }
 
     public void setUseYamlFromArchive(boolean useArchive) {
