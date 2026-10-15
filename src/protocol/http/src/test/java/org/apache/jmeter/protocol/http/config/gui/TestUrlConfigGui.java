@@ -261,9 +261,21 @@ public class TestUrlConfigGui {
     }
 
     @Test
-    public void testParamsMoveIntoPathWithVariableAfterLeadingSlash() throws Exception {
+    public void testParamsStayInTableWithVariableAfterLeadingSlash() throws Exception {
         assertParamsMoveAtRuntime("/p/${id}", "y", "2", Map.of("id", "7"),
-                true, "https://example.com/p/7?y=2");
+                false, "https://example.com/p/7?y=2");
+    }
+
+    @Test
+    public void testParamsStayInTableWhenPathVariableIntroducesQuery() throws Exception {
+        assertParamsMoveAtRuntime("/p/${id}", "y", "2", Map.of("id", "7?x=1"),
+                false, "https://example.com/p/7?x=1&y=2");
+    }
+
+    @Test
+    public void testQueryStaysInPathWhenPathVariableIntroducesQuery() throws Exception {
+        assertQueryMoveAtRuntime("/p/${id}?y=2", Map.of("id", "7?x=1"),
+                false, "https://example.com/p/7?x=1?y=2");
     }
 
     @Test
@@ -280,7 +292,7 @@ public class TestUrlConfigGui {
 
     @Test
     public void testQueryWithVariablesMovesWithoutChangingTheUrl() throws Exception {
-        assertQueryMoveAtRuntime("/a/${id}/b?x=${value}&y=1", Map.of("id", "7", "value", "two words"),
+        assertQueryMoveAtRuntime("/a/7/b?x=${value}&y=1", Map.of("value", "two words"),
                 true, "https://example.com/a/7/b?x=two%20words&y=1");
     }
 
@@ -370,9 +382,7 @@ public class TestUrlConfigGui {
     public void testQuestionMarkInsideFunctionIsNotTheQueryStart() {
         String resource = "/a/${__groovy(1 ? 'b' : 'c')}/d";
         PathQuery.Split split = PathQuery.split(resource + "?x=1");
-        Assertions.assertNotNull(split);
-        Assertions.assertEquals(resource, split.path());
-        Assertions.assertEquals(1, split.parameters().size());
+        Assertions.assertNull(split, "a dynamic resource cannot safely move its query");
         Assertions.assertEquals(resource + "?x=1", PathQuery.appendQuery(resource, "x=1"));
     }
 

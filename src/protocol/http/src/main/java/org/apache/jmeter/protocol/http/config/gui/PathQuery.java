@@ -114,14 +114,13 @@ final class PathQuery {
     /**
      * A query can move between Path and Params only while the sampler is certain to
      * append Params to this path. A full URL ignores Params, and an expression at the
-     * start of the path could resolve to one. Expressions after a literal leading
-     * {@code /} are allowed; the remaining risk is a value that itself contains
-     * {@code ?}, which would change the separator the sampler uses.
+     * start of the path could resolve to one. Expressions anywhere in the path can
+     * introduce {@code ?}, changing the separator the sampler selects at runtime.
      *
-     * @return whether Params are appended to this path at runtime
+     * @return whether the URL form and query separator are known before execution
      */
     static boolean canAppendQuery(String path) {
-        return !isFullUrl(path) && (path.startsWith("/") || !containsExpression(path)); // $NON-NLS-1$
+        return !isFullUrl(path) && !containsExpression(path);
     }
 
     private static boolean containsExpression(String text) {
