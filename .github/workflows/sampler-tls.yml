@@ -2,8 +2,17 @@ name: Sampler TLS
 
 on:
   push:
-    branches: ['*']
+    branches:
+      - main
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Cancel superseded runs of the same PR; keep every main push.
+  group: ${{ github.event_name == 'push' && format('sampler-tls-{0}', github.sha) || format('sampler-tls-{0}', github.ref) }}
+  cancel-in-progress: true
 
 jobs:
   sampler-tls:
@@ -21,6 +30,9 @@ jobs:
           java-version: |
             ${{ matrix.java }}
             21
+      - name: Set up Gradle caching
+        # Reuse dependencies and task outputs; main writes the cache, PRs read it.
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
       - name: Create HTTP/3 TLS fixtures
         if: matrix.java >= 27
         run: |
