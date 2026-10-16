@@ -33,7 +33,6 @@ import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
@@ -210,6 +209,9 @@ public final class ArchiveBrowser {
         });
         JButton cleanup = new JButton(JMeterUtils.getResString("archive_cleanup"));
         cleanup.addActionListener(event -> cleanRecordings(dialog, refresh));
+        JButton orphans = new JButton(JMeterUtils.getResString("archive_remove_orphans"));
+        orphans.setToolTipText(JMeterUtils.getResString("archive_remove_orphans_help"));
+        orphans.addActionListener(event -> cleanRecordings(dialog, refresh, RecordingStorageMode.ALL, true));
         JButton close = new JButton(JMeterUtils.getResString("close"));
         close.addActionListener(event -> dialog.dispose());
         buttons.add(add);
@@ -217,11 +219,12 @@ public final class ArchiveBrowser {
         buttons.add(delete);
         buttons.add(reference);
         buttons.add(cleanup);
+        buttons.add(orphans);
         buttons.add(close);
         dialog.add(new JLabel(JMeterUtils.getResString("archive_help")), BorderLayout.NORTH);
         dialog.add(new JScrollPane(table), BorderLayout.CENTER);
         dialog.add(buttons, BorderLayout.SOUTH);
-        dialog.setSize(800, 460);
+        dialog.setSize(1000, 460);
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
     }
@@ -237,26 +240,24 @@ public final class ArchiveBrowser {
     private static void cleanRecordings(JDialog parent, Runnable refresh) {
         String title = JMeterUtils.getResString("archive_cleanup");
         JComboBox<String> mode = new JComboBox<>(new String[] {
-                JMeterUtils.getResString("archive_keep_recordings"),
                 JMeterUtils.getResString("archive_omit_static_bodies"),
                 JMeterUtils.getResString("archive_omit_statics"),
                 JMeterUtils.getResString("archive_omit_recordings")});
-        RecordingStorageMode[] modes = {RecordingStorageMode.ALL, RecordingStorageMode.OMIT_STATIC_BODIES,
+        RecordingStorageMode[] modes = {RecordingStorageMode.OMIT_STATIC_BODIES,
                 RecordingStorageMode.OMIT_STATICS, RecordingStorageMode.NONE};
-        JCheckBox orphans = new JCheckBox(JMeterUtils.getResString("archive_remove_orphans"));
         JPanel options = new JPanel(new BorderLayout(5, 5));
         options.add(mode, BorderLayout.NORTH);
-        options.add(orphans, BorderLayout.CENTER);
         options.add(new JLabel(JMeterUtils.getResString("archive_cleanup_help")), BorderLayout.SOUTH);
         if (JOptionPane.showConfirmDialog(parent, options, title, JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
             return;
         }
-        RecordingStorageMode selected = modes[mode.getSelectedIndex()];
-        boolean removeOrphans = orphans.isSelected();
-        if (selected == RecordingStorageMode.ALL && !removeOrphans) {
-            return;
-        }
+        cleanRecordings(parent, refresh, modes[mode.getSelectedIndex()], false);
+    }
+
+    private static void cleanRecordings(JDialog parent, Runnable refresh,
+            RecordingStorageMode selected, boolean removeOrphans) {
+        String title = JMeterUtils.getResString(removeOrphans ? "archive_remove_orphans" : "archive_cleanup");
         GuiPackage gui = GuiPackage.getInstance();
         gui.updateCurrentNode();
         HashTree tree = testElementTree(gui.getTreeModel().getTestPlan());

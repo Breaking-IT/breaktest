@@ -334,6 +334,32 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
     }
 
     @Test
+    public void displaysReplayedHlsPlaylistWhenStaticBodiesAreOmitted() throws Exception {
+        String body = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nsegment.ts\n";
+        for (String dataType : List.of(SampleResult.TEXT, SampleResult.BINARY)) {
+            SampleResult result = new SampleResult();
+            result.setURL(java.net.URI.create("https://example.invalid/hls-fp/combined/4/"
+                    + "media-video-stream-4.m3u8?start=now-300s&end=now").toURL());
+            result.setResponseCode("200");
+            result.setContentType("application/vnd.apple.mpegurl");
+            result.setResponseHeaders("HTTP/2 200\ncontent-type: application/vnd.apple.mpegurl\n"
+                    + "cache-control: no-cache\ncontent-encoding: gzip");
+            result.setDataType(dataType);
+            result.setResponseData(body, StandardCharsets.UTF_8.name());
+            assertFalse(RecordedExchangeStore.isStaticResource(result));
+            var archive = RecordedExchangeStore.storeReplays("", java.util.Map.of(),
+                    java.util.Map.of("playlist", result),
+                    org.apache.jmeter.recording.RecordingStorageMode.OMIT_STATIC_BODIES);
+            assertTrue(archive.resolveExchange("playlist").orElseThrow()
+                    .path("response").path("content").has("text"));
+            JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+            var resolution = RecordedHarExchangeResolver.resolveFor(nativeSamplerNode(archive, 0), null);
+            assertEquals(RecordedHarExchangeResolver.Status.FOUND, resolution.status());
+            assertTrue(resolution.responseText().contains(body));
+        }
+    }
+
+    @Test
     public void resolvesNativeRecordingWithExternalizedBodies() throws Exception {
         RecordedExchangeStore.Archive archive = RecordedExchangeStore.fromHar(
                 harWithTwoEntries().getBytes(StandardCharsets.UTF_8), "recording.har");
