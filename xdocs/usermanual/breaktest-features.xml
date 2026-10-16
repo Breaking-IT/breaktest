@@ -806,8 +806,7 @@ Existing script settings take precedence when that script is opened. Host and fa
   Missing fields become empty strings, missing counts become zero, and previews do not
   advance shared record positions. The editor preserves the XML encoding and validates before saving.
   DTDs and external entities are disabled. Invalid XML, a missing file, or an XPath selecting
-  no records or non-element nodes stops the thread with an error.
-  An example with 100 records is included as <code>bin/examples/XMLSample_users.xml</code>.</li>
+  no records or non-element nodes stops the thread with an error.</li>
   <li>YAML Data Set Config supports UTF-8 <code>.yaml</code> and <code>.yml</code> files
   with the same archive, preview, editor, export, prefix, sharing modes, and end-of-file controls as JSON.
   A mapping supplies one record; a list of mappings supplies successive records. Multiple
@@ -820,8 +819,7 @@ Existing script settings take precedence when that script is opened. Host and fa
   and non-recursive anchors and aliases are supported. Duplicate or non-string mapping keys,
   custom tags, recursive aliases, and non-mapping records are rejected.
   Documents are limited to 3,145,728 code points; expanded input is limited to 100,000 values
-  and 100 nested levels. An example with 100 records is included as
-  <code>bin/examples/YAMLSample_users.yaml</code>.</li>
+  and 100 nested levels.</li>
   <li>CSV Data Set can read records in random order.</li>
   <li>CSV preview shows first sample variable assignments.</li>
 </ul>
