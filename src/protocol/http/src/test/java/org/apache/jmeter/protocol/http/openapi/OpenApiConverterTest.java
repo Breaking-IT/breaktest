@@ -398,6 +398,56 @@ class OpenApiConverterTest extends JMeterTestCase {
         assertEquals(List.of("PUT /blob: add the application/octet-stream request body"), converter.getWarnings());
     }
 
+    @Test
+    void honorsOperationServerPath() throws Exception {
+        var converter = new OpenApiConverter(JSON.readTree("""
+            {"openapi":"3.0.3","servers":[{"url":"https://example.com/v1"}],
+             "paths":{"/items":{"servers":[{"url":"https://example.com/v2"}],
+               "get":{"servers":[{"url":"https://example.com/{version}","variables":{"version":{"default":"v3"}}}]},
+               "post":{},"delete":{"servers":[]}},"/root":{"get":{}}}}
+            """));
+        List<HTTPSamplerProxy> requests = samplers(converter.convert("api.json"));
+        assertEquals(List.of("/v3/items", "/v2/items", "/items", "/v1/root"),
+                requests.stream().map(HTTPSamplerProxy::getPath).toList());
+        for (HTTPSamplerProxy request : requests) {
+            assertEquals("", request.getPropertyAsString(HTTPSamplerProxy.DOMAIN));
+            assertEquals("", request.getPropertyAsString(HTTPSamplerProxy.PROTOCOL));
+            assertEquals("", request.getPropertyAsString(HTTPSamplerProxy.PORT));
+        }
+    }
+
+    @Test
+    void quotesJsonStringContentParameter() throws Exception {
+        var converter = new OpenApiConverter(JSON.readTree("""
+            {"openapi":"3.0.3","paths":{"/search":{"get":{"parameters":[
+              {"name":"filter","in":"query","content":{"application/json":{
+                "schema":{"type":"string"},"example":"Ada"}}},
+              {"name":"plain","in":"query","content":{"text/plain":{"schema":{"type":"string"},"example":"Ada"}}},
+              {"name":"number","in":"query","content":{"application/json":{"schema":{"type":"integer"},"example":42}}}
+            ]}}}}
+            """));
+        assertEquals("/search?filter=%22Ada%22&plain=Ada&number=42", samplers(converter.convert("api.json")).get(0).getPath());
+    }
+
+    @Test
+    void detectsMultipartFilesInComposedSchema() throws Exception {
+        var converter = new OpenApiConverter(JSON.readTree("""
+            {"openapi":"3.0.3","paths":{"/upload":{"post":{"requestBody":{"content":{
+              "multipart/form-data":{"schema":{"allOf":[{"$ref":"#/components/schemas/Upload"},
+                {"type":"object","properties":{"title":{"type":"string","example":"report"}}}]}}
+            }}}}},"components":{"schemas":{"Upload":{"type":"object","properties":{
+              "file":{"allOf":[{"$ref":"#/components/schemas/Binary"}]},
+              "files":{"type":"array","items":{"$ref":"#/components/schemas/Binary"}}
+            }},"Binary":{"type":"string","format":"binary"}}}}
+            """));
+        var request = samplers(converter.convert("api.json")).get(0);
+        assertEquals(List.of("POST /upload: add files for file, files"), converter.getWarnings());
+        assertTrue(request.getDoMultipart());
+        assertEquals(1, request.getArguments().getArgumentCount());
+        assertEquals("title", request.getArguments().getArgument(0).getName());
+        assertEquals("report", request.getArguments().getArgument(0).getValue());
+    }
+
     private static String headerValue(HTTPSamplerProxy sampler, String name) {
         return sampler.getNativeHeaderList().stream()
                 .filter(header -> header.getName().equalsIgnoreCase(name))

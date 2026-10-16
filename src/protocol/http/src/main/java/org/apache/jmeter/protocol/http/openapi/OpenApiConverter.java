@@ -58,7 +58,6 @@ public final class OpenApiConverter {
     private final boolean swagger;
     private final OpenApiSampleValues sampleValues = new OpenApiSampleValues();
     private final List<String> warnings = new ArrayList<>();
-    private String basePath = "";
 
     public OpenApiConverter(JsonNode document) {
         this.document = document;
@@ -79,7 +78,6 @@ public final class OpenApiConverter {
                 || !document.path("paths").isObject()) {
             throw new IllegalArgumentException("Expected an OpenAPI 3.x or Swagger 2.0 JSON document with paths.");
         }
-        basePath = basePath();
         TestFragmentController fragment = configure(new TestFragmentController(),
                 document.path("info").path("title").asText(fileName), TestFragmentControllerGui.class);
         HashTree tree = new ListedHashTree();
@@ -112,12 +110,14 @@ public final class OpenApiConverter {
     }
 
     /** The path part of Swagger's basePath or the first OpenAPI server; host, protocol and port are inherited. */
-    private String basePath() {
+    private String basePath(JsonNode item, JsonNode operation) {
         String base;
         if (swagger) {
             base = document.path("basePath").asText("");
         } else {
-            JsonNode server = document.path("servers").path(0);
+            JsonNode servers = operation.has("servers") ? operation.path("servers")
+                    : item.has("servers") ? item.path("servers") : document.path("servers");
+            JsonNode server = servers.path(0);
             base = server.path("url").asText("");
             for (Map.Entry<String, JsonNode> variable : server.path("variables").properties()) {
                 base = base.replace("{" + variable.getKey() + "}", variable.getValue().path("default").asText());
@@ -194,7 +194,7 @@ public final class OpenApiConverter {
         addDefaultHeader(headers, "Accept", responseContentTypes(operation));
         // Keep query samples in the path for search/replace, separate from body arguments.
         sampler.setProperty(HTTPSamplerProxy.PATH,
-                basePath + path + (query.isEmpty() ? "" : "?" + String.join("&", query)));
+                basePath(item, operation) + path + (query.isEmpty() ? "" : "?" + String.join("&", query)));
         sampler.setNativeHeaders(headers);
         target.add(sampler);
     }
@@ -246,7 +246,7 @@ public final class OpenApiConverter {
         JsonNode value = sample(schema, example(media.getValue()), new HashSet<>(), 0, "body");
         if (type.equals(FORM) || type.equals(MULTIPART)) {
             value.properties().forEach(field -> {
-                if (type.equals(MULTIPART) && isFile(schema.path("properties").path(field.getKey()))) {
+                if (type.equals(MULTIPART) && isFile(schema, field.getKey(), true, 0)) {
                     fileFields.add(field.getKey());
                 } else {
                     sampler.addArgument(field.getKey(), flatten(field.getValue(), ","));
@@ -258,14 +258,37 @@ public final class OpenApiConverter {
         }
     }
 
-    private boolean isFile(JsonNode property) {
-        JsonNode schema = resolve(property);
-        if ("array".equals(schema.path("type").asText())) {
-            schema = resolve(schema.path("items"));
+    /** Follow the same composition alternatives as sample(), retaining file metadata from allOf branches. */
+    private boolean isFile(JsonNode node, String field, boolean findProperty, int depth) {
+        if (depth > 40 || node.isMissingNode()) {
+            return false;
         }
-        String format = schema.path("format").asText();
-        return "file".equals(schema.path("type").asText()) || "binary".equals(format) || "base64".equals(format)
-                || schema.has("contentMediaType");
+        JsonNode schema = resolve(node);
+        for (String choice : List.of("oneOf", "anyOf")) {
+            if (schema.path(choice).isArray() && !schema.path(choice).isEmpty()) {
+                return isFile(schema.path(choice).get(0), field, findProperty, depth + 1);
+            }
+        }
+        if (findProperty) {
+            if (isFile(schema.path("properties").path(field), field, false, depth + 1)) {
+                return true;
+            }
+        } else {
+            String format = schema.path("format").asText();
+            if ("file".equals(schema.path("type").asText()) || "binary".equals(format) || "base64".equals(format)
+                    || schema.has("contentMediaType")) {
+                return true;
+            }
+            if (schema.has("items") && isFile(schema.path("items"), field, false, depth + 1)) {
+                return true;
+            }
+        }
+        for (JsonNode part : schema.path("allOf")) {
+            if (isFile(part, field, findProperty, depth + 1)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void setForm(HTTPSamplerProxy sampler, List<Header> headers, String type) {
@@ -336,11 +359,13 @@ public final class OpenApiConverter {
             return sample(schema, example(parameter), new HashSet<>(), 0, name);
         }
         // A content parameter is sent as one value serialized with its media type, e.g. JSON in a query string.
-        JsonNode media = content.next().getValue();
+        Map.Entry<String, JsonNode> entry = content.next();
+        JsonNode media = entry.getValue();
         JsonNode supplied = example(parameter);
         JsonNode value = sample(media.path("schema"), supplied == null ? example(media) : supplied,
                 new HashSet<>(), 0, name);
-        return value.isValueNode() ? value : JSON.getNodeFactory().textNode(value.toString());
+        return isJson(entry.getKey()) || !value.isValueNode()
+                ? JSON.getNodeFactory().textNode(value.toString()) : value;
     }
 
     private void addQuery(List<String> query, String name, JsonNode value, JsonNode parameter) {

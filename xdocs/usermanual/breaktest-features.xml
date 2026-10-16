@@ -748,8 +748,8 @@ External references produce an import error without adding a partial fragment.
 </p>
 <p>
 Hostname, protocol and port are left empty to inherit HTTP Request Defaults. Request paths start with the
-path of the first server URL (using server variable defaults) or the Swagger <code>basePath</code>; server
-hosts are not copied. Configure authentication through your usual shared defaults or
+path of the first effective server URL (using server variable defaults) or the Swagger <code>basePath</code>.
+Operation servers override path-level servers, which override document-level servers; server hosts are not copied. Configure authentication through your usual shared defaults or
 header manager. Reference the fragment from a Module Controller, or copy its requests into a thread group.
 Importing a specification does not send requests to the API.
 </p>
