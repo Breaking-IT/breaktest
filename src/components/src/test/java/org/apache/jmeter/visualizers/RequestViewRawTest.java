@@ -18,13 +18,76 @@
 package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Component;
+import java.awt.Container;
 import java.net.URI;
+
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextField;
+import javax.swing.JToolBar;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
 
 public class RequestViewRawTest {
+
+    @Test
+    void rawRequestToolbarFitsTheActualViewWhenSearchInputShrinksToZero() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            RequestViewRaw view = new RequestViewRaw();
+            view.init();
+            view.setDiffButtonVisible(true);
+            JPanel panel = view.getPanel();
+            panel.setFont(UIManager.getFont("Label.font"));
+            JToolBar toolbar = findToolbar(panel);
+            assertNull(SwingUtilities.getAncestorOfClass(JScrollPane.class, toolbar),
+                    "The toolbar must resize with the view, not sit in a scrolling preferred-width panel");
+            JTextField input = (JTextField) toolbar.getComponent(0);
+            int actionsWidth = toolbar.getPreferredSize().width - input.getPreferredSize().width;
+            for (int extraWidth : new int[]{300, 30, 0, 300}) {
+                panel.setSize(actionsWidth + extraWidth, 400);
+                layoutTree(panel);
+                assertEquals(panel.getWidth(), toolbar.getWidth());
+                assertEquals(extraWidth, input.getWidth());
+                for (Component action : toolbar.getComponents()) {
+                    if (action != input && action.isVisible()) {
+                        assertEquals(action.getPreferredSize().width, action.getWidth());
+                        assertTrue(action.getX() + action.getWidth() <= panel.getWidth());
+                    }
+                }
+            }
+        });
+    }
+
+    private static JToolBar findToolbar(Container container) {
+        for (Component child : container.getComponents()) {
+            if (child instanceof JToolBar toolbar) {
+                return toolbar;
+            }
+            if (child instanceof Container nested) {
+                JToolBar toolbar = findToolbar(nested);
+                if (toolbar != null) {
+                    return toolbar;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static void layoutTree(Container container) {
+        container.doLayout();
+        for (Component child : container.getComponents()) {
+            if (child instanceof Container nested) {
+                layoutTree(nested);
+            }
+        }
+    }
 
     @Test
     public void formatsHttp2RequestWithPseudoHeadersAndLowercaseHeaderNames() throws Exception {

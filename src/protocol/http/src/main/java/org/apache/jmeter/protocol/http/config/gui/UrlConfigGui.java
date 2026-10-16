@@ -77,6 +77,12 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     private static final long serialVersionUID = 240L;
 
     /**
+     * Client property for content tabs that fit the editor viewport and scroll internally.
+     * The HTTP sampler editor then avoids an outer scroll bar while such a tab is selected.
+     */
+    public static final String VIEWPORT_FIT_TAB = "BreakTest.viewportFitTab"; // $NON-NLS-1$
+
+    /**
      * Default value settings for URL Configuration GUI elements.
      */
     private static final UrlConfigDefaults URL_CONFIG_DEFAULTS = new UrlConfigDefaults();
@@ -812,6 +818,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             headersPanel = new HeaderTablePanel(false);
             headersPanel.addTableModelListener(e -> updateContentTabTitles());
             headersTabTitle = JMeterUtils.getResString("web_request_headers");
+            headersPanel.putClientProperty(VIEWPORT_FIT_TAB, true);
             postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
         }
 
@@ -836,7 +843,9 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             });
             bodyTabTitle = JMeterUtils.getResString(
                     modernLayout ? "web_request_tab_body" : "post_body");
-            postContentTabbedPane.add(bodyTabTitle, JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
+            JTextScrollPane bodyPane = JTextScrollPane.getInstance(postBodyContent);
+            bodyPane.putClientProperty(VIEWPORT_FIT_TAB, true);
+            postContentTabbedPane.add(bodyTabTitle, bodyPane);// $NON-NLS-1$
         }
 
         if(showFileUploadPane) {
@@ -895,19 +904,20 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         @Override
         public Dimension getMinimumSize() {
             Dimension minimum = super.getMinimumSize();
-            if (headersPanel != null && getSelectedComponent() == headersPanel) {
-                // Swing reserves room for the largest hidden tab. Only the visible headers
-                // table and its action bar determine when this editor needs outer scrolling.
+            Component selected = getSelectedComponent();
+            if (selected != null && (modernLayout || selected == headersPanel)) {
+                // Hidden tabs must not force the visible content beyond the viewport.
+                // Preserve the selected tab's minimum so its controls remain reachable.
                 int largestContentHeight = 0;
                 for (int i = 0; i < getTabCount(); i++) {
                     largestContentHeight = Math.max(largestContentHeight, getComponentAt(i).getMinimumSize().height);
                 }
-                minimum.height += headersPanel.getMinimumSize().height - largestContentHeight;
-                if (headersPanel.getWidth() > 0) {
+                minimum.height += selected.getMinimumSize().height - largestContentHeight;
+                if (selected.getWidth() > 0) {
                     // The minimum-size calculation can assume fewer tab rows than the current
                     // narrow layout. Include the actual tab strip and content-border height.
                     minimum.height = Math.max(minimum.height,
-                            headersPanel.getMinimumSize().height + getHeight() - headersPanel.getHeight());
+                            selected.getMinimumSize().height + getHeight() - selected.getHeight());
                 }
             }
             return minimum;
