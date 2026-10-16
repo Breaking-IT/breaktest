@@ -73,6 +73,21 @@ val httpProxyTest by tasks.registering(Test::class) {
 tasks.withType<Test>().configureEach {
     // Menu and resource lookups scan JMeter home's lib/ext, which createDist populates.
     mustRunAfter(":src:dist:createDist")
+    // A fresh checkout or worktree has no BreakTest jars in lib/ext until createDist runs, which
+    // leaves every GUI menu empty. Point search_paths at the module jars on the test classpath
+    // instead; JMeterUtils uses system properties as defaults for every properties reload.
+    val libExt = rootProject.layout.projectDirectory.dir("lib/ext").asFile
+    val testClasspath = classpath
+    jvmArgumentProviders += CommandLineArgumentProvider {
+        val distJars = libExt.listFiles { _, name -> name.startsWith("ApacheJMeter") && name.endsWith(".jar") }
+        if (!distJars.isNullOrEmpty()) {
+            return@CommandLineArgumentProvider emptyList()
+        }
+        val moduleJars = testClasspath.files
+            .filter { it.name.startsWith("ApacheJMeter_") && it.name.endsWith(".jar") }
+            .joinToString(";")
+        if (moduleJars.isEmpty()) emptyList() else listOf("-Dsearch_paths=$moduleJars")
+    }
 }
 
 val http3LiveTest by tasks.registering(Test::class) {

@@ -18,7 +18,9 @@
 package org.apache.jmeter.gui.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -57,6 +59,23 @@ class MenuFactoryTest {
                 MenuFactory.POST_PROCESSORS,
                 MenuFactory.CONFIG_ELEMENTS,
                 MenuFactory.LISTENERS), MenuFactory.AddMenuOrder.DEFAULT);
+    }
+
+    @Test
+    void menusWithoutDefaultOrderedItemsGetNoSeparator() {
+        // ThreadGroup carries @GUIMenuSortOrder(1); unknown classes get the default order
+        MenuInfo explicit = new MenuInfo("Thread Group", "org.apache.jmeter.threads.ThreadGroup");
+        MenuInfo defaultOrdered = new MenuInfo("Other", "org.example.DefaultOrdered");
+        List<MenuInfo> empty = new ArrayList<>();
+        List<MenuInfo> explicitOnly = new ArrayList<>(List.of(explicit));
+        List<MenuInfo> mixed = new ArrayList<>(List.of(explicit, defaultOrdered));
+
+        MenuFactory.separateItemsWithExplicitOrder(List.of(empty, explicitOnly, mixed));
+
+        assertEquals(List.of(), empty);
+        assertEquals(List.of(explicit), explicitOnly);
+        assertEquals(3, mixed.size());
+        assertInstanceOf(MenuSeparatorInfo.class, mixed.get(1));
     }
 
     private static MenuFactory.ModernMenuIcon.Kind iconKind(String descriptor) {
