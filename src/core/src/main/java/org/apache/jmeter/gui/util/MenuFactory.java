@@ -277,12 +277,18 @@ public final class MenuFactory {
         }
     }
 
-    private static void separateItemsWithExplicitOrder(Collection<? extends List<MenuInfo>> menus) {
+    @VisibleForTesting
+    static void separateItemsWithExplicitOrder(Collection<? extends List<MenuInfo>> menus) {
         for (List<MenuInfo> menu : menus) {
+            // A menu can be empty or hold only explicitly ordered items, e.g. when lib/ext
+            // has not been populated by createDist yet; then there is nothing to separate.
             Optional<MenuInfo> firstDefaultSortItem = menu.stream()
                     .filter(info -> info.getSortOrder() == MenuInfo.SORT_ORDER_DEFAULT)
                     .findFirst();
-            int index = menu.indexOf(firstDefaultSortItem.orElseThrow(IllegalStateException::new));
+            if (firstDefaultSortItem.isEmpty()) {
+                continue;
+            }
+            int index = menu.indexOf(firstDefaultSortItem.get());
             if (index > 0) {
                 menu.add(index, new MenuSeparatorInfo());
             }
