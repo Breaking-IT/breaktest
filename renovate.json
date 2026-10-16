@@ -87,7 +87,6 @@
     },
     {
       "groupName": "org.slf4j",
-      "allowedVersions": "< 2.0.0",
       "matchPackageNames": [
         "org.slf4j{/,}**"
       ]

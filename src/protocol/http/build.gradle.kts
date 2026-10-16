@@ -148,7 +148,7 @@ dependencies {
     testImplementation(projects.src.protocol.udp)
     testImplementation(testFixtures(projects.src.core))
     testImplementation(testFixtures(projects.src.testkitWiremock))
-    testImplementation("org.wiremock:wiremock")
+    testImplementation("org.wiremock:wiremock-jetty12")
     testImplementation("io.mockk:mockk")
     // For some reason JMeter bundles just tika-core and tika-parsers without transitive
     // dependencies. So we exclude those

@@ -17,10 +17,7 @@
 
 package org.apache.jmeter.util;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-
+import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
@@ -53,8 +50,7 @@ public class Document {
         ContentHandler handler = new BodyContentHandler(MAX_DOCUMENT_SIZE > 0 ? MAX_DOCUMENT_SIZE : -1); // -1 to disable the write limit
         Metadata metadata = new Metadata();
         ParseContext context = new ParseContext();
-        InputStream stream = new ByteArrayInputStream(document); // open the stream
-        try {
+        try (TikaInputStream stream = TikaInputStream.get(document)) {
             parser.parse(stream, handler, metadata, context);
             response = handler.toString();
         } catch (Exception e) {
@@ -66,12 +62,6 @@ public class Document {
                 log.warn(errMissingTika);
             } else {
                 log.warn(errMissingTika, e);
-            }
-        } finally {
-            try {
-                stream.close(); // close the stream
-            } catch (IOException ioe) {
-                log.warn("Error closing document stream", ioe);// $NON-NLS-1$
             }
         }
 
