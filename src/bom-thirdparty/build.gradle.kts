@@ -146,6 +146,7 @@ dependencies {
         api("org.neo4j.driver:neo4j-java-driver:6.0.2")
         api("org.slf4j:jcl-over-slf4j:1.7.36")
         api("org.slf4j:slf4j-api:1.7.36")
+        api("org.snakeyaml:snakeyaml-engine:3.0.1")
         api("org.unbescape:unbescape:1.1.6.RELEASE")
         api("oro:oro:2.0.8")
         api("xalan:serializer:2.7.3")

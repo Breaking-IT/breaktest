@@ -858,13 +858,13 @@ public class SaveService {
                         warnings.add(e.getMessage() + ". Export and rename it, then replace it in the archive.");
                     }
                 }
-                collectUnindexedCsvWarnings(tree, index, warnings);
+                collectUnindexedDataSetWarnings(tree, index, warnings);
             }
         }
         return warnings;
     }
 
-    private static void collectUnindexedCsvWarnings(HashTree tree, Map<String, String> index, List<String> warnings) {
+    private static void collectUnindexedDataSetWarnings(HashTree tree, Map<String, String> index, List<String> warnings) {
         for (Object item : tree.list()) {
             if (item instanceof TestElement element && element.getPropertyAsBoolean("useCsvFromArchive")) {
                 String entry = element.getPropertyAsString(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY);
@@ -878,7 +878,20 @@ public class SaveService {
                             + "or change the CSV source. Saving will not include this file.");
                 }
             }
-            collectUnindexedCsvWarnings(tree.getTree(item), index, warnings);
+            if (item instanceof ArchivedDataFile data && data.archivedDataFilename() != null) {
+                String label = data.archivedDataLabel() + " '" + ((TestElement) item).getName() + "'";
+                try {
+                    String entry = ArchiveFiles.entryName(data.archivedDataFilename());
+                    if (!index.containsKey(entry)) {
+                        warnings.add(label + " references " + entry
+                                + ", which is not in this plan's archive. Import it using Tools > Archive browser "
+                                + "or change the data source. Saving will not include this file.");
+                    }
+                } catch (IllegalArgumentException e) {
+                    warnings.add(label + ": " + e.getMessage());
+                }
+            }
+            collectUnindexedDataSetWarnings(tree.getTree(item), index, warnings);
         }
     }
 

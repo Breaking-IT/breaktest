@@ -44,6 +44,7 @@ import javax.swing.ListSelectionModel;
 
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
 import org.apache.jmeter.testelement.TestElement;
@@ -61,6 +62,7 @@ import org.apache.jorphan.util.StringUtilities;
  *
  */
 @TestElementMetadata(labelResource = "user_defined_variables")
+@GUIMenuSortOrder(9)
 public class ArgumentsPanel extends AbstractConfigGui implements ActionListener {
 
     private static final long serialVersionUID = 241L;
