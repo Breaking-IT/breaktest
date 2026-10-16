@@ -720,6 +720,36 @@ grouping, redirects, and think-time settings, to <code>user.properties</code> un
 Existing script settings take precedence when that script is opened. Host and failure selections apply only to the current recording.
 </p>
 
+<h2>Import OpenAPI Requests</h2>
+<p>
+Use <b>File &gt; Import OpenAPI JSON...</b> to turn an OpenAPI 3.x or Swagger 2.0 JSON file into
+an editable Test Fragment named after <code>info.title</code> (or the filename when no title is supplied).
+Each HTTP operation becomes a request named with its method and path. Simple Controllers group
+requests by the first operation tag, falling back to the first path segment for untagged operations.
+</p>
+<p>
+The importer includes optional parameters and request-body properties, resolves references within the
+file, combines <code>allOf</code> schemas, and chooses the first <code>oneOf</code> or <code>anyOf</code>
+alternative. Explicit examples, defaults, constants and enum values supply sample data; otherwise
+it generates stable, field-specific placeholders: repeated field names reuse the same generated value
+when their constraints agree, while different fields get distinctive samples suitable for search/replace.
+Numeric samples prefer eight digits, subject to format, bounds and multiples; strings include a field-specific
+token. Explicit examples, defaults and enums remain unchanged. Booleans and narrowly constrained fields
+may share values. Read-only properties are excluded and recursive schemas stop
+with a null placeholder. Review generated values for application-specific constraints before running.
+Query parameters, including GET parameters, remain in the URL path for search/replace and to keep them
+separate from request bodies. Header and cookie parameters appear in each sampler's native Headers tab.
+Requests include User-Agent and Accept headers (using response media types when declared), and requests
+with bodies include the matching Content-Type. Explicit header values are preserved. JSON, text and URL-encoded request bodies are supported;
+external references and unsupported body media types produce an import error without adding a partial fragment.
+</p>
+<p>
+Hostname, protocol and port are left empty to inherit HTTP Request Defaults. Server URLs and Swagger
+host/base-path settings are not copied. Configure authentication through your usual shared defaults or
+header manager. Reference the fragment from a Module Controller, or copy its requests into a thread group.
+Importing a specification does not send requests to the API.
+</p>
+
 <h2>Visual Debugging And HAR Migration</h2>
 <ul>
   <li>View Results Tree shows richer request, response, endpoint, HTTP/TLS, cookie, variable, and binary/text diagnostics.</li>
