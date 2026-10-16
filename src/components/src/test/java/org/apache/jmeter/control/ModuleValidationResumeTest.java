@@ -44,8 +44,10 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.threads.gui.ThreadGroupGui;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -56,10 +58,24 @@ class ModuleValidationResumeTest extends JMeterTestCase {
     private static final List<SampleResult> RESULTS = new CopyOnWriteArrayList<>();
     private static final AtomicInteger FRAGMENT_CALLS = new AtomicInteger();
 
+    private String testStartProperty;
+
+    @BeforeEach
+    void rememberGlobalState() {
+        testStartProperty = JMeterUtils.getProperty("TESTSTART.MS");
+    }
+
     @AfterEach
     void cleanup() {
         ValidationCheckpoints.clear();
         JMeterContextService.setValidationRun(false);
+        // Engine runs publish TESTSTART.MS as a JMeter property; later tests must not see it.
+        if (testStartProperty == null) {
+            JMeterUtils.getJMeterProperties().remove("TESTSTART.MS");
+        } else {
+            JMeterUtils.setProperty("TESTSTART.MS", testStartProperty);
+        }
+        JMeterContextService.getContext().clear();
     }
 
     public static class Step extends AbstractSampler {

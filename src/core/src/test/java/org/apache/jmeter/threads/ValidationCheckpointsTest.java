@@ -36,6 +36,7 @@ import org.apache.jmeter.samplers.Entry;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,8 +48,11 @@ class ValidationCheckpointsTest extends JMeterTestCase {
 
     private static final List<SampleResult> RESULTS = new CopyOnWriteArrayList<>();
 
+    private String testStartProperty;
+
     @BeforeEach
     void reset() {
+        testStartProperty = JMeterUtils.getProperty("TESTSTART.MS");
         ValidationCheckpoints.clear();
         CALLS.clear();
         RESULTS.clear();
@@ -59,6 +63,13 @@ class ValidationCheckpointsTest extends JMeterTestCase {
     void cleanup() {
         ValidationCheckpoints.clear();
         JMeterContextService.setValidationRun(false);
+        // Engine runs publish TESTSTART.MS as a JMeter property; later tests must not see it.
+        if (testStartProperty == null) {
+            JMeterUtils.getJMeterProperties().remove("TESTSTART.MS");
+        } else {
+            JMeterUtils.setProperty("TESTSTART.MS", testStartProperty);
+        }
+        JMeterContextService.getContext().clear();
     }
 
     public static class RecordingSampler extends AbstractSampler {

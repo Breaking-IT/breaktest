@@ -41,8 +41,10 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ValidationCheckpoints;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -53,12 +55,26 @@ class CsvValidationResumeTest extends JMeterTestCase {
     @TempDir
     Path directory;
 
+    private String testStartProperty;
+
+    @BeforeEach
+    void rememberGlobalState() {
+        testStartProperty = JMeterUtils.getProperty("TESTSTART.MS");
+    }
+
     @AfterEach
     void cleanup() throws Exception {
         ValidationCheckpoints.clear();
         FileServer.getFileServer().closeFiles();
         JMeterContextService.setValidationRun(false);
         ArchiveFiles.activate(null);
+        // Engine runs publish TESTSTART.MS as a JMeter property; later tests must not see it.
+        if (testStartProperty == null) {
+            JMeterUtils.getJMeterProperties().remove("TESTSTART.MS");
+        } else {
+            JMeterUtils.setProperty("TESTSTART.MS", testStartProperty);
+        }
+        JMeterContextService.getContext().clear();
     }
 
     public static class AccountSampler extends AbstractSampler {

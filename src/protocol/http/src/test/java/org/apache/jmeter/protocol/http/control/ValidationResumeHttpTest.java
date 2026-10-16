@@ -37,13 +37,34 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ValidationCheckpoints;
+import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import com.sun.net.httpserver.HttpServer;
 
 class ValidationResumeHttpTest extends JMeterTestCase {
+    private String testStartProperty;
+
+    @BeforeEach
+    void rememberGlobalState() {
+        testStartProperty = JMeterUtils.getProperty("TESTSTART.MS");
+    }
+
+    @AfterEach
+    void restoreGlobalState() {
+        // Engine runs publish TESTSTART.MS as a JMeter property; later tests must not see it.
+        if (testStartProperty == null) {
+            JMeterUtils.getJMeterProperties().remove("TESTSTART.MS");
+        } else {
+            JMeterUtils.setProperty("TESTSTART.MS", testStartProperty);
+        }
+        JMeterContextService.getContext().clear();
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     @Timeout(20)
