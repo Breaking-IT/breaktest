@@ -740,12 +740,16 @@ with a null placeholder. Review generated values for application-specific constr
 Query parameters, including GET parameters, remain in the URL path for search/replace and to keep them
 separate from request bodies. Header and cookie parameters appear in each sampler's native Headers tab.
 Requests include User-Agent and Accept headers (using response media types when declared), and requests
-with bodies include the matching Content-Type. Explicit header values are preserved. JSON, text and URL-encoded request bodies are supported;
-external references and unsupported body media types produce an import error without adding a partial fragment.
+with bodies include the matching Content-Type. Explicit header values are preserved, except that OpenAPI 3
+Accept, Content-Type and Authorization header parameters are ignored as the specification requires.
+JSON, text, URL-encoded and multipart form request bodies are supported. Requests with other body media types,
+and multipart file fields, are still imported; a warning after the import lists what to add by hand.
+External references produce an import error without adding a partial fragment.
 </p>
 <p>
-Hostname, protocol and port are left empty to inherit HTTP Request Defaults. Server URLs and Swagger
-host/base-path settings are not copied. Configure authentication through your usual shared defaults or
+Hostname, protocol and port are left empty to inherit HTTP Request Defaults. Request paths start with the
+path of the first server URL (using server variable defaults) or the Swagger <code>basePath</code>; server
+hosts are not copied. Configure authentication through your usual shared defaults or
 header manager. Reference the fragment from a Module Controller, or copy its requests into a thread group.
 Importing a specification does not send requests to the API.
 </p>

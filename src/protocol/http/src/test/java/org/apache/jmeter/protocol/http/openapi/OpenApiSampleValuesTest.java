@@ -51,6 +51,17 @@ class OpenApiSampleValuesTest {
     }
 
     @Test
+    void writesWholeNumbersWithoutExponent() throws Exception {
+        var values = new OpenApiSampleValues();
+        var number = JSON.readTree("""
+                {"type":"number","multipleOf":1000}
+                """);
+        String text = values.create(number, "number", "amount").asText();
+        assertTrue(text.matches("\\d+000"), text);
+        assertEquals(text, JSON.writeValueAsString(values.create(number, "number", "amount")));
+    }
+
+    @Test
     void producesStableFormattedAndLengthConstrainedStrings() throws Exception {
         var values = new OpenApiSampleValues();
         var date = JSON.createObjectNode().put("format", "date");

@@ -103,7 +103,7 @@ class OpenApiConverterTest extends JMeterTestCase {
         HTTPSamplerProxy post = samplers.get(0);
         assertEquals("POST /accounts/{id}", post.getName());
         assertEquals("POST", post.getMethod());
-        assertEquals("/accounts/a%2Fb?limit=20&filter=active", post.getPath());
+        assertEquals("/base/accounts/a%2Fb?limit=20&filter=active", post.getPath());
         assertTrue(post.getPostBodyRaw());
         JsonNode body = JSON.readTree(post.getArguments().getArgument(0).getValue());
         assertEquals("Ada", body.path("name").asText());
@@ -143,7 +143,7 @@ class OpenApiConverterTest extends JMeterTestCase {
         }
         assertEquals("operator", headerValue(samplers(reloaded).get(0), "X-Actor"));
         assertEquals("application/json", headerValue(samplers(reloaded).get(0), "Content-Type"));
-        assertEquals("/accounts/a%2Fb?limit=10", samplers(reloaded).get(1).getPath());
+        assertEquals("/base/accounts/a%2Fb?limit=10", samplers(reloaded).get(1).getPath());
         assertEquals(0, samplers(reloaded).get(1).getArguments().getArgumentCount());
         assertEquals(samplers(tree).get(0).getPath(), samplers(reloaded).get(0).getPath());
         assertEquals(samplers(tree).get(0).getArguments().getArgument(0).getValue(),
@@ -153,14 +153,14 @@ class OpenApiConverterTest extends JMeterTestCase {
     @Test
     void supportsSwaggerBodyAndOptionalQueryParameters() throws Exception {
         HashTree tree = convert("""
-                {"swagger":"2.0","info":{"title":"Legacy"},"host":"ignore.example","basePath":"/ignored",
+                {"swagger":"2.0","info":{"title":"Legacy"},"host":"ignore.example","basePath":"/v1/",
                  "paths":{"/items":{"post":{"parameters":[
                    {"in":"query","name":"labels","type":"array","items":{"type":"string","default":"a"}},
                    {"in":"body","name":"body","schema":{"$ref":"#/definitions/Item"}}
                  ]}}},"definitions":{"Item":{"type":"object","properties":{"optional":{"type":"integer"}}}}}
                 """);
         HTTPSamplerProxy sampler = samplers(tree).get(0);
-        assertEquals("/items?labels=a", sampler.getPath());
+        assertEquals("/v1/items?labels=a", sampler.getPath());
         assertTrue(JSON.readTree(sampler.getArguments().getArgument(0).getValue()).path("optional").asInt() >= 10_000_000);
     }
 
@@ -283,6 +283,119 @@ class OpenApiConverterTest extends JMeterTestCase {
         assertEquals("/accounts?accountId=" + accountId + "&userId=" + userId, requests.get(0).getPath());
         assertEquals(body.path("name"), body.path("nested").path("name"));
         assertFalse(body.path("name").equals(body.path("otherName")));
+    }
+
+    @Test
+    void prefixesServerPathWithVariableDefaults() throws Exception {
+        HashTree tree = convert("""
+                {"openapi":"3.0.3","servers":[{"url":"https://{host}/api/{version}/",
+                  "variables":{"host":{"default":"example.com"},"version":{"default":"v2"}}}],
+                 "paths":{"/users":{"get":{}}}}
+                """);
+        HTTPSamplerProxy sampler = samplers(tree).get(0);
+        assertEquals("/api/v2/users", sampler.getPath());
+        assertEquals("GET /users", sampler.getName());
+        assertEquals("/users", samplers(convert("""
+                {"openapi":"3.0.3","servers":[{"url":"https://example.com"}],"paths":{"/users":{"get":{}}}}
+                """)).get(0).getPath());
+    }
+
+    @Test
+    void acceptsJsonMediaTypesWithParameters() throws Exception {
+        HashTree tree = convert("""
+                {"openapi":"3.0.3","paths":{"/items":{"post":{"requestBody":{"content":{
+                  "application/json;charset=UTF-8":{"schema":{"type":"object","properties":{"name":{"type":"string"}}}}
+                }}}}}}
+                """);
+        HTTPSamplerProxy sampler = samplers(tree).get(0);
+        JsonNode body = JSON.readTree(sampler.getArguments().getArgument(0).getValue());
+        assertTrue(body.path("name").asText().startsWith("sample_name_"));
+        assertEquals("application/json;charset=UTF-8", headerValue(sampler, "Content-Type"));
+    }
+
+    @Test
+    void samplesNonNullAlternativeOfNullableTypes() throws Exception {
+        HashTree tree = convert("""
+                {"openapi":"3.1.0","paths":{"/items":{"post":{"requestBody":{"content":{"application/json":{
+                  "schema":{"type":"object","properties":{
+                    "count":{"type":["null","integer"]},
+                    "child":{"type":["null","object"],"properties":{"label":{"type":"string"}}}
+                  }}
+                }}}}}}}
+                """);
+        JsonNode body = JSON.readTree(samplers(tree).get(0).getArguments().getArgument(0).getValue());
+        assertTrue(body.path("count").asLong() >= 10_000_000);
+        assertTrue(body.path("child").path("label").asText().startsWith("sample_label_"));
+    }
+
+    @Test
+    void serializesContentParametersWithTheirMediaType() throws Exception {
+        HashTree tree = convert("""
+                {"openapi":"3.0.3","paths":{"/search":{"get":{"parameters":[
+                  {"in":"query","name":"filter","content":{"application/json":{
+                    "schema":{"type":"object","properties":{"name":{"type":"string"}}},"example":{"name":"Ada"}}}}
+                ]}}}}
+                """);
+        assertEquals("/search?filter=%7B%22name%22%3A%22Ada%22%7D", samplers(tree).get(0).getPath());
+    }
+
+    @Test
+    void ignoresReservedOpenApi3HeaderParameters() throws Exception {
+        HashTree tree = convert("""
+                {"openapi":"3.0.3","paths":{"/items":{"post":{"parameters":[
+                  {"in":"header","name":"Content-Type","schema":{"type":"string","enum":["text/plain"]}},
+                  {"in":"header","name":"Accept","schema":{"type":"string","default":"text/plain"}},
+                  {"in":"header","name":"Authorization","schema":{"type":"string"}}
+                 ],"requestBody":{"content":{"application/json":{"schema":{"type":"object"}}}},
+                 "responses":{"200":{"content":{"application/json":{}}}}}}}}
+                """);
+        HTTPSamplerProxy sampler = samplers(tree).get(0);
+        assertEquals("application/json", headerValue(sampler, "Content-Type"));
+        assertEquals("application/json", headerValue(sampler, "Accept"));
+        assertTrue(sampler.getNativeHeaderList().stream().noneMatch(header -> header.getName().equals("Authorization")));
+    }
+
+    @Test
+    void importsMultipartFormsAndReportsFileFields() throws Exception {
+        OpenApiConverter swagger = new OpenApiConverter(JSON.readTree("""
+                {"swagger":"2.0","paths":{"/upload":{"post":{"consumes":["multipart/form-data"],"parameters":[
+                  {"in":"formData","name":"title","type":"string","default":"report"},
+                  {"in":"formData","name":"file","type":"file"}
+                ]}}}}
+                """));
+        HTTPSamplerProxy upload = samplers(swagger.convert("api.json")).get(0);
+        assertTrue(upload.getDoMultipart());
+        assertEquals(1, upload.getArguments().getArgumentCount());
+        assertEquals("report", upload.getArguments().getArgument(0).getValue());
+        assertTrue(upload.getNativeHeaderList().stream().noneMatch(header -> header.getName().equals("Content-Type")));
+        assertEquals(List.of("POST /upload: add files for file"), swagger.getWarnings());
+
+        OpenApiConverter openApi = new OpenApiConverter(JSON.readTree("""
+                {"openapi":"3.0.3","paths":{"/upload":{"post":{"requestBody":{"content":{"multipart/form-data":{
+                  "schema":{"type":"object","properties":{
+                    "title":{"type":"string","example":"report"},"file":{"type":"string","format":"binary"}}}
+                }}}}}}}
+                """));
+        upload = samplers(openApi.convert("api.json")).get(0);
+        assertTrue(upload.getDoMultipart());
+        assertEquals("title", upload.getArguments().getArgument(0).getName());
+        assertEquals(1, upload.getArguments().getArgumentCount());
+        assertEquals(List.of("POST /upload: add files for file"), openApi.getWarnings());
+    }
+
+    @Test
+    void keepsOtherOperationsWhenABodyMediaTypeIsUnsupported() throws Exception {
+        OpenApiConverter converter = new OpenApiConverter(JSON.readTree("""
+                {"openapi":"3.0.3","paths":{
+                  "/blob":{"put":{"requestBody":{"content":{"application/octet-stream":{"schema":{"type":"string"}}}}}},
+                  "/health":{"get":{}}
+                }}
+                """));
+        List<HTTPSamplerProxy> requests = samplers(converter.convert("api.json"));
+        assertEquals(2, requests.size());
+        assertEquals(0, requests.get(0).getArguments().getArgumentCount());
+        assertEquals("application/octet-stream", headerValue(requests.get(0), "Content-Type"));
+        assertEquals(List.of("PUT /blob: add the application/octet-stream request body"), converter.getWarnings());
     }
 
     private static String headerValue(HTTPSamplerProxy sampler, String name) {

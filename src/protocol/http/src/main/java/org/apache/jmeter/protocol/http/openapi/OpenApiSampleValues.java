@@ -106,7 +106,8 @@ final class OpenApiSampleValues {
             value = candidate.multiply(step).stripTrailingZeros();
         }
         numericOwners.putIfAbsent(value, field);
-        return integer ? NODES.numberNode(value.toBigIntegerExact()) : NODES.numberNode(value);
+        // Whole numbers are written as integers: a stripped BigDecimal such as 1.234567E+7 would print in E-notation.
+        return integer || value.scale() <= 0 ? NODES.numberNode(value.toBigIntegerExact()) : NODES.numberNode(value);
     }
 
     private static String string(JsonNode schema, String field, UUID identity, long seed) {
