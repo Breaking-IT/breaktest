@@ -306,6 +306,10 @@ public class SaveService {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
             }
+            TestPlan plan = findArchiveTestPlan(tree);
+            if (plan != null) {
+                plan.getArchiveVersions().setSource(target);
+            }
         } finally {
             Files.deleteIfExists(temporary);
         }
@@ -357,7 +361,11 @@ public class SaveService {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
             saveTreeAsXml(serializableTree, zipOutputStream);
             zipOutputStream.closeEntry();
-            writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+            Set<String> latestContent = writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+            TestPlan plan = findArchiveTestPlan(tree);
+            if (plan != null) {
+                plan.getArchiveVersions().writeTo(zipOutputStream, latestContent);
+            }
         }
     }
 
@@ -454,8 +462,9 @@ public class SaveService {
         }
     }
 
-    private static void writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
+    private static Set<String> writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
             throws IOException {
+        Set<String> contentHashes = new LinkedHashSet<>();
         Set<String> writtenEntries = new LinkedHashSet<>();
         writtenEntries.add(TEST_PLAN_ZIP_ENTRY);
         for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
@@ -472,14 +481,17 @@ public class SaveService {
                 continue;
             }
             for (Map.Entry<String, byte[]> bundleEntry : bundle.orElseThrow().entrySet()) {
-                if (!writtenEntries.add(bundleEntry.getKey())) {
+                if (bundleEntry.getKey().startsWith(ArchiveVersions.DIRECTORY)
+                        || !writtenEntries.add(bundleEntry.getKey())) {
                     continue;
                 }
                 zipOutputStream.putNextEntry(new ZipEntry(bundleEntry.getKey()));
                 zipOutputStream.write(bundleEntry.getValue());
+                contentHashes.add(ArchiveVersions.digest(bundleEntry.getValue()));
                 zipOutputStream.closeEntry();
             }
         }
+        return contentHashes;
     }
 
     private static void saveTreeAsXml(HashTree tree, OutputStream out) throws IOException {
@@ -626,6 +638,10 @@ public class SaveService {
 
     static HashTree loadTreeFromZip(File file, ZipFile zip) throws IOException {
         HashTree tree = readTreeFromZip(file, zip);
+        TestPlan plan = findArchiveTestPlan(tree);
+        if (plan != null) {
+            plan.getArchiveVersions().setSource(file.toPath());
+        }
         cacheSharedArchiveFiles(tree, zip);
         cacheReferencedArchiveEntries(tree, file, zip);
         return tree;

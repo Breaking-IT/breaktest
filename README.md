@@ -221,6 +221,12 @@ workload remain unchanged; the runtime still accepts legacy syntax.
 - CSV Data Set can read records in random order while preserving header behavior.
 - CSV preview shows the first variable assignments before running the test.
 - Tools > Archive browser imports and exports shared files stored under `files/` in the JMX archive.
+- The test plan's Versions tab lists previous saves and supports opening a version or deleting selected versions.
+  Opening preserves the saved latest plan until the next save, which keeps that plan as another version.
+  Versions share unchanged attachments by SHA-256 checksum. Changed or removed files are kept while any
+  version needs them; deleting versions removes historical content only when no remaining version needs it.
+  Version sizes show the stored plan and reference manifest, excluding shared attachment content.
+  Existing full snapshots are converted to shared storage on save or version deletion.
   Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
   the archive using their archive-source flags. For other fields that accept functions, use
   `${__archiveFile(filename)}` to obtain a local path to an archived file. Fields resolved by

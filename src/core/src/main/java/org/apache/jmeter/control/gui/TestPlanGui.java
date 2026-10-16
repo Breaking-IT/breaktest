@@ -25,6 +25,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JPopupMenu;
+import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.gui.ArgumentsPanel;
@@ -80,6 +81,7 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
     private final ArgumentsPanel argsPanel;
 
     private final FileListPanel browseJar;
+    private final ArchiveVersionsPanel versionsPanel = new ArchiveVersionsPanel();
 
     /**
      * Create a new TestPlanGui.
@@ -197,6 +199,7 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
                 argsPanel.configure((Arguments) udv.getObjectValue());
             }
             browseJar.setFiles(tp.getTestPlanClasspathArray());
+            versionsPanel.configure(tp);
         }
     }
 
@@ -209,7 +212,15 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
 
         add(makeTitlePanel(), BorderLayout.NORTH);
 
-        add(argsPanel, BorderLayout.CENTER);
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab(JMeterUtils.getResString("user_defined_variables"), argsPanel);
+        tabs.addTab("Versions", versionsPanel);
+        tabs.addChangeListener(event -> {
+            if (tabs.getSelectedComponent() == versionsPanel) {
+                versionsPanel.refresh();
+            }
+        });
+        add(tabs, BorderLayout.CENTER);
 
         VerticalPanel southPanel = new VerticalPanel();
         // Whether thread groups run one after another is chosen per scenario
@@ -227,5 +238,6 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
         super.clearGui();
         argsPanel.clear();
         browseJar.clearFiles();
+        versionsPanel.configure(null);
     }
 }
