@@ -214,7 +214,8 @@ class JSONDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTe
         data.setUseJsonFromArchive(true);
         HashTree tree = new HashTree();
         tree.add(plan).add(data);
-        assertTrue(SaveService.archiveWarnings(tree).stream().anyMatch(message -> message.contains("files/missing.json")));
+        assertTrue(SaveService.archiveWarnings(tree).stream().anyMatch(message -> message.contains("files/missing.json")
+                && message.startsWith("JSON Data Set Config '")));
         assertThrows(IOException.class, data::readJsonContent);
     }
 

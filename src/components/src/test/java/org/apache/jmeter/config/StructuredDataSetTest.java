@@ -18,15 +18,20 @@
 package org.apache.jmeter.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.save.ArchiveFiles;
@@ -35,6 +40,7 @@ import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.test.JMeterSerialTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -74,6 +80,35 @@ class StructuredDataSetTest extends JMeterTestCase implements JMeterSerialTest {
                 return variables.get(copy.getVariablePrefix() + "id");
             }).get();
         }
+    }
+
+    /** Counts loads; public so element cloning can instantiate it reflectively. */
+    public static class CountingJsonDataSet extends JSONDataSet {
+        private static final long serialVersionUID = 1L;
+        static final AtomicInteger LOADS = new AtomicInteger();
+
+        @Override
+        protected List<Map<String, String>> loadDataRecords() throws IOException {
+            LOADS.incrementAndGet();
+            return super.loadDataRecords();
+        }
+    }
+
+    @Test
+    void loadFailureIsReusedWithinARunAndClearedByTestStarted() throws Exception {
+        Path file = directory.resolve("broken.json");
+        Files.writeString(file, "{broken");
+        CountingJsonDataSet data = new CountingJsonDataSet();
+        data.setFilename(file.toString());
+        data.testStarted();
+        CountingJsonDataSet.LOADS.set(0);
+        assertThrows(ExecutionException.class, () -> read(data, new ThreadGroup()));
+        assertThrows(ExecutionException.class, () -> read(data, new ThreadGroup()));
+        assertEquals(1, CountingJsonDataSet.LOADS.get());
+        Files.writeString(file, "[{\"id\":1}]");
+        data.testStarted();
+        assertEquals("1", read(data, new ThreadGroup()));
+        assertEquals(2, CountingJsonDataSet.LOADS.get());
     }
 
     @ParameterizedTest

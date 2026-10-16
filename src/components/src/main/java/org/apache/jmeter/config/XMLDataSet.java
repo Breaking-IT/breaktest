@@ -105,6 +105,16 @@ public class XMLDataSet extends StructuredDataSet {
         if (content.length == 0) {
             return "UTF-8";
         }
+        String encoding = readEncoding(content, false);
+        return encoding == null ? "UTF-8" : encoding;
+    }
+
+    /** Returns the encoding named in the XML declaration, or {@code null} when none is declared. */
+    static String declaredEncoding(byte[] content) throws IOException {
+        return content.length == 0 ? null : readEncoding(content, true);
+    }
+
+    private static String readEncoding(byte[] content, boolean declaredOnly) throws IOException {
         XMLInputFactory factory = XMLInputFactory.newDefaultFactory();
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
@@ -113,10 +123,7 @@ public class XMLDataSet extends StructuredDataSet {
             var reader = factory.createXMLStreamReader(new ByteArrayInputStream(content));
             try {
                 String encoding = reader.getCharacterEncodingScheme();
-                if (encoding == null) {
-                    encoding = reader.getEncoding();
-                }
-                return encoding == null ? "UTF-8" : encoding;
+                return encoding != null || declaredOnly ? encoding : reader.getEncoding();
             } finally {
                 reader.close();
             }

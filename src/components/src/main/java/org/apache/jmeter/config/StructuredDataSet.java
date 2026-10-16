@@ -17,6 +17,8 @@
 
 package org.apache.jmeter.config;
 
+import java.beans.IntrospectionException;
+import java.beans.Introspector;
 import java.io.IOException;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -52,6 +54,15 @@ public abstract class StructuredDataSet extends ConfigTestElement
     @Override
     public String archivedDataFilename() {
         return getPropertyAsBoolean(archiveProperty()) ? getFilename() : null;
+    }
+
+    @Override
+    public String archivedDataLabel() {
+        try {
+            return Introspector.getBeanInfo(getClass()).getBeanDescriptor().getDisplayName();
+        } catch (IntrospectionException e) {
+            return getClass().getSimpleName();
+        }
     }
 
     protected String recordSelection() {

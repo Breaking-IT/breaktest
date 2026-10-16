@@ -38,13 +38,17 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.StreamReadConstraints;
 
 /** Loads JSON object members as variables, advancing one record per thread iteration. */
 @GUIMenuSortOrder(6)
 @TestElementMetadata(labelResource = "displayName")
 public class JSONDataSet extends StructuredDataSet {
     private static final long serialVersionUID = 1L;
-    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    // Keep json-smart's acceptance of large string values; nesting is limited while flattening.
+    private static final JsonFactory JSON_FACTORY = JsonFactory.builder()
+            .streamReadConstraints(StreamReadConstraints.builder().maxStringLength(Integer.MAX_VALUE).build())
+            .build();
 
     @Override
     protected List<Map<String, String>> loadDataRecords() throws IOException {

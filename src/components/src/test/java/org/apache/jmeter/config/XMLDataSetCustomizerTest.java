@@ -156,6 +156,24 @@ class XMLDataSetCustomizerTest extends JMeterTestCase implements JMeterSerialTes
     }
 
     @Test
+    void savingAnEditedDeclarationUsesTheNewEncoding() throws Exception {
+        XMLDataSet data = localFile();
+        Path path = Path.of(data.getFilename());
+        Files.writeString(path, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><users><user><name>caf\u00e9</name></user></users>");
+        String latin1 = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><users><user><name>caf\u00e9</name></user></users>";
+        SwingUtilities.invokeAndWait(() -> {
+            TestCustomizer customizer = customizer(data);
+            try {
+                customizer.saveEditor(customizer.loadEditor(data, bundle()).file(), latin1, data);
+                assertArrayEquals(latin1.getBytes(StandardCharsets.ISO_8859_1), Files.readAllBytes(path));
+                assertEquals("caf\u00e9", data.parseRecords(Files.readAllBytes(path)).get(0).get("name"));
+            } catch (IOException e) {
+                throw new AssertionError(e);
+            }
+        });
+    }
+
+    @Test
     void archiveBrowseAndFilenameChangesSelectTheRequestedFile() throws Exception {
         ArchiveFiles.put(plan, "first.xml", ROWS.getBytes(StandardCharsets.UTF_8), false);
         ArchiveFiles.put(plan, "second.xml", "<users><user><name>Second</name></user></users>".getBytes(StandardCharsets.UTF_8), false);

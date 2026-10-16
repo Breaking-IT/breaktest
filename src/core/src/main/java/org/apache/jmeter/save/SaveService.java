@@ -879,7 +879,7 @@ public class SaveService {
                 }
             }
             if (item instanceof ArchivedDataFile data && data.archivedDataFilename() != null) {
-                String label = item.getClass().getSimpleName() + " '" + ((TestElement) item).getName() + "'";
+                String label = data.archivedDataLabel() + " '" + ((TestElement) item).getName() + "'";
                 try {
                     String entry = ArchiveFiles.entryName(data.archivedDataFilename());
                     if (!index.containsKey(entry)) {

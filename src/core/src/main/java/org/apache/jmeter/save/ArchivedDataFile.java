@@ -21,4 +21,7 @@ package org.apache.jmeter.save;
 public interface ArchivedDataFile {
     /** Returns the archived filename when the archive copy is used, otherwise {@code null}. */
     String archivedDataFilename();
+
+    /** Returns the element type name shown in archive warnings. */
+    String archivedDataLabel();
 }

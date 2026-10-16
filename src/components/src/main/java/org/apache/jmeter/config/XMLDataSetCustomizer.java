@@ -32,6 +32,7 @@ import java.beans.PropertyDescriptor;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.MessageFormat;
@@ -413,13 +414,20 @@ public class XMLDataSetCustomizer extends GenericTestBeanCustomizer {
 
     void saveEditor(CsvFileEditor file, String text, XMLDataSet xml) throws IOException {
         String updatedContent = file.toFileText(text);
-        byte[] bytes = file.encode(updatedContent);
+        CsvFileEditor target = file;
+        byte[] bytes = target.encode(updatedContent);
+        String declared = XMLDataSet.declaredEncoding(bytes);
+        if (declared != null && !Charset.forName(declared).equals(target.getCharset())) {
+            // The declaration was edited: save with the encoding the file now declares.
+            target = target.withCharset(Charset.forName(declared));
+            bytes = target.encode(updatedContent);
+        }
         xml.parseRecords(bytes);
         if (xml.isUseXmlFromArchive()) {
             storeArchivedXml(xml, bytes);
             updateArchiveProperties(xml);
         } else {
-            file.save(updatedContent);
+            target.save(updatedContent);
         }
     }
 

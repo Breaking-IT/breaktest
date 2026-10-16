@@ -109,6 +109,17 @@ final class CsvFileEditor {
         return path;
     }
 
+    Charset getCharset() {
+        return charset;
+    }
+
+    /** Same file and content, saved with another charset and without the original byte-order mark. */
+    CsvFileEditor withCharset(Charset other) {
+        CsvFileEditor copy = new CsvFileEditor(path, other, content, new byte[0]);
+        copy.newFile = newFile;
+        return copy;
+    }
+
     String getContent() {
         return content;
     }
