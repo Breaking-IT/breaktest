@@ -35,12 +35,12 @@ extensions.configure<TestEnvironmentInputs> {
     ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
 }
 
-// The largest suite runs its classes sequentially; CI spreads it over several JVMs.
-val httpTestForks = providers.gradleProperty("httpTestForks").map { it.toInt() }.orElse(1)
-// Proxy recording tests share the recorder CA keystore in bin/, so they keep a single JVM.
-val proxyTestClasses = "org/apache/jmeter/protocol/http/proxy/**"
-
-fun Test.excludeLiveHttp3() {
+tasks.test {
+    // The largest suite runs its classes sequentially; CI spreads it over several JVMs.
+    providers.gradleProperty("httpTestForks").orNull?.let {
+        require(it.toInt() > 0) { "httpTestForks must be positive" }
+        maxParallelForks = it.toInt()
+    }
     if (splitHttp3LiveTests.get()) {
         useJUnitPlatform { excludeTags("live-http3") }
         extensions.configure<TestEnvironmentInputs> {
@@ -48,25 +48,6 @@ fun Test.excludeLiveHttp3() {
             flags.put("BREAKTEST_HTTP3_LIVE", "")
         }
     }
-}
-
-tasks.test {
-    require(httpTestForks.get() > 0) { "httpTestForks must be positive" }
-    if (httpTestForks.get() > 1) {
-        maxParallelForks = httpTestForks.get()
-        exclude(proxyTestClasses)
-    }
-    excludeLiveHttp3()
-}
-
-val httpProxyTest by tasks.registering(Test::class) {
-    description = "Runs the proxy recording tests in one JVM while the HTTP suite is forked"
-    group = "verification"
-    testClassesDirs = sourceSets.test.get().output.classesDirs
-    classpath = sourceSets.test.get().runtimeClasspath
-    include(proxyTestClasses)
-    onlyIf { httpTestForks.get() > 1 }
-    excludeLiveHttp3()
 }
 
 tasks.withType<Test>().configureEach {
@@ -82,11 +63,10 @@ val http3LiveTest by tasks.registering(Test::class) {
     useJUnitPlatform { includeTags("live-http3") }
     onlyIf { liveHttp3.get() == "true" }
     // Avoid overlapping global/network-sensitive HTTP suites within this project.
-    mustRunAfter(tasks.test, httpProxyTest)
+    mustRunAfter(tasks.test)
 }
 
 tasks.check {
-    dependsOn(httpProxyTest)
     if (splitHttp3LiveTests.get()) {
         dependsOn(http3LiveTest)
     }

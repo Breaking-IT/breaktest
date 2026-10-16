@@ -127,7 +127,7 @@ jobs:
       with:
         script: |
           console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
-          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:dist-check:batchTests :src:core:test :src:components:test :src:protocol:http:httpProxyTest :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PhttpTestForks=${{ env.HTTP_TEST_FORKS }} -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:dist-check:batchTests :src:core:test :src:components:test :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PhttpTestForks=${{ env.HTTP_TEST_FORKS }} -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       id: build
@@ -147,7 +147,7 @@ jobs:
         # longest suite (http) behind javadoc/dist work. Name the longest tasks first, with the
         # serial dist-check batch chain early. The HTTP tests must run after createDist
         # (see src/protocol/http), so name it first too.
-        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:dist-check:batchTests :src:core:test :src:components:test :src:protocol:http:httpProxyTest :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:dist-check:batchTests :src:core:test :src:components:test :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
           docsDependenciesCached=${{ steps.docs-cache.outputs.cache-hit == 'true' }}
           testParallelism=2

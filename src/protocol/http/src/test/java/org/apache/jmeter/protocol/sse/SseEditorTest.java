@@ -45,7 +45,8 @@ class SseEditorTest extends JMeterTestCase {
 
     @AfterEach
     void restoreLocale() {
-        JMeterUtils.setLocale(previousLocale);
+        // No locale is set yet when this is the first JMeterUtils user in the JVM.
+        JMeterUtils.setLocale(previousLocale != null ? previousLocale : Locale.getDefault());
     }
 
     @Test
