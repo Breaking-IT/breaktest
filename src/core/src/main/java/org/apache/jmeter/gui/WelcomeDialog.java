@@ -189,6 +189,7 @@ public final class WelcomeDialog extends JDialog {
         JPanel actions = new JPanel(new GridLayout(0, 1, 0, 12));
         actions.add(actionButton("welcome_open", ActionNames.OPEN));
         actions.add(actionButton("welcome_har", ActionNames.HAR_IMPORT));
+        actions.add(actionButton("welcome_openapi", ActionNames.OPENAPI_IMPORT));
         actions.add(actionButton("welcome_recorder", ActionNames.WELCOME_RECORDER));
         JButton blank = new JButton(JMeterUtils.getResString("welcome_blank"));
         blank.addActionListener(event -> dispose());
