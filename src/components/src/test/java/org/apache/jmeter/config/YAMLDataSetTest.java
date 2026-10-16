@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class YAMLDataSetTest extends JMeterTestCase {
@@ -264,5 +267,29 @@ class YAMLDataSetTest extends JMeterTestCase {
         assertEquals("12345678901234567890", variables.get("id"));
         assertEquals("{\"n\":10.50}", variables.get("nested"));
         assertEquals("10.50", variables.get("nested.n"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1., 1., 1.0", "!!float +1.0, +1.0, 1.0", "!!int 001, 001, 1",
+            "!!float .5, .5, 0.5", "!!float -.5, -.5, -0.5", "!!float 01.e+5, 01.e+5, 1.0e+5",
+            "!!int -000, -000, -0", "!!float +001.2300, +001.2300, 1.2300",
+            "!!float 1e9999999999, 1e9999999999, 1e9999999999"})
+    void yamlNumberSpellingsProduceValidNestedJson(String yaml, String scalar, String json) throws Exception {
+        YAMLDataSet data = dataset("nested: {n: " + yaml + "}\nitems: [" + yaml + "]");
+        data.iterationStart(null);
+        assertEquals(scalar, variables.get("nested.n"));
+        assertEquals(scalar, variables.get("items_1"));
+        assertEquals("{\"n\":" + json + "}", variables.get("nested"));
+        assertEquals("[" + json + "]", variables.get("items"));
+        assertEquals(json, JSONDataSet.parseRecords(variables.get("nested").getBytes(StandardCharsets.UTF_8))
+                .get(0).get("n"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"!!float 1.2.3", "!!int 1e2", "!!float e", "!!int 1.0", "!!float +",
+            "!!float .", "!!float 1e", "!!float .inf", "!!float .nan", "!!int []", "!!float {}"})
+    void rejectsMalformedNumericTags(String value) {
+        assertThrows(IOException.class, () -> YAMLDataSet.parseRecords(
+                ("n: " + value).getBytes(StandardCharsets.UTF_8)));
     }
 }

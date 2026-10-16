@@ -48,8 +48,24 @@ import org.snakeyaml.engine.v2.schema.JsonSchema;
 @TestElementMetadata(labelResource = "displayName")
 public class YAMLDataSet extends StructuredDataSet {
     private static final long serialVersionUID = 1L;
-    private static final ConstructNode RAW_NUMBER =
-            node -> new StructuredDataVariables.RawNumber(((ScalarNode) node).getValue());
+    private static final ConstructNode RAW_NUMBER = node -> {
+        if (!(node instanceof ScalarNode scalar)) {
+            throw new IllegalArgumentException("Expected a scalar YAML number");
+        }
+        String text = scalar.getValue();
+        String pattern = Tag.INT.equals(node.getTag()) ? "[+-]?[0-9]+"
+                : "[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?";
+        if (!text.matches(pattern)) {
+            throw new IllegalArgumentException("Expected a finite YAML "
+                    + (Tag.INT.equals(node.getTag()) ? "integer" : "number") + ": " + text);
+        }
+        // Normalize only YAML-only spellings; retain precision, scale and exponent text.
+        String jsonText = text.replaceFirst("^\\+", "")
+                .replaceFirst("^(-?)0+(?=[0-9])", "$1")
+                .replaceFirst("^(-?)\\.", "$10.")
+                .replaceFirst("\\.(?=[eE]|$)", ".0");
+        return new StructuredDataVariables.RawNumber(text, jsonText);
+    };
 
     @Override
     protected List<Map<String, String>> loadDataRecords() throws IOException {
@@ -122,9 +138,6 @@ public class YAMLDataSet extends StructuredDataSet {
         } else if (value != null && !(value instanceof String) && !(value instanceof Boolean)
                 && !(value instanceof StructuredDataVariables.RawNumber)) {
             throw new IllegalArgumentException("Unsupported YAML value type: " + value.getClass().getSimpleName());
-        } else if (value instanceof StructuredDataVariables.RawNumber number
-                && !number.text().matches("[-+]?[0-9.eE+-]+")) {
-            throw new IllegalArgumentException("Non-finite YAML numbers are not supported");
         }
     }
 

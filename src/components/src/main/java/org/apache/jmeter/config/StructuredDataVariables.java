@@ -28,11 +28,15 @@ final class StructuredDataVariables {
     private StructuredDataVariables() {
     }
 
-    /** Number kept as written in the source file, also inside serialized nested values. */
-    record RawNumber(String text) implements JSONAware {
+    /** Number with its source spelling and a valid JSON representation for nested values. */
+    record RawNumber(String text, String jsonText) implements JSONAware {
+        RawNumber(String text) {
+            this(text, text);
+        }
+
         @Override
         public String toJSONString() {
-            return text;
+            return jsonText;
         }
     }
 
