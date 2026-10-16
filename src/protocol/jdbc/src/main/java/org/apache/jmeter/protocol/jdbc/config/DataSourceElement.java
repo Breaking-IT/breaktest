@@ -269,7 +269,7 @@ public class DataSourceElement extends AbstractTestElement
                 dataSource.setValidationQuery(validationQuery);
             }
             dataSource.setSoftMinEvictableIdle(Duration.ofMillis(Long.parseLong(getConnectionAge())));
-            dataSource.setDurationBetweenEvictionRuns(Duration.ofMillis(Integer.parseInt(getTrimInterval())));
+            dataSource.setDurationBetweenEvictionRuns(Duration.ofMillis(Long.parseLong(getTrimInterval())));
         }
 
         int transactionIsolation = DataSourceElementBeanInfo.getTransactionIsolationMode(getTransactionIsolation());

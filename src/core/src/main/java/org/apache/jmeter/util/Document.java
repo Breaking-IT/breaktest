@@ -56,8 +56,8 @@ public class Document {
         } catch (Exception e) {
             response = e.toString();
             log.warn("Error document parsing.", e);
-        } catch (NoClassDefFoundError e) {
-            // put a warning if tika-app.jar missing (or some dependencies in only tika-core|parsers packages are using)
+        } catch (LinkageError e) {
+            // put a warning if tika-app.jar is missing or incompatible with the bundled tika-core (e.g. a Tika 3 tika-app in lib)
             if (!System.getProperty("java.class.path").contains("tika-app")) { // $NON-NLS-1$ $NON-NLS-2$
                 log.warn(errMissingTika);
             } else {

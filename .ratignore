@@ -30,9 +30,6 @@ extras/Test.jtl
 lib/aareadme.txt
 lib/opt/README.txt
 src/licenses/licenses/*/CC0-1.0.txt
-# Unmodified upstream license and notice for the Jakarta Transactions 1.3.3 release.
-src/licenses/licenses/jakarta.transaction-api-1.3.3/LICENSE.md
-src/licenses/licenses/jakarta.transaction-api-1.3.3/NOTICE.md
 #local/**
 #reports/**
 src/launcher/src/main/resources/org/apache/jmeter/jmeter_as_ascii_art.txt

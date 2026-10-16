@@ -106,6 +106,8 @@ import org.apache.jorphan.gui.ComponentUtil;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.apache.jorphan.util.StringUtilities;
 import org.apache.tika.Tika;
+import org.apache.tika.detect.DefaultDetector;
+import org.apache.tika.parser.EmptyParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -136,7 +138,8 @@ public class ParseCurlCommandAction extends AbstractAction implements MenuCreato
     private JSyntaxTextArea cURLCommandTA;
     private JLabel statusText;
     private JCheckBox uploadCookiesCheckBox;
-    private final Tika tika = new Tika();
+    // Only MIME detection is used: skip loading parser services, whose missing dependencies would log warnings.
+    private final Tika tika = new Tika(new DefaultDetector(), EmptyParser.INSTANCE);
 
     public ParseCurlCommandAction() {
         super();

@@ -86,6 +86,14 @@
       ]
     },
     {
+      "groupName": "org.eclipse.jetty",
+      "description": "Jetty core and EE10 BOMs must share a version (mixing them breaks WireMock startup)",
+      "matchPackageNames": [
+        "org.eclipse.jetty{/,}**",
+        "org.eclipse.jetty.ee10{/,}**"
+      ]
+    },
+    {
       "groupName": "org.slf4j",
       "matchPackageNames": [
         "org.slf4j{/,}**"

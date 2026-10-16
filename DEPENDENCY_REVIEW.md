@@ -63,7 +63,7 @@ The following updates are also included.
 
 | Library family | Previous → updated |
 | --- | --- |
-| kotlinx-coroutines | 1.10.2 → 1.11.0 (Kotlin runtime resolves to 2.3.20) |
+| kotlinx-coroutines | 1.10.2 → 1.11.0 |
 | ASM | 9.9 → 9.11 |
 | Caffeine | 3.2.3 → 3.3.1 |
 | Error Prone annotations | 2.44.0 → 2.50.0 (optional Error Prone compiler tooling remains unchanged) |
@@ -71,7 +71,6 @@ The following updates are also included.
 | Commons Logging / Net / Collections4 / JEXL | 1.3.6 → 1.4.0 / 3.12.0 → 3.13.0 / 4.5.0 → 4.6.0 / 3.5.0 → 3.7.0 |
 | dnsjava | 3.6.4 → 3.6.5 (license metadata and bundled notice updated to BSD-3-Clause) |
 | FreeMarker / JAXB txw2 | 2.3.34 → 2.3.35 / 4.0.6 → 4.0.9 |
-| Lets-Plot Batik / Kotlin JVM | 4.8.0 → 4.11.0 / 4.11.2 → 4.15.0 (paired API and renderer versions) |
 | JetBrains annotations | 26.0.2-1 → 26.1.0 |
 | Neo4j driver / SnakeYAML Engine | 6.0.2 → 6.3.0 / 3.0.1 → 3.2 |
 | Apache RAT | 0.17 → 0.18 |
@@ -83,9 +82,11 @@ The following updates are also included.
 ## Compatibility changes
 
 - Tika 4 document extraction uses a managed `TikaInputStream`. MIME detection
-  uses the default Tika 4 configuration; the obsolete Tika 3 XML configuration
-  and its removed initialization-handler option are removed. User-installed
-  Tika parser modules must also be upgraded to the 4.x API.
+  uses Tika's default detectors without loading parser services, replacing the
+  obsolete Tika 3 XML configuration that ignored parser initialization problems.
+  Only tika-core is bundled; a user-installed `tika-app` (or parser modules) must
+  be upgraded to 4.x. An incompatible Tika 3 `tika-app` is reported as missing
+  instead of failing the document view.
 - DBCP settings use the Duration-based API, preserving their millisecond units
   and negative timeout semantics. The diagnostic username getter uses its new name.
 - dnsjava's current published license is BSD-3-Clause. The override and bundled
@@ -97,10 +98,14 @@ The following updates are also included.
   3.0.0, Saxon 12.9 → 13.1, and Tika 3.2.3 → 4.1.0 are included.
 - Jetty moves from 11.0.26 to 12.1.14. WireMock uses `wiremock-jetty12`
   3.13.2, with both the Jetty core and EE10 BOMs aligned to 12.1.14.
-  Mixing EE10 12.0 with core 12.1 caused a `NoSuchMethodError` at server startup.
+  Mixing EE10 12.0 with core 12.1 caused a `NoSuchMethodError` at server startup,
+  so Renovate updates both BOMs in one group.
 - SLF4J API and the JCL bridge are aligned on 2.0.20, matching the existing
   Log4j SLF4J 2 provider. The distribution already resolved SLF4J 2 transitively;
   the stale 1.7 constraints and Renovate upper bound are removed.
+- Lets-Plot stays on Batik 4.8.0 / Kotlin JVM 4.11.2: newer Lets-Plot Kotlin
+  releases require kotlin-stdlib 2.3, above the Kotlin 2.2.21 compiler that
+  builds BreakTest and the Kotlin versions plugin consumers may use.
 - xml-apis stays on 1.4.01 with its existing Renovate upper bound.
   Historical 2.0.2 metadata is not a suitable replacement for the legacy XML stack.
 - Commons Lang 2, Commons Collections 3 and HttpClient 4 are deliberately retained
@@ -123,9 +128,6 @@ Validation commands:
 ./gradlew check autostyleCheck :src:licenses:renderLicenseForBinary
 ```
 
-Jakarta Transactions 1.3.3 omits notices from its JAR. The bundled notices are
-copied unchanged from upstream tag `1.3.3`, commit
-`fb47b111515281bb45cb4a20ce14055c9c703d87`, under
-[the upstream repository](https://github.com/jakartaee/transactions/tree/fb47b111515281bb45cb4a20ce14055c9c703d87).
-Its EPL-2.0 license is selected; the alternative secondary license is retained in
-the upstream text. JAXB txw2's EDL notice is classified as BSD-3-Clause.
+DBCP 2.14 declares Jakarta Transactions only for its managed (JTA) connections,
+which BreakTest does not use, so that dependency is excluded from the distribution.
+JAXB txw2's EDL notice is classified as BSD-3-Clause.

@@ -29,6 +29,8 @@ import org.apache.jmeter.testelement.schema.PropertiesAccessor;
 import org.apache.jmeter.testelement.schema.PropertyDescriptor;
 import org.apache.jorphan.util.StringUtilities;
 import org.apache.tika.Tika;
+import org.apache.tika.detect.DefaultDetector;
+import org.apache.tika.parser.EmptyParser;
 
 /**
  * Class representing a file parameter for http upload.
@@ -44,7 +46,8 @@ public class HTTPFileArg extends AbstractTestElement implements Serializable {
     /** temporary storage area for the body header. */
     private String header;
 
-    private static final Tika tika = new Tika();
+    // Only MIME detection is used: skip loading parser services, whose missing dependencies would log warnings.
+    private static final Tika tika = new Tika(new DefaultDetector(), EmptyParser.INSTANCE);
 
     /**
      * Constructor for an empty HTTPFileArg object

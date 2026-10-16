@@ -104,18 +104,11 @@ val gatherBinaryLicenses by tasks.registering(GatherLicenseTask::class) {
     // That enables to have "version-independent" MIT license in licenses/slf4j-api, and
     // it would be copied provided the detected license for slf4j-api is MIT.
 
-    overrideLicense("dnsjava:dnsjava:3.6.5") {
+    overrideLicense("dnsjava:dnsjava") {
         expectedLicense = SpdxLicense.BSD_3_Clause
     }
 
-    // The 1.3.3 JAR omits its notices; retain them from the upstream release tag.
-    overrideLicense("jakarta.transaction:jakarta.transaction-api:1.3.3") {
-        expectedLicense = SpdxLicense.EPL_2_0 and SimpleLicense("GPL2 w/ CPE", uri("https://www.gnu.org/software/classpath/license.html"))
-        effectiveLicense = SpdxLicense.EPL_2_0
-        licenseFiles = "jakarta.transaction-api-1.3.3"
-    }
-
-    overrideLicense("org.glassfish.jaxb:txw2:4.0.9") {
+    overrideLicense("org.glassfish.jaxb:txw2") {
         expectedLicense = SimpleLicense("Eclipse Distribution License - v 1.0", uri("http://www.eclipse.org/org/documents/edl-v10.php"))
         effectiveLicense = SpdxLicense.BSD_3_Clause
     }

@@ -150,12 +150,8 @@ dependencies {
     testImplementation(testFixtures(projects.src.testkitWiremock))
     testImplementation("org.wiremock:wiremock-jetty12")
     testImplementation("io.mockk:mockk")
-    // For some reason JMeter bundles just tika-core and tika-parsers without transitive
-    // dependencies. So we exclude those
+    // Only tika-core is bundled (MIME detection); document parsers come from a user-installed tika-app
     implementation("org.apache.tika:tika-core") {
-        isTransitive = false
-    }
-    runtimeOnly("org.apache.tika:tika-parsers") {
         isTransitive = false
     }
 }
