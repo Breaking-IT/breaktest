@@ -21,8 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
-import java.nio.file.Path;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Locale;
