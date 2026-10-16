@@ -21,14 +21,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Locale;
+
 import javax.swing.SwingUtilities;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
+import org.apache.jmeter.util.JMeterUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class SseEditorTest extends JMeterTestCase {
+    private Locale previousLocale;
+
+    // The editor assertions use English labels; CI runs tests in other locales too.
+    @BeforeEach
+    void useEnglishLocale() {
+        previousLocale = JMeterUtils.getLocale();
+        JMeterUtils.setLocale(Locale.ENGLISH);
+    }
+
+    @AfterEach
+    void restoreLocale() {
+        JMeterUtils.setLocale(previousLocale);
+    }
+
     @Test
     void streamAndMatchSettingsSurviveSaveAndLoad(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
         var request = new SseSampler();
