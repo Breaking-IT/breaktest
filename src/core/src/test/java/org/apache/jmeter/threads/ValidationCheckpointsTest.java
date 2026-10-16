@@ -101,6 +101,92 @@ class ValidationCheckpointsTest extends JMeterTestCase {
         }
     }
 
+    public static class BrokenRestore extends org.apache.jmeter.config.ConfigTestElement
+            implements ValidationCheckpointParticipant {
+        @Override
+        public Object captureValidationState() {
+            return true;
+        }
+
+        @Override
+        public void restoreValidationState(Object state) {
+            throw new IllegalStateException("CSV file changed since checkpoint");
+        }
+    }
+
+    @Test
+    @Timeout(15)
+    void replayAfterFailurePreservesItUntilTheFailedRequestIsRetried() throws Exception {
+        ListedHashTree source = new ListedHashTree();
+        ThreadGroup group = new ThreadGroup();
+        group.setSamplerController(new LoopController());
+        group.setValidationStopOnError(false);
+        var flow = source.add(new TestPlan()).add(group);
+        RecordingSampler login = sampler("login");
+        RecordingSampler failed = sampler("original");
+        failed.setProperty("fail", true);
+        RecordingSampler later = sampler("tail");
+        flow.add(login);
+        flow.add(failed);
+        flow.add(later);
+        var initial = cloneTree(source);
+        ValidationCheckpoints.rememberStructure(initial);
+        run(initial);
+        assertTrue(ValidationCheckpoints.canResumeFailedSampler(group));
+        var failedCheckpoint = ValidationCheckpoints.get(group);
+        var replayLater = cloneTree(source);
+        ValidationCheckpoints.prepareResume(replayLater, ValidationCheckpoints.get(later));
+        run(replayLater);
+        assertEquals(failedCheckpoint, ValidationCheckpoints.get(group));
+        failed.setProperty("fail", false);
+        var replayEarlier = cloneTree(source);
+        ValidationCheckpoints.prepareResume(replayEarlier, ValidationCheckpoints.get(login));
+        run(replayEarlier);
+        org.junit.jupiter.api.Assertions.assertFalse(ValidationCheckpoints.canResumeFailedSampler(group));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @Timeout(15)
+    void failedRestoreReportsErrorAndStopsOnlyItsGroup(boolean stopOnError) throws Exception {
+        ListedHashTree source = new ListedHashTree();
+        TestPlan plan = new TestPlan();
+        plan.setSerialized(true);
+        var planTree = source.add(plan);
+        ThreadGroup broken = new ThreadGroup();
+        broken.setName("broken");
+        broken.setSamplerController(new LoopController());
+        broken.setValidationStopOnError(stopOnError);
+        var flow = planTree.add(broken);
+        flow.add(new BrokenRestore());
+        RecordingSampler target = sampler("original");
+        flow.add(target);
+        flow.add(sampler("must-not-run"));
+        ThreadGroup healthy = new ThreadGroup();
+        healthy.setName("healthy");
+        healthy.setSamplerController(new LoopController());
+        RecordingSampler other = sampler("other");
+        planTree.add(healthy).add(other);
+        var initial = cloneTree(source);
+        ValidationCheckpoints.rememberStructure(initial);
+        run(initial);
+        var resumed = cloneTree(source);
+        ValidationCheckpoints.prepareResume(resumed,
+                List.of(ValidationCheckpoints.get(target), ValidationCheckpoints.get(other)));
+        var listener = new org.apache.jmeter.test.samplers.CollectSamplesListener();
+        resumed.add(resumed.getArray()[0], listener);
+        CALLS.clear();
+        run(resumed);
+        assertEquals(List.of("other:null:null"), CALLS);
+        assertEquals(2, listener.getEvents().size());
+        SampleResult failure = listener.getEvents().get(0).getResult();
+        org.junit.jupiter.api.Assertions.assertFalse(failure.isSuccessful());
+        assertEquals("VALIDATION_RESTORE_FAILED", failure.getResponseCode());
+        assertTrue(failure.getResponseMessage().contains("CSV file changed since checkpoint"));
+        assertTrue(ValidationCheckpoints.canResumeFailedSampler(broken));
+        org.junit.jupiter.api.Assertions.assertFalse(ValidationCheckpoints.canResumeFailedSampler(healthy));
+    }
+
     @Test
     @Timeout(15)
     void resumesMultipleFailedGroupsWithTheirOwnVariablesAndSkipsSuccessfulGroups() throws Exception {

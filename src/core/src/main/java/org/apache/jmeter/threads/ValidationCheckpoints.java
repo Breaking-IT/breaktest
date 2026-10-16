@@ -61,6 +61,12 @@ public final class ValidationCheckpoints {
             Map<String, Object> managers, SampleResult previous, List<String> structure) {
     }
 
+    public static final class RestoreException extends IllegalStateException {
+        private RestoreException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
     public record ReplayTarget(Checkpoint checkpoint, AbstractThreadGroup group) {
     }
 
@@ -170,16 +176,26 @@ public final class ValidationCheckpoints {
         LATEST.put(sampler.getPropertyAsString(SOURCE_ID), samplerId);
         Checkpoint pending = PENDING.get(samplerId);
         if (pending != null) {
-            context.getVariables().clear();
-            context.getVariables().putAll(pending.variables());
-            context.setPreviousResult(pending.previous() == null ? null : new SampleResult(pending.previous()));
-            visit(tree, element -> {
-                if (element instanceof ValidationCheckpointParticipant participant
-                        && pending.managers().containsKey(id(element))) {
-                    participant.restoreValidationState(pending.managers().get(id(element)));
-                }
-            });
-            FAILED_SAMPLERS.remove(context.getThreadGroup().getPropertyAsString(SOURCE_ID));
+            try {
+                context.getVariables().clear();
+                context.getVariables().putAll(pending.variables());
+                context.setPreviousResult(pending.previous() == null ? null : new SampleResult(pending.previous()));
+                visit(tree, element -> {
+                    if (element instanceof ValidationCheckpointParticipant participant
+                            && pending.managers().containsKey(id(element))) {
+                        participant.restoreValidationState(pending.managers().get(id(element)));
+                    }
+                });
+            } catch (RuntimeException ex) {
+                PENDING.remove(samplerId);
+                throw new RestoreException("Unable to restore validation checkpoint: " + ex.getMessage(), ex);
+            }
+            String groupId = context.getThreadGroup().getPropertyAsString(SOURCE_ID);
+            String failedSampler = FAILED_SAMPLERS.get(groupId);
+            // Only retire a previous failure if this replay will execute it again.
+            if (failedSampler != null && contains(tree, failedSampler)) {
+                FAILED_SAMPLERS.remove(groupId);
+            }
             PENDING.remove(samplerId);
         }
         try {
