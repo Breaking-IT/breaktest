@@ -161,6 +161,22 @@ public final class RunningTransaction {
     }
 
     /**
+     * Records a timer pause that has just ended, used by
+     * {@link TransactionController#TIMING_MODE_TOTAL_EXCLUDE_TIMERS}.
+     * <p>
+     * The pause is placed on the clock of the transaction sample, so it lines up with the
+     * transaction boundaries. Pause timestamps taken from {@link System#currentTimeMillis()}
+     * would not: the sample clock is derived from {@link System#nanoTime()}, and on Windows the
+     * wall clock only advances every ~15.6 ms, which cuts the overlap short.
+     *
+     * @param durationMillis pause length in milliseconds
+     */
+    public synchronized void addTimerPauseEndingNow(long durationMillis) {
+        long end = result.currentTimeInMillis();
+        addTimerPause(end - durationMillis, end);
+    }
+
+    /**
      * Ends the transaction now.
      *
      * @param successful {@code false} to fail the transaction even if none of its samples failed
