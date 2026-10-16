@@ -36,6 +36,8 @@ import org.apache.jorphan.gui.JFactory;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
 
+import net.miginfocom.swing.MigLayout;
+
 /**
  * Search toolbar associated to {@link JSyntaxTextArea}
  * @since 5.0
@@ -94,7 +96,10 @@ public final class JSyntaxSearchToolBar implements ActionListener {
         this.toolBar = new JToolBar();
         toolBar.setFloatable(false);
         JFactory.small(toolBar);
-        toolBar.add(searchField);
+        // Reserve each action's natural width; only the search input absorbs resizing.
+        // Callers can append actions (such as Pretty Print) to the same row.
+        toolBar.setLayout(new MigLayout("insets 0, gap 0, fillx, hidemode 3, novisualpadding"));
+        toolBar.add(searchField, "width 0:pref:inf, growx, pushx");
         toolBar.add(findButton);
         toolBar.add(matchCaseCB);
         toolBar.add(regexCB);

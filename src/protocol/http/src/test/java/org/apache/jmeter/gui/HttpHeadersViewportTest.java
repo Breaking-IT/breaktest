@@ -38,6 +38,7 @@ import javax.swing.LookAndFeel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
+import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui;
@@ -206,6 +207,7 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
             longButtonLabels = true;
             SwingUtilities.invokeAndWait(() -> setLookAndFeel(lookAndFeel));
             for (boolean sse : new boolean[]{false, true}) {
+                bodyAndRecordedTextFitTheViewport(sse, 500);
                 headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 0);
                 headerActionsStayVisibleWhileOnlyTheTableScrolls(sse, 500, 320, 100);
                 veryShortEditorsCanScrollToHeaderActionsAndRecoverWhenEnlarged(sse, 500);
@@ -223,6 +225,50 @@ class HttpHeadersViewportTest extends JMeterTestCase implements JMeterSerialTest
                 }
             });
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 500", "false, 1000", "true, 500", "true, 1000"})
+    void bodyAndRecordedTextFitTheViewport(boolean sse, int width) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            HttpTestSampleGui editor = sse ? new SseSamplerGui() : new HttpTestSampleGui();
+            editor.configure(sse ? new SseSampler() : new HTTPSamplerProxy());
+            HeaderTablePanel headers = descendants(editor, HeaderTablePanel.class).get(0);
+            JTabbedPane tabs = (JTabbedPane) headers.getParent();
+            MainFrame.ScrollableMainPanel main = new MainFrame.ScrollableMainPanel();
+            main.setMainPanel(editor);
+            JScrollPane outer = new JScrollPane(main);
+            // Body is the third tab; the two recorded text tabs are appended last.
+            for (int index : new int[]{2, tabs.getTabCount() - 2, tabs.getTabCount() - 1}) {
+                tabs.setSelectedIndex(index);
+                Container content = (Container) tabs.getSelectedComponent();
+                JSyntaxTextArea text = descendants(content, JSyntaxTextArea.class).get(0);
+                text.setText("A long line of request or response data. ".repeat(80).concat("\n").repeat(200));
+                text.setCaretPosition(0);
+                JScrollPane inner = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, text);
+                assertEquals(outer, SwingUtilities.getAncestorOfClass(JScrollPane.class, inner),
+                        "text must have only one internal scroll pane");
+                assertTrue(editor.isViewportHeightConstrained());
+                for (int height : new int[]{800, 450, 120, 450}) {
+                    outer.setSize(width, height);
+                    layoutTree(outer);
+                    layoutTree(outer);
+                    boolean fits = main.getMinimumSize().height <= outer.getViewport().getHeight();
+                    assertEquals(!fits, outer.getVerticalScrollBar().isVisible());
+                    if (height >= 450) {
+                        assertTrue(fits, "text editor should fit a normal window");
+                        assertEquals(outer.getViewport().getHeight(), main.getHeight());
+                        assertTrue(inner.getViewport().getHeight() > text.getFontMetrics(text.getFont()).getHeight());
+                        assertTrue(inner.getVerticalScrollBar().isVisible());
+                        inner.getVerticalScrollBar().setValue(200);
+                        assertTrue(inner.getViewport().getViewPosition().y > 0);
+                        assertEquals(0, outer.getViewport().getViewPosition().y);
+                    } else {
+                        assertTrue(outer.getVerticalScrollBar().isVisible());
+                    }
+                }
+            }
+        });
     }
 
     private void expandTitlePreferredHeight(HttpTestSampleGui editor) {

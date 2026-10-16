@@ -86,6 +86,11 @@ public class TestHttpTestSampleGui implements JMeterSerialTest {
     @Test
     public void testRecordedResponseNavigationSelectsTheRequestedOccurrence() throws Exception {
         gui.configure(new HTTPSamplerProxy());
+        gui.selectRecordedResponseText(0, "token");
+        Assertions.assertNotEquals("Recorded Response",
+                configTabbedPane().getTitleAt(configTabbedPane().getSelectedIndex()));
+        // This navigation test supplies its response directly instead of loading a recording.
+        configTabbedPane().setEnabledAt(configTabbedPane().indexOfTab("Recorded Response"), true);
         JSyntaxTextArea response = recordedResponseData();
         response.setText("Header: token\r\n\r\nbody token");
         Assertions.assertEquals("Header: token\r\n\r\nbody token", response.getText());
@@ -180,6 +185,7 @@ public class TestHttpTestSampleGui implements JMeterSerialTest {
 
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
+        assertRecordedTabsEnabled(false);
         Assertions.assertTrue(recordedRequestData().getText().contains(
                 Path.of(tempDir.resolve("plan.jmx").toAbsolutePath().normalize() + "!/missing.har").toString()));
     }
@@ -302,24 +308,60 @@ public class TestHttpTestSampleGui implements JMeterSerialTest {
         String hint = JMeterUtils.getResString("http_sampler_recorded_replay_hint");
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Request") >= 0);
         Assertions.assertTrue(configTabbedPane().indexOfTab("Recorded Response") >= 0);
+        assertRecordedTabsEnabled(false);
+        Assertions.assertEquals(hint, configTabbedPane().getToolTipTextAt(
+                configTabbedPane().indexOfTab("Recorded Request")));
         Assertions.assertEquals(hint, recordedRequestData().getText());
         Assertions.assertEquals(hint, recordedResponseData().getText());
     }
 
     @Test
     public void testRecordedTabSelectionSurvivesSamplerSwitch() throws Exception {
-        gui.configure(new HTTPSamplerProxy());
+        Files.writeString(tempDir.resolve("selection.har"), """
+                {"log":{"entries":[{"request":{"method":"GET","url":"https://example.invalid/"},
+                "response":{"status":200,"content":{"text":"response"}}}]}}
+                """);
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProperty("BreakTest.har.entryIndex", "0");
+        ThreadGroup group = new ThreadGroup();
+        group.setProperty("BreakTest.har.filename", "selection.har");
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel model = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(model), model);
+        setTestPlanFile(tempDir.resolve("plan.jmx"));
+        var groupNode = new JMeterTreeNode(group, model);
+        ((JMeterTreeNode) model.getRoot()).add(groupNode);
+        groupNode.add(new JMeterTreeNode(sampler, model));
+        gui.configure(sampler);
         JTabbedPane tabs = configTabbedPane();
+        assertRecordedTabsEnabled(true);
 
         for (String title : new String[] {"Recorded Request", "Recorded Response"}) {
             tabs.setSelectedIndex(tabs.indexOfTab(title));
             Component selectedTab = tabs.getSelectedComponent();
 
             gui.clearGui();
-            gui.configure(new HTTPSamplerProxy());
+            gui.configure(sampler);
 
             Assertions.assertSame(selectedTab, tabs.getSelectedComponent());
             Assertions.assertEquals(title, tabs.getTitleAt(tabs.getSelectedIndex()));
+            gui.clearGui();
+            gui.configure(new HTTPSamplerProxy());
+            assertRecordedTabsEnabled(false);
+            Assertions.assertNotSame(selectedTab, tabs.getSelectedComponent());
+            gui.configure(sampler);
+            assertRecordedTabsEnabled(true);
+        }
+        group.removeProperty("BreakTest.har.filename");
+        gui.configure(sampler);
+        assertRecordedTabsEnabled(false);
+    }
+
+    private void assertRecordedTabsEnabled(boolean enabled) throws Exception {
+        for (String title : new String[]{"Recorded Request", "Recorded Response"}) {
+            int index = configTabbedPane().indexOfTab(title);
+            Assertions.assertTrue(index >= 0);
+            Assertions.assertEquals(enabled, configTabbedPane().isEnabledAt(index));
         }
     }
 

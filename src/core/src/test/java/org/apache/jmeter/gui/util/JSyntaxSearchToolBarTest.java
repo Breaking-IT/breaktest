@@ -20,9 +20,59 @@ package org.apache.jmeter.gui.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Component;
+import java.awt.Rectangle;
+
+import javax.swing.JButton;
+import javax.swing.JTextField;
+import javax.swing.JToolBar;
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+
+import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jorphan.test.JMeterSerialTest;
 import org.junit.jupiter.api.Test;
 
-class JSyntaxSearchToolBarTest {
+class JSyntaxSearchToolBarTest extends JMeterTestCase implements JMeterSerialTest {
+
+    @Test
+    void searchFieldAbsorbsResizingWithoutClippingActions() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            JSyntaxSearchToolBar search = new JSyntaxSearchToolBar(JSyntaxTextArea.getInstance(5, 30));
+            search.setDiffButtonVisible(true);
+            JToolBar toolbar = search.getToolBar();
+            // Supply the inherited font normally provided by the application window.
+            toolbar.setFont(UIManager.getFont("Label.font"));
+            toolbar.add(new JButton("Pretty Print"));
+            JTextField input = (JTextField) toolbar.getComponent(0);
+            int preferredWidth = toolbar.getPreferredSize().width;
+            int height = toolbar.getPreferredSize().height;
+            int previousInputWidth = -1;
+            int previousWidth = -1;
+            for (int width : new int[]{preferredWidth - 150, preferredWidth, preferredWidth + 250}) {
+                toolbar.setSize(width, height);
+                toolbar.doLayout();
+                Rectangle visible = new Rectangle(0, 0, width, height);
+                for (Component component : toolbar.getComponents()) {
+                    assertTrue(visible.contains(component.getBounds()),
+                            "Toolbar control must remain visible: " + component.getBounds());
+                    if (component != input) {
+                        assertEquals(component.getPreferredSize().width, component.getWidth());
+                    }
+                }
+                assertTrue(input.getWidth() > 0);
+                if (previousWidth >= 0) {
+                    assertEquals(width - previousWidth, input.getWidth() - previousInputWidth);
+                }
+                previousWidth = width;
+                previousInputWidth = input.getWidth();
+            }
+            int widthWithDiff = input.getWidth();
+            search.setDiffButtonVisible(false);
+            toolbar.doLayout();
+            assertTrue(input.getWidth() > widthWithDiff, "Hidden actions must release space to the input");
+        });
+    }
 
     @Test
     void createsLineAndCharacterHighlightsForDiff() {

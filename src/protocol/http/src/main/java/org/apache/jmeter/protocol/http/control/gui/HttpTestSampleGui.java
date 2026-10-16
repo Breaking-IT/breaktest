@@ -65,7 +65,6 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.SamplerResultTab;
-import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.util.StringUtilities;
@@ -290,20 +289,24 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     @Override
     public boolean isViewportHeightConstrained() {
-        return configTabbedPane != null
-                && configTabbedPane.getSelectedComponent() instanceof HeaderTablePanel;
+        if (configTabbedPane == null || !urlConfigGui.isModernLayout()) {
+            return false;
+        }
+        Component selected = configTabbedPane.getSelectedComponent();
+        return selected instanceof HeaderTablePanel || selected instanceof JTextScrollPane
+                || selected == recordedRequestPane || selected == recordedResponsePane;
     }
 
     @Override
     public Dimension getMinimumSize() {
         Dimension minimum = super.getMinimumSize();
         if (isViewportHeightConstrained()) {
-            Component headers = configTabbedPane.getSelectedComponent();
-            if (headers.getWidth() > 0) {
+            Component content = configTabbedPane.getSelectedComponent();
+            if (content.getWidth() > 0) {
                 // BorderLayout gives the title and URL bar their preferred heights, which
                 // can exceed their minimum heights with different fonts and look-and-feels.
                 minimum.height = Math.max(minimum.height,
-                        getHeight() - headers.getHeight() + headers.getMinimumSize().height);
+                        getHeight() - content.getHeight() + content.getMinimumSize().height);
             }
         }
         return minimum;
@@ -407,7 +410,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         contentAndSearch.add(JTextScrollPane.getInstance(textArea), BorderLayout.CENTER);
 
         JPanel panel = new JPanel(new BorderLayout(0, 5));
-        panel.add(GuiUtils.makeScrollPane(contentAndSearch));
+        panel.add(contentAndSearch, BorderLayout.CENTER);
         return panel;
     }
 
@@ -491,10 +494,26 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             if (configTabbedPane.indexOfTab(RECORDED_RESPONSE_TAB) < 0) {
                 configTabbedPane.addTab(RECORDED_RESPONSE_TAB, recordedResponsePane);
             }
+            updateRecordedTabAvailability();
             populateSelectedRecordedHarTab();
         } else {
             removeTab(RECORDED_REQUEST_TAB);
             removeTab(RECORDED_RESPONSE_TAB);
+        }
+    }
+
+    private void updateRecordedTabAvailability() {
+        boolean available = recordedHarResolution.status() == RecordedHarExchangeResolver.Status.FOUND;
+        for (Component tab : new Component[]{recordedRequestPane, recordedResponsePane}) {
+            int index = configTabbedPane.indexOfComponent(tab);
+            if (index >= 0) {
+                configTabbedPane.setEnabledAt(index, available);
+                configTabbedPane.setToolTipTextAt(index, available ? null : recordedRequestData.getText());
+            }
+        }
+        Component selected = configTabbedPane.getSelectedComponent();
+        if (!available && (selected == recordedRequestPane || selected == recordedResponsePane)) {
+            configTabbedPane.setSelectedIndex(0);
         }
     }
 
@@ -512,6 +531,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         }
         refreshRecordedData(true);
         refreshRecordedData(false);
+        updateRecordedTabAvailability();
     }
 
     private void refreshRecordedData(boolean request) {
@@ -570,6 +590,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
     /** Open a recorded response and select a literal search hit. */
     public void selectRecordedResponseText(int offset, String value) {
+        int index = configTabbedPane.indexOfComponent(recordedResponsePane);
+        if (index < 0 || !configTabbedPane.isEnabledAt(index)) {
+            return;
+        }
         configTabbedPane.setSelectedComponent(recordedResponsePane);
         populateSelectedRecordedHarTab();
         if (prettyPrintResponse.isSelected()) {
@@ -603,7 +627,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
     private void restoreSelectedConfigTab() {
         Component tab = configTabToRestore;
         configTabToRestore = null;
-        if (tab != null && configTabbedPane.indexOfComponent(tab) >= 0) {
+        if (tab != null && configTabbedPane.indexOfComponent(tab) >= 0
+                && configTabbedPane.isEnabledAt(configTabbedPane.indexOfComponent(tab))) {
             configTabbedPane.setSelectedComponent(tab);
         }
     }

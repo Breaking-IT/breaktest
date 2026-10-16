@@ -895,19 +895,20 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         @Override
         public Dimension getMinimumSize() {
             Dimension minimum = super.getMinimumSize();
-            if (headersPanel != null && getSelectedComponent() == headersPanel) {
-                // Swing reserves room for the largest hidden tab. Only the visible headers
-                // table and its action bar determine when this editor needs outer scrolling.
+            Component selected = getSelectedComponent();
+            if (selected != null && (modernLayout || selected == headersPanel)) {
+                // Hidden tabs must not force the visible content beyond the viewport.
+                // Preserve the selected tab's minimum so its controls remain reachable.
                 int largestContentHeight = 0;
                 for (int i = 0; i < getTabCount(); i++) {
                     largestContentHeight = Math.max(largestContentHeight, getComponentAt(i).getMinimumSize().height);
                 }
-                minimum.height += headersPanel.getMinimumSize().height - largestContentHeight;
-                if (headersPanel.getWidth() > 0) {
+                minimum.height += selected.getMinimumSize().height - largestContentHeight;
+                if (selected.getWidth() > 0) {
                     // The minimum-size calculation can assume fewer tab rows than the current
                     // narrow layout. Include the actual tab strip and content-border height.
                     minimum.height = Math.max(minimum.height,
-                            headersPanel.getMinimumSize().height + getHeight() - headersPanel.getHeight());
+                            selected.getMinimumSize().height + getHeight() - selected.getHeight());
                 }
             }
             return minimum;
