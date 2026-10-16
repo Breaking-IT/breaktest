@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
@@ -26,6 +27,7 @@ import java.awt.Rectangle;
 import javax.swing.JButton;
 import javax.swing.JTextField;
 import javax.swing.JToolBar;
+import javax.swing.LookAndFeel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
@@ -71,6 +73,28 @@ class JSyntaxSearchToolBarTest extends JMeterTestCase implements JMeterSerialTes
             search.setDiffButtonVisible(false);
             toolbar.doLayout();
             assertTrue(input.getWidth() > widthWithDiff, "Hidden actions must release space to the input");
+        });
+    }
+
+    @Test
+    void toolbarKeepsResizableLayoutAfterSynthUpdateUi() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            LookAndFeel previous = UIManager.getLookAndFeel();
+            try {
+                UIManager.setLookAndFeel("javax.swing.plaf.nimbus.NimbusLookAndFeel"); // $NON-NLS-1$
+                JToolBar toolbar = new JSyntaxSearchToolBar(JSyntaxTextArea.getInstance(5, 30)).getToolBar();
+                var layout = toolbar.getLayout();
+                toolbar.updateUI();
+                assertSame(layout, toolbar.getLayout());
+            } catch (ReflectiveOperationException | javax.swing.UnsupportedLookAndFeelException e) {
+                throw new IllegalStateException(e);
+            } finally {
+                try {
+                    UIManager.setLookAndFeel(previous);
+                } catch (javax.swing.UnsupportedLookAndFeelException e) {
+                    throw new IllegalStateException(e);
+                }
+            }
         });
     }
 

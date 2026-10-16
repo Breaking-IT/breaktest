@@ -77,6 +77,12 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     private static final long serialVersionUID = 240L;
 
     /**
+     * Client property for content tabs that fit the editor viewport and scroll internally.
+     * The HTTP sampler editor then avoids an outer scroll bar while such a tab is selected.
+     */
+    public static final String VIEWPORT_FIT_TAB = "BreakTest.viewportFitTab"; // $NON-NLS-1$
+
+    /**
      * Default value settings for URL Configuration GUI elements.
      */
     private static final UrlConfigDefaults URL_CONFIG_DEFAULTS = new UrlConfigDefaults();
@@ -812,6 +818,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             headersPanel = new HeaderTablePanel(false);
             headersPanel.addTableModelListener(e -> updateContentTabTitles());
             headersTabTitle = JMeterUtils.getResString("web_request_headers");
+            headersPanel.putClientProperty(VIEWPORT_FIT_TAB, true);
             postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
         }
 
@@ -836,7 +843,9 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             });
             bodyTabTitle = JMeterUtils.getResString(
                     modernLayout ? "web_request_tab_body" : "post_body");
-            postContentTabbedPane.add(bodyTabTitle, JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
+            JTextScrollPane bodyPane = JTextScrollPane.getInstance(postBodyContent);
+            bodyPane.putClientProperty(VIEWPORT_FIT_TAB, true);
+            postContentTabbedPane.add(bodyTabTitle, bodyPane);// $NON-NLS-1$
         }
 
         if(showFileUploadPane) {

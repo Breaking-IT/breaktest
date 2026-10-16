@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.util;
 
 import java.awt.Color;
+import java.awt.LayoutManager;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
@@ -93,7 +94,7 @@ public final class JSyntaxSearchToolBar implements ActionListener {
         matchCaseCB = new JCheckBox(JMeterUtils.getResString("search_text_chkbox_case"));
         JFactory.small(matchCaseCB);
 
-        this.toolBar = new JToolBar();
+        this.toolBar = new SearchToolBar();
         toolBar.setFloatable(false);
         JFactory.small(toolBar);
         // Reserve each action's natural width; only the search input absorbs resizing.
@@ -387,5 +388,19 @@ public final class JSyntaxSearchToolBar implements ActionListener {
         EQUAL,
         DELETE,
         INSERT
+    }
+
+    /** Synth look-and-feels replace the toolbar layout in updateUI; keep the resizable search row. */
+    private static final class SearchToolBar extends JToolBar {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void updateUI() {
+            LayoutManager layout = getLayout();
+            super.updateUI();
+            if (layout instanceof MigLayout) {
+                setLayout(layout);
+            }
+        }
     }
 }

@@ -27,6 +27,7 @@ import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
@@ -54,7 +55,6 @@ import org.apache.jmeter.gui.util.RecordedHarExchangeResolver;
 import org.apache.jmeter.gui.util.ResponseSelectionActions;
 import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.protocol.http.config.gui.UrlConfigGui;
-import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
@@ -69,6 +69,7 @@ import org.apache.jorphan.gui.JEditableCheckBox;
 import org.apache.jorphan.gui.JFactory;
 import org.apache.jorphan.util.StringUtilities;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.unbescape.html.HtmlEscape;
 
 import net.miginfocom.swing.MigLayout;
 
@@ -293,8 +294,8 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             return false;
         }
         Component selected = configTabbedPane.getSelectedComponent();
-        return selected instanceof HeaderTablePanel || selected instanceof JTextScrollPane
-                || selected == recordedRequestPane || selected == recordedResponsePane;
+        return selected instanceof JComponent content
+                && Boolean.TRUE.equals(content.getClientProperty(UrlConfigGui.VIEWPORT_FIT_TAB));
     }
 
     @Override
@@ -411,6 +412,7 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
 
         JPanel panel = new JPanel(new BorderLayout(0, 5));
         panel.add(contentAndSearch, BorderLayout.CENTER);
+        panel.putClientProperty(UrlConfigGui.VIEWPORT_FIT_TAB, true);
         return panel;
     }
 
@@ -508,13 +510,19 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             int index = configTabbedPane.indexOfComponent(tab);
             if (index >= 0) {
                 configTabbedPane.setEnabledAt(index, available);
-                configTabbedPane.setToolTipTextAt(index, available ? null : recordedRequestData.getText());
+                configTabbedPane.setToolTipTextAt(index, available ? null : tooltipText(recordedRequestData.getText()));
             }
         }
         Component selected = configTabbedPane.getSelectedComponent();
         if (!available && (selected == recordedRequestPane || selected == recordedResponsePane)) {
             configTabbedPane.setSelectedIndex(0);
         }
+    }
+
+    private static String tooltipText(String text) {
+        // Plain tooltips render on one line; keep path and checksum diagnostics readable.
+        return text.indexOf('\n') < 0 ? text
+                : "<html>" + HtmlEscape.escapeHtml5(text).replace("\n", "<br>") + "</html>"; // $NON-NLS-1$ //$NON-NLS-2$
     }
 
     private void populateSelectedRecordedHarTab() {
@@ -529,9 +537,9 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
             ssePanel.setEvents(recordedHarResolution.exchange().map(
                     RecordedHarExchangeResolver.RecordedExchange::serverSentEvents).orElse(java.util.List.of()));
         }
+        // Keep the tab selected even when loading fails: its body shows the full diagnostic.
         refreshRecordedData(true);
         refreshRecordedData(false);
-        updateRecordedTabAvailability();
     }
 
     private void refreshRecordedData(boolean request) {
@@ -596,6 +604,10 @@ public class HttpTestSampleGui extends AbstractSamplerGui {
         }
         configTabbedPane.setSelectedComponent(recordedResponsePane);
         populateSelectedRecordedHarTab();
+        if (recordedHarExchangeLoaded && recordedHarResolution.exchange().isEmpty()) {
+            // Loading failed; the tab now shows the diagnostic instead of the recorded response.
+            return;
+        }
         if (prettyPrintResponse.isSelected()) {
             prettyPrintResponse.setSelected(false);
             refreshRecordedData(false);
