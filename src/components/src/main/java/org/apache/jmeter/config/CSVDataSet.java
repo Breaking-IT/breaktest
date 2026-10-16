@@ -79,7 +79,7 @@ import org.slf4j.LoggerFactory;
  * threads with the same suffix.
  *
  */
-@GUIMenuSortOrder(1)
+@GUIMenuSortOrder(5)
 @TestElementMetadata(labelResource = "displayName")
 public class CSVDataSet extends ConfigTestElement
     implements TestBean, LoopIterationListener, NoConfigMerge, ValidationCheckpointParticipant {

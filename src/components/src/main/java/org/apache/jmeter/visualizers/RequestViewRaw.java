@@ -101,7 +101,7 @@ public class RequestViewRaw implements RequestView {
         requestDataAndSearchPanel.add(searchToolBar.getToolBar(), BorderLayout.NORTH);
         requestDataAndSearchPanel.add(JTextScrollPane.getInstance(requestData), BorderLayout.CENTER);
 
-        paneRaw.add(GuiUtils.makeScrollPane(requestDataAndSearchPanel));
+        paneRaw.add(requestDataAndSearchPanel, BorderLayout.CENTER);
 
     }
 

@@ -55,7 +55,7 @@ import net.miginfocom.swing.MigLayout;
 /**
  * GUI for Http Request defaults
  */
-@GUIMenuSortOrder(5)
+@GUIMenuSortOrder(1)
 @TestElementMetadata(labelResource = "url_config_title")
 public class HttpDefaultsGui extends AbstractConfigGui {
 

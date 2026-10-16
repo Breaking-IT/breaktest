@@ -367,7 +367,7 @@ public class HarImportAction extends AbstractActionWithNoRunningTest implements 
         return null;
     }
 
-    static List<TreePath> expandedPaths(JTree tree) {
+    public static List<TreePath> expandedPaths(JTree tree) {
         List<TreePath> paths = new ArrayList<>();
         Object root = tree.getModel().getRoot();
         if (root != null) {

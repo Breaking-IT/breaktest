@@ -42,11 +42,15 @@ jobs:
     needs: matrix_prep
     name: '${{ matrix.name }}'
     runs-on: ${{ matrix.os }}
+    # A hung test must fail the row instead of holding a runner for hours.
+    timeout-minutes: 30
     env:
       TZ: ${{ matrix.tz }}
       BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '27' && 'true' || 'false' }}
       # Bound project concurrency; keep the existing test forks and JUnit isolation.
       GRADLE_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
+      # JVMs for the HTTP suite, the longest test task (macOS runners have 3 vCPUs, others 4).
+      HTTP_TEST_FORKS: ${{ matrix.os == 'macos-latest' && '2' || '3' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
@@ -78,6 +82,7 @@ jobs:
         distribution: temurin
     - name: Restore documentation dependencies
       id: docs-cache
+      if: ${{ matrix.docs_cache_writer }}
       uses: actions/cache/restore@v6
       with:
         path: xdocs/node_modules
@@ -122,7 +127,7 @@ jobs:
       with:
         script: |
           console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
-          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:protocol:http:httpProxyTest :src:dist-check:batchTests :src:core:test :src:components:test :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PhttpTestForks=${{ env.HTTP_TEST_FORKS }} -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       id: build
@@ -138,10 +143,15 @@ jobs:
         # An explicit skip for Sha512 tasks is required due to https://github.com/gradle/gradle/issues/16789
         # Separate projects can overlap, including the isolated JMS/local batch groups.
         # Protocol batch tasks within src:dist-check retain serial execution.
-        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        # Gradle starts ready tasks in plan order, and project order otherwise puts the
+        # longest suite (http) behind javadoc/dist work. Name the longest tasks first, with the
+        # serial dist-check batch chain early. The HTTP tests must run after createDist
+        # (see src/protocol/http), so name it first too.
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:protocol:http:httpProxyTest :src:dist-check:batchTests :src:core:test :src:components:test :src:functions:test :src:dist-check:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
           docsDependenciesCached=${{ steps.docs-cache.outputs.cache-hit == 'true' }}
           testParallelism=2
+          httpTestForks=${{ env.HTTP_TEST_FORKS }}
           splitHttp3LiveTests=true
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
@@ -159,7 +169,7 @@ jobs:
         DEVELOCITY_ACCESS_KEY: ${{ secrets.DEVELOCITY_ACCESS_KEY }}
 
     - name: Save documentation dependencies
-      # One writer per OS avoids races; only save a fully successful installation/build.
+      # Only save a fully successful installation/build.
       if: ${{ !cancelled() && matrix.docs_cache_writer && steps.docs-cache.outputs.cache-hit != 'true' && steps.build.outcome == 'success' }}
       uses: actions/cache/save@v6
       with:
@@ -188,6 +198,7 @@ jobs:
   errorprone:
     name: 'Error Prone (JDK 21)'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
     - uses: actions/checkout@v6
     - name: 'Set up JDK 21'

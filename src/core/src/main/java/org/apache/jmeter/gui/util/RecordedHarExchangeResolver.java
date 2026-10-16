@@ -98,10 +98,15 @@ public final class RecordedHarExchangeResolver {
             "application/javascript", // $NON-NLS-1$
             "application/json", // $NON-NLS-1$
             "application/problem+json", // $NON-NLS-1$
+            "application/vnd.apple.mpegurl", // $NON-NLS-1$
+            "application/x-mpegurl", // $NON-NLS-1$
             "application/x-www-form-urlencoded", // $NON-NLS-1$
             "application/xhtml+xml", // $NON-NLS-1$
             "application/xml", // $NON-NLS-1$
-            "multipart/form-data"); // $NON-NLS-1$
+            "audio/mpegurl", // $NON-NLS-1$
+            "audio/x-mpegurl", // $NON-NLS-1$
+            "multipart/form-data", // $NON-NLS-1$
+            "video/f4m"); // $NON-NLS-1$
 
     private RecordedHarExchangeResolver() {
     }
@@ -806,12 +811,13 @@ public final class RecordedHarExchangeResolver {
         if (text == null) {
             return null;
         }
+        // HAR stores textual bodies without an encoding, so only base64 bodies need MIME checks.
+        if (!"base64".equalsIgnoreCase(content.path("encoding").asText())) { // $NON-NLS-1$ //$NON-NLS-2$
+            return text;
+        }
         String mimeType = content.path("mimeType").asText(); // $NON-NLS-1$
         if (isBinaryMimeType(mimeType)) {
             return ""; // $NON-NLS-1$
-        }
-        if (!"base64".equalsIgnoreCase(content.path("encoding").asText())) { // $NON-NLS-1$ //$NON-NLS-2$
-            return text;
         }
 
         try {

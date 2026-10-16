@@ -54,7 +54,7 @@ final class CsvFileEditor {
 
     static void checkEditableSize(long size) throws IOException {
         if (size > maxEditableBytes()) {
-            throw new IOException("CSV is too large for the built-in editor (limit "
+            throw new IOException("File is too large for the built-in editor (limit "
                     + maxEditableBytes() / (1024 * 1024)
                     + " MiB). Export it and use an external editor, then import the updated file.");
         }
@@ -107,6 +107,17 @@ final class CsvFileEditor {
 
     Path getPath() {
         return path;
+    }
+
+    Charset getCharset() {
+        return charset;
+    }
+
+    /** Same file and content, saved with another charset and without the original byte-order mark. */
+    CsvFileEditor withCharset(Charset other) {
+        CsvFileEditor copy = new CsvFileEditor(path, other, content, new byte[0]);
+        copy.newFile = newFile;
+        return copy;
     }
 
     String getContent() {

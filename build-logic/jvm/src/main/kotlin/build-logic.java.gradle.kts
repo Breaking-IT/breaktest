@@ -140,6 +140,9 @@ tasks.configureEach<Javadoc> {
         addBooleanOption("html5", true)
         links("https://docs.oracle.com/en/java/javase/21/docs/api/")
     }
+    if (buildParameters.skipJavadoc) {
+        enabled = false
+    }
 }
 
 // Add the BreakTest license, Apache-2.0 license, and notices when missing.

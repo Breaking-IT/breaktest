@@ -782,7 +782,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         contentAndSearch.add(JTextScrollPane.getInstance(textArea), BorderLayout.CENTER);
 
         JPanel panel = new JPanel(new BorderLayout(0, 5));
-        panel.add(GuiUtils.makeScrollPane(contentAndSearch));
+        panel.add(contentAndSearch, BorderLayout.CENTER);
         return panel;
     }
 
@@ -946,7 +946,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         }
 
         responseCardPanel = new JPanel(new CardLayout());
-        responseCardPanel.add(GuiUtils.makeScrollPane(responseAndSearchPanel), RAW_RESPONSE_CARD);
+        responseCardPanel.add(responseAndSearchPanel, RAW_RESPONSE_CARD);
         responseCardPanel.add(resultAndSearchPanel, RENDERED_RESPONSE_CARD);
         showRawResponseView();
 

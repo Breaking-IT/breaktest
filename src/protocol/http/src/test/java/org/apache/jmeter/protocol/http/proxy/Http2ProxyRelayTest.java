@@ -63,6 +63,8 @@ class Http2ProxyRelayTest extends JMeterTestCase {
     void browserConnectionCloseRetainsOpenSseWithoutFailure() throws Exception {
         try (ServerSocket origin = new ServerSocket(0); ServerSocket listener = new ServerSocket(0);
                 var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+            origin.setSoTimeout(5000);
+            listener.setSoTimeout(5000);
             var relay = workers.submit(() -> {
                 List<HttpProxyTransport.Capture> captures = new ArrayList<>();
                 try (Socket browser = listener.accept(); Socket server = new Socket("localhost", origin.getLocalPort())) {
@@ -70,7 +72,7 @@ class Http2ProxyRelayTest extends JMeterTestCase {
                 }
                 return captures;
             });
-            try (Socket browser = new Socket("localhost", listener.getLocalPort()); Socket server = origin.accept()) {
+            try (Socket browser = new Socket("localhost", listener.getLocalPort()); Socket server = acceptOrRelayFailure(origin, relay)) {
                 browser.setSoTimeout(5000);
                 server.setSoTimeout(5000);
                 byte[] request = concat(Http2ProxyRelay.PREFACE, frame(1, 5, 1, headers(
@@ -90,6 +92,18 @@ class Http2ProxyRelayTest extends JMeterTestCase {
                 assertEquals("", captures.get(0).transportError());
                 assertEquals(1, captures.get(0).sse.events().size());
             }
+        }
+    }
+
+    private static Socket acceptOrRelayFailure(ServerSocket origin, java.util.concurrent.Future<?> relay) throws Exception {
+        try {
+            return origin.accept();
+        } catch (java.net.SocketTimeoutException e) {
+            // Report why the relay never connected rather than only the accept timeout.
+            if (relay.isDone()) {
+                relay.get();
+            }
+            throw e;
         }
     }
 

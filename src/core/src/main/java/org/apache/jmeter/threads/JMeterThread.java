@@ -832,9 +832,8 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void cleanupFinishedFork(Future<?> task, ExecutorService executor, ForkController sourceController) {
-        forkTasks.removeIf(candidate -> candidate == task);
-        forkExecutions.removeIf(execution -> execution.task() == task);
-        forkExecutors.remove(executor);
+        // Release the running-check entry first: once the iteration boundary no longer finds this
+        // fork in forkExecutions, the next start of the same controller must not see it as running.
         if (sourceController != null) {
             synchronized (activeForkTasksByController) {
                 if (activeForkTasksByController.get(sourceController) == task) {
@@ -842,6 +841,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
         }
+        forkTasks.removeIf(candidate -> candidate == task);
+        forkExecutions.removeIf(execution -> execution.task() == task);
+        forkExecutors.remove(executor);
         executor.shutdown();
     }
 
@@ -1462,7 +1464,7 @@ public class JMeterThread implements Runnable, Interruptible {
             if (timerPause != null) {
                 for (RunningTransaction transaction = threadContext.getCurrentTransaction(); transaction != null;
                         transaction = transaction.getEnclosing()) {
-                    transaction.addTimerPause(timerPause.startTime, timerPause.endTime);
+                    transaction.addTimerPauseEndingNow(timerPause.durationMillis);
                 }
             }
             SampleResult result = null;
@@ -2219,8 +2221,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 return null;
             }
             // Timers such as the Synchronizing Timer block inside delay() and return 0, so the
-            // pause starts before the timers are evaluated, not when the sleep starts
-            long start = System.currentTimeMillis();
+            // pause starts before the timers are evaluated, not when the sleep starts.
+            // Measured on the monotonic clock: each transaction places it on its own sample clock.
+            long start = System.nanoTime();
             long totalDelay = 0;
             for (Timer timer : timers) {
                 TestBeanHelper.prepare((TestElement) timer);
@@ -2262,8 +2265,8 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                 }
             }
-            long pauseEnd = System.currentTimeMillis();
-            return pauseEnd > start ? new TimerPause(start, pauseEnd) : null;
+            long pauseMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            return pauseMillis > 0 ? new TimerPause(pauseMillis) : null;
         } finally {
             currentTimersForInterruption = null;
             synchronized (activeTimerWorkers) {
@@ -2279,7 +2282,7 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private record TimerPause(long startTime, long endTime) {
+    private record TimerPause(long durationMillis) {
     }
 
     void notifyTestListeners() {
