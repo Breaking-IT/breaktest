@@ -148,6 +148,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     private static final String[] NON_BINARY_TYPES = {
         "audio/x-mpegurl",  //$NON-NLS-1$ (HLS Media Manifest)
         "audio/mpegurl",    //$NON-NLS-1$ (HLS Media Manifest)
+        "application/vnd.apple.mpegurl", //$NON-NLS-1$ (HLS Media Manifest)
+        "application/x-mpegurl", //$NON-NLS-1$ (HLS Media Manifest)
         "video/f4m",        //$NON-NLS-1$ (Flash Media Manifest)
         "image/svg+xml"     //$NON-NLS-1$ (SVG is xml)
         };

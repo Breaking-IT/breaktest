@@ -210,6 +210,7 @@ public final class ArchiveBrowser {
         JButton cleanup = new JButton(JMeterUtils.getResString("archive_cleanup"));
         cleanup.addActionListener(event -> cleanRecordings(dialog, refresh));
         JButton orphans = new JButton(JMeterUtils.getResString("archive_remove_orphans"));
+        orphans.setToolTipText(JMeterUtils.getResString("archive_remove_orphans_help"));
         orphans.addActionListener(event -> cleanRecordings(dialog, refresh, RecordingStorageMode.ALL, true));
         JButton close = new JButton(JMeterUtils.getResString("close"));
         close.addActionListener(event -> dialog.dispose());
@@ -239,11 +240,10 @@ public final class ArchiveBrowser {
     private static void cleanRecordings(JDialog parent, Runnable refresh) {
         String title = JMeterUtils.getResString("archive_cleanup");
         JComboBox<String> mode = new JComboBox<>(new String[] {
-                JMeterUtils.getResString("archive_keep_recordings"),
                 JMeterUtils.getResString("archive_omit_static_bodies"),
                 JMeterUtils.getResString("archive_omit_statics"),
                 JMeterUtils.getResString("archive_omit_recordings")});
-        RecordingStorageMode[] modes = {RecordingStorageMode.ALL, RecordingStorageMode.OMIT_STATIC_BODIES,
+        RecordingStorageMode[] modes = {RecordingStorageMode.OMIT_STATIC_BODIES,
                 RecordingStorageMode.OMIT_STATICS, RecordingStorageMode.NONE};
         JPanel options = new JPanel(new BorderLayout(5, 5));
         options.add(mode, BorderLayout.NORTH);
@@ -252,11 +252,7 @@ public final class ArchiveBrowser {
                 JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
             return;
         }
-        RecordingStorageMode selected = modes[mode.getSelectedIndex()];
-        if (selected == RecordingStorageMode.ALL) {
-            return;
-        }
-        cleanRecordings(parent, refresh, selected, false);
+        cleanRecordings(parent, refresh, modes[mode.getSelectedIndex()], false);
     }
 
     private static void cleanRecordings(JDialog parent, Runnable refresh,

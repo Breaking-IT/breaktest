@@ -85,6 +85,28 @@ class ArchiveCleanupTest extends JMeterTestCase {
     }
 
     @Test
+    void staleReferenceToMissingExchangeRemainsAConflict() throws Exception {
+        var archive = RecordedExchangeStore.fromHar("""
+                {"log":{"entries":[{"request":{"url":"https://example.invalid/api"},
+                "response":{"content":{"text":"recorded-response"}}}]}}
+                """.getBytes(StandardCharsets.UTF_8), "test.har");
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        TestPlan stale = new TestPlan();
+        stale.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        stale.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "stale-checksum");
+        stale.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "exchange-from-older-version");
+        TestPlan current = new TestPlan();
+        current.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        current.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, archive.checksum());
+        current.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, archive.exchangeIds().get(0));
+        HashTree tree = new HashTree();
+        tree.add(stale);
+        tree.add(current);
+        assertThrows(java.io.IOException.class, () -> ArchiveCleanup.prepare(tree, RecordingStorageMode.ALL, true));
+        assertEquals("exchange-from-older-version", stale.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+    }
+
+    @Test
     void differentAvailableVersionsRemainAConflict() throws Exception {
         var archive = RecordedExchangeStore.fromHar("""
                 {"log":{"entries":[{"request":{"url":"https://example.invalid/api"},
