@@ -18,13 +18,17 @@
 package org.apache.jmeter.visualizers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.Component;
 import java.awt.Container;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 
+import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextField;
@@ -33,6 +37,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
 
 public class RequestViewRawTest {
@@ -141,6 +146,45 @@ public class RequestViewRawTest {
             assertEquals("GET " + scheme + "://example.invalid/chat HTTP/1.1\n",
                     RequestViewRaw.formatRequest(result));
         }
+    }
+
+    @Test
+    void requestActionsFollowSelectionAndClear() throws Exception {
+        HttpLikeSampleResult result = new HttpLikeSampleResult();
+        result.setURL(URI.create("https://example.invalid/").toURL());
+        SwingUtilities.invokeAndWait(() -> {
+            RequestViewRaw view = new RequestViewRaw();
+            view.init();
+            List<JButton> buttons = buttons(view.getPanel());
+            JButton replay = buttons.stream().filter(button -> button.getText().equals(
+                    JMeterUtils.getResString("view_results_request_replay"))).findFirst().orElseThrow();
+            JButton copy = buttons.stream().filter(button -> button.getText().equals(
+                    JMeterUtils.getResString("view_results_request_copy_curl"))).findFirst().orElseThrow();
+            assertFalse(replay.isEnabled());
+            assertFalse(copy.isEnabled());
+            view.setSamplerResult(result);
+            assertTrue(replay.isEnabled());
+            assertTrue(copy.isEnabled());
+            view.setSamplerResult(new SampleResult());
+            assertFalse(replay.isEnabled());
+            assertFalse(copy.isEnabled());
+            view.setSamplerResult(result);
+            view.clearData();
+            assertFalse(replay.isEnabled());
+            assertFalse(copy.isEnabled());
+        });
+    }
+
+    private static List<JButton> buttons(Container parent) {
+        List<JButton> buttons = new ArrayList<>();
+        for (var child : parent.getComponents()) {
+            if (child instanceof JButton button) {
+                buttons.add(button);
+            } else if (child instanceof Container container) {
+                buttons.addAll(buttons(container));
+            }
+        }
+        return buttons;
     }
 
     public static class HttpLikeSampleResult extends SampleResult {

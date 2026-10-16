@@ -1410,6 +1410,43 @@ public class JMeterThread implements Runnable, Interruptible {
             Function<? super Sampler, ? extends Sampler> sourceSampler,
             boolean recoverControllers) {
 
+        if (JMeterContextService.isValidationRun()) {
+            try {
+                ValidationCheckpoints.beforeSampler(testTree, current, threadContext);
+            } catch (ValidationCheckpoints.RestoreException ex) {
+                // The context may be partially restored; never execute this group further.
+                stopThread();
+                SamplePackage failedPack = configureSamplerLocked(current, sourceSampler);
+                try {
+                    SampleResult failure = new SampleResult();
+                    failure.setSampleLabel(current.getName());
+                    failure.sampleStart();
+                    failure.sampleEnd();
+                    failure.setSuccessful(false);
+                    failure.setResponseCode("VALIDATION_RESTORE_FAILED");
+                    failure.setResponseMessage(ex.getMessage());
+                    RunningTransaction transaction = threadContext.getCurrentTransaction();
+                    if (transaction != null) {
+                        failure.setParentTransaction(transaction.getRef());
+                    }
+                    for (RunningTransaction currentTransaction = transaction; currentTransaction != null;
+                            currentTransaction = currentTransaction.getEnclosing()) {
+                        currentTransaction.addSample(failure);
+                    }
+                    setLastSampleOk(threadContext.getVariables(), false);
+                    fillThreadInformation(failure, threadGroup.getNumberOfThreads(),
+                            JMeterContextService.getNumberOfThreads());
+                    setSourceTestElementPath(failure, failedPack.getSourceTestElementPath());
+                    threadContext.setPreviousResult(failure);
+                    ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), failure);
+                    List<SampleListener> listeners = failedPack.getSampleListeners();
+                    notifyListeners(listeners, failure, sampleResultMetadataRequirements(listeners), false);
+                    return failure;
+                } finally {
+                    doneLocked(failedPack, recoverControllers);
+                }
+            }
+        }
         threadContext.setCurrentSampler(current);
         // Get the sampler ready to sample
         SamplePackage pack = configureSamplerLocked(current, sourceSampler);
@@ -1471,6 +1508,9 @@ public class JMeterThread implements Runnable, Interruptible {
                     SampleIgnorePolicy.from(pack.getSampler()).apply(result);
                     // PostProcessors and the sampler policy can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
+                        if (JMeterContextService.isValidationRun()) {
+                            ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), result);
+                        }
                         List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
                         if (needsSourceTestElementPath(metadataRequirements)) {

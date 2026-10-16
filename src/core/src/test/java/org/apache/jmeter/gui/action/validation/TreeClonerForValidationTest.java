@@ -44,6 +44,68 @@ class TreeClonerForValidationTest extends JMeterTestCase {
             threadsPhase(50, 60)
             """;
 
+    public static class ValidationSampler extends org.apache.jmeter.samplers.AbstractSampler {
+        @Override
+        public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+            var result = new org.apache.jmeter.samplers.SampleResult();
+            result.setSampleLabel(getName());
+            result.setSuccessful(!getName().equals("failure"));
+            return result;
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "true, stop", "false, stop", "true, continue", "false, continue",
+            "true, stoptest", "false, stoptest", "true, stoptestnow", "false, stoptestnow",
+            "true, stopthread", "false, stopthread", "true, startnextloop", "false, startnextloop"
+    })
+    @Timeout(10)
+    void validationErrorsDoNotStopOtherGroups(boolean sequential, String policy) throws Exception {
+        TestPlan plan = new TestPlan();
+        plan.setSerialized(sequential);
+        ThreadGroup first = closedThreadGroup();
+        first.setName("first");
+        if (policy.equals("stop") || policy.equals("continue")) {
+            first.setValidationStopOnError(policy.equals("stop"));
+        } else {
+            first.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, policy);
+        }
+        ThreadGroup second = closedThreadGroup();
+        second.setName("second");
+        ListedHashTree tree = new ListedHashTree();
+        var planTree = tree.add(plan);
+        var firstTree = planTree.add(first);
+        firstTree.add(validationSampler("failure"));
+        firstTree.add(validationSampler("first-tail"));
+        planTree.add(second).add(validationSampler("second"));
+        TreeClonerForValidation cloner = new TreeClonerForValidation();
+        tree.traverse(cloner);
+        var validation = cloner.getClonedTree();
+        CollectSamplesListener listener = new CollectSamplesListener();
+        validation.add(validation.getArray()[0], listener);
+        StandardJMeterEngine engine = new StandardJMeterEngine();
+        engine.configure(validation);
+        engine.runTest();
+        engine.awaitTermination(Duration.ofSeconds(5));
+        var labels = listener.getEvents().stream().map(event -> event.getResult().getSampleLabel()).toList();
+        assertEquals(1, java.util.Collections.frequency(labels, "failure"));
+        assertEquals(1, java.util.Collections.frequency(labels, "second"));
+        assertEquals(policy.equals("continue") ? 1 : 0, java.util.Collections.frequency(labels, "first-tail"));
+        if (sequential) {
+            assertEquals("second", labels.get(labels.size() - 1));
+        }
+        if (!policy.equals("stop") && !policy.equals("continue")) {
+            assertEquals(policy, first.getPropertyAsString(AbstractThreadGroup.ON_SAMPLE_ERROR));
+        }
+    }
+
+    private static ValidationSampler validationSampler(String name) {
+        ValidationSampler sampler = new ValidationSampler();
+        sampler.setName(name);
+        return sampler;
+    }
+
     @Test
     void customClosedModelValidationCloneUsesStandardValidationSettings() {
         ThreadGroup original = closedThreadGroup();

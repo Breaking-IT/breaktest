@@ -39,6 +39,7 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.NullProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.ValidationCheckpointParticipant;
 import org.jetbrains.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ import org.xbill.DNS.Type;
  *
  * @since 2.12
  */
-public class DNSCacheManager extends ConfigTestElement implements TestIterationListener, Serializable, DnsResolver {
+public class DNSCacheManager extends ConfigTestElement implements ValidationCheckpointParticipant, TestIterationListener, Serializable, DnsResolver {
 
     private static final long serialVersionUID = 2122L;
 
@@ -124,6 +125,22 @@ public class DNSCacheManager extends ConfigTestElement implements TestIterationL
         DNSCacheManager clone = (DNSCacheManager) super.lightweightClone();
         clone.resolver = createResolver();
         return clone;
+    }
+
+    private record ValidationState(Map<String, InetAddress[]> addresses) {
+    }
+
+    @Override
+    public Object captureValidationState() {
+        Map<String, InetAddress[]> copy = new LinkedHashMap<>();
+        cache.forEach((host, addresses) -> copy.put(host, addresses.clone()));
+        return new ValidationState(copy);
+    }
+
+    @Override
+    public void restoreValidationState(Object state) {
+        cache.clear();
+        ((ValidationState) state).addresses().forEach((host, addresses) -> cache.put(host, addresses.clone()));
     }
 
     @VisibleForTesting

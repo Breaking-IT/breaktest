@@ -20,6 +20,7 @@ package org.apache.jmeter.gui.action;
 import java.awt.event.ActionEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -42,14 +43,17 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioException;
 import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.collections.HashTree;
@@ -94,6 +98,10 @@ public class Start extends AbstractAction {
         commands.add(ActionNames.ACTION_STOP);
         commands.add(ActionNames.ACTION_SHUTDOWN);
         commands.add(ActionNames.VALIDATE_TG);
+        commands.add(ActionNames.VALIDATE_ALL);
+        commands.add(ActionNames.RESUME_ALL_FAILED);
+        commands.add(ActionNames.VALIDATE_ALL_SEQUENTIALLY);
+        commands.add(ActionNames.RESUME_VALIDATION);
         commands.add(ActionNames.RUN_SCENARIO);
     }
 
@@ -133,6 +141,7 @@ public class Start extends AbstractAction {
      * Release remembered validation targets when the GUI clears or replaces its test plan.
      */
     public static void clearValidationThreadGroups() {
+        ValidationCheckpoints.clear();
         lastValidationThreadGroups = new AbstractThreadGroup[0];
         activeValidationThreadGroups = null;
     }
@@ -180,19 +189,72 @@ public class Start extends AbstractAction {
                 GuiPackage.getInstance().getMainFrame().showLocalTestStopping(false);
                 engine.askThreadsToStop();
             }
-        } else if (e.getActionCommand().equals(ActionNames.VALIDATE_TG)) {
+        } else if (e.getActionCommand().equals(ActionNames.RESUME_ALL_FAILED)) {
+            if (JMeterUtils.isTestRunning()) {
+                return;
+            }
+            GuiPackage gui = GuiPackage.getInstance();
+            gui.updateCurrentNode();
+            AbstractThreadGroup[] groups = Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
+                    .filter(ValidationCheckpoints::canResumeFailedSampler).toArray(AbstractThreadGroup[]::new);
+            if (groups.length == 0) {
+                return;
+            }
+            try {
+                List<ValidationCheckpoints.Checkpoint> checkpoints = Arrays.stream(groups)
+                        .map(ValidationCheckpoints::get).toList();
+                startEngine(groups, RunMode.VALIDATION, null, checkpoints, true);
+            } catch (IllegalStateException ex) {
+                JMeterUtils.reportErrorToUser(ex.getMessage());
+            }
+        } else if (e.getActionCommand().equals(ActionNames.RESUME_VALIDATION)) {
+            GuiPackage gui = GuiPackage.getInstance();
+            if (engine != null && engine.isActive()) {
+                JMeterUtils.reportErrorToUser("Stop the running test before resuming validation.");
+                return;
+            }
+            gui.updateCurrentNode();
+            try {
+                ValidationCheckpoints.Checkpoint checkpoint;
+                AbstractThreadGroup[] groups;
+                if (e.getSource() instanceof SampleResult result) {
+                    var target = ValidationCheckpoints.getReplayTarget(result);
+                    checkpoint = target.checkpoint();
+                    groups = new AbstractThreadGroup[]{target.group()};
+                } else {
+                    groups = findValidationThreadGroups(new JMeterTreeNode[]{gui.getCurrentNode()});
+                    checkpoint = ValidationCheckpoints.get(gui.getCurrentElement(), groups.length == 0 ? null : groups[0]);
+                    if (groups.length == 0) {
+                        // A test fragment sampler: run the group that reached it, never the whole plan.
+                        groups = new AbstractThreadGroup[]{ValidationCheckpoints.groupOf(checkpoint)};
+                    }
+                }
+                startEngine(groups, RunMode.VALIDATION, null, checkpoint);
+            } catch (IllegalStateException ex) {
+                JMeterUtils.reportErrorToUser(ex.getMessage());
+            }
+        } else if (e.getActionCommand().equals(ActionNames.VALIDATE_TG)
+                || e.getActionCommand().equals(ActionNames.VALIDATE_ALL)
+                || e.getActionCommand().equals(ActionNames.VALIDATE_ALL_SEQUENTIALLY)) {
+            boolean validateAll = !e.getActionCommand().equals(ActionNames.VALIDATE_TG);
+            if (validateAll && JMeterUtils.isTestRunning()) {
+                return;
+            }
             AbstractThreadGroup[] tg;
             boolean hasExplicitThreadGroups = e instanceof ThreadGroupsActionEvent;
-            if (hasExplicitThreadGroups) {
+            if (validateAll) {
+                tg = findAllValidationThreadGroups(GuiPackage.getInstance().getTreeModel());
+            } else if (hasExplicitThreadGroups) {
                 tg = ((ThreadGroupsActionEvent) e).getThreadGroupsToRun();
             } else {
                 tg = findValidationThreadGroups(GuiPackage.getInstance().getTreeListener().getSelectedNodes());
             }
             tg = resolveValidationThreadGroups(tg,
-                    hasExplicitThreadGroups ? new AbstractThreadGroup[0] : lastValidationThreadGroups,
+                    hasExplicitThreadGroups || validateAll ? new AbstractThreadGroup[0] : lastValidationThreadGroups,
                     GuiPackage.getInstance().getTreeModel());
             if (tg.length == 0) {
-                JMeterUtils.reportErrorToUser("Select a thread group to validate first.");
+                JMeterUtils.reportErrorToUser(validateAll ? "There are no enabled thread groups to validate."
+                        : "Select a thread group to validate first.");
                 return;
             }
             // Resolve the target before prompting to save a new plan for relative paths.
@@ -200,8 +262,51 @@ public class Start extends AbstractAction {
             if (GuiPackage.getInstance().getTestPlanFile() == null) {
                 popupShouldSave(e);
             }
-            startEngine(tg, RunMode.VALIDATION);
+            startEngine(tg, RunMode.VALIDATION, null, null, validateAll
+                    ? e.getActionCommand().equals(ActionNames.VALIDATE_ALL_SEQUENTIALLY) : null);
         }
+    }
+
+    public static boolean canResumeAllFailed() {
+        GuiPackage gui = GuiPackage.getInstance();
+        return gui != null && !JMeterUtils.isTestRunning()
+                && Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
+                        .anyMatch(ValidationCheckpoints::canResumeFailedSampler);
+    }
+
+    static AbstractThreadGroup[] findAllValidationThreadGroups(JMeterTreeModel model) {
+        List<AbstractThreadGroup> groups = new ArrayList<>();
+        JMeterTreeNode root = (JMeterTreeNode) model.getRoot();
+        for (int i = 0; i < root.getChildCount(); i++) {
+            JMeterTreeNode plan = (JMeterTreeNode) root.getChildAt(i);
+            if (!(plan.getTestElement() instanceof TestPlan) || !plan.isEnabled()) {
+                continue;
+            }
+            for (int j = 0; j < plan.getChildCount(); j++) {
+                JMeterTreeNode child = (JMeterTreeNode) plan.getChildAt(j);
+                if (child.isEnabled() && child.getTestElement() instanceof AbstractThreadGroup group) {
+                    groups.add(group);
+                } else {
+                    Collections.addAll(groups, findSectionValidationThreadGroups(child));
+                }
+            }
+        }
+        return groups.toArray(new AbstractThreadGroup[0]);
+    }
+
+    static AbstractThreadGroup[] findSectionValidationThreadGroups(JMeterTreeNode section) {
+        if (!(section.getTestElement() instanceof ThreadGroupsSection)
+                || !section.isEnabled()) {
+            return new AbstractThreadGroup[0];
+        }
+        List<AbstractThreadGroup> groups = new ArrayList<>();
+        for (int i = 0; i < section.getChildCount(); i++) {
+            JMeterTreeNode child = (JMeterTreeNode) section.getChildAt(i);
+            if (child.isEnabled() && child.getTestElement() instanceof AbstractThreadGroup group) {
+                groups.add(group);
+            }
+        }
+        return groups.toArray(new AbstractThreadGroup[0]);
     }
 
     static AbstractThreadGroup[] findValidationThreadGroups(JMeterTreeNode[] selectedNodes) {
@@ -250,6 +355,16 @@ public class Start extends AbstractAction {
      * @param scenario scenario to run instead of the enabled one, or {@code null}
      */
     private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario) {
+        startEngine(threadGroupsToRun, runMode, scenario, null);
+    }
+
+    private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario,
+            ValidationCheckpoints.Checkpoint checkpoint) {
+        startEngine(threadGroupsToRun, runMode, scenario, checkpoint == null ? null : List.of(checkpoint), null);
+    }
+
+    private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario,
+            List<ValidationCheckpoints.Checkpoint> checkpoints, Boolean sequential) {
         // Let samplers know this is a validation run so they keep response bodies they would
         // otherwise discard (set for every run, so a later normal run resets it).
         JMeterContextService.setValidationRun(runMode == RunMode.VALIDATION);
@@ -261,6 +376,9 @@ public class Start extends AbstractAction {
         if (runMode == RunMode.VALIDATION
                 && JMeterUtils.getPropDefault("testplan_validation.jump_to_visual_tree", true)) {
             resultsTree = findValidationResultsTree(gui.getTreeModel(), threadGroupsToRun);
+        }
+        if (runMode == RunMode.VALIDATION && checkpoints == null) {
+            ValidationCheckpoints.clear();
         }
         HashTree testTree = gui.getTreeModel().getTestPlan();
 
@@ -297,6 +415,14 @@ public class Start extends AbstractAction {
         }
 
         ListedHashTree clonedTree = cloneTree(treeToUse, runMode);
+        if (sequential != null) {
+            ((TestPlan) clonedTree.getArray()[0]).setSerialized(sequential);
+        }
+        if (checkpoints != null) {
+            ValidationCheckpoints.prepareResume(clonedTree, checkpoints);
+        } else if (runMode == RunMode.VALIDATION) {
+            ValidationCheckpoints.rememberStructure(clonedTree);
+        }
         if ( popupCheckExistingFileListener(clonedTree) ) {
             engine = new StandardJMeterEngine();
             engine.configure(clonedTree);

@@ -1586,6 +1586,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
         JPopupMenu popup = new JPopupMenu();
         popup.add(jumpTo);
+        popup.add(ValidationReplayMenu.createMenuItem(sampleResult));
         popup.addSeparator();
         popup.add(storeReplay);
         popup.show(jTree, event.getX(), event.getY());
