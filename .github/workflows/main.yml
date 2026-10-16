@@ -47,6 +47,8 @@ jobs:
       BREAKTEST_HTTP3_LIVE: ${{ matrix.java_version == '27' && 'true' || 'false' }}
       # Bound project concurrency; keep the existing test forks and JUnit isolation.
       GRADLE_WORKERS: ${{ matrix.os == 'macos-latest' && '3' || '4' }}
+      # JVMs for the HTTP suite, the longest test task (macOS runners have 3 vCPUs, others 4).
+      HTTP_TEST_FORKS: ${{ matrix.os == 'macos-latest' && '2' || '3' }}
     strategy:
       matrix: ${{fromJson(needs.matrix_prep.outputs.matrix)}}
       fail-fast: false
@@ -123,7 +125,7 @@ jobs:
       with:
         script: |
           console.log('Launch Gradle with Temurin 21; also install test JDK ${{ matrix.java_version }}, ${{ matrix.java_distribution }}')
-          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:protocol:http:test :src:core:test :src:components:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
+          console.log('TZ="${{ matrix.tz }}" ./gradlew --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:protocol:http:httpProxyTest :src:core:test :src:components:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }} -PtestParallelism=2 -PhttpTestForks=${{ env.HTTP_TEST_FORKS }} -PsplitHttp3LiveTests=true -PjdkBuildVersion=21 -PjdkBuildVendor=eclipse -PjdkTestVersion=${{ matrix.java_version }} -PjdkTestVendor=${{ matrix.java_vendor }} -PtestExtraJvmArgs="${{ matrix.testExtraJvmArgs }}" -PtestDisableCaching="${{ matrix.testDisableCaching }}"')
     - uses: burrunan/gradle-cache-action@v3
       name: Test
       id: build
@@ -141,10 +143,12 @@ jobs:
         # Protocol batch tasks within src:dist-check retain serial execution.
         # Gradle starts ready tasks in plan order, and project order otherwise puts the
         # longest suite (http) behind javadoc/dist work; name the longest suites first.
-        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:protocol:http:test :src:core:test :src:components:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
+        # The HTTP tests must run after createDist (see src/protocol/http), so name it first too.
+        arguments: --scan --parallel --max-workers=${{ env.GRADLE_WORKERS }} --profile --no-daemon --continue :src:dist:createDist :src:protocol:http:test :src:protocol:http:httpProxyTest :src:core:test :src:components:test build -x distTar -x distTarSource -x distTarSha512 -x distTarSourceSha512 ${{ matrix.extraGradleArgs }}
         properties: |
           docsDependenciesCached=${{ steps.docs-cache.outputs.cache-hit == 'true' }}
           testParallelism=2
+          httpTestForks=${{ env.HTTP_TEST_FORKS }}
           splitHttp3LiveTests=true
           testExtraJvmArgs=${{ matrix.testExtraJvmArgs }}
           testDisableCaching=${{ matrix.testDisableCaching }}
