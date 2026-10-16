@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
 import java.nio.charset.Charset;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Locale;
@@ -89,6 +90,23 @@ public abstract class JMeterTestCase {
             }
         } else {
             filePrefix = JMeterTestUtils.setupJMeterHome();
+        }
+        isolateRecorderKeystore();
+    }
+
+    /**
+     * Each Gradle test JVM gets its own recorder CA keystore, so forked test JVMs do not run
+     * keytool on the same {@code bin/proxyserver.jks}, and tests do not write into {@code bin/}.
+     */
+    private static void isolateRecorderKeystore() {
+        String worker = System.getProperty("org.gradle.test.worker");
+        if (worker != null && JMeterUtils.getJMeterProperties() != null
+                && JMeterUtils.getProperty("proxy.cert.directory") == null) {
+            File directory = Path.of("build", "tmp", "proxy-cert", "worker-" + worker).toAbsolutePath().toFile();
+            if (!directory.isDirectory() && !directory.mkdirs()) {
+                throw new IllegalStateException("Unable to create " + directory);
+            }
+            JMeterUtils.setProperty("proxy.cert.directory", directory.getPath());
         }
     }
 

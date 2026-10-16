@@ -106,6 +106,15 @@ if (include.length === 0) {
   throw new Error('Matrix list is empty');
 }
 include.sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+const staticCheckSkipArgs = [
+  '-PskipJavadoc=true',
+  '-PskipCheckstyle=true',
+  '-x autostyleCheck',
+  '-x distZip',
+  '-x distZipSource',
+  '-x distZipSha512',
+  '-x distZipSourceSha512',
+];
 include.forEach(v => {
   // Keep compilation inputs stable; vary locale only in test processes.
   let gradleArgs = [
@@ -113,6 +122,9 @@ include.forEach(v => {
     '-Duser.language=en',
     `-PtestCountry=${v.locale.country}`,
     `-PtestLanguage=${v.locale.language}`,
+    // Javadoc, style checks, and zip archives do not depend on the runtime axes;
+    // the fixed Linux row below runs them once per workflow.
+    ...staticCheckSkipArgs,
   ];
   v.extraGradleArgs = gradleArgs.join(' ');
 });
@@ -151,6 +163,7 @@ include.forEach(v => {
 
 // Keep the Linux baseline outside the random job budget so it is always present
 // without displacing the existing Windows/macOS and Java-version guarantees.
+// It also runs the static checks and distribution archives the other rows skip.
 include.push({
   name: '27, temurin, ubuntu, UTC, en_US, Xvfb',
   os: 'ubuntu-24.04',
@@ -164,11 +177,9 @@ include.push({
   testDisableCaching: '',
 });
 
-// Static documentation dependencies need one shared snapshot per OS, not per row/attempt.
-const docsCacheWriters = new Set();
+// Only the Linux row builds the documentation site; it is the sole docs cache user.
 include.forEach(row => {
-  row.docs_cache_writer = !docsCacheWriters.has(row.os);
-  docsCacheWriters.add(row.os);
+  row.docs_cache_writer = row.os.startsWith('ubuntu');
 });
 
 console.log(include);

@@ -832,9 +832,8 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void cleanupFinishedFork(Future<?> task, ExecutorService executor, ForkController sourceController) {
-        forkTasks.removeIf(candidate -> candidate == task);
-        forkExecutions.removeIf(execution -> execution.task() == task);
-        forkExecutors.remove(executor);
+        // Release the running-check entry first: once the iteration boundary no longer finds this
+        // fork in forkExecutions, the next start of the same controller must not see it as running.
         if (sourceController != null) {
             synchronized (activeForkTasksByController) {
                 if (activeForkTasksByController.get(sourceController) == task) {
@@ -842,6 +841,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
         }
+        forkTasks.removeIf(candidate -> candidate == task);
+        forkExecutions.removeIf(execution -> execution.task() == task);
+        forkExecutors.remove(executor);
         executor.shutdown();
     }
 
